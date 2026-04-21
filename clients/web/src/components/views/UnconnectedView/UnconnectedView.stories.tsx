@@ -50,6 +50,38 @@ function makeServerCallbacks(): Pick<
   };
 }
 
+function makeStdioServer(
+  name: string,
+  version: string,
+  command: string,
+): ServerCardProps {
+  return {
+    name,
+    config: { command },
+    info: { name, version },
+    connection: { status: "disconnected" },
+    connectionMode: "Via Proxy",
+    canTestClientFeatures: false,
+    ...makeServerCallbacks(),
+  };
+}
+
+function makeHttpServer(
+  name: string,
+  version: string,
+  url: string,
+): ServerCardProps {
+  return {
+    name,
+    config: { type: "streamable-http", url },
+    info: { name, version },
+    connection: { status: "disconnected" },
+    connectionMode: "Direct",
+    canTestClientFeatures: false,
+    ...makeServerCallbacks(),
+  };
+}
+
 export const Empty: Story = {
   args: {
     children: (
@@ -68,37 +100,21 @@ export const WithServers: Story = {
     children: (
       <ServerListScreen
         servers={[
-          {
-            name: "everything-server",
-            version: "1.0.0",
-            transport: "stdio",
-            connectionMode: "Via Proxy",
-            command: "npx -y @modelcontextprotocol/server-everything",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
-          {
-            name: "filesystem-server",
-            version: "0.6.2",
-            transport: "stdio",
-            connectionMode: "Via Proxy",
-            command:
-              "npx -y @modelcontextprotocol/server-filesystem /home/user",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
-          {
-            name: "remote-server",
-            version: "2.1.0",
-            transport: "streamable-http",
-            connectionMode: "Direct",
-            command: "https://api.example.com/mcp",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
+          makeStdioServer(
+            "everything-server",
+            "1.0.0",
+            "npx -y @modelcontextprotocol/server-everything",
+          ),
+          makeStdioServer(
+            "filesystem-server",
+            "0.6.2",
+            "npx -y @modelcontextprotocol/server-filesystem /home/user",
+          ),
+          makeHttpServer(
+            "remote-server",
+            "2.1.0",
+            "https://api.example.com/mcp",
+          ),
         ]}
         onAddManually={fn()}
         onImportConfig={fn()}
@@ -117,16 +133,11 @@ function SettingsModalStory() {
     <UnconnectedView onToggleTheme={fn()}>
       <ServerListScreen
         servers={[
-          {
-            name: "everything-server",
-            version: "1.0.0",
-            transport: "stdio",
-            connectionMode: "Via Proxy",
-            command: "npx -y @modelcontextprotocol/server-everything",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
+          makeStdioServer(
+            "everything-server",
+            "1.0.0",
+            "npx -y @modelcontextprotocol/server-everything",
+          ),
         ]}
         onAddManually={fn()}
         onImportConfig={fn()}
@@ -158,17 +169,19 @@ function SettingsModalStory() {
         styles={{ title: { flex: 1 } }}
       >
         <ServerSettingsForm
-          connectionMode="proxy"
-          headers={[
-            { key: "Authorization", value: "Bearer token-abc-123" },
-            { key: "X-Request-Id", value: "req-456" },
-          ]}
-          metadata={[{ key: "userId", value: "user-789" }]}
-          connectionTimeout={30000}
-          requestTimeout={60000}
-          oauthClientId="my-client-id"
-          oauthClientSecret="super-secret-value"
-          oauthScopes="read write"
+          settings={{
+            connectionMode: "proxy",
+            headers: [
+              { key: "Authorization", value: "Bearer token-abc-123" },
+              { key: "X-Request-Id", value: "req-456" },
+            ],
+            metadata: [{ key: "userId", value: "user-789" }],
+            connectionTimeout: 30000,
+            requestTimeout: 60000,
+            oauthClientId: "my-client-id",
+            oauthClientSecret: "super-secret-value",
+            oauthScopes: "read write",
+          }}
           expandedSections={expandedSections}
           onExpandedSectionsChange={setExpandedSections}
           onConnectionModeChange={fn()}
@@ -195,127 +208,66 @@ export const ManyServers: Story = {
     children: (
       <ServerListScreen
         servers={[
-          {
-            name: "everything-server",
-            version: "1.0.0",
-            transport: "stdio",
-            connectionMode: "Via Proxy",
-            command: "npx -y @modelcontextprotocol/server-everything",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
-          {
-            name: "filesystem-server",
-            version: "0.6.2",
-            transport: "stdio",
-            connectionMode: "Via Proxy",
-            command:
-              "npx -y @modelcontextprotocol/server-filesystem /home/user",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
-          {
-            name: "remote-api-server",
-            version: "2.1.0",
-            transport: "streamable-http",
-            connectionMode: "Direct",
-            command: "https://api.example.com/mcp",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
-          {
-            name: "postgres-server",
-            version: "1.3.0",
-            transport: "stdio",
-            connectionMode: "Via Proxy",
-            command: "npx -y @modelcontextprotocol/server-postgres",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
-          {
-            name: "github-server",
-            version: "0.9.1",
-            transport: "stdio",
-            connectionMode: "Via Proxy",
-            command: "npx -y @modelcontextprotocol/server-github",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
-          {
-            name: "slack-server",
-            version: "1.1.0",
-            transport: "streamable-http",
-            connectionMode: "Direct",
-            command: "https://slack-mcp.example.com/mcp",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
-          {
-            name: "memory-server",
-            version: "0.2.0",
-            transport: "stdio",
-            connectionMode: "Via Proxy",
-            command: "npx -y @modelcontextprotocol/server-memory",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
-          {
-            name: "puppeteer-server",
-            version: "1.0.3",
-            transport: "stdio",
-            connectionMode: "Via Proxy",
-            command: "npx -y @modelcontextprotocol/server-puppeteer",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
-          {
-            name: "sqlite-server",
-            version: "0.5.1",
-            transport: "stdio",
-            connectionMode: "Via Proxy",
-            command: "npx -y @modelcontextprotocol/server-sqlite ./data.db",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
-          {
-            name: "brave-search-server",
-            version: "1.2.0",
-            transport: "stdio",
-            connectionMode: "Via Proxy",
-            command: "npx -y @modelcontextprotocol/server-brave-search",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
-          {
-            name: "google-maps-server",
-            version: "0.8.0",
-            transport: "streamable-http",
-            connectionMode: "Direct",
-            command: "https://maps-mcp.example.com/mcp",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
-          {
-            name: "sequential-thinking-server",
-            version: "1.4.2",
-            transport: "stdio",
-            connectionMode: "Via Proxy",
-            command: "npx -y @modelcontextprotocol/server-sequential-thinking",
-            status: "disconnected",
-            canTestClientFeatures: false,
-            ...makeServerCallbacks(),
-          },
+          makeStdioServer(
+            "everything-server",
+            "1.0.0",
+            "npx -y @modelcontextprotocol/server-everything",
+          ),
+          makeStdioServer(
+            "filesystem-server",
+            "0.6.2",
+            "npx -y @modelcontextprotocol/server-filesystem /home/user",
+          ),
+          makeHttpServer(
+            "remote-api-server",
+            "2.1.0",
+            "https://api.example.com/mcp",
+          ),
+          makeStdioServer(
+            "postgres-server",
+            "1.3.0",
+            "npx -y @modelcontextprotocol/server-postgres",
+          ),
+          makeStdioServer(
+            "github-server",
+            "0.9.1",
+            "npx -y @modelcontextprotocol/server-github",
+          ),
+          makeHttpServer(
+            "slack-server",
+            "1.1.0",
+            "https://slack-mcp.example.com/mcp",
+          ),
+          makeStdioServer(
+            "memory-server",
+            "0.2.0",
+            "npx -y @modelcontextprotocol/server-memory",
+          ),
+          makeStdioServer(
+            "puppeteer-server",
+            "1.0.3",
+            "npx -y @modelcontextprotocol/server-puppeteer",
+          ),
+          makeStdioServer(
+            "sqlite-server",
+            "0.5.1",
+            "npx -y @modelcontextprotocol/server-sqlite ./data.db",
+          ),
+          makeStdioServer(
+            "brave-search-server",
+            "1.2.0",
+            "npx -y @modelcontextprotocol/server-brave-search",
+          ),
+          makeHttpServer(
+            "google-maps-server",
+            "0.8.0",
+            "https://maps-mcp.example.com/mcp",
+          ),
+          makeStdioServer(
+            "sequential-thinking-server",
+            "1.4.2",
+            "npx -y @modelcontextprotocol/server-sequential-thinking",
+          ),
         ]}
         onAddManually={fn()}
         onImportConfig={fn()}

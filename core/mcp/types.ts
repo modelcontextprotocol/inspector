@@ -174,6 +174,22 @@ export interface InspectorResourceSubscription {
 }
 
 /**
+ * Runtime settings for a configured server. A subset of
+ * InspectorClientOptions (v1.5) relevant to the settings form:
+ * connection mode, headers, metadata, timeouts, and OAuth credentials.
+ */
+export interface InspectorServerSettings {
+  connectionMode: "proxy" | "direct";
+  headers: { key: string; value: string }[];
+  metadata: { key: string; value: string }[];
+  connectionTimeout: number;
+  requestTimeout: number;
+  oauthClientId?: string;
+  oauthClientSecret?: string;
+  oauthScopes?: string;
+}
+
+/**
  * Draft state for importing a server from registry JSON. Owned by the
  * ImportServerJsonPanel wiring layer. `parsed` is typed `unknown` until the
  * registry schema type is added in a follow-up.

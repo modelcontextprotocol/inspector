@@ -1,6 +1,15 @@
+import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import { ServerSettingsForm } from "./ServerSettingsForm";
+
+const defaultSettings: InspectorServerSettings = {
+  connectionMode: "proxy",
+  headers: [],
+  metadata: [],
+  connectionTimeout: 30000,
+  requestTimeout: 60000,
+};
 
 const meta: Meta<typeof ServerSettingsForm> = {
   title: "Groups/ServerSettingsForm",
@@ -25,55 +34,51 @@ type Story = StoryObj<typeof ServerSettingsForm>;
 
 export const DefaultSettings: Story = {
   args: {
-    connectionMode: "proxy",
-    headers: [],
-    metadata: [],
-    connectionTimeout: 30000,
-    requestTimeout: 60000,
+    settings: defaultSettings,
   },
 };
 
 export const WithHeaders: Story = {
   args: {
-    connectionMode: "proxy",
-    headers: [
-      { key: "Authorization", value: "Bearer token-abc-123" },
-      { key: "X-Custom-Header", value: "custom-value" },
-    ],
-    metadata: [],
-    connectionTimeout: 30000,
-    requestTimeout: 60000,
+    settings: {
+      ...defaultSettings,
+      headers: [
+        { key: "Authorization", value: "Bearer token-abc-123" },
+        { key: "X-Custom-Header", value: "custom-value" },
+      ],
+    },
   },
 };
 
 export const WithOAuth: Story = {
   args: {
-    connectionMode: "direct",
-    headers: [],
-    metadata: [],
-    connectionTimeout: 30000,
-    requestTimeout: 60000,
-    oauthClientId: "my-client-id",
-    oauthClientSecret: "super-secret-value",
-    oauthScopes: "read write admin",
+    settings: {
+      ...defaultSettings,
+      connectionMode: "direct",
+      oauthClientId: "my-client-id",
+      oauthClientSecret: "super-secret-value",
+      oauthScopes: "read write admin",
+    },
   },
 };
 
 export const AllConfigured: Story = {
   args: {
-    connectionMode: "proxy",
-    headers: [
-      { key: "Authorization", value: "Bearer token-abc-123" },
-      { key: "X-Request-Id", value: "req-456" },
-    ],
-    metadata: [
-      { key: "userId", value: "user-789" },
-      { key: "sessionId", value: "session-012" },
-    ],
-    connectionTimeout: 15000,
-    requestTimeout: 45000,
-    oauthClientId: "my-client-id",
-    oauthClientSecret: "super-secret-value",
-    oauthScopes: "read write",
+    settings: {
+      connectionMode: "proxy",
+      headers: [
+        { key: "Authorization", value: "Bearer token-abc-123" },
+        { key: "X-Request-Id", value: "req-456" },
+      ],
+      metadata: [
+        { key: "userId", value: "user-789" },
+        { key: "sessionId", value: "session-012" },
+      ],
+      connectionTimeout: 15000,
+      requestTimeout: 45000,
+      oauthClientId: "my-client-id",
+      oauthClientSecret: "super-secret-value",
+      oauthScopes: "read write",
+    },
   },
 };

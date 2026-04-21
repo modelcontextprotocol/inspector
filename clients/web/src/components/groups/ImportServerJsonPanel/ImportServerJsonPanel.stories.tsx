@@ -1,6 +1,12 @@
+import type { InspectorServerJsonDraft } from "@inspector/core/mcp/types.js";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import { ImportServerJsonPanel } from "./ImportServerJsonPanel";
+
+const emptyDraft: InspectorServerJsonDraft = {
+  rawText: "",
+  envOverrides: {},
+};
 
 const meta: Meta<typeof ImportServerJsonPanel> = {
   title: "Groups/ImportServerJsonPanel",
@@ -13,10 +19,8 @@ const meta: Meta<typeof ImportServerJsonPanel> = {
     onServerNameChange: fn(),
     onAddServer: fn(),
     onCancel: fn(),
-    selectedPackageIndex: 0,
     envVars: [],
-    serverName: "",
-    validationResults: [],
+    validation: [],
   },
 };
 
@@ -25,28 +29,31 @@ type Story = StoryObj<typeof ImportServerJsonPanel>;
 
 export const Empty: Story = {
   args: {
-    jsonContent: "",
+    draft: emptyDraft,
   },
 };
 
 export const ValidJson: Story = {
   args: {
-    jsonContent: JSON.stringify(
-      {
-        name: "my-mcp-server",
-        version: "1.0.0",
-        packages: [
-          {
-            registryType: "npm",
-            identifier: "my-mcp-server",
-            runtimeHint: "node",
-          },
-        ],
-      },
-      null,
-      2,
-    ),
-    validationResults: [
+    draft: {
+      rawText: JSON.stringify(
+        {
+          name: "my-mcp-server",
+          version: "1.0.0",
+          packages: [
+            {
+              registryType: "npm",
+              identifier: "my-mcp-server",
+              runtimeHint: "node",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+      envOverrides: {},
+    },
+    validation: [
       { type: "success", message: "Valid server.json format detected" },
       { type: "success", message: "Package configuration is valid" },
       { type: "info", message: "1 package found" },
@@ -56,31 +63,38 @@ export const ValidJson: Story = {
 
 export const MultiplePackages: Story = {
   args: {
-    jsonContent: JSON.stringify(
-      {
-        name: "multi-server",
-        packages: [
-          {
-            registryType: "npm",
-            identifier: "@scope/server",
-            runtimeHint: "node",
-          },
-          {
-            registryType: "pip",
-            identifier: "server-python",
-            runtimeHint: "python3",
-          },
-        ],
-      },
-      null,
-      2,
-    ),
-    validationResults: [
+    draft: {
+      rawText: JSON.stringify(
+        {
+          name: "multi-server",
+          packages: [
+            {
+              registryType: "npm",
+              identifier: "@scope/server",
+              runtimeHint: "node",
+            },
+            {
+              registryType: "pip",
+              identifier: "server-python",
+              runtimeHint: "python3",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+      envOverrides: {},
+    },
+    validation: [
       { type: "success", message: "Valid server.json format detected" },
       { type: "info", message: "2 packages found - select one to install" },
     ],
     packages: [
-      { registryType: "npm", identifier: "@scope/server", runtimeHint: "node" },
+      {
+        registryType: "npm",
+        identifier: "@scope/server",
+        runtimeHint: "node",
+      },
       {
         registryType: "pip",
         identifier: "server-python",
@@ -92,25 +106,28 @@ export const MultiplePackages: Story = {
 
 export const WithEnvVars: Story = {
   args: {
-    jsonContent: JSON.stringify(
-      {
-        name: "api-server",
-        packages: [
-          {
-            registryType: "npm",
-            identifier: "api-server",
-            runtimeHint: "node",
-          },
-        ],
-        envVars: [
-          { name: "API_KEY", required: true },
-          { name: "API_URL", required: false },
-        ],
-      },
-      null,
-      2,
-    ),
-    validationResults: [
+    draft: {
+      rawText: JSON.stringify(
+        {
+          name: "api-server",
+          packages: [
+            {
+              registryType: "npm",
+              identifier: "api-server",
+              runtimeHint: "node",
+            },
+          ],
+          envVars: [
+            { name: "API_KEY", required: true },
+            { name: "API_URL", required: false },
+          ],
+        },
+        null,
+        2,
+      ),
+      envOverrides: {},
+    },
+    validation: [
       { type: "success", message: "Valid server.json format detected" },
       {
         type: "warning",
@@ -136,31 +153,36 @@ export const WithEnvVars: Story = {
 
 export const FullyConfigured: Story = {
   args: {
-    jsonContent: JSON.stringify(
-      {
-        name: "full-server",
-        version: "2.1.0",
-        packages: [
-          {
-            registryType: "npm",
-            identifier: "@org/full-server",
-            runtimeHint: "node",
-          },
-          {
-            registryType: "docker",
-            identifier: "org/full-server:latest",
-            runtimeHint: "docker",
-          },
-        ],
-        envVars: [
-          { name: "TOKEN", required: true },
-          { name: "DEBUG", required: false },
-        ],
-      },
-      null,
-      2,
-    ),
-    validationResults: [
+    draft: {
+      rawText: JSON.stringify(
+        {
+          name: "full-server",
+          version: "2.1.0",
+          packages: [
+            {
+              registryType: "npm",
+              identifier: "@org/full-server",
+              runtimeHint: "node",
+            },
+            {
+              registryType: "docker",
+              identifier: "org/full-server:latest",
+              runtimeHint: "docker",
+            },
+          ],
+          envVars: [
+            { name: "TOKEN", required: true },
+            { name: "DEBUG", required: false },
+          ],
+        },
+        null,
+        2,
+      ),
+      selectedPackageIndex: 1,
+      envOverrides: { TOKEN: "sk-abc123", DEBUG: "true" },
+      nameOverride: "My Custom Server",
+    },
+    validation: [
       { type: "success", message: "Valid server.json format detected" },
       { type: "success", message: "All required fields present" },
       { type: "info", message: "2 packages found" },
@@ -181,7 +203,6 @@ export const FullyConfigured: Story = {
         runtimeHint: "docker",
       },
     ],
-    selectedPackageIndex: 1,
     envVars: [
       {
         name: "TOKEN",
@@ -196,6 +217,5 @@ export const FullyConfigured: Story = {
         value: "true",
       },
     ],
-    serverName: "My Custom Server",
   },
 };

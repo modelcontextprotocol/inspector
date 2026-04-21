@@ -46,48 +46,56 @@ function makeServerCallbacks(): Pick<
 
 const connectedStdioServer: ServerCardProps = {
   name: "Local Dev Server",
-  version: "1.2.0",
-  transport: "stdio",
+  config: {
+    command: "npx @modelcontextprotocol/server-filesystem /home/user/projects",
+  },
+  info: { name: "Local Dev Server", version: "1.2.0" },
+  connection: { status: "connected" },
   connectionMode: "Direct",
-  command: "npx @modelcontextprotocol/server-filesystem /home/user/projects",
-  status: "connected",
   canTestClientFeatures: true,
   ...makeServerCallbacks(),
 };
 
 const disconnectedStdioServer: ServerCardProps = {
   name: "Database Tools",
-  version: "0.9.1",
-  transport: "stdio",
+  config: {
+    command: "python -m mcp_server_sqlite --db-path ./data.db",
+  },
+  info: { name: "Database Tools", version: "0.9.1" },
+  connection: { status: "disconnected" },
   connectionMode: "Direct",
-  command: "python -m mcp_server_sqlite --db-path ./data.db",
-  status: "disconnected",
   canTestClientFeatures: false,
   ...makeServerCallbacks(),
 };
 
 const failedHttpServer: ServerCardProps = {
   name: "Remote API Server",
-  version: "2.0.0",
-  transport: "streamable-http",
-  connectionMode: "Streamable HTTP",
-  command: "https://api.example.com/mcp",
-  status: "error",
-  retryCount: 3,
-  error: {
-    message: "Connection refused",
-    details: "ECONNREFUSED 127.0.0.1:8080 - The server may not be running.",
+  config: {
+    type: "streamable-http",
+    url: "https://api.example.com/mcp",
   },
+  info: { name: "Remote API Server", version: "2.0.0" },
+  connection: {
+    status: "error",
+    retryCount: 3,
+    error: {
+      message: "Connection refused",
+      details: "ECONNREFUSED 127.0.0.1:8080 - The server may not be running.",
+    },
+  },
+  connectionMode: "Streamable HTTP",
   canTestClientFeatures: false,
   ...makeServerCallbacks(),
 };
 
 const connectingHttpServer: ServerCardProps = {
   name: "Staging Server",
-  transport: "streamable-http",
+  config: {
+    type: "streamable-http",
+    url: "https://staging.example.com/mcp",
+  },
+  connection: { status: "connecting" },
   connectionMode: "Streamable HTTP",
-  command: "https://staging.example.com/mcp",
-  status: "connecting",
   canTestClientFeatures: false,
   ...makeServerCallbacks(),
 };

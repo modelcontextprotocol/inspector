@@ -150,7 +150,7 @@ const meta: Meta<typeof ConnectedView> = {
   component: ConnectedView,
   parameters: { layout: "fullscreen" },
   args: {
-    serverName: "my-mcp-server",
+    serverInfo: { name: "my-mcp-server", version: "1.0.0" },
     status: "connected",
     latencyMs: 23,
     availableTabs: allTabs,
@@ -705,7 +705,10 @@ export const LimitedTabs: Story = {
 
 export const LongServerName: Story = {
   args: {
-    serverName: "my-very-long-server-name-that-might-overflow-is",
+    serverInfo: {
+      name: "my-very-long-server-name-that-might-overflow-is",
+      version: "1.0.0",
+    },
     children: <Text>Tools screen content</Text>,
   },
 };

@@ -7,20 +7,27 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import type {
+  ClientCapabilities,
+  InitializeResult,
+} from "@modelcontextprotocol/sdk/types.js";
+import type { ServerType } from "@inspector/core/mcp/types.js";
 import {
   CapabilityItem,
-  type CapabilityItemProps,
+  type CapabilityKey,
 } from "../../elements/CapabilityItem/CapabilityItem";
 
+export interface OAuthDetails {
+  authUrl?: string;
+  scopes?: string[];
+  accessToken?: string;
+}
+
 export interface ServerInfoContentProps {
-  name: string;
-  version: string;
-  protocolVersion: string;
-  transport: string;
-  serverCapabilities: CapabilityItemProps[];
-  clientCapabilities: CapabilityItemProps[];
-  instructions?: string;
-  oauthDetails?: { authUrl?: string; scopes?: string[]; accessToken?: string };
+  initializeResult: InitializeResult;
+  clientCapabilities: ClientCapabilities;
+  transport: ServerType;
+  oauth?: OAuthDetails;
 }
 
 const ValueText = Text.withProps({
@@ -32,26 +39,37 @@ function formatScopes(scopes: string[]): string {
   return scopes.join(", ");
 }
 
+function getCapabilityEntries(
+  capabilities: Record<string, unknown>,
+): { capability: CapabilityKey; supported: boolean }[] {
+  return Object.entries(capabilities).map(([key, value]) => ({
+    capability: key as CapabilityKey,
+    supported: value != null,
+  }));
+}
+
 export function ServerInfoContent({
-  name,
-  version,
-  protocolVersion,
-  transport,
-  serverCapabilities,
+  initializeResult,
   clientCapabilities,
-  instructions,
-  oauthDetails,
+  transport,
+  oauth,
 }: ServerInfoContentProps) {
+  const { serverInfo, protocolVersion, capabilities, instructions } =
+    initializeResult;
+
+  const serverCaps = getCapabilityEntries(capabilities);
+  const clientCaps = getCapabilityEntries(clientCapabilities);
+
   return (
     <Stack gap="md">
       <Title order={3}>Server Information</Title>
 
       <SimpleGrid cols={2}>
         <Text size="sm">Name</Text>
-        <ValueText>{name}</ValueText>
+        <ValueText>{serverInfo.name}</ValueText>
 
         <Text size="sm">Version</Text>
-        <ValueText>{version}</ValueText>
+        <ValueText>{serverInfo.version}</ValueText>
 
         <Text size="sm">Protocol</Text>
         <ValueText>{protocolVersion}</ValueText>
@@ -63,23 +81,21 @@ export function ServerInfoContent({
       <SimpleGrid cols={2}>
         <Stack gap="xs">
           <Title order={5}>Server Capabilities</Title>
-          {serverCapabilities.map((cap) => (
+          {serverCaps.map((cap) => (
             <CapabilityItem
               key={cap.capability}
               capability={cap.capability}
               supported={cap.supported}
-              count={cap.count}
             />
           ))}
         </Stack>
         <Stack gap="xs">
           <Title order={5}>Client Capabilities</Title>
-          {clientCapabilities.map((cap) => (
+          {clientCaps.map((cap) => (
             <CapabilityItem
               key={cap.capability}
               capability={cap.capability}
               supported={cap.supported}
-              count={cap.count}
             />
           ))}
         </Stack>
@@ -92,26 +108,26 @@ export function ServerInfoContent({
         </Stack>
       )}
 
-      {oauthDetails && (
+      {oauth && (
         <Stack gap="xs">
           <Title order={5}>OAuth Details</Title>
           <Stack gap="xs">
-            {oauthDetails.authUrl && (
+            {oauth.authUrl && (
               <SimpleGrid cols={2}>
                 <Text size="sm">Auth URL</Text>
-                <Code>{oauthDetails.authUrl}</Code>
+                <Code>{oauth.authUrl}</Code>
               </SimpleGrid>
             )}
-            {oauthDetails.scopes && oauthDetails.scopes.length > 0 && (
+            {oauth.scopes && oauth.scopes.length > 0 && (
               <SimpleGrid cols={2}>
                 <Text size="sm">Scopes</Text>
-                <ValueText>{formatScopes(oauthDetails.scopes)}</ValueText>
+                <ValueText>{formatScopes(oauth.scopes)}</ValueText>
               </SimpleGrid>
             )}
-            {oauthDetails.accessToken && (
+            {oauth.accessToken && (
               <SimpleGrid cols={2}>
                 <Text size="sm">Access Token</Text>
-                <Code>{oauthDetails.accessToken}</Code>
+                <Code>{oauth.accessToken}</Code>
               </SimpleGrid>
             )}
           </Stack>

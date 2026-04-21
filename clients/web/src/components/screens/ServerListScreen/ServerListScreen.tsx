@@ -31,7 +31,7 @@ export function ServerListScreen({
   const [activeServer, setActiveServer] = useState<string | undefined>();
 
   function handleToggleList() {
-    setCompact((prev) => (prev === true ? false : true));
+    setCompact((prev) => !prev);
   }
 
   return (

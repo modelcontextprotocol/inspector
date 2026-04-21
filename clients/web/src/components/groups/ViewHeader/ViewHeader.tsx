@@ -9,15 +9,17 @@ import {
   Title,
 } from "@mantine/core";
 import { useComputedColorScheme } from "@mantine/core";
+import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
 import { MdLightMode, MdDarkMode } from "react-icons/md";
+import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
 import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/ServerStatusIndicator";
 import mcpLogo from "../../../theme/assets/MCP.svg";
 import mcpLogoDark from "../../../theme/assets/MCP-dark.svg";
 
 interface ConnectedProps {
   connected: true;
-  serverName: string;
-  status: "connected" | "connecting" | "error";
+  serverInfo: Implementation;
+  status: ConnectionStatus;
   latencyMs?: number;
   activeTab: string;
   availableTabs: string[];
@@ -120,7 +122,7 @@ export function ViewHeader(props: ViewHeaderProps) {
         <LogoLink>
           <LogoImage src={colorScheme === "dark" ? mcpLogoDark : mcpLogo} />
         </LogoLink>
-        <ServerName>{props.serverName}</ServerName>
+        <ServerName>{props.serverInfo.name}</ServerName>
       </LeftSection>
 
       <CenterSection>

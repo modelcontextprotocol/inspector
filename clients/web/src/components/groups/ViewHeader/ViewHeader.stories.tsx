@@ -1,6 +1,6 @@
+import { AppShell } from "@mantine/core";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
-import { AppShell } from "@mantine/core";
 import { ViewHeader } from "./ViewHeader";
 
 const meta: Meta<typeof ViewHeader> = {
@@ -23,7 +23,7 @@ type Story = StoryObj<typeof ViewHeader>;
 export const Connected: Story = {
   args: {
     connected: true,
-    serverName: "my-mcp-server",
+    serverInfo: { name: "my-mcp-server", version: "1.2.0" },
     status: "connected",
     latencyMs: 23,
     activeTab: "Tools",

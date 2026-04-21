@@ -1,7 +1,8 @@
-import { useEffect } from "react";
 import { Badge, Button, Card, Group, Menu, Stack, Text } from "@mantine/core";
+import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
 import type {
   ConnectionStatus,
+  MCPServerConfig,
   ServerType,
 } from "@inspector/core/mcp/types.js";
 import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/ServerStatusIndicator";
@@ -10,15 +11,18 @@ import { ConnectionToggle } from "../../elements/ConnectionToggle/ConnectionTogg
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { InlineError } from "../../elements/InlineError/InlineError";
 
-export interface ServerCardProps {
-  name: string;
-  version?: string;
-  transport: ServerType;
-  connectionMode: string;
-  command: string;
+export interface ConnectionState {
   status: ConnectionStatus;
   retryCount?: number;
   error?: { message: string; details?: string };
+}
+
+export interface ServerCardProps {
+  name: string;
+  config: MCPServerConfig;
+  info?: Implementation;
+  connection: ConnectionState;
+  connectionMode: string;
   canTestClientFeatures: boolean;
   activeServer?: string;
   onSetActiveServer?: (name: string | undefined) => void;
@@ -68,15 +72,23 @@ const RemoveButton = Button.withProps({
   color: "red.6",
 });
 
+function getTransport(config: MCPServerConfig): ServerType {
+  return config.type ?? "stdio";
+}
+
+function getCommandOrUrl(config: MCPServerConfig): string {
+  if (config.type === "sse" || config.type === "streamable-http") {
+    return config.url;
+  }
+  return config.command;
+}
+
 export function ServerCard({
   name,
-  version,
-  transport,
+  config,
+  info,
+  connection,
   connectionMode,
-  command,
-  status,
-  retryCount,
-  error,
   canTestClientFeatures,
   activeServer,
   onSetActiveServer,
@@ -92,24 +104,10 @@ export function ServerCard({
   onConfigureRoots,
   compact = false,
 }: ServerCardProps) {
-  const isThisConnecting = activeServer === name;
   const isDimmed = activeServer !== undefined && activeServer !== name;
-  const displayStatus = isThisConnecting ? "connecting" : status;
-
-  useEffect(() => {
-    if (isThisConnecting) {
-      onToggleConnection(true);
-    }
-  }, [isThisConnecting, onToggleConnection]);
-
-  function handleToggle(connect: boolean) {
-    if (connect && !activeServer) {
-      onSetActiveServer?.(name);
-    } else if (!connect && activeServer && activeServer === name) {
-      onSetActiveServer?.(undefined);
-      onToggleConnection(false);
-    }
-  }
+  const transport = getTransport(config);
+  const commandOrUrl = getCommandOrUrl(config);
+  const version = info?.version;
 
   return (
     <Card
@@ -126,14 +124,20 @@ export function ServerCard({
           </HeaderLeft>
           <HeaderRight>
             <ServerStatusIndicator
-              status={displayStatus}
-              retryCount={retryCount}
+              status={connection.status}
+              retryCount={connection.retryCount}
             />
             <ConnectionToggle
-              status={displayStatus}
+              status={connection.status}
               disabled={isDimmed}
-              onConnect={() => handleToggle(true)}
-              onDisconnect={() => handleToggle(false)}
+              onConnect={() => {
+                onSetActiveServer?.(name);
+                onToggleConnection(true);
+              }}
+              onDisconnect={() => {
+                onSetActiveServer?.(undefined);
+                onToggleConnection(false);
+              }}
             />
           </HeaderRight>
         </Group>
@@ -168,15 +172,18 @@ export function ServerCard({
               )}
             </Group>
 
-            <ContentViewer block={{ type: "text", text: command }} copyable />
+            <ContentViewer
+              block={{ type: "text", text: commandOrUrl }}
+              copyable
+            />
 
-            {error && (
+            {connection.error && (
               <InlineError
                 error={{
-                  message: error.message,
-                  data: error.details,
+                  message: connection.error.message,
+                  data: connection.error.details,
                 }}
-                retryCount={retryCount}
+                retryCount={connection.retryCount}
               />
             )}
 

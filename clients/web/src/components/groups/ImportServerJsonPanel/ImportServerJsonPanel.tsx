@@ -9,6 +9,7 @@ import {
   Textarea,
   Title,
 } from "@mantine/core";
+import type { InspectorServerJsonDraft } from "@inspector/core/mcp/types.js";
 
 export interface ValidationResult {
   type: "success" | "warning" | "info" | "error";
@@ -29,12 +30,10 @@ export interface EnvVarInfo {
 }
 
 export interface ImportServerJsonPanelProps {
-  jsonContent: string;
-  validationResults: ValidationResult[];
+  draft: InspectorServerJsonDraft;
+  validation: ValidationResult[];
   packages?: PackageInfo[];
-  selectedPackageIndex: number;
   envVars: EnvVarInfo[];
-  serverName: string;
   onJsonChange: (content: string) => void;
   onValidate: () => void;
   onSelectPackage: (index: number) => void;
@@ -64,12 +63,10 @@ function formatPackageLabel(pkg: PackageInfo): string {
 }
 
 export function ImportServerJsonPanel({
-  jsonContent,
-  validationResults,
+  draft,
+  validation,
   packages,
-  selectedPackageIndex,
   envVars,
-  serverName,
   onJsonChange,
   onValidate,
   onSelectPackage,
@@ -85,7 +82,7 @@ export function ImportServerJsonPanel({
       <HintText>Paste server.json content or drag and drop a file:</HintText>
 
       <Textarea
-        value={jsonContent}
+        value={draft.rawText}
         onChange={(e) => onJsonChange(e.currentTarget.value)}
         ff="monospace"
         autosize
@@ -97,7 +94,7 @@ export function ImportServerJsonPanel({
 
       <Title order={5}>Validation Results:</Title>
 
-      {validationResults.map((result, index) => {
+      {validation.map((result, index) => {
         const { icon, color } = validationIcons[result.type];
         return (
           <Group key={index} gap="xs">
@@ -112,7 +109,7 @@ export function ImportServerJsonPanel({
           <Divider />
           <Title order={5}>Package Selection:</Title>
           <Radio.Group
-            value={String(selectedPackageIndex)}
+            value={String(draft.selectedPackageIndex ?? 0)}
             onChange={(value) => onSelectPackage(Number(value))}
           >
             <Stack gap="xs">
@@ -151,7 +148,7 @@ export function ImportServerJsonPanel({
 
       <TextInput
         label="Server Name (optional override)"
-        value={serverName}
+        value={draft.nameOverride ?? ""}
         onChange={(e) => onServerNameChange(e.currentTarget.value)}
       />
 

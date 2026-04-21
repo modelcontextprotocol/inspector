@@ -9,11 +9,7 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
-
-export interface KeyValuePair {
-  key: string;
-  value: string;
-}
+import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 
 export type ServerSettingsSection =
   | "connectionMode"
@@ -23,14 +19,7 @@ export type ServerSettingsSection =
   | "oauth";
 
 export interface ServerSettingsFormProps {
-  connectionMode: "proxy" | "direct";
-  headers: KeyValuePair[];
-  metadata: KeyValuePair[];
-  connectionTimeout: number;
-  requestTimeout: number;
-  oauthClientId?: string;
-  oauthClientSecret?: string;
-  oauthScopes?: string;
+  settings: InspectorServerSettings;
   expandedSections: ServerSettingsSection[];
   onExpandedSectionsChange: (sections: ServerSettingsSection[]) => void;
   onConnectionModeChange: (mode: string) => void;
@@ -75,7 +64,7 @@ function KeyValueRows({
   onChange,
   onRemove,
 }: {
-  items: KeyValuePair[];
+  items: { key: string; value: string }[];
   onChange: (index: number, key: string, value: string) => void;
   onRemove: (index: number) => void;
 }) {
@@ -105,14 +94,7 @@ function KeyValueRows({
 }
 
 export function ServerSettingsForm({
-  connectionMode,
-  headers,
-  metadata,
-  connectionTimeout,
-  requestTimeout,
-  oauthClientId,
-  oauthClientSecret,
-  oauthScopes,
+  settings,
   expandedSections,
   onExpandedSectionsChange,
   onConnectionModeChange,
@@ -145,12 +127,12 @@ export function ServerSettingsForm({
         <Accordion.Panel>
           <Select
             data={CONNECTION_MODE_OPTIONS}
-            value={connectionMode}
+            value={settings.connectionMode}
             onChange={(value) => {
               if (value) onConnectionModeChange(value);
             }}
             description={
-              connectionMode === "proxy"
+              settings.connectionMode === "proxy"
                 ? "Route through inspector proxy (required for STDIO)"
                 : undefined
             }
@@ -168,11 +150,11 @@ export function ServerSettingsForm({
               </HintText>
               <AddButton onClick={onAddHeader}>+ Add Header</AddButton>
             </Group>
-            {headers.length === 0 ? (
+            {settings.headers.length === 0 ? (
               <EmptyHint>No custom headers configured</EmptyHint>
             ) : (
               <KeyValueRows
-                items={headers}
+                items={settings.headers}
                 onChange={onHeaderChange}
                 onRemove={onRemoveHeader}
               />
@@ -191,11 +173,11 @@ export function ServerSettingsForm({
               </HintText>
               <AddButton onClick={onAddMetadata}>+ Add Metadata</AddButton>
             </Group>
-            {metadata.length === 0 ? (
+            {settings.metadata.length === 0 ? (
               <EmptyHint>No request metadata configured</EmptyHint>
             ) : (
               <KeyValueRows
-                items={metadata}
+                items={settings.metadata}
                 onChange={onMetadataChange}
                 onRemove={onRemoveMetadata}
               />
@@ -211,13 +193,13 @@ export function ServerSettingsForm({
             <NumberInput
               label="Connection Timeout"
               suffix=" ms"
-              value={connectionTimeout}
+              value={settings.connectionTimeout}
               onChange={handleTimeoutChange("connectionTimeout")}
             />
             <NumberInput
               label="Request Timeout"
               suffix=" ms"
-              value={requestTimeout}
+              value={settings.requestTimeout}
               onChange={handleTimeoutChange("requestTimeout")}
             />
           </Group>
@@ -234,12 +216,12 @@ export function ServerSettingsForm({
             </HintText>
             <TextInput
               label="Client ID"
-              value={oauthClientId ?? ""}
+              value={settings.oauthClientId ?? ""}
               onChange={(e) => onOAuthChange("clientId", e.currentTarget.value)}
             />
             <TextInput
               label="Client Secret"
-              value={oauthClientSecret ?? ""}
+              value={settings.oauthClientSecret ?? ""}
               type="password"
               onChange={(e) =>
                 onOAuthChange("clientSecret", e.currentTarget.value)
@@ -247,7 +229,7 @@ export function ServerSettingsForm({
             />
             <TextInput
               label="Scopes"
-              value={oauthScopes ?? ""}
+              value={settings.oauthScopes ?? ""}
               onChange={(e) => onOAuthChange("scopes", e.currentTarget.value)}
             />
           </Stack>

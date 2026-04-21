@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 import { AppShell } from "@mantine/core";
+import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
+import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
 
 export interface ConnectedLayoutProps {
-  serverName: string;
-  status: "connected" | "connecting" | "error";
+  serverInfo: Implementation;
+  status: ConnectionStatus;
   latencyMs?: number;
   activeTab: string;
   availableTabs: string[];
@@ -15,7 +17,7 @@ export interface ConnectedLayoutProps {
 }
 
 export function ConnectedView({
-  serverName,
+  serverInfo,
   status,
   latencyMs,
   activeTab,
@@ -30,7 +32,7 @@ export function ConnectedView({
       <AppShell.Header>
         <ViewHeader
           connected
-          serverName={serverName}
+          serverInfo={serverInfo}
           status={status}
           latencyMs={latencyMs}
           activeTab={activeTab}
