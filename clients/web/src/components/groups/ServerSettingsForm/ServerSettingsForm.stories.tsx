@@ -1,9 +1,10 @@
-import { useState } from "react";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { fn } from "storybook/test";
+import { useArgs } from "storybook/preview-api";
 import {
   ServerSettingsForm,
-  type ServerSettingsSection,
+  type ServerSettingsFormProps,
 } from "./ServerSettingsForm";
 
 const defaultSettings: InspectorServerSettings = {
@@ -14,74 +15,99 @@ const defaultSettings: InspectorServerSettings = {
   requestTimeout: 60000,
 };
 
-function InteractiveForm({
-  startSettings,
-  initialSections = ["connectionMode"],
-}: {
-  startSettings: InspectorServerSettings;
-  initialSections?: ServerSettingsSection[];
-}) {
-  const [expandedSections, setExpandedSections] =
-    useState<ServerSettingsSection[]>(initialSections);
-  const [settings, setSettings] =
-    useState<InspectorServerSettings>(startSettings);
+function InteractiveRender(args: ServerSettingsFormProps) {
+  const [, updateArgs] = useArgs<ServerSettingsFormProps>();
 
   return (
     <ServerSettingsForm
-      settings={settings}
-      expandedSections={expandedSections}
-      onExpandedSectionsChange={setExpandedSections}
-      onConnectionModeChange={(mode) =>
-        setSettings((s) => ({ ...s, connectionMode: mode }))
-      }
-      onAddHeader={() =>
-        setSettings((s) => ({
-          ...s,
-          headers: [...s.headers, { key: "", value: "" }],
-        }))
-      }
-      onRemoveHeader={(index) =>
-        setSettings((s) => ({
-          ...s,
-          headers: s.headers.filter((_, i) => i !== index),
-        }))
-      }
-      onHeaderChange={(index, key, value) =>
-        setSettings((s) => ({
-          ...s,
-          headers: s.headers.map((h, i) => (i === index ? { key, value } : h)),
-        }))
-      }
-      onAddMetadata={() =>
-        setSettings((s) => ({
-          ...s,
-          metadata: [...s.metadata, { key: "", value: "" }],
-        }))
-      }
-      onRemoveMetadata={(index) =>
-        setSettings((s) => ({
-          ...s,
-          metadata: s.metadata.filter((_, i) => i !== index),
-        }))
-      }
-      onMetadataChange={(index, key, value) =>
-        setSettings((s) => ({
-          ...s,
-          metadata: s.metadata.map((m, i) =>
-            i === index ? { key, value } : m,
-          ),
-        }))
-      }
-      onTimeoutChange={(field, value) =>
-        setSettings((s) => ({ ...s, [field]: value }))
-      }
+      {...args}
+      onExpandedSectionsChange={(sections) => {
+        args.onExpandedSectionsChange(sections);
+        updateArgs({ expandedSections: sections });
+      }}
+      onConnectionModeChange={(mode) => {
+        args.onConnectionModeChange(mode);
+        updateArgs({
+          settings: { ...args.settings, connectionMode: mode },
+        });
+      }}
+      onAddHeader={() => {
+        args.onAddHeader();
+        updateArgs({
+          settings: {
+            ...args.settings,
+            headers: [...args.settings.headers, { key: "", value: "" }],
+          },
+        });
+      }}
+      onRemoveHeader={(index) => {
+        args.onRemoveHeader(index);
+        updateArgs({
+          settings: {
+            ...args.settings,
+            headers: args.settings.headers.filter((_, i) => i !== index),
+          },
+        });
+      }}
+      onHeaderChange={(index, key, value) => {
+        args.onHeaderChange(index, key, value);
+        updateArgs({
+          settings: {
+            ...args.settings,
+            headers: args.settings.headers.map((h, i) =>
+              i === index ? { key, value } : h,
+            ),
+          },
+        });
+      }}
+      onAddMetadata={() => {
+        args.onAddMetadata();
+        updateArgs({
+          settings: {
+            ...args.settings,
+            metadata: [...args.settings.metadata, { key: "", value: "" }],
+          },
+        });
+      }}
+      onRemoveMetadata={(index) => {
+        args.onRemoveMetadata(index);
+        updateArgs({
+          settings: {
+            ...args.settings,
+            metadata: args.settings.metadata.filter((_, i) => i !== index),
+          },
+        });
+      }}
+      onMetadataChange={(index, key, value) => {
+        args.onMetadataChange(index, key, value);
+        updateArgs({
+          settings: {
+            ...args.settings,
+            metadata: args.settings.metadata.map((m, i) =>
+              i === index ? { key, value } : m,
+            ),
+          },
+        });
+      }}
+      onTimeoutChange={(field, value) => {
+        args.onTimeoutChange(field, value);
+        updateArgs({
+          settings: { ...args.settings, [field]: value },
+        });
+      }}
       onOAuthChange={(field, value) => {
+        args.onOAuthChange(field, value);
         const fieldMap: Record<string, string> = {
           clientId: "oauthClientId",
           clientSecret: "oauthClientSecret",
           scopes: "oauthScopes",
         };
-        setSettings((s) => ({ ...s, [fieldMap[field] ?? field]: value }));
+        updateArgs({
+          settings: {
+            ...args.settings,
+            [fieldMap[field] ?? field]: value,
+          },
+        });
       }}
     />
   );
@@ -90,62 +116,72 @@ function InteractiveForm({
 const meta: Meta<typeof ServerSettingsForm> = {
   title: "Groups/ServerSettingsForm",
   component: ServerSettingsForm,
+  render: InteractiveRender,
+  args: {
+    expandedSections: ["connectionMode"],
+    onExpandedSectionsChange: fn(),
+    onConnectionModeChange: fn(),
+    onAddHeader: fn(),
+    onRemoveHeader: fn(),
+    onHeaderChange: fn(),
+    onAddMetadata: fn(),
+    onRemoveMetadata: fn(),
+    onMetadataChange: fn(),
+    onTimeoutChange: fn(),
+    onOAuthChange: fn(),
+  },
 };
 
 export default meta;
 type Story = StoryObj<typeof ServerSettingsForm>;
 
 export const DefaultSettings: Story = {
-  render: () => <InteractiveForm startSettings={defaultSettings} />,
+  args: {
+    settings: defaultSettings,
+  },
 };
 
 export const WithHeaders: Story = {
-  render: () => (
-    <InteractiveForm
-      startSettings={{
-        ...defaultSettings,
-        headers: [
-          { key: "Authorization", value: "Bearer token-abc-123" },
-          { key: "X-Custom-Header", value: "custom-value" },
-        ],
-      }}
-    />
-  ),
+  args: {
+    settings: {
+      ...defaultSettings,
+      headers: [
+        { key: "Authorization", value: "Bearer token-abc-123" },
+        { key: "X-Custom-Header", value: "custom-value" },
+      ],
+    },
+  },
 };
 
 export const WithOAuth: Story = {
-  render: () => (
-    <InteractiveForm
-      startSettings={{
-        ...defaultSettings,
-        connectionMode: "direct",
-        oauthClientId: "my-client-id",
-        oauthClientSecret: "super-secret-value",
-        oauthScopes: "read write admin",
-      }}
-    />
-  ),
+  args: {
+    settings: {
+      ...defaultSettings,
+      connectionMode: "direct",
+      oauthClientId: "my-client-id",
+      oauthClientSecret: "super-secret-value",
+      oauthScopes: "read write admin",
+    },
+  },
 };
 
 export const AllConfigured: Story = {
-  render: () => (
-    <InteractiveForm
-      startSettings={{
-        connectionMode: "proxy",
-        headers: [
-          { key: "Authorization", value: "Bearer token-abc-123" },
-          { key: "X-Request-Id", value: "req-456" },
-        ],
-        metadata: [
-          { key: "userId", value: "user-789" },
-          { key: "sessionId", value: "session-012" },
-        ],
-        connectionTimeout: 15000,
-        requestTimeout: 45000,
-        oauthClientId: "my-client-id",
-        oauthClientSecret: "super-secret-value",
-        oauthScopes: "read write",
-      }}
-    />
-  ),
+  args: {
+    settings: {
+      connectionMode: "proxy",
+      headers: [
+        { key: "Authorization", value: "Bearer token-abc-123" },
+        { key: "X-Request-Id", value: "req-456" },
+      ],
+      metadata: [
+        { key: "userId", value: "user-789" },
+        { key: "sessionId", value: "session-012" },
+      ],
+      connectionTimeout: 15000,
+      requestTimeout: 45000,
+      oauthClientId: "my-client-id",
+      oauthClientSecret: "super-secret-value",
+      oauthScopes: "read write",
+    },
+  },
 };
