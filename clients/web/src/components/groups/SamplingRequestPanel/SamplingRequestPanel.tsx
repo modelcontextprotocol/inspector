@@ -72,7 +72,9 @@ export function SamplingRequestPanel({
     includeContext,
   } = request;
 
-  const hints = modelPreferences?.hints?.map((h) => h.name) ?? [];
+  const hints =
+    (modelPreferences?.hints?.map((h) => h.name).filter(Boolean) as string[]) ??
+    [];
 
   return (
     <Stack gap="md">

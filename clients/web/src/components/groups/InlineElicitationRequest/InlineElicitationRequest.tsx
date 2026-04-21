@@ -8,7 +8,10 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
-import type { ElicitRequest } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  ElicitRequest,
+  ElicitRequestFormParams,
+} from "@modelcontextprotocol/sdk/types.js";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
 import type { JsonSchema } from "../SchemaForm/SchemaForm";
 
@@ -49,10 +52,14 @@ const CompactButton = Button.withProps({
 
 function isFormMode(
   request: ElicitRequest["params"],
-): request is ElicitRequest["params"] & {
-  requestedSchema: Record<string, unknown>;
-} {
+): request is ElicitRequestFormParams {
   return "requestedSchema" in request;
+}
+
+function isUrlMode(
+  request: ElicitRequest["params"],
+): request is Extract<ElicitRequest["params"], { mode: "url" }> {
+  return "url" in request;
 }
 
 function getBadgeLabel(request: ElicitRequest["params"]): string {
@@ -70,8 +77,6 @@ export function InlineElicitationRequest({
   onSubmit,
   onCancel,
 }: InlineElicitationRequestProps) {
-  const formMode = isFormMode(request);
-
   return (
     <RequestContainer>
       <Stack gap="sm">
@@ -82,7 +87,7 @@ export function InlineElicitationRequest({
 
         <ItalicMessage>{request.message}</ItalicMessage>
 
-        {formMode && (
+        {isFormMode(request) && (
           <SchemaForm
             schema={request.requestedSchema as JsonSchema}
             values={values ?? {}}
@@ -90,9 +95,9 @@ export function InlineElicitationRequest({
           />
         )}
 
-        {!formMode && "url" in request && (
+        {isUrlMode(request) && (
           <>
-            <Code block>{(request as { url: string }).url}</Code>
+            <Code block>{request.url}</Code>
             {isWaiting && (
               <Group>
                 <Loader size="xs" />
@@ -104,7 +109,7 @@ export function InlineElicitationRequest({
 
         <ActionsRow>
           <CompactButton onClick={onCancel}>Cancel</CompactButton>
-          {formMode && (
+          {isFormMode(request) && (
             <Button size="xs" onClick={onSubmit}>
               Submit
             </Button>

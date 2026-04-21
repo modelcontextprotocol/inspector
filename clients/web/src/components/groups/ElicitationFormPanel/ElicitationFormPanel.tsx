@@ -1,10 +1,10 @@
 import { Alert, Button, Divider, Group, Stack, Text } from "@mantine/core";
-import type { ElicitRequest } from "@modelcontextprotocol/sdk/types.js";
+import type { ElicitRequestFormParams } from "@modelcontextprotocol/sdk/types.js";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
 import type { JsonSchema } from "../SchemaForm/SchemaForm";
 
 export interface ElicitationFormPanelProps {
-  request: ElicitRequest["params"];
+  request: ElicitRequestFormParams;
   serverName: string;
   values: Record<string, unknown>;
   onChange: (values: Record<string, unknown>) => void;
@@ -33,20 +33,15 @@ export function ElicitationFormPanel({
   onSubmit,
   onCancel,
 }: ElicitationFormPanelProps) {
-  const schema =
-    "requestedSchema" in request ? request.requestedSchema : undefined;
-
   return (
     <Stack gap="md">
       <QuotedMessage>{formatQuoted(request.message)}</QuotedMessage>
       <Divider />
-      {schema && (
-        <SchemaForm
-          schema={schema as JsonSchema}
-          values={values}
-          onChange={onChange}
-        />
-      )}
+      <SchemaForm
+        schema={request.requestedSchema as JsonSchema}
+        values={values}
+        onChange={onChange}
+      />
       <Alert color="yellow" title="Warning">
         {formatWarning(serverName)}
       </Alert>
