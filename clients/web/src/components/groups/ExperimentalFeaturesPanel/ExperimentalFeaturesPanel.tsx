@@ -15,7 +15,6 @@ import {
   Title,
 } from "@mantine/core";
 import type {
-  ClientCapabilities,
   JSONRPCErrorResponse,
   JSONRPCResponse,
   ServerCapabilities,
@@ -40,7 +39,6 @@ export interface RequestHistoryItem {
 
 export interface ExperimentalFeaturesPanelProps {
   serverExperimental: ServerCapabilities["experimental"];
-  clientExperimental: ClientCapabilities["experimental"];
   clientToggles: ClientExperimentalToggle[];
   requestDraft: string;
   response?: JSONRPCResponse | JSONRPCErrorResponse;
@@ -108,6 +106,28 @@ function getCapabilityEntries(
   return Object.entries(experimental);
 }
 
+function getCapabilityDescription(value: object): string | undefined {
+  if ("description" in value && typeof value.description === "string") {
+    return value.description;
+  }
+  return undefined;
+}
+
+function getCapabilityMethods(value: object): string[] | undefined {
+  if (
+    "methods" in value &&
+    Array.isArray(value.methods) &&
+    value.methods.every((m: unknown) => typeof m === "string")
+  ) {
+    return value.methods as string[];
+  }
+  return undefined;
+}
+
+function formatMethods(methods: string[]): string {
+  return `Methods: ${methods.join(", ")}`;
+}
+
 export function ExperimentalFeaturesPanel({
   serverExperimental,
   clientToggles,
@@ -137,19 +157,26 @@ export function ExperimentalFeaturesPanel({
       {serverEntries.length === 0 ? (
         <Text c="dimmed">No experimental capabilities</Text>
       ) : (
-        serverEntries.map(([name, value]) => (
-          <CapCard key={name}>
-            <Stack gap="xs">
-              <Text fw={600}>{name}</Text>
-              <MetaText>{JSON.stringify(value)}</MetaText>
-              <Group>
-                <CompactButton onClick={() => onTestCapability(name)}>
-                  Test →
-                </CompactButton>
-              </Group>
-            </Stack>
-          </CapCard>
-        ))
+        serverEntries.map(([name, value]) => {
+          const description = getCapabilityDescription(value);
+          const methods = getCapabilityMethods(value);
+          return (
+            <CapCard key={name}>
+              <Stack gap="xs">
+                <Text fw={600}>{name}</Text>
+                {description && <HintText>{description}</HintText>}
+                {methods && methods.length > 0 && (
+                  <MetaText>{formatMethods(methods)}</MetaText>
+                )}
+                <Group>
+                  <CompactButton onClick={() => onTestCapability(name)}>
+                    Test →
+                  </CompactButton>
+                </Group>
+              </Stack>
+            </CapCard>
+          );
+        })
       )}
 
       <Divider />

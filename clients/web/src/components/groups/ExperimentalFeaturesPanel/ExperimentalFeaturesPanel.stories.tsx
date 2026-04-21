@@ -23,7 +23,6 @@ const meta: Meta<typeof ExperimentalFeaturesPanel> = {
     onHeaderChange: fn(),
     onCopyResponse: fn(),
     onTestCapability: fn(),
-    clientExperimental: {},
     clientToggles: defaultClientToggles,
     customHeaders: [],
     requestHistory: [],

@@ -12,11 +12,13 @@ import {
 } from "@mantine/core";
 import type { Root } from "@modelcontextprotocol/sdk/types.js";
 
+export type RootDraft = { name: string; uri: string };
+
 export interface RootsTableProps {
   roots: Root[];
-  newRootDraft: { name: string; uri: string };
+  newRootDraft: RootDraft;
   onRemoveRoot: (uri: string) => void;
-  onNewRootDraftChange: (draft: { name: string; uri: string }) => void;
+  onNewRootDraftChange: (draft: RootDraft) => void;
   onAddRoot: () => void;
   onBrowse: () => void;
 }
