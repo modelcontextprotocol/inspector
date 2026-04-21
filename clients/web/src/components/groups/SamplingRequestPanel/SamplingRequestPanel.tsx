@@ -85,16 +85,18 @@ export function SamplingRequestPanel({
         <MessageBubble key={index} index={index} message={message} />
       ))}
 
-      {hints.length > 0 && (
+      {modelPreferences && (
         <PreferencesContainer>
           <Stack gap="xs">
             <Title order={5}>Model Preferences:</Title>
-            <Group gap="xs">
-              <Text size="sm">Hints:</Text>
-              {hints.map((hint) => (
-                <Badge key={hint}>{hint}</Badge>
-              ))}
-            </Group>
+            {hints.length > 0 && (
+              <Group gap="xs">
+                <Text size="sm">Hints:</Text>
+                {hints.map((hint) => (
+                  <Badge key={hint}>{hint}</Badge>
+                ))}
+              </Group>
+            )}
             {modelPreferences?.costPriority !== undefined && (
               <Text size="sm">
                 Cost Priority: {formatPriority(modelPreferences.costPriority)}
@@ -160,7 +162,7 @@ export function SamplingRequestPanel({
         />
         <Select
           label="Stop Reason"
-          data={["endTurn", "maxTokens", "stopSequence"]}
+          data={["endTurn", "stopSequence", "maxTokens"]}
           value={draftResult.stopReason ?? null}
           onChange={(value) =>
             onResultChange({

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { ElicitRequest } from "@modelcontextprotocol/sdk/types.js";
+import type { ElicitRequestFormParams } from "@modelcontextprotocol/sdk/types.js";
 import { fn } from "storybook/test";
 import { ElicitationFormPanel } from "./ElicitationFormPanel";
 
@@ -28,7 +28,7 @@ const dbRequest = {
       database: { type: "string" as const, title: "Database" },
     },
   },
-} satisfies ElicitRequest["params"];
+} satisfies ElicitRequestFormParams;
 
 const sslRequest = {
   message: "Please select your SSL mode preference.",
@@ -42,7 +42,7 @@ const sslRequest = {
       },
     },
   },
-} satisfies ElicitRequest["params"];
+} satisfies ElicitRequestFormParams;
 
 const deployRequest = {
   message: "Please confirm the deployment.",
@@ -57,7 +57,7 @@ const deployRequest = {
       confirm: { type: "boolean" as const, title: "Confirm deployment" },
     },
   },
-} satisfies ElicitRequest["params"];
+} satisfies ElicitRequestFormParams;
 
 export const SimpleForm: Story = {
   args: { request: dbRequest },
