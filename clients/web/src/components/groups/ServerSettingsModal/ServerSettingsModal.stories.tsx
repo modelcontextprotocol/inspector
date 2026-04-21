@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
+import { AppShell } from "@mantine/core";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ServerSettingsModal } from "./ServerSettingsModal";
 
@@ -26,18 +27,23 @@ function InteractiveModal({
     useState<InspectorServerSettings>(startSettings);
 
   return (
-    <ServerSettingsModal
-      opened
-      settings={settings}
-      onClose={() => {}}
-      onSettingsChange={setSettings}
-    />
+    <AppShell>
+      <AppShell.Main>
+        <ServerSettingsModal
+          opened
+          settings={settings}
+          onClose={() => {}}
+          onSettingsChange={setSettings}
+        />
+      </AppShell.Main>
+    </AppShell>
   );
 }
 
 const meta: Meta<typeof ServerSettingsModal> = {
   title: "Groups/ServerSettingsModal",
   component: ServerSettingsModal,
+  parameters: { layout: "fullscreen" },
 };
 
 export default meta;
