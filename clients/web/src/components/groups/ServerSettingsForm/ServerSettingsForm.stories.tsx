@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fn } from "storybook/test";
 import {
   ServerSettingsForm,
   type ServerSettingsSection,
@@ -14,16 +13,6 @@ const defaultSettings: InspectorServerSettings = {
   connectionTimeout: 30000,
   requestTimeout: 60000,
 };
-
-const onConnectionModeChange = fn();
-const onAddHeader = fn();
-const onRemoveHeader = fn();
-const onHeaderChange = fn();
-const onAddMetadata = fn();
-const onRemoveMetadata = fn();
-const onMetadataChange = fn();
-const onTimeoutChange = fn();
-const onOAuthChange = fn();
 
 function InteractiveForm({
   startSettings,
@@ -42,58 +31,50 @@ function InteractiveForm({
       settings={settings}
       expandedSections={expandedSections}
       onExpandedSectionsChange={setExpandedSections}
-      onConnectionModeChange={(mode) => {
-        setSettings((s) => ({ ...s, connectionMode: mode }));
-        onConnectionModeChange(mode);
-      }}
-      onAddHeader={() => {
+      onConnectionModeChange={(mode) =>
+        setSettings((s) => ({ ...s, connectionMode: mode }))
+      }
+      onAddHeader={() =>
         setSettings((s) => ({
           ...s,
           headers: [...s.headers, { key: "", value: "" }],
-        }));
-        onAddHeader();
-      }}
-      onRemoveHeader={(index) => {
+        }))
+      }
+      onRemoveHeader={(index) =>
         setSettings((s) => ({
           ...s,
           headers: s.headers.filter((_, i) => i !== index),
-        }));
-        onRemoveHeader(index);
-      }}
-      onHeaderChange={(index, key, value) => {
+        }))
+      }
+      onHeaderChange={(index, key, value) =>
         setSettings((s) => ({
           ...s,
           headers: s.headers.map((h, i) => (i === index ? { key, value } : h)),
-        }));
-        onHeaderChange(index, key, value);
-      }}
-      onAddMetadata={() => {
+        }))
+      }
+      onAddMetadata={() =>
         setSettings((s) => ({
           ...s,
           metadata: [...s.metadata, { key: "", value: "" }],
-        }));
-        onAddMetadata();
-      }}
-      onRemoveMetadata={(index) => {
+        }))
+      }
+      onRemoveMetadata={(index) =>
         setSettings((s) => ({
           ...s,
           metadata: s.metadata.filter((_, i) => i !== index),
-        }));
-        onRemoveMetadata(index);
-      }}
-      onMetadataChange={(index, key, value) => {
+        }))
+      }
+      onMetadataChange={(index, key, value) =>
         setSettings((s) => ({
           ...s,
           metadata: s.metadata.map((m, i) =>
             i === index ? { key, value } : m,
           ),
-        }));
-        onMetadataChange(index, key, value);
-      }}
-      onTimeoutChange={(field, value) => {
-        setSettings((s) => ({ ...s, [field]: value }));
-        onTimeoutChange(field, value);
-      }}
+        }))
+      }
+      onTimeoutChange={(field, value) =>
+        setSettings((s) => ({ ...s, [field]: value }))
+      }
       onOAuthChange={(field, value) => {
         const fieldMap: Record<string, string> = {
           clientId: "oauthClientId",
@@ -101,7 +82,6 @@ function InteractiveForm({
           scopes: "oauthScopes",
         };
         setSettings((s) => ({ ...s, [fieldMap[field] ?? field]: value }));
-        onOAuthChange(field, value);
       }}
     />
   );
