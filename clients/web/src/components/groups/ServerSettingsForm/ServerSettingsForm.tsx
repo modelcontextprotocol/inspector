@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Accordion,
   ActionIcon,
@@ -21,7 +20,8 @@ export type ServerSettingsSection =
 
 export interface ServerSettingsFormProps {
   settings: InspectorServerSettings;
-  defaultExpandedSections?: ServerSettingsSection[];
+  expandedSections: ServerSettingsSection[];
+  onExpandedSectionsChange: (sections: ServerSettingsSection[]) => void;
   onConnectionModeChange: (mode: "proxy" | "direct") => void;
   onAddHeader: () => void;
   onRemoveHeader: (index: number) => void;
@@ -95,7 +95,8 @@ function KeyValueRows({
 
 export function ServerSettingsForm({
   settings,
-  defaultExpandedSections = ["connectionMode"],
+  expandedSections,
+  onExpandedSectionsChange,
   onConnectionModeChange,
   onAddHeader,
   onRemoveHeader,
@@ -106,10 +107,6 @@ export function ServerSettingsForm({
   onTimeoutChange,
   onOAuthChange,
 }: ServerSettingsFormProps) {
-  const [expandedSections, setExpandedSections] = useState<
-    ServerSettingsSection[]
-  >(defaultExpandedSections);
-
   const handleTimeoutChange = (field: string) => (value: number | string) => {
     const numValue =
       typeof value === "string" ? parseInt(value, 10) || 0 : value;
@@ -121,7 +118,7 @@ export function ServerSettingsForm({
       multiple
       value={expandedSections}
       onChange={(value) =>
-        setExpandedSections(value as ServerSettingsSection[])
+        onExpandedSectionsChange(value as ServerSettingsSection[])
       }
       variant="separated"
     >

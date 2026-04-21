@@ -1,9 +1,10 @@
+import { useState } from "react";
+import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { CloseButton, Group, Modal, Title } from "@mantine/core";
 import { fn } from "storybook/test";
 import { UnconnectedView } from "./UnconnectedView.js";
 import { ServerListScreen } from "../../screens/ServerListScreen/ServerListScreen";
-import { ServerSettingsForm } from "../../groups/ServerSettingsForm/ServerSettingsForm";
+import { ServerSettingsModal } from "../../groups/ServerSettingsModal/ServerSettingsModal";
 import type { ServerCardProps } from "../../groups/ServerCard/ServerCard";
 
 const meta: Meta<typeof UnconnectedView> = {
@@ -112,6 +113,20 @@ export const WithServers: Story = {
 };
 
 function SettingsModalStory() {
+  const [settings, setSettings] = useState<InspectorServerSettings>({
+    connectionMode: "proxy",
+    headers: [
+      { key: "Authorization", value: "Bearer token-abc-123" },
+      { key: "X-Request-Id", value: "req-456" },
+    ],
+    metadata: [{ key: "userId", value: "user-789" }],
+    connectionTimeout: 30000,
+    requestTimeout: 60000,
+    oauthClientId: "my-client-id",
+    oauthClientSecret: "super-secret-value",
+    oauthScopes: "read write",
+  });
+
   return (
     <UnconnectedView onToggleTheme={fn()}>
       <ServerListScreen
@@ -126,47 +141,12 @@ function SettingsModalStory() {
         onImportConfig={fn()}
         onImportServerJson={fn()}
       />
-      <Modal
+      <ServerSettingsModal
         opened
+        settings={settings}
         onClose={fn()}
-        withCloseButton={false}
-        title={
-          <Group justify="space-between" wrap="nowrap" w="100%">
-            <Title order={4} ta="center" style={{ flex: 1 }}>
-              Server Settings
-            </Title>
-            <CloseButton onClick={fn()} />
-          </Group>
-        }
-        size="lg"
-        centered
-        styles={{ title: { flex: 1 } }}
-      >
-        <ServerSettingsForm
-          settings={{
-            connectionMode: "proxy",
-            headers: [
-              { key: "Authorization", value: "Bearer token-abc-123" },
-              { key: "X-Request-Id", value: "req-456" },
-            ],
-            metadata: [{ key: "userId", value: "user-789" }],
-            connectionTimeout: 30000,
-            requestTimeout: 60000,
-            oauthClientId: "my-client-id",
-            oauthClientSecret: "super-secret-value",
-            oauthScopes: "read write",
-          }}
-          onConnectionModeChange={fn()}
-          onAddHeader={fn()}
-          onRemoveHeader={fn()}
-          onHeaderChange={fn()}
-          onAddMetadata={fn()}
-          onRemoveMetadata={fn()}
-          onMetadataChange={fn()}
-          onTimeoutChange={fn()}
-          onOAuthChange={fn()}
-        />
-      </Modal>
+        onSettingsChange={setSettings}
+      />
     </UnconnectedView>
   );
 }
