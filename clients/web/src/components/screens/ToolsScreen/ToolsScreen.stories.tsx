@@ -1,8 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { ElicitRequest, Tool } from "@modelcontextprotocol/sdk/types.js";
+import { Modal } from "@mantine/core";
 import { fn } from "storybook/test";
 import { ToolsScreen } from "./ToolsScreen";
 import type { ToolCallState } from "./ToolsScreen";
+import { SamplingRequestPanel } from "../../groups/SamplingRequestPanel/SamplingRequestPanel";
+import { ElicitationFormPanel } from "../../groups/ElicitationFormPanel/ElicitationFormPanel";
+import { PendingClientRequests } from "../../groups/PendingClientRequests/PendingClientRequests";
+import { InlineSamplingRequest } from "../../groups/InlineSamplingRequest/InlineSamplingRequest";
+import { InlineElicitationRequest } from "../../groups/InlineElicitationRequest/InlineElicitationRequest";
 
 const meta: Meta<typeof ToolsScreen> = {
   title: "Screens/ToolsScreen",
@@ -153,4 +159,130 @@ export const WithListChanged: Story = {
     tools: sampleTools,
     listChanged: true,
   },
+};
+
+const elicitFormRequest = {
+  message: "Please provide the database credentials for this operation.",
+  requestedSchema: {
+    type: "object" as const,
+    properties: {
+      host: { type: "string" as const, title: "Host" },
+      port: { type: "string" as const, title: "Port" },
+      password: { type: "string" as const, title: "Password" },
+    },
+  },
+} satisfies ElicitRequest["params"];
+
+export const WithSamplingModal: Story = {
+  args: {
+    tools: sampleTools,
+    selectedToolName: "create_record",
+    callState: { status: "pending" },
+  },
+  render: (args) => (
+    <>
+      <ToolsScreen {...args} />
+      <Modal opened={true} onClose={fn()} title="Sampling Request" size="lg">
+        <SamplingRequestPanel
+          request={{
+            messages: [
+              {
+                role: "user",
+                content: {
+                  type: "text",
+                  text: "Based on the record parameters, generate a summary description for this new record.",
+                },
+              },
+            ],
+            maxTokens: 1024,
+            modelPreferences: {
+              hints: [{ name: "claude-sonnet-4-20250514" }],
+            },
+          }}
+          draftResult={{
+            role: "assistant",
+            content: { type: "text", text: "" },
+            model: "claude-sonnet-4-20250514",
+          }}
+          onResultChange={fn()}
+          onAutoRespond={fn()}
+          onSend={fn()}
+          onReject={fn()}
+        />
+      </Modal>
+    </>
+  ),
+};
+
+export const WithElicitationModal: Story = {
+  args: {
+    tools: sampleTools,
+    selectedToolName: "create_record",
+    callState: { status: "pending" },
+  },
+  render: (args) => (
+    <>
+      <ToolsScreen {...args} />
+      <Modal opened={true} onClose={fn()} title="Elicitation Request" size="lg">
+        <ElicitationFormPanel
+          request={elicitFormRequest}
+          serverName="postgres-server"
+          values={{}}
+          onChange={fn()}
+          onSubmit={fn()}
+          onCancel={fn()}
+        />
+      </Modal>
+    </>
+  ),
+};
+
+export const WithPendingRequests: Story = {
+  args: {
+    tools: sampleTools,
+    selectedToolName: "create_record",
+    callState: { status: "pending" },
+  },
+  render: (args) => (
+    <>
+      <ToolsScreen {...args} />
+      <Modal
+        opened={true}
+        onClose={fn()}
+        title="Pending Client Requests"
+        size="lg"
+      >
+        <PendingClientRequests count={2}>
+          <InlineSamplingRequest
+            request={{
+              messages: [
+                {
+                  role: "user",
+                  content: {
+                    type: "text",
+                    text: "Generate a summary description for a new database record.",
+                  },
+                },
+              ],
+              maxTokens: 1024,
+            }}
+            queuePosition="1 of 2"
+            responseText=""
+            onAutoRespond={fn()}
+            onEditAndSend={fn()}
+            onReject={fn()}
+            onViewDetails={fn()}
+          />
+          <InlineElicitationRequest
+            request={elicitFormRequest}
+            queuePosition="2 of 2"
+            values={{}}
+            onChange={fn()}
+            onSubmit={fn()}
+            onCancel={fn()}
+          />
+        </PendingClientRequests>
+      </Modal>
+    </>
+  ),
 };
