@@ -10,19 +10,13 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
-
-export interface RootEntry {
-  name: string;
-  uri: string;
-}
+import type { Root } from "@modelcontextprotocol/sdk/types.js";
 
 export interface RootsTableProps {
-  roots: RootEntry[];
-  newRootName: string;
-  newRootPath: string;
+  roots: Root[];
+  newRootDraft: { name: string; uri: string };
   onRemoveRoot: (uri: string) => void;
-  onNewRootNameChange: (name: string) => void;
-  onNewRootPathChange: (path: string) => void;
+  onNewRootDraftChange: (draft: { name: string; uri: string }) => void;
   onAddRoot: () => void;
   onBrowse: () => void;
 }
@@ -44,11 +38,9 @@ const AddRootButton = Button.withProps({
 
 export function RootsTable({
   roots,
-  newRootName,
-  newRootPath,
+  newRootDraft,
   onRemoveRoot,
-  onNewRootNameChange,
-  onNewRootPathChange,
+  onNewRootDraftChange,
   onAddRoot,
   onBrowse,
 }: RootsTableProps) {
@@ -89,13 +81,23 @@ export function RootsTable({
       <Title order={5}>Add New Root:</Title>
       <TextInput
         label="Name"
-        value={newRootName}
-        onChange={(e) => onNewRootNameChange(e.currentTarget.value)}
+        value={newRootDraft.name}
+        onChange={(e) =>
+          onNewRootDraftChange({
+            ...newRootDraft,
+            name: e.currentTarget.value,
+          })
+        }
       />
       <TextInput
-        label="Path"
-        value={newRootPath}
-        onChange={(e) => onNewRootPathChange(e.currentTarget.value)}
+        label="URI"
+        value={newRootDraft.uri}
+        onChange={(e) =>
+          onNewRootDraftChange({
+            ...newRootDraft,
+            uri: e.currentTarget.value,
+          })
+        }
       />
       <Group justify="flex-end">
         <Button variant="light" onClick={onBrowse}>
