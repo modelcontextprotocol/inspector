@@ -1,22 +1,9 @@
-import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Box, CloseButton, Group, Modal, Title } from "@mantine/core";
+import { CloseButton, Group, Modal, Title } from "@mantine/core";
 import { fn } from "storybook/test";
 import { UnconnectedView } from "./UnconnectedView.js";
 import { ServerListScreen } from "../../screens/ServerListScreen/ServerListScreen";
-import {
-  ServerSettingsForm,
-  type ServerSettingsSection,
-} from "../../groups/ServerSettingsForm/ServerSettingsForm";
-
-const ALL_SETTINGS_SECTIONS: ServerSettingsSection[] = [
-  "connectionMode",
-  "headers",
-  "metadata",
-  "timeouts",
-  "oauth",
-];
-import { ListToggle } from "../../elements/ListToggle/ListToggle";
+import { ServerSettingsForm } from "../../groups/ServerSettingsForm/ServerSettingsForm";
 import type { ServerCardProps } from "../../groups/ServerCard/ServerCard";
 
 const meta: Meta<typeof UnconnectedView> = {
@@ -125,10 +112,6 @@ export const WithServers: Story = {
 };
 
 function SettingsModalStory() {
-  const [expandedSections, setExpandedSections] = useState<
-    ServerSettingsSection[]
-  >(["connectionMode"]);
-  const allExpanded = expandedSections.length === ALL_SETTINGS_SECTIONS.length;
   return (
     <UnconnectedView onToggleTheme={fn()}>
       <ServerListScreen
@@ -149,19 +132,10 @@ function SettingsModalStory() {
         withCloseButton={false}
         title={
           <Group justify="space-between" wrap="nowrap" w="100%">
-            <ListToggle
-              compact={allExpanded}
-              variant="subtle"
-              onToggle={() =>
-                setExpandedSections(allExpanded ? [] : ALL_SETTINGS_SECTIONS)
-              }
-            />
             <Title order={4} ta="center" style={{ flex: 1 }}>
               Server Settings
             </Title>
-            <Box>
-              <CloseButton onClick={fn()} />
-            </Box>
+            <CloseButton onClick={fn()} />
           </Group>
         }
         size="lg"
@@ -182,8 +156,6 @@ function SettingsModalStory() {
             oauthClientSecret: "super-secret-value",
             oauthScopes: "read write",
           }}
-          expandedSections={expandedSections}
-          onExpandedSectionsChange={setExpandedSections}
           onConnectionModeChange={fn()}
           onAddHeader={fn()}
           onRemoveHeader={fn()}
