@@ -11,33 +11,16 @@ import {
   Textarea,
   Title,
 } from "@mantine/core";
-import type { SamplingMessage } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  CreateMessageRequestParams,
+  CreateMessageResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { MessageBubble } from "../../elements/MessageBubble/MessageBubble";
 
-export interface SamplingTool {
-  name: string;
-  description?: string;
-  inputSchema: Record<string, unknown>;
-}
-
 export interface SamplingRequestPanelProps {
-  messages: SamplingMessage[];
-  modelHints?: string[];
-  costPriority?: number;
-  speedPriority?: number;
-  intelligencePriority?: number;
-  maxTokens?: number;
-  stopSequences?: string[];
-  temperature?: number;
-  includeContext?: string;
-  tools?: SamplingTool[];
-  toolChoice?: string;
-  responseText: string;
-  modelUsed: string;
-  stopReason: string;
-  onResponseChange: (text: string) => void;
-  onModelChange: (model: string) => void;
-  onStopReasonChange: (reason: string) => void;
+  request: CreateMessageRequestParams;
+  draftResult: CreateMessageResult;
+  onResultChange: (result: CreateMessageResult) => void;
   onAutoRespond: () => void;
   onSend: () => void;
   onReject: () => void;
@@ -67,43 +50,32 @@ const PreferencesContainer = Paper.withProps({
   withBorder: true,
 });
 
-const ToolCard = Paper.withProps({
-  p: "xs",
-  withBorder: true,
-});
-
-const ToolName = Text.withProps({
-  size: "sm",
-  fw: 600,
-});
-
 const RejectButton = Button.withProps({
   variant: "light",
   color: "red",
 });
 
 export function SamplingRequestPanel({
-  messages,
-  modelHints,
-  costPriority,
-  speedPriority,
-  intelligencePriority,
-  maxTokens,
-  stopSequences,
-  temperature,
-  includeContext,
-  tools,
-  toolChoice,
-  responseText,
-  modelUsed,
-  stopReason,
-  onResponseChange,
-  onModelChange,
-  onStopReasonChange,
+  request,
+  draftResult,
+  onResultChange,
   onAutoRespond,
   onSend,
   onReject,
 }: SamplingRequestPanelProps) {
+  const {
+    messages,
+    modelPreferences,
+    maxTokens,
+    stopSequences,
+    temperature,
+    includeContext,
+  } = request;
+
+  const hints =
+    (modelPreferences?.hints?.map((h) => h.name).filter(Boolean) as string[]) ??
+    [];
+
   return (
     <Stack gap="md">
       <HintText>The server is requesting an LLM completion.</HintText>
@@ -113,29 +85,32 @@ export function SamplingRequestPanel({
         <MessageBubble key={index} index={index} message={message} />
       ))}
 
-      {modelHints && modelHints.length > 0 && (
+      {modelPreferences && (
         <PreferencesContainer>
           <Stack gap="xs">
             <Title order={5}>Model Preferences:</Title>
-            <Group gap="xs">
-              <Text size="sm">Hints:</Text>
-              {modelHints.map((hint) => (
-                <Badge key={hint}>{hint}</Badge>
-              ))}
-            </Group>
-            {costPriority !== undefined && (
+            {hints.length > 0 && (
+              <Group gap="xs">
+                <Text size="sm">Hints:</Text>
+                {hints.map((hint) => (
+                  <Badge key={hint}>{hint}</Badge>
+                ))}
+              </Group>
+            )}
+            {modelPreferences?.costPriority !== undefined && (
               <Text size="sm">
-                Cost Priority: {formatPriority(costPriority)}
+                Cost Priority: {formatPriority(modelPreferences.costPriority)}
               </Text>
             )}
-            {speedPriority !== undefined && (
+            {modelPreferences?.speedPriority !== undefined && (
               <Text size="sm">
-                Speed Priority: {formatPriority(speedPriority)}
+                Speed Priority: {formatPriority(modelPreferences.speedPriority)}
               </Text>
             )}
-            {intelligencePriority !== undefined && (
+            {modelPreferences?.intelligencePriority !== undefined && (
               <Text size="sm">
-                Intelligence Priority: {formatPriority(intelligencePriority)}
+                Intelligence Priority:{" "}
+                {formatPriority(modelPreferences.intelligencePriority)}
               </Text>
             )}
           </Stack>
@@ -161,40 +136,40 @@ export function SamplingRequestPanel({
         </Group>
       )}
 
-      {tools && tools.length > 0 && (
-        <>
-          <Title order={5}>Available Tools:</Title>
-          {tools.map((tool) => (
-            <ToolCard key={tool.name}>
-              <ToolName>{tool.name}</ToolName>
-              {tool.description && <Text size="sm">{tool.description}</Text>}
-            </ToolCard>
-          ))}
-        </>
-      )}
-
-      {toolChoice && <Text size="sm">Tool Choice: {toolChoice}</Text>}
-
       <Divider />
 
       <Title order={5}>Response:</Title>
       <Textarea
-        value={responseText}
-        onChange={(event) => onResponseChange(event.currentTarget.value)}
+        value={
+          draftResult.content.type === "text" ? draftResult.content.text : ""
+        }
+        onChange={(event) =>
+          onResultChange({
+            ...draftResult,
+            content: { type: "text", text: event.currentTarget.value },
+          })
+        }
         autosize
         minRows={3}
       />
       <Group>
         <TextInput
           label="Model Used"
-          value={modelUsed}
-          onChange={(event) => onModelChange(event.currentTarget.value)}
+          value={draftResult.model}
+          onChange={(event) =>
+            onResultChange({ ...draftResult, model: event.currentTarget.value })
+          }
         />
         <Select
           label="Stop Reason"
-          data={["end_turn", "max_tokens", "stop_sequence", "toolUse"]}
-          value={stopReason}
-          onChange={(value) => onStopReasonChange(value ?? "")}
+          data={["endTurn", "stopSequence", "maxTokens"]}
+          value={draftResult.stopReason ?? null}
+          onChange={(value) =>
+            onResultChange({
+              ...draftResult,
+              stopReason: value ?? undefined,
+            })
+          }
         />
       </Group>
       <Group justify="flex-end">

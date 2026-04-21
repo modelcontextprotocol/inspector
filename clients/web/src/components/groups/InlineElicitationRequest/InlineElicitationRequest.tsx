@@ -8,16 +8,17 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
-import type { JsonSchema } from "../SchemaForm/SchemaForm";
+import type {
+  ElicitRequest,
+  ElicitRequestFormParams,
+} from "@modelcontextprotocol/sdk/types.js";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
+import type { JsonSchema } from "../SchemaForm/SchemaForm";
 
 export interface InlineElicitationRequestProps {
-  mode: "form" | "url";
-  message: string;
+  request: ElicitRequest["params"];
   queuePosition: string;
-  schema?: JsonSchema;
   values?: Record<string, unknown>;
-  url?: string;
   isWaiting?: boolean;
   onChange: (values: Record<string, unknown>) => void;
   onSubmit: () => void;
@@ -49,19 +50,28 @@ const CompactButton = Button.withProps({
   variant: "light",
 });
 
-function getBadgeLabel(mode: "form" | "url"): string {
-  return mode === "form"
+function isFormMode(
+  request: ElicitRequest["params"],
+): request is ElicitRequestFormParams {
+  return "requestedSchema" in request;
+}
+
+function isUrlMode(
+  request: ElicitRequest["params"],
+): request is Extract<ElicitRequest["params"], { mode: "url" }> {
+  return "url" in request;
+}
+
+function getBadgeLabel(request: ElicitRequest["params"]): string {
+  return isFormMode(request)
     ? "elicitation/create (form)"
     : "elicitation/create (url)";
 }
 
 export function InlineElicitationRequest({
-  mode,
-  message,
+  request,
   queuePosition,
-  schema,
   values,
-  url,
   isWaiting,
   onChange,
   onSubmit,
@@ -71,23 +81,23 @@ export function InlineElicitationRequest({
     <RequestContainer>
       <Stack gap="sm">
         <Group justify="space-between">
-          <Badge color="violet">{getBadgeLabel(mode)}</Badge>
+          <Badge color="violet">{getBadgeLabel(request)}</Badge>
           <QueueLabel>{queuePosition}</QueueLabel>
         </Group>
 
-        <ItalicMessage>{message}</ItalicMessage>
+        <ItalicMessage>{request.message}</ItalicMessage>
 
-        {mode === "form" && schema && (
+        {isFormMode(request) && (
           <SchemaForm
-            schema={schema}
+            schema={request.requestedSchema as JsonSchema}
             values={values ?? {}}
             onChange={onChange}
           />
         )}
 
-        {mode === "url" && url && (
+        {isUrlMode(request) && (
           <>
-            <Code block>{url}</Code>
+            <Code block>{request.url}</Code>
             {isWaiting && (
               <Group>
                 <Loader size="xs" />
@@ -99,7 +109,7 @@ export function InlineElicitationRequest({
 
         <ActionsRow>
           <CompactButton onClick={onCancel}>Cancel</CompactButton>
-          {mode === "form" && (
+          {isFormMode(request) && (
             <Button size="xs" onClick={onSubmit}>
               Submit
             </Button>

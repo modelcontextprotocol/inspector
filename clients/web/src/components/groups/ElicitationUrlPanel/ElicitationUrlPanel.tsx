@@ -12,7 +12,7 @@ import {
 export interface ElicitationUrlPanelProps {
   message: string;
   url: string;
-  elicitationId: string;
+  requestId: string;
   isWaiting: boolean;
   onCopyUrl: () => void;
   onOpenInBrowser: () => void;
@@ -39,14 +39,14 @@ const MetaText = Text.withProps({
   c: "dimmed",
 });
 
-function formatElicitationId(id: string): string {
-  return `Elicitation ID: ${id}`;
+function formatRequestId(id: string): string {
+  return `Request ID: ${id}`;
 }
 
 export function ElicitationUrlPanel({
   message,
   url,
-  elicitationId,
+  requestId,
   isWaiting,
   onCopyUrl,
   onOpenInBrowser,
@@ -73,7 +73,7 @@ export function ElicitationUrlPanel({
           <HintText>Waiting for completion...</HintText>
         </Group>
       )}
-      <MetaText>{formatElicitationId(elicitationId)}</MetaText>
+      <MetaText>{formatRequestId(requestId)}</MetaText>
       <Alert color="yellow" title="Warning">
         This will open an external URL. Verify the domain before proceeding.
       </Alert>

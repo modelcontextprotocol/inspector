@@ -10,7 +10,7 @@ const meta: Meta<typeof ElicitationUrlPanel> = {
     onOpenInBrowser: fn(),
     onCancel: fn(),
     message: "Please authenticate with the external service.",
-    elicitationId: "elicit-abc-123",
+    requestId: "elicit-abc-123",
   },
 };
 
