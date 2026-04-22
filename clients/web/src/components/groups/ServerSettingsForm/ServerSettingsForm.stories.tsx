@@ -95,17 +95,14 @@ function InteractiveRender(args: ServerSettingsFormProps) {
           settings: { ...args.settings, [field]: value },
         });
       }}
-      onOAuthChange={(field, value) => {
-        args.onOAuthChange(field, value);
-        const fieldMap: Record<string, string> = {
-          clientId: "oauthClientId",
-          clientSecret: "oauthClientSecret",
-          scopes: "oauthScopes",
-        };
+      onOAuthChange={(oauth) => {
+        args.onOAuthChange(oauth);
         updateArgs({
           settings: {
             ...args.settings,
-            [fieldMap[field] ?? field]: value,
+            oauthClientId: oauth.clientId,
+            oauthClientSecret: oauth.clientSecret,
+            oauthScopes: oauth.scopes,
           },
         });
       }}

@@ -30,7 +30,13 @@ export interface ServerSettingsFormProps {
   onRemoveMetadata: (index: number) => void;
   onMetadataChange: (index: number, key: string, value: string) => void;
   onTimeoutChange: (field: string, value: number) => void;
-  onOAuthChange: (field: string, value: string) => void;
+  onOAuthChange: (oauth: OAuthSettings) => void;
+}
+
+export interface OAuthSettings {
+  clientId: string;
+  clientSecret: string;
+  scopes: string;
 }
 
 const CONNECTION_MODE_OPTIONS = [
@@ -112,6 +118,14 @@ export function ServerSettingsForm({
       typeof value === "string" ? parseInt(value, 10) || 0 : value;
     onTimeoutChange(field, numValue);
   };
+
+  function currentOAuth(): OAuthSettings {
+    return {
+      clientId: settings.oauthClientId ?? "",
+      clientSecret: settings.oauthClientSecret ?? "",
+      scopes: settings.oauthScopes ?? "",
+    };
+  }
 
   return (
     <Accordion
@@ -217,20 +231,33 @@ export function ServerSettingsForm({
             <TextInput
               label="Client ID"
               value={settings.oauthClientId ?? ""}
-              onChange={(e) => onOAuthChange("clientId", e.currentTarget.value)}
+              onChange={(e) =>
+                onOAuthChange({
+                  ...currentOAuth(),
+                  clientId: e.currentTarget.value,
+                })
+              }
             />
             <TextInput
               label="Client Secret"
               value={settings.oauthClientSecret ?? ""}
               type="password"
               onChange={(e) =>
-                onOAuthChange("clientSecret", e.currentTarget.value)
+                onOAuthChange({
+                  ...currentOAuth(),
+                  clientSecret: e.currentTarget.value,
+                })
               }
             />
             <TextInput
               label="Scopes"
               value={settings.oauthScopes ?? ""}
-              onChange={(e) => onOAuthChange("scopes", e.currentTarget.value)}
+              onChange={(e) =>
+                onOAuthChange({
+                  ...currentOAuth(),
+                  scopes: e.currentTarget.value,
+                })
+              }
             />
           </Stack>
         </Accordion.Panel>

@@ -5,6 +5,7 @@ import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import {
   ServerSettingsForm,
   type ServerSettingsSection,
+  type OAuthSettings,
 } from "../ServerSettingsForm/ServerSettingsForm";
 
 const ALL_SECTIONS: ServerSettingsSection[] = [
@@ -88,14 +89,13 @@ export function ServerSettingsModal({
     onSettingsChange({ ...settings, [field]: value });
   }
 
-  function handleOAuthChange(field: string, value: string) {
-    const oauthFieldMap: Record<string, string> = {
-      clientId: "oauthClientId",
-      clientSecret: "oauthClientSecret",
-      scopes: "oauthScopes",
-    };
-    const settingsKey = oauthFieldMap[field] ?? field;
-    onSettingsChange({ ...settings, [settingsKey]: value });
+  function handleOAuthChange(oauth: OAuthSettings) {
+    onSettingsChange({
+      ...settings,
+      oauthClientId: oauth.clientId,
+      oauthClientSecret: oauth.clientSecret,
+      oauthScopes: oauth.scopes,
+    });
   }
 
   return (
