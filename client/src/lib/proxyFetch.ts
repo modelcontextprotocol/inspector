@@ -99,16 +99,36 @@ export function createProxyFetch(config: InspectorConfig): typeof fetch {
           ? input.url
           : input.toString();
 
+    // Extract Request semantics when input is a Request object.
+    // init overrides take precedence so callers can still customize.
+    const method =
+      init?.method ?? (input instanceof Request ? input.method : undefined);
+    const headers = init?.headers
+      ? Object.fromEntries(new Headers(init.headers))
+      : input instanceof Request
+        ? Object.fromEntries(new Headers(input.headers))
+        : undefined;
+    let body: string | undefined;
+    if (init?.body != null) {
+      if (typeof init.body === "string") {
+        body = init.body;
+      } else if (init.body instanceof URLSearchParams) {
+        body = init.body.toString();
+      } else {
+        body = String(init.body);
+      }
+    } else if (input instanceof Request && input.body !== null) {
+      body = String(input.body);
+    }
+
     // Serialize body for JSON transport. URLSearchParams and similar don't
     // JSON-serialize (they become {}), so we must convert to string first.
     let serializedBody: string | undefined;
-    if (init?.body != null) {
-      if (typeof init.body === "string") {
-        serializedBody = init.body;
-      } else if (init.body instanceof URLSearchParams) {
-        serializedBody = init.body.toString();
+    if (body != null) {
+      if (typeof body === "string") {
+        serializedBody = body;
       } else {
-        serializedBody = String(init.body);
+        serializedBody = String(body);
       }
     }
 
@@ -121,10 +141,8 @@ export function createProxyFetch(config: InspectorConfig): typeof fetch {
       body: JSON.stringify({
         url,
         init: {
-          method: init?.method,
-          headers: init?.headers
-            ? Object.fromEntries(new Headers(init.headers))
-            : undefined,
+          method,
+          headers,
           body: serializedBody,
         },
       }),
