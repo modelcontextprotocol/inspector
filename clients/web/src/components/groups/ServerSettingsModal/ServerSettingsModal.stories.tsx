@@ -1,8 +1,12 @@
-import { useState } from "react";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { AppShell } from "@mantine/core";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ServerSettingsModal } from "./ServerSettingsModal";
+import { fn } from "storybook/test";
+import { useArgs } from "storybook/preview-api";
+import {
+  ServerSettingsModal,
+  type ServerSettingsModalProps,
+} from "./ServerSettingsModal";
 
 const initialSettings: InspectorServerSettings = {
   connectionMode: "proxy",
@@ -18,22 +22,18 @@ const initialSettings: InspectorServerSettings = {
   oauthScopes: "read write",
 };
 
-function InteractiveModal({
-  startSettings,
-}: {
-  startSettings: InspectorServerSettings;
-}) {
-  const [settings, setSettings] =
-    useState<InspectorServerSettings>(startSettings);
+function InteractiveRender(args: ServerSettingsModalProps) {
+  const [, updateArgs] = useArgs<ServerSettingsModalProps>();
 
   return (
     <AppShell>
       <AppShell.Main>
         <ServerSettingsModal
-          opened
-          settings={settings}
-          onClose={() => {}}
-          onSettingsChange={setSettings}
+          {...args}
+          onSettingsChange={(settings) => {
+            args.onSettingsChange(settings);
+            updateArgs({ settings });
+          }}
         />
       </AppShell.Main>
     </AppShell>
@@ -44,25 +44,31 @@ const meta: Meta<typeof ServerSettingsModal> = {
   title: "Groups/ServerSettingsModal",
   component: ServerSettingsModal,
   parameters: { layout: "fullscreen" },
+  render: InteractiveRender,
+  args: {
+    opened: true,
+    onClose: fn(),
+    onSettingsChange: fn(),
+  },
 };
 
 export default meta;
 type Story = StoryObj<typeof ServerSettingsModal>;
 
 export const FullyConfigured: Story = {
-  render: () => <InteractiveModal startSettings={initialSettings} />,
+  args: {
+    settings: initialSettings,
+  },
 };
 
 export const EmptySettings: Story = {
-  render: () => (
-    <InteractiveModal
-      startSettings={{
-        connectionMode: "proxy",
-        headers: [],
-        metadata: [],
-        connectionTimeout: 30000,
-        requestTimeout: 60000,
-      }}
-    />
-  ),
+  args: {
+    settings: {
+      connectionMode: "proxy",
+      headers: [],
+      metadata: [],
+      connectionTimeout: 30000,
+      requestTimeout: 60000,
+    },
+  },
 };
