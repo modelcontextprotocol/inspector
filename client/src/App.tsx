@@ -483,6 +483,7 @@ const App = () => {
         "roots",
         "auth",
         "metadata",
+        "protocol-builder",
       ];
 
       const isValidTab = validTabs.includes(hash);
@@ -817,6 +818,7 @@ const App = () => {
             "roots",
             "auth",
             "metadata",
+            "protocol-builder",
           ];
 
           if (validTabs.includes(originatingTab)) {
