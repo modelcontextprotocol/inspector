@@ -1,4 +1,5 @@
 import { Group, Paper, Text } from "@mantine/core";
+import { useMediaQuery } from "@mantine/hooks";
 import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
 
 export interface ServerStatusIndicatorProps {
@@ -42,13 +43,16 @@ export function ServerStatusIndicator({
   latencyMs,
   retryCount,
 }: ServerStatusIndicatorProps) {
+  const showLabel = useMediaQuery("(min-width: 1200px)");
+  const label = getLabel(status, latencyMs, retryCount);
   return (
     <Group gap="xs">
       <Dot
         bg={statusColorVar[status]}
         className={status === "connecting" ? "inspector-pulse" : undefined}
+        title={showLabel ? undefined : label}
       />
-      <Text size="sm">{getLabel(status, latencyMs, retryCount)}</Text>
+      {showLabel && <Text size="sm">{label}</Text>}
     </Group>
   );
 }
