@@ -1,7 +1,8 @@
-import { useEffect } from "react";
-import { Badge, Button, Card, Group, Menu, Stack, Text } from "@mantine/core";
+import { Badge, Button, Card, Group, Stack, Text } from "@mantine/core";
+import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
 import type {
-  ConnectionStatus,
+  ConnectionState,
+  MCPServerConfig,
   ServerType,
 } from "@inspector/core/mcp/types.js";
 import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/ServerStatusIndicator";
@@ -11,36 +12,33 @@ import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { InlineError } from "../../elements/InlineError/InlineError";
 
 export interface ServerCardProps {
+  /** Stable unique identifier — the MCPConfig.mcpServers map key. */
+  id: string;
+  /** Display label shown in the card header. May or may not equal id. */
   name: string;
-  version?: string;
-  transport: ServerType;
-  connectionMode: string;
-  command: string;
-  status: ConnectionStatus;
-  retryCount?: number;
-  error?: { message: string; details?: string };
-  canTestClientFeatures: boolean;
+  config: MCPServerConfig;
+  info?: Implementation;
+  connection: ConnectionState;
   activeServer?: string;
-  onSetActiveServer?: (name: string | undefined) => void;
-  onToggleConnection: (connect: boolean) => void;
-  onServerInfo: () => void;
-  onSettings: () => void;
-  onEdit: () => void;
-  onClone: () => void;
-  onRemove: () => void;
-  onTestSampling?: () => void;
-  onTestElicitationForm?: () => void;
-  onTestElicitationUrl?: () => void;
-  onConfigureRoots?: () => void;
+  onToggleConnection: (id: string) => void;
+  onServerInfo: (id: string) => void;
+  onSettings: (id: string) => void;
+  onEdit: (id: string) => void;
+  onClone: (id: string) => void;
+  onRemove: (id: string) => void;
   compact?: boolean;
 }
 
 const HeaderLeft = Group.withProps({
   gap: "sm",
+  wrap: "nowrap",
+  miw: 0,
+  flex: 1,
 });
 
 const HeaderRight = Group.withProps({
   gap: "sm",
+  wrap: "nowrap",
 });
 
 const ActionsRow = Group.withProps({
@@ -50,6 +48,9 @@ const ActionsRow = Group.withProps({
 const ServerName = Text.withProps({
   fw: 600,
   size: "lg",
+  truncate: "end",
+  miw: 0,
+  flex: 1,
 });
 
 const ModeText = Text.withProps({
@@ -68,48 +69,42 @@ const RemoveButton = Button.withProps({
   color: "red.6",
 });
 
+function getTransport(config: MCPServerConfig): ServerType {
+  return config.type ?? "stdio";
+}
+
+const TRANSPORT_DESCRIPTION: Record<ServerType, string> = {
+  stdio: "Standard I/O",
+  sse: "SSE (Server Sent Events) [deprecated]",
+  "streamable-http": "Streamable HTTP",
+};
+
+function getCommandOrUrl(config: MCPServerConfig): string {
+  if (config.type === "sse" || config.type === "streamable-http") {
+    return config.url;
+  }
+  return config.command;
+}
+
 export function ServerCard({
+  id,
   name,
-  version,
-  transport,
-  connectionMode,
-  command,
-  status,
-  retryCount,
-  error,
-  canTestClientFeatures,
+  config,
+  info,
+  connection,
   activeServer,
-  onSetActiveServer,
   onToggleConnection,
   onServerInfo,
   onSettings,
   onEdit,
   onClone,
   onRemove,
-  onTestSampling,
-  onTestElicitationForm,
-  onTestElicitationUrl,
-  onConfigureRoots,
   compact = false,
 }: ServerCardProps) {
-  const isThisConnecting = activeServer === name;
-  const isDimmed = activeServer !== undefined && activeServer !== name;
-  const displayStatus = isThisConnecting ? "connecting" : status;
-
-  useEffect(() => {
-    if (isThisConnecting) {
-      onToggleConnection(true);
-    }
-  }, [isThisConnecting, onToggleConnection]);
-
-  function handleToggle(connect: boolean) {
-    if (connect && !activeServer) {
-      onSetActiveServer?.(name);
-    } else if (!connect && activeServer && activeServer === name) {
-      onSetActiveServer?.(undefined);
-      onToggleConnection(false);
-    }
-  }
+  const isDimmed = activeServer !== undefined && activeServer !== id;
+  const transport = getTransport(config);
+  const commandOrUrl = getCommandOrUrl(config);
+  const version = info?.version;
 
   return (
     <Card
@@ -119,76 +114,59 @@ export function ServerCard({
       {...(isDimmed ? { "aria-disabled": true, inert: true } : {})}
     >
       <Stack gap="sm">
-        <Group justify="space-between" wrap="wrap">
+        <Group justify="space-between" wrap="nowrap">
           <HeaderLeft>
             <ServerName>{name}</ServerName>
-            {version && <Badge variant="outline">{version}</Badge>}
           </HeaderLeft>
           <HeaderRight>
             <ServerStatusIndicator
-              status={displayStatus}
-              retryCount={retryCount}
+              status={connection.status}
+              retryCount={connection.retryCount}
             />
             <ConnectionToggle
-              status={displayStatus}
+              status={connection.status}
               disabled={isDimmed}
-              onConnect={() => handleToggle(true)}
-              onDisconnect={() => handleToggle(false)}
+              onToggle={() => onToggleConnection(id)}
             />
           </HeaderRight>
         </Group>
 
         {!compact && (
           <>
-            <Group justify="space-between" mih={30}>
-              <Group gap="sm">
-                <TransportBadge transport={transport} />
-                <ModeText>{connectionMode}</ModeText>
-              </Group>
-              {canTestClientFeatures && (
-                <Menu>
-                  <Menu.Target>
-                    <SubtleButton>Test Client Features &#x25BE;</SubtleButton>
-                  </Menu.Target>
-                  <Menu.Dropdown>
-                    <Menu.Item onClick={onTestSampling}>
-                      Simulate Sampling Request
-                    </Menu.Item>
-                    <Menu.Item onClick={onTestElicitationForm}>
-                      Simulate Elicitation (Form)
-                    </Menu.Item>
-                    <Menu.Item onClick={onTestElicitationUrl}>
-                      Simulate Elicitation (URL)
-                    </Menu.Item>
-                    <Menu.Item onClick={onConfigureRoots}>
-                      Configure Roots
-                    </Menu.Item>
-                  </Menu.Dropdown>
-                </Menu>
-              )}
+            <Group gap="sm" mih={30}>
+              {version && <Badge variant="outline">{version}</Badge>}
+              <TransportBadge transport={transport} />
+              <ModeText>{TRANSPORT_DESCRIPTION[transport]}</ModeText>
             </Group>
 
-            <ContentViewer block={{ type: "text", text: command }} copyable />
+            <ContentViewer
+              block={{ type: "text", text: commandOrUrl }}
+              copyable
+            />
 
-            {error && (
+            {connection.error && (
               <InlineError
                 error={{
-                  message: error.message,
-                  data: error.details,
+                  message: connection.error.message,
+                  data: connection.error.details,
                 }}
-                retryCount={retryCount}
+                retryCount={connection.retryCount}
               />
             )}
 
             <Group justify="space-between">
               <ActionsRow>
-                <SubtleButton onClick={onClone}>Clone</SubtleButton>
-                <SubtleButton onClick={onEdit}>Edit</SubtleButton>
-                <RemoveButton onClick={onRemove}>Remove</RemoveButton>
+                <SubtleButton onClick={() => onClone(id)}>Clone</SubtleButton>
+                <SubtleButton onClick={() => onEdit(id)}>Edit</SubtleButton>
+                <RemoveButton onClick={() => onRemove(id)}>Remove</RemoveButton>
               </ActionsRow>
               <ActionsRow>
-                <SubtleButton onClick={onServerInfo}>Server Info</SubtleButton>
-                <SubtleButton onClick={onSettings}>Settings</SubtleButton>
+                <SubtleButton onClick={() => onServerInfo(id)}>
+                  Server Info
+                </SubtleButton>
+                <SubtleButton onClick={() => onSettings(id)}>
+                  Settings
+                </SubtleButton>
               </ActionsRow>
             </Group>
           </>

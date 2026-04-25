@@ -283,12 +283,10 @@ Server connection card with status, transport, command, and action buttons.
 | `name` | `string` | Server name |
 | `version` | `string?` | Server version |
 | `transport` | `'stdio' \| 'http'` | Transport type |
-| `connectionMode` | `string` | "Via Proxy" or "Direct" |
 | `command` | `string` | Command or URL |
 | `status` | `'connected' \| 'connecting' \| 'disconnected' \| 'failed'` | Connection state |
 | `retryCount` | `number?` | Failed retry count |
 | `error` | `{ message: string; details?: string }?` | Error info |
-| `canTestClientFeatures` | `boolean` | Show "Test Client Features" dropdown |
 | `onToggleConnection` | `(connect: boolean) => void` | Connect/disconnect |
 | `onCopyCommand` | `() => void` | Copy command |
 | `onServerInfo` | `() => void` | View server info |
@@ -296,14 +294,10 @@ Server connection card with status, transport, command, and action buttons.
 | `onEdit` | `() => void` | Edit server |
 | `onClone` | `() => void` | Clone server |
 | `onRemove` | `() => void` | Remove server |
-| `onTestSampling` | `() => void` | Test sampling |
-| `onTestElicitationForm` | `() => void` | Test elicitation (form) |
-| `onTestElicitationUrl` | `() => void` | Test elicitation (URL) |
-| `onConfigureRoots` | `() => void` | Configure roots |
 
-**Mantine:** `Card` with `Card.Section` dividers. Uses StatusIndicator, TransportBadge, ConnectionToggle, CopyButton, InlineError elements. `Menu` for "Test Client Features" dropdown.
+**Mantine:** `Card` with `Card.Section` dividers. Uses StatusIndicator, TransportBadge, ConnectionToggle, CopyButton, InlineError elements.
 
-**Stories:** Connected, Disconnected, Connecting, Failed, FailedWithError, WithClientFeatures, HttpDirect, LongCommand
+**Stories:** Connected, Disconnected, Connecting, Failed, FailedWithError, HttpDirect, LongCommand
 
 ---
 
@@ -679,11 +673,10 @@ Server metadata, capabilities, and instructions display (modal body content).
 
 ### 2.20 ServerSettingsForm
 
-Server settings form with connection mode, headers, metadata, timeouts, and OAuth.
+Server settings form with headers, metadata, timeouts, and OAuth.
 
 | Prop | Type | Description |
 |------|------|-------------|
-| `connectionMode` | `'proxy' \| 'direct'` | Connection mode |
 | `headers` | `Array<{ key: string; value: string }>` | Custom headers |
 | `metadata` | `Array<{ key: string; value: string }>` | Request metadata |
 | `connectionTimeout` | `number` | Connection timeout ms |

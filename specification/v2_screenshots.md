@@ -81,11 +81,6 @@ Request history with replay and pin functionality.
 
 ## Client Feature Handlers
 
-### Test Client Features Dropdown
-Menu for testing client capabilities (Sampling, Elicitation, Roots).
-
-![Client Features Dropdown](screenshots/shadcn-clientfeatures-dropdown.png)
-
 ### Sampling Panel
 Handler for `sampling/createMessage` requests with mock response input.
 

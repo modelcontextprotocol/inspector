@@ -4,50 +4,37 @@ import {
   Button,
   Group,
   NumberInput,
-  Select,
   Stack,
   Text,
   TextInput,
 } from "@mantine/core";
-
-export interface KeyValuePair {
-  key: string;
-  value: string;
-}
+import type {
+  InspectorServerSettings,
+  OAuthSettings,
+} from "@inspector/core/mcp/types.js";
 
 export type ServerSettingsSection =
-  | "connectionMode"
   | "headers"
   | "metadata"
   | "timeouts"
   | "oauth";
 
 export interface ServerSettingsFormProps {
-  connectionMode: "proxy" | "direct";
-  headers: KeyValuePair[];
-  metadata: KeyValuePair[];
-  connectionTimeout: number;
-  requestTimeout: number;
-  oauthClientId?: string;
-  oauthClientSecret?: string;
-  oauthScopes?: string;
+  settings: InspectorServerSettings;
   expandedSections: ServerSettingsSection[];
   onExpandedSectionsChange: (sections: ServerSettingsSection[]) => void;
-  onConnectionModeChange: (mode: string) => void;
   onAddHeader: () => void;
   onRemoveHeader: (index: number) => void;
   onHeaderChange: (index: number, key: string, value: string) => void;
   onAddMetadata: () => void;
   onRemoveMetadata: (index: number) => void;
   onMetadataChange: (index: number, key: string, value: string) => void;
-  onTimeoutChange: (field: string, value: number) => void;
-  onOAuthChange: (field: string, value: string) => void;
+  onTimeoutChange: (
+    field: "connectionTimeout" | "requestTimeout",
+    value: number,
+  ) => void;
+  onOAuthChange: (oauth: OAuthSettings) => void;
 }
-
-const CONNECTION_MODE_OPTIONS = [
-  { value: "proxy", label: "Via Proxy" },
-  { value: "direct", label: "Direct" },
-];
 
 const RemoveIcon = ActionIcon.withProps({
   color: "red",
@@ -75,7 +62,7 @@ function KeyValueRows({
   onChange,
   onRemove,
 }: {
-  items: KeyValuePair[];
+  items: { key: string; value: string }[];
   onChange: (index: number, key: string, value: string) => void;
   onRemove: (index: number) => void;
 }) {
@@ -105,17 +92,9 @@ function KeyValueRows({
 }
 
 export function ServerSettingsForm({
-  connectionMode,
-  headers,
-  metadata,
-  connectionTimeout,
-  requestTimeout,
-  oauthClientId,
-  oauthClientSecret,
-  oauthScopes,
+  settings,
   expandedSections,
   onExpandedSectionsChange,
-  onConnectionModeChange,
   onAddHeader,
   onRemoveHeader,
   onHeaderChange,
@@ -125,11 +104,21 @@ export function ServerSettingsForm({
   onTimeoutChange,
   onOAuthChange,
 }: ServerSettingsFormProps) {
-  const handleTimeoutChange = (field: string) => (value: number | string) => {
-    const numValue =
-      typeof value === "string" ? parseInt(value, 10) || 0 : value;
-    onTimeoutChange(field, numValue);
-  };
+  const handleTimeoutChange =
+    (field: "connectionTimeout" | "requestTimeout") =>
+    (value: number | string) => {
+      const numValue =
+        typeof value === "string" ? parseInt(value, 10) || 0 : value;
+      onTimeoutChange(field, numValue);
+    };
+
+  function currentOAuth(): OAuthSettings {
+    return {
+      clientId: settings.oauthClientId ?? "",
+      clientSecret: settings.oauthClientSecret ?? "",
+      scopes: settings.oauthScopes ?? "",
+    };
+  }
 
   return (
     <Accordion
@@ -140,24 +129,6 @@ export function ServerSettingsForm({
       }
       variant="separated"
     >
-      <Accordion.Item value="connectionMode">
-        <Accordion.Control>Connection Mode</Accordion.Control>
-        <Accordion.Panel>
-          <Select
-            data={CONNECTION_MODE_OPTIONS}
-            value={connectionMode}
-            onChange={(value) => {
-              if (value) onConnectionModeChange(value);
-            }}
-            description={
-              connectionMode === "proxy"
-                ? "Route through inspector proxy (required for STDIO)"
-                : undefined
-            }
-          />
-        </Accordion.Panel>
-      </Accordion.Item>
-
       <Accordion.Item value="headers">
         <Accordion.Control>Custom Headers</Accordion.Control>
         <Accordion.Panel>
@@ -168,11 +139,11 @@ export function ServerSettingsForm({
               </HintText>
               <AddButton onClick={onAddHeader}>+ Add Header</AddButton>
             </Group>
-            {headers.length === 0 ? (
+            {settings.headers.length === 0 ? (
               <EmptyHint>No custom headers configured</EmptyHint>
             ) : (
               <KeyValueRows
-                items={headers}
+                items={settings.headers}
                 onChange={onHeaderChange}
                 onRemove={onRemoveHeader}
               />
@@ -191,11 +162,11 @@ export function ServerSettingsForm({
               </HintText>
               <AddButton onClick={onAddMetadata}>+ Add Metadata</AddButton>
             </Group>
-            {metadata.length === 0 ? (
+            {settings.metadata.length === 0 ? (
               <EmptyHint>No request metadata configured</EmptyHint>
             ) : (
               <KeyValueRows
-                items={metadata}
+                items={settings.metadata}
                 onChange={onMetadataChange}
                 onRemove={onRemoveMetadata}
               />
@@ -211,13 +182,13 @@ export function ServerSettingsForm({
             <NumberInput
               label="Connection Timeout"
               suffix=" ms"
-              value={connectionTimeout}
+              value={settings.connectionTimeout}
               onChange={handleTimeoutChange("connectionTimeout")}
             />
             <NumberInput
               label="Request Timeout"
               suffix=" ms"
-              value={requestTimeout}
+              value={settings.requestTimeout}
               onChange={handleTimeoutChange("requestTimeout")}
             />
           </Group>
@@ -234,21 +205,34 @@ export function ServerSettingsForm({
             </HintText>
             <TextInput
               label="Client ID"
-              value={oauthClientId ?? ""}
-              onChange={(e) => onOAuthChange("clientId", e.currentTarget.value)}
+              value={settings.oauthClientId ?? ""}
+              onChange={(e) =>
+                onOAuthChange({
+                  ...currentOAuth(),
+                  clientId: e.currentTarget.value,
+                })
+              }
             />
             <TextInput
               label="Client Secret"
-              value={oauthClientSecret ?? ""}
+              value={settings.oauthClientSecret ?? ""}
               type="password"
               onChange={(e) =>
-                onOAuthChange("clientSecret", e.currentTarget.value)
+                onOAuthChange({
+                  ...currentOAuth(),
+                  clientSecret: e.currentTarget.value,
+                })
               }
             />
             <TextInput
               label="Scopes"
-              value={oauthScopes ?? ""}
-              onChange={(e) => onOAuthChange("scopes", e.currentTarget.value)}
+              value={settings.oauthScopes ?? ""}
+              onChange={(e) =>
+                onOAuthChange({
+                  ...currentOAuth(),
+                  scopes: e.currentTarget.value,
+                })
+              }
             />
           </Stack>
         </Accordion.Panel>

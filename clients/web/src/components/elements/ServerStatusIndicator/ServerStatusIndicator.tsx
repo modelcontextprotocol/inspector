@@ -1,10 +1,15 @@
 import { Group, Paper, Text } from "@mantine/core";
+import { useMediaQuery } from "@mantine/hooks";
 import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
 
 export interface ServerStatusIndicatorProps {
   status: ConnectionStatus;
   latencyMs?: number;
   retryCount?: number;
+  // Override for the default viewport-based label visibility. Useful when
+  // the indicator renders inside a constrained container (sidebar, card)
+  // where the global media query doesn't reflect available space.
+  showLabel?: boolean;
 }
 
 const statusColorVar: Record<ConnectionStatus, string> = {
@@ -41,14 +46,19 @@ export function ServerStatusIndicator({
   status,
   latencyMs,
   retryCount,
+  showLabel: showLabelProp,
 }: ServerStatusIndicatorProps) {
+  const wideViewport = useMediaQuery("(min-width: 1200px)");
+  const showLabel = showLabelProp ?? wideViewport;
+  const label = getLabel(status, latencyMs, retryCount);
   return (
     <Group gap="xs">
       <Dot
         bg={statusColorVar[status]}
         className={status === "connecting" ? "inspector-pulse" : undefined}
+        title={showLabel ? undefined : label}
       />
-      <Text size="sm">{getLabel(status, latencyMs, retryCount)}</Text>
+      {showLabel && <Text size="sm">{label}</Text>}
     </Group>
   );
 }

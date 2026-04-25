@@ -7,7 +7,7 @@ export interface TransportBadgeProps {
 
 const transportLabel: Record<ServerType, string> = {
   stdio: "STDIO",
-  sse: "SSE",
+  sse: "HTTP",
   "streamable-http": "HTTP",
 };
 

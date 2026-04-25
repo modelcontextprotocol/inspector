@@ -1,5 +1,30 @@
+import type {
+  ClientCapabilities,
+  InitializeResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ServerInfoContent } from "./ServerInfoContent";
+
+const fullResult: InitializeResult = {
+  protocolVersion: "2025-03-26",
+  serverInfo: { name: "Everything Server", version: "2.1.0" },
+  capabilities: {
+    tools: { listChanged: true },
+    resources: { subscribe: true, listChanged: true },
+    prompts: { listChanged: true },
+    logging: {},
+    completions: {},
+  },
+  instructions:
+    "This server provides access to the project management system. Use the list_projects tool first to discover available projects before querying tasks. Rate limiting applies: max 60 requests per minute.",
+};
+
+const fullClientCaps: ClientCapabilities = {
+  roots: { listChanged: true },
+  sampling: {},
+  elicitation: {},
+  experimental: {},
+};
 
 const meta: Meta<typeof ServerInfoContent> = {
   title: "Groups/ServerInfoContent",
@@ -11,80 +36,54 @@ type Story = StoryObj<typeof ServerInfoContent>;
 
 export const FullCapabilities: Story = {
   args: {
-    name: "Everything Server",
-    version: "2.1.0",
-    protocolVersion: "2025-03-26",
+    initializeResult: fullResult,
+    clientCapabilities: fullClientCaps,
     transport: "stdio",
-    serverCapabilities: [
-      { capability: "tools", supported: true, count: 12 },
-      { capability: "resources", supported: true, count: 8 },
-      { capability: "prompts", supported: true, count: 5 },
-      { capability: "logging", supported: true },
-      { capability: "completions", supported: true },
-    ],
-    clientCapabilities: [
-      { capability: "roots", supported: true, count: 3 },
-      { capability: "sampling", supported: true },
-      { capability: "elicitation", supported: true },
-      { capability: "experimental", supported: true },
-    ],
   },
 };
 
 export const MinimalCapabilities: Story = {
   args: {
-    name: "Simple Server",
-    version: "1.0.0",
-    protocolVersion: "2025-03-26",
+    initializeResult: {
+      protocolVersion: "2025-03-26",
+      serverInfo: { name: "Simple Server", version: "1.0.0" },
+      capabilities: {
+        tools: { listChanged: false },
+      },
+    },
+    clientCapabilities: {
+      roots: { listChanged: true },
+    },
     transport: "streamable-http",
-    serverCapabilities: [
-      { capability: "tools", supported: true, count: 2 },
-      { capability: "resources", supported: false },
-      { capability: "prompts", supported: false },
-    ],
-    clientCapabilities: [
-      { capability: "roots", supported: true },
-      { capability: "sampling", supported: false },
-      { capability: "elicitation", supported: false },
-    ],
   },
 };
 
 export const WithInstructions: Story = {
   args: {
-    name: "Guided Server",
-    version: "1.5.0",
-    protocolVersion: "2025-03-26",
+    initializeResult: fullResult,
+    clientCapabilities: {
+      roots: { listChanged: true },
+      sampling: {},
+    },
     transport: "stdio",
-    serverCapabilities: [
-      { capability: "tools", supported: true, count: 4 },
-      { capability: "resources", supported: true, count: 2 },
-      { capability: "prompts", supported: true, count: 1 },
-    ],
-    clientCapabilities: [
-      { capability: "roots", supported: true },
-      { capability: "sampling", supported: true },
-    ],
-    instructions:
-      "This server provides access to the project management system. Use the list_projects tool first to discover available projects before querying tasks. Rate limiting applies: max 60 requests per minute.",
   },
 };
 
 export const WithOAuth: Story = {
   args: {
-    name: "Authenticated Server",
-    version: "3.0.0",
-    protocolVersion: "2025-03-26",
+    initializeResult: {
+      protocolVersion: "2025-03-26",
+      serverInfo: { name: "Authenticated Server", version: "3.0.0" },
+      capabilities: {
+        tools: { listChanged: true },
+        resources: { subscribe: true },
+      },
+    },
+    clientCapabilities: {
+      roots: { listChanged: true },
+    },
     transport: "streamable-http",
-    serverCapabilities: [
-      { capability: "tools", supported: true, count: 6 },
-      { capability: "resources", supported: true, count: 3 },
-    ],
-    clientCapabilities: [
-      { capability: "roots", supported: true },
-      { capability: "sampling", supported: false },
-    ],
-    oauthDetails: {
+    oauth: {
       authUrl: "https://auth.example.com/oauth2/authorize",
       scopes: ["read", "write", "admin"],
       accessToken: "eyJhbGciOiJSUzI1NiIs...truncated",

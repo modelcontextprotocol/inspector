@@ -5,19 +5,23 @@ import {
   Group,
   Image,
   SegmentedControl,
+  Select,
   Text,
   Title,
+  useComputedColorScheme,
 } from "@mantine/core";
-import { useComputedColorScheme } from "@mantine/core";
-import { MdLightMode, MdDarkMode } from "react-icons/md";
+import { useMediaQuery } from "@mantine/hooks";
+import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
+import { MdLightMode, MdDarkMode, MdLinkOff } from "react-icons/md";
+import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
 import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/ServerStatusIndicator";
 import mcpLogo from "../../../theme/assets/MCP.svg";
 import mcpLogoDark from "../../../theme/assets/MCP-dark.svg";
 
 interface ConnectedProps {
   connected: true;
-  serverName: string;
-  status: "connected" | "connecting" | "error";
+  serverInfo: Implementation;
+  status: ConnectionStatus;
   latencyMs?: number;
   activeTab: string;
   availableTabs: string[];
@@ -37,13 +41,13 @@ const HeaderBar = Group.withProps({
   h: "100%",
   px: "md",
   wrap: "nowrap",
-  gap: 0,
+  gap: "md",
 });
 
 const LeftSection = Group.withProps({
   gap: "md",
   wrap: "nowrap",
-  w: "33.33%",
+  flex: 1,
   miw: 0,
 });
 
@@ -64,17 +68,20 @@ const ServerName = Text.withProps({
   fw: 600,
   size: "lg",
   truncate: "end",
-  maw: "calc(100% - 40px)",
+  miw: 0,
+  flex: 1,
 });
 
 const CenterSection = Group.withProps({
-  w: "33.33%",
-  justify: "center",
+  wrap: "nowrap",
+  flex: "0 0 auto",
 });
 
 const RightSection = Group.withProps({
   gap: "sm",
-  w: "33.33%",
+  wrap: "nowrap",
+  flex: 1,
+  miw: 0,
   justify: "flex-end",
 });
 
@@ -82,6 +89,13 @@ const DisconnectButton = Button.withProps({
   variant: "subtle",
   c: "red",
   size: "sm",
+});
+
+const DisconnectIcon = ActionIcon.withProps({
+  variant: "subtle",
+  c: "red",
+  size: 36,
+  "aria-label": "Disconnect",
 });
 
 const ThemeToggle = ActionIcon.withProps({
@@ -99,6 +113,8 @@ const UnconnectedBar = Group.withProps({
 export function ViewHeader(props: ViewHeaderProps) {
   const colorScheme = useComputedColorScheme();
   const ThemeIcon = colorScheme === "dark" ? MdLightMode : MdDarkMode;
+  const showSegmented = useMediaQuery("(min-width: 992px)");
+  const showDisconnectLabel = useMediaQuery("(min-width: 768px)");
 
   if (!props.connected) {
     return (
@@ -120,16 +136,29 @@ export function ViewHeader(props: ViewHeaderProps) {
         <LogoLink>
           <LogoImage src={colorScheme === "dark" ? mcpLogoDark : mcpLogo} />
         </LogoLink>
-        <ServerName>{props.serverName}</ServerName>
+        <ServerName>{props.serverInfo.name}</ServerName>
       </LeftSection>
 
       <CenterSection>
-        <SegmentedControl
-          value={props.activeTab}
-          onChange={props.onTabChange}
-          data={props.availableTabs}
-          size="sm"
-        />
+        {showSegmented ? (
+          <SegmentedControl
+            value={props.activeTab}
+            onChange={props.onTabChange}
+            data={props.availableTabs}
+            size="sm"
+          />
+        ) : (
+          <Select
+            value={props.activeTab}
+            onChange={(value) => value && props.onTabChange(value)}
+            data={props.availableTabs}
+            size="sm"
+            allowDeselect={false}
+            // Sized to comfortably fit the longest current tab label
+            // ("Resources"). Revisit if longer tabs are added.
+            w={140}
+          />
+        )}
       </CenterSection>
 
       <RightSection>
@@ -137,9 +166,15 @@ export function ViewHeader(props: ViewHeaderProps) {
           status={props.status}
           latencyMs={props.latencyMs}
         />
-        <DisconnectButton onClick={props.onDisconnect}>
-          Disconnect
-        </DisconnectButton>
+        {showDisconnectLabel ? (
+          <DisconnectButton onClick={props.onDisconnect}>
+            Disconnect
+          </DisconnectButton>
+        ) : (
+          <DisconnectIcon onClick={props.onDisconnect} title="Disconnect">
+            <MdLinkOff size={20} />
+          </DisconnectIcon>
+        )}
         <ThemeToggle onClick={props.onToggleTheme}>
           <ThemeIcon size={20} />
         </ThemeToggle>
