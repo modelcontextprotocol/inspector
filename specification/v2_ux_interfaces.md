@@ -775,69 +775,49 @@ themselves — every callback passed down must originate in a core hook.
 
 ## Section 4 — Views (`clients/web/src/components/views/`)
 
-> Outer shell components that decide which screen to render based on
-> connection state (`ConnectedView`, `UnconnectedView`). They receive the full
-> Inspector core context and route to the appropriate screen.
+> Outer shell component that holds inspector-level state (active server,
+> connection status, current tab) and renders the appropriate screen.
+> Receives all screen data via props so a single view can drive the whole
+> application.
 
 <!-- AGENT:VIEWS -->
-### ConnectedView
+### InspectorView
 
-- **Location**: `views/ConnectedView/ConnectedView.tsx`
-- **Purpose**: Outer `AppShell` wrapper shown once a server session is live; renders `ViewHeader` in connected mode and slots the active screen into the main region via `children`.
-- **Current props**:
-  - `serverName: string`
-  - `status: "connected" | "connecting" | "failed"`
-  - `latencyMs?: number`
-  - `activeTab: string`
+- **Location**: `views/InspectorView/InspectorView.tsx`
+- **Purpose**: Single state-machine view that owns inspector-level state, switches `ViewHeader` between connected and unconnected modes, and renders the active screen based on the current tab. Replaces the prior `ConnectedView` / `UnconnectedView` pair (which awkwardly took `children`).
+- **Internal state**:
+  - `activeServer: string | undefined`
+  - `connectionStatus: ConnectionStatus`
+  - `initializeResult: InitializeResult | undefined`
+  - `latencyMs: number | undefined`
+  - `activeTab: string` (defaults to `"Servers"`; expands to all tabs once a server is connected)
   - `availableTabs: string[]`
-  - `onTabChange: (tab: string) => void`
-  - `onDisconnect: () => void`
-  - `onToggleTheme: () => void`
-  - `children: ReactNode`
-- **MCP schema touch points**:
-  - `Implementation` (server identity → `serverName`) from `InitializeResult.serverInfo`.
-  - `ServerCapabilities` from `InitializeResult.capabilities` — drives which tabs are available (tools/prompts/resources/logging/completions).
-  - `InitializeResult` as a whole is the natural handshake object to accept instead of loose strings.
-- **Target props**:
-  - `serverInfo: Implementation`
-  - `capabilities: ServerCapabilities`
-  - `connectionStatus: "connected" | "connecting" | "failed"` (app state, owned by core)
-  - `latencyMs?: number` (app state)
-  - `activeTab: InspectorTab` (app state; enum derived from capabilities)
-  - `availableTabs: InspectorTab[]` (app state; derived from `capabilities`)
-  - `onTabChange: (tab: InspectorTab) => void`
-  - `onDisconnect: () => void`
-  - `onToggleTheme: () => void`
-  - `children: ReactNode`
-- **Callbacks → core hook**:
-  - `onDisconnect` → `useConnection` (disconnect action).
-  - `onTabChange` → local UI state in the wiring layer (not an MCP call); wiring-layer `useState` (no dedicated hook yet) or screen-level state.
-  - `onToggleTheme` → app-level theme store, not a core hook.
-  - `connectionStatus`, `latencyMs`, `serverInfo`, `capabilities` → `useConnection` / `useInspectorClient` / `useServerCapabilities`.
-- **Internal refactors**:
-  - Replace flat `serverName` with `serverInfo.name` lookup; forward full `serverInfo` to `ViewHeader` once that group is updated.
-  - Compute/validate `availableTabs` against `capabilities` rather than accepting an arbitrary string list; narrow `activeTab`/`availableTabs` to an `InspectorTab` union.
-  - No transport or fetching logic; remains a pure shell routing children.
-
-### UnconnectedView
-
-- **Location**: `views/UnconnectedView/UnconnectedView.tsx`
-- **Purpose**: Outer `AppShell` wrapper shown when no MCP session is active; renders `ViewHeader` in disconnected mode and slots the server-list / connect screen into the main region via `children`.
+  - `logLevel: LoggingLevel`
+  - `autoScroll: boolean`
 - **Current props**:
-  - `children: ReactNode`
+  - `servers: ServerEntry[]`
+  - `tools: Tool[]`
+  - `prompts: Prompt[]`
+  - `resources: Resource[]`
+  - `resourceTemplates: ResourceTemplate[]`
+  - `subscriptions: InspectorResourceSubscription[]`
+  - `logs: LogEntryData[]`
+  - `tasks: Task[]`
+  - `progressByTaskId?: Record<string, TaskProgress>`
+  - `history: MessageEntry[]`
   - `onToggleTheme: () => void`
 - **MCP schema touch points**:
-  - None directly — no handshake has occurred. The view is intentionally MCP-schema-free and only hosts the connect flow.
-- **Target props**:
-  - `children: ReactNode`
-  - `onToggleTheme: () => void`
-  - (Optional future) `connectionStatus: "disconnected" | "connecting" | "failed"` if the header needs to surface retry state in this shell.
+  - `Implementation` / `InitializeResult` — produced internally on connect and forwarded to `ViewHeader`.
+  - `ServerCapabilities` — will eventually drive `availableTabs` (currently the view exposes all tabs once connected; capability-gating is a follow-up).
+  - All screen-data types (`Tool`, `Prompt`, `Resource`, `ResourceTemplate`, `Task`, `LoggingLevel`) flow straight through to the relevant screen.
 - **Callbacks → core hook**:
+  - Connection toggle (per-card) → `useConnection` (connect / disconnect actions).
   - `onToggleTheme` → app-level theme store, not a core hook.
-  - Any connect action rendered inside `children` (e.g. from `ServerListScreen`) → `useConnection` (connect action), not owned by this view.
-- **Internal refactors**:
-  - None required today; keep the shell minimal and let the embedded `ServerListScreen` own all connect/form state.
-  - Rename internal `HomeLayoutProps` to `UnconnectedViewProps` for consistency with the component name when the refactor lands.
+  - Per-screen handlers (`onCallTool`, `onGetPrompt`, `onReadResource`, `onSetLevel`, `onCancel` …) currently stubbed as `noop`; the wiring layer will replace these with hook calls (`useManagedTools`, `useManagedPrompts`, `useManagedResources`, `useLogging`, `useTasks`, `useHistory`).
+- **Internal refactors / follow-ups**:
+  - Compute `availableTabs` from `initializeResult.capabilities` instead of always exposing all tabs.
+  - Narrow `activeTab` / `availableTabs` to an `InspectorTab` union.
+  - Once core hooks land, the view should accept the hook outputs directly rather than receive bare arrays via props (stories will continue to pass fixtures).
 <!-- /AGENT:VIEWS -->
 
 ---
