@@ -154,6 +154,8 @@ export function ViewHeader(props: ViewHeaderProps) {
             data={props.availableTabs}
             size="sm"
             allowDeselect={false}
+            // Sized to comfortably fit the longest current tab label
+            // ("Resources"). Revisit if longer tabs are added.
             w={140}
           />
         )}

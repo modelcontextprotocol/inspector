@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { AppShell, Box, Stack, Transition } from "@mantine/core";
 import type {
   InitializeResult,
@@ -43,6 +43,12 @@ const ALL_TABS: string[] = [
 const SCREEN_ENTER_MS = 350;
 const SCREEN_EXIT_MS = 250;
 
+// Relative-positioned wrapper for the absolutely-positioned `ScreenStage`
+// children. `mih: "100%"` requires `AppShell.Main` to provide a definite
+// height for the stack itself to fill — the absolute children render
+// regardless, but nested ScrollArea screens need a non-collapsing parent
+// for their scroll containment to work. Revisit if Phase 3 reveals
+// scroll issues in real screens.
 const ScreenStageContainer = Stack.withProps({
   pos: "relative",
   gap: 0,
@@ -50,6 +56,13 @@ const ScreenStageContainer = Stack.withProps({
   mih: "100%",
 });
 
+// Wraps each screen in a Mantine Transition. With Transition's default
+// (`keepMounted={false}`), the outgoing screen unmounts after its exit
+// animation — any local screen state (search filters, scroll position,
+// expanded sections) is reset on tab switch. This matches the previous
+// `{activeTab === "X" && <Screen />}` behavior. If Phase 3 needs state
+// to persist across tab switches, add `keepMounted` to the Transition
+// below.
 function ScreenStage({
   active,
   children,
@@ -137,6 +150,10 @@ export function InspectorView({
   const [availableTabs, setAvailableTabs] = useState<string[]>([SERVERS_TAB]);
   const [logLevel, setLogLevel] = useState<LoggingLevel>("info");
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
+  // Tracks the in-flight stub handshake timer so rapid Connect→Connect
+  // toggles can cancel the previous attempt before it resolves and
+  // overwrites the new server's state.
+  const handshakeTimer = useRef<number | undefined>(undefined);
 
   // The view is the single source of truth for connection state. Any
   // `connection` field on incoming `serversInput` items is intentionally
@@ -163,6 +180,10 @@ export function InspectorView({
   );
 
   function disconnect() {
+    if (handshakeTimer.current !== undefined) {
+      window.clearTimeout(handshakeTimer.current);
+      handshakeTimer.current = undefined;
+    }
     setActiveServer(undefined);
     setConnectionStatus("disconnected");
     setInitializeResult(undefined);
@@ -185,6 +206,12 @@ export function InspectorView({
     const target = serversInput.find((s) => s.id === id);
     if (!target) return;
 
+    // Cancel any in-flight handshake so a rapid switch to a different
+    // server doesn't get overwritten by the previous server's resolver.
+    if (handshakeTimer.current !== undefined) {
+      window.clearTimeout(handshakeTimer.current);
+    }
+
     // Capture `start` at the "connecting" edge and compute observed
     // latency at the "connected" edge. Both edges are owned by this
     // handler so the timing is deterministic — no useEffect chain needed
@@ -199,7 +226,8 @@ export function InspectorView({
       STUB_MIN_DELAY_MS +
       Math.floor(Math.random() * (STUB_MAX_DELAY_MS - STUB_MIN_DELAY_MS + 1));
 
-    window.setTimeout(() => {
+    handshakeTimer.current = window.setTimeout(() => {
+      handshakeTimer.current = undefined;
       if (Math.random() < STUB_SUCCESS_RATE) {
         setInitializeResult({
           protocolVersion: "2025-06-18",
