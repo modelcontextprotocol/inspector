@@ -6,6 +6,10 @@ export interface ServerStatusIndicatorProps {
   status: ConnectionStatus;
   latencyMs?: number;
   retryCount?: number;
+  // Override for the default viewport-based label visibility. Useful when
+  // the indicator renders inside a constrained container (sidebar, card)
+  // where the global media query doesn't reflect available space.
+  showLabel?: boolean;
 }
 
 const statusColorVar: Record<ConnectionStatus, string> = {
@@ -42,8 +46,10 @@ export function ServerStatusIndicator({
   status,
   latencyMs,
   retryCount,
+  showLabel: showLabelProp,
 }: ServerStatusIndicatorProps) {
-  const showLabel = useMediaQuery("(min-width: 1200px)");
+  const wideViewport = useMediaQuery("(min-width: 1200px)");
+  const showLabel = showLabelProp ?? wideViewport;
   const label = getLabel(status, latencyMs, retryCount);
   return (
     <Group gap="xs">

@@ -98,3 +98,10 @@ export const MixedStates: Story = {
     ],
   },
 };
+
+export const WithActiveServer: Story = {
+  args: {
+    servers: [connectedStdioServer, disconnectedStdioServer, failedHttpServer],
+    activeServer: connectedStdioServer.id,
+  },
+};

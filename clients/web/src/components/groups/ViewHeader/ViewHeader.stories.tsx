@@ -32,7 +32,7 @@ export const Connected: Story = {
       "Resources",
       "Prompts",
       "Tasks",
-      "Logging",
+      "Logs",
       "History",
     ],
     onTabChange: fn(),

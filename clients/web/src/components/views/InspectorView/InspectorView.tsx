@@ -40,7 +40,23 @@ const ALL_TABS: string[] = [
   "History",
 ];
 
+// Demo stub: every screen-action callback below resolves to noop. Phase 3
+// wiring will replace each with its real `useManaged*` / `useConnection`
+// hook call. Anything still pointing here in Phase 3 is unfinished.
 const noop = () => undefined;
+
+// Demo stub: simulated handshake delays and a sample of plausible failure
+// reasons. Replace with real handshake telemetry once `useConnection` is wired.
+const STUB_MIN_DELAY_MS = 50;
+const STUB_MAX_DELAY_MS = 500;
+const STUB_SUCCESS_RATE = 0.85;
+const STUB_ERROR_MESSAGES = [
+  "Connection refused",
+  "Handshake timeout",
+  "Protocol version mismatch",
+  "Authentication required",
+  "Server returned invalid response",
+];
 
 export interface InspectorViewProps {
   servers: ServerEntry[];
@@ -78,24 +94,36 @@ export function InspectorView({
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("disconnected");
   const [latencyMs, setLatencyMs] = useState<number | undefined>(undefined);
+  const [errorMessage, setErrorMessage] = useState<string | undefined>(
+    undefined,
+  );
   const [activeTab, setActiveTab] = useState<string>(SERVERS_TAB);
   const [availableTabs, setAvailableTabs] = useState<string[]>([SERVERS_TAB]);
   const [logLevel, setLogLevel] = useState<LoggingLevel>("info");
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
 
-  // Per-card connection state derives from "is this the active server,
-  // and what's our current global connection status?". Cards that aren't
-  // the active server always render as disconnected.
+  // The view is the single source of truth for connection state. Any
+  // `connection` field on incoming `serversInput` items is intentionally
+  // ignored — cards mirror the global `connectionStatus` for the active
+  // server and render as `disconnected` otherwise.
   const servers = useMemo<ServerEntry[]>(
     () =>
-      serversInput.map((s) => ({
-        ...s,
-        connection:
-          s.id === activeServer
-            ? { status: connectionStatus }
-            : { status: "disconnected" },
-      })),
-    [serversInput, activeServer, connectionStatus],
+      serversInput.map((s) => {
+        if (s.id !== activeServer) {
+          return { ...s, connection: { status: "disconnected" } };
+        }
+        if (connectionStatus === "error" && errorMessage) {
+          return {
+            ...s,
+            connection: {
+              status: "error",
+              error: { message: errorMessage },
+            },
+          };
+        }
+        return { ...s, connection: { status: connectionStatus } };
+      }),
+    [serversInput, activeServer, connectionStatus, errorMessage],
   );
 
   function disconnect() {
@@ -103,10 +131,16 @@ export function InspectorView({
     setConnectionStatus("disconnected");
     setInitializeResult(undefined);
     setLatencyMs(undefined);
+    setErrorMessage(undefined);
     setAvailableTabs([SERVERS_TAB]);
     setActiveTab(SERVERS_TAB);
   }
 
+  // Demo stub: simulates the full connect → connecting → connected/error
+  // transition with a randomized handshake delay. Real wiring will dispatch
+  // `useConnection.connect(id)` and let the hook drive these state changes.
+  // The `protocolVersion`, `capabilities`, and `serverInfo` populated below
+  // are placeholders until a real `InitializeResult` arrives from the server.
   function handleToggleConnection(id: string) {
     if (id === activeServer && connectionStatus === "connected") {
       disconnect();
@@ -114,15 +148,40 @@ export function InspectorView({
     }
     const target = serversInput.find((s) => s.id === id);
     if (!target) return;
+
+    // Capture `start` at the "connecting" edge and compute observed
+    // latency at the "connected" edge. Both edges are owned by this
+    // handler so the timing is deterministic — no useEffect chain needed
+    // (which would otherwise trip `react-hooks/set-state-in-effect`).
+    const start = Date.now();
     setActiveServer(id);
-    setConnectionStatus("connected");
-    setInitializeResult({
-      protocolVersion: "2025-06-18",
-      capabilities: {},
-      serverInfo: target.info ?? { name: target.name, version: "0.0.0" },
-    });
-    setLatencyMs(42);
-    setAvailableTabs(ALL_TABS);
+    setLatencyMs(undefined);
+    setErrorMessage(undefined);
+    setConnectionStatus("connecting");
+
+    const delay =
+      STUB_MIN_DELAY_MS +
+      Math.floor(Math.random() * (STUB_MAX_DELAY_MS - STUB_MIN_DELAY_MS + 1));
+
+    window.setTimeout(() => {
+      if (Math.random() < STUB_SUCCESS_RATE) {
+        setInitializeResult({
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          serverInfo: target.info ?? { name: target.name, version: "0.0.0" },
+        });
+        setAvailableTabs(ALL_TABS);
+        setLatencyMs(Date.now() - start);
+        setConnectionStatus("connected");
+      } else {
+        setErrorMessage(
+          STUB_ERROR_MESSAGES[
+            Math.floor(Math.random() * STUB_ERROR_MESSAGES.length)
+          ],
+        );
+        setConnectionStatus("error");
+      }
+    }, delay);
   }
 
   return (
