@@ -90,7 +90,7 @@ export function ServerInfoContent({
         <ValueText>{serverInfo.name}</ValueText>
 
         <Text size="sm">Version</Text>
-        <ValueText>{serverInfo.version}</ValueText>
+        <ValueText>{serverInfo.version ?? "—"}</ValueText>
 
         <Text size="sm">Protocol</Text>
         <ValueText>{protocolVersion}</ValueText>

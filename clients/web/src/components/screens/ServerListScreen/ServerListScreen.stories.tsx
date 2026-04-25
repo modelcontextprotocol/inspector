@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
-import { ServerListScreen } from "./ServerListScreen";
-import type { ServerCardProps } from "../../groups/ServerCard/ServerCard";
+import { ServerListScreen, type ServerEntry } from "./ServerListScreen";
 
 const meta: Meta<typeof ServerListScreen> = {
   title: "Screens/ServerListScreen",
@@ -11,64 +10,40 @@ const meta: Meta<typeof ServerListScreen> = {
     onAddManually: fn(),
     onImportConfig: fn(),
     onImportServerJson: fn(),
-  },
-};
-
-export default meta;
-type Story = StoryObj<typeof ServerListScreen>;
-
-function makeServerCallbacks(): Pick<
-  ServerCardProps,
-  | "onToggleConnection"
-  | "onServerInfo"
-  | "onSettings"
-  | "onEdit"
-  | "onClone"
-  | "onRemove"
-  | "onTestSampling"
-  | "onTestElicitationForm"
-  | "onTestElicitationUrl"
-  | "onConfigureRoots"
-> {
-  return {
     onToggleConnection: fn(),
     onServerInfo: fn(),
     onSettings: fn(),
     onEdit: fn(),
     onClone: fn(),
     onRemove: fn(),
-    onTestSampling: fn(),
-    onTestElicitationForm: fn(),
-    onTestElicitationUrl: fn(),
-    onConfigureRoots: fn(),
-  };
-}
+  },
+};
 
-const connectedStdioServer: ServerCardProps = {
+export default meta;
+type Story = StoryObj<typeof ServerListScreen>;
+
+const connectedStdioServer: ServerEntry = {
+  id: "5e8c3d1f-2a4b-4c6d-8e7f-1a2b3c4d5e6f",
   name: "Local Dev Server",
   config: {
     command: "npx @modelcontextprotocol/server-filesystem /home/user/projects",
   },
   info: { name: "Local Dev Server", version: "1.2.0" },
   connection: { status: "connected" },
-  connectionMode: "Direct",
-  canTestClientFeatures: true,
-  ...makeServerCallbacks(),
 };
 
-const disconnectedStdioServer: ServerCardProps = {
+const disconnectedStdioServer: ServerEntry = {
+  id: "b3a7c1d2-9f8e-4a5b-bc6d-7e8f9a0b1c2d",
   name: "Database Tools",
   config: {
     command: "python -m mcp_server_sqlite --db-path ./data.db",
   },
   info: { name: "Database Tools", version: "0.9.1" },
   connection: { status: "disconnected" },
-  connectionMode: "Direct",
-  canTestClientFeatures: false,
-  ...makeServerCallbacks(),
 };
 
-const failedHttpServer: ServerCardProps = {
+const failedHttpServer: ServerEntry = {
+  id: "c4d5e6f7-8a9b-4c0d-9e1f-2a3b4c5d6e7f",
   name: "Remote API Server",
   config: {
     type: "streamable-http",
@@ -83,21 +58,16 @@ const failedHttpServer: ServerCardProps = {
       details: "ECONNREFUSED 127.0.0.1:8080 - The server may not be running.",
     },
   },
-  connectionMode: "Streamable HTTP",
-  canTestClientFeatures: false,
-  ...makeServerCallbacks(),
 };
 
-const connectingHttpServer: ServerCardProps = {
+const connectingHttpServer: ServerEntry = {
+  id: "d6e7f8a9-0b1c-4d2e-bf3a-4b5c6d7e8f90",
   name: "Staging Server",
   config: {
     type: "streamable-http",
     url: "https://staging.example.com/mcp",
   },
   connection: { status: "connecting" },
-  connectionMode: "Streamable HTTP",
-  canTestClientFeatures: false,
-  ...makeServerCallbacks(),
 };
 
 export const MultipleServers: Story = {

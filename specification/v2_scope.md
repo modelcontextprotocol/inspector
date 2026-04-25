@@ -49,10 +49,6 @@
   * SSE  
   * SHTTP  
 
-## Connection Type
-  * Direct   
-  * Via Proxy  
-
 ## Logging Level Control
   * Present and synchronized when connecting to server with logging capability  
 

@@ -184,12 +184,22 @@ export interface InspectorResourceSubscription {
 }
 
 /**
+ * OAuth credentials surfaced by the settings form. The form callback
+ * passes this whole object so callers don't have to thread per-field
+ * dispatches through stringly-typed key arguments.
+ */
+export interface OAuthSettings {
+  clientId: string;
+  clientSecret: string;
+  scopes: string;
+}
+
+/**
  * Runtime settings for a configured server. A subset of
  * InspectorClientOptions (v1.5) relevant to the settings form:
- * connection mode, headers, metadata, timeouts, and OAuth credentials.
+ * headers, metadata, timeouts, and OAuth credentials.
  */
 export interface InspectorServerSettings {
-  connectionMode: "proxy" | "direct";
   headers: { key: string; value: string }[];
   metadata: { key: string; value: string }[];
   connectionTimeout: number;

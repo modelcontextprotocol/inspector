@@ -8,7 +8,6 @@ import {
 } from "./ServerSettingsForm";
 
 const defaultSettings: InspectorServerSettings = {
-  connectionMode: "proxy",
   headers: [],
   metadata: [],
   connectionTimeout: 30000,
@@ -24,12 +23,6 @@ function InteractiveRender(args: ServerSettingsFormProps) {
       onExpandedSectionsChange={(sections) => {
         args.onExpandedSectionsChange(sections);
         updateArgs({ expandedSections: sections });
-      }}
-      onConnectionModeChange={(mode) => {
-        args.onConnectionModeChange(mode);
-        updateArgs({
-          settings: { ...args.settings, connectionMode: mode },
-        });
       }}
       onAddHeader={() => {
         args.onAddHeader();
@@ -115,9 +108,8 @@ const meta: Meta<typeof ServerSettingsForm> = {
   component: ServerSettingsForm,
   render: InteractiveRender,
   args: {
-    expandedSections: ["connectionMode"],
+    expandedSections: ["headers"],
     onExpandedSectionsChange: fn(),
-    onConnectionModeChange: fn(),
     onAddHeader: fn(),
     onRemoveHeader: fn(),
     onHeaderChange: fn(),
@@ -154,7 +146,6 @@ export const WithOAuth: Story = {
   args: {
     settings: {
       ...defaultSettings,
-      connectionMode: "direct",
       oauthClientId: "my-client-id",
       oauthClientSecret: "super-secret-value",
       oauthScopes: "read write admin",
@@ -165,7 +156,6 @@ export const WithOAuth: Story = {
 export const AllConfigured: Story = {
   args: {
     settings: {
-      connectionMode: "proxy",
       headers: [
         { key: "Authorization", value: "Bearer token-abc-123" },
         { key: "X-Request-Id", value: "req-456" },

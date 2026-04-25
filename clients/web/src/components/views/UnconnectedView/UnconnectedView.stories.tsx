@@ -3,9 +3,11 @@ import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import { UnconnectedView } from "./UnconnectedView.js";
-import { ServerListScreen } from "../../screens/ServerListScreen/ServerListScreen";
+import {
+  ServerListScreen,
+  type ServerEntry,
+} from "../../screens/ServerListScreen/ServerListScreen";
 import { ServerSettingsModal } from "../../groups/ServerSettingsModal/ServerSettingsModal";
-import type { ServerCardProps } from "../../groups/ServerCard/ServerCard";
 
 const meta: Meta<typeof UnconnectedView> = {
   title: "Views/UnconnectedView",
@@ -19,38 +21,29 @@ const meta: Meta<typeof UnconnectedView> = {
 export default meta;
 type Story = StoryObj<typeof UnconnectedView>;
 
-function makeServerCallbacks(): Pick<
-  ServerCardProps,
-  | "onToggleConnection"
-  | "onServerInfo"
-  | "onSettings"
-  | "onEdit"
-  | "onClone"
-  | "onRemove"
-> {
-  return {
-    onToggleConnection: fn(),
-    onServerInfo: fn(),
-    onSettings: fn(),
-    onEdit: fn(),
-    onClone: fn(),
-    onRemove: fn(),
-  };
-}
+const sharedScreenCallbacks = {
+  onAddManually: fn(),
+  onImportConfig: fn(),
+  onImportServerJson: fn(),
+  onToggleConnection: fn(),
+  onServerInfo: fn(),
+  onSettings: fn(),
+  onEdit: fn(),
+  onClone: fn(),
+  onRemove: fn(),
+};
 
 function makeStdioServer(
   name: string,
   version: string,
   command: string,
-): ServerCardProps {
+): ServerEntry {
   return {
+    id: crypto.randomUUID(),
     name,
     config: { command },
     info: { name, version },
     connection: { status: "disconnected" },
-    connectionMode: "Via Proxy",
-    canTestClientFeatures: false,
-    ...makeServerCallbacks(),
   };
 }
 
@@ -58,28 +51,19 @@ function makeHttpServer(
   name: string,
   version: string,
   url: string,
-): ServerCardProps {
+): ServerEntry {
   return {
+    id: crypto.randomUUID(),
     name,
     config: { type: "streamable-http", url },
     info: { name, version },
     connection: { status: "disconnected" },
-    connectionMode: "Direct",
-    canTestClientFeatures: false,
-    ...makeServerCallbacks(),
   };
 }
 
 export const Empty: Story = {
   args: {
-    children: (
-      <ServerListScreen
-        servers={[]}
-        onAddManually={fn()}
-        onImportConfig={fn()}
-        onImportServerJson={fn()}
-      />
-    ),
+    children: <ServerListScreen servers={[]} {...sharedScreenCallbacks} />,
   },
 };
 
@@ -104,9 +88,7 @@ export const WithServers: Story = {
             "https://api.example.com/mcp",
           ),
         ]}
-        onAddManually={fn()}
-        onImportConfig={fn()}
-        onImportServerJson={fn()}
+        {...sharedScreenCallbacks}
       />
     ),
   },
@@ -114,7 +96,6 @@ export const WithServers: Story = {
 
 function SettingsModalStory() {
   const [settings, setSettings] = useState<InspectorServerSettings>({
-    connectionMode: "proxy",
     headers: [
       { key: "Authorization", value: "Bearer token-abc-123" },
       { key: "X-Request-Id", value: "req-456" },
@@ -137,9 +118,7 @@ function SettingsModalStory() {
             "npx -y @modelcontextprotocol/server-everything",
           ),
         ]}
-        onAddManually={fn()}
-        onImportConfig={fn()}
-        onImportServerJson={fn()}
+        {...sharedScreenCallbacks}
       />
       <ServerSettingsModal
         opened
@@ -221,9 +200,7 @@ export const ManyServers: Story = {
             "npx -y @modelcontextprotocol/server-sequential-thinking",
           ),
         ]}
-        onAddManually={fn()}
-        onImportConfig={fn()}
-        onImportServerJson={fn()}
+        {...sharedScreenCallbacks}
       />
     ),
   },

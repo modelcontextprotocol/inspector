@@ -6,8 +6,7 @@ const meta: Meta<typeof ConnectionToggle> = {
   title: "Elements/ConnectionToggle",
   component: ConnectionToggle,
   args: {
-    onConnect: fn(),
-    onDisconnect: fn(),
+    onToggle: fn(),
   },
 };
 

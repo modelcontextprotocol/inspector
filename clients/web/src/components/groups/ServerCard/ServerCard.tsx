@@ -1,4 +1,4 @@
-import { Badge, Button, Card, Group, Menu, Stack, Text } from "@mantine/core";
+import { Badge, Button, Card, Group, Stack, Text } from "@mantine/core";
 import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
 import type {
   ConnectionState,
@@ -12,33 +12,33 @@ import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { InlineError } from "../../elements/InlineError/InlineError";
 
 export interface ServerCardProps {
+  /** Stable unique identifier — the MCPConfig.mcpServers map key. */
+  id: string;
+  /** Display label shown in the card header. May or may not equal id. */
   name: string;
   config: MCPServerConfig;
   info?: Implementation;
   connection: ConnectionState;
-  connectionMode: string;
-  canTestClientFeatures: boolean;
   activeServer?: string;
-  onSetActiveServer?: (name: string | undefined) => void;
-  onToggleConnection: (connect: boolean) => void;
-  onServerInfo: () => void;
-  onSettings: () => void;
-  onEdit: () => void;
-  onClone: () => void;
-  onRemove: () => void;
-  onTestSampling?: () => void;
-  onTestElicitationForm?: () => void;
-  onTestElicitationUrl?: () => void;
-  onConfigureRoots?: () => void;
+  onToggleConnection: (id: string) => void;
+  onServerInfo: (id: string) => void;
+  onSettings: (id: string) => void;
+  onEdit: (id: string) => void;
+  onClone: (id: string) => void;
+  onRemove: (id: string) => void;
   compact?: boolean;
 }
 
 const HeaderLeft = Group.withProps({
   gap: "sm",
+  wrap: "nowrap",
+  miw: 0,
+  flex: 1,
 });
 
 const HeaderRight = Group.withProps({
   gap: "sm",
+  wrap: "nowrap",
 });
 
 const ActionsRow = Group.withProps({
@@ -48,6 +48,9 @@ const ActionsRow = Group.withProps({
 const ServerName = Text.withProps({
   fw: 600,
   size: "lg",
+  truncate: "end",
+  miw: 0,
+  flex: 1,
 });
 
 const ModeText = Text.withProps({
@@ -70,6 +73,12 @@ function getTransport(config: MCPServerConfig): ServerType {
   return config.type ?? "stdio";
 }
 
+const TRANSPORT_DESCRIPTION: Record<ServerType, string> = {
+  stdio: "Standard I/O",
+  sse: "SSE (Server Sent Events) [deprecated]",
+  "streamable-http": "Streamable HTTP",
+};
+
 function getCommandOrUrl(config: MCPServerConfig): string {
   if (config.type === "sse" || config.type === "streamable-http") {
     return config.url;
@@ -78,27 +87,21 @@ function getCommandOrUrl(config: MCPServerConfig): string {
 }
 
 export function ServerCard({
+  id,
   name,
   config,
   info,
   connection,
-  connectionMode,
-  canTestClientFeatures,
   activeServer,
-  onSetActiveServer,
   onToggleConnection,
   onServerInfo,
   onSettings,
   onEdit,
   onClone,
   onRemove,
-  onTestSampling,
-  onTestElicitationForm,
-  onTestElicitationUrl,
-  onConfigureRoots,
   compact = false,
 }: ServerCardProps) {
-  const isDimmed = activeServer !== undefined && activeServer !== name;
+  const isDimmed = activeServer !== undefined && activeServer !== id;
   const transport = getTransport(config);
   const commandOrUrl = getCommandOrUrl(config);
   const version = info?.version;
@@ -111,10 +114,9 @@ export function ServerCard({
       {...(isDimmed ? { "aria-disabled": true, inert: true } : {})}
     >
       <Stack gap="sm">
-        <Group justify="space-between" wrap="wrap">
+        <Group justify="space-between" wrap="nowrap">
           <HeaderLeft>
             <ServerName>{name}</ServerName>
-            {version && <Badge variant="outline">{version}</Badge>}
           </HeaderLeft>
           <HeaderRight>
             <ServerStatusIndicator
@@ -124,46 +126,17 @@ export function ServerCard({
             <ConnectionToggle
               status={connection.status}
               disabled={isDimmed}
-              onConnect={() => {
-                onSetActiveServer?.(name);
-                onToggleConnection(true);
-              }}
-              onDisconnect={() => {
-                onSetActiveServer?.(undefined);
-                onToggleConnection(false);
-              }}
+              onToggle={() => onToggleConnection(id)}
             />
           </HeaderRight>
         </Group>
 
         {!compact && (
           <>
-            <Group justify="space-between" mih={30}>
-              <Group gap="sm">
-                <TransportBadge transport={transport} />
-                <ModeText>{connectionMode}</ModeText>
-              </Group>
-              {canTestClientFeatures && (
-                <Menu>
-                  <Menu.Target>
-                    <SubtleButton>Test Client Features &#x25BE;</SubtleButton>
-                  </Menu.Target>
-                  <Menu.Dropdown>
-                    <Menu.Item onClick={onTestSampling}>
-                      Simulate Sampling Request
-                    </Menu.Item>
-                    <Menu.Item onClick={onTestElicitationForm}>
-                      Simulate Elicitation (Form)
-                    </Menu.Item>
-                    <Menu.Item onClick={onTestElicitationUrl}>
-                      Simulate Elicitation (URL)
-                    </Menu.Item>
-                    <Menu.Item onClick={onConfigureRoots}>
-                      Configure Roots
-                    </Menu.Item>
-                  </Menu.Dropdown>
-                </Menu>
-              )}
+            <Group gap="sm" mih={30}>
+              {version && <Badge variant="outline">{version}</Badge>}
+              <TransportBadge transport={transport} />
+              <ModeText>{TRANSPORT_DESCRIPTION[transport]}</ModeText>
             </Group>
 
             <ContentViewer
@@ -183,13 +156,17 @@ export function ServerCard({
 
             <Group justify="space-between">
               <ActionsRow>
-                <SubtleButton onClick={onClone}>Clone</SubtleButton>
-                <SubtleButton onClick={onEdit}>Edit</SubtleButton>
-                <RemoveButton onClick={onRemove}>Remove</RemoveButton>
+                <SubtleButton onClick={() => onClone(id)}>Clone</SubtleButton>
+                <SubtleButton onClick={() => onEdit(id)}>Edit</SubtleButton>
+                <RemoveButton onClick={() => onRemove(id)}>Remove</RemoveButton>
               </ActionsRow>
               <ActionsRow>
-                <SubtleButton onClick={onServerInfo}>Server Info</SubtleButton>
-                <SubtleButton onClick={onSettings}>Settings</SubtleButton>
+                <SubtleButton onClick={() => onServerInfo(id)}>
+                  Server Info
+                </SubtleButton>
+                <SubtleButton onClick={() => onSettings(id)}>
+                  Settings
+                </SubtleButton>
               </ActionsRow>
             </Group>
           </>

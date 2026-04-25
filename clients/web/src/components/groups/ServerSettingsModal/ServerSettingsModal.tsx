@@ -1,15 +1,16 @@
 import { useState } from "react";
-import { CloseButton, Group, Modal, Title } from "@mantine/core";
-import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
+import { CloseButton, Group, Modal, Stack, Title } from "@mantine/core";
+import type {
+  InspectorServerSettings,
+  OAuthSettings,
+} from "@inspector/core/mcp/types.js";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import {
   ServerSettingsForm,
   type ServerSettingsSection,
-  type OAuthSettings,
 } from "../ServerSettingsForm/ServerSettingsForm";
 
 const ALL_SECTIONS: ServerSettingsSection[] = [
-  "connectionMode",
   "headers",
   "metadata",
   "timeouts",
@@ -31,16 +32,12 @@ export function ServerSettingsModal({
 }: ServerSettingsModalProps) {
   const [expandedSections, setExpandedSections] = useState<
     ServerSettingsSection[]
-  >(["connectionMode"]);
+  >(["headers"]);
 
   const allExpanded = expandedSections.length === ALL_SECTIONS.length;
 
   function handleToggleAll() {
     setExpandedSections(allExpanded ? [] : ALL_SECTIONS);
-  }
-
-  function handleConnectionModeChange(mode: "proxy" | "direct") {
-    onSettingsChange({ ...settings, connectionMode: mode });
   }
 
   function handleAddHeader() {
@@ -85,7 +82,10 @@ export function ServerSettingsModal({
     onSettingsChange({ ...settings, metadata });
   }
 
-  function handleTimeoutChange(field: string, value: number) {
+  function handleTimeoutChange(
+    field: "connectionTimeout" | "requestTimeout",
+    value: number,
+  ) {
     onSettingsChange({ ...settings, [field]: value });
   }
 
@@ -103,37 +103,35 @@ export function ServerSettingsModal({
       opened={opened}
       onClose={onClose}
       withCloseButton={false}
-      title={
-        <Group justify="space-between" wrap="nowrap" w="100%">
+      size="lg"
+      centered
+    >
+      <Stack gap="md">
+        <Group justify="space-between" wrap="nowrap">
           <ListToggle
             compact={allExpanded}
             variant="subtle"
             onToggle={handleToggleAll}
           />
-          <Title order={4} ta="center" style={{ flex: 1 }}>
+          <Title order={4} ta="center" flex={1}>
             Server Settings
           </Title>
           <CloseButton onClick={onClose} />
         </Group>
-      }
-      size="lg"
-      centered
-      styles={{ title: { flex: 1 } }}
-    >
-      <ServerSettingsForm
-        settings={settings}
-        expandedSections={expandedSections}
-        onExpandedSectionsChange={setExpandedSections}
-        onConnectionModeChange={handleConnectionModeChange}
-        onAddHeader={handleAddHeader}
-        onRemoveHeader={handleRemoveHeader}
-        onHeaderChange={handleHeaderChange}
-        onAddMetadata={handleAddMetadata}
-        onRemoveMetadata={handleRemoveMetadata}
-        onMetadataChange={handleMetadataChange}
-        onTimeoutChange={handleTimeoutChange}
-        onOAuthChange={handleOAuthChange}
-      />
+        <ServerSettingsForm
+          settings={settings}
+          expandedSections={expandedSections}
+          onExpandedSectionsChange={setExpandedSections}
+          onAddHeader={handleAddHeader}
+          onRemoveHeader={handleRemoveHeader}
+          onHeaderChange={handleHeaderChange}
+          onAddMetadata={handleAddMetadata}
+          onRemoveMetadata={handleRemoveMetadata}
+          onMetadataChange={handleMetadataChange}
+          onTimeoutChange={handleTimeoutChange}
+          onOAuthChange={handleOAuthChange}
+        />
+      </Stack>
     </Modal>
   );
 }

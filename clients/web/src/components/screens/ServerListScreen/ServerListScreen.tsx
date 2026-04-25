@@ -4,11 +4,24 @@ import { ServerCard } from "../../groups/ServerCard/ServerCard";
 import { ServerListControls } from "../../groups/ServerListControls/ServerListControls";
 import type { ServerCardProps } from "../../groups/ServerCard/ServerCard";
 
+export type ServerEntry = Pick<
+  ServerCardProps,
+  "id" | "name" | "config" | "info" | "connection"
+>;
+
 export interface ServerListScreenProps {
-  servers: ServerCardProps[];
+  servers: ServerEntry[];
+  /** Id of the server the wiring layer treats as active (drives card dimming). */
+  activeServer?: string;
   onAddManually: () => void;
   onImportConfig: () => void;
   onImportServerJson: () => void;
+  onToggleConnection: (id: string) => void;
+  onServerInfo: (id: string) => void;
+  onSettings: (id: string) => void;
+  onEdit: (id: string) => void;
+  onClone: (id: string) => void;
+  onRemove: (id: string) => void;
 }
 
 const PageContainer = Stack.withProps({
@@ -23,12 +36,18 @@ const EmptyState = Text.withProps({
 
 export function ServerListScreen({
   servers,
+  activeServer,
   onAddManually,
   onImportConfig,
   onImportServerJson,
+  onToggleConnection,
+  onServerInfo,
+  onSettings,
+  onEdit,
+  onClone,
+  onRemove,
 }: ServerListScreenProps) {
   const [compact, setCompact] = useState<boolean>(false);
-  const [activeServer, setActiveServer] = useState<string | undefined>();
 
   function handleToggleList() {
     setCompact((prev) => !prev);
@@ -58,10 +77,15 @@ export function ServerListScreen({
           >
             {servers.map((server) => (
               <ServerCard
-                key={server.name}
+                key={server.id}
                 compact={compact}
                 activeServer={activeServer}
-                onSetActiveServer={setActiveServer}
+                onToggleConnection={onToggleConnection}
+                onServerInfo={onServerInfo}
+                onSettings={onSettings}
+                onEdit={onEdit}
+                onClone={onClone}
+                onRemove={onRemove}
                 {...server}
               />
             ))}

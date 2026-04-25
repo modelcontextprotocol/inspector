@@ -128,9 +128,9 @@ For each component, the plan records:
 - **Purpose** — Large on/off switch that connects or disconnects a configured server.
 - **Current props** — `checked: boolean`; `loading: boolean`; `disabled: boolean`; `onChange: (checked: boolean) => void`.
 - **MCP schema touch points** — None — purely presentational, but `checked`/`loading` are derived from `ConnectionStatus` application state (not MCP schema).
-- **Target props** — `status: ConnectionStatus` (core-owned enum: `"disconnected" | "connecting" | "connected" | "failed"`); `disabled?: boolean`; `onConnect: () => void`; `onDisconnect: () => void`.
-- **Callbacks → core hook** — `onConnect`, `onDisconnect` → `useConnection` (v1.5 `useConnection` exposes `connect`/`disconnect`).
-- **Internal refactors** — Derive `checked`/`loading` from `status` internally; split the single `onChange` into explicit `onConnect`/`onDisconnect` so the wiring layer can pass hook callbacks directly without a boolean adapter.
+- **Target props** — `status: ConnectionStatus` (core-owned enum: `"disconnected" | "connecting" | "connected" | "error"`); `disabled?: boolean`; `onToggle: () => void`.
+- **Callbacks → core hook** — `onToggle` → wiring layer reads the current `connection.status` for the owning server and dispatches `useConnection`'s `connect` or `disconnect` (v1.5 `useConnection` exposes both).
+- **Internal refactors** — Derive `checked`/`loading` from `status` internally; collapse `onChange(boolean)` to a single `onToggle()` — the wiring layer already has the connection state and decides connect vs disconnect, so a boolean from the toggle adds no information.
 
 ### ContentViewer
 
@@ -238,9 +238,9 @@ For each component, the plan records:
 - **Purpose** — Toggle button to subscribe/unsubscribe from a single MCP resource.
 - **Current props** — `subscribed: boolean`; `onToggle: () => void`.
 - **MCP schema touch points** — `SubscribeRequest.params.uri` and `UnsubscribeRequest.params.uri` — but the URI is held by the parent row; the button itself only needs the current subscription boolean.
-- **Target props** — `subscribed: boolean`; `onSubscribe: () => void`; `onUnsubscribe: () => void` (split for parity with `ConnectionToggle`). Alternatively keep a single `onToggle` if the wiring layer prefers that.
-- **Callbacks → core hook** — `onSubscribe` / `onUnsubscribe` → `useInspectorClient` (wraps `client.subscribeResource` / `client.unsubscribeResource`); `subscribed` derived from a core-owned subscription set.
-- **Internal refactors** — Optional split of `onToggle` into the two explicit callbacks; otherwise none.
+- **Target props** — `subscribed: boolean`; `onToggle: () => void`. (`ConnectionToggle` settled on the same single-callback shape; the wiring layer reads `subscribed` and dispatches subscribe vs unsubscribe.)
+- **Callbacks → core hook** — `onToggle` → wiring layer dispatches `useInspectorClient`'s `client.subscribeResource` or `client.unsubscribeResource` based on the current `subscribed` value; `subscribed` derived from a core-owned subscription set.
+- **Internal refactors** — None.
 
 ### TaskStatusBadge
 
@@ -528,10 +528,10 @@ For each component, the plan records:
 
 - **Location**: `groups/ServerCard/`
 - **Purpose**: Card for a configured server with status, transport, connection toggle, actions, and test-client-features menu.
-- **Current props**: `name`, `version?`, `transport`, `connectionMode`, `command`, `status`, `retryCount?`, `error?`, `canTestClientFeatures`, `activeServer?`, many handlers.
-- **MCP schema touch points**: `Implementation` (server `name`, `version`) from `InitializeResult.serverInfo`. Transport/command/mode/status are Inspector-core-owned (connection lifecycle).
-- **Target props**: `config: InspectorServerConfig`, `info?: Implementation`, `connection: InspectorConnectionState` (`status`, `retryCount`, `error`), `canTestClientFeatures`, `activeServer?`, handlers unchanged.
-- **Callbacks → core hook**: `onToggleConnection`/`onSetActiveServer` from `useConnection`; `onEdit`/`onClone`/`onRemove` from `useServers`; test handlers from `useSampling`/`useElicitation`/`useRoots`.
+- **Current props**: `id`, `name`, `version?`, `transport`, `command`, `status`, `retryCount?`, `error?`, `activeServer?`, action handlers. (The grey transport descriptor next to the `TransportBadge` is derived from `config.type` — "Standard I/O", "SSE (Server Sent Events) [deprecated]", or "Streamable HTTP" — not a separate `connectionMode` prop. The "Test Client Features" dropdown was removed; sampling/elicitation/roots simulators live elsewhere.)
+- **MCP schema touch points**: `Implementation` (server `name`, `version`) from `InitializeResult.serverInfo`. Transport/command/status are Inspector-core-owned (connection lifecycle).
+- **Target props**: `id: string` (the `MCPConfig.mcpServers` map key), `name: string` (display label), `config: InspectorServerConfig`, `info?: Implementation`, `connection: InspectorConnectionState` (`status`, `retryCount`, `error`), `activeServer?` (read-only — set by the wiring layer), action handlers all keyed by `id`.
+- **Callbacks → core hook**: `onToggleConnection(id)` from `useConnection` — the wiring layer reads the current `connection.status` for that id and dispatches connect or disconnect (no separate `onSetActiveServer`; active state is owned by the wiring layer); `onEdit`/`onClone`/`onRemove` from `useServers`.
 - **Internal refactors**: Replace flat scalar props with grouped objects; **move the auto-connect `useEffect` out** — dumb components must not self-dispatch side effects.
 
 ### ServerInfoContent
@@ -557,8 +557,8 @@ For each component, the plan records:
 ### ServerSettingsForm
 
 - **Location**: `groups/ServerSettingsForm/`
-- **Purpose**: Per-server settings — connection mode, headers, metadata, timeouts, OAuth.
-- **Current props**: `connectionMode`, `headers`, `metadata`, `connectionTimeout`, `requestTimeout`, `oauthClient*`, many handlers.
+- **Purpose**: Per-server settings — headers, metadata, timeouts, OAuth. (The connection-mode "Via Proxy"/"Direct" toggle was removed; the inspector picks the right transport from `MCPServerConfig.type`.)
+- **Current props**: `headers`, `metadata`, `connectionTimeout`, `requestTimeout`, `oauthClient*`, many handlers.
 - **MCP schema touch points**: `Request._meta` passthrough is the only schema-level tie-in; the rest is Inspector-core-owned.
 - **Target props**: `settings: InspectorServerSettings`, `onSettingsChange(settings)` (or keep granular setters).
 - **Callbacks → core hook**: `useServers` (v2-only — no v1.5 analog).
@@ -761,13 +761,13 @@ themselves — every callback passed down must originate in a core hook.
 - **Current props**: `servers: ServerCardProps[]`, `onAddManually`, `onImportConfig`, `onImportServerJson`.
 - **MCP schema touch points**: `Implementation` (server `name`/`version`), `ServerCapabilities`, `InitializeResult` — identity and capability surface reported on initialize. Transport config (`command`, `args`, `env`, `url`, `headers`) is **not** MCP schema; it is Inspector core app state.
 - **Target props**:
-  - `servers: ServerEntry[]` where `ServerEntry = { id: string; config: ServerTransportConfig; connection: { status: 'disconnected' | 'connecting' | 'connected' | 'error'; error?: string; initializeResult?: InitializeResult } }`.
-  - `activeServerId?: string` — may be lifted to core if it drives routing; currently screen-local.
-  - `onAddManually`, `onImportConfig`, `onImportServerJson`, `onConnect(id)`, `onDisconnect(id)`, `onSetActiveServer(id)`, `onEditServer(id)`, `onRemoveServer(id)`.
+  - `servers: ServerEntry[]` where `ServerEntry = { id: string; name: string; config: ServerTransportConfig; connection: { status: 'disconnected' | 'connecting' | 'connected' | 'error'; error?: string; initializeResult?: InitializeResult } }`.
+  - `activeServer?: string` — pass-through from the wiring layer; drives card dimming. **Not** local screen state.
+  - `onAddManually`, `onImportConfig`, `onImportServerJson`, `onToggleConnection(id)`, `onEditServer(id)`, `onRemoveServer(id)` — the toggle is consolidated; the wiring layer reads current connection state for that id and decides whether to connect or disconnect.
 - **Callbacks → core hook**: `useServers` (v2-only — no v1.5 analog) owns the persisted config list; `useConnection` (v1.5, `core/react/useConnection.ts`) owns per-server transport lifecycle and exposes `connectionStatus`, `serverCapabilities`, `connect`, `disconnect`. `ServerListScreen` composes both via a parent view.
 - **Internal refactors**:
   - Stop flattening each server into a loose `ServerCardProps`; pass `ServerEntry` and let `ServerCard` read `config` / `connection` fields.
-  - `activeServer` state may migrate to `useServers` once it gates which screen renders; until then, keep `useState` local.
+  - `activeServer` is a prop, not local screen state — the wiring layer tracks which server is connected and passes the id down. `compact` toggle stays as local `useState`.
 
 <!-- /AGENT:SCREENS -->
 

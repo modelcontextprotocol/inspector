@@ -4,15 +4,16 @@ import {
   Button,
   Group,
   NumberInput,
-  Select,
   Stack,
   Text,
   TextInput,
 } from "@mantine/core";
-import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
+import type {
+  InspectorServerSettings,
+  OAuthSettings,
+} from "@inspector/core/mcp/types.js";
 
 export type ServerSettingsSection =
-  | "connectionMode"
   | "headers"
   | "metadata"
   | "timeouts"
@@ -22,27 +23,18 @@ export interface ServerSettingsFormProps {
   settings: InspectorServerSettings;
   expandedSections: ServerSettingsSection[];
   onExpandedSectionsChange: (sections: ServerSettingsSection[]) => void;
-  onConnectionModeChange: (mode: "proxy" | "direct") => void;
   onAddHeader: () => void;
   onRemoveHeader: (index: number) => void;
   onHeaderChange: (index: number, key: string, value: string) => void;
   onAddMetadata: () => void;
   onRemoveMetadata: (index: number) => void;
   onMetadataChange: (index: number, key: string, value: string) => void;
-  onTimeoutChange: (field: string, value: number) => void;
+  onTimeoutChange: (
+    field: "connectionTimeout" | "requestTimeout",
+    value: number,
+  ) => void;
   onOAuthChange: (oauth: OAuthSettings) => void;
 }
-
-export interface OAuthSettings {
-  clientId: string;
-  clientSecret: string;
-  scopes: string;
-}
-
-const CONNECTION_MODE_OPTIONS = [
-  { value: "proxy", label: "Via Proxy" },
-  { value: "direct", label: "Direct" },
-];
 
 const RemoveIcon = ActionIcon.withProps({
   color: "red",
@@ -103,7 +95,6 @@ export function ServerSettingsForm({
   settings,
   expandedSections,
   onExpandedSectionsChange,
-  onConnectionModeChange,
   onAddHeader,
   onRemoveHeader,
   onHeaderChange,
@@ -113,11 +104,13 @@ export function ServerSettingsForm({
   onTimeoutChange,
   onOAuthChange,
 }: ServerSettingsFormProps) {
-  const handleTimeoutChange = (field: string) => (value: number | string) => {
-    const numValue =
-      typeof value === "string" ? parseInt(value, 10) || 0 : value;
-    onTimeoutChange(field, numValue);
-  };
+  const handleTimeoutChange =
+    (field: "connectionTimeout" | "requestTimeout") =>
+    (value: number | string) => {
+      const numValue =
+        typeof value === "string" ? parseInt(value, 10) || 0 : value;
+      onTimeoutChange(field, numValue);
+    };
 
   function currentOAuth(): OAuthSettings {
     return {
@@ -136,24 +129,6 @@ export function ServerSettingsForm({
       }
       variant="separated"
     >
-      <Accordion.Item value="connectionMode">
-        <Accordion.Control>Connection Mode</Accordion.Control>
-        <Accordion.Panel>
-          <Select
-            data={CONNECTION_MODE_OPTIONS}
-            value={settings.connectionMode}
-            onChange={(value) => {
-              if (value) onConnectionModeChange(value as "proxy" | "direct");
-            }}
-            description={
-              settings.connectionMode === "proxy"
-                ? "Route through inspector proxy (required for STDIO)"
-                : undefined
-            }
-          />
-        </Accordion.Panel>
-      </Accordion.Item>
-
       <Accordion.Item value="headers">
         <Accordion.Control>Custom Headers</Accordion.Control>
         <Accordion.Panel>

@@ -9,7 +9,6 @@ import {
 } from "./ServerSettingsModal";
 
 const initialSettings: InspectorServerSettings = {
-  connectionMode: "proxy",
   headers: [
     { key: "Authorization", value: "Bearer token-abc-123" },
     { key: "X-Request-Id", value: "req-456" },
@@ -64,7 +63,6 @@ export const FullyConfigured: Story = {
 export const EmptySettings: Story = {
   args: {
     settings: {
-      connectionMode: "proxy",
       headers: [],
       metadata: [],
       connectionTimeout: 30000,

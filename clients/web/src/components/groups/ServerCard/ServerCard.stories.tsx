@@ -33,16 +33,11 @@ const meta: Meta<typeof ServerCard> = {
   component: ServerCard,
   args: {
     onToggleConnection: fn(),
-    onSetActiveServer: fn(),
     onServerInfo: fn(),
     onSettings: fn(),
     onEdit: fn(),
     onClone: fn(),
     onRemove: fn(),
-    onTestSampling: fn(),
-    onTestElicitationForm: fn(),
-    onTestElicitationUrl: fn(),
-    onConfigureRoots: fn(),
   },
 };
 
@@ -51,61 +46,47 @@ type Story = StoryObj<typeof ServerCard>;
 
 export const Connected: Story = {
   args: {
+    id: "7f3b2a8e-1c4d-4e5f-9a0b-3c2d1e4f5a6b",
     name: "My MCP Server",
     config: stdioConfig,
     info: { name: "My MCP Server", version: "1.2.0" },
     connection: connected,
-    connectionMode: "Subprocess",
-    canTestClientFeatures: false,
   },
 };
 
 export const Disconnected: Story = {
   args: {
+    id: "7f3b2a8e-1c4d-4e5f-9a0b-3c2d1e4f5a6b",
     name: "My MCP Server",
     config: stdioConfig,
     info: { name: "My MCP Server", version: "1.2.0" },
     connection: disconnected,
-    connectionMode: "Subprocess",
-    canTestClientFeatures: false,
   },
 };
 
 export const Connecting: Story = {
   args: {
+    id: "7f3b2a8e-1c4d-4e5f-9a0b-3c2d1e4f5a6b",
     name: "My MCP Server",
     config: stdioConfig,
     info: { name: "My MCP Server", version: "1.2.0" },
     connection: connecting,
-    connectionMode: "Subprocess",
-    canTestClientFeatures: false,
   },
 };
 
 export const Failed: Story = {
   args: {
+    id: "7f3b2a8e-1c4d-4e5f-9a0b-3c2d1e4f5a6b",
     name: "My MCP Server",
     config: stdioConfig,
     info: { name: "My MCP Server", version: "1.2.0" },
     connection: failed,
-    connectionMode: "Subprocess",
-    canTestClientFeatures: false,
-  },
-};
-
-export const WithClientFeatures: Story = {
-  args: {
-    name: "My MCP Server",
-    config: stdioConfig,
-    info: { name: "My MCP Server", version: "1.2.0" },
-    connection: connected,
-    connectionMode: "Subprocess",
-    canTestClientFeatures: true,
   },
 };
 
 export const LongServerName: Story = {
   args: {
+    id: "a1b2c3d4-e5f6-4789-9abc-def012345678",
     name: "my-organization-super-long-experimental-mcp-server-with-many-features-v2",
     config: {
       command:
@@ -116,42 +97,37 @@ export const LongServerName: Story = {
       version: "1.0.0-beta.42",
     },
     connection: connected,
-    connectionMode: "Subprocess",
-    canTestClientFeatures: true,
   },
 };
 
 export const HttpDirect: Story = {
   args: {
+    id: "9e8d7c6b-5a4f-4321-bdc6-fedcba098765",
     name: "Remote API Server",
     config: httpConfig,
     info: { name: "Remote API Server", version: "2.0.0" },
     connection: connected,
-    connectionMode: "Direct",
-    canTestClientFeatures: false,
   },
 };
 
 export const CompactConnected: Story = {
   args: {
+    id: "7f3b2a8e-1c4d-4e5f-9a0b-3c2d1e4f5a6b",
     name: "My MCP Server",
     config: stdioConfig,
     info: { name: "My MCP Server", version: "1.2.0" },
     connection: connected,
-    connectionMode: "Subprocess",
-    canTestClientFeatures: false,
     compact: true,
   },
 };
 
 export const CompactDisconnected: Story = {
   args: {
+    id: "7f3b2a8e-1c4d-4e5f-9a0b-3c2d1e4f5a6b",
     name: "My MCP Server",
     config: stdioConfig,
     info: { name: "My MCP Server", version: "1.2.0" },
     connection: disconnected,
-    connectionMode: "Subprocess",
-    canTestClientFeatures: false,
     compact: true,
   },
 };
