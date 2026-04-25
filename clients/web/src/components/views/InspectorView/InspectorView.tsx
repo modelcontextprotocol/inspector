@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { AppShell } from "@mantine/core";
+import { useMemo, useState, type ReactNode } from "react";
+import { AppShell, Box, Stack, Transition } from "@mantine/core";
 import type {
   InitializeResult,
   LoggingLevel,
@@ -35,10 +35,44 @@ const ALL_TABS: string[] = [
   "Tools",
   "Prompts",
   "Resources",
-  "Logs",
   "Tasks",
+  "Logs",
   "History",
 ];
+
+const SCREEN_TRANSITION_MS = 350;
+
+const ScreenStageContainer = Stack.withProps({
+  pos: "relative",
+  gap: 0,
+  flex: 1,
+  mih: "100%",
+});
+
+function ScreenStage({
+  active,
+  children,
+}: {
+  active: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Transition
+      mounted={active}
+      transition="fade-up"
+      duration={SCREEN_TRANSITION_MS}
+      timingFunction="ease"
+    >
+      {(styles) => (
+        // `style={styles}` is the runtime transition state from Mantine's
+        // Transition API — these are interpolated values, not static styling.
+        <Box style={styles} pos="absolute" top={0} left={0} right={0}>
+          {children}
+        </Box>
+      )}
+    </Transition>
+  );
+}
 
 // Demo stub: every screen-action callback below resolves to noop. Phase 3
 // wiring will replace each with its real `useManaged*` / `useConnection`
@@ -204,84 +238,86 @@ export function InspectorView({
         )}
       </AppShell.Header>
       <AppShell.Main>
-        {activeTab === SERVERS_TAB && (
-          <ServerListScreen
-            servers={servers}
-            activeServer={activeServer}
-            onAddManually={noop}
-            onImportConfig={noop}
-            onImportServerJson={noop}
-            onToggleConnection={handleToggleConnection}
-            onServerInfo={noop}
-            onSettings={noop}
-            onEdit={noop}
-            onClone={noop}
-            onRemove={noop}
-          />
-        )}
-        {activeTab === "Tools" && (
-          <ToolsScreen
-            tools={tools}
-            listChanged={false}
-            onRefreshList={noop}
-            onSelectTool={noop}
-            onCallTool={noop}
-          />
-        )}
-        {activeTab === "Prompts" && (
-          <PromptsScreen
-            prompts={prompts}
-            listChanged={false}
-            onRefreshList={noop}
-            onSelectPrompt={noop}
-            onGetPrompt={noop}
-          />
-        )}
-        {activeTab === "Resources" && (
-          <ResourcesScreen
-            resources={resources}
-            templates={resourceTemplates}
-            subscriptions={subscriptions}
-            listChanged={false}
-            onRefreshList={noop}
-            onSelectUri={noop}
-            onSelectTemplate={noop}
-            onReadResource={noop}
-            onSubscribeResource={noop}
-            onUnsubscribeResource={noop}
-          />
-        )}
-        {activeTab === "Logs" && (
-          <LoggingScreen
-            entries={logs}
-            currentLevel={logLevel}
-            onSetLevel={setLogLevel}
-            onClear={noop}
-            onExport={noop}
-            autoScroll={autoScroll}
-            onToggleAutoScroll={() => setAutoScroll((prev) => !prev)}
-            onCopyAll={noop}
-          />
-        )}
-        {activeTab === "Tasks" && (
-          <TasksScreen
-            tasks={tasks}
-            progressByTaskId={progressByTaskId}
-            onRefresh={noop}
-            onClearCompleted={noop}
-            onCancel={noop}
-          />
-        )}
-        {activeTab === "History" && (
-          <HistoryScreen
-            entries={history}
-            pinnedIds={new Set()}
-            onClearAll={noop}
-            onExport={noop}
-            onReplay={noop}
-            onTogglePin={noop}
-          />
-        )}
+        <ScreenStageContainer>
+          <ScreenStage active={activeTab === SERVERS_TAB}>
+            <ServerListScreen
+              servers={servers}
+              activeServer={activeServer}
+              onAddManually={noop}
+              onImportConfig={noop}
+              onImportServerJson={noop}
+              onToggleConnection={handleToggleConnection}
+              onServerInfo={noop}
+              onSettings={noop}
+              onEdit={noop}
+              onClone={noop}
+              onRemove={noop}
+            />
+          </ScreenStage>
+          <ScreenStage active={activeTab === "Tools"}>
+            <ToolsScreen
+              tools={tools}
+              listChanged={false}
+              onRefreshList={noop}
+              onSelectTool={noop}
+              onCallTool={noop}
+            />
+          </ScreenStage>
+          <ScreenStage active={activeTab === "Prompts"}>
+            <PromptsScreen
+              prompts={prompts}
+              listChanged={false}
+              onRefreshList={noop}
+              onSelectPrompt={noop}
+              onGetPrompt={noop}
+            />
+          </ScreenStage>
+          <ScreenStage active={activeTab === "Resources"}>
+            <ResourcesScreen
+              resources={resources}
+              templates={resourceTemplates}
+              subscriptions={subscriptions}
+              listChanged={false}
+              onRefreshList={noop}
+              onSelectUri={noop}
+              onSelectTemplate={noop}
+              onReadResource={noop}
+              onSubscribeResource={noop}
+              onUnsubscribeResource={noop}
+            />
+          </ScreenStage>
+          <ScreenStage active={activeTab === "Tasks"}>
+            <TasksScreen
+              tasks={tasks}
+              progressByTaskId={progressByTaskId}
+              onRefresh={noop}
+              onClearCompleted={noop}
+              onCancel={noop}
+            />
+          </ScreenStage>
+          <ScreenStage active={activeTab === "Logs"}>
+            <LoggingScreen
+              entries={logs}
+              currentLevel={logLevel}
+              onSetLevel={setLogLevel}
+              onClear={noop}
+              onExport={noop}
+              autoScroll={autoScroll}
+              onToggleAutoScroll={() => setAutoScroll((prev) => !prev)}
+              onCopyAll={noop}
+            />
+          </ScreenStage>
+          <ScreenStage active={activeTab === "History"}>
+            <HistoryScreen
+              entries={history}
+              pinnedIds={new Set()}
+              onClearAll={noop}
+              onExport={noop}
+              onReplay={noop}
+              onTogglePin={noop}
+            />
+          </ScreenStage>
+        </ScreenStageContainer>
       </AppShell.Main>
     </AppShell>
   );
