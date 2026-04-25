@@ -40,7 +40,8 @@ const ALL_TABS: string[] = [
   "History",
 ];
 
-const SCREEN_TRANSITION_MS = 350;
+const SCREEN_ENTER_MS = 350;
+const SCREEN_EXIT_MS = 250;
 
 const ScreenStageContainer = Stack.withProps({
   pos: "relative",
@@ -60,7 +61,8 @@ function ScreenStage({
     <Transition
       mounted={active}
       transition="fade-up"
-      duration={SCREEN_TRANSITION_MS}
+      duration={SCREEN_ENTER_MS}
+      exitDuration={SCREEN_EXIT_MS}
       timingFunction="ease"
     >
       {(styles) => (

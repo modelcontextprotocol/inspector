@@ -13,7 +13,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import { InspectorView } from "./InspectorView";
 import type { ServerEntry } from "../../screens/ServerListScreen/ServerListScreen";
-import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
+import { mixedEntries as demoLogs } from "../../screens/LoggingScreen/LoggingScreen.fixtures";
 import type { TaskProgress } from "../../groups/TaskCard/TaskCard";
 
 const demoServers: ServerEntry[] = [
@@ -119,45 +119,6 @@ const demoSubscriptions: InspectorResourceSubscription[] = [
   {
     resource: { name: "config.json", uri: "file:///config.json" },
     lastUpdated: new Date("2026-03-17T10:30:00Z"),
-  },
-];
-
-const demoLogs: LogEntryData[] = [
-  {
-    receivedAt: new Date("2026-03-17T10:00:00Z"),
-    params: { level: "info", data: "Server started on port 3000" },
-  },
-  {
-    receivedAt: new Date("2026-03-17T10:00:01Z"),
-    params: {
-      level: "debug",
-      logger: "config",
-      data: "Loading configuration from /etc/mcp/config.json",
-    },
-  },
-  {
-    receivedAt: new Date("2026-03-17T10:00:02Z"),
-    params: {
-      level: "warning",
-      logger: "http",
-      data: "Deprecated API endpoint called: /v1/tools",
-    },
-  },
-  {
-    receivedAt: new Date("2026-03-17T10:00:03Z"),
-    params: {
-      level: "error",
-      logger: "resources",
-      data: "Failed to read resource: file not found at /data/missing.txt",
-    },
-  },
-  {
-    receivedAt: new Date("2026-03-17T10:00:04Z"),
-    params: {
-      level: "info",
-      logger: "tools",
-      data: "Tool execution completed: search_files (245ms)",
-    },
   },
 ];
 
