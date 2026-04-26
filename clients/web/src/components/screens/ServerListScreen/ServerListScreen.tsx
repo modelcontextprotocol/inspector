@@ -1,13 +1,8 @@
 import { useState } from "react";
 import { ScrollArea, SimpleGrid, Stack, Text } from "@mantine/core";
+import type { ServerEntry } from "@inspector/core/mcp/types.js";
 import { ServerCard } from "../../groups/ServerCard/ServerCard";
 import { ServerListControls } from "../../groups/ServerListControls/ServerListControls";
-import type { ServerCardProps } from "../../groups/ServerCard/ServerCard";
-
-export type ServerEntry = Pick<
-  ServerCardProps,
-  "id" | "name" | "config" | "info" | "connection"
->;
 
 export interface ServerListScreenProps {
   servers: ServerEntry[];

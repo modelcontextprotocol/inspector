@@ -13,12 +13,10 @@ import type {
   ConnectionStatus,
   InspectorResourceSubscription,
   MessageEntry,
+  ServerEntry,
 } from "@inspector/core/mcp/types.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
-import {
-  ServerListScreen,
-  type ServerEntry,
-} from "../../screens/ServerListScreen/ServerListScreen";
+import { ServerListScreen } from "../../screens/ServerListScreen/ServerListScreen";
 import { ToolsScreen } from "../../screens/ToolsScreen/ToolsScreen";
 import { PromptsScreen } from "../../screens/PromptsScreen/PromptsScreen";
 import { ResourcesScreen } from "../../screens/ResourcesScreen/ResourcesScreen";

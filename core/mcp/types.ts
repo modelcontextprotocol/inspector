@@ -70,6 +70,21 @@ export interface ConnectionState {
   error?: { message: string; details?: string };
 }
 
+/**
+ * One server entry as seen by the UI: identity, transport config, optional
+ * `Implementation` info reported during `initialize`, and the current
+ * connection snapshot. Cards/screens spread this onto presentational props.
+ */
+export interface ServerEntry {
+  /** Stable unique identifier — the MCPConfig.mcpServers map key. */
+  id: string;
+  /** Display label shown in the card header. May or may not equal id. */
+  name: string;
+  config: MCPServerConfig;
+  info?: Implementation;
+  connection: ConnectionState;
+}
+
 export interface StderrLogEntry {
   timestamp: Date;
   message: string;

@@ -1,8 +1,7 @@
 import { Badge, Button, Card, Group, Stack, Text } from "@mantine/core";
-import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
 import type {
-  ConnectionState,
   MCPServerConfig,
+  ServerEntry,
   ServerType,
 } from "@inspector/core/mcp/types.js";
 import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/ServerStatusIndicator";
@@ -11,14 +10,7 @@ import { ConnectionToggle } from "../../elements/ConnectionToggle/ConnectionTogg
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { InlineError } from "../../elements/InlineError/InlineError";
 
-export interface ServerCardProps {
-  /** Stable unique identifier — the MCPConfig.mcpServers map key. */
-  id: string;
-  /** Display label shown in the card header. May or may not equal id. */
-  name: string;
-  config: MCPServerConfig;
-  info?: Implementation;
-  connection: ConnectionState;
+export interface ServerCardProps extends ServerEntry {
   activeServer?: string;
   onToggleConnection: (id: string) => void;
   onServerInfo: (id: string) => void;
