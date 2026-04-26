@@ -532,6 +532,56 @@ existing stories) rather than a screen refactor.
 - No prop changes needed.
 - Optional: add `connectionStatus` if the embedded header needs it.
 
+### 4.3 Move selection state into the screens
+
+The Phase 2 cluster work threaded `selectedXxxName` / `onSelectXxx` props
+through every list-and-detail screen, leaving selection as caller-owned
+state. That choice contradicts Phase 3's "selected name stays in `useState`
+inside the screen" rule and creates a real wiring gap: nothing above the
+screen has any reason to know which tool/prompt/resource the user clicked
+on, so under `InspectorView` clicks would have to be round-tripped through
+`App.tsx` purely to get the detail panel to render.
+
+Selection is screen-local UI state. MCP-derived data (`callState` / fetched
+prompt messages / resource read results) keeps flowing in from
+`InspectorView` as props. Refactor each screen accordingly.
+
+Screens to fix:
+
+- **`ToolsScreen`** — drop `selectedToolName` and `onSelectTool` from the
+  prop interface; track the selected tool name in `useState` inside the
+  screen. `ToolControls` continues to receive `selectedName` and
+  `onSelectTool` as props from the screen. `callState` (and any future
+  result/progress payload) keeps coming in from `InspectorView`.
+  `InspectorView` only needs to know the selected tool name when it
+  triggers `onCallTool` — which the screen already owns, so it can pass
+  the name up at call time rather than maintaining it in the parent.
+- **`PromptsScreen`** — same pattern for `selectedPromptName`. Fetched
+  `GetPromptResult` continues to arrive as a prop from `InspectorView`.
+- **`ResourcesScreen`** — same pattern for the selected resource URI and
+  selected resource template URI. `ReadResourceResult` continues to
+  arrive as a prop.
+
+For each screen:
+
+1. Remove the `selectedXxxName` / `onSelectXxx` props from the screen's
+   prop interface.
+2. Add a `useState` for the selection inside the screen and pass it down
+   to the controls group.
+3. When the user triggers a request (`onCallTool` / `onGetPrompt` /
+   `onReadResource`), pass the currently selected name/uri up alongside
+   any other arguments — the parent does not need to track selection
+   between calls.
+4. Update each screen's stories to remove the now-deleted props. The
+   stories will start working without `useArgs` selection wiring, because
+   selection is now genuinely internal.
+5. Audit the controls groups (`ToolControls`, `PromptControls`,
+   `ResourceControls`) — their `selectedName` / `onSelectXxx` props are
+   correct (they ARE caller-owned, because the screen owns them) and
+   should not change.
+6. Update `InspectorView` and any wiring fixtures to drop the now-removed
+   selection props they were passing to each screen.
+
 ## Phase 5 — Cleanup pass
 
 After all four phases, sweep:

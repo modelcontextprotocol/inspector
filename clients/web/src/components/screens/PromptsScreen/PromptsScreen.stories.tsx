@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
-import { fn } from "storybook/test";
+import { fn, userEvent, within } from "storybook/test";
 import { PromptsScreen } from "./PromptsScreen";
 import type { GetPromptState } from "./PromptsScreen";
 
@@ -10,7 +10,6 @@ const meta: Meta<typeof PromptsScreen> = {
   parameters: { layout: "fullscreen" },
   args: {
     onRefreshList: fn(),
-    onSelectPrompt: fn(),
     onGetPrompt: fn(),
     onCopyMessages: fn(),
     listChanged: false,
@@ -70,6 +69,11 @@ const translateResult: GetPromptState = {
   },
 };
 
+async function selectPromptByName(canvasElement: HTMLElement, name: string) {
+  const canvas = within(canvasElement);
+  await userEvent.click(await canvas.findByText(name));
+}
+
 export const NoSelection: Story = {
   args: {
     prompts: samplePrompts,
@@ -79,35 +83,43 @@ export const NoSelection: Story = {
 export const PromptSelected: Story = {
   args: {
     prompts: samplePrompts,
-    selectedPromptName: "translate",
+  },
+  play: async ({ canvasElement }) => {
+    await selectPromptByName(canvasElement, "translate");
   },
 };
 
 export const WithResult: Story = {
   args: {
     prompts: samplePrompts,
-    selectedPromptName: "translate",
     getPromptState: translateResult,
+  },
+  play: async ({ canvasElement }) => {
+    await selectPromptByName(canvasElement, "translate");
   },
 };
 
 export const Loading: Story = {
   args: {
     prompts: samplePrompts,
-    selectedPromptName: "translate",
     getPromptState: { status: "pending" },
+  },
+  play: async ({ canvasElement }) => {
+    await selectPromptByName(canvasElement, "translate");
   },
 };
 
 export const WithError: Story = {
   args: {
     prompts: samplePrompts,
-    selectedPromptName: "translate",
     getPromptState: {
       status: "error",
       error:
         'Prompt "translate" requires argument "text" but none was provided. Please fill in all required arguments before submitting.',
     },
+  },
+  play: async ({ canvasElement }) => {
+    await selectPromptByName(canvasElement, "translate");
   },
 };
 
