@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { fn } from "storybook/test";
+import { fn, userEvent, within } from "storybook/test";
 import { ToolControls } from "./ToolControls";
+import { longToolList } from "../../screens/ToolsScreen/ToolsScreen.fixtures";
 
 const meta: Meta<typeof ToolControls> = {
   title: "Groups/ToolControls",
@@ -16,44 +16,35 @@ const meta: Meta<typeof ToolControls> = {
 export default meta;
 type Story = StoryObj<typeof ToolControls>;
 
-const sampleTools: Tool[] = [
-  {
-    name: "send_message",
-    title: "Send Message",
-    inputSchema: { type: "object" },
-  },
-  {
-    name: "create_record",
-    title: "Create Record",
-    inputSchema: { type: "object" },
-  },
-  { name: "delete_records", inputSchema: { type: "object" } },
-  { name: "list_users", inputSchema: { type: "object" } },
-  { name: "batch_process", inputSchema: { type: "object" } },
-];
-
 export const Default: Story = {
   args: {
-    tools: sampleTools,
+    tools: longToolList,
   },
 };
 
 export const WithSelection: Story = {
   args: {
-    tools: sampleTools,
-    selectedName: "create_record",
+    tools: longToolList,
+    selectedName: "query_database",
   },
 };
 
 export const WithSearch: Story = {
   args: {
-    tools: sampleTools,
+    tools: longToolList,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(
+      await canvas.findByPlaceholderText("Search tools..."),
+      "git",
+    );
   },
 };
 
 export const ListChanged: Story = {
   args: {
-    tools: sampleTools,
+    tools: longToolList,
     listChanged: true,
   },
 };

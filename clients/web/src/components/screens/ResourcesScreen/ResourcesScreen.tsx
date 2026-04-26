@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Alert,
   Card,
@@ -31,13 +32,9 @@ export interface ResourcesScreenProps {
   resources: Resource[];
   templates: ResourceTemplate[];
   subscriptions: InspectorResourceSubscription[];
-  selectedResourceUri?: string;
-  selectedTemplateUri?: string;
   readState?: ReadResourceState;
   listChanged: boolean;
   onRefreshList: () => void;
-  onSelectUri: (uri: string) => void;
-  onSelectTemplate: (uriTemplate: string) => void;
   onReadResource: (uri: string) => void;
   onSubscribeResource: (uri: string) => void;
   onUnsubscribeResource: (uri: string) => void;
@@ -78,17 +75,20 @@ export function ResourcesScreen({
   resources,
   templates,
   subscriptions,
-  selectedResourceUri,
-  selectedTemplateUri,
   readState,
   listChanged,
   onRefreshList,
-  onSelectUri,
-  onSelectTemplate,
   onReadResource,
   onSubscribeResource,
   onUnsubscribeResource,
 }: ResourcesScreenProps) {
+  const [selectedResourceUri, setSelectedResourceUri] = useState<
+    string | undefined
+  >(undefined);
+  const [selectedTemplateUri, setSelectedTemplateUri] = useState<
+    string | undefined
+  >(undefined);
+
   const selectedResource = selectedResourceUri
     ? resources.find((r) => r.uri === selectedResourceUri)
     : undefined;
@@ -103,6 +103,21 @@ export function ResourcesScreen({
     (readState?.uri && readState.uri === selectedResourceUri
       ? { name: readState.uri, uri: readState.uri }
       : undefined);
+
+  function handleSelectResource(uri: string) {
+    setSelectedTemplateUri(undefined);
+    setSelectedResourceUri(uri);
+  }
+
+  function handleSelectTemplate(uriTemplate: string) {
+    setSelectedResourceUri(undefined);
+    setSelectedTemplateUri(uriTemplate);
+  }
+
+  function handleReadResource(uri: string) {
+    setSelectedResourceUri(uri);
+    onReadResource(uri);
+  }
 
   function renderReadState() {
     if (!readState) return null;
@@ -136,7 +151,7 @@ export function ResourcesScreen({
             contents={readState.result.contents}
             lastUpdated={readState.lastUpdated}
             isSubscribed={readState.isSubscribed ?? false}
-            onRefresh={() => onReadResource(readResource.uri)}
+            onRefresh={() => handleReadResource(readResource.uri)}
             onSubscribe={() => onSubscribeResource(readResource.uri)}
             onUnsubscribe={() => onUnsubscribeResource(readResource.uri)}
           />
@@ -159,8 +174,8 @@ export function ResourcesScreen({
             selectedTemplateUri={selectedTemplateUri}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
-            onSelectUri={onSelectUri}
-            onSelectTemplate={onSelectTemplate}
+            onSelectUri={handleSelectResource}
+            onSelectTemplate={handleSelectTemplate}
             onUnsubscribeResource={onUnsubscribeResource}
           />
         </SidebarCard>
@@ -172,7 +187,7 @@ export function ResourcesScreen({
             <DetailCard>
               <ResourceTemplatePanel
                 template={selectedTemplate}
-                onReadResource={onReadResource}
+                onReadResource={handleReadResource}
               />
             </DetailCard>
           </ScrollArea.Autosize>

@@ -4,7 +4,7 @@ import type {
   ResourceTemplate,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
-import { fn } from "storybook/test";
+import { fn, userEvent, within } from "storybook/test";
 import { ResourcesScreen } from "./ResourcesScreen";
 import type { ReadResourceState } from "./ResourcesScreen";
 
@@ -14,8 +14,6 @@ const meta: Meta<typeof ResourcesScreen> = {
   parameters: { layout: "fullscreen" },
   args: {
     onRefreshList: fn(),
-    onSelectUri: fn(),
-    onSelectTemplate: fn(),
     onReadResource: fn(),
     onSubscribeResource: fn(),
     onUnsubscribeResource: fn(),
@@ -105,6 +103,43 @@ const readConfigState: ReadResourceState = {
   isSubscribed: true,
 };
 
+const readUserProfileState: ReadResourceState = {
+  status: "ok",
+  uri: "file:///users/42/profile",
+  result: {
+    contents: [
+      {
+        uri: "file:///users/42/profile",
+        mimeType: "application/json",
+        text: JSON.stringify(
+          { id: 42, name: "Alice", email: "alice@example.com" },
+          null,
+          2,
+        ),
+      },
+    ],
+  },
+  isSubscribed: false,
+};
+
+async function clickByText(canvasElement: HTMLElement, label: string) {
+  const canvas = within(canvasElement);
+  await userEvent.click(await canvas.findByText(label));
+}
+
+// The userId value typed below must match the `{userId}` segment in
+// `readUserProfileState.uri` so the synthetic-resource fallback in
+// ResourcesScreen matches and the preview panel renders.
+async function expandUserProfileTemplate(canvasElement: HTMLElement) {
+  const canvas = within(canvasElement);
+  await userEvent.click(await canvas.findByText("User Profile"));
+  const userIdInput = await canvas.findByLabelText("userId");
+  await userEvent.type(userIdInput, "42");
+  await userEvent.click(
+    await canvas.findByRole("button", { name: "Read Resource" }),
+  );
+}
+
 export const WithResources: Story = {
   args: {
     resources: sampleResources,
@@ -115,8 +150,10 @@ export const ResourceSelected: Story = {
   args: {
     resources: sampleResources,
     subscriptions: sampleSubscriptions,
-    selectedResourceUri: "file:///config.json",
     readState: readConfigState,
+  },
+  play: async ({ canvasElement }) => {
+    await clickByText(canvasElement, "config.json");
   },
 };
 
@@ -131,7 +168,9 @@ export const TemplateSelected: Story = {
   args: {
     resources: sampleResources,
     templates: sampleTemplates,
-    selectedTemplateUri: "file:///users/{userId}/profile",
+  },
+  play: async ({ canvasElement }) => {
+    await clickByText(canvasElement, "User Profile");
   },
 };
 
@@ -139,26 +178,10 @@ export const TemplateWithResource: Story = {
   args: {
     resources: sampleResources,
     templates: sampleTemplates,
-    selectedTemplateUri: "file:///users/{userId}/profile",
-    readState: {
-      status: "ok",
-      uri: "file:///users/42/profile",
-      result: {
-        contents: [
-          {
-            uri: "file:///users/42/profile",
-            mimeType: "application/json",
-            text: JSON.stringify(
-              { id: 42, name: "Alice", email: "alice@example.com" },
-              null,
-              2,
-            ),
-          },
-        ],
-      },
-      isSubscribed: false,
-    },
-    selectedResourceUri: "file:///users/42/profile",
+    readState: readUserProfileState,
+  },
+  play: async ({ canvasElement }) => {
+    await expandUserProfileTemplate(canvasElement);
   },
 };
 
@@ -167,26 +190,10 @@ export const AllSections: Story = {
     resources: sampleResources,
     templates: sampleTemplates,
     subscriptions: sampleSubscriptions,
-    selectedTemplateUri: "file:///users/{userId}/profile",
-    readState: {
-      status: "ok",
-      uri: "file:///users/42/profile",
-      result: {
-        contents: [
-          {
-            uri: "file:///users/42/profile",
-            mimeType: "application/json",
-            text: JSON.stringify(
-              { id: 42, name: "Alice", email: "alice@example.com" },
-              null,
-              2,
-            ),
-          },
-        ],
-      },
-      isSubscribed: false,
-    },
-    selectedResourceUri: "file:///users/42/profile",
+    readState: readUserProfileState,
+  },
+  play: async ({ canvasElement }) => {
+    await expandUserProfileTemplate(canvasElement);
   },
 };
 

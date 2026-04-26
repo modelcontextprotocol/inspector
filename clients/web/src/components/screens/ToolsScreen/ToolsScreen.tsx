@@ -17,11 +17,9 @@ export interface ToolCallState {
 
 export interface ToolsScreenProps {
   tools: Tool[];
-  selectedToolName?: string;
   callState?: ToolCallState;
   listChanged: boolean;
   onRefreshList: () => void;
-  onSelectTool: (name: string) => void;
   onCallTool: (name: string, args: Record<string, unknown>) => void;
   onCancelCall?: () => void;
   onClearResult?: () => void;
@@ -58,15 +56,16 @@ const EmptyState = Text.withProps({
 
 export function ToolsScreen({
   tools,
-  selectedToolName,
   callState,
   listChanged,
   onRefreshList,
-  onSelectTool,
   onCallTool,
   onCancelCall,
   onClearResult,
 }: ToolsScreenProps) {
+  const [selectedToolName, setSelectedToolName] = useState<string | undefined>(
+    undefined,
+  );
   const [formValues, setFormValues] = useState<Record<string, unknown>>({});
   const selectedTool = selectedToolName
     ? tools.find((t) => t.name === selectedToolName)
@@ -84,7 +83,7 @@ export function ToolsScreen({
             onRefreshList={onRefreshList}
             onSelectTool={(name) => {
               setFormValues({});
-              onSelectTool(name);
+              setSelectedToolName(name);
             }}
           />
         </SidebarCard>

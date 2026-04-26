@@ -289,7 +289,6 @@ export function InspectorView({
               tools={tools}
               listChanged={false}
               onRefreshList={noop}
-              onSelectTool={noop}
               onCallTool={noop}
             />
           </ScreenStage>
@@ -298,7 +297,6 @@ export function InspectorView({
               prompts={prompts}
               listChanged={false}
               onRefreshList={noop}
-              onSelectPrompt={noop}
               onGetPrompt={noop}
             />
           </ScreenStage>
@@ -309,8 +307,6 @@ export function InspectorView({
               subscriptions={subscriptions}
               listChanged={false}
               onRefreshList={noop}
-              onSelectUri={noop}
-              onSelectTemplate={noop}
               onReadResource={noop}
               onSubscribeResource={noop}
               onUnsubscribeResource={noop}

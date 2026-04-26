@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ElicitRequest, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Modal } from "@mantine/core";
-import { fn } from "storybook/test";
+import { fn, userEvent, within } from "storybook/test";
 import { ToolsScreen } from "./ToolsScreen";
 import type { ToolCallState } from "./ToolsScreen";
 import { SamplingRequestPanel } from "../../groups/SamplingRequestPanel/SamplingRequestPanel";
@@ -17,7 +17,6 @@ const meta: Meta<typeof ToolsScreen> = {
   args: {
     listChanged: false,
     onRefreshList: fn(),
-    onSelectTool: fn(),
     onCallTool: fn(),
     onCancelCall: fn(),
     onClearResult: fn(),
@@ -77,6 +76,11 @@ const resultState: ToolCallState = {
   },
 };
 
+async function selectToolByLabel(canvasElement: HTMLElement, label: string) {
+  const canvas = within(canvasElement);
+  await userEvent.click(await canvas.findByText(label));
+}
+
 export const NoSelection: Story = {
   args: {
     tools: sampleTools,
@@ -86,15 +90,19 @@ export const NoSelection: Story = {
 export const ToolSelected: Story = {
   args: {
     tools: sampleTools,
-    selectedToolName: "create_record",
+  },
+  play: async ({ canvasElement }) => {
+    await selectToolByLabel(canvasElement, "Create Record");
   },
 };
 
 export const WithResult: Story = {
   args: {
     tools: sampleTools,
-    selectedToolName: "create_record",
     callState: resultState,
+  },
+  play: async ({ canvasElement }) => {
+    await selectToolByLabel(canvasElement, "Create Record");
   },
 };
 
@@ -130,15 +138,18 @@ export const LongToolName: Story = {
         },
       },
     ],
-    selectedToolName:
+  },
+  play: async ({ canvasElement }) => {
+    await selectToolByLabel(
+      canvasElement,
       "organization_internal_database_complex_multi_table_join_query_with_aggregation_and_filtering",
+    );
   },
 };
 
 export const WithError: Story = {
   args: {
     tools: sampleTools,
-    selectedToolName: "create_record",
     callState: {
       status: "error",
       result: {
@@ -151,6 +162,9 @@ export const WithError: Story = {
         ],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    await selectToolByLabel(canvasElement, "Create Record");
   },
 };
 
@@ -176,8 +190,10 @@ const elicitFormRequest = {
 export const WithSamplingModal: Story = {
   args: {
     tools: sampleTools,
-    selectedToolName: "create_record",
     callState: { status: "pending" },
+  },
+  play: async ({ canvasElement }) => {
+    await selectToolByLabel(canvasElement, "Create Record");
   },
   render: (args) => (
     <>
@@ -217,8 +233,10 @@ export const WithSamplingModal: Story = {
 export const WithElicitationModal: Story = {
   args: {
     tools: sampleTools,
-    selectedToolName: "create_record",
     callState: { status: "pending" },
+  },
+  play: async ({ canvasElement }) => {
+    await selectToolByLabel(canvasElement, "Create Record");
   },
   render: (args) => (
     <>
@@ -240,8 +258,10 @@ export const WithElicitationModal: Story = {
 export const WithPendingRequests: Story = {
   args: {
     tools: sampleTools,
-    selectedToolName: "create_record",
     callState: { status: "pending" },
+  },
+  play: async ({ canvasElement }) => {
+    await selectToolByLabel(canvasElement, "Create Record");
   },
   render: (args) => (
     <>

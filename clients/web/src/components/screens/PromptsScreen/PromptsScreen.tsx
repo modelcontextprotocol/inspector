@@ -25,11 +25,9 @@ export interface GetPromptState {
 
 export interface PromptsScreenProps {
   prompts: Prompt[];
-  selectedPromptName?: string;
   getPromptState?: GetPromptState;
   listChanged: boolean;
   onRefreshList: () => void;
-  onSelectPrompt: (name: string) => void;
   onGetPrompt: (name: string, args: Record<string, string>) => void;
   onCopyMessages?: () => void;
 }
@@ -65,14 +63,15 @@ const EmptyState = Text.withProps({
 
 export function PromptsScreen({
   prompts,
-  selectedPromptName,
   getPromptState,
   listChanged,
   onRefreshList,
-  onSelectPrompt,
   onGetPrompt,
   onCopyMessages,
 }: PromptsScreenProps) {
+  const [selectedPromptName, setSelectedPromptName] = useState<
+    string | undefined
+  >(undefined);
   const [argumentValues, setArgumentValues] = useState<Record<string, string>>(
     {},
   );
@@ -91,7 +90,7 @@ export function PromptsScreen({
             onRefreshList={onRefreshList}
             onSelectPrompt={(name) => {
               setArgumentValues({});
-              onSelectPrompt(name);
+              setSelectedPromptName(name);
             }}
           />
         </SidebarCard>
