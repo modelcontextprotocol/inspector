@@ -3,7 +3,6 @@ import type {
   Resource,
   ResourceTemplate,
   Task,
-  Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import type {
   InspectorResourceSubscription,
@@ -14,6 +13,7 @@ import { fn } from "storybook/test";
 import { InspectorView } from "./InspectorView";
 import type { ServerEntry } from "../../screens/ServerListScreen/ServerListScreen";
 import { mixedEntries as demoLogs } from "../../screens/LoggingScreen/LoggingScreen.fixtures";
+import { longToolList as demoTools } from "../../screens/ToolsScreen/ToolsScreen.fixtures";
 import type { TaskProgress } from "../../groups/TaskCard/TaskCard";
 
 const demoServers: ServerEntry[] = [
@@ -41,33 +41,6 @@ const demoServers: ServerEntry[] = [
     info: { name: "Remote API Server", version: "2.0.0" },
     connection: { status: "disconnected" },
   },
-];
-
-const demoTools: Tool[] = [
-  {
-    name: "send_message",
-    title: "Send Message",
-    inputSchema: { type: "object" },
-  },
-  {
-    name: "create_record",
-    title: "Create Record",
-    description: "Creates a new record with the given parameters",
-    inputSchema: {
-      type: "object",
-      properties: {
-        title: { type: "string", description: "Record title" },
-        count: { type: "number", description: "Number of items" },
-        enabled: {
-          type: "boolean",
-          description: "Whether the record is active",
-        },
-      },
-      required: ["title"],
-    },
-  },
-  { name: "delete_records", inputSchema: { type: "object" } },
-  { name: "list_users", inputSchema: { type: "object" } },
 ];
 
 const demoPrompts: Prompt[] = [
