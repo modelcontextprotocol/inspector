@@ -103,7 +103,7 @@ export const longToolList: Tool[] = [
         params: {
           type: "array",
           description: "Positional bind parameters",
-          items: {},
+          items: { type: "string" },
         },
         limit: { type: "number" },
       },
@@ -269,7 +269,7 @@ export const longToolList: Tool[] = [
       type: "object",
       properties: {
         url: { type: "string" },
-        body: {},
+        body: { type: "object", description: "JSON request body" },
         headers: { type: "object" },
       },
       required: ["url", "body"],

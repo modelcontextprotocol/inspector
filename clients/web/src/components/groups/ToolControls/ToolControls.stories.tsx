@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fn } from "storybook/test";
+import { fn, userEvent, within } from "storybook/test";
 import { ToolControls } from "./ToolControls";
 import { longToolList } from "../../screens/ToolsScreen/ToolsScreen.fixtures";
 
@@ -32,6 +32,13 @@ export const WithSelection: Story = {
 export const WithSearch: Story = {
   args: {
     tools: longToolList,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(
+      await canvas.findByPlaceholderText("Search tools..."),
+      "git",
+    );
   },
 };
 

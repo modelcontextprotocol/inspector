@@ -127,6 +127,9 @@ async function clickByText(canvasElement: HTMLElement, label: string) {
   await userEvent.click(await canvas.findByText(label));
 }
 
+// The userId value typed below must match the `{userId}` segment in
+// `readUserProfileState.uri` so the synthetic-resource fallback in
+// ResourcesScreen matches and the preview panel renders.
 async function expandUserProfileTemplate(canvasElement: HTMLElement) {
   const canvas = within(canvasElement);
   await userEvent.click(await canvas.findByText("User Profile"));
