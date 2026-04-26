@@ -104,6 +104,16 @@ export function ResourcesScreen({
       ? { name: readState.uri, uri: readState.uri }
       : undefined);
 
+  function handleSelectResource(uri: string) {
+    setSelectedTemplateUri(undefined);
+    setSelectedResourceUri(uri);
+  }
+
+  function handleSelectTemplate(uriTemplate: string) {
+    setSelectedResourceUri(undefined);
+    setSelectedTemplateUri(uriTemplate);
+  }
+
   function handleReadResource(uri: string) {
     setSelectedResourceUri(uri);
     onReadResource(uri);
@@ -164,8 +174,8 @@ export function ResourcesScreen({
             selectedTemplateUri={selectedTemplateUri}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
-            onSelectUri={setSelectedResourceUri}
-            onSelectTemplate={setSelectedTemplateUri}
+            onSelectUri={handleSelectResource}
+            onSelectTemplate={handleSelectTemplate}
             onUnsubscribeResource={onUnsubscribeResource}
           />
         </SidebarCard>
