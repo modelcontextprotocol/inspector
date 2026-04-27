@@ -7,11 +7,11 @@ import type {
 import type {
   InspectorResourceSubscription,
   MessageEntry,
+  ServerEntry,
 } from "@inspector/core/mcp/types.js";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import { InspectorView } from "./InspectorView";
-import type { ServerEntry } from "../../screens/ServerListScreen/ServerListScreen";
 import { mixedEntries as demoLogs } from "../../screens/LoggingScreen/LoggingScreen.fixtures";
 import { longToolList as demoTools } from "../../screens/ToolsScreen/ToolsScreen.fixtures";
 import type { TaskProgress } from "../../groups/TaskCard/TaskCard";

@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
-import { ServerListScreen, type ServerEntry } from "./ServerListScreen";
+import type { ServerEntry } from "@inspector/core/mcp/types.js";
+import { ServerListScreen } from "./ServerListScreen";
 
 const meta: Meta<typeof ServerListScreen> = {
   title: "Screens/ServerListScreen",

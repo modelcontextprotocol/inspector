@@ -70,6 +70,16 @@ export interface ConnectionState {
   error?: { message: string; details?: string };
 }
 
+export interface ServerEntry {
+  /** Stable unique identifier — the MCPConfig.mcpServers map key. */
+  id: string;
+  /** Display label shown in the card header. May or may not equal id. */
+  name: string;
+  config: MCPServerConfig;
+  info?: Implementation;
+  connection: ConnectionState;
+}
+
 export interface StderrLogEntry {
   timestamp: Date;
   message: string;
