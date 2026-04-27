@@ -1,8 +1,12 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Card, Flex, Stack } from "@mantine/core";
-import type { MessageEntry } from "../../../../../../core/mcp/types.js";
+import type {
+  MessageEntry,
+  RequestMethod,
+} from "../../../../../../core/mcp/types.js";
 import { HistoryControls } from "../../groups/HistoryControls/HistoryControls";
 import { HistoryListPanel } from "../../groups/HistoryListPanel/HistoryListPanel.js";
+import { extractMethod } from "../../groups/historyUtils.js";
 
 export interface HistoryScreenProps {
   entries: MessageEntry[];
@@ -39,7 +43,12 @@ export function HistoryScreen({
   onTogglePin,
 }: HistoryScreenProps) {
   const [searchText, setSearchText] = useState("");
-  const [methodFilter, setMethodFilter] = useState<string | undefined>();
+  const [methodFilter, setMethodFilter] = useState<RequestMethod | undefined>();
+
+  const availableMethods = useMemo(
+    () => Array.from(new Set(entries.map(extractMethod))).sort(),
+    [entries],
+  );
 
   return (
     <ScreenLayout>
@@ -48,6 +57,7 @@ export function HistoryScreen({
           <HistoryControls
             searchText={searchText}
             methodFilter={methodFilter}
+            availableMethods={availableMethods}
             onSearchChange={setSearchText}
             onMethodFilterChange={setMethodFilter}
           />

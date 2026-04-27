@@ -1,8 +1,11 @@
-import type { MessageEntry } from "../../../../../core/mcp/types.js";
+import type {
+  MessageEntry,
+  RequestMethod,
+} from "../../../../../core/mcp/types.js";
 
-export function extractMethod(entry: MessageEntry): string {
+export function extractMethod(entry: MessageEntry): RequestMethod {
   if ("method" in entry.message) {
-    return entry.message.method;
+    return entry.message.method as RequestMethod;
   }
   return "response";
 }

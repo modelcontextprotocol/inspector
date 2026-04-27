@@ -8,7 +8,10 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import type { MessageEntry } from "../../../../../../core/mcp/types.js";
+import type {
+  MessageEntry,
+  RequestMethod,
+} from "../../../../../../core/mcp/types.js";
 import { HistoryEntry } from "../HistoryEntry/HistoryEntry";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { extractMethod } from "../historyUtils.js";
@@ -17,7 +20,7 @@ export interface HistoryListPanelProps {
   entries: MessageEntry[];
   pinnedIds: Set<string>;
   searchText: string;
-  methodFilter?: string;
+  methodFilter?: RequestMethod;
   onClearAll: () => void;
   onExport: () => void;
   onReplay: (id: string) => void;
@@ -53,7 +56,7 @@ function formatHistoryTitle(count: number): string {
 function matchesFilters(
   entry: MessageEntry,
   searchText: string,
-  methodFilter?: string,
+  methodFilter?: RequestMethod,
 ): boolean {
   const method = extractMethod(entry);
   if (methodFilter && method !== methodFilter) return false;

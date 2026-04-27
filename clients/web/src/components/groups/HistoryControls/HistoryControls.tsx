@@ -1,26 +1,18 @@
 import { Select, Stack, TextInput, Title } from "@mantine/core";
-
-const METHOD_OPTIONS = [
-  "tools/call",
-  "tools/list",
-  "resources/read",
-  "resources/list",
-  "prompts/get",
-  "prompts/list",
-  "sampling/createMessage",
-  "elicitation/create",
-];
+import type { RequestMethod } from "@inspector/core/mcp/types.js";
 
 export interface HistoryControlsProps {
   searchText: string;
-  methodFilter?: string;
+  methodFilter?: RequestMethod;
+  availableMethods: RequestMethod[];
   onSearchChange: (text: string) => void;
-  onMethodFilterChange: (method: string | undefined) => void;
+  onMethodFilterChange: (method: RequestMethod | undefined) => void;
 }
 
 export function HistoryControls({
   searchText,
   methodFilter,
+  availableMethods,
   onSearchChange,
   onMethodFilterChange,
 }: HistoryControlsProps) {
@@ -36,9 +28,11 @@ export function HistoryControls({
       <Title order={6}>Filter by Method</Title>
       <Select
         placeholder="All methods"
-        data={METHOD_OPTIONS}
+        data={availableMethods}
         value={methodFilter ?? null}
-        onChange={(value) => onMethodFilterChange(value ?? undefined)}
+        onChange={(value) =>
+          onMethodFilterChange((value as RequestMethod | null) ?? undefined)
+        }
         clearable
       />
     </Stack>
