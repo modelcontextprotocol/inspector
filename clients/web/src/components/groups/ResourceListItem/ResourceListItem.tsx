@@ -27,11 +27,10 @@ export function ResourceListItem({
   selected,
   onClick,
 }: ResourceListItemProps) {
-  const annotations = resource.annotations;
-  const audience = annotations?.audience;
-  const priority = annotations?.priority;
-  const hasAudience = audience !== undefined && audience.length > 0;
-  const hasPriority = priority !== undefined;
+  const audience = resource.annotations?.audience;
+  const priority = resource.annotations?.priority;
+  const showBadges =
+    (audience !== undefined && audience.length > 0) || priority !== undefined;
   const label = <Text fw={500}>{resource.title ?? resource.name}</Text>;
 
   return (
@@ -42,14 +41,14 @@ export function ResourceListItem({
       bg={selected ? "var(--mantine-primary-color-light)" : undefined}
       onClick={onClick}
     >
-      {hasAudience || hasPriority ? (
+      {showBadges ? (
         <RowGroup>
           {label}
           <BadgeGroup>
-            {hasAudience && (
+            {audience !== undefined && audience.length > 0 && (
               <AnnotationBadge facet="audience" value={audience} />
             )}
-            {hasPriority && (
+            {priority !== undefined && (
               <AnnotationBadge facet="priority" value={priority} />
             )}
           </BadgeGroup>

@@ -57,8 +57,8 @@ export const Template: Story = {
 export const WithAudience: Story = {
   args: {
     resource: {
-      name: "config.json",
-      uri: "file:///config.json",
+      name: "settings.json",
+      uri: "file:///settings.json",
       annotations: { audience: ["user"] },
     },
     selected: false,
