@@ -19,7 +19,7 @@
   "type": "module",
   "main": "./build/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "validate": "cd ./clients/web/ npm run format:check && npm run lint && npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

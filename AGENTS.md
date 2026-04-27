@@ -16,6 +16,24 @@ inspector/
 ...
 ```
 
+## Repository & Project Board
+
+- **Repo**: https://github.com/modelcontextprotocol/inspector.git
+- **Base Branches**: v2/main, v1.5/main, main
+- **Project Boards**: 
+  - v2 - https://github.com/orgs/modelcontextprotocol/projects/28
+  - v1.5 - https://github.com/orgs/modelcontextprotocol/projects/39
+  - v1 - https://github.com/orgs/modelcontextprotocol/projects/11
+
+## Project Status and Direction
+* The main branch currently contains the legacy version of the Inspector, which we are accepting bug fixes and minor improvement PRs for.
+
+* The v1.5/main branch contains an intermediate version of the Inspector, where the shared logic between the three incarnations of the Inspector are extracted into a core subsystem with InspectorClient class as the common entry point. It also includes the TUI, a refactored CLI, and streamlined launcher.
+
+* The v2/main branch currently contains the new version of the web Inspector, composed of "dumb" components which accept data and callbacks as props and contain only display logic. 
+
+* The InspectorClient from v1.5/main will be merged into v2/main, and wired up to the new web Inspector. The TUI and CLI will follow. Eventually when everything works on v2/main we will replace main with v2/main, eliminating the legacy implementations.
+
 ## Maintenance Rules
 
 ### Keep documentation files up to date
@@ -24,7 +42,19 @@ inspector/
 - When adding new commands, dependencies, or architectural patterns, update the relevant sections of appropriate README.md files as well.
 - When rules for implementation and testing change, update this file AGENTS.md
 
-### Always test new or modified coderea
+### Issue-driven Work Style
+
+All work should be driven by items on the project board.
+
+- Before starting work, check the board for the relevant item.
+- **Draft items vs. issues**: Board items may be draft items (no issue number) or full GitHub issues. Before creating a new issue, always check if a matching draft item already exists on the board. If it does, convert it to an issue using `gh project item-edit` or create the issue and link it — **never create a duplicate**.
+- When work begins, create a feature branch and move the item to "In Progress".
+- When work is complete:
+  - Run format, lint, typecheck, build, and test — ensure all checks pass
+  - Open a PR against `main` and move the item to "In Review"
+- If new tasks are discovered or requested during development, create issues and add them to the board.
+
+### Always test new or modified code
 - Ensure all code has corresponding tests
 - Ensure test coverage for each file is at least 90%
 - In unit tests that expect error output, suppress it from the console
@@ -36,8 +66,7 @@ inspector/
   - after making the changes, respond to each review comment with what was done (or why it was ignored)
 
 ### Lint-fixed, Formatted code
-- Ensure linting and formatting are applied after every change
-- ALWAYS do `npm run format`, `npm run lint`, `npm run typecheck`, `npm run test` and `npm run build` before pushing any changes
+- ALWAYS do `npm run validate` before pushing any changes, this runs the various lint, build, format checks, etc.
 
 ### Typescript instructions
 - Use TypeScript for all new code
