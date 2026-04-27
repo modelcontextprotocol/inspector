@@ -356,7 +356,7 @@ will close out as part of that work.
 - **Purpose**: Search + method filter sidebar for the history screen.
 - **Current props**: `searchText`, `methodFilter`, `onSearchChange`, `onMethodFilterChange`.
 - **MCP schema touch points**: Method filter values are MCP `Request.method` literals.
-- **Target props**: `searchText`, `methodFilter?: RequestMethod`, `availableMethods: RequestMethod[]`, `onSearchChange`, `onMethodFilterChange`.
+- **Target props**: `searchText`, `methodFilter?: MessageMethod`, `availableMethods: MessageMethod[]`, `onSearchChange`, `onMethodFilterChange`.
 - **Callbacks → core hook**: `useMessageLog`.
 - **Internal refactors**: Type the method filter as a union of MCP method strings.
 

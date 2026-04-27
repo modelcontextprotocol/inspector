@@ -1,12 +1,12 @@
 import { Select, Stack, TextInput, Title } from "@mantine/core";
-import type { RequestMethod } from "@inspector/core/mcp/types.js";
+import type { MessageMethod } from "@inspector/core/mcp/types.js";
 
 export interface HistoryControlsProps {
   searchText: string;
-  methodFilter?: RequestMethod;
-  availableMethods: RequestMethod[];
+  methodFilter?: MessageMethod;
+  availableMethods: MessageMethod[];
   onSearchChange: (text: string) => void;
-  onMethodFilterChange: (method: RequestMethod | undefined) => void;
+  onMethodFilterChange: (method: MessageMethod | undefined) => void;
 }
 
 export function HistoryControls({
@@ -31,7 +31,7 @@ export function HistoryControls({
         data={availableMethods}
         value={methodFilter ?? null}
         onChange={(value) =>
-          onMethodFilterChange((value as RequestMethod | null) ?? undefined)
+          onMethodFilterChange((value as MessageMethod | null) ?? undefined)
         }
         clearable
       />

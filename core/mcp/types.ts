@@ -103,7 +103,7 @@ export interface MessageEntry {
 }
 
 /** Method name for any MessageEntry traffic, plus synthetic "response" for result/error entries. */
-export type RequestMethod =
+export type MessageMethod =
   | ClientRequest["method"]
   | ClientNotification["method"]
   | ServerRequest["method"]
