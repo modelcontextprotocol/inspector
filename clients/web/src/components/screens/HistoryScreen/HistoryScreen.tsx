@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Card, Flex, Stack } from "@mantine/core";
 import type { MessageEntry, MessageMethod } from "@inspector/core/mcp/types.js";
 import { HistoryControls } from "../../groups/HistoryControls/HistoryControls";
@@ -47,6 +47,11 @@ export function HistoryScreen({
     [entries],
   );
 
+  const handleClearAll = useCallback(() => {
+    setMethodFilter(undefined);
+    onClearAll();
+  }, [onClearAll]);
+
   return (
     <ScreenLayout>
       <Sidebar>
@@ -65,7 +70,7 @@ export function HistoryScreen({
         pinnedIds={pinnedIds}
         searchText={searchText}
         methodFilter={methodFilter}
-        onClearAll={onClearAll}
+        onClearAll={handleClearAll}
         onExport={onExport}
         onReplay={onReplay}
         onTogglePin={onTogglePin}
