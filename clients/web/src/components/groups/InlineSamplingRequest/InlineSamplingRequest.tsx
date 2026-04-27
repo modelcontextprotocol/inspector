@@ -1,18 +1,13 @@
-import {
-  Badge,
-  Button,
-  Group,
-  Paper,
-  Stack,
-  Text,
-  Textarea,
-} from "@mantine/core";
-import type { CreateMessageRequestParams } from "@modelcontextprotocol/sdk/types.js";
+import { Badge, Button, Group, Paper, Stack, Text } from "@mantine/core";
+import type {
+  CreateMessageRequestParams,
+  CreateMessageResult,
+} from "@modelcontextprotocol/sdk/types.js";
 
 export interface InlineSamplingRequestProps {
   request: CreateMessageRequestParams;
   queuePosition: string;
-  responseText: string;
+  draftResult?: CreateMessageResult;
   onAutoRespond: () => void;
   onEditAndSend: () => void;
   onReject: () => void;
@@ -32,6 +27,11 @@ const QueueLabel = Text.withProps({
 const PreviewText = Text.withProps({
   size: "sm",
   c: "dimmed",
+  lineClamp: 2,
+});
+
+const DraftPreview = Text.withProps({
+  size: "sm",
   lineClamp: 2,
 });
 
@@ -67,6 +67,17 @@ function extractPreview(request: CreateMessageRequestParams): string {
   return content.type === "text" ? content.text : `[${content.type}]`;
 }
 
+function extractDraftPreview(draft: CreateMessageResult): string {
+  switch (draft.content.type) {
+    case "text":
+      return draft.content.text;
+    case "image":
+      return "[Image content]";
+    case "audio":
+      return "[Audio content]";
+  }
+}
+
 function extractModelHints(
   request: CreateMessageRequestParams,
 ): string[] | undefined {
@@ -82,7 +93,7 @@ function formatModelHints(hints: string[]): string {
 export function InlineSamplingRequest({
   request,
   queuePosition,
-  responseText,
+  draftResult,
   onAutoRespond,
   onEditAndSend,
   onReject,
@@ -90,6 +101,7 @@ export function InlineSamplingRequest({
 }: InlineSamplingRequestProps) {
   const modelHints = extractModelHints(request);
   const messagePreview = extractPreview(request);
+  const draftPreview = draftResult ? extractDraftPreview(draftResult) : null;
 
   return (
     <RequestContainer>
@@ -105,14 +117,7 @@ export function InlineSamplingRequest({
 
         <DetailButton onClick={onViewDetails}>View Details</DetailButton>
 
-        <Textarea
-          size="sm"
-          value={responseText}
-          placeholder="Response..."
-          autosize
-          minRows={2}
-          readOnly
-        />
+        {draftPreview !== null && <DraftPreview>{draftPreview}</DraftPreview>}
 
         <ActionsRow>
           <CompactButton onClick={onAutoRespond}>Auto-respond</CompactButton>

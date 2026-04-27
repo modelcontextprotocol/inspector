@@ -287,7 +287,6 @@ export const WithPendingRequests: Story = {
               maxTokens: 1024,
             }}
             queuePosition="1 of 2"
-            responseText=""
             onAutoRespond={fn()}
             onEditAndSend={fn()}
             onReject={fn()}
