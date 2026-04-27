@@ -53,3 +53,48 @@ export const Template: Story = {
     selected: false,
   },
 };
+
+export const WithAudience: Story = {
+  args: {
+    resource: {
+      name: "config.json",
+      uri: "file:///config.json",
+      annotations: { audience: ["user"] },
+    },
+    selected: false,
+  },
+};
+
+export const WithPriority: Story = {
+  args: {
+    resource: {
+      name: "schema.sql",
+      uri: "file:///schema.sql",
+      annotations: { priority: 0.8 },
+    },
+    selected: false,
+  },
+};
+
+export const WithAudienceAndPriority: Story = {
+  args: {
+    resource: {
+      name: "config.json",
+      title: "Configuration File",
+      uri: "file:///config.json",
+      annotations: { audience: ["user", "assistant"], priority: 0.5 },
+    },
+    selected: false,
+  },
+};
+
+export const TemplateWithAnnotations: Story = {
+  args: {
+    resource: {
+      name: "User Profile",
+      uriTemplate: "file:///users/{userId}/profile",
+      annotations: { audience: ["assistant"], priority: 0.2 },
+    },
+    selected: false,
+  },
+};
