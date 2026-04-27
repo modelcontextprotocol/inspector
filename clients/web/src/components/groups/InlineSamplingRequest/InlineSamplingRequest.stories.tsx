@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { CreateMessageRequestParams } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  CreateMessageRequestParams,
+  CreateMessageResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { fn } from "storybook/test";
 import { InlineSamplingRequest } from "./InlineSamplingRequest";
 
@@ -16,13 +19,31 @@ const defaultRequest: CreateMessageRequestParams = {
   maxTokens: 1024,
 };
 
+const textDraft: CreateMessageResult = {
+  role: "assistant",
+  model: "claude-sonnet-4-20250514",
+  content: {
+    type: "text",
+    text: "The code looks good overall. Consider extracting the repeated logic into a helper function and adding type annotations to the public API.",
+  },
+};
+
+const imageDraft: CreateMessageResult = {
+  role: "assistant",
+  model: "claude-sonnet-4-20250514",
+  content: {
+    type: "image",
+    data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+    mimeType: "image/png",
+  },
+};
+
 const meta: Meta<typeof InlineSamplingRequest> = {
   title: "Groups/InlineSamplingRequest",
   component: InlineSamplingRequest,
   args: {
     request: defaultRequest,
     queuePosition: "1 of 1",
-    responseText: "",
     onAutoRespond: fn(),
     onEditAndSend: fn(),
     onReject: fn(),
@@ -49,10 +70,15 @@ export const WithModelHints: Story = {
   },
 };
 
-export const PrefilledResponse: Story = {
+export const WithTextDraft: Story = {
   args: {
-    responseText:
-      "The code looks good overall. Consider extracting the repeated logic into a helper function.",
+    draftResult: textDraft,
+  },
+};
+
+export const WithNonTextDraft: Story = {
+  args: {
+    draftResult: imageDraft,
   },
 };
 

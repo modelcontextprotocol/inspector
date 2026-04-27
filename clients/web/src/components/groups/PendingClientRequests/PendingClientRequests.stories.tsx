@@ -57,7 +57,6 @@ export const SingleSampling: Story = {
           maxTokens: 1024,
         }}
         queuePosition="1 of 1"
-        responseText=""
         onAutoRespond={fn()}
         onEditAndSend={fn()}
         onReject={fn()}
@@ -102,7 +101,6 @@ export const MultipleMixed: Story = {
             maxTokens: 1024,
           }}
           queuePosition="1 of 2"
-          responseText=""
           onAutoRespond={fn()}
           onEditAndSend={fn()}
           onReject={fn()}
