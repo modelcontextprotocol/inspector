@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
-import { fn } from "storybook/test";
+import { expect, fn, screen, userEvent, within } from "storybook/test";
 import { HistoryScreen } from "./HistoryScreen";
 
 const meta: Meta<typeof HistoryScreen> = {
@@ -122,5 +122,27 @@ export const WithEntries: Story = {
 export const Empty: Story = {
   args: {
     entries: [],
+  },
+};
+
+export const MethodFilterClearedOnClearAll: Story = {
+  args: {
+    entries: sampleEntries,
+    pinnedIds: new Set<string>(),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const filter = canvas.getByPlaceholderText(
+      "All methods",
+    ) as HTMLInputElement;
+
+    await userEvent.click(filter);
+    await userEvent.click(
+      await screen.findByRole("option", { name: "tools/call" }),
+    );
+    await expect(filter).toHaveValue("tools/call");
+
+    await userEvent.click(canvas.getByRole("button", { name: /^clear$/i }));
+    await expect(filter).toHaveValue("");
   },
 };
