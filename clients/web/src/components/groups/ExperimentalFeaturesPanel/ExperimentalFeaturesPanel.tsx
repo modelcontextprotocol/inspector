@@ -15,15 +15,11 @@ import {
   Title,
 } from "@mantine/core";
 import type {
+  ClientCapabilities,
   JSONRPCErrorResponse,
   JSONRPCResponse,
   ServerCapabilities,
 } from "@modelcontextprotocol/sdk/types.js";
-
-export interface ClientExperimentalToggle {
-  name: string;
-  enabled: boolean;
-}
 
 export interface HeaderPair {
   key: string;
@@ -39,7 +35,7 @@ export interface RequestHistoryItem {
 
 export interface ExperimentalFeaturesPanelProps {
   serverExperimental: ServerCapabilities["experimental"];
-  clientToggles: ClientExperimentalToggle[];
+  clientExperimental: ClientCapabilities["experimental"];
   requestDraft: string;
   response?: JSONRPCResponse | JSONRPCErrorResponse;
   customHeaders: HeaderPair[];
@@ -53,6 +49,27 @@ export interface ExperimentalFeaturesPanelProps {
   onCopyResponse: () => void;
   onTestCapability: (name: string) => void;
 }
+
+interface ClientToggleMetadata {
+  label: string;
+  description: string;
+}
+
+const CLIENT_EXPERIMENTAL_TOGGLE_METADATA: Record<
+  string,
+  ClientToggleMetadata
+> = {
+  "experimental/customSampling": {
+    label: "Custom sampling",
+    description:
+      "Allow servers to invoke client-defined sampling strategies via experimental/sampling.* methods.",
+  },
+  "experimental/batchRequests": {
+    label: "Batch requests",
+    description:
+      "Send multiple JSON-RPC requests in a single call and receive a batched response.",
+  },
+};
 
 const HintText = Text.withProps({
   size: "sm",
@@ -130,7 +147,7 @@ function formatMethods(methods: string[]): string {
 
 export function ExperimentalFeaturesPanel({
   serverExperimental,
-  clientToggles,
+  clientExperimental,
   requestDraft,
   response,
   customHeaders,
@@ -183,16 +200,23 @@ export function ExperimentalFeaturesPanel({
 
       <Title order={5}>Client Experimental Capabilities:</Title>
 
-      {clientToggles.map((toggle) => (
-        <Checkbox
-          key={toggle.name}
-          label={toggle.name}
-          checked={toggle.enabled}
-          onChange={(e) =>
-            onToggleClientCapability(toggle.name, e.currentTarget.checked)
-          }
-        />
-      ))}
+      {Object.keys(clientExperimental ?? {}).map((name) => {
+        const metadata = CLIENT_EXPERIMENTAL_TOGGLE_METADATA[name];
+        return (
+          <Stack key={name} gap={4}>
+            <Checkbox
+              label={metadata?.label ?? name}
+              checked
+              onChange={(e) =>
+                onToggleClientCapability(name, e.currentTarget.checked)
+              }
+            />
+            {metadata?.description && (
+              <HintText pl="xl">{metadata.description}</HintText>
+            )}
+          </Stack>
+        );
+      })}
 
       <Divider />
 
