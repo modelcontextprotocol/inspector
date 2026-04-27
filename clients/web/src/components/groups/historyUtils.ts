@@ -1,8 +1,10 @@
-import type { MessageEntry } from "../../../../../core/mcp/types.js";
+import type { MessageEntry, MessageMethod } from "@inspector/core/mcp/types.js";
 
-export function extractMethod(entry: MessageEntry): string {
+export function extractMethod(entry: MessageEntry): MessageMethod {
   if ("method" in entry.message) {
-    return entry.message.method;
+    // Cast: SDK types message.method as `string`, but every entry in this
+    // app's MessageEntry log originates from MCP SDK schemas.
+    return entry.message.method as MessageMethod;
   }
   return "response";
 }

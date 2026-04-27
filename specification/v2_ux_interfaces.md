@@ -94,6 +94,52 @@ For each component, the plan records:
 
 ---
 
+## Audit results (Phase 5 close-out, 2026-04-26)
+
+After Phases 0–5 of [`v2_ux_interfaces_plan.md`](v2_ux_interfaces_plan.md), the
+component layer was audited against this spec by reading every component file
+under `clients/web/src/components/` and comparing its exported props interface
+and internal rendering against the corresponding entry's **Target props** and
+**Internal refactors** here. Spec entries that reference `Inspector*`
+placeholder names map to v1.5 actual names per the plan's
+"Name-mapping correction" table — components using those v1.5 names
+(`MCPServerConfig`, `ServerType`, `Task`, `MessageEntry`, etc.) are treated
+as satisfied.
+
+**Result: 57 of 62 satisfied, 5 partial, 0 unstarted.**
+
+### Partials still open
+
+- **ElicitationUrlPanel** — accepts scalar `message` / `url` / `requestId`
+  props. Spec target wraps these in `InspectorUrlElicitRequest`. **Blocked
+  on the v2 core hook layer effort** — the wrapper type was deferred from
+  Phase 0.2 and was not added to `core/mcp/types.ts` because URL-mode
+  elicitation has no dedicated handler in this repo yet.
+- **InlineElicitationRequest** — accepts only `ElicitRequest['params']`
+  (form variant). Spec target is a discriminated union over
+  `ElicitRequest | InspectorUrlElicitRequest`. **Same blocker as above.**
+- **InlineSamplingRequest** — exposes a flat `responseText: string` prop.
+  Spec target is `draftResult?: CreateMessageResult`. In-scope to fix
+  without the hook layer; deferred to a follow-up because the inline card's
+  draft-editing UX is co-evolving with `SamplingRequestPanel`.
+- **ExperimentalFeaturesPanel** — accepts a local
+  `clientToggles: ClientExperimentalToggle[]` prop. Spec target is the
+  freeform `clientExperimental: ClientCapabilities['experimental']` record
+  iterated in-component. The local-toggle shape was retained because the
+  panel needs per-toggle metadata (label, description) that the bare
+  capabilities record doesn't carry; reconciling the two shapes is a
+  follow-up.
+- **ResourceListItem** — props match the target shape, but the entry's
+  internal-refactor bullet ("Actually render the annotations currently
+  received but unused") is unimplemented; the component still ignores
+  `resource.annotations`.
+
+The component contracts produced by this refactor are the input spec for
+the upcoming v2 `core/` hook layer effort. The two blocked partials above
+will close out as part of that work.
+
+---
+
 ## Section 1 — Elements (`clients/web/src/components/elements/`)
 
 > Small, focused presentational primitives. Each renders a single MCP concept
@@ -310,7 +356,7 @@ For each component, the plan records:
 - **Purpose**: Search + method filter sidebar for the history screen.
 - **Current props**: `searchText`, `methodFilter`, `onSearchChange`, `onMethodFilterChange`.
 - **MCP schema touch points**: Method filter values are MCP `Request.method` literals.
-- **Target props**: `searchText`, `methodFilter?: RequestMethod`, `availableMethods: RequestMethod[]`, `onSearchChange`, `onMethodFilterChange`.
+- **Target props**: `searchText`, `methodFilter?: MessageMethod`, `availableMethods: MessageMethod[]`, `onSearchChange`, `onMethodFilterChange`.
 - **Callbacks → core hook**: `useMessageLog`.
 - **Internal refactors**: Type the method filter as a union of MCP method strings.
 

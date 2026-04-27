@@ -1,5 +1,7 @@
 import type {
   CallToolResult,
+  ClientNotification,
+  ClientRequest,
   GetPromptResult,
   Implementation,
   JSONRPCErrorResponse,
@@ -10,6 +12,8 @@ import type {
   ReadResourceResult,
   Resource,
   ServerCapabilities,
+  ServerNotification,
+  ServerRequest,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { JsonValue } from "../json/jsonUtils.js";
@@ -97,6 +101,14 @@ export interface MessageEntry {
   response?: JSONRPCResultResponse | JSONRPCErrorResponse;
   duration?: number; // Time between request and response in ms
 }
+
+/** Method name for any MessageEntry traffic, plus synthetic "response" for result/error entries. */
+export type MessageMethod =
+  | ClientRequest["method"]
+  | ClientNotification["method"]
+  | ServerRequest["method"]
+  | ServerNotification["method"]
+  | "response";
 
 export type FetchRequestCategory = "auth" | "transport";
 
