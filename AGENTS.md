@@ -48,6 +48,12 @@ All work should be driven by items on the project board.
 
 - Before starting work, check the board for the relevant item.
 - **Draft items vs. issues**: Board items may be draft items (no issue number) or full GitHub issues. Before creating a new issue, always check if a matching draft item already exists on the board. If it does, convert it to an issue using `gh project item-edit` or create the issue and link it — **never create a duplicate**.
+- **Label by version.** New issues and PRs must carry the label matching the target board / branch:
+  - `main` → `v1`
+  - `v1.5/main` → `v1.5`
+  - `v2/main` → `v2`
+
+  Set the label at create time (`gh issue create --label v2 ...`, `gh pr create --label v2 ...`) — don't rely on backfilling later, since unlabeled PRs are easy to miss when filtering by version.
 - When work begins, create a feature branch and move the item to "In Progress".
 - When work is complete:
   - Run format, lint, typecheck, build, and test — ensure all checks pass
