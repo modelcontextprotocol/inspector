@@ -57,7 +57,7 @@ All work should be driven by items on the project board.
 - When work begins, create a feature branch and move the item to "In Progress".
 - When work is complete:
   - Run format, lint, typecheck, build, and test — ensure all checks pass
-  - Open a PR against `main` and move the item to "In Review"
+  - Open a PR against the matching base branch (`main` for v1, `v1.5/main` for v1.5, `v2/main` for v2) and move the item to "In Review"
 - If new tasks are discovered or requested during development, create issues and add them to the board.
 
 ### Always test new or modified code
