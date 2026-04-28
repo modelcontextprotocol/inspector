@@ -122,9 +122,16 @@ const readUserProfileState: ReadResourceState = {
   isSubscribed: false,
 };
 
-async function clickByText(canvasElement: HTMLElement, label: string) {
+async function clickByText(
+  canvasElement: HTMLElement,
+  label: string,
+  regionName?: RegExp,
+) {
   const canvas = within(canvasElement);
-  await userEvent.click(await canvas.findByText(label));
+  const scope = regionName
+    ? within(await canvas.findByRole("region", { name: regionName }))
+    : canvas;
+  await userEvent.click(await scope.findByText(label));
 }
 
 // The userId value typed below must match the `{userId}` segment in
@@ -153,7 +160,7 @@ export const ResourceSelected: Story = {
     readState: readConfigState,
   },
   play: async ({ canvasElement }) => {
-    await clickByText(canvasElement, "config.json");
+    await clickByText(canvasElement, "config.json", /^URIs/);
   },
 };
 
