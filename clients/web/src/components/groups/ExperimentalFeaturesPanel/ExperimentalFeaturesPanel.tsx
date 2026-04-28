@@ -145,6 +145,17 @@ function formatMethods(methods: string[]): string {
   return `Methods: ${methods.join(", ")}`;
 }
 
+function getClientToggleNames(
+  clientExperimental: ClientCapabilities["experimental"],
+): string[] {
+  const known = Object.keys(CLIENT_EXPERIMENTAL_TOGGLE_METADATA);
+  const recordKeys = Object.keys(clientExperimental ?? {});
+  const unknown = recordKeys.filter(
+    (name) => !(name in CLIENT_EXPERIMENTAL_TOGGLE_METADATA),
+  );
+  return [...known, ...unknown];
+}
+
 export function ExperimentalFeaturesPanel({
   serverExperimental,
   clientExperimental,
@@ -200,13 +211,14 @@ export function ExperimentalFeaturesPanel({
 
       <Title order={5}>Client Experimental Capabilities:</Title>
 
-      {Object.keys(clientExperimental ?? {}).map((name) => {
+      {getClientToggleNames(clientExperimental).map((name) => {
         const metadata = CLIENT_EXPERIMENTAL_TOGGLE_METADATA[name];
+        const enabled = clientExperimental?.[name] !== undefined;
         return (
           <Stack key={name} gap={4}>
             <Checkbox
               label={metadata?.label ?? name}
-              checked
+              checked={enabled}
               onChange={(e) =>
                 onToggleClientCapability(name, e.currentTarget.checked)
               }

@@ -61,13 +61,13 @@ export const NoServerCaps: Story = {
   },
 };
 
-export const NoClientToggles: Story = {
+export const NoneEnabled: Story = {
   args: {
     clientExperimental: undefined,
   },
 };
 
-export const AllKnownClientToggles: Story = {
+export const AllKnownEnabled: Story = {
   args: {
     clientExperimental: {
       "experimental/customSampling": {},
@@ -76,7 +76,7 @@ export const AllKnownClientToggles: Story = {
   },
 };
 
-export const MixedKnownAndUnknownToggles: Story = {
+export const MixedKnownAndUnknown: Story = {
   args: {
     clientExperimental: {
       "experimental/customSampling": {},
