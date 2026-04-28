@@ -1,15 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
-import type {
-  ClientExperimentalToggle,
-  RequestHistoryItem,
-} from "./ExperimentalFeaturesPanel";
+import type { RequestHistoryItem } from "./ExperimentalFeaturesPanel";
 import { ExperimentalFeaturesPanel } from "./ExperimentalFeaturesPanel";
-
-const defaultClientToggles: ClientExperimentalToggle[] = [
-  { name: "experimental/customSampling", enabled: false },
-  { name: "experimental/batchRequests", enabled: true },
-];
 
 const meta: Meta<typeof ExperimentalFeaturesPanel> = {
   title: "Groups/ExperimentalFeaturesPanel",
@@ -23,7 +15,9 @@ const meta: Meta<typeof ExperimentalFeaturesPanel> = {
     onHeaderChange: fn(),
     onCopyResponse: fn(),
     onTestCapability: fn(),
-    clientToggles: defaultClientToggles,
+    clientExperimental: {
+      "experimental/batchRequests": {},
+    },
     customHeaders: [],
     requestHistory: [],
     requestDraft: JSON.stringify(
@@ -64,6 +58,30 @@ export const WithServerCaps: Story = {
 export const NoServerCaps: Story = {
   args: {
     serverExperimental: undefined,
+  },
+};
+
+export const NoneEnabled: Story = {
+  args: {
+    clientExperimental: undefined,
+  },
+};
+
+export const AllKnownEnabled: Story = {
+  args: {
+    clientExperimental: {
+      "experimental/customSampling": {},
+      "experimental/batchRequests": {},
+    },
+  },
+};
+
+export const MixedKnownAndUnknown: Story = {
+  args: {
+    clientExperimental: {
+      "experimental/customSampling": {},
+      "experimental/futureFeatureXyz": {},
+    },
   },
 };
 
