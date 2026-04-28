@@ -45,7 +45,7 @@ describe("DynamicJsonForm Array Fields", () => {
 
       // Should show array description
       expect(screen.getByText("Test array field")).toBeDefined();
-      expect(screen.getByText("Items: Array item")).toBeDefined();
+      expect(screen.getByText("Array item")).toBeDefined();
 
       // Should show input fields for each item
       const inputs = screen.getAllByRole("textbox");
@@ -101,21 +101,80 @@ describe("DynamicJsonForm Array Fields", () => {
     });
   });
 
-  describe("Complex Array Fallback", () => {
-    it("should render JSON editor for complex arrays", () => {
-      renderComplexArrayForm();
+  describe("Complex Array Rendering", () => {
+    it("should render structured form for arrays of objects with properties", () => {
+      renderComplexArrayForm({ value: [{ nested: {} }] });
 
-      // Initially renders form view with Switch to JSON button; switch to JSON to see textarea
-      const switchBtn = screen.getByRole("button", { name: /switch to json/i });
-      expect(switchBtn).toBeInTheDocument();
-      fireEvent.click(switchBtn);
+      // Should show Add Item and Remove — not fall back to raw JSON
+      expect(screen.getByText("Add Item")).toBeInTheDocument();
+      expect(screen.getByText("Remove")).toBeInTheDocument();
 
-      const textarea = screen.getByRole("textbox");
-      expect(textarea).toHaveProperty("type", "textarea");
+      // Switch to JSON should still be available
+      expect(
+        screen.getByRole("button", { name: /switch to json/i }),
+      ).toBeInTheDocument();
+    });
 
-      // Should not show form-specific array controls
+    it("should render JSON editor for untyped (no-type) array items", () => {
+      const schema: JsonSchemaType = {
+        type: "array",
+        items: {} as JsonSchemaType, // no type at all
+      };
+      render(
+        <DynamicJsonForm schema={schema} value={[]} onChange={jest.fn()} />,
+      );
+
+      // Falls back to JSON editor; no structured controls
       expect(screen.queryByText("Add Item")).toBeNull();
-      expect(screen.queryByText("Remove")).toBeNull();
+    });
+
+    it("should render structured form for Optional array (anyOf:[array,null])", () => {
+      const schema: JsonSchemaType = {
+        anyOf: [
+          {
+            type: "array",
+            items: { type: "string" as const },
+          },
+          { type: "null" },
+        ],
+      } as unknown as JsonSchemaType;
+      render(
+        <DynamicJsonForm
+          schema={schema}
+          value={["hello"]}
+          onChange={jest.fn()}
+        />,
+      );
+
+      // Should render as a structured string-array form, not a raw JSON box
+      expect(screen.getByText("Add Item")).toBeInTheDocument();
+      const inputs = screen.getAllByRole("textbox");
+      expect(inputs[0]).toHaveProperty("value", "hello");
+    });
+
+    it("should render structured form for array of Optional objects (items anyOf:[object,null])", () => {
+      const schema: JsonSchemaType = {
+        type: "array",
+        items: {
+          anyOf: [
+            {
+              type: "object" as const,
+              properties: { name: { type: "string" as const } },
+            },
+            { type: "null" },
+          ],
+        } as unknown as JsonSchemaType,
+      };
+      render(
+        <DynamicJsonForm
+          schema={schema}
+          value={[{ name: "Alice" }]}
+          onChange={jest.fn()}
+        />,
+      );
+
+      expect(screen.getByText("Add Item")).toBeInTheDocument();
+      expect(screen.getByText("Remove")).toBeInTheDocument();
     });
   });
 
@@ -305,7 +364,7 @@ describe("DynamicJsonForm Array Fields", () => {
       renderSimpleArrayForm({ schema });
 
       expect(screen.getByText("List of names")).toBeDefined();
-      expect(screen.getByText("Items: Person name")).toBeDefined();
+      expect(screen.getByText("Person name")).toBeDefined();
     });
 
     it("should use item description in add button title", () => {
