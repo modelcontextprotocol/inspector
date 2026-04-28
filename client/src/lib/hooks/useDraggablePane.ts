@@ -103,3 +103,62 @@ export function useDraggableSidebar(initialWidth: number) {
     handleDragStart,
   };
 }
+
+// Generic horizontal-resize hook for tab inner splitters (list pane <-> details pane).
+// Same pattern as useDraggableSidebar but with caller-supplied min/max so individual
+// tabs can choose sensible bounds.
+export function useDraggableHorizontalPane(
+  initialWidth: number,
+  minWidth: number = 200,
+  maxWidth: number = 1200,
+) {
+  const [width, setWidth] = useState(initialWidth);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartX = useRef<number>(0);
+  const dragStartWidth = useRef<number>(0);
+
+  const handleDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      setIsDragging(true);
+      dragStartX.current = e.clientX;
+      dragStartWidth.current = width;
+      document.body.style.userSelect = "none";
+    },
+    [width],
+  );
+
+  const handleDragMove = useCallback(
+    (e: MouseEvent) => {
+      if (!isDragging) return;
+      const deltaX = e.clientX - dragStartX.current;
+      const newWidth = Math.max(
+        minWidth,
+        Math.min(maxWidth, dragStartWidth.current + deltaX),
+      );
+      setWidth(newWidth);
+    },
+    [isDragging, minWidth, maxWidth],
+  );
+
+  const handleDragEnd = useCallback(() => {
+    setIsDragging(false);
+    document.body.style.userSelect = "";
+  }, []);
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener("mousemove", handleDragMove);
+      window.addEventListener("mouseup", handleDragEnd);
+      return () => {
+        window.removeEventListener("mousemove", handleDragMove);
+        window.removeEventListener("mouseup", handleDragEnd);
+      };
+    }
+  }, [isDragging, handleDragMove, handleDragEnd]);
+
+  return {
+    width,
+    isDragging,
+    handleDragStart,
+  };
+}
