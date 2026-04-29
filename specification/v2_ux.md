@@ -13,6 +13,7 @@
     * [Server Info (Connected)](#server-info-connected)
     * [Feature Screens](#feature-screens)
       * [Tools Screen](#tools-screen)
+      * [Apps Screen](#apps-screen)
       * [Resources Screen](#resources-screen)
       * [Prompts Screen](#prompts-screen)
       * [Logging Screen](#logging-screen)
@@ -40,7 +41,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│  [Server Name ▼]  ● Connected (23ms)  [Tools] [Resources] [Prompts] [Logs] [Tasks] [History] [Disconnect] │
+│  [Server Name ▼]  ● Connected (23ms)  [Tools] [Apps] [Resources] [Prompts] [Logs] [Tasks] [History] [Disconnect] │
 ├─────────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                         │
 │                                   Full-width content                                    │
@@ -49,7 +50,7 @@
 ```
 
 - **Menu bar** displays server name, connection status with latency, and disconnect button when connected
-- **Top navigation** links to Tools, Resources, Prompts, Logs, Tasks, and History sections
+- **Top navigation** links to Tools, Apps, Resources, Prompts, Logs, Tasks, and History sections
 - **Connection indicator** shows latency from periodic `ping` requests
 - **No sidebar** - content areas use full width
 
@@ -398,6 +399,95 @@ When a tool execution triggers sampling or elicitation requests, they appear inl
   - Image preview for image content (base64)
   - Audio player for audio content (base64)
   - Resource links displayed as clickable references
+
+#### Apps Screen
+
+A two-panel layout showing the subset of tools that are **MCP Apps** — tools whose
+metadata advertises a UI resource via `_meta.ui.resourceUri` (or the deprecated
+flat `_meta["ui/resourceUri"]`). The right panel toggles between an input form
+(before launch) and the embedded app (after launch).
+
+**Input Form State:**
+
+```
+┌──────────────────────────┬──────────────────────────────────────────────┐
+│ MCP Apps (1)         🔍 │ get-cohort-data                          ✕  │
+│ [Refresh Apps]           │ Returns cohort retention heatmap data...     │
+├──────────────────────────┼──────────────────────────────────────────────┤
+│                          │                                              │
+│ ▸ get-cohort-data        │ ┌──────────────────────────────────────────┐ │
+│   Returns cohort         │ │ App Input                                │ │
+│   retention heatmap...   │ │                                          │ │
+│                          │ │ metric                                   │ │
+│                          │ │ ┌──────────────────────────────────────┐ │ │
+│                          │ │ │ retention                          ▾ │ │ │
+│                          │ │ └──────────────────────────────────────┘ │ │
+│                          │ │                                          │ │
+│                          │ │ periodType                               │ │
+│                          │ │ ┌──────────────────────────────────────┐ │ │
+│                          │ │ │ monthly                            ▾ │ │ │
+│                          │ │ └──────────────────────────────────────┘ │ │
+│                          │ │                                          │ │
+│                          │ │ cohortCount                              │ │
+│                          │ │ ┌──────────────────────────────────────┐ │ │
+│                          │ │ │ 12                                   │ │ │
+│                          │ │ └──────────────────────────────────────┘ │ │
+│                          │ │                                          │ │
+│                          │ │ maxPeriods                               │ │
+│                          │ │ ┌──────────────────────────────────────┐ │ │
+│                          │ │ │ 12                                   │ │ │
+│                          │ │ └──────────────────────────────────────┘ │ │
+│                          │ │                                          │ │
+│                          │ │            [▶  Open App]                 │ │
+│                          │ └──────────────────────────────────────────┘ │
+└──────────────────────────┴──────────────────────────────────────────────┘
+```
+
+**Running App State:**
+
+After "Open App" the right panel swaps to the embedded MCP App. The input
+form is replaced by the app iframe; a "Back to Input" button (only when the
+selected app has input fields) returns to the form.
+
+```
+┌──────────────────────────┬──────────────────────────────────────────────┐
+│ MCP Apps (1)         🔍 │ get-cohort-data                  ⛶  ✕      │
+│ [Refresh Apps]           │                          [Back to Input]     │
+├──────────────────────────┼──────────────────────────────────────────────┤
+│ ▸ get-cohort-data        │ ┌──────────────────────────────────────────┐ │
+│   Returns cohort         │ │                                          │ │
+│   retention heatmap...   │ │           [Embedded MCP App]             │ │
+│                          │ │                                          │ │
+│                          │ │  Cohort Retention Analysis  Metric: ▾    │ │
+│                          │ │                                          │ │
+│                          │ │  May 2025  100  85  72  ...              │ │
+│                          │ │  Jun 2025  100  85  78  ...              │ │
+│                          │ │  ...                                     │ │
+│                          │ │                                          │ │
+│                          │ └──────────────────────────────────────────┘ │
+└──────────────────────────┴──────────────────────────────────────────────┘
+```
+
+**Features:**
+- **App Detection** — A tool is treated as an App when `getToolUiResourceUri(tool)`
+  returns a defined `ui://...` URI (helper from `@modelcontextprotocol/ext-apps`).
+  Filtering happens upstream (wiring layer); the screen receives an already-filtered
+  `tools: Tool[]` array of apps.
+- **List Changed Indicator** — Shows when `notifications/tools/list_changed` received.
+- **Refresh Apps** button re-runs `tools/list`.
+- Searchable list, mirroring the Tools screen sidebar.
+- **App icons** rendered from `tool.icons` when present.
+- **App Input form** generated from `tool.inputSchema` (same `SchemaForm` used by
+  Tools screen).
+- **Open App** button:
+  - If the tool has input fields, the form must be filled before launch.
+  - If the tool has no input fields, "Open App" runs immediately on selection.
+- **Back to Input** returns to the form (only visible when the app has fields).
+- **Maximize / Minimize** toggle hides the sidebar to give the app the full viewport.
+- **App Renderer** embeds the UI resource in a sandboxed iframe and bridges
+  it to the active MCP server via `AppBridge`. Tool input and result are sent
+  to the app via `sendToolInput` / `sendToolResult`.
+- **Close (✕)** deselects the app and clears any in-flight launch.
 
 #### Resources Screen
 
