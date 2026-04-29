@@ -8,6 +8,8 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import JsonEditor from "./JsonEditor";
 import { updateValueAtPath } from "@/utils/jsonUtils";
 import { generateDefaultValue, normalizeUnionType } from "@/utils/schemaUtils";
@@ -310,6 +312,15 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
       // so that maxDepth enforcement and the type switch both see the real type.
       propSchema = normalizeUnionType(propSchema);
 
+      // Trim description to remove leading/trailing whitespace from multi-line
+      // Python triple-quoted strings (e.g. """\n            - text\n            """)
+      if (propSchema.description) {
+        propSchema = {
+          ...propSchema,
+          description: propSchema.description.trim(),
+        };
+      }
+
       if (
         depth >= maxDepth &&
         (propSchema.type === "object" || propSchema.type === "array")
@@ -429,39 +440,41 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
             );
           }
 
-          let inputType = "text";
-          switch (propSchema.format) {
-            case "email":
-              inputType = "email";
-              break;
-            case "uri":
-              inputType = "url";
-              break;
-            case "date":
-              inputType = "date";
-              break;
-            case "date-time":
-              inputType = "datetime-local";
-              break;
-            default:
-              inputType = "text";
-              break;
+          // Special formats keep a typed <Input>; plain text uses <Textarea> to
+          // match the height and style of direct-parameter string inputs.
+          type SpecialFormat = "email" | "uri" | "date" | "date-time";
+          const specialFormatMap: Record<SpecialFormat, string> = {
+            email: "email",
+            uri: "url",
+            date: "date",
+            "date-time": "datetime-local",
+          };
+          const specialInputType =
+            specialFormatMap[propSchema.format as SpecialFormat];
+
+          if (specialInputType) {
+            return (
+              <Input
+                type={specialInputType}
+                value={(currentValue as string) ?? ""}
+                onChange={(e) => handleFieldChange(path, e.target.value)}
+                placeholder={propSchema.description}
+                required={isRequired}
+                minLength={propSchema.minLength}
+                maxLength={propSchema.maxLength}
+                pattern={propSchema.pattern}
+              />
+            );
           }
 
           return (
-            <Input
-              type={inputType}
+            <Textarea
               value={(currentValue as string) ?? ""}
-              onChange={(e) => {
-                const val = e.target.value;
-                // Always allow setting string values, including empty strings
-                handleFieldChange(path, val);
-              }}
+              onChange={(e) => handleFieldChange(path, e.target.value)}
               placeholder={propSchema.description}
               required={isRequired}
               minLength={propSchema.minLength}
               maxLength={propSchema.maxLength}
-              pattern={propSchema.pattern}
             />
           );
         }
@@ -543,19 +556,23 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
 
         case "boolean":
           return (
-            <div className="space-y-2">
+            <div className="space-y-1">
               {propSchema.description && (
-                <p className="text-sm text-gray-600">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   {propSchema.description}
                 </p>
               )}
-              <Input
-                type="checkbox"
-                checked={(currentValue as boolean) ?? false}
-                onChange={(e) => handleFieldChange(path, e.target.checked)}
-                className="w-4 h-4"
-                required={isRequired}
-              />
+              <div className="flex items-center gap-3 py-1">
+                <Switch
+                  checked={(currentValue as boolean) ?? false}
+                  onCheckedChange={(checked) =>
+                    handleFieldChange(path, checked)
+                  }
+                />
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  {(currentValue as boolean) ? "True" : "False"}
+                </span>
+              </div>
             </div>
           );
         case "null":
@@ -683,18 +700,6 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
           if (isSimpleObject(itemSchema) || itemIsObject) {
             return (
               <div className="space-y-4">
-                {propSchema.description && (
-                  <p className="text-sm text-gray-600">
-                    {propSchema.description}
-                  </p>
-                )}
-
-                {itemSchema.description && (
-                  <p className="text-sm text-gray-500">
-                    {itemSchema.description}
-                  </p>
-                )}
-
                 <div className="space-y-2">
                   {arrayValue.map((item, index) =>
                     itemIsObject ? (

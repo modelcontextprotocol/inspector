@@ -43,10 +43,6 @@ describe("DynamicJsonForm Array Fields", () => {
     it("should render form fields for simple array items", () => {
       renderSimpleArrayForm({ value: ["item1", "item2"] });
 
-      // Should show array description
-      expect(screen.getByText("Test array field")).toBeDefined();
-      expect(screen.getByText("Array item")).toBeDefined();
-
       // Should show input fields for each item
       const inputs = screen.getAllByRole("textbox");
       expect(inputs).toHaveLength(2);
@@ -94,8 +90,7 @@ describe("DynamicJsonForm Array Fields", () => {
     it("should handle empty arrays", () => {
       renderSimpleArrayForm({ value: [] });
 
-      // Should show description and add button but no items
-      expect(screen.getByText("Test array field")).toBeDefined();
+      // Should show add button but no items
       expect(screen.getByText("Add Item")).toBeDefined();
       expect(screen.queryByText("Remove")).toBeNull();
     });
@@ -186,11 +181,9 @@ describe("DynamicJsonForm Array Fields", () => {
       };
       renderSimpleArrayForm({ schema, value: ["test"] });
 
-      // Should render form fields, not JSON editor
-      expect(screen.getByRole("textbox")).not.toHaveProperty(
-        "type",
-        "textarea",
-      );
+      // Structured form controls are shown (not the JSON editor fallback)
+      expect(screen.getByText("Add Item")).toBeDefined();
+      expect(screen.getByText("Remove")).toBeDefined();
     });
 
     it("should detect number arrays as simple", () => {
@@ -212,9 +205,9 @@ describe("DynamicJsonForm Array Fields", () => {
       };
       renderSimpleArrayForm({ schema, value: [true, false] });
 
-      // Should render form fields (checkboxes)
-      const checkboxes = screen.getAllByRole("checkbox");
-      expect(checkboxes).toHaveLength(2);
+      // Should render Switch toggles (role="switch") for boolean items
+      const switches = screen.getAllByRole("switch");
+      expect(switches).toHaveLength(2);
     });
 
     it("should detect simple object arrays as simple", () => {
@@ -339,10 +332,10 @@ describe("DynamicJsonForm Array Fields", () => {
       const onChange = jest.fn();
       renderSimpleArrayForm({ schema, value: [true, false], onChange });
 
-      const checkboxes = screen.getAllByRole("checkbox");
-      expect(checkboxes).toHaveLength(2);
-      expect(checkboxes[0]).toHaveProperty("checked", true);
-      expect(checkboxes[1]).toHaveProperty("checked", false);
+      const switches = screen.getAllByRole("switch");
+      expect(switches).toHaveLength(2);
+      expect(switches[0]).toHaveAttribute("aria-checked", "true");
+      expect(switches[1]).toHaveAttribute("aria-checked", "false");
 
       // Test adding new boolean item
       const addButton = screen.getByText("Add Item");
@@ -362,9 +355,6 @@ describe("DynamicJsonForm Array Fields", () => {
         },
       };
       renderSimpleArrayForm({ schema });
-
-      expect(screen.getByText("List of names")).toBeDefined();
-      expect(screen.getByText("Person name")).toBeDefined();
     });
 
     it("should use item description in add button title", () => {
