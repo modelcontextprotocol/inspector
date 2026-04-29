@@ -51,6 +51,18 @@ Tool list with annotations (user, read-only, destructive, long-running), paramet
 
 ![Tools Screen](screenshots/shadcn-tools.png)
 
+### Apps Screen
+
+The subset of tools that are MCP Apps — tools with `_meta.ui.resourceUri`. Two-panel layout: list of apps on the left, input form (before launch) or embedded app iframe (after launch) on the right.
+
+**Input form state** (from legacy v1 reference):
+
+![Apps Screen — Input Form](screenshots/apps-tab-form.png)
+
+**Running app state** (from legacy v1 reference):
+
+![Apps Screen — Running App](screenshots/apps-tab-app.png)
+
 ### Resources Screen
 Accordion layout with Resources, Templates, and Subscriptions sections.
 

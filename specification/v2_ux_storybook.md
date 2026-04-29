@@ -334,6 +334,24 @@ Single tool entry in the sidebar list with name and annotation badges.
 
 ---
 
+### 2.3a AppListItem
+
+Single MCP App entry in the sidebar list. Mirrors `ToolListItem` but renders the app's `tool.icons` (real MCP `Tool.icons`) when present and surfaces a chevron affordance.
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `tool` | `Tool` | App tool (real MCP `Tool` type) |
+| `selected` | `boolean` | Whether this app is currently selected |
+| `onClick` | `() => void` | Selection callback |
+
+**Mantine:** `UnstyledButton` with `Group` (Icon + label/description + ChevronRight). Reuses the same active-state background highlight pattern as `ToolListItem`.
+
+**Stories:** Default, Selected, WithIcon, NoDescription, LongName
+
+> Alternative: fold icon support into `ToolListItem` and reuse it on the Apps screen. Decide during implementation — see issue "Tool icon support on tool list items".
+
+---
+
 ### 2.4 ToolDetailPanel
 
 Tool name, description, annotations display, and generated parameter form.
@@ -370,6 +388,50 @@ Displays tool execution results with copy/clear actions.
 **Mantine:** `Paper` with ContentViewer for each content item, `Group` with action buttons.
 
 **Stories:** TextResult, JsonResult, ImageResult, AudioResult, MixedContent, Empty
+
+---
+
+### 2.5a AppDetailPanel
+
+App name, description, optional icon, and generated `App Input` form. Mirrors `ToolDetailPanel` but the action button is **Open App** (no annotations, no progress display, no cancel — execution is delegated to the embedded app).
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `tool` | `Tool` | App tool (real MCP `Tool` type) |
+| `formValues` | `Record<string, unknown>` | Current form values |
+| `isOpening` | `boolean` | Whether the app is currently being launched |
+| `onFormChange` | `(values: Record<string, unknown>) => void` | Form value change |
+| `onOpenApp` | `() => void` | Open App callback |
+
+**Mantine:** `Stack` with icon + `Title` (`tool.title ?? tool.name`), description `Text`, SchemaForm (see 2.12), full-width `Button` with `IconPlayerPlay` for open. Disabled while `isOpening` or while the form has validation errors.
+
+**Stories:** NoFields, SimpleStringParam, MultipleParams, WithIcon, Opening, ComplexSchema
+
+---
+
+### 2.5b AppRenderer
+
+Embeds an MCP App in a sandboxed iframe and exposes an imperative ref so the wiring layer can drive the bridge. The component is a thin shell — it owns the iframe element and the `AppBridge` lifecycle but does **not** know about the active MCP `Client`. The wiring layer constructs the bridge (real MCP `Client` + `Implementation` + `McpUiHostCapabilities`) and passes it in via the `bridgeFactory` callback when the iframe mounts.
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `sandboxPath` | `string` | URL/path of the sandbox proxy iframe |
+| `tool` | `Tool` | The selected app tool (for resource URI lookup) |
+| `bridgeFactory` | `(iframe: HTMLIFrameElement) => AppBridge` | Wiring layer creates the bridge from the active MCP client |
+| `onError` | `(err: Error) => void` | Error notification callback |
+
+**Imperative ref (`AppRendererHandle`):**
+
+| Method | Description |
+|--------|-------------|
+| `sendToolInput(args)` | Push complete tool arguments to the app |
+| `sendToolResult(result)` | Push the `CallToolResult` from the server |
+| `sendToolCancelled(reason)` | Notify the app that execution was cancelled |
+| `teardown()` | Request graceful shutdown before unmounting |
+
+**Mantine:** `Box` with `iframe` element. No Mantine controls — display logic only. The renderer treats the bridge handle and iframe element as runtime state, not props, but exposes the bridge actions through `useImperativeHandle`.
+
+**Stories:** Loading, Loaded (with mock bridge), Error, Maximized
 
 ---
 
@@ -855,6 +917,28 @@ Three-panel layout: tool list, detail/form, and results.
 
 ---
 
+### 3.2a AppsScreen
+
+Two-panel layout: app list on the left, dynamic right pane that toggles between an input form (before launch) and the embedded `AppRenderer` (after launch). Receives the **already-filtered** subset of tools that are MCP Apps; filtering happens in the wiring layer via the shared `isAppTool` helper in `core/mcp/apps`.
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `tools` | `Tool[]` | Apps (already filtered to those with `_meta.ui.resourceUri`) |
+| `listChanged` | `boolean` | List changed indicator |
+| `sandboxPath` | `string` | Sandbox proxy path passed through to `AppRenderer` |
+| `bridgeFactory` | `(iframe) => AppBridge` | Wiring layer creates the bridge from the active MCP client |
+| `rendererRef` | `Ref<AppRendererHandle>` | Imperative ref forwarded to the embedded `AppRenderer` |
+| `onRefreshList` | `() => void` | Refresh apps list |
+| `onSelectApp` | `(name: string) => void` | App selection callback |
+| `onOpenApp` | `(name: string, args: Record<string, unknown>) => void` | Open App callback (wiring runs `tools/call` and pushes result via the ref) |
+| `onCloseApp` | `() => void` | Close currently-open app |
+
+**Mantine:** Two-column layout. Left: `Card` with ListChangedIndicator, search `TextInput`, AppListItem stack, "Refresh Apps" `Button`. Right: `Card` whose content swaps between AppDetailPanel (form state) and AppRenderer (running state) plus a "Back to Input" / Maximize / Close header. Maximize hides the sidebar by widening the right card to full width.
+
+**Stories:** NoSelection, AppSelected, AppRunning, AppRunningMaximized, NoFieldsApp (auto-launches on select), WithListChanged, Empty (no apps available)
+
+---
+
 ### 3.3 ResourcesScreen
 
 Two-panel layout: resource list (with accordion sections) and content preview.
@@ -1022,7 +1106,8 @@ Depends on Phase 1 elements being complete.
 2. **ServerCard** (2.1) - Uses StatusIndicator, TransportBadge, ConnectionToggle, CopyButton, InlineError
 3. **AddServerMenu** (2.2)
 4. **ToolListItem** (2.3) - Uses AnnotationBadge
-5. **ResourceListItem** (2.6) - Uses AnnotationBadge
+5. **AppListItem** (2.3a) - Renders `tool.icons` (or fold into ToolListItem)
+6. **ResourceListItem** (2.6) - Uses AnnotationBadge
 6. **LogControls** (2.11)
 7. **ResultPanel** (2.5) - Uses ContentViewer, CopyButton
 8. **PromptMessagesDisplay** (2.10) - Uses MessageBubble
@@ -1033,17 +1118,19 @@ Depends on Phase 1 elements being complete.
 Depends on SchemaForm and Phase 2.
 
 1. **ToolDetailPanel** (2.4) - Uses SchemaForm, AnnotationBadge, ProgressDisplay
-2. **ResourcePreviewPanel** (2.7) - Uses ContentViewer
-3. **ResourceTemplateInput** (2.8)
-4. **PromptArgumentsForm** (2.9)
-5. **TaskCard** (2.13) - Uses ProgressDisplay
-6. **HistoryEntry** (2.14)
-7. **SamplingRequestPanel** (2.15) - Uses MessageBubble
-8. **ElicitationFormPanel** (2.16) - Uses SchemaForm
-9. **ElicitationUrlPanel** (2.17)
-10. **ServerSettingsForm** (2.20)
-11. **ImportServerJsonPanel** (2.21)
-12. **ExperimentalFeaturesPanel** (2.22)
+2. **AppDetailPanel** (2.5a) - Uses SchemaForm
+3. **AppRenderer** (2.5b) - Imperative ref shell for embedded MCP App; depends on `@modelcontextprotocol/ext-apps`
+4. **ResourcePreviewPanel** (2.7) - Uses ContentViewer
+5. **ResourceTemplateInput** (2.8)
+6. **PromptArgumentsForm** (2.9)
+7. **TaskCard** (2.13) - Uses ProgressDisplay
+8. **HistoryEntry** (2.14)
+9. **SamplingRequestPanel** (2.15) - Uses MessageBubble
+10. **ElicitationFormPanel** (2.16) - Uses SchemaForm
+11. **ElicitationUrlPanel** (2.17)
+12. **ServerSettingsForm** (2.20)
+13. **ImportServerJsonPanel** (2.21)
+14. **ExperimentalFeaturesPanel** (2.22)
 
 ### Phase 4: Inline Handlers
 Depends on Phase 3 panels.
@@ -1057,11 +1144,12 @@ Depends on all groups.
 
 1. **ServerListScreen** (3.1)
 2. **ToolsScreen** (3.2)
-3. **ResourcesScreen** (3.3)
-4. **PromptsScreen** (3.4)
-5. **LoggingScreen** (3.5)
-6. **TasksScreen** (3.6)
-7. **HistoryScreen** (3.7)
+3. **AppsScreen** (3.2a)
+4. **ResourcesScreen** (3.3)
+5. **PromptsScreen** (3.4)
+6. **LoggingScreen** (3.5)
+7. **TasksScreen** (3.6)
+8. **HistoryScreen** (3.7)
 
 ### Phase 6: Views
 Depends on screens.

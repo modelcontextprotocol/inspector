@@ -9,6 +9,7 @@ Each feature screen uses a **resizable panel layout** for flexibility.
 
 ## Table of Contents
   * [Tools Screen](#tools-screen)
+  * [Apps Screen](#apps-screen)
   * [Resources Screen](#resources-screen)
   * [Prompts Screen](#prompts-screen)
   * [Logging Screen](#logging-screen)
@@ -123,6 +124,111 @@ When a tool execution triggers sampling or elicitation requests, they appear inl
   - Image preview for image content (base64)
   - Audio player for audio content (base64)
   - Resource links displayed as clickable references
+
+## Apps Screen
+
+A two-panel layout showing the subset of tools that are **MCP Apps** — tools
+whose metadata advertises a UI resource via `_meta.ui.resourceUri` (or the
+deprecated flat `_meta["ui/resourceUri"]`). The right panel toggles between an
+input form (before launch) and the embedded app (after launch).
+
+```
++--------------------------+----------------------------------------------+
+| MCP Apps (1)         [Q] | get-cohort-data                          [x] |
+| [Refresh Apps]           | Returns cohort retention heatmap data        |
++--------------------------+----------------------------------------------+
+|                          |                                              |
+| > get-cohort-data        | +------------------------------------------+ |
+|   Returns cohort         | | App Input                                | |
+|   retention heatmap...   | |                                          | |
+|                          | | metric                                   | |
+|                          | | +--------------------------------------+ | |
+|                          | | | retention                          v | | |
+|                          | | +--------------------------------------+ | |
+|                          | |                                          | |
+|                          | | periodType                               | |
+|                          | | +--------------------------------------+ | |
+|                          | | | monthly                            v | | |
+|                          | | +--------------------------------------+ | |
+|                          | |                                          | |
+|                          | | cohortCount                              | |
+|                          | | +--------------------------------------+ | |
+|                          | | | 12                                   | | |
+|                          | | +--------------------------------------+ | |
+|                          | |                                          | |
+|                          | | maxPeriods                               | |
+|                          | | +--------------------------------------+ | |
+|                          | | | 12                                   | | |
+|                          | | +--------------------------------------+ | |
+|                          | |                                          | |
+|                          | |             [>  Open App]                | |
+|                          | +------------------------------------------+ |
++--------------------------+----------------------------------------------+
+```
+
+**Running App State:**
+
+After "Open App" the right panel swaps to the embedded MCP App. The input form
+is replaced by the app iframe. A "Back to Input" button is shown when the
+selected app has input fields; it returns to the form. A Maximize toggle hides
+the sidebar so the app takes the full viewport.
+
+```
++--------------------------+----------------------------------------------+
+| MCP Apps (1)         [Q] | get-cohort-data                  [^] [x]    |
+| [Refresh Apps]           |                          [Back to Input]    |
++--------------------------+----------------------------------------------+
+| > get-cohort-data        | +------------------------------------------+ |
+|   Returns cohort         | |                                          | |
+|   retention heatmap...   | |          [Embedded MCP App]              | |
+|                          | |                                          | |
+|                          | |  Cohort Retention Analysis  Metric: [v]  | |
+|                          | |                                          | |
+|                          | |  May 2025  100  85  72  ...              | |
+|                          | |  Jun 2025  100  85  78  ...              | |
+|                          | |  ...                                     | |
+|                          | |                                          | |
+|                          | +------------------------------------------+ |
++--------------------------+----------------------------------------------+
+```
+
+**Features:**
+
+- **App Detection** — A tool is treated as an App when `getToolUiResourceUri(tool)`
+  returns a defined `ui://...` URI (helper from `@modelcontextprotocol/ext-apps`).
+  The detection helper is wrapped in `core/mcp/apps.ts` (e.g. `isAppTool(tool)`)
+  so all clients (web, CLI, TUI) share one definition. Filtering happens upstream
+  (wiring layer); the screen receives an already-filtered `tools: Tool[]` array.
+- **List Changed Indicator** — shows when `notifications/tools/list_changed`
+  received; same component as the Tools screen.
+- **Refresh Apps** re-runs `tools/list`.
+- **Searchable list**, mirroring the Tools screen sidebar.
+- **App icons** rendered from `tool.icons` (real MCP `Tool.icons`) when present.
+- **App Input form** generated from `tool.inputSchema` via the same `SchemaForm`
+  used by the Tools screen.
+- **Open App** button:
+  - If the tool has input fields, the form is filled before launch.
+  - If the tool has no input fields, "Open App" runs immediately on selection.
+- **Back to Input** returns to the form (visible only when the app has fields).
+- **Maximize / Minimize** toggles full-viewport mode by hiding the sidebar.
+- **App Renderer** embeds the UI resource in a sandboxed iframe and bridges
+  it to the active MCP server via the `AppBridge` from
+  `@modelcontextprotocol/ext-apps`. The host pushes tool input and results to
+  the app via `sendToolInput` / `sendToolResult` through an imperative ref.
+- **Close (x)** deselects the app and clears any in-flight launch.
+
+**Component contract (presentational):**
+
+The screen and its sub-components stay "dumb": they accept data + callbacks +
+imperative refs and contain only display logic.
+
+- `AppsScreen` props: `tools: Tool[]` (already filtered to apps), `listChanged`,
+  `onRefreshList`, `onSelectApp`, `onOpenApp(name, args)`, `onCloseApp`, plus a
+  ref for the embedded `AppRenderer`.
+- `AppRenderer` exposes an imperative ref with `sendToolInput`,
+  `sendToolResult`, `sendToolCancelled`, `teardown`. The wiring layer creates
+  the `AppBridge` from the active MCP `Client` (real MCP type) and drives the
+  ref; the renderer itself only owns the iframe and the bridge handle.
 
 ## Resources Screen
 
