@@ -147,7 +147,6 @@ const App = () => {
   const [resourceTemplates, setResourceTemplates] = useState<
     ResourceTemplate[]
   >([]);
-  const [resourceContent, setResourceContent] = useState<string>("");
   const [resourceContentMap, setResourceContentMap] = useState<
     Record<string, string>
   >({});
@@ -902,8 +901,8 @@ const App = () => {
     setPromptContent(JSON.stringify(response, null, 2));
   };
 
-  const readResource = async (uri: string) => {
-    if (fetchingResources.has(uri) || resourceContentMap[uri]) {
+  const readResource = async (uri: string, force = false) => {
+    if (fetchingResources.has(uri) || (!force && resourceContentMap[uri])) {
       return;
     }
 
@@ -926,7 +925,6 @@ const App = () => {
         hasContents: !!(response as { contents?: unknown[] }).contents,
       });
       const content = JSON.stringify(response, null, 2);
-      setResourceContent(content);
       setResourceContentMap((prev) => ({
         ...prev,
         [uri]: content,
@@ -946,6 +944,10 @@ const App = () => {
       });
     }
   };
+
+  const selectedResourceContent = selectedResource
+    ? (resourceContentMap[selectedResource.uri] ?? "")
+    : "";
 
   const subscribeToResource = async (uri: string) => {
     if (!resourceSubscriptions.has(uri)) {
@@ -1482,9 +1484,9 @@ const App = () => {
                         setResourceTemplates([]);
                         setNextResourceTemplateCursor(undefined);
                       }}
-                      readResource={(uri) => {
+                      readResource={(uri, force) => {
                         clearError("resources");
-                        readResource(uri);
+                        readResource(uri, force);
                       }}
                       selectedResource={selectedResource}
                       setSelectedResource={(resource) => {
@@ -1505,7 +1507,7 @@ const App = () => {
                       }}
                       handleCompletion={handleCompletion}
                       completionsSupported={completionsSupported}
-                      resourceContent={resourceContent}
+                      resourceContent={selectedResourceContent}
                       nextCursor={nextResourceCursor}
                       nextTemplateCursor={nextResourceTemplateCursor}
                       error={errors.resources}
