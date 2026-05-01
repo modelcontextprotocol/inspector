@@ -82,6 +82,10 @@ describe("isAppTool", () => {
     expect(isAppTool(toolWith({ other: "value" }))).toBe(false);
   });
 
+  it("returns false when _meta.ui exists without resourceUri", () => {
+    expect(isAppTool(toolWith({ ui: { visibility: ["model"] } }))).toBe(false);
+  });
+
   it("propagates the underlying throw for an invalid URI", () => {
     expect(() =>
       isAppTool(toolWith({ ui: { resourceUri: "not-a-ui-uri" } })),
