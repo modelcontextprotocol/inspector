@@ -8,7 +8,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
-export default defineConfig([globalIgnores(['dist', 'storybook-static']), {
+export default defineConfig([globalIgnores(['dist', 'storybook-static', 'coverage']), {
   files: ['**/*.{ts,tsx}'],
   extends: [
     js.configs.recommended,
@@ -19,5 +19,12 @@ export default defineConfig([globalIgnores(['dist', 'storybook-static']), {
   languageOptions: {
     ecmaVersion: 2020,
     globals: globals.browser,
+  },
+}, {
+  // Test setup files re-export utilities and mix components with helpers — the
+  // react-refresh rule does not apply.
+  files: ['src/test/**/*.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
+  rules: {
+    'react-refresh/only-export-components': 'off',
   },
 }, ...storybook.configs["flat/recommended"]])

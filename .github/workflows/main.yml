@@ -35,5 +35,6 @@ jobs:
         working-directory: ./clients/web
         run: npm run build
 
-#      - name: Run tests
-#        run: npm run test
+      - name: Run tests with coverage
+        working-directory: ./clients/web
+        run: npm run test:coverage

@@ -19,7 +19,9 @@
   "type": "module",
   "main": "./build/index.js",
   "scripts": {
-    "validate": "cd ./clients/web/ npm run format:check && npm run lint && npm run build"
+    "validate": "cd ./clients/web/ && npm run validate",
+    "test": "cd ./clients/web/ && npm run test",
+    "test:coverage": "cd ./clients/web/ && npm run test:coverage"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

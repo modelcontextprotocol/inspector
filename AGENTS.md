@@ -64,6 +64,10 @@ All work should be driven by items on the project board.
 - Ensure all code has corresponding tests
 - Ensure test coverage for each file is at least 90%
 - In unit tests that expect error output, suppress it from the console
+- Run unit tests with `npm run test` (or `npm run test:watch` during development) from `clients/web/`
+- Run `npm run test:coverage` to verify 90% line/branch coverage (CI enforces this gate)
+- Test files live alongside the source as `<Name>.test.tsx` (or `.test.ts` for non-React modules)
+- Use `renderWithMantine` from `src/test/renderWithMantine.tsx` to render components — it wraps in `MantineProvider` with the project theme
 
 ### Responding to Code Reviews
 - When asked to respond to a code review of a PR,
