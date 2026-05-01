@@ -18,6 +18,7 @@ import IconDisplay, { WithIcons } from "./IconDisplay";
 
 export type Prompt = {
   name: string;
+  title?: string;
   description?: string;
   arguments?: {
     name: string;
@@ -120,7 +121,7 @@ const PromptsTab = ({
                 <IconDisplay icons={prompt.icons} size="sm" />
               </div>
               <div className="flex flex-col flex-1 min-w-0">
-                <span className="truncate">{prompt.name}</span>
+                <span className="truncate">{prompt.title || prompt.name}</span>
                 <span className="text-sm text-gray-500 text-left line-clamp-2">
                   {prompt.description}
                 </span>
@@ -143,7 +144,9 @@ const PromptsTab = ({
                 />
               )}
               <h3 className="font-semibold">
-                {selectedPrompt ? selectedPrompt.name : "Select a prompt"}
+                {selectedPrompt
+                  ? selectedPrompt.title || selectedPrompt.name
+                  : "Select a prompt"}
               </h3>
             </div>
           </div>
