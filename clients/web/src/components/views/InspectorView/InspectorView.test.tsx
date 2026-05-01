@@ -32,6 +32,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// The InspectorView's demo handshake stub uses Math.random() twice on each
+// connect: first to pick a delay (50–500 ms), then to decide success vs.
+// error against `STUB_SUCCESS_RATE = 0.85`. Mocking Math.random to a low
+// value (0.1) forces both a short delay and a "success" outcome (0.1 < 0.85);
+// 0.99 forces a short-ish delay and a "failure" (0.99 < 0.85 is false). Both
+// constants are defined in InspectorView.tsx — keep these values in sync if
+// the success rate ever changes.
 describe("InspectorView", () => {
   it("renders the disconnected header by default", () => {
     renderWithMantine(<InspectorView {...baseProps} />);

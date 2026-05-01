@@ -54,7 +54,10 @@ export default defineConfig({
         test: {
           name: 'unit',
           environment: 'happy-dom',
-          globals: true,
+          // No `globals: true` — every test file imports `describe`, `it`,
+          // `expect`, `vi` explicitly from "vitest". This keeps the pattern
+          // consistent and avoids relying on auto-cleanup tied to Vitest's
+          // global lifecycle hooks; cleanup is invoked manually in setup.ts.
           include: ['src/**/*.test.{ts,tsx}'],
           setupFiles: ['./src/test/setup.ts'],
         },
