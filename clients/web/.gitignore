@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 storybook-static
+coverage
 *.local
 
 # Editor directories and files
