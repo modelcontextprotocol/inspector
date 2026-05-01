@@ -903,7 +903,12 @@ const App = () => {
   };
 
   const readResource = async (uri: string) => {
-    if (fetchingResources.has(uri) || resourceContentMap[uri]) {
+    if (fetchingResources.has(uri)) {
+      return;
+    }
+
+    if (resourceContentMap[uri]) {
+      setResourceContent(resourceContentMap[uri]);
       return;
     }
 
