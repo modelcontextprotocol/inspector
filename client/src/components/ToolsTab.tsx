@@ -42,6 +42,7 @@ import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
 import { useToast } from "@/lib/hooks/useToast";
 import useCopy from "@/lib/hooks/useCopy";
+import { useDraggableHorizontalPane } from "@/lib/hooks/useDraggablePane";
 import IconDisplay, { WithIcons } from "./IconDisplay";
 import { cn } from "@/lib/utils";
 import {
@@ -210,6 +211,14 @@ const ToolsTab = ({
   const formRefs = useRef<Record<string, DynamicJsonFormRef | null>>({});
   const { toast } = useToast();
   const { copied, setCopied } = useCopy();
+  // Draggable horizontal splitter between the tools list and the tool details/result pane.
+  // Mirrors the existing History pane resizer (`useDraggablePane`) so the top panes can be
+  // resized too, addressing modelcontextprotocol/inspector#1172.
+  const {
+    width: listPaneWidth,
+    isDragging: isListPaneDragging,
+    handleDragStart: handleListPaneDragStart,
+  } = useDraggableHorizontalPane(360, 240, 800);
 
   // Function to check if any form has validation errors
   const checkValidationErrors = (validateChildren: boolean = false) => {
@@ -274,36 +283,53 @@ const ToolsTab = ({
 
   return (
     <TabsContent value="tools">
-      <div className="grid grid-cols-2 gap-4">
-        <ListPane
-          items={tools}
-          listItems={listTools}
-          clearItems={() => {
-            clearTools();
-            setSelectedTool(null);
-            setRunAsTask(false);
+      <div className="flex items-stretch gap-0">
+        <div
+          style={{ width: `${listPaneWidth}px`, flex: "0 0 auto" }}
+          className="min-w-0"
+        >
+          <ListPane
+            items={tools}
+            listItems={listTools}
+            clearItems={() => {
+              clearTools();
+              setSelectedTool(null);
+              setRunAsTask(false);
+            }}
+            setSelectedItem={setSelectedTool}
+            renderItem={(tool) => (
+              <div className="flex items-start w-full gap-2">
+                <div className="flex-shrink-0 mt-1">
+                  <IconDisplay icons={(tool as ExtendedTool).icons} size="sm" />
+                </div>
+                <div className="flex flex-col flex-1 min-w-0">
+                  <span className="truncate">{tool.title || tool.name}</span>
+                  <span className="text-sm text-gray-500 text-left line-clamp-2">
+                    {tool.description}
+                  </span>
+                </div>
+                <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400 mt-1" />
+              </div>
+            )}
+            title="Tools"
+            buttonText={nextCursor ? "List More Tools" : "List Tools"}
+            isButtonDisabled={!nextCursor && tools.length > 0}
+          />
+        </div>
+        <div
+          onMouseDown={handleListPaneDragStart}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize tools list"
+          data-testid="tools-list-drag-handle"
+          className="flex-shrink-0 self-stretch w-2 mx-1 cursor-col-resize flex items-center justify-center hover:bg-accent/50 dark:hover:bg-input/40"
+          style={{
+            background: isListPaneDragging ? "rgba(0,0,0,0.08)" : undefined,
           }}
-          setSelectedItem={setSelectedTool}
-          renderItem={(tool) => (
-            <div className="flex items-start w-full gap-2">
-              <div className="flex-shrink-0 mt-1">
-                <IconDisplay icons={(tool as ExtendedTool).icons} size="sm" />
-              </div>
-              <div className="flex flex-col flex-1 min-w-0">
-                <span className="truncate">{tool.title || tool.name}</span>
-                <span className="text-sm text-gray-500 text-left line-clamp-2">
-                  {tool.description}
-                </span>
-              </div>
-              <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400 mt-1" />
-            </div>
-          )}
-          title="Tools"
-          buttonText={nextCursor ? "List More Tools" : "List Tools"}
-          isButtonDisabled={!nextCursor && tools.length > 0}
-        />
-
-        <div className="bg-card border border-border rounded-lg shadow">
+        >
+          <div className="h-8 w-1 rounded-full bg-border" />
+        </div>
+        <div className="flex-1 min-w-0 bg-card border border-border rounded-lg shadow">
           <div className="p-4 border-b border-gray-200 dark:border-border">
             <div className="flex items-center gap-2">
               {selectedTool && (
