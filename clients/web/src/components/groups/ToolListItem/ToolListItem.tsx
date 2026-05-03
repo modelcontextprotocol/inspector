@@ -1,5 +1,6 @@
 import { Stack, Text, UnstyledButton } from "@mantine/core";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { resolveDisplayLabel } from "../../../utils/toolUtils";
 
 export interface ToolListItemProps {
   tool: Tool;
@@ -18,10 +19,6 @@ const ItemSubLabel = Text.withProps({
   truncate: true,
 });
 
-function resolveLabel(name: string, title?: string): string {
-  return title ?? name;
-}
-
 export function ToolListItem({ tool, selected, onClick }: ToolListItemProps) {
   const { name, title } = tool;
   return (
@@ -33,7 +30,7 @@ export function ToolListItem({ tool, selected, onClick }: ToolListItemProps) {
       onClick={onClick}
     >
       <Stack gap={2}>
-        <ItemLabel>{resolveLabel(name, title)}</ItemLabel>
+        <ItemLabel>{resolveDisplayLabel(name, title)}</ItemLabel>
         {title && <ItemSubLabel>{name}</ItemSubLabel>}
       </Stack>
     </UnstyledButton>

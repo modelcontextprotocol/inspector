@@ -1,6 +1,7 @@
 import { Button, Divider, Group, Image, Stack, Text } from "@mantine/core";
 import { MdPlayArrow } from "react-icons/md";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { resolveDisplayLabel } from "../../../utils/toolUtils";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
 
 export interface AppDetailPanelProps {
@@ -14,7 +15,7 @@ export interface AppDetailPanelProps {
 const PanelTitle = Text.withProps({
   fw: 700,
   size: "lg",
-  truncate: "end",
+  truncate: true,
 });
 
 const DescriptionText = Text.withProps({
@@ -33,10 +34,6 @@ const PanelIcon = Image.withProps({
   h: 24,
   fit: "contain",
 });
-
-function resolveTitle(name: string, title?: string): string {
-  return title ?? name;
-}
 
 function hasMissingRequiredFields(
   schema: Tool["inputSchema"],
@@ -60,18 +57,22 @@ export function AppDetailPanel({
   const iconSrc = icons?.[0]?.src;
   const hasErrors = hasMissingRequiredFields(inputSchema, formValues);
   const disabled = isOpening || hasErrors;
+  const hasFields = Object.keys(inputSchema.properties ?? {}).length > 0;
 
   return (
     <Stack gap="md" miw={0}>
       <TitleRow>
         {iconSrc && <PanelIcon src={iconSrc} alt="" />}
-        <PanelTitle>{resolveTitle(name, title)}</PanelTitle>
+        <PanelTitle>{resolveDisplayLabel(name, title)}</PanelTitle>
       </TitleRow>
 
       {description && <DescriptionText>{description}</DescriptionText>}
 
-      <Divider />
+      {hasFields && <Divider />}
 
+      {/* Form stays editable while validation fails so users can finish
+          filling required fields. The disabled-when-incomplete gate is on
+          the Open App button below, not on the form itself. */}
       <SchemaForm
         schema={inputSchema}
         values={formValues}

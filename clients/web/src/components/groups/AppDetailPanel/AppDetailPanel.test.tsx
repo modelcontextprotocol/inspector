@@ -106,6 +106,18 @@ describe("AppDetailPanel", () => {
     expect(onFormChange).toHaveBeenCalled();
   });
 
+  it("renders a divider above the form when the schema has properties", () => {
+    renderWithMantine(
+      <AppDetailPanel {...baseProps} tool={requiredFieldTool} />,
+    );
+    expect(screen.getByRole("separator")).toBeInTheDocument();
+  });
+
+  it("omits the divider when the schema has no properties", () => {
+    renderWithMantine(<AppDetailPanel {...baseProps} tool={noFieldsTool} />);
+    expect(screen.queryByRole("separator")).not.toBeInTheDocument();
+  });
+
   it("disables the Open App button when a required field is empty", () => {
     renderWithMantine(
       <AppDetailPanel {...baseProps} tool={requiredFieldTool} />,

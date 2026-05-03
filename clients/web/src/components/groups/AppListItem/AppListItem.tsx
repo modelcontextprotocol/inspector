@@ -1,6 +1,7 @@
 import { Group, Image, Stack, Text, UnstyledButton } from "@mantine/core";
 import { MdChevronRight } from "react-icons/md";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { resolveDisplayLabel } from "../../../utils/toolUtils";
 
 export interface AppListItemProps {
   tool: Tool;
@@ -37,10 +38,6 @@ const AppIcon = Image.withProps({
   fit: "contain",
 });
 
-function resolveLabel(name: string, title?: string): string {
-  return title ?? name;
-}
-
 export function AppListItem({ tool, selected, onClick }: AppListItemProps) {
   const { name, title, description, icons } = tool;
   const iconSrc = icons?.[0]?.src;
@@ -56,7 +53,7 @@ export function AppListItem({ tool, selected, onClick }: AppListItemProps) {
       <Row>
         {iconSrc && <AppIcon src={iconSrc} alt="" />}
         <ItemBody>
-          <ItemLabel>{resolveLabel(name, title)}</ItemLabel>
+          <ItemLabel>{resolveDisplayLabel(name, title)}</ItemLabel>
           {description && <ItemDescription>{description}</ItemDescription>}
         </ItemBody>
         <MdChevronRight
