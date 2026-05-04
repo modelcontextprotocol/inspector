@@ -3,6 +3,12 @@ import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 
+/**
+ * Constructs the `AppBridge` for a freshly mounted sandbox iframe. Wrap with
+ * `useCallback` (or hoist out of render) — the renderer treats a new factory
+ * identity as a signal to tear down the current bridge and rebuild, so an
+ * unstable factory will thrash the iframe on every render.
+ */
 export type BridgeFactory = (
   iframe: HTMLIFrameElement,
 ) => AppBridge | Promise<AppBridge>;
@@ -115,13 +121,20 @@ export function AppRenderer({
         const bridge = bridgeRef.current;
         if (!bridge || teardownStartedRef.current) return;
         teardownStartedRef.current = true;
-        await disposeBridge(bridge);
+        // Null the ref synchronously so a concurrent unmount cleanup cannot
+        // see a still-live bridge and dispose it a second time.
         bridgeRef.current = null;
+        await disposeBridge(bridge);
       },
     }),
     [],
   );
 
+  // The iframe deliberately has no `sandbox` attribute: `sandboxPath` resolves
+  // to the inspector's own bundled sandbox-proxy page (trusted, same-origin),
+  // which then loads the untrusted MCP App content into a nested sandboxed
+  // iframe. Sandboxing this outer frame would block the postMessage bridge
+  // that `AppBridge` relies on.
   return (
     <Box
       component="iframe"

@@ -33,9 +33,7 @@ const pendingFactory: BridgeFactory = () =>
   });
 
 const failingFactory: BridgeFactory = () =>
-  Promise.reject(
-    new globalThis.Error("Bridge connect failed: handshake timed out"),
-  );
+  Promise.reject(new Error("Bridge connect failed: handshake timed out"));
 
 function FrameContainer({
   children,
@@ -91,7 +89,7 @@ export const Loaded: Story = {
   ),
 };
 
-export const Error: Story = {
+export const BridgeError: Story = {
   args: {
     bridgeFactory: failingFactory,
   },

@@ -38,6 +38,11 @@ function asBridge(mock: MockBridge): AppBridge {
   return mock as unknown as AppBridge;
 }
 
+// Two microtask ticks are enough to settle the bridge promise chain in the
+// component when the factory is synchronous: tick 1 resolves
+// `Promise.resolve(bridgeFactory(iframe))`, tick 2 runs the `.then` that
+// assigns `bridgeRef.current`. Tests using a multi-hop async factory must
+// flush further inline (see the post-unmount disposal cases).
 async function flushAsync(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
@@ -164,6 +169,45 @@ describe("AppRenderer", () => {
       await ref.current?.teardown();
       await ref.current?.teardown();
     });
+    expect(bridge.teardownResource).toHaveBeenCalledTimes(1);
+    expect(bridge.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not double-dispose when unmount races an in-flight teardown", async () => {
+    const bridge = createMockBridge();
+    let resolveTeardown: ((value: Record<string, unknown>) => void) | undefined;
+    bridge.teardownResource.mockImplementationOnce(
+      () =>
+        new Promise<Record<string, unknown>>((resolve) => {
+          resolveTeardown = resolve;
+        }),
+    );
+    const ref = createRef<AppRendererHandle>();
+    const { unmount } = renderWithMantine(
+      <AppRenderer
+        ref={ref}
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+      />,
+    );
+    await flushAsync();
+
+    // Kick off teardown but leave its `teardownResource` await pending.
+    const teardownPromise = ref.current!.teardown();
+
+    // Unmount while teardown is in flight.
+    unmount();
+
+    // Resolve the pending teardownResource, then let `close` settle.
+    await act(async () => {
+      resolveTeardown?.({});
+      await teardownPromise;
+      for (let i = 0; i < 4; i++) {
+        await Promise.resolve();
+      }
+    });
+
     expect(bridge.teardownResource).toHaveBeenCalledTimes(1);
     expect(bridge.close).toHaveBeenCalledTimes(1);
   });
