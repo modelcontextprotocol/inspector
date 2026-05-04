@@ -59,6 +59,19 @@
   /* ── History ───────────────────────────────────────────── */
   --inspector-history-success: var(--mantine-color-green-6);
   --inspector-history-error: var(--mantine-color-red-6);
+
+  /* ── Protocol direction (Protocol Builder) ─────────────── */
+  --inspector-protocol-send-text: var(--mantine-color-green-7);
+  --inspector-protocol-send-bg: var(--mantine-color-green-0);
+  --inspector-protocol-send-border: var(--mantine-color-green-3);
+  --inspector-protocol-receive-text: var(--mantine-color-blue-7);
+  --inspector-protocol-receive-bg: var(--mantine-color-blue-0);
+  --inspector-protocol-receive-border: var(--mantine-color-blue-3);
+  --inspector-protocol-recursion-text: var(--mantine-color-yellow-8);
+  --inspector-protocol-recursion-bg: var(--mantine-color-yellow-0);
+  --inspector-protocol-recursion-border: var(--mantine-color-yellow-3);
+  --inspector-protocol-target-bg: var(--mantine-color-blue-0);
+  --inspector-protocol-target-border: var(--mantine-color-blue-4);
 }
 
 /* Dark mode overrides — tokens that need adjustment in dark scheme */
@@ -67,6 +80,18 @@
   --inspector-surface-code: var(--mantine-color-dark-9);
   --inspector-border-subtle: var(--mantine-color-gray-4);
   --inspector-input-background: var(--mantine-color-dark-9);
+
+  --inspector-protocol-send-text: var(--mantine-color-green-3);
+  --inspector-protocol-send-bg: var(--mantine-color-green-9);
+  --inspector-protocol-send-border: var(--mantine-color-green-7);
+  --inspector-protocol-receive-text: var(--mantine-color-blue-3);
+  --inspector-protocol-receive-bg: var(--mantine-color-blue-9);
+  --inspector-protocol-receive-border: var(--mantine-color-blue-7);
+  --inspector-protocol-recursion-text: var(--mantine-color-yellow-3);
+  --inspector-protocol-recursion-bg: var(--mantine-color-yellow-9);
+  --inspector-protocol-recursion-border: var(--mantine-color-yellow-7);
+  --inspector-protocol-target-bg: var(--mantine-color-blue-9);
+  --inspector-protocol-target-border: var(--mantine-color-blue-5);
 }
 
 /* ── Animations ──────────────────────────────────────────── */
