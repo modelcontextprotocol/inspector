@@ -405,6 +405,28 @@ const App = () => {
         void listTasks();
       }
 
+      if (notification.method === "notifications/tools/list_changed") {
+        setTools([]);
+        setNextToolCursor(undefined);
+        cacheToolOutputSchemas([]);
+        void listTools();
+      }
+
+      if (notification.method === "notifications/resources/list_changed") {
+        setResources([]);
+        setNextResourceCursor(undefined);
+        setResourceTemplates([]);
+        setNextResourceTemplateCursor(undefined);
+        void listResources();
+        void listResourceTemplates();
+      }
+
+      if (notification.method === "notifications/prompts/list_changed") {
+        setPrompts([]);
+        setNextPromptCursor(undefined);
+        void listPrompts();
+      }
+
       if (notification.method === "notifications/tasks/status") {
         const task = notification.params as unknown as Task;
         setTasks((prev) => {
