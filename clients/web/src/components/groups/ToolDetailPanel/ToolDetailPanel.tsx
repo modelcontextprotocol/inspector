@@ -4,6 +4,7 @@ import type {
   Tool,
   ToolAnnotations,
 } from "@modelcontextprotocol/sdk/types.js";
+import { resolveDisplayLabel } from "../../../utils/toolUtils";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
@@ -39,10 +40,6 @@ const CancelButton = Button.withProps({
   color: "red",
 });
 
-function resolveTitle(name: string, title?: string): string {
-  return title ?? name;
-}
-
 function hasAnyAnnotation(annotations?: ToolAnnotations): boolean {
   return !!(
     annotations &&
@@ -66,7 +63,7 @@ export function ToolDetailPanel({
 
   return (
     <Stack gap="md" miw={0}>
-      <ToolTitle>{resolveTitle(name, title)}</ToolTitle>
+      <ToolTitle>{resolveDisplayLabel(name, title)}</ToolTitle>
       {hasAnyAnnotation(annotations) && annotations && (
         <Group gap="xs">
           {annotations.readOnlyHint && (
