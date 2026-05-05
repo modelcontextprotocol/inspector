@@ -9,15 +9,22 @@ import type {
   Task,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type {
   ConnectionStatus,
   InspectorResourceSubscription,
   MessageEntry,
   ServerEntry,
 } from "@inspector/core/mcp/types.js";
+import { isAppTool } from "@inspector/core/mcp/apps.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
 import { ServerListScreen } from "../../screens/ServerListScreen/ServerListScreen";
 import { ToolsScreen } from "../../screens/ToolsScreen/ToolsScreen";
+import { AppsScreen } from "../../screens/AppsScreen/AppsScreen";
+import type {
+  AppRendererHandle,
+  BridgeFactory,
+} from "../../elements/AppRenderer/AppRenderer";
 import { PromptsScreen } from "../../screens/PromptsScreen/PromptsScreen";
 import { ResourcesScreen } from "../../screens/ResourcesScreen/ResourcesScreen";
 import { LoggingScreen } from "../../screens/LoggingScreen/LoggingScreen";
@@ -31,12 +38,27 @@ const SERVERS_TAB = "Servers";
 const ALL_TABS: string[] = [
   SERVERS_TAB,
   "Tools",
+  "Apps",
   "Prompts",
   "Resources",
   "Tasks",
   "Logs",
   "History",
 ];
+
+// Demo stub: Phase 3 wiring will replace this with a factory derived from
+// the active MCP `Client`. Apps are detected from the tools list, so the
+// "Apps" tab is exposed whenever the server advertises tools capability —
+// the screen itself receives only the already-filtered subset.
+const STUB_SANDBOX_PATH = "about:blank";
+const stubBridgeFactory: BridgeFactory = () =>
+  ({
+    sendToolInput: async () => {},
+    sendToolResult: async () => {},
+    sendToolCancelled: async () => {},
+    teardownResource: async () => ({}),
+    close: async () => {},
+  }) as unknown as AppBridge;
 
 const SCREEN_ENTER_MS = 350;
 const SCREEN_EXIT_MS = 250;
@@ -152,6 +174,19 @@ export function InspectorView({
   // toggles can cancel the previous attempt before it resolves and
   // overwrites the new server's state.
   const handshakeTimer = useRef<number | undefined>(undefined);
+  const appRendererRef = useRef<AppRendererHandle>(null);
+  const appTools = useMemo<Tool[]>(() => {
+    return tools.filter((tool) => {
+      try {
+        return isAppTool(tool);
+      } catch {
+        // `isAppTool` throws on malformed `_meta.ui.resourceUri`; tolerate
+        // mixed-validity tool lists by skipping the bad tool rather than
+        // halting the filter (and hiding every following App).
+        return false;
+      }
+    });
+  }, [tools]);
 
   // The view is the single source of truth for connection state. Any
   // `connection` field on incoming `serversInput` items is intentionally
@@ -288,6 +323,19 @@ export function InspectorView({
               listChanged={false}
               onRefreshList={noop}
               onCallTool={noop}
+            />
+          </ScreenStage>
+          <ScreenStage active={activeTab === "Apps"}>
+            <AppsScreen
+              tools={appTools}
+              listChanged={false}
+              sandboxPath={STUB_SANDBOX_PATH}
+              bridgeFactory={stubBridgeFactory}
+              rendererRef={appRendererRef}
+              onRefreshList={noop}
+              onSelectApp={noop}
+              onOpenApp={noop}
+              onCloseApp={noop}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Prompts"}>
