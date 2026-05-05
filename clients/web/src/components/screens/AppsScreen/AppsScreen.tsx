@@ -5,6 +5,7 @@ import {
   Card,
   Flex,
   Group,
+  Image,
   Stack,
   Text,
   Tooltip,
@@ -23,7 +24,7 @@ import {
 } from "../../elements/AppRenderer/AppRenderer";
 import { AppDetailPanel } from "../../groups/AppDetailPanel/AppDetailPanel";
 import { AppControls } from "../../groups/AppControls/AppControls";
-import { resolveDisplayLabel } from "../../../utils/toolUtils";
+import { hasInputFields, resolveDisplayLabel } from "../../../utils/toolUtils";
 
 export interface AppsScreenProps {
   tools: Tool[];
@@ -72,6 +73,20 @@ const HeaderRow = Group.withProps({
   gap: "sm",
 });
 
+const HeaderLabel = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
+  align: "center",
+  flex: 1,
+  miw: 0,
+});
+
+const HeaderIcon = Image.withProps({
+  w: 24,
+  h: 24,
+  fit: "contain",
+});
+
 const HeaderTitle = Text.withProps({
   fw: 600,
   size: "lg",
@@ -96,10 +111,6 @@ const ContentStack = Stack.withProps({
   gap: "md",
   h: "100%",
 });
-
-function hasInputFields(tool: Tool): boolean {
-  return Object.keys(tool.inputSchema.properties ?? {}).length > 0;
-}
 
 export function AppsScreen({
   tools,
@@ -181,9 +192,14 @@ export function AppsScreen({
         {selectedTool ? (
           <ContentStack>
             <HeaderRow>
-              <HeaderTitle>
-                {resolveDisplayLabel(selectedTool.name, selectedTool.title)}
-              </HeaderTitle>
+              <HeaderLabel>
+                {selectedTool.icons?.[0]?.src && (
+                  <HeaderIcon src={selectedTool.icons[0].src} alt="" />
+                )}
+                <HeaderTitle>
+                  {resolveDisplayLabel(selectedTool.name, selectedTool.title)}
+                </HeaderTitle>
+              </HeaderLabel>
               <HeaderActions>
                 {running && selectedHasFields && (
                   <Button

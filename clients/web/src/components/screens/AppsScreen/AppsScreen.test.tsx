@@ -237,6 +237,24 @@ describe("AppsScreen", () => {
     expect(onRefreshList).toHaveBeenCalledTimes(1);
   });
 
+  it("renders the tool icon next to the header title when present", async () => {
+    const user = userEvent.setup();
+    const iconSrc = "data:image/svg+xml,%3Csvg/%3E";
+    const iconedApp: Tool = {
+      name: "weather-with-icon",
+      title: "Weather (Iconed)",
+      icons: [{ src: iconSrc }],
+      inputSchema: { type: "object" },
+      _meta: { ui: { resourceUri: "ui://apps/weather-iconed" } },
+    };
+    renderWithMantine(<AppsScreen {...buildProps({ tools: [iconedApp] })} />);
+    await user.click(screen.getByText("Weather (Iconed)"));
+    const headerImg = screen
+      .getAllByRole("presentation")
+      .find((img) => img.getAttribute("src") === iconSrc);
+    expect(headerImg).toBeDefined();
+  });
+
   it("ignores selection of an unknown tool name (defensive)", async () => {
     const user = userEvent.setup();
     const onSelectApp = vi.fn();
