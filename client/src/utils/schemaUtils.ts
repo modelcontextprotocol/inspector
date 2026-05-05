@@ -4,7 +4,9 @@ import type { ValidateFunction } from "ajv";
 import type { Tool, JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { isJSONRPCRequest } from "@modelcontextprotocol/sdk/types.js";
 
-const ajv = new Ajv();
+// Ajv 8 throws on unknown formats by default; opt out to preserve the
+// permissive behavior we relied on under Ajv 6.
+const ajv = new Ajv({ validateFormats: false });
 
 // Cache for compiled validators
 const toolOutputValidators = new Map<string, ValidateFunction>();
