@@ -29,7 +29,7 @@ describe("ResourceListItem", () => {
     expect(screen.getByText("Configuration")).toBeInTheDocument();
   });
 
-  it("renders annotation badges when annotations are present", () => {
+  it("does not render annotation badges even when annotations are present", () => {
     renderWithMantine(
       <ResourceListItem
         resource={{
@@ -40,19 +40,8 @@ describe("ResourceListItem", () => {
         onClick={() => {}}
       />,
     );
-    expect(screen.getByText("audience: user")).toBeInTheDocument();
-    expect(screen.getByText("priority: high")).toBeInTheDocument();
-  });
-
-  it("hides badges when only an empty audience annotation exists", () => {
-    renderWithMantine(
-      <ResourceListItem
-        resource={{ ...baseResource, annotations: { audience: [] } }}
-        selected={false}
-        onClick={() => {}}
-      />,
-    );
     expect(screen.queryByText(/audience/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/priority/)).not.toBeInTheDocument();
   });
 
   it("invokes onClick when the row is clicked", async () => {
