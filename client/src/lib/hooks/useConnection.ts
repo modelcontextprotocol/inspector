@@ -49,7 +49,10 @@ import { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/lib/hooks/useToast";
 import { ConnectionStatus, CLIENT_IDENTITY } from "../constants";
-import { isConnectionAuthError } from "../connectionAuthErrors";
+import {
+  extractResourceMetadataUrlFromError,
+  isConnectionAuthError,
+} from "../connectionAuthErrors";
 import { Notification } from "../notificationTypes";
 import {
   auth,
@@ -392,13 +395,23 @@ export function useConnection({
       const fetchFn =
         connectionType === "proxy" ? createProxyFetch(config) : undefined;
 
+      // RFC 9728: the resource server advertises its protected-resource
+      // metadata location via `WWW-Authenticate: Bearer resource_metadata=...`.
+      // Use that URL verbatim instead of letting the SDK probe path-style
+      // heuristics — those don't match resource servers (e.g. AWS AgentCore)
+      // that expose metadata at the suffix path defined in RFC 9728 §3.
+      // Without this, discovery 404s, the SDK falls back to treating the
+      // resource server as the auth server, and the user is redirected to
+      // a bogus `<resource-host>/authorize`. See issue #675.
+      const resourceMetadataUrl = extractResourceMetadataUrlFromError(error);
+
       if (!scope) {
         // Only discover resource metadata when we need to discover scopes
         let resourceMetadata;
         try {
           resourceMetadata = await discoverOAuthProtectedResourceMetadata(
             new URL("/", sseUrl),
-            {},
+            resourceMetadataUrl ? { resourceMetadataUrl } : {},
             fetchFn,
           );
         } catch {
@@ -414,6 +427,7 @@ export function useConnection({
         const result = await auth(serverAuthProvider, {
           serverUrl: sseUrl,
           scope,
+          ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}),
           ...(fetchFn && { fetchFn }),
         });
         return result === "AUTHORIZED";

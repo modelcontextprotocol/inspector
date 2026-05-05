@@ -20,6 +20,8 @@ export function mcpProxyTransportErrorDataIndicatesUnauthorized(
   return typeof status === "number" && status === 401;
 }
 
+export { extractResourceMetadataUrlFromError } from "./extractResourceMetadataUrl";
+
 /**
  * Whether `handleAuthError` / OAuth recovery should run for this failure.
  */
