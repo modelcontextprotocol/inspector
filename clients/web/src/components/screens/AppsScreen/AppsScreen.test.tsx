@@ -220,17 +220,20 @@ describe("AppsScreen", () => {
     renderWithMantine(
       <AppsScreen {...buildProps({ listChanged: true, onRefreshList })} />,
     );
-    // ListChangedIndicator renders its own "Refresh" button in addition to
-    // the always-present "Refresh Apps" button below it.
-    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    // The indicator and toolbar both render "Refresh" buttons; the indicator
+    // is a sibling of the "List updated" label, so target it via that label.
+    expect(screen.getByText("List updated")).toBeInTheDocument();
+    const refreshButtons = screen.getAllByRole("button", { name: "Refresh" });
+    expect(refreshButtons).toHaveLength(2);
+    await user.click(refreshButtons[0]);
     expect(onRefreshList).toHaveBeenCalledTimes(1);
   });
 
-  it("invokes onRefreshList when 'Refresh Apps' is clicked", async () => {
+  it("invokes onRefreshList when the toolbar Refresh button is clicked", async () => {
     const user = userEvent.setup();
     const onRefreshList = vi.fn();
     renderWithMantine(<AppsScreen {...buildProps({ onRefreshList })} />);
-    await user.click(screen.getByRole("button", { name: /Refresh Apps/ }));
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
     expect(onRefreshList).toHaveBeenCalledTimes(1);
   });
 

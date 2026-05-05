@@ -5,11 +5,8 @@ import {
   Card,
   Flex,
   Group,
-  ScrollArea,
   Stack,
   Text,
-  TextInput,
-  Title,
   Tooltip,
 } from "@mantine/core";
 import {
@@ -17,7 +14,6 @@ import {
   MdClose,
   MdFullscreen,
   MdFullscreenExit,
-  MdRefresh,
 } from "react-icons/md";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -26,8 +22,7 @@ import {
   type BridgeFactory,
 } from "../../elements/AppRenderer/AppRenderer";
 import { AppDetailPanel } from "../../groups/AppDetailPanel/AppDetailPanel";
-import { AppListItem } from "../../groups/AppListItem/AppListItem";
-import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
+import { AppControls } from "../../groups/AppControls/AppControls";
 import { resolveDisplayLabel } from "../../../utils/toolUtils";
 
 export interface AppsScreenProps {
@@ -90,11 +85,6 @@ const HeaderActions = Group.withProps({
   wrap: "nowrap",
 });
 
-const RefreshAppsButton = Button.withProps({
-  variant: "subtle",
-  size: "sm",
-});
-
 const RendererFrame = Stack.withProps({
   flex: 1,
   miw: 0,
@@ -102,17 +92,10 @@ const RendererFrame = Stack.withProps({
   gap: 0,
 });
 
-const SidebarBody = Stack.withProps({
-  gap: "sm",
-});
-
 const ContentStack = Stack.withProps({
   gap: "md",
   h: "100%",
 });
-
-const LIST_MAX_HEIGHT =
-  "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2 - 220px)";
 
 function hasInputFields(tool: Tool): boolean {
   return Object.keys(tool.inputSchema.properties ?? {}).length > 0;
@@ -135,16 +118,6 @@ export function AppsScreen({
   const [formValues, setFormValues] = useState<Record<string, unknown>>({});
   const [running, setRunning] = useState(false);
   const [maximized, setMaximized] = useState(false);
-  const [searchText, setSearchText] = useState("");
-
-  const query = searchText.toLowerCase();
-  const filteredTools = searchText
-    ? tools.filter(
-        (tool) =>
-          tool.name.toLowerCase().includes(query) ||
-          (tool.title?.toLowerCase().includes(query) ?? false),
-      )
-    : tools;
 
   const selectedTool = selectedAppName
     ? tools.find((t) => t.name === selectedAppName)
@@ -193,46 +166,13 @@ export function AppsScreen({
       {!maximized && (
         <Sidebar>
           <SidebarCard>
-            <SidebarBody>
-              <Group justify="space-between">
-                <Title order={4}>MCP Apps ({tools.length})</Title>
-                <ListChangedIndicator
-                  visible={listChanged}
-                  onRefresh={onRefreshList}
-                />
-              </Group>
-              <TextInput
-                placeholder="Search apps..."
-                value={searchText}
-                onChange={(e) => setSearchText(e.currentTarget.value)}
-              />
-              <RefreshAppsButton
-                leftSection={<MdRefresh aria-hidden size={16} />}
-                onClick={onRefreshList}
-              >
-                Refresh Apps
-              </RefreshAppsButton>
-              <ScrollArea.Autosize mah={LIST_MAX_HEIGHT}>
-                <Stack gap="xs">
-                  {filteredTools.length === 0 ? (
-                    <EmptyState>
-                      {tools.length === 0
-                        ? "No apps available"
-                        : "No matching apps"}
-                    </EmptyState>
-                  ) : (
-                    filteredTools.map((tool) => (
-                      <AppListItem
-                        key={tool.name}
-                        tool={tool}
-                        selected={tool.name === selectedAppName}
-                        onClick={() => handleSelect(tool.name)}
-                      />
-                    ))
-                  )}
-                </Stack>
-              </ScrollArea.Autosize>
-            </SidebarBody>
+            <AppControls
+              tools={tools}
+              selectedName={selectedAppName}
+              listChanged={listChanged}
+              onRefreshList={onRefreshList}
+              onSelectApp={handleSelect}
+            />
           </SidebarCard>
         </Sidebar>
       )}
