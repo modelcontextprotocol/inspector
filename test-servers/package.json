@@ -15,7 +15,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "lint": "prettier --check . && eslint . --max-warnings 0 && echo 'Lint passed.'",
+    "lint": "prettier --check src __tests__ configs README.md package.json tsconfig.json && eslint . --max-warnings 0 && echo 'Lint passed.'",
     "test": "vitest run"
   },
   "dependencies": {
