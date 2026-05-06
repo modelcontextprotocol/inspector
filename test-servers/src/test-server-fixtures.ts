@@ -42,6 +42,8 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import type { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
+import type { JsonSchemaType } from "@modelcontextprotocol/sdk/validation/types";
 
 /** Build a CallToolResult from a text message (and optional isError). */
 function toToolResult(text: string, isError?: boolean): CallToolResult {
@@ -153,6 +155,87 @@ export function createNumberedPrompts(count: number): PromptDefinition[] {
 /**
  * Create an "echo" tool that echoes back the input message
  */
+/**
+ * Build a Zod object schema whose parse step validates `arguments` with the same
+ * JSON Schema stack as elicitation (`AjvJsonSchemaValidator`), so arbitrary MCP
+ * tool `inputSchema` shapes work while `McpServer.registerTool` stays satisfied.
+ */
+function zodObjectSchemaFromJsonToolSchema(
+  jsonSchema: Record<string, unknown>,
+  label: string,
+) {
+  let validate: ReturnType<AjvJsonSchemaValidator["getValidator"]>;
+  try {
+    const ajv = new AjvJsonSchemaValidator();
+    validate = ajv.getValidator(jsonSchema as JsonSchemaType);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`${label}: could not compile inputSchema: ${msg}`);
+  }
+
+  return z.looseObject({}).superRefine((data, ctx) => {
+    const result = validate(data);
+    if (!result.valid) {
+      ctx.addIssue({
+        code: "custom",
+        message: result.errorMessage ?? "Invalid tool arguments",
+      });
+    }
+  });
+}
+
+/**
+ * Preset `composable_tool`: register a tool whose input is validated against
+ * `params.inputSchema` (JSON Schema) via the SDK AJV validator; the handler
+ * echoes parsed arguments as text or structured content.
+ */
+export function createComposableTool(
+  params: Record<string, unknown>,
+): ToolDefinition {
+  const name = params.name;
+  if (typeof name !== "string" || !name.trim()) {
+    throw new Error(
+      "composable_tool: params.name is required and must be a non-empty string",
+    );
+  }
+  const description =
+    typeof params.description === "string" ? params.description : "";
+  const raw = params.inputSchema;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(
+      "composable_tool: params.inputSchema is required and must be a JSON object",
+    );
+  }
+  const jsonSchema = raw as Record<string, unknown>;
+  const structuredContent = params.structuredContent === true;
+
+  const argsSchema = zodObjectSchemaFromJsonToolSchema(
+    jsonSchema,
+    "composable_tool",
+  );
+
+  return {
+    name: name.trim(),
+    description,
+    inputSchema: argsSchema,
+    ...(structuredContent ? { outputSchema: argsSchema } : {}),
+    handler: async (p: Record<string, unknown>) => {
+      if (structuredContent) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(p),
+            },
+          ],
+          structuredContent: p,
+        };
+      }
+      return toToolResult(JSON.stringify(p));
+    },
+  };
+}
+
 export function createEchoTool(): ToolDefinition {
   return {
     name: "echo",
@@ -1691,7 +1774,10 @@ export function createTaskTool(
       taskSupport: taskSupport as "required" | "optional",
     },
     handler: {
-      createTask: async (args, extra) => {
+      createTask: async (
+        args: ShapeOutput<{ message?: z.ZodString }>,
+        extra: CreateTaskRequestHandlerExtra,
+      ) => {
         const message = (args as Record<string, unknown>)?.message as
           | string
           | undefined;

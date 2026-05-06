@@ -71,7 +71,8 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
   properties: {},
 } as const;
 
-type ToolInputSchema = ZodRawShapeCompat;
+/** Tool args: either a Zod raw shape or a single Zod schema (e.g. AJV-backed object schema). */
+type ToolInputSchema = ZodRawShapeCompat | AnySchema;
 type PromptArgsSchema = ZodRawShapeCompat;
 
 interface ServerState {
@@ -478,7 +479,10 @@ export function createMcpServer(config: ServerConfig): McpServer {
               outputSchema: tool.outputSchema as AnySchema,
             }),
           },
-          async (args, extra) => {
+          async (
+            args: Record<string, unknown> | undefined,
+            extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+          ) => {
             const result = await tool.handler(
               args as Record<string, unknown>,
               context,

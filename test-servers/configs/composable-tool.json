@@ -1,0 +1,36 @@
+{
+  "serverInfo": { "name": "composable-tool-test", "version": "1.0.0" },
+  "tools": [
+    {
+      "preset": "composable_tool",
+      "params": {
+        "name": "echo_json_schema",
+        "description": "Echo message as text",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "msg": { "type": "string" }
+          },
+          "required": ["msg"]
+        },
+        "structuredContent": false
+      }
+    },
+    {
+      "preset": "composable_tool",
+      "params": {
+        "name": "echo_structured",
+        "description": "Echo number as structured content",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "n": { "type": "number" }
+          },
+          "required": ["n"]
+        },
+        "structuredContent": true
+      }
+    }
+  ],
+  "transport": { "type": "stdio" }
+}

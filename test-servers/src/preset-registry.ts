@@ -50,6 +50,7 @@ import {
   createSimplePrompt,
   createArgsPrompt,
   createNumberedPrompts,
+  createComposableTool,
 } from "./test-server-fixtures.js";
 
 export type PresetType = "tool" | "resource" | "resourceTemplate" | "prompt";
@@ -150,6 +151,8 @@ function resolveToolPreset(
         get("name") as string | undefined,
         Number(get("delayMs")) || undefined,
       );
+    case "composable_tool":
+      return createComposableTool(p);
     default:
       throw new Error(`Unknown tool preset: ${name}`);
   }

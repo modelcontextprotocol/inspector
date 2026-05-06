@@ -163,38 +163,91 @@ Format: JSON or YAML. Infer from extension (`.json`, `.yaml`, `.yml`), or use `-
 
 ### Preset Registry
 
-| Preset Name                                                                                      | Type               | Params                          | Notes                                                       |
-| ------------------------------------------------------------------------------------------------ | ------------------ | ------------------------------- | ----------------------------------------------------------- |
-| echo                                                                                             | tool               | none                            | Echo tool                                                   |
-| add                                                                                              | tool               | none                            | Add two numbers                                             |
-| get_sum                                                                                          | tool               | none                            | Alias for add                                               |
-| write_to_stderr                                                                                  | tool               | none                            | Writes message to stderr                                    |
-| collect_sample                                                                                   | tool               | none                            | Sends sampling request to client                            |
-| list_roots                                                                                       | tool               | none                            | Calls roots/list on client                                  |
-| collect_elicitation                                                                              | tool               | none                            | Sends form elicitation request                              |
-| collect_url_elicitation                                                                          | tool               | none                            | Sends URL elicitation request                               |
-| url_elicitation_form                                                                             | tool               | message?                        | Hosts form server, URL elicitation, returns submitted value |
-| send_notification                                                                                | tool               | none                            | Sends notification to client                                |
-| get_annotated_message                                                                            | tool               | none                            | Returns annotated message + optional image                  |
-| add_resource, remove_resource, add_tool, remove_tool, add_prompt, remove_prompt, update_resource | tool               | none                            | Dynamic list changes                                        |
-| send_progress                                                                                    | tool               | name?                           | Sends progress notifications                                |
-| numbered_tools                                                                                   | tool[]             | count                           | Creates N echo-like tools                                   |
-| simple_task                                                                                      | taskTool           | name?, delayMs?                 | Task that completes after delay                             |
-| progress_task                                                                                    | taskTool           | name?, delayMs?, progressUnits? | Task with progress                                          |
-| elicitation_task                                                                                 | taskTool           | name?                           | Task requiring form elicitation                             |
-| sampling_task                                                                                    | taskTool           | name?, samplingText?            | Task requiring sampling                                     |
-| optional_task                                                                                    | taskTool           | name?, delayMs?                 | Task with optional task support                             |
-| forbidden_task                                                                                   | tool               | name?, delayMs?                 | Non-task tool (completes immediately)                       |
-| immediate_return_task                                                                            | tool               | name?, delayMs?                 | Immediate return (no task)                                  |
-| architecture                                                                                     | resource           | none                            | Static architecture doc                                     |
-| test_cwd, test_env, test_argv                                                                    | resource           | none                            | Expose process.cwd(), env, argv                             |
-| numbered_resources                                                                               | resource[]         | count                           | N static resources                                          |
-| file                                                                                             | resourceTemplate   | none                            | file:///{path} template                                     |
-| user                                                                                             | resourceTemplate   | none                            | user://{userId} template                                    |
-| numbered_resource_templates                                                                      | resourceTemplate[] | count                           | N templates                                                 |
-| simple_prompt                                                                                    | prompt             | none                            | Simple static prompt                                        |
-| args_prompt                                                                                      | prompt             | none                            | Prompt with city, state args                                |
-| numbered_prompts                                                                                 | prompt[]           | count                           | N static prompts                                            |
+| Preset Name                                                                                      | Type               | Params                                              | Notes                                                       |
+| ------------------------------------------------------------------------------------------------ | ------------------ | --------------------------------------------------- | ----------------------------------------------------------- |
+| echo                                                                                             | tool               | none                                                | Echo tool                                                   |
+| composable_tool                                                                                  | tool               | name, description?, inputSchema, structuredContent? | [Custom Tools](#custom-tools)                               |
+| add                                                                                              | tool               | none                                                | Add two numbers                                             |
+| get_sum                                                                                          | tool               | none                                                | Alias for add                                               |
+| write_to_stderr                                                                                  | tool               | none                                                | Writes message to stderr                                    |
+| collect_sample                                                                                   | tool               | none                                                | Sends sampling request to client                            |
+| list_roots                                                                                       | tool               | none                                                | Calls roots/list on client                                  |
+| collect_elicitation                                                                              | tool               | none                                                | Sends form elicitation request                              |
+| collect_url_elicitation                                                                          | tool               | none                                                | Sends URL elicitation request                               |
+| url_elicitation_form                                                                             | tool               | message?                                            | Hosts form server, URL elicitation, returns submitted value |
+| send_notification                                                                                | tool               | none                                                | Sends notification to client                                |
+| get_annotated_message                                                                            | tool               | none                                                | Returns annotated message + optional image                  |
+| add_resource, remove_resource, add_tool, remove_tool, add_prompt, remove_prompt, update_resource | tool               | none                                                | Dynamic list changes                                        |
+| send_progress                                                                                    | tool               | name?                                               | Sends progress notifications                                |
+| numbered_tools                                                                                   | tool[]             | count                                               | Creates N echo-like tools                                   |
+| simple_task                                                                                      | taskTool           | name?, delayMs?                                     | Task that completes after delay                             |
+| progress_task                                                                                    | taskTool           | name?, delayMs?, progressUnits?                     | Task with progress                                          |
+| elicitation_task                                                                                 | taskTool           | name?                                               | Task requiring form elicitation                             |
+| sampling_task                                                                                    | taskTool           | name?, samplingText?                                | Task requiring sampling                                     |
+| optional_task                                                                                    | taskTool           | name?, delayMs?                                     | Task with optional task support                             |
+| forbidden_task                                                                                   | tool               | name?, delayMs?                                     | Non-task tool (completes immediately)                       |
+| immediate_return_task                                                                            | tool               | name?, delayMs?                                     | Immediate return (no task)                                  |
+| architecture                                                                                     | resource           | none                                                | Static architecture doc                                     |
+| test_cwd, test_env, test_argv                                                                    | resource           | none                                                | Expose process.cwd(), env, argv                             |
+| numbered_resources                                                                               | resource[]         | count                                               | N static resources                                          |
+| file                                                                                             | resourceTemplate   | none                                                | file:///{path} template                                     |
+| user                                                                                             | resourceTemplate   | none                                                | user://{userId} template                                    |
+| numbered_resource_templates                                                                      | resourceTemplate[] | count                                               | N templates                                                 |
+| simple_prompt                                                                                    | prompt             | none                                                | Simple static prompt                                        |
+| args_prompt                                                                                      | prompt             | none                                                | Prompt with city, state args                                |
+| numbered_prompts                                                                                 | prompt[]           | count                                               | N static prompts                                            |
+
+### Custom Tools
+
+**The `composable_tool`** preset allows you to define a custom tool whose **shape** you define in **`params`** (`name`, optional `description`, **`inputSchema`** as JSON Schema for the tool’s `arguments`). **Functionally** it **echoes validated input arguments**. Calls whose arguments do not match **`inputSchema`** are rejected. When **`structuredContent`** is **`true`**, **`tools/list`** includes **`outputSchema`** as well as **`inputSchema`**, with the **same logical shape**, because structured output is the same validated arguments object echoed back.
+
+**`params`:**
+
+| Field               | Required | Default | Description                                                                                                                                                                 |
+| ------------------- | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`              | yes      | —       | Tool name in `tools/call` (must be unique on the server).                                                                                                                   |
+| `description`       | no       | omitted | Shown in `tools/list`.                                                                                                                                                      |
+| `inputSchema`       | yes      | —       | JSON Schema for the tool’s `arguments` object. If the schema is invalid, the server fails at startup.                                                                       |
+| `structuredContent` | no       | `false` | **`false`:** `tools/call` result is **text** only (`JSON.stringify(arguments)`). **`true`:** same **text** plus **`structuredContent`** set to the parsed arguments object. |
+
+**In code:** `createComposableTool(params)` from `@modelcontextprotocol/inspector-test-server` with the same `params` as in config.
+
+**Example (config):** two tools—text echo and structured echo. Full file: [`configs/composable-tool.json`](configs/composable-tool.json).
+
+```json
+{
+  "serverInfo": { "name": "composable-tool-demo", "version": "1.0.0" },
+  "tools": [
+    {
+      "preset": "composable_tool",
+      "params": {
+        "name": "echo_json_schema",
+        "description": "Echo message as text",
+        "inputSchema": {
+          "type": "object",
+          "properties": { "msg": { "type": "string" } },
+          "required": ["msg"]
+        },
+        "structuredContent": false
+      }
+    },
+    {
+      "preset": "composable_tool",
+      "params": {
+        "name": "echo_structured",
+        "description": "Echo number as structured content",
+        "inputSchema": {
+          "type": "object",
+          "properties": { "n": { "type": "number" } },
+          "required": ["n"]
+        },
+        "structuredContent": true
+      }
+    }
+  ],
+  "transport": { "type": "stdio" }
+}
+```
 
 ### Transport and Client Config
 
@@ -248,3 +301,4 @@ For SSE, use `"type": "sse"` and a URL ending in `/sse` (e.g. `http://localhost:
 See `configs/` for example configs:
 
 - **demo.json** — Minimal server with echo tool only (stdio). Use for smoke testing.
+- **composable-tool.json** — [`composable_tool` / Custom Tools](#custom-tools): text and structured echo tools with JSON Schema args.
