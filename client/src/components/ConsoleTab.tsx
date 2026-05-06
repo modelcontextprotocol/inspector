@@ -26,6 +26,13 @@ const ConsoleTab = ({
   const allLogEntries = serverLogs.filter(
     (n) => n.method === "notifications/message",
   );
+
+  useEffect(() => {
+    setClearedCount((currentClearedCount) =>
+      Math.min(currentClearedCount, allLogEntries.length),
+    );
+  }, [allLogEntries.length]);
+
   const logEntries = allLogEntries.slice(clearedCount);
 
   useEffect(() => {
