@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import userEvent from "@testing-library/user-event";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ServerEntry } from "@inspector/core/mcp/types.js";
 import {
   renderWithMantine,
@@ -125,6 +126,53 @@ describe("InspectorView", () => {
       { timeout: 2000 },
     );
     expect(screen.getAllByText("Alpha").length).toBeGreaterThan(0);
+  });
+
+  it("filters tools to apps and auto-launches a no-fields app on the Apps tab", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.1);
+    const user = userEvent.setup();
+    const opsApp: Tool = {
+      name: "ops",
+      title: "Ops Dashboard",
+      inputSchema: { type: "object" },
+      _meta: { ui: { resourceUri: "ui://apps/ops" } },
+    };
+    // Plain (non-app) tool plus a tool with a malformed UI resource URI
+    // exercise both branches of the appTools filter: the non-app drop and
+    // the try/catch around `isAppTool` for malformed metadata.
+    const plainTool: Tool = {
+      name: "shell.exec",
+      title: "Run Shell",
+      inputSchema: { type: "object" },
+    };
+    const malformedAppTool: Tool = {
+      name: "broken",
+      title: "Broken App",
+      inputSchema: { type: "object" },
+      _meta: { ui: { resourceUri: "not-a-ui-uri" } },
+    };
+    renderWithMantine(
+      <InspectorView
+        {...baseProps}
+        servers={[sampleServer]}
+        tools={[opsApp, plainTool, malformedAppTool]}
+      />,
+    );
+    await user.click(screen.getByRole("switch"));
+    await waitFor(
+      () => {
+        expect(screen.getByRole("switch")).toBeChecked();
+      },
+      { timeout: 2000 },
+    );
+    const tabSelect = await screen.findByDisplayValue("Servers");
+    await user.click(tabSelect);
+    await user.click(await screen.findByText("Apps"));
+    expect(screen.getByText("MCP Apps (1)")).toBeInTheDocument();
+    // Auto-launch on selection mounts the AppRenderer, which invokes the
+    // stub bridge factory wired in InspectorView.
+    await user.click(screen.getByText("Ops Dashboard"));
+    expect(screen.getByTitle("Ops Dashboard")).toBeInTheDocument();
   });
 
   it("toggles autoScroll on the Logs screen after connecting", async () => {

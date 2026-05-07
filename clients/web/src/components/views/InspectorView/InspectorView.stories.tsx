@@ -3,6 +3,7 @@ import type {
   Resource,
   ResourceTemplate,
   Task,
+  Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import type {
   InspectorResourceSubscription,
@@ -13,8 +14,53 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import { InspectorView } from "./InspectorView";
 import { mixedEntries as demoLogs } from "../../screens/LoggingScreen/LoggingScreen.fixtures";
-import { longToolList as demoTools } from "../../screens/ToolsScreen/ToolsScreen.fixtures";
+import { longToolList as demoRegularTools } from "../../screens/ToolsScreen/ToolsScreen.fixtures";
+import { SUN_ICON_SVG } from "../../../test/fixtures/storyIcons";
 import type { TaskProgress } from "../../groups/TaskCard/TaskCard";
+
+// MCP App tools — `isAppTool` detects these via `_meta.ui.resourceUri`,
+// so they get filtered into the Apps tab while still appearing on Tools.
+const demoApps: Tool[] = [
+  {
+    name: "get-cohort-data",
+    title: "Cohort Data",
+    description: "Cohort retention heatmap with adjustable period and metric.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        metric: { type: "string", description: "retention | engagement" },
+        periodType: { type: "string", description: "daily | weekly | monthly" },
+        cohortCount: { type: "number", description: "Cohorts to render" },
+        maxPeriods: { type: "number", description: "Periods per cohort" },
+      },
+      required: ["metric", "periodType"],
+    },
+    _meta: { ui: { resourceUri: "ui://apps/cohort-heatmap" } },
+  },
+  {
+    name: "weather-widget",
+    title: "Weather Widget",
+    description: "Live weather and a five-day forecast for any city.",
+    icons: [{ src: SUN_ICON_SVG, mimeType: "image/svg+xml" }],
+    inputSchema: {
+      type: "object",
+      properties: {
+        city: { type: "string", description: "City name" },
+      },
+      required: ["city"],
+    },
+    _meta: { ui: { resourceUri: "ui://apps/weather" } },
+  },
+  {
+    name: "ops-dashboard",
+    title: "Ops Dashboard",
+    description: "Current operational status across services.",
+    inputSchema: { type: "object" },
+    _meta: { ui: { resourceUri: "ui://apps/ops" } },
+  },
+];
+
+const demoTools: Tool[] = [...demoApps, ...demoRegularTools];
 
 const demoServers: ServerEntry[] = [
   {

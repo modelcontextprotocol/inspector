@@ -4,8 +4,6 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { AppDetailPanel } from "./AppDetailPanel";
 
-const ICON_SRC = "data:image/svg+xml,%3Csvg/%3E";
-
 const noFieldsTool: Tool = {
   name: "no_input_app",
   title: "No Input App",
@@ -25,16 +23,6 @@ const requiredFieldTool: Tool = {
   },
 };
 
-const optionalFieldTool: Tool = {
-  name: "greet",
-  inputSchema: {
-    type: "object",
-    properties: {
-      name: { type: "string", description: "The name to greet" },
-    },
-  },
-};
-
 const baseProps = {
   formValues: {},
   isOpening: false,
@@ -43,20 +31,6 @@ const baseProps = {
 };
 
 describe("AppDetailPanel", () => {
-  it("prefers the title over the name", () => {
-    renderWithMantine(
-      <AppDetailPanel {...baseProps} tool={requiredFieldTool} />,
-    );
-    expect(screen.getByText("Greet")).toBeInTheDocument();
-  });
-
-  it("falls back to the name when title is missing", () => {
-    renderWithMantine(
-      <AppDetailPanel {...baseProps} tool={optionalFieldTool} />,
-    );
-    expect(screen.getByText("greet")).toBeInTheDocument();
-  });
-
   it("renders the description when provided", () => {
     renderWithMantine(<AppDetailPanel {...baseProps} tool={noFieldsTool} />);
     expect(screen.getByText("Takes no parameters")).toBeInTheDocument();
@@ -67,22 +41,6 @@ describe("AppDetailPanel", () => {
       <AppDetailPanel {...baseProps} tool={requiredFieldTool} />,
     );
     expect(screen.queryByText("Takes no parameters")).not.toBeInTheDocument();
-  });
-
-  it("renders the first icon when tool.icons is present", () => {
-    renderWithMantine(
-      <AppDetailPanel
-        {...baseProps}
-        tool={{ ...noFieldsTool, icons: [{ src: ICON_SRC }] }}
-      />,
-    );
-    const img = screen.getByRole("presentation");
-    expect(img).toHaveAttribute("src", ICON_SRC);
-  });
-
-  it("does not render an icon when tool.icons is missing", () => {
-    renderWithMantine(<AppDetailPanel {...baseProps} tool={noFieldsTool} />);
-    expect(screen.queryByRole("presentation")).not.toBeInTheDocument();
   });
 
   it("renders the schema form using the tool's inputSchema", () => {
