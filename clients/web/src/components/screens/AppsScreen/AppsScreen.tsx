@@ -251,6 +251,13 @@ export function AppsScreen({
                 />
               </RendererFrame>
             ) : (
+              // `isOpening` is always false here because `handleOpen`
+              // synchronously flips `running` to true, swapping in the
+              // AppRenderer before the panel could render its loading
+              // state. The prop stays in `AppDetailPanel`'s API for
+              // standalone use (the `Opening` story) and for Phase 3
+              // wiring, where a managed-state hook can hold the panel
+              // in a pending state across an awaited `tools/call`.
               <AppDetailPanel
                 tool={selectedTool}
                 formValues={formValues}

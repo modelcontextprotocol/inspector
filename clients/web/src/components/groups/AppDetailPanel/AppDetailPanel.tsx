@@ -2,6 +2,7 @@ import { Button, Divider, Stack, Text } from "@mantine/core";
 import { MdPlayArrow } from "react-icons/md";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
+import { hasInputFields } from "../../../utils/toolUtils";
 
 export interface AppDetailPanelProps {
   tool: Tool;
@@ -37,7 +38,7 @@ export function AppDetailPanel({
   const { description, inputSchema } = tool;
   const hasErrors = hasMissingRequiredFields(inputSchema, formValues);
   const disabled = isOpening || hasErrors;
-  const hasFields = Object.keys(inputSchema.properties ?? {}).length > 0;
+  const hasFields = hasInputFields(tool);
 
   return (
     <Stack gap="md" miw={0}>
