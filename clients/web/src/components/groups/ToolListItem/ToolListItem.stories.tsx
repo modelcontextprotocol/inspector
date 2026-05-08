@@ -25,6 +25,19 @@ const weatherToolWithTitle: Tool = {
   inputSchema: { type: "object" },
 };
 
+const ICON_DATA_URL =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23228be6"><circle cx="12" cy="12" r="10"/></svg>',
+  );
+
+const weatherToolWithIcon: Tool = {
+  name: "get_weather",
+  title: "Get Weather",
+  icons: [{ src: ICON_DATA_URL }],
+  inputSchema: { type: "object" },
+};
+
 export const Default: Story = {
   args: {
     tool: weatherTool,
@@ -42,6 +55,13 @@ export const Selected: Story = {
 export const WithTitle: Story = {
   args: {
     tool: weatherToolWithTitle,
+    selected: false,
+  },
+};
+
+export const WithIcon: Story = {
+  args: {
+    tool: weatherToolWithIcon,
     selected: false,
   },
 };

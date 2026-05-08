@@ -9,6 +9,8 @@ const tool: Tool = {
   inputSchema: { type: "object" },
 };
 
+const ICON_SRC = "data:image/svg+xml,%3Csvg/%3E";
+
 describe("ToolListItem", () => {
   it("renders the name when title is missing", () => {
     renderWithMantine(
@@ -42,5 +44,24 @@ describe("ToolListItem", () => {
   it("renders selected state without crashing", () => {
     renderWithMantine(<ToolListItem tool={tool} selected onClick={() => {}} />);
     expect(screen.getByRole("button")).toBeInTheDocument();
+  });
+
+  it("renders the first icon when tool.icons is present", () => {
+    renderWithMantine(
+      <ToolListItem
+        tool={{ ...tool, icons: [{ src: ICON_SRC }] }}
+        selected={false}
+        onClick={() => {}}
+      />,
+    );
+    const img = screen.getByRole("presentation");
+    expect(img).toHaveAttribute("src", ICON_SRC);
+  });
+
+  it("does not render an icon when tool.icons is missing", () => {
+    renderWithMantine(
+      <ToolListItem tool={tool} selected={false} onClick={() => {}} />,
+    );
+    expect(screen.queryByRole("presentation")).not.toBeInTheDocument();
   });
 });
