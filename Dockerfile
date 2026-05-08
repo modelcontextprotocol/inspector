@@ -44,6 +44,7 @@ COPY --from=builder /app/cli/build ./cli/build
 # Set default port values as environment variables
 ENV CLIENT_PORT=6274
 ENV SERVER_PORT=6277
+ENV HOST=0.0.0.0
 
 # Document which ports the application uses internally
 EXPOSE ${CLIENT_PORT} ${SERVER_PORT}
