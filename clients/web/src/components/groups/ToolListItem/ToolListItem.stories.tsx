@@ -28,7 +28,7 @@ const weatherToolWithTitle: Tool = {
 const ICON_DATA_URL =
   "data:image/svg+xml;utf8," +
   encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23228be6"><circle cx="12" cy="12" r="10"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#228be6"><circle cx="12" cy="12" r="10"/></svg>',
   );
 
 const weatherToolWithIcon: Tool = {
