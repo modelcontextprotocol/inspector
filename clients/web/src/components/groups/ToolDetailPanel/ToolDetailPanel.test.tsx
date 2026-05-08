@@ -27,6 +27,18 @@ const titledTool: Tool = {
   },
 };
 
+const ICON_SRC = "data:image/svg+xml,%3Csvg/%3E";
+
+const iconedTool: Tool = {
+  name: "send_message",
+  title: "Send Message",
+  icons: [{ src: ICON_SRC }],
+  inputSchema: {
+    type: "object",
+    properties: {},
+  },
+};
+
 const annotatedTool: Tool = {
   name: "delete_records",
   description: "Deletes records",
@@ -64,6 +76,17 @@ describe("ToolDetailPanel", () => {
     expect(
       screen.getByText("Sends a message to the recipient"),
     ).toBeInTheDocument();
+  });
+
+  it("renders the first icon when tool.icons is present", () => {
+    renderWithMantine(<ToolDetailPanel {...baseProps} tool={iconedTool} />);
+    const img = screen.getByRole("presentation");
+    expect(img).toHaveAttribute("src", ICON_SRC);
+  });
+
+  it("does not render an icon when tool.icons is missing", () => {
+    renderWithMantine(<ToolDetailPanel {...baseProps} tool={simpleTool} />);
+    expect(screen.queryByRole("presentation")).not.toBeInTheDocument();
   });
 
   it("does not render the description when none is provided", () => {
