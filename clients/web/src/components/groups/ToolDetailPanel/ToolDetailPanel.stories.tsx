@@ -71,6 +71,26 @@ const longQueryTool: Tool = {
   },
 };
 
+const ICON_DATA_URL =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#228be6"><circle cx="12" cy="12" r="10"/></svg>',
+  );
+
+const iconedTool: Tool = {
+  name: "send_message",
+  title: "Send Message",
+  description: "Sends a message to the recipient",
+  icons: [{ src: ICON_DATA_URL }],
+  inputSchema: {
+    type: "object",
+    properties: {
+      message: { type: "string", description: "The message to send" },
+    },
+    required: ["message"],
+  },
+};
+
 const batchProcessTool: Tool = {
   name: "batch_process",
   description: "Processes items in batch",
@@ -91,6 +111,12 @@ export const SimpleStringParam: Story = {
 export const MultipleParams: Story = {
   args: {
     tool: createRecordTool,
+  },
+};
+
+export const WithIcon: Story = {
+  args: {
+    tool: iconedTool,
   },
 };
 

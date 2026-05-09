@@ -1,4 +1,4 @@
-import { Button, Divider, Group, Stack, Text } from "@mantine/core";
+import { Button, Divider, Group, Image, Stack, Text } from "@mantine/core";
 import type {
   ProgressNotification,
   Tool,
@@ -23,6 +23,19 @@ export interface ToolDetailPanelProps {
   onExecute: () => void;
   onCancel: () => void;
 }
+
+const TitleRow = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
+  align: "center",
+  miw: 0,
+});
+
+const ToolIcon = Image.withProps({
+  w: 24,
+  h: 24,
+  fit: "contain",
+});
 
 const ToolTitle = Text.withProps({
   fw: 700,
@@ -59,11 +72,15 @@ export function ToolDetailPanel({
   onExecute,
   onCancel,
 }: ToolDetailPanelProps) {
-  const { name, title, description, annotations, inputSchema } = tool;
+  const { name, title, description, icons, annotations, inputSchema } = tool;
+  const iconSrc = icons?.[0]?.src;
 
   return (
     <Stack gap="md" miw={0}>
-      <ToolTitle>{resolveDisplayLabel(name, title)}</ToolTitle>
+      <TitleRow>
+        {iconSrc && <ToolIcon src={iconSrc} alt="" />}
+        <ToolTitle>{resolveDisplayLabel(name, title)}</ToolTitle>
+      </TitleRow>
       {hasAnyAnnotation(annotations) && annotations && (
         <Group gap="xs">
           {annotations.readOnlyHint && (
