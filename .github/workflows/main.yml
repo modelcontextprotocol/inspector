@@ -38,3 +38,11 @@ jobs:
       - name: Run tests with coverage
         working-directory: ./clients/web
         run: npm run test:coverage
+
+      - name: Install Playwright browsers
+        working-directory: ./clients/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Storybook play-function tests
+        working-directory: ./clients/web
+        run: npm run test:storybook

@@ -16,7 +16,8 @@
     "test": "vitest run --project=unit",
     "test:watch": "vitest --project=unit",
     "test:coverage": "vitest run --project=unit --coverage",
-    "test:storybook": "vitest run --project=storybook"
+    "test:storybook": "vitest run --project=storybook",
+    "test:storybook:watch": "vitest --project=storybook"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
