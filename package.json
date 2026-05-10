@@ -21,7 +21,8 @@
   "scripts": {
     "validate": "cd ./clients/web/ && npm run validate",
     "test": "cd ./clients/web/ && npm run test",
-    "test:coverage": "cd ./clients/web/ && npm run test:coverage"
+    "test:coverage": "cd ./clients/web/ && npm run test:coverage",
+    "test:storybook": "cd ./clients/web/ && npm run test:storybook"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.7.1",

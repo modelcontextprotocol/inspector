@@ -1,6 +1,6 @@
-name: Run install, format, lint, build, and test on every push or pull request
+name: Run install, format, lint, build, and test on every push
 
-on: [push, pull_request]
+on: [push]
 
 jobs:
   build:
@@ -38,3 +38,17 @@ jobs:
       - name: Run tests with coverage
         working-directory: ./clients/web
         run: npm run test:coverage
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('clients/web/package-lock.json') }}
+
+      - name: Install Playwright browsers
+        working-directory: ./clients/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Storybook play-function tests
+        working-directory: ./clients/web
+        run: npm run test:storybook
