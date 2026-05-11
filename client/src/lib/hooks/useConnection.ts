@@ -553,8 +553,12 @@ export function useConnection({
         }
       });
 
-      // Add custom header names as a special request header for server processing
-      if (customHeaderNames.length > 0) {
+      // Add custom header names as a special request header so the inspector's
+      // proxy server knows which custom headers to forward upstream. This is an
+      // inspector-proxy-specific protocol header; it must NOT be sent on direct
+      // connections, where the target MCP server doesn't expect it and may
+      // reject the CORS preflight because of it (issue #1294).
+      if (customHeaderNames.length > 0 && connectionType !== "direct") {
         headers["x-custom-auth-headers"] = JSON.stringify(customHeaderNames);
       }
 

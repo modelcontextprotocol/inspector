@@ -1259,6 +1259,36 @@ describe("useConnection", () => {
       );
     });
 
+    test("does NOT add x-custom-auth-headers when connectionType is direct", async () => {
+      // Regression test for #1294: the x-custom-auth-headers is an
+      // inspector-proxy-specific protocol header. Sending it to a direct MCP
+      // server breaks the CORS preflight because the upstream server does not
+      // include it in Access-Control-Allow-Headers.
+      const customHeaders: CustomHeaders = [
+        { name: "X-Tenant-ID", value: "acme-inc", enabled: true },
+        { name: "X-Environment", value: "staging", enabled: true },
+      ];
+
+      const directProps = {
+        ...defaultProps,
+        connectionType: "direct" as const,
+        customHeaders,
+      };
+
+      const { result } = renderHook(() => useConnection(directProps));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      // The actual custom headers ARE still sent
+      expect(headers).toHaveProperty("X-Tenant-ID", "acme-inc");
+      expect(headers).toHaveProperty("X-Environment", "staging");
+      // But the proxy-only metadata header is omitted
+      expect(headers).not.toHaveProperty("x-custom-auth-headers");
+    });
+
     test("ignores disabled custom headers", async () => {
       const customHeaders: CustomHeaders = [
         { name: "Authorization", value: "Bearer token123", enabled: true },
