@@ -103,6 +103,31 @@ describe("CLI Tests", () => {
       expectCliFailure(result);
     });
 
+    it("should accept empty-string environment variable value (#629)", async () => {
+      // An empty string is a meaningful, distinct value from "unset" for
+      // environment variables; `-e KEY=` must not be rejected.
+      const { command, args } = getTestMcpServerCommand();
+      const result = await runCli([
+        command,
+        ...args,
+        "-e",
+        "EMPTY_VAR=",
+        "-e",
+        "NON_EMPTY=value",
+        "--cli",
+        "--method",
+        "resources/read",
+        "--uri",
+        "test://env",
+      ]);
+
+      expectCliSuccess(result);
+      const json = expectValidJson(result);
+      const envVars = JSON.parse(json.contents[0].text);
+      expect(envVars.EMPTY_VAR).toBe("");
+      expect(envVars.NON_EMPTY).toBe("value");
+    });
+
     it("should handle environment variable with equals sign in value", async () => {
       const { command, args } = getTestMcpServerCommand();
       const result = await runCli([
