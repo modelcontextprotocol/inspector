@@ -205,17 +205,23 @@ function parseKeyValuePair(
   value: string,
   previous: Record<string, string> = {},
 ): Record<string, string> {
-  const parts = value.split("=");
-  const key = parts[0];
-  const val = parts.slice(1).join("=");
+  // Locate the first `=` so the value can contain additional `=` characters
+  // (e.g. base64 padding, JWTs, query strings).
+  const equalIndex = value.indexOf("=");
 
-  if (val === undefined || val === "") {
+  // Require an `=` separator and a non-empty key, but allow an empty value
+  // (e.g. `-e MY_ENV=`) — an empty string is a meaningful, distinct state
+  // from "unset" for environment variables. Fixes #629.
+  if (equalIndex <= 0) {
     throw new Error(
       `Invalid parameter format: ${value}. Use key=value format.`,
     );
   }
 
-  return { ...previous, [key as string]: val };
+  const key = value.substring(0, equalIndex);
+  const val = value.substring(equalIndex + 1);
+
+  return { ...previous, [key]: val };
 }
 
 function parseHeaderPair(
