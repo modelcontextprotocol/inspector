@@ -7,6 +7,7 @@ import { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js
 import { validateRedirectUrl } from "@/utils/urlValidation";
 import { useToast } from "@/lib/hooks/useToast";
 import { decodeJWT } from "@/utils/jwtUtils";
+import { getAuthorizationServerMetadataDiscoveryUrl } from "@/utils/oauthUtils";
 
 interface OAuthStepProps {
   label: string;
@@ -115,6 +116,13 @@ export const OAuthFlowProgress = ({
   const [clientInfo, setClientInfo] = useState<OAuthClientInformation | null>(
     null,
   );
+  const authorizationServerMetadataDiscoveryUrl = useMemo(() => {
+    if (!authState.authServerUrl) {
+      return null;
+    }
+
+    return getAuthorizationServerMetadataDiscoveryUrl(authState.authServerUrl);
+  }, [authState.authServerUrl]);
 
   const currentStepIdx = steps.findIndex((s) => s === authState.oauthStep);
 
@@ -231,13 +239,7 @@ export const OAuthFlowProgress = ({
                   <p className="font-medium">Authorization Server Metadata:</p>
                   {authState.authServerUrl && (
                     <p className="text-xs text-muted-foreground">
-                      From{" "}
-                      {
-                        new URL(
-                          "/.well-known/oauth-authorization-server",
-                          authState.authServerUrl,
-                        ).href
-                      }
+                      From {authorizationServerMetadataDiscoveryUrl}
                     </p>
                   )}
                   <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">

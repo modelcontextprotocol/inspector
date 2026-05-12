@@ -24,7 +24,12 @@ export type Prompt = {
     description?: string;
     required?: boolean;
   }[];
-  icons?: { src: string; mimeType?: string; sizes?: string[] }[];
+  icons?: {
+    src: string;
+    mimeType?: string;
+    sizes?: string[];
+    theme?: "light" | "dark";
+  }[];
 };
 
 const PromptsTab = ({

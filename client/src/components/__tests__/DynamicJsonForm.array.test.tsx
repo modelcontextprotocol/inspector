@@ -1,4 +1,5 @@
 import { render, screen, fireEvent } from "@testing-library/react";
+import "@testing-library/jest-dom";
 import { describe, it, expect, jest } from "@jest/globals";
 import DynamicJsonForm from "../DynamicJsonForm";
 import type { JsonSchemaType } from "@/utils/jsonUtils";
@@ -104,7 +105,11 @@ describe("DynamicJsonForm Array Fields", () => {
     it("should render JSON editor for complex arrays", () => {
       renderComplexArrayForm();
 
-      // Should render as JSON editor (textarea)
+      // Initially renders form view with Switch to JSON button; switch to JSON to see textarea
+      const switchBtn = screen.getByRole("button", { name: /switch to json/i });
+      expect(switchBtn).toBeInTheDocument();
+      fireEvent.click(switchBtn);
+
       const textarea = screen.getByRole("textbox");
       expect(textarea).toHaveProperty("type", "textarea");
 
@@ -173,6 +178,81 @@ describe("DynamicJsonForm Array Fields", () => {
   });
 
   describe("Array with Different Item Types", () => {
+    it("should render multi-select for untitled items.enum with helper text", () => {
+      const schema: JsonSchemaType = {
+        type: "array",
+        title: "Colors",
+        description: "Pick colors",
+        minItems: 1,
+        maxItems: 3,
+        items: { type: "string", enum: ["red", "green", "blue"] },
+      } as JsonSchemaType;
+      const onChange = jest.fn();
+      render(
+        <DynamicJsonForm schema={schema} value={["red"]} onChange={onChange} />,
+      );
+
+      // Description visible
+      expect(screen.getByText("Pick colors")).toBeInTheDocument();
+      // Multi-select present
+      const listbox = screen.getByRole("listbox");
+      expect(listbox).toHaveAttribute("multiple");
+
+      // Helper text shows min/max
+      expect(screen.getByText(/Select at least 1/i)).toBeInTheDocument();
+      expect(screen.getByText(/Select at most 3/i)).toBeInTheDocument();
+
+      // Select another option by toggling option.selected
+      const colorOptions = screen.getAllByRole("option");
+      // options: red, green, blue
+      colorOptions[0].selected = true; // red
+      colorOptions[2].selected = true; // blue
+      fireEvent.change(listbox);
+      expect(onChange).toHaveBeenCalledWith(["red", "blue"]);
+    });
+
+    it("should render titled multi-select for items.anyOf with const/title", () => {
+      const schema: JsonSchemaType = {
+        type: "array",
+        description: "Pick fish",
+        items: {
+          anyOf: [
+            { const: "fish-1", title: "Tuna" },
+            { const: "fish-2", title: "Salmon" },
+            { const: "fish-3", title: "Trout" },
+          ],
+        } as unknown as JsonSchemaType,
+      } as unknown as JsonSchemaType;
+      const onChange = jest.fn();
+      render(
+        <DynamicJsonForm
+          schema={schema}
+          value={["fish-1"]}
+          onChange={onChange}
+        />,
+      );
+
+      // Description visible
+      expect(screen.getByText("Pick fish")).toBeInTheDocument();
+
+      const listbox = screen.getByRole("listbox");
+      expect(listbox).toHaveAttribute("multiple");
+
+      // Ensure options have titles as labels
+      const options = screen.getAllByRole("option");
+      expect(options[0]).toHaveProperty("textContent", "Tuna");
+      expect(options[1]).toHaveProperty("textContent", "Salmon");
+      expect(options[2]).toHaveProperty("textContent", "Trout");
+
+      // Select fish-2 and fish-3
+      const fishOptions = screen.getAllByRole("option");
+      // options: Tuna (fish-1), Salmon (fish-2), Trout (fish-3)
+      fishOptions[0].selected = false; // deselect fish-1
+      fishOptions[1].selected = true; // fish-2
+      fishOptions[2].selected = true; // fish-3
+      fireEvent.change(listbox);
+      expect(onChange).toHaveBeenCalledWith(["fish-2", "fish-3"]);
+    });
     it("should handle integer array items", () => {
       const schema = {
         type: "array" as const,

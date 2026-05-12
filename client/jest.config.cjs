@@ -13,8 +13,15 @@ module.exports = {
         tsconfig: "tsconfig.jest.json",
       },
     ],
+    "^.+\\.m?js$": [
+      "ts-jest",
+      {
+        tsconfig: "tsconfig.jest.json",
+      },
+    ],
   },
   extensionsToTreatAsEsm: [".ts", ".tsx"],
+  transformIgnorePatterns: ["node_modules/(?!(@modelcontextprotocol)/)"],
   testRegex: "(/__tests__/.*|(\\.|/)(test|spec))\\.(jsx?|tsx?)$",
   // Exclude directories and files that don't need to be tested
   testPathIgnorePatterns: [

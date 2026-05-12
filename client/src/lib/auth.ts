@@ -22,10 +22,12 @@ import { validateRedirectUrl } from "@/utils/urlValidation";
 export const discoverScopes = async (
   serverUrl: string,
   resourceMetadata?: OAuthProtectedResourceMetadata,
+  fetchFn?: typeof fetch,
 ): Promise<string | undefined> => {
   try {
     const metadata = await discoverAuthorizationServerMetadata(
       new URL("/", serverUrl),
+      { fetchFn },
     );
 
     // Prefer resource metadata scopes, but fall back to OAuth metadata if empty
@@ -146,22 +148,34 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   }
 
   get redirect_uris() {
-    // Normally register both redirect URIs to support both normal and debug flows
-    // In debug subclass, redirectUrl may be the same as debugRedirectUrl, so remove duplicates
+    // Always register both redirect URIs to support both normal and debug flows.
+    // Use the base URLs directly (not this.redirectUrl) to avoid the debug subclass
+    // override collapsing both URIs into one, which causes the normal flow's
+    // /authorize request to use an unregistered redirect_uri.
     // See: https://github.com/modelcontextprotocol/inspector/issues/825
-    return [...new Set([this.redirectUrl, this.debugRedirectUrl])];
+    // See: https://github.com/modelcontextprotocol/inspector/issues/930
+    const callbackUrl = window.location.origin + "/oauth/callback";
+    const debugCallbackUrl = window.location.origin + "/oauth/callback/debug";
+    return [callbackUrl, debugCallbackUrl];
   }
 
   get clientMetadata(): OAuthClientMetadata {
-    return {
+    const metadata: OAuthClientMetadata = {
       redirect_uris: this.redirect_uris,
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       client_name: "MCP Inspector",
       client_uri: "https://github.com/modelcontextprotocol/inspector",
-      scope: this.scope ?? "",
     };
+
+    // Only include scope if it's defined and non-empty
+    // Per OAuth spec, omit the scope field entirely if no scopes are requested
+    if (this.scope) {
+      metadata.scope = this.scope;
+    }
+
+    return metadata;
   }
 
   state(): string | Promise<string> {

@@ -34,7 +34,12 @@ The server will start up and the UI will be accessible at `http://localhost:6274
 You can also start it in a Docker container with the following command:
 
 ```bash
-docker run --rm --network host -p 6274:6274 -p 6277:6277 ghcr.io/modelcontextprotocol/inspector:latest
+docker run --rm \
+  -p 127.0.0.1:6274:6274 \
+  -p 127.0.0.1:6277:6277 \
+  -e HOST=0.0.0.0 \
+  -e MCP_AUTO_OPEN_ENABLED=false \
+  ghcr.io/modelcontextprotocol/inspector:latest
 ```
 
 ### From an MCP server repository

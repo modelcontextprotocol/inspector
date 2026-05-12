@@ -3,6 +3,7 @@ interface Icon {
   src: string;
   mimeType?: string;
   sizes?: string[];
+  theme?: "light" | "dark";
 }
 
 // Helper type for objects that may have icons

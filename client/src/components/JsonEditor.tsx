@@ -8,12 +8,14 @@ interface JsonEditorProps {
   value: string;
   onChange: (value: string) => void;
   error?: string;
+  placeholder?: string;
 }
 
 const JsonEditor = ({
   value,
   onChange,
   error: externalError,
+  placeholder,
 }: JsonEditorProps) => {
   const [editorContent, setEditorContent] = useState(value || "");
   const [internalError, setInternalError] = useState<string | undefined>(
@@ -48,6 +50,7 @@ const JsonEditor = ({
             Prism.highlight(code, Prism.languages.json, "json")
           }
           padding={10}
+          placeholder={placeholder}
           style={{
             fontFamily: '"Fira code", "Fira Mono", monospace',
             fontSize: 14,

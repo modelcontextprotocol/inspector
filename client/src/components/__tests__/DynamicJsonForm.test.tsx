@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, it, expect, jest } from "@jest/globals";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import DynamicJsonForm, { DynamicJsonFormRef } from "../DynamicJsonForm";
 import type { JsonSchemaType } from "@/utils/jsonUtils";
 
@@ -202,6 +202,55 @@ describe("DynamicJsonForm String Fields", () => {
       fireEvent.change(select, { target: { value: "amber" } });
       expect(onChange).toHaveBeenCalledWith("amber");
     });
+
+    it("should render anyOf with const/title for labeled options and show description", () => {
+      const onChange = jest.fn();
+      const schema: JsonSchemaType = {
+        type: "string",
+        title: "Heroes",
+        description: "Choose a hero",
+        anyOf: [
+          { const: "hero-1", title: "Superman" },
+          { const: "hero-2", title: "Batman" },
+        ],
+      };
+      render(<DynamicJsonForm schema={schema} value="" onChange={onChange} />);
+
+      // Description should be visible above the select
+      expect(screen.getByText("Choose a hero")).toBeInTheDocument();
+      const select = screen.getByRole("combobox");
+      const options = screen.getAllByRole("option");
+      expect(options).toHaveLength(3);
+      expect(options[1]).toHaveProperty("textContent", "Superman");
+      expect(options[2]).toHaveProperty("textContent", "Batman");
+
+      fireEvent.change(select, { target: { value: "hero-2" } });
+      expect(onChange).toHaveBeenCalledWith("hero-2");
+    });
+
+    it("should render legacy enum with enumNames as labels", () => {
+      const onChange = jest.fn();
+      const schema: JsonSchemaType = {
+        type: "string",
+        title: "Pets",
+        description: "Choose a pet",
+        enum: ["pet-1", "pet-2", "pet-3"],
+        enumNames: ["Cat", "Dog", "Bird"],
+      } as unknown as JsonSchemaType; // enumNames is legacy extension
+
+      render(<DynamicJsonForm schema={schema} value="" onChange={onChange} />);
+
+      // Description should be visible above the select
+      expect(screen.getByText("Choose a pet")).toBeInTheDocument();
+      const options = screen.getAllByRole("option");
+      expect(options[1]).toHaveProperty("textContent", "Cat");
+      expect(options[2]).toHaveProperty("textContent", "Dog");
+      expect(options[3]).toHaveProperty("textContent", "Bird");
+
+      const select = screen.getByRole("combobox");
+      fireEvent.change(select, { target: { value: "pet-2" } });
+      expect(onChange).toHaveBeenCalledWith("pet-2");
+    });
   });
 
   describe("Validation Attributes", () => {
@@ -352,6 +401,29 @@ describe("DynamicJsonForm Number Fields", () => {
       fireEvent.change(input, { target: { value: "98.6" } });
 
       expect(onChange).toHaveBeenCalledWith(98.6);
+    });
+
+    it("should preserve decimal zero while typing", () => {
+      const schema: JsonSchemaType = {
+        type: "number",
+        description: "Coordinate",
+      };
+
+      const WrappedForm = () => {
+        const [value, setValue] = useState<number>(0);
+        return (
+          <DynamicJsonForm schema={schema} value={value} onChange={setValue} />
+        );
+      };
+
+      render(<WrappedForm />);
+      const input = screen.getByRole("spinbutton") as HTMLInputElement;
+
+      fireEvent.change(input, { target: { value: "-74.0" } });
+      expect(input.value).toBe("-74.0");
+
+      fireEvent.change(input, { target: { value: "-74.01" } });
+      expect(input.value).toBe("-74.01");
     });
   });
 });
@@ -535,8 +607,8 @@ describe("DynamicJsonForm Object Fields", () => {
         <DynamicJsonForm schema={schema} value={{}} onChange={jest.fn()} />,
       );
 
-      const nameLabel = screen.getByText("name");
-      const optionalLabel = screen.getByText("optional");
+      const nameLabel = screen.getByText("Name");
+      const optionalLabel = screen.getByText("Optional");
 
       const nameInput = nameLabel.closest("div")?.querySelector("input");
       const optionalInput = optionalLabel
@@ -567,21 +639,37 @@ describe("DynamicJsonForm Complex Fields", () => {
   };
 
   describe("Basic Operations", () => {
-    it("should render textbox and autoformat button, but no switch-to-form button", () => {
+    it("should allow switching to JSON mode and show copy/format buttons", () => {
       renderForm();
+
+      // Initially renders as a form with a Switch to JSON button
+      const switchToJson = screen.getByRole("button", {
+        name: /switch to json/i,
+      });
+      expect(switchToJson).toBeInTheDocument();
+
+      // Switch to JSON mode
+      fireEvent.click(switchToJson);
+
+      // Now a textarea and JSON helpers should be visible
       const input = screen.getByRole("textbox");
       expect(input).toHaveProperty("type", "textarea");
-      const buttons = screen.getAllByRole("button");
-      expect(buttons).toHaveLength(2); // Copy JSON + Format JSON
       const copyButton = screen.getByRole("button", { name: /copy json/i });
       const formatButton = screen.getByRole("button", { name: /format json/i });
       expect(copyButton).toBeTruthy();
       expect(formatButton).toBeTruthy();
+      // And a Switch to Form button should appear
+      expect(
+        screen.getByRole("button", { name: /switch to form/i }),
+      ).toBeInTheDocument();
     });
 
-    it("should pass changed values to onChange", () => {
+    it("should pass changed values to onChange in JSON mode", () => {
       const onChange = jest.fn();
       renderForm({ onChange });
+
+      // Switch to JSON mode first
+      fireEvent.click(screen.getByRole("button", { name: /switch to json/i }));
 
       const input = screen.getByRole("textbox");
       fireEvent.change(input, {
@@ -589,8 +677,8 @@ describe("DynamicJsonForm Complex Fields", () => {
       });
 
       // The onChange handler is debounced when using the JSON view, so we need to wait a little bit
-      waitFor(() => {
-        expect(onChange).toHaveBeenCalledWith(`{ "nested": "i am string" }`);
+      return waitFor(() => {
+        expect(onChange).toHaveBeenCalledWith({ nested: "i am string" });
       });
     });
   });
@@ -626,6 +714,10 @@ describe("DynamicJsonForm Copy JSON Functionality", () => {
     it("should render Copy JSON button when in JSON mode", () => {
       renderFormInJsonMode();
 
+      // Switch to JSON mode to reveal copy/format buttons
+      const switchBtn = screen.getByRole("button", { name: /switch to json/i });
+      fireEvent.click(switchBtn);
+
       const copyButton = screen.getByRole("button", { name: "Copy JSON" });
       expect(copyButton).toBeTruthy();
     });
@@ -652,6 +744,10 @@ describe("DynamicJsonForm Copy JSON Functionality", () => {
       const testValue = { nested: "test value", number: 42 };
 
       renderFormInJsonMode({ value: testValue });
+
+      // Switch to JSON mode first
+      const switchBtn = screen.getByRole("button", { name: /switch to json/i });
+      fireEvent.click(switchBtn);
 
       const copyButton = screen.getByRole("button", { name: "Copy JSON" });
       fireEvent.click(copyButton);
@@ -768,6 +864,10 @@ describe("DynamicJsonForm Validation Functionality", () => {
     it("should return valid for valid JSON in JSON mode", () => {
       renderFormWithRef();
 
+      // Switch to JSON mode to enable textarea editing/validation
+      const switchBtn = screen.getByRole("button", { name: /switch to json/i });
+      fireEvent.click(switchBtn);
+
       const validateButton = screen.getByTestId("validate-button");
       fireEvent.click(validateButton);
 
@@ -777,6 +877,10 @@ describe("DynamicJsonForm Validation Functionality", () => {
 
     it("should return invalid for malformed JSON in JSON mode", async () => {
       renderFormWithRef();
+
+      // Switch to JSON mode first
+      const switchBtn = screen.getByRole("button", { name: /switch to json/i });
+      fireEvent.click(switchBtn);
 
       // Enter invalid JSON
       const textarea = screen.getByRole("textbox");
@@ -799,6 +903,10 @@ describe("DynamicJsonForm Validation Functionality", () => {
     it("should return valid for empty JSON in JSON mode", () => {
       renderFormWithRef();
 
+      // Switch to JSON mode first
+      const switchBtn = screen.getByRole("button", { name: /switch to json/i });
+      fireEvent.click(switchBtn);
+
       // Clear the textarea
       const textarea = screen.getByRole("textbox");
       fireEvent.change(textarea, { target: { value: "" } });
@@ -812,6 +920,10 @@ describe("DynamicJsonForm Validation Functionality", () => {
 
     it("should set error state when validation fails", async () => {
       renderFormWithRef();
+
+      // Switch to JSON mode first
+      const switchBtn = screen.getByRole("button", { name: /switch to json/i });
+      fireEvent.click(switchBtn);
 
       // Enter invalid JSON
       const textarea = screen.getByRole("textbox");

@@ -133,7 +133,10 @@ describe("discoverScopes", () => {
 
       expect(result).toBe(expected);
       if (expectedCallUrl) {
-        expect(mockDiscoverAuth).toHaveBeenCalledWith(new URL(expectedCallUrl));
+        expect(mockDiscoverAuth).toHaveBeenCalledWith(
+          new URL(expectedCallUrl),
+          { fetchFn: undefined },
+        );
       }
     },
   );
