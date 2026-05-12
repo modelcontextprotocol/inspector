@@ -1,5 +1,13 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import DynamicJsonForm from "./DynamicJsonForm";
 import JsonView from "./JsonView";
 import { JsonSchemaType, JsonValue } from "@/utils/jsonUtils";
@@ -7,6 +15,7 @@ import { generateDefaultValue } from "@/utils/schemaUtils";
 import {
   PendingElicitationRequest,
   ElicitationResponse,
+  ElicitationFormRequestData,
 } from "./ElicitationTab";
 import Ajv from "ajv";
 
@@ -21,12 +30,94 @@ const ElicitationRequest = ({
 }: ElicitationRequestProps) => {
   const [formData, setFormData] = useState<JsonValue>({});
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [showUrlConfirm, setShowUrlConfirm] = useState(false);
+
+  const requestData = request.request;
+  const isUrlMode = requestData.mode === "url";
 
   useEffect(() => {
-    const defaultValue = generateDefaultValue(request.request.requestedSchema);
+    if (isUrlMode) return;
+    const defaultValue = generateDefaultValue(
+      (requestData as ElicitationFormRequestData).requestedSchema,
+    );
     setFormData(defaultValue);
     setValidationError(null);
-  }, [request.request.requestedSchema]);
+  }, [isUrlMode, requestData]);
+
+  if (isUrlMode) {
+    const handleConfirmOpen = () => {
+      window.open(requestData.url, "_blank", "noopener,noreferrer");
+      setShowUrlConfirm(false);
+    };
+
+    return (
+      <div
+        data-testid="elicitation-request"
+        className="flex flex-col gap-4 p-4 border rounded-lg"
+      >
+        <div className="bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-2 rounded">
+          <div className="space-y-2">
+            <h4 className="font-semibold">URL Request</h4>
+            <p className="text-sm">{requestData.message}</p>
+          </div>
+        </div>
+        <div className="flex space-x-2">
+          <Button type="button" onClick={() => setShowUrlConfirm(true)}>
+            Open URL
+          </Button>
+          <Button
+            type="button"
+            onClick={() => onResolve(request.id, { action: "accept" })}
+          >
+            Accept
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onResolve(request.id, { action: "decline" })}
+          >
+            Decline
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onResolve(request.id, { action: "cancel" })}
+          >
+            Cancel
+          </Button>
+        </div>
+
+        <Dialog open={showUrlConfirm} onOpenChange={setShowUrlConfirm}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Open External URL</DialogTitle>
+              <DialogDescription>
+                The server is requesting you visit the following URL:
+              </DialogDescription>
+            </DialogHeader>
+            <p
+              data-testid="url-confirm-text"
+              className="text-sm font-mono bg-gray-100 dark:bg-gray-800 p-3 rounded break-all select-all"
+            >
+              {requestData.url}
+            </p>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowUrlConfirm(false)}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleConfirmOpen}>Open</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
+
+  // After URL-mode early return, requestData is guaranteed to be form mode
+  const formRequest = requestData as ElicitationFormRequestData;
 
   const validateEmailFormat = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -75,12 +166,12 @@ const ElicitationRequest = ({
 
   const handleAccept = () => {
     try {
-      if (!validateFormData(formData, request.request.requestedSchema)) {
+      if (!validateFormData(formData, formRequest.requestedSchema)) {
         return;
       }
 
       const ajv = new Ajv();
-      const validate = ajv.compile(request.request.requestedSchema);
+      const validate = ajv.compile(formRequest.requestedSchema);
       const isValid = validate(formData);
 
       if (!isValid) {
@@ -109,8 +200,8 @@ const ElicitationRequest = ({
   };
 
   const schemaTitle =
-    request.request.requestedSchema.title || "Information Request";
-  const schemaDescription = request.request.requestedSchema.description;
+    formRequest.requestedSchema.title || "Information Request";
+  const schemaDescription = formRequest.requestedSchema.description;
 
   return (
     <div
@@ -120,14 +211,14 @@ const ElicitationRequest = ({
       <div className="flex-1 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 p-2 rounded">
         <div className="space-y-2">
           <h4 className="font-semibold">{schemaTitle}</h4>
-          <p className="text-sm">{request.request.message}</p>
+          <p className="text-sm">{formRequest.message}</p>
           {schemaDescription && (
             <p className="text-xs text-muted-foreground">{schemaDescription}</p>
           )}
           <div className="mt-2">
             <h5 className="text-xs font-medium mb-1">Request Schema:</h5>
             <JsonView
-              data={JSON.stringify(request.request.requestedSchema, null, 2)}
+              data={JSON.stringify(formRequest.requestedSchema, null, 2)}
             />
           </div>
         </div>
@@ -137,7 +228,7 @@ const ElicitationRequest = ({
         <div className="space-y-2">
           <h4 className="font-medium">Response Form</h4>
           <DynamicJsonForm
-            schema={request.request.requestedSchema}
+            schema={formRequest.requestedSchema}
             value={formData}
             onChange={(newValue: JsonValue) => {
               setFormData(newValue);
