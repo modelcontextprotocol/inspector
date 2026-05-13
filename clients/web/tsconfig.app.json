@@ -24,10 +24,18 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
 
-    /* Path aliases */
+    /* Path aliases. `react` / `react-dom` redirects let core/ source files
+     * (which live above clients/web/node_modules) resolve those bare imports
+     * during `tsc -b`. We point at the @types declaration packages so the
+     * imports type-check; Vite's `dedupe` handles the runtime resolution —
+     * see vite.config.ts.
+     */
     "baseUrl": ".",
     "paths": {
-      "@inspector/core/*": ["../../core/*"]
+      "@inspector/core/*": ["../../core/*"],
+      "react": ["./node_modules/@types/react"],
+      "react-dom": ["./node_modules/@types/react-dom"],
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"]
     }
   },
   "include": ["src", "../../core/**/*.ts"],
@@ -38,6 +46,7 @@
     "src/**/*.test.ts",
     "src/test/**",
     "../../core/**/*.test.ts",
-    "../../core/**/*.test.tsx"
+    "../../core/**/*.test.tsx",
+    "../../core/**/__tests__/**"
   ]
 }

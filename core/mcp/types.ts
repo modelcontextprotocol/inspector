@@ -206,6 +206,54 @@ export interface InspectorResourceSubscription {
 }
 
 /**
+ * Wraps a URL-based elicit request from the server. v1.5 only supports
+ * form elicitation; v2 introduces URL elicitation as a discriminated variant
+ * of the inline elicitation panel. The wrapper carries the request payload
+ * plus the URL the user must visit to satisfy it.
+ */
+export interface InspectorUrlElicitRequest {
+  id: string;
+  timestamp: Date;
+  /** Free-form prompt shown alongside the URL (server-supplied). */
+  message: string;
+  /** Authorization or interaction URL the user must visit. */
+  url: string;
+  /** Optional task association for grouping in the tasks view. */
+  taskId?: string;
+}
+
+/**
+ * Generic envelope for pending server-originated requests surfaced to
+ * dumb components. Used by the pending-request panel to list anything
+ * the user must act on before the protocol can proceed (sampling, elicitation,
+ * URL elicitation, roots list, etc.).
+ */
+export interface InspectorPendingRequest {
+  id: string;
+  timestamp: Date;
+  kind: "sampling" | "elicitation" | "urlElicitation" | "rootsList";
+  /** Display label rendered on the queue row. */
+  label: string;
+  /** Optional task association so panels can group/route. */
+  taskId?: string;
+}
+
+/**
+ * Single entry rendered in the history view. v2 extracts this from the
+ * message log so the HistoryScreen can filter/group entries without needing
+ * to re-derive direction or method from raw JSON-RPC frames.
+ */
+export interface InspectorRequestHistoryItem {
+  id: string;
+  timestamp: Date;
+  direction: "request" | "response" | "notification";
+  method: string;
+  durationMs?: number;
+  /** Surfaces the original log entry for detail panes. */
+  messageId: MessageEntry["id"];
+}
+
+/**
  * OAuth credentials surfaced by the settings form. The form callback
  * passes this whole object so callers don't have to thread per-field
  * dispatches through stringly-typed key arguments.
