@@ -22,6 +22,14 @@ export interface UseInspectorClientResult {
  * React hook that subscribes to InspectorClient events and provides reactive
  * connection state. Log lists (message / stderr / fetch) live in dedicated
  * state managers consumed via useMessageLog / useStderrLog / useFetchRequestLog.
+ *
+ * Note: `appRendererClient` is read lazily from the client on every render
+ * and is NOT subscribed. It changes once at connect time and is not expected
+ * to change again during a session, so callers will see the current value
+ * on any rerender triggered by status / capabilities / serverInfo / instructions.
+ * If a future use case requires autonomous updates when the renderer attaches,
+ * add an `appRendererClientChange` event to `InspectorClientEventMap` and
+ * subscribe here.
  */
 export function useInspectorClient(
   inspectorClient: InspectorClientProtocol | null,

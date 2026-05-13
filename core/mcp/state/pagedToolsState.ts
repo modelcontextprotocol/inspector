@@ -2,6 +2,11 @@
  * PagedToolsState: holds an aggregated list of tools loaded via loadPage(cursor).
  * Does not load on connect; caller drives loading. Clears on disconnect.
  *
+ * Intentionally does NOT subscribe to `toolsListChanged`: cursors are tied to
+ * the server's prior list, so a list change mid-pagination would invalidate
+ * them. The caller decides how to react (typically by `clear()` + reload
+ * page 1) — see the managed variant for the auto-refresh shape.
+ *
  * Ported from v1.5/main. v2 substitutes `InspectorClientProtocol` for the
  * concrete `InspectorClient` since the runtime class is not yet ported.
  */

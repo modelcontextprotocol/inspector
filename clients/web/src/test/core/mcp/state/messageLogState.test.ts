@@ -126,6 +126,27 @@ describe("MessageLogState", () => {
     expect(changeCount).toBe(1);
   });
 
+  it("clearMessages drops pending-request bookkeeping for evicted requests", () => {
+    client.dispatchTypedEvent("message", requestEntry(1));
+    state.clearMessages((m) => m.direction === "request");
+    expect(state.getMessages()).toEqual([]);
+
+    // The matching response should now fall through to the unmatched-response
+    // branch (append) instead of mutating an unreachable pending entry.
+    client.dispatchTypedEvent("message", responseEntry(1));
+    expect(state.getMessages()).toHaveLength(1);
+    expect(state.getMessages()[0]!.direction).toBe("response");
+    expect(state.getMessages()[0]!.duration).toBeUndefined();
+  });
+
+  it("clearMessages without a predicate also drops all pending bookkeeping", () => {
+    client.dispatchTypedEvent("message", requestEntry(1));
+    state.clearMessages();
+    client.dispatchTypedEvent("message", responseEntry(1));
+    expect(state.getMessages()).toHaveLength(1);
+    expect(state.getMessages()[0]!.direction).toBe("response");
+  });
+
   it("getMessages applies the predicate filter", () => {
     client.dispatchTypedEvent("message", notificationEntry("keep"));
     client.dispatchTypedEvent("message", notificationEntry("drop"));

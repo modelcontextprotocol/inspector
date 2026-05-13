@@ -102,11 +102,18 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
         this.client = null;
       };
       if (sessionId) {
-        sessionStorage.loadSession(sessionId).then((state) => {
-          if (this.client && state?.fetchRequests?.length) {
-            this.hydrateFetchRequests(state.fetchRequests);
-          }
-        });
+        sessionStorage
+          .loadSession(sessionId)
+          .then((state) => {
+            if (this.client && state?.fetchRequests?.length) {
+              this.hydrateFetchRequests(state.fetchRequests);
+            }
+          })
+          .catch(() => {
+            // fire-and-forget; storage may log internally. Matches the
+            // saveSession swallow above so a corrupt or unreadable session
+            // doesn't surface as an unhandled rejection.
+          });
       }
     } else {
       this.unsubscribe = () => {

@@ -9,14 +9,12 @@
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { Task } from "@modelcontextprotocol/sdk/types.js";
-import type {
-  InspectorClientEventMap,
-  TaskWithOptionalCreatedAt,
-} from "../inspectorClientEventTarget.js";
+import type { InspectorClientEventMap } from "../inspectorClientEventTarget.js";
 import {
   TypedEventTarget,
   type TypedEventGeneric,
 } from "../typedEventTarget.js";
+import { mergeTaskIntoList } from "./mergeTaskIntoList.js";
 
 export interface PagedRequestorTasksStateEventMap {
   tasksChange: Task[];
@@ -25,28 +23,6 @@ export interface PagedRequestorTasksStateEventMap {
 export interface LoadPageResult {
   tasks: Task[];
   nextCursor?: string;
-}
-
-function mergeTaskIntoList(
-  tasks: Task[],
-  taskId: string,
-  task: Task | TaskWithOptionalCreatedAt,
-): Task[] {
-  const normalized: Task = {
-    ...task,
-    taskId,
-    createdAt:
-      (task as Task).createdAt ??
-      (task as TaskWithOptionalCreatedAt).lastUpdatedAt ??
-      "",
-  };
-  const idx = tasks.findIndex((t) => t.taskId === taskId);
-  if (idx < 0) {
-    return [normalized, ...tasks];
-  }
-  const next = [...tasks];
-  next[idx] = normalized;
-  return next;
 }
 
 export class PagedRequestorTasksState extends TypedEventTarget<PagedRequestorTasksStateEventMap> {
