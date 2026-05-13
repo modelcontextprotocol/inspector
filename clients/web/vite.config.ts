@@ -16,6 +16,11 @@ export default defineConfig({
     alias: {
       '@inspector/core': path.resolve(dirname, '../../core'),
     },
+    // Source files in core/ import bare modules (react, @testing-library/react,
+    // etc.) that only exist in clients/web/node_modules. Dedupe ensures Vite
+    // resolves them from this package rather than walking up from core/'s
+    // location (which has no node_modules of its own yet).
+    dedupe: ['react', 'react-dom'],
   },
   server: {
     fs: {
@@ -30,6 +35,7 @@ export default defineConfig({
         'src/components/**/*.{ts,tsx}',
         'src/utils/**/*.{ts,tsx}',
         '../../core/mcp/**/*.{ts,tsx}',
+        '../../core/react/**/*.{ts,tsx}',
       ],
       exclude: [
         '**/*.stories.{ts,tsx}',
@@ -39,6 +45,7 @@ export default defineConfig({
         'src/components/**/types.ts',
         '../../core/mcp/types.ts',
         '../../core/mcp/elicitationCreateMessage.ts',
+        '../../core/mcp/__tests__/**',
       ],
       thresholds: {
         perFile: true,
