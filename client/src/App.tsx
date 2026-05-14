@@ -370,6 +370,13 @@ const App = () => {
     selectedTaskRef.current = selectedTask;
   }, [selectedTask]);
 
+  // Holds a resolver to wake up the polling loop early when a terminal task
+  // status notification arrives for the task currently being polled.
+  const taskNotificationResolverRef = useRef<{
+    taskId: string;
+    resolve: () => void;
+  } | null>(null);
+
   const {
     connectionStatus,
     serverCapabilities,
@@ -416,6 +423,18 @@ const App = () => {
         });
         if (selectedTaskRef.current?.taskId === task.taskId) {
           setSelectedTask(task);
+        }
+        // If we're currently polling this task and it has reached a terminal
+        // status, wake up the polling loop immediately instead of waiting for
+        // the next poll interval to elapse.
+        const resolver = taskNotificationResolverRef.current;
+        if (
+          resolver?.taskId === task.taskId &&
+          (task.status === "completed" ||
+            task.status === "failed" ||
+            task.status === "cancelled")
+        ) {
+          resolver.resolve();
         }
       }
     },
@@ -1088,8 +1107,15 @@ const App = () => {
         let taskCompleted = false;
         while (!taskCompleted) {
           try {
-            // Wait for 1 second before polling
-            await new Promise((resolve) => setTimeout(resolve, pollInterval));
+            // Wait for the poll interval, but wake up early if a terminal
+            // task status notification arrives for this task.
+            await Promise.race([
+              new Promise<void>((resolve) => setTimeout(resolve, pollInterval)),
+              new Promise<void>((resolve) => {
+                taskNotificationResolverRef.current = { taskId, resolve };
+              }),
+            ]);
+            taskNotificationResolverRef.current = null;
 
             const taskStatus = await sendMCPRequest(
               {
@@ -1176,6 +1202,7 @@ const App = () => {
               isError: true,
             };
             setToolResult(latestToolResult);
+            taskNotificationResolverRef.current = null;
             taskCompleted = true;
           }
         }
