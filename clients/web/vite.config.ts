@@ -10,18 +10,26 @@ import { playwright } from '@vitest/browser-playwright';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(dirname, '../..');
 
+// Aliases shared between the top-level resolve and the unit vitest project.
+// Vitest projects don't inherit `resolve` from the parent, so the unit project
+// redeclares them — keeping a single source here prevents the two from drifting
+// (e.g. if a new core/* alias is added).
+const sharedAliases = {
+  '@inspector/core': path.resolve(dirname, '../../core'),
+};
+const sharedDedupe = ['react', 'react-dom'];
+
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: {
-      '@inspector/core': path.resolve(dirname, '../../core'),
-    },
+    // NOTE: the unit vitest project (below) overrides this — see comment there.
+    alias: sharedAliases,
     // Source files in core/ import bare modules (react, @testing-library/react,
     // etc.) that only exist in clients/web/node_modules. Dedupe ensures Vite
     // resolves them from this package rather than walking up from core/'s
     // location (which has no node_modules of its own yet).
-    dedupe: ['react', 'react-dom'],
+    dedupe: sharedDedupe,
   },
   server: {
     fs: {
@@ -32,10 +40,6 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'json-summary'],
-      // Files under core/ live outside this project's root (clients/web/), so
-      // vitest's default project-root prefix filter would drop them before the
-      // include glob runs. allowExternal lets the include filter apply to them.
-      allowExternal: true,
       include: [
         'src/components/**/*.{ts,tsx}',
         'src/utils/**/*.{ts,tsx}',
@@ -49,16 +53,17 @@ export default defineConfig({
         '**/index.{ts,tsx}',
         'src/components/**/types.ts',
         // Pure-type modules: `interface`/`type` declarations only, no runtime
-        // statements. Coverage tools either silently drop them (rolldown can't
-        // parse raw `import type {...}` syntax) or surface them as misleading
-        // 0/0 rows. Excluding them keeps the report clean.
+        // statements. Excluding them keeps the report clean (would otherwise
+        // surface as misleading 0/0 rows).
         path.join(repoRoot, 'core/mcp/types.ts'),
         path.join(repoRoot, 'core/mcp/elicitationCreateMessage.ts'),
         path.join(repoRoot, 'core/mcp/samplingCreateMessage.ts'),
         path.join(repoRoot, 'core/mcp/sessionStorage.ts'),
         path.join(repoRoot, 'core/mcp/inspectorClientProtocol.ts'),
         // inspectorClientEventTarget.ts is types + a single empty-body class
-        // (extends TypedEventTarget). v8/istanbul records 0 statements for it.
+        // (extends TypedEventTarget). v8/istanbul records 0 statements for it
+        // today. TODO(#1243): drop this exclusion once the class gains real
+        // behavior as the v1.5 InspectorClient port progresses.
         path.join(repoRoot, 'core/mcp/inspectorClientEventTarget.ts'),
         path.join(repoRoot, 'core/mcp/__tests__/**'),
       ],
@@ -73,17 +78,18 @@ export default defineConfig({
     projects: [
       {
         extends: true,
+        // Vitest projects don't inherit `resolve` from the parent, so we
+        // redeclare the shared aliases here. The extra `react` alias is
+        // required because we move the unit project root to repoRoot below
+        // (so vitest's coverage transformer can reach core/), and the repo
+        // root has no node_modules of its own — bare `react` imports from
+        // core/react/*.ts would otherwise fail to resolve.
         resolve: {
           alias: {
-            '@inspector/core': path.resolve(dirname, '../../core'),
-            // Bare-module override: core/react/* imports "react", which vite
-            // resolves by walking up from the file looking for node_modules/.
-            // We move the unit project root to repoRoot below, and the repo
-            // root has no node_modules of its own — so without this alias,
-            // imports from core/ can't find react.
+            ...sharedAliases,
             react: path.resolve(dirname, 'node_modules/react'),
           },
-          dedupe: ['react', 'react-dom'],
+          dedupe: sharedDedupe,
         },
         test: {
           name: 'unit',
