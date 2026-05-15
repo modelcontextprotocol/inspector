@@ -106,7 +106,7 @@ export async function createClientMetadataServer(
   const express = await import("express");
   const app = express.default();
 
-  app.get("/", (req, res) => {
+  app.get("/", (_req, res) => {
     res.json(metadata);
   });
 

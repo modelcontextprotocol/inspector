@@ -16,6 +16,7 @@ const repoRoot = path.resolve(dirname, '../..');
 // (e.g. if a new core/* alias is added).
 const sharedAliases = {
   '@inspector/core': path.resolve(dirname, '../../core'),
+  '@modelcontextprotocol/inspector-test-server': path.resolve(dirname, '../../test-servers/src/index.ts'),
 };
 const sharedDedupe = ['react', 'react-dom'];
 
@@ -85,18 +86,28 @@ export default defineConfig({
         // root has no node_modules of its own — bare `react` imports from
         // core/react/*.ts would otherwise fail to resolve.
         resolve: {
-          alias: {
-            ...sharedAliases,
-            react: path.resolve(dirname, 'node_modules/react'),
-            // v1.5 core/ modules (#1302) import these from clients/web/node_modules
-            // but the unit project runs from repoRoot (which has no node_modules
-            // of its own), so vite needs explicit redirects.
-            pino: path.resolve(dirname, 'node_modules/pino'),
-            zustand: path.resolve(dirname, 'node_modules/zustand'),
-            hono: path.resolve(dirname, 'node_modules/hono'),
-            '@hono/node-server': path.resolve(dirname, 'node_modules/@hono/node-server'),
-            atomically: path.resolve(dirname, 'node_modules/atomically'),
-          },
+          alias: [
+            // sharedAliases first as exact-match entries
+            ...Object.entries(sharedAliases).map(([find, replacement]) => ({ find, replacement })),
+            { find: /^react$/, replacement: path.resolve(dirname, 'node_modules/react') },
+            // v1.5 core/ modules (#1302) import these from clients/web/node_modules,
+            // but the unit project runs from repoRoot (which has no node_modules of
+            // its own). Use anchored regex `find` patterns so the package's own
+            // `exports` field handles subpath resolution (otherwise a bare `hono`
+            // string alias would rewrite `hono/streaming` to `<honoDir>/streaming`,
+            // bypassing the exports map).
+            { find: /^pino$/, replacement: path.resolve(dirname, 'node_modules/pino') },
+            { find: /^pino\/browser\.js$/, replacement: path.resolve(dirname, 'node_modules/pino/browser.js') },
+            { find: /^zustand$/, replacement: path.resolve(dirname, 'node_modules/zustand') },
+            { find: /^zustand\/middleware$/, replacement: path.resolve(dirname, 'node_modules/zustand/middleware.js') },
+            { find: /^zustand\/vanilla$/, replacement: path.resolve(dirname, 'node_modules/zustand/vanilla.js') },
+            { find: /^hono$/, replacement: path.resolve(dirname, 'node_modules/hono/dist/index.js') },
+            { find: /^hono\/streaming$/, replacement: path.resolve(dirname, 'node_modules/hono/dist/helper/streaming/index.js') },
+            { find: /^@hono\/node-server$/, replacement: path.resolve(dirname, 'node_modules/@hono/node-server') },
+            { find: /^atomically$/, replacement: path.resolve(dirname, 'node_modules/atomically') },
+            { find: /^express$/, replacement: path.resolve(dirname, 'node_modules/express') },
+            { find: /^yaml$/, replacement: path.resolve(dirname, 'node_modules/yaml') },
+          ],
           dedupe: sharedDedupe,
         },
         test: {

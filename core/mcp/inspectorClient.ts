@@ -13,6 +13,16 @@ import type {
   AppRendererClient,
   InspectorClientOptions,
 } from "./types.js";
+// Re-export so v1.5 tests that do `import { InspectorClientOptions } from
+// "@inspector/core/mcp/inspectorClient.js"` keep resolving.
+export type {
+  InspectorClientOptions,
+  InspectorClientEnvironment,
+  CreateTransport,
+  CreateTransportOptions,
+  CreateTransportResult,
+  AppRendererClient,
+} from "./types.js";
 import { getServerType as getServerTypeFromConfig } from "./config.js";
 // v2 doesn't have a core/package.json (the package isn't published independently),
 // so we hardcode the client identity that v1.5 read from corePackageJson.

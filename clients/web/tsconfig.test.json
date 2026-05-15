@@ -2,9 +2,10 @@
   "extends": "./tsconfig.app.json",
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
-    "types": ["vite/client", "@testing-library/jest-dom", "node"],
+    "types": ["vite/client", "@testing-library/jest-dom", "node", "express"],
     "paths": {
       "@inspector/core/*": ["../../core/*"],
+      "@modelcontextprotocol/inspector-test-server": ["../../test-servers/src/index.ts"],
       "react": ["./node_modules/@types/react"],
       "react-dom": ["./node_modules/@types/react-dom"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"],
@@ -15,7 +16,9 @@
       "hono": ["./node_modules/hono"],
       "hono/*": ["./node_modules/hono/*"],
       "@hono/node-server": ["./node_modules/@hono/node-server"],
-      "atomically": ["./node_modules/atomically"]
+      "atomically": ["./node_modules/atomically"],
+      "express": ["./node_modules/@types/express"],
+      "yaml": ["./node_modules/yaml"]
     }
   },
   "include": [

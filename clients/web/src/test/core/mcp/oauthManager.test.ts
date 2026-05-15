@@ -8,7 +8,7 @@ import {
   OAuthManager,
   type OAuthManagerConfig,
   type OAuthManagerParams,
-} from "../../mcp/oauthManager.js";
+} from "@inspector/core/mcp/oauthManager.js";
 
 const SERVER_URL = "https://example.com/mcp";
 

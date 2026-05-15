@@ -616,9 +616,6 @@ describe("Remote transport e2e", () => {
             transport: createTransport,
             logger: remoteLogger,
           },
-          maxMessages: 100,
-          maxFetchRequests: 100,
-          maxStderrLogEvents: 100,
           pipeStderr: true,
         },
       );

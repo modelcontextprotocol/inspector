@@ -46,7 +46,10 @@ import type {
   FetchRequestEntryBase,
 } from "@inspector/core/mcp/types.js";
 import type { JsonValue } from "@inspector/core/json/jsonUtils.js";
-import type { TypedEvent } from "@inspector/core/mcp/inspectorClientEventTarget.js";
+import type {
+  TypedEvent,
+  TaskWithOptionalCreatedAt,
+} from "@inspector/core/mcp/inspectorClientEventTarget.js";
 import type {
   CreateMessageResult,
   ElicitResult,
@@ -135,7 +138,7 @@ async function getAllPrompts(
 
 /** Minimal Tool shape for tests that need to call a tool by name (e.g. server returns "not found"). */
 function minimalTool(name: string): Tool {
-  return { name, description: "", inputSchema: {} };
+  return { name, description: "", inputSchema: { type: "object" } };
 }
 
 describe("InspectorClient", () => {
@@ -3014,7 +3017,7 @@ describe("InspectorClient", () => {
     it("should handle async completion callbacks", async () => {
       // Create a test server with async completion callback
       const asyncCompletionCallback = async (
-        argName: string,
+        _argName: string,
         value: string,
       ): Promise<string[]> => {
         // Simulate async I/O in completion callback; fixture behavior, not a test wait.
@@ -3156,7 +3159,7 @@ describe("InspectorClient", () => {
     it("should call tool with task support using callToolStream", async () => {
       const toolCallTaskUpdatedEvents: Array<{
         taskId: string;
-        task: Task;
+        task: TaskWithOptionalCreatedAt;
         result?: CallToolResult;
         error?: unknown;
       }> = [];
@@ -3464,8 +3467,8 @@ describe("InspectorClient", () => {
 
       const taskFailedDetail = await new Promise<{
         taskId: string;
-        task: Task;
-        error: unknown;
+        task: TaskWithOptionalCreatedAt;
+        error?: unknown;
       }>((resolve, reject) => {
         const timeout = setTimeout(
           () =>
@@ -3476,7 +3479,7 @@ describe("InspectorClient", () => {
         );
         const handler = (
           e: Event & {
-            detail: { taskId: string; task: Task; error?: unknown };
+            detail: { taskId: string; task: TaskWithOptionalCreatedAt; error?: unknown };
           },
         ) => {
           if (e.detail.error !== undefined) {
@@ -3529,7 +3532,7 @@ describe("InspectorClient", () => {
 
       const taskCreatedDetail = await waitForEvent<{
         taskId: string;
-        task: Task;
+        task: TaskWithOptionalCreatedAt;
       }>(client, "toolCallTaskUpdated", { timeout: 3000 });
       const taskId = taskCreatedDetail.taskId;
       expect(taskId).toBeDefined();
@@ -3739,8 +3742,8 @@ describe("InspectorClient", () => {
 
       const taskCompletedDetail = await new Promise<{
         taskId: string;
-        task: Task;
-        result: unknown;
+        task: TaskWithOptionalCreatedAt;
+        result?: unknown;
       }>((resolve, reject) => {
         const timeout = setTimeout(
           () =>
@@ -3751,7 +3754,7 @@ describe("InspectorClient", () => {
         );
         const handler = (
           e: Event & {
-            detail: { taskId: string; task: Task; result?: unknown };
+            detail: { taskId: string; task: TaskWithOptionalCreatedAt; result?: unknown };
           },
         ) => {
           if (e.detail.result !== undefined) {

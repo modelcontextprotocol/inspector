@@ -49,6 +49,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@types/express": "^5.0.6",
     "@types/node": "^22.19.19",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -59,6 +60,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "eslint-plugin-storybook": "^10.2.19",
+    "express": "^5.2.1",
     "globals": "^17.4.0",
     "happy-dom": "^20.9.0",
     "playwright": "^1.58.2",
@@ -67,6 +69,7 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^8.0.0",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.0",
+    "yaml": "^2.9.0"
   }
 }
