@@ -45,4 +45,12 @@ export type InspectorConfig = {
    * Default Time-to-Live (TTL) in milliseconds for newly created tasks.
    */
   MCP_TASK_TTL: ConfigItem;
+
+  /**
+   * Whether to send an RFC 7009 token revocation request to the authorization server
+   * on Disconnect (when the server advertises a `revocation_endpoint`). Default `true`
+   * (spec-compliant). Disable to test server behavior when a client disconnects
+   * without revoking, or to suppress the network call during offline testing.
+   */
+  MCP_OAUTH_REVOKE_ON_DISCONNECT: ConfigItem;
 };

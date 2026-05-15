@@ -25,7 +25,7 @@ import {
   ElicitRequest,
 } from "@modelcontextprotocol/sdk/types.js";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
-import { discoverScopes } from "../../auth";
+import { discoverScopes, revokeTokens } from "../../auth";
 import { CustomHeaders } from "../../types/customHeaders";
 
 // Mock fetch
@@ -145,17 +145,22 @@ jest.mock("../../auth", () => ({
   InspectorOAuthClientProvider: jest.fn().mockImplementation(() => ({
     tokens: jest.fn().mockResolvedValue({ access_token: "mock-token" }),
     redirectUrl: "http://localhost:3000/oauth/callback",
+    clear: jest.fn(),
   })),
   clearClientInformationFromSessionStorage: jest.fn(),
   saveClientInformationToSessionStorage: jest.fn(),
   saveScopeToSessionStorage: jest.fn(),
   clearScopeFromSessionStorage: jest.fn(),
   discoverScopes: jest.fn(),
+  revokeTokens: jest.fn().mockResolvedValue(undefined),
 }));
 
 const mockAuth = auth as jest.MockedFunction<typeof auth>;
 const mockDiscoverScopes = discoverScopes as jest.MockedFunction<
   typeof discoverScopes
+>;
+const mockRevokeTokens = revokeTokens as jest.MockedFunction<
+  typeof revokeTokens
 >;
 
 describe("useConnection", () => {
@@ -1789,6 +1794,84 @@ describe("useConnection", () => {
       expect(
         mockStreamableHTTPTransport.url?.searchParams.get("proxyFullAddress"),
       ).toBeNull();
+    });
+  });
+
+  describe("disconnect", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    test("revokes tokens (RFC 7009) before clearing local OAuth state", async () => {
+      const { InspectorOAuthClientProvider } = jest.requireMock("../../auth");
+      const providerCtor = InspectorOAuthClientProvider as jest.Mock;
+      providerCtor.mockClear();
+
+      const { result } = renderHook(() => useConnection(defaultProps));
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      await act(async () => {
+        await result.current.disconnect();
+      });
+
+      expect(mockRevokeTokens).toHaveBeenCalledTimes(1);
+      expect(mockRevokeTokens).toHaveBeenCalledWith({
+        serverUrl: defaultProps.sseUrl,
+        fetchFn: expect.any(Function),
+      });
+
+      // disconnect constructs an InspectorOAuthClientProvider just for the
+      // local-clear step; that instance's clear() must have been invoked.
+      const disconnectInstance = providerCtor.mock.results[
+        providerCtor.mock.results.length - 1
+      ].value as { clear: jest.Mock };
+      expect(disconnectInstance.clear).toHaveBeenCalledTimes(1);
+
+      // Revocation must precede the local clear() so we have tokens to send.
+      expect(mockRevokeTokens.mock.invocationCallOrder[0]).toBeLessThan(
+        disconnectInstance.clear.mock.invocationCallOrder[0],
+      );
+
+      expect(result.current.connectionStatus).toBe("disconnected");
+    });
+
+    test("skips revokeTokens when MCP_OAUTH_REVOKE_ON_DISCONNECT is false", async () => {
+      const { InspectorOAuthClientProvider } = jest.requireMock("../../auth");
+      const providerCtor = InspectorOAuthClientProvider as jest.Mock;
+      providerCtor.mockClear();
+
+      const propsWithRevokeDisabled: Parameters<typeof useConnection>[0] = {
+        ...defaultProps,
+        config: {
+          ...DEFAULT_INSPECTOR_CONFIG,
+          MCP_OAUTH_REVOKE_ON_DISCONNECT: {
+            ...DEFAULT_INSPECTOR_CONFIG.MCP_OAUTH_REVOKE_ON_DISCONNECT,
+            value: false,
+          },
+        },
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsWithRevokeDisabled),
+      );
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      await act(async () => {
+        await result.current.disconnect();
+      });
+
+      expect(mockRevokeTokens).not.toHaveBeenCalled();
+      // Local clear still runs so the user gets a fresh slate even when
+      // remote revocation is opted out.
+      const disconnectInstance = providerCtor.mock.results[
+        providerCtor.mock.results.length - 1
+      ].value as { clear: jest.Mock };
+      expect(disconnectInstance.clear).toHaveBeenCalledTimes(1);
+      expect(result.current.connectionStatus).toBe("disconnected");
     });
   });
 });
