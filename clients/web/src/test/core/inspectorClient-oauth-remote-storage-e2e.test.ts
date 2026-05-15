@@ -4,7 +4,15 @@
  * These tests verify that OAuth state persists correctly via the remote storage API.
  */
 
-import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  afterAll,
+  vi,
+} from "vitest";
 import { mkdtempSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

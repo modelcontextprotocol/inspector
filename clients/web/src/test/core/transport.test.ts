@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { getServerType } from "@inspector/core/mcp/config.js";
 import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
-import type { MCPServerConfig, FetchRequestEntryBase } from "@inspector/core/mcp/types.js";
+import type {
+  MCPServerConfig,
+  FetchRequestEntryBase,
+} from "@inspector/core/mcp/types.js";
 import {
   createTestServerHttp,
   createEchoTool,

@@ -3479,7 +3479,11 @@ describe("InspectorClient", () => {
         );
         const handler = (
           e: Event & {
-            detail: { taskId: string; task: TaskWithOptionalCreatedAt; error?: unknown };
+            detail: {
+              taskId: string;
+              task: TaskWithOptionalCreatedAt;
+              error?: unknown;
+            };
           },
         ) => {
           if (e.detail.error !== undefined) {
@@ -3754,7 +3758,11 @@ describe("InspectorClient", () => {
         );
         const handler = (
           e: Event & {
-            detail: { taskId: string; task: TaskWithOptionalCreatedAt; result?: unknown };
+            detail: {
+              taskId: string;
+              task: TaskWithOptionalCreatedAt;
+              result?: unknown;
+            };
           },
         ) => {
           if (e.detail.result !== undefined) {

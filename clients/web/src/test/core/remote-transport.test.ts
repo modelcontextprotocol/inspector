@@ -11,7 +11,10 @@ import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import pino from "pino";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
-import { FetchRequestLogState, StderrLogState } from "@inspector/core/mcp/state/index.js";
+import {
+  FetchRequestLogState,
+  StderrLogState,
+} from "@inspector/core/mcp/state/index.js";
 import { createRemoteTransport } from "@inspector/core/mcp/remote/createRemoteTransport.js";
 import { createRemoteLogger } from "@inspector/core/mcp/remote/createRemoteLogger.js";
 import { createRemoteApp } from "@inspector/core/mcp/remote/node/server.js";
