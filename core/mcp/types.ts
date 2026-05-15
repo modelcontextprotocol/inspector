@@ -8,15 +8,26 @@ import type {
   JSONRPCNotification,
   JSONRPCRequest,
   JSONRPCResultResponse,
+  LoggingLevel,
   Prompt,
   ReadResourceResult,
   Resource,
+  Root,
   ServerCapabilities,
   ServerNotification,
   ServerRequest,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type pino from "pino";
 import type { JsonValue } from "../json/jsonUtils.js";
+import type {
+  OAuthNavigation,
+  RedirectUrlProvider,
+} from "../auth/providers.js";
+import type { OAuthStorage } from "../auth/storage.js";
 
 // Stdio transport config
 export interface StdioServerConfig {
@@ -290,4 +301,229 @@ export interface InspectorServerJsonDraft {
   selectedPackageIndex?: number;
   envOverrides: Record<string, string>;
   nameOverride?: string;
+}
+
+// ---------------------------------------------------------------------------
+// v1.5 InspectorClient runtime types (#1302)
+// These are required by the ported InspectorClient class and its supporting
+// modules (oauthManager, transports). v2 had pruned them when it kept only
+// the static InspectorClientProtocol interface; restoring them verbatim from
+// v1.5 keeps the ported client compilable.
+// ---------------------------------------------------------------------------
+
+export interface CreateTransportOptions {
+  /**
+   * Optional fetch function. When provided, used as the base for transport HTTP requests
+   * (SSE, streamable-http). Enables proxy fetch in browser (CORS bypass).
+   */
+  fetchFn?: typeof fetch;
+
+  /**
+   * Optional callback to handle stderr logs from stdio transports
+   */
+  onStderr?: (entry: StderrLogEntry) => void;
+
+  /**
+   * Whether to pipe stderr for stdio transports (default: true for TUI, false for CLI)
+   */
+  pipeStderr?: boolean;
+
+  /**
+   * Optional callback to track HTTP fetch requests (for SSE and streamable-http transports).
+   * Receives entries without category; caller adds category when storing.
+   */
+  onFetchRequest?: (entry: FetchRequestEntryBase) => void;
+
+  /**
+   * Optional OAuth client provider for Bearer authentication (SSE, streamable-http).
+   * When set, the SDK injects tokens and handles 401 via the provider.
+   */
+  authProvider?: OAuthClientProvider;
+}
+
+export interface CreateTransportResult {
+  transport: Transport;
+}
+
+/**
+ * Factory that creates a client transport for an MCP server configuration.
+ * Required by InspectorClient; caller provides the implementation for their
+ * environment (e.g. createTransport for Node, RemoteClientTransport factory for browser).
+ */
+export type CreateTransport = (
+  config: MCPServerConfig,
+  options: CreateTransportOptions,
+) => CreateTransportResult;
+
+/**
+ * Type for the client-like object passed to AppRenderer / @mcp-ui.
+ * Structurally compatible with the MCP SDK Client but denotes the app-renderer
+ * proxy, not the raw client. Use this type when passing the client to the Apps tab.
+ */
+export type AppRendererClient = Client;
+
+/**
+ * Consolidated environment interface that defines all environment-specific seams.
+ * Each environment (Node, browser, tests) provides a complete implementation bundle.
+ */
+export interface InspectorClientEnvironment {
+  /**
+   * Factory that creates a client transport for the given server config.
+   * Required. Environment provides the implementation:
+   * - Node: createTransportNode
+   * - Browser: createRemoteTransport
+   */
+  transport: CreateTransport;
+
+  /**
+   * Optional fetch function for HTTP requests (OAuth discovery/token exchange and
+   * MCP transport). When provided, used for both auth and transport to bypass CORS.
+   * - Node: undefined (uses global fetch)
+   * - Browser: createRemoteFetch
+   */
+  fetch?: typeof fetch;
+
+  /**
+   * Optional logger for InspectorClient events (transport, OAuth, etc.).
+   * - Node: pino file logger
+   * - Browser: createRemoteLogger
+   */
+  logger?: pino.Logger;
+
+  /**
+   * OAuth environment components
+   */
+  oauth?: {
+    /**
+     * OAuth storage implementation
+     * - Node: NodeOAuthStorage (file-based)
+     * - Browser: BrowserOAuthStorage (sessionStorage) or RemoteOAuthStorage (shared state)
+     */
+    storage?: OAuthStorage;
+
+    /**
+     * Navigation handler for redirecting users to authorization URLs
+     * - Node: ConsoleNavigation
+     * - Browser: BrowserNavigation
+     */
+    navigation?: OAuthNavigation;
+
+    /**
+     * Redirect URL provider
+     * - Node: from OAuth callback server
+     * - Browser: from window.location or callback route
+     */
+    redirectUrlProvider?: RedirectUrlProvider;
+  };
+}
+
+export interface InspectorClientOptions {
+  /**
+   * Environment-specific implementations (transport, fetch, logger, OAuth components)
+   */
+  environment: InspectorClientEnvironment;
+
+  /**
+   * Client identity (name and version)
+   */
+  clientIdentity?: {
+    name: string;
+    version: string;
+  };
+  /**
+   * Whether to pipe stderr for stdio transports (default: true for TUI, false for CLI)
+   */
+  pipeStderr?: boolean;
+
+  /**
+   * Initial logging level to set after connection (if server supports logging)
+   * If not provided, logging level will not be set automatically
+   */
+  initialLoggingLevel?: LoggingLevel;
+
+  /**
+   * Whether to advertise sampling capability (default: true)
+   */
+  sample?: boolean;
+
+  /**
+   * Elicitation capability configuration
+   * - `true` - support form-based elicitation only (default, for backward compatibility)
+   * - `{ form: true }` - support form-based elicitation only
+   * - `{ url: true }` - support URL-based elicitation only
+   * - `{ form: true, url: true }` - support both form and URL-based elicitation
+   * - `false` or `undefined` - no elicitation support
+   */
+  elicit?:
+    | boolean
+    | {
+        form?: boolean;
+        url?: boolean;
+      };
+
+  /**
+   * Initial roots to configure. If provided (even if empty array), the client will
+   * advertise roots capability and handle roots/list requests from the server.
+   */
+  roots?: Root[];
+
+  /**
+   * Whether to enable listChanged notification handlers (default: true)
+   * If enabled, InspectorClient will subscribe to list_changed notifications and fire
+   * corresponding events (toolsListChanged, resourcesListChanged, promptsListChanged).
+   */
+  listChangedNotifications?: {
+    tools?: boolean;
+    resources?: boolean;
+    prompts?: boolean;
+  };
+
+  /**
+   * Whether to enable progress notification handling (default: true)
+   * If enabled, InspectorClient will register a handler for progress notifications and dispatch progressNotification events
+   */
+  progress?: boolean;
+
+  /**
+   * If true, receiving a progress notification resets the request timeout (default: true).
+   * Only applies to requests that can receive progress. Set to false for strict timeout caps.
+   */
+  resetTimeoutOnProgress?: boolean;
+
+  /**
+   * Per-request timeout in milliseconds. If not set, the SDK default (60_000) is used.
+   */
+  timeout?: number;
+
+  /**
+   * OAuth configuration (client credentials, scope, etc.)
+   * Note: OAuth environment components (storage, navigation, redirectUrlProvider)
+   * are in environment.oauth, but clientId/clientSecret/scope are config.
+   */
+  oauth?: {
+    clientId?: string;
+    clientSecret?: string;
+    clientMetadataUrl?: string;
+    scope?: string;
+  };
+
+  /**
+   * Optional session ID. If not provided, will be extracted from OAuth state
+   * when OAuth flow starts. Passed in saveSession event for FetchRequestLogState.
+   */
+  sessionId?: string;
+
+  /**
+   * When true, advertise receiver-task capability and handle task-augmented
+   * sampling/createMessage and elicit; register tasks/list, tasks/get,
+   * tasks/result, tasks/cancel handlers. Default false.
+   */
+  receiverTasks?: boolean;
+
+  /**
+   * TTL in ms for receiver tasks when server sends params.task without ttl.
+   * Only used when receiverTasks is true. If a function, called at task creation.
+   * Default 60_000 when omitted.
+   */
+  receiverTaskTtlMs?: number | (() => number);
 }

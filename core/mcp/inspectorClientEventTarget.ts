@@ -35,9 +35,11 @@ import type {
   CallToolResult,
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { InspectorPendingSampling } from "./samplingCreateMessage.js";
-import type { InspectorPendingElicitation } from "./elicitationCreateMessage.js";
+import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
+import type { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
 import type { JsonValue } from "../json/jsonUtils.js";
+import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthStep, AuthGuidedState } from "../auth/types.js";
 
 /** Task with createdAt optional so we can emit synthetic tasks (e.g. on result/error) that omit it. */
 export type TaskWithOptionalCreatedAt = Omit<Task, "createdAt"> & {
@@ -84,10 +86,10 @@ export interface InspectorClientEventMap {
     content: PromptGetInvocation;
     timestamp: Date;
   };
-  pendingSamplesChange: InspectorPendingSampling[];
-  newPendingSample: InspectorPendingSampling;
-  pendingElicitationsChange: InspectorPendingElicitation[];
-  newPendingElicitation: InspectorPendingElicitation;
+  pendingSamplesChange: SamplingCreateMessage[];
+  newPendingSample: SamplingCreateMessage;
+  pendingElicitationsChange: ElicitationCreateMessage[];
+  newPendingElicitation: ElicitationCreateMessage;
   rootsChange: Root[];
   resourceSubscriptionsChange: string[];
   // Task events
@@ -120,6 +122,15 @@ export interface InspectorClientEventMap {
   tasksListChanged: void;
   // Session persistence (dispatched by client; FetchRequestLogState listens and saves)
   saveSession: { sessionId: string };
+  // OAuth events (#1302 — fired by the ported oauthManager / InspectorClient)
+  oauthStepChange: {
+    step: OAuthStep;
+    previousStep: OAuthStep;
+    state: Partial<AuthGuidedState>;
+  };
+  oauthComplete: { tokens: OAuthTokens };
+  oauthAuthorizationRequired: { url: URL };
+  oauthError: { error: Error };
 }
 
 /**

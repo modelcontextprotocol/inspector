@@ -5,7 +5,7 @@
     "useDefineForClassFields": true,
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "skipLibCheck": true,
 
     /* Bundler mode */
@@ -20,7 +20,11 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "erasableSyntaxOnly": true,
+    /* erasableSyntaxOnly disabled: the ported v1.5 core/ subsystem (#1302)
+     * uses TS parameter properties (`constructor(private foo: T)`) extensively.
+     * Re-enable once we either rewrite those constructors or move core/ to
+     * a separate tsconfig with looser rules. */
+    "erasableSyntaxOnly": false,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
 
@@ -35,7 +39,14 @@
       "@inspector/core/*": ["../../core/*"],
       "react": ["./node_modules/@types/react"],
       "react-dom": ["./node_modules/@types/react-dom"],
-      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"]
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"],
+      "pino": ["./node_modules/pino"],
+      "zustand": ["./node_modules/zustand"],
+      "zustand/*": ["./node_modules/zustand/*"],
+      "hono": ["./node_modules/hono"],
+      "hono/*": ["./node_modules/hono/*"],
+      "@hono/node-server": ["./node_modules/@hono/node-server"],
+      "atomically": ["./node_modules/atomically"]
     }
   },
   "include": ["src", "../../core/**/*.ts"],
