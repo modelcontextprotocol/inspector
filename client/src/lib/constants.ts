@@ -92,4 +92,11 @@ export const DEFAULT_INSPECTOR_CONFIG: InspectorConfig = {
     value: 60000,
     is_session_item: false,
   },
+  MCP_OAUTH_REVOKE_ON_DISCONNECT: {
+    label: "Revoke OAuth Tokens on Disconnect",
+    description:
+      "When disconnecting, send an RFC 7009 token revocation request to the authorization server before clearing local state. Disable to test how a server behaves when a client disconnects without revoking.",
+    value: true,
+    is_session_item: false,
+  },
 } as const;

@@ -1836,5 +1836,42 @@ describe("useConnection", () => {
 
       expect(result.current.connectionStatus).toBe("disconnected");
     });
+
+    test("skips revokeTokens when MCP_OAUTH_REVOKE_ON_DISCONNECT is false", async () => {
+      const { InspectorOAuthClientProvider } = jest.requireMock("../../auth");
+      const providerCtor = InspectorOAuthClientProvider as jest.Mock;
+      providerCtor.mockClear();
+
+      const propsWithRevokeDisabled: Parameters<typeof useConnection>[0] = {
+        ...defaultProps,
+        config: {
+          ...DEFAULT_INSPECTOR_CONFIG,
+          MCP_OAUTH_REVOKE_ON_DISCONNECT: {
+            ...DEFAULT_INSPECTOR_CONFIG.MCP_OAUTH_REVOKE_ON_DISCONNECT,
+            value: false,
+          },
+        },
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsWithRevokeDisabled),
+      );
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      await act(async () => {
+        await result.current.disconnect();
+      });
+
+      expect(mockRevokeTokens).not.toHaveBeenCalled();
+      // Local clear still runs so the user gets a fresh slate even when
+      // remote revocation is opted out.
+      const disconnectInstance = providerCtor.mock.results[
+        providerCtor.mock.results.length - 1
+      ].value as { clear: jest.Mock };
+      expect(disconnectInstance.clear).toHaveBeenCalledTimes(1);
+      expect(result.current.connectionStatus).toBe("disconnected");
+    });
   });
 });
