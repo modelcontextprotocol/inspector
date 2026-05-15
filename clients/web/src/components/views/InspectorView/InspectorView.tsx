@@ -32,6 +32,7 @@ import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
 import { TasksScreen } from "../../screens/TasksScreen/TasksScreen";
 import type { TaskProgress } from "../../groups/TaskCard/TaskCard";
 import { HistoryScreen } from "../../screens/HistoryScreen/HistoryScreen";
+import { ProtocolBuilderScreen } from "../../screens/ProtocolBuilderScreen/ProtocolBuilderScreen";
 
 const SERVERS_TAB = "Servers";
 
@@ -44,6 +45,7 @@ const ALL_TABS: string[] = [
   "Tasks",
   "Logs",
   "History",
+  "Protocol Builder",
 ];
 
 // Demo stub: Phase 3 wiring will replace this with a factory derived from
@@ -387,6 +389,13 @@ export function InspectorView({
               onExport={noop}
               onReplay={noop}
               onTogglePin={noop}
+            />
+          </ScreenStage>
+          <ScreenStage active={activeTab === "Protocol Builder"}>
+            <ProtocolBuilderScreen
+              tools={tools}
+              listChanged={false}
+              onRefreshTools={noop}
             />
           </ScreenStage>
         </ScreenStageContainer>

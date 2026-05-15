@@ -14,6 +14,8 @@ export const ThemePaper = Paper.extend({
           fontFamily: "var(--mantine-font-family-monospace)",
           fontSize: "var(--mantine-font-size-sm)",
           overflow: "auto",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
         },
       };
     }
