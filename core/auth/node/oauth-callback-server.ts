@@ -59,7 +59,6 @@ export interface OAuthCallbackServerStartResult {
 export class OAuthCallbackServer {
   private server: Server | null = null;
   private port: number = 0;
-  private hostname: string = DEFAULT_HOSTNAME;
   private callbackPath: string = DEFAULT_CALLBACK_PATH;
   private handled = false;
   private onCallback?: OAuthCallbackHandler;
@@ -87,7 +86,6 @@ export class OAuthCallbackServer {
     this.onCallback = onCallback;
     this.onError = onError;
     this.handled = false;
-    this.hostname = hostname;
     this.callbackPath = path;
 
     return new Promise((resolve, reject) => {

@@ -14,7 +14,12 @@ import type {
   InspectorClientOptions,
 } from "./types.js";
 import { getServerType as getServerTypeFromConfig } from "./config.js";
-import corePackageJson from "../package.json" with { type: "json" };
+// v2 doesn't have a core/package.json (the package isn't published independently),
+// so we hardcode the client identity that v1.5 read from corePackageJson.
+const corePackageJson = {
+  name: "@modelcontextprotocol/inspector-core",
+  version: "0.20.0",
+} as const;
 import type {
   CreateTransport,
   CreateTransportOptions,

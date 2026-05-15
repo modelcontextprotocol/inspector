@@ -88,6 +88,14 @@ export default defineConfig({
           alias: {
             ...sharedAliases,
             react: path.resolve(dirname, 'node_modules/react'),
+            // v1.5 core/ modules (#1302) import these from clients/web/node_modules
+            // but the unit project runs from repoRoot (which has no node_modules
+            // of its own), so vite needs explicit redirects.
+            pino: path.resolve(dirname, 'node_modules/pino'),
+            zustand: path.resolve(dirname, 'node_modules/zustand'),
+            hono: path.resolve(dirname, 'node_modules/hono'),
+            '@hono/node-server': path.resolve(dirname, 'node_modules/@hono/node-server'),
+            atomically: path.resolve(dirname, 'node_modules/atomically'),
           },
           dedupe: sharedDedupe,
         },

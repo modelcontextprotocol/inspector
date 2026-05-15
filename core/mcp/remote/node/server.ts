@@ -453,7 +453,9 @@ export function createRemoteApp(
       return c.json({ error: "Session not found" }, 404);
     }
 
-    return streamSSE(c, async (stream) => {
+    // hono's streamSSE generic typing has tightened since v1.5; cast the
+    // route-typed Context down to the broader Context shape it expects.
+    return streamSSE(c as unknown as Parameters<typeof streamSSE>[0], async (stream) => {
       session.setEventConsumer((event) => {
         const data = JSON.stringify(event);
         void stream.writeSSE({

@@ -2,13 +2,20 @@
   "extends": "./tsconfig.app.json",
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
-    "types": ["vite/client", "@testing-library/jest-dom"],
+    "types": ["vite/client", "@testing-library/jest-dom", "node"],
     "paths": {
       "@inspector/core/*": ["../../core/*"],
       "react": ["./node_modules/@types/react"],
       "react-dom": ["./node_modules/@types/react-dom"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"],
-      "vitest": ["./node_modules/vitest"]
+      "vitest": ["./node_modules/vitest"],
+      "pino": ["./node_modules/pino"],
+      "zustand": ["./node_modules/zustand"],
+      "zustand/*": ["./node_modules/zustand/*"],
+      "hono": ["./node_modules/hono"],
+      "hono/*": ["./node_modules/hono/*"],
+      "@hono/node-server": ["./node_modules/@hono/node-server"],
+      "atomically": ["./node_modules/atomically"]
     }
   },
   "include": [
