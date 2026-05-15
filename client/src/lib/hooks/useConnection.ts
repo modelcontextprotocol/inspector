@@ -63,6 +63,7 @@ import {
   saveScopeToSessionStorage,
   clearScopeFromSessionStorage,
   discoverScopes,
+  revokeTokens,
 } from "../auth";
 import { createProxyFetch } from "../proxyFetch";
 import {
@@ -1191,6 +1192,11 @@ export function useConnection({
         clientTransport as StreamableHTTPClientTransport
       ).terminateSession();
     await mcpClient?.close();
+    // RFC 7009: revoke tokens at the AS before wiping local state, so the
+    // server doesn't keep a still-valid token around as a tombstone.
+    const fetchFn =
+      connectionType === "proxy" ? createProxyFetch(config) : undefined;
+    await revokeTokens({ serverUrl: sseUrl, fetchFn });
     const authProvider = new InspectorOAuthClientProvider(sseUrl);
     authProvider.clear();
     setMcpClient(null);
