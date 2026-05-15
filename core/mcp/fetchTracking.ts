@@ -17,7 +17,7 @@ export function createFetchTracker(
   ): Promise<Response> => {
     const startTime = Date.now();
     const timestamp = new Date();
-    const id = `${timestamp.getTime()}-${Math.random().toString(36).substr(2, 9)}`;
+    const id = `${timestamp.getTime()}-${Math.random().toString(36).slice(2, 11)}`;
 
     // Extract request information
     const url =

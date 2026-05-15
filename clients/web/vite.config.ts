@@ -68,8 +68,8 @@ export default defineConfig({
         path.join(repoRoot, 'core/mcp/inspectorClientEventTarget.ts'),
         path.join(repoRoot, 'core/mcp/__tests__/**'),
         // v1.5-ported runtime files (#1302) whose v1.5 tests are excluded from
-        // the unit project pending a node-env vitest setup. Remove from this
-        // exclude list as each test family is brought online in follow-ups.
+        // the unit project pending a node-env vitest setup. Tracked in #1307 —
+        // drop each entry below as the corresponding test family comes online.
         path.join(repoRoot, 'core/mcp/inspectorClient.ts'),
         path.join(repoRoot, 'core/mcp/oauthManager.ts'),
         path.join(repoRoot, 'core/mcp/fetchTracking.ts'),
@@ -139,11 +139,11 @@ export default defineConfig({
           // consistent and avoids relying on auto-cleanup tied to Vitest's
           // global lifecycle hooks; cleanup is invoked manually in setup.ts.
           include: ['clients/web/src/**/*.test.{ts,tsx}'],
-          // TODO(#1302 follow-up): these v1.5-ported tests need either a
-          // node-env vitest project (they spawn real HTTP/stdio servers via
-          // test-servers/, run end-to-end OAuth flows, or talk to fs/network)
-          // or substantial happy-dom-friendly mocks. Excluded for now so the
-          // initial port lands; tracked separately.
+          // These v1.5-ported tests need either a node-env vitest project
+          // (they spawn real HTTP/stdio servers via test-servers/, run
+          // end-to-end OAuth flows, or talk to fs/network) or substantial
+          // happy-dom-friendly mocks. Tracked in #1307 — remove each entry
+          // below as the corresponding test starts passing.
           exclude: [
             'clients/web/src/test/core/inspectorClient.test.ts',
             'clients/web/src/test/core/inspectorClient-oauth.test.ts',

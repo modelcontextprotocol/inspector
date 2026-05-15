@@ -6,13 +6,29 @@ This is an application for inspecting MCP servers. Has three incarnations, Web, 
 
 ```
 inspector/
-├── clients/                            
-│   ├── web/                            # Web client code
-│   ├── cli/                            # CLI client code
-│   ├── tui/                            # TUI client code
-│   ├── launcher/                       # Shared launcher 
-├── core/                               # Shared core code
-├── soecification/                      # Build specification
+├── clients/
+│   ├── web/                            # Web client (Vite + React + Mantine)
+│   ├── cli/                            # CLI client
+│   ├── tui/                            # TUI client
+│   ├── launcher/                       # Shared launcher
+├── core/                               # Shared core code (no package.json — consumed via the `@inspector/core` vite alias)
+│   ├── auth/                           # OAuth: state machine, providers, discovery, storage
+│   │   ├── browser/                    # Browser-side OAuth (sessionStorage, BrowserNavigation)
+│   │   ├── node/                       # Node-side OAuth (NodeOAuthStorage, OAuthCallbackServer)
+│   │   └── remote/                     # Remote OAuth storage (delegates to the remote server)
+│   ├── json/                           # JSON utilities and parameter/argument conversion
+│   ├── logging/                        # Silent pino logger singleton
+│   ├── mcp/                            # InspectorClient runtime + state stores
+│   │   ├── node/                       # Node stdio transport factory
+│   │   ├── remote/                     # Browser HTTP/SSE transport + remote logger/fetch
+│   │   │   └── node/                   # Hono-based remote server backend (used by remote/ above)
+│   │   └── state/                      # Zustand-style state stores consumed by core/react/
+│   ├── react/                          # React hooks over the state stores
+│   └── storage/                        # File and remote storage adapters (Zustand middleware)
+├── test-servers/                       # Composable MCP test servers + fixtures used by integration tests.
+│                                       # Aliased as `@modelcontextprotocol/inspector-test-server`
+│                                       # in clients/web/vite.config.ts and tsconfig.test.json.
+├── specification/                      # Build specification
 ...
 ```
 
