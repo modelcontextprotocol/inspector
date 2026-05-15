@@ -72,6 +72,7 @@ import {
   getMCPServerRequestMaxTotalTimeout,
   resetRequestTimeoutOnProgress,
   getMCPProxyAuthToken,
+  revokeOAuthTokensOnDisconnect,
 } from "@/utils/configUtils";
 import { getMCPServerRequestTimeout } from "@/utils/configUtils";
 import { InspectorConfig } from "../configurationTypes";
@@ -1193,10 +1194,13 @@ export function useConnection({
       ).terminateSession();
     await mcpClient?.close();
     // RFC 7009: revoke tokens at the AS before wiping local state, so the
-    // server doesn't keep a still-valid token around as a tombstone.
-    const fetchFn =
-      connectionType === "proxy" ? createProxyFetch(config) : undefined;
-    await revokeTokens({ serverUrl: sseUrl, fetchFn });
+    // server doesn't keep a still-valid token around as a tombstone. Users
+    // testing the inverse scenario can opt out via the config toggle.
+    if (revokeOAuthTokensOnDisconnect(config)) {
+      const fetchFn =
+        connectionType === "proxy" ? createProxyFetch(config) : undefined;
+      await revokeTokens({ serverUrl: sseUrl, fetchFn });
+    }
     const authProvider = new InspectorOAuthClientProvider(sseUrl);
     authProvider.clear();
     setMcpClient(null);

@@ -58,6 +58,12 @@ export const getMCPTaskTtl = (config: InspectorConfig): number => {
   return config.MCP_TASK_TTL.value as number;
 };
 
+export const revokeOAuthTokensOnDisconnect = (
+  config: InspectorConfig,
+): boolean => {
+  return config.MCP_OAUTH_REVOKE_ON_DISCONNECT.value as boolean;
+};
+
 export const getInitialTransportType = ():
   | "stdio"
   | "sse"
