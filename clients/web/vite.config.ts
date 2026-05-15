@@ -8,19 +8,28 @@ import { fileURLToPath } from 'node:url';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(dirname, '../..');
+
+// Aliases shared between the top-level resolve and the unit vitest project.
+// Vitest projects don't inherit `resolve` from the parent, so the unit project
+// redeclares them — keeping a single source here prevents the two from drifting
+// (e.g. if a new core/* alias is added).
+const sharedAliases = {
+  '@inspector/core': path.resolve(dirname, '../../core'),
+};
+const sharedDedupe = ['react', 'react-dom'];
 
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: {
-      '@inspector/core': path.resolve(dirname, '../../core'),
-    },
+    // NOTE: the unit vitest project (below) overrides this — see comment there.
+    alias: sharedAliases,
     // Source files in core/ import bare modules (react, @testing-library/react,
     // etc.) that only exist in clients/web/node_modules. Dedupe ensures Vite
     // resolves them from this package rather than walking up from core/'s
     // location (which has no node_modules of its own yet).
-    dedupe: ['react', 'react-dom'],
+    dedupe: sharedDedupe,
   },
   server: {
     fs: {
@@ -34,8 +43,8 @@ export default defineConfig({
       include: [
         'src/components/**/*.{ts,tsx}',
         'src/utils/**/*.{ts,tsx}',
-        '../../core/mcp/**/*.{ts,tsx}',
-        '../../core/react/**/*.{ts,tsx}',
+        path.join(repoRoot, 'core/mcp/**/*.{ts,tsx}'),
+        path.join(repoRoot, 'core/react/**/*.{ts,tsx}'),
       ],
       exclude: [
         '**/*.stories.{ts,tsx}',
@@ -43,9 +52,20 @@ export default defineConfig({
         '**/*.fixtures.{ts,tsx}',
         '**/index.{ts,tsx}',
         'src/components/**/types.ts',
-        '../../core/mcp/types.ts',
-        '../../core/mcp/elicitationCreateMessage.ts',
-        '../../core/mcp/__tests__/**',
+        // Pure-type modules: `interface`/`type` declarations only, no runtime
+        // statements. Excluding them keeps the report clean (would otherwise
+        // surface as misleading 0/0 rows).
+        path.join(repoRoot, 'core/mcp/types.ts'),
+        path.join(repoRoot, 'core/mcp/elicitationCreateMessage.ts'),
+        path.join(repoRoot, 'core/mcp/samplingCreateMessage.ts'),
+        path.join(repoRoot, 'core/mcp/sessionStorage.ts'),
+        path.join(repoRoot, 'core/mcp/inspectorClientProtocol.ts'),
+        // inspectorClientEventTarget.ts is types + a single empty-body class
+        // (extends TypedEventTarget). v8/istanbul records 0 statements for it
+        // today. TODO(#1243): drop this exclusion once the class gains real
+        // behavior as the v1.5 InspectorClient port progresses.
+        path.join(repoRoot, 'core/mcp/inspectorClientEventTarget.ts'),
+        path.join(repoRoot, 'core/mcp/__tests__/**'),
       ],
       thresholds: {
         perFile: true,
@@ -58,15 +78,35 @@ export default defineConfig({
     projects: [
       {
         extends: true,
+        // Vitest projects don't inherit `resolve` from the parent, so we
+        // redeclare the shared aliases here. The extra `react` alias is
+        // required because we move the unit project root to repoRoot below
+        // (so vitest's coverage transformer can reach core/), and the repo
+        // root has no node_modules of its own — bare `react` imports from
+        // core/react/*.ts would otherwise fail to resolve.
+        resolve: {
+          alias: {
+            ...sharedAliases,
+            react: path.resolve(dirname, 'node_modules/react'),
+          },
+          dedupe: sharedDedupe,
+        },
         test: {
           name: 'unit',
           environment: 'happy-dom',
+          // Root the unit project at the repo root so vitest's coverage
+          // transformer (which only processes files inside a project root)
+          // can reach core/ modules. Without this, untested core/ files fall
+          // back to raw-TS parsing in rolldown, which can't handle TS-only
+          // syntax (e.g. `import type`) — silently dropping them and bypassing
+          // the per-file gate.
+          root: repoRoot,
           // No `globals: true` — every test file imports `describe`, `it`,
           // `expect`, `vi` explicitly from "vitest". This keeps the pattern
           // consistent and avoids relying on auto-cleanup tied to Vitest's
           // global lifecycle hooks; cleanup is invoked manually in setup.ts.
-          include: ['src/**/*.test.{ts,tsx}'],
-          setupFiles: ['./src/test/setup.ts'],
+          include: ['clients/web/src/**/*.test.{ts,tsx}'],
+          setupFiles: [path.join(dirname, 'src/test/setup.ts')],
         },
       },
       {
