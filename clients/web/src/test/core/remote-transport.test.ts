@@ -848,6 +848,100 @@ describe("Remote transport e2e", () => {
       expect(readAfterDeleteJson).toEqual({});
     });
 
+    it("rejects same-length tokens with mismatched content (timing-safe path)", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+      // Build a wrong token of the same length so the timing-safe compare
+      // (server.ts ~L174) is exercised instead of the early length check.
+      const wrong = authToken.split("").reverse().join("");
+      const fakeSameLength =
+        wrong === authToken ? `${"X".repeat(authToken.length - 1)}!` : wrong;
+      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${fakeSameLength}`,
+        },
+        body: JSON.stringify({
+          config: { type: "sse" as const, url: "http://localhost:3000" },
+        }),
+      });
+      expect(res.status).toBe(401);
+    });
+
+    it("DELETE rejects an invalid storeId", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        storageDir: tempDir,
+      });
+      remoteServer = server;
+      const res = await fetch(`${baseUrl}/api/storage/bad..id`, {
+        method: "DELETE",
+        headers: { "x-mcp-remote-auth": `Bearer ${authToken}` },
+      });
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe("Invalid storeId");
+    });
+
+    it("POST returns 500 when the file write fails", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        storageDir: tempDir,
+      });
+      remoteServer = server;
+      // Pre-create a *directory* at the would-be storage path so write fails.
+      const writeRes = await fetch(`${baseUrl}/api/storage/test-store`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ ok: 1 }),
+      });
+      // First write succeeds.
+      expect(writeRes.status).toBe(200);
+      // Replace the file with a directory of the same name, so subsequent writes
+      // fail at writeStoreFile.
+      const filePath = join(tempDir!, "test-store.json");
+      rmSync(filePath);
+      // mkdtempSync needs a parent dir; we already have tempDir. Create a dir
+      // at the would-be file path.
+      const { mkdirSync } = await import("node:fs");
+      mkdirSync(filePath);
+
+      const failRes = await fetch(`${baseUrl}/api/storage/test-store`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ ok: 2 }),
+      });
+      expect(failRes.status).toBe(500);
+      expect((await failRes.json()).error).toMatch(/Failed to write store/);
+    });
+
+    it("DELETE returns 500 when the file delete fails", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        storageDir: tempDir,
+      });
+      remoteServer = server;
+      // Replace the would-be file path with a non-empty directory so
+      // deleteStoreFile cannot remove it cleanly.
+      const filePath = join(tempDir!, "test-store.json");
+      const { mkdirSync, writeFileSync } = await import("node:fs");
+      mkdirSync(filePath);
+      writeFileSync(join(filePath, "sentinel.txt"), "data");
+
+      const res = await fetch(`${baseUrl}/api/storage/test-store`, {
+        method: "DELETE",
+        headers: { "x-mcp-remote-auth": `Bearer ${authToken}` },
+      });
+      expect(res.status).toBe(500);
+      expect((await res.json()).error).toMatch(/Failed to delete store/);
+    });
+
     it("DELETE returns success for non-existent store", async () => {
       tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
       const { baseUrl, server, authToken } = await startRemoteServer(0, {
@@ -864,6 +958,143 @@ describe("Remote transport e2e", () => {
       expect(deleteRes.status).toBe(200);
       const deleteJson = await deleteRes.json();
       expect(deleteJson).toEqual({ ok: true });
+    });
+  });
+
+  describe("endpoint error paths", () => {
+    it("/api/mcp/connect returns 400 on invalid JSON body", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+        body: "not json",
+      });
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe("Invalid JSON body");
+    });
+
+    it("/api/mcp/connect returns 400 when config is missing", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe("Missing config");
+    });
+
+    it("/api/mcp/send returns 400 on invalid JSON body", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+      const res = await fetch(`${baseUrl}/api/mcp/send`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+        body: "not json",
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("/api/mcp/send returns 400 when sessionId or message is missing", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+      const res = await fetch(`${baseUrl}/api/mcp/send`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ sessionId: "x" }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("/api/mcp/send returns 404 for unknown sessionId", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+      const res = await fetch(`${baseUrl}/api/mcp/send`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          sessionId: "no-such-session",
+          message: { jsonrpc: "2.0", id: 1, method: "ping" },
+        }),
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it("/api/mcp/events returns 400 when sessionId is missing", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+      const res = await fetch(`${baseUrl}/api/mcp/events`, {
+        headers: { "x-mcp-remote-auth": `Bearer ${authToken}` },
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("/api/mcp/events returns 404 for unknown sessionId", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+      const res = await fetch(`${baseUrl}/api/mcp/events?sessionId=missing`, {
+        headers: { "x-mcp-remote-auth": `Bearer ${authToken}` },
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it("/api/mcp/disconnect returns 400 on invalid JSON body", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+      const res = await fetch(`${baseUrl}/api/mcp/disconnect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+        body: "not json",
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("/api/mcp/disconnect returns 400 when sessionId is missing", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+      const res = await fetch(`${baseUrl}/api/mcp/disconnect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("/api/fetch returns 400 on invalid JSON body", async () => {
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+      const res = await fetch(`${baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mcp-remote-auth": `Bearer ${authToken}`,
+        },
+        body: "not json",
+      });
+      expect(res.status).toBe(400);
     });
   });
 

@@ -248,6 +248,69 @@ describe("BrowserOAuthStorage", () => {
     });
   });
 
+  describe("clearClientInformation", () => {
+    it("removes the dynamically-registered client info by default", async () => {
+      storage.saveClientInformation(testServerUrl, { client_id: "dyn" });
+      expect(await storage.getClientInformation(testServerUrl)).toEqual({
+        client_id: "dyn",
+      });
+      storage.clearClientInformation(testServerUrl);
+      expect(await storage.getClientInformation(testServerUrl)).toBeUndefined();
+    });
+
+    it("removes the preregistered client info when isPreregistered=true", async () => {
+      storage.savePreregisteredClientInformation(testServerUrl, {
+        client_id: "pre",
+      });
+      expect(await storage.getClientInformation(testServerUrl, true)).toEqual({
+        client_id: "pre",
+      });
+      storage.clearClientInformation(testServerUrl, true);
+      expect(
+        await storage.getClientInformation(testServerUrl, true),
+      ).toBeUndefined();
+    });
+  });
+
+  describe("individual clear methods", () => {
+    it("clearTokens removes only tokens", async () => {
+      storage.saveTokens(testServerUrl, {
+        access_token: "t",
+        token_type: "Bearer",
+      });
+      expect(await storage.getTokens(testServerUrl)).toBeDefined();
+      storage.clearTokens(testServerUrl);
+      expect(await storage.getTokens(testServerUrl)).toBeUndefined();
+    });
+
+    it("clearCodeVerifier removes only the PKCE verifier", async () => {
+      storage.saveCodeVerifier(testServerUrl, "verifier");
+      expect(storage.getCodeVerifier(testServerUrl)).toBe("verifier");
+      storage.clearCodeVerifier(testServerUrl);
+      expect(storage.getCodeVerifier(testServerUrl)).toBeUndefined();
+    });
+
+    it("clearScope removes only the scope", async () => {
+      storage.saveScope(testServerUrl, "read");
+      expect(storage.getScope(testServerUrl)).toBe("read");
+      storage.clearScope(testServerUrl);
+      expect(storage.getScope(testServerUrl)).toBeUndefined();
+    });
+
+    it("clearServerMetadata removes only the cached metadata", async () => {
+      const metadata: OAuthMetadata = {
+        issuer: "http://localhost:3000",
+        authorization_endpoint: "http://localhost:3000/authorize",
+        token_endpoint: "http://localhost:3000/token",
+        response_types_supported: ["code"],
+      };
+      storage.saveServerMetadata(testServerUrl, metadata);
+      expect(storage.getServerMetadata(testServerUrl)).toEqual(metadata);
+      storage.clearServerMetadata(testServerUrl);
+      expect(storage.getServerMetadata(testServerUrl)).toBeNull();
+    });
+  });
+
   describe("clearServerState", () => {
     it("should clear all state for a server", async () => {
       const clientInfo: OAuthClientInformation = {

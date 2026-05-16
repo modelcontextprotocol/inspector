@@ -370,5 +370,72 @@ describe("OAuthStateMachine", () => {
         }),
       );
     });
+
+    it("token_request execute throws when client information cannot be obtained", async () => {
+      const metadata = {
+        issuer: "http://localhost:3000",
+        authorization_endpoint: "http://localhost:3000/authorize",
+        token_endpoint: "http://localhost:3000/token",
+        response_types_supported: ["code"],
+      };
+      const providerNoClient = {
+        ...mockProvider,
+        getServerMetadata: vi.fn(() => metadata),
+        clientInformation: vi.fn(async () => undefined),
+      } as unknown as BaseOAuthClientProvider;
+
+      const tokenState: AuthGuidedState = {
+        ...EMPTY_GUIDED_STATE,
+        oauthStep: "token_request",
+        oauthMetadata: metadata as OAuthMetadata,
+        authorizationCode: "code-without-client",
+      };
+
+      await expect(
+        oauthTransitions.token_request.execute({
+          state: tokenState,
+          serverUrl: "http://localhost:3000",
+          provider: providerNoClient,
+          updateState,
+        }),
+      ).rejects.toThrow("Client information not available for token exchange");
+    });
+
+    it("complete.canTransition always returns false (terminal state)", async () => {
+      const result = await oauthTransitions.complete.canTransition({
+        state: { ...EMPTY_GUIDED_STATE, oauthStep: "complete" },
+        serverUrl: "http://localhost:3000",
+        provider: mockProvider,
+        updateState,
+      });
+      expect(result).toBe(false);
+      // execute is a no-op
+      await expect(
+        oauthTransitions.complete.execute({
+          state: { ...EMPTY_GUIDED_STATE, oauthStep: "complete" },
+          serverUrl: "http://localhost:3000",
+          provider: mockProvider,
+          updateState,
+        }),
+      ).resolves.toBeUndefined();
+    });
+
+    it("executeStep throws when the current step cannot transition", async () => {
+      // metadata_discovery.canTransition is unconditional (returns true), but
+      // token_request requires authorizationCode + metadata + clientInfo; an
+      // empty state will refuse to transition.
+      const stateMachine = new OAuthStateMachine(
+        "http://localhost:3000",
+        mockProvider,
+        updateState,
+      );
+      const blockedState: AuthGuidedState = {
+        ...EMPTY_GUIDED_STATE,
+        oauthStep: "token_request",
+      };
+      await expect(stateMachine.executeStep(blockedState)).rejects.toThrow(
+        /Cannot transition from token_request/,
+      );
+    });
   });
 });

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   NodeOAuthStorage,
   getOAuthStore,
+  clearAllOAuthClientState,
 } from "@inspector/core/auth/node/storage-node.js";
 import type {
   OAuthClientInformation,
@@ -289,6 +290,71 @@ describe("NodeOAuthStorage", () => {
     });
   });
 
+  describe("clearClientInformation", () => {
+    it("removes the dynamically-registered client information by default", async () => {
+      await storage.saveClientInformation(testServerUrl, {
+        client_id: "dyn",
+      });
+      expect(await storage.getClientInformation(testServerUrl)).toEqual({
+        client_id: "dyn",
+      });
+      storage.clearClientInformation(testServerUrl);
+      expect(await storage.getClientInformation(testServerUrl)).toBeUndefined();
+    });
+
+    it("removes the preregistered client information when isPreregistered=true", async () => {
+      await storage.savePreregisteredClientInformation(testServerUrl, {
+        client_id: "pre",
+      });
+      expect(await storage.getClientInformation(testServerUrl, true)).toEqual({
+        client_id: "pre",
+      });
+      storage.clearClientInformation(testServerUrl, true);
+      expect(
+        await storage.getClientInformation(testServerUrl, true),
+      ).toBeUndefined();
+    });
+  });
+
+  describe("individual clear methods", () => {
+    it("clearTokens removes only tokens", async () => {
+      await storage.saveTokens(testServerUrl, {
+        access_token: "t",
+        token_type: "Bearer",
+      });
+      expect(await storage.getTokens(testServerUrl)).toBeDefined();
+      storage.clearTokens(testServerUrl);
+      expect(await storage.getTokens(testServerUrl)).toBeUndefined();
+    });
+
+    it("clearCodeVerifier removes only the PKCE verifier", async () => {
+      await storage.saveCodeVerifier(testServerUrl, "verifier");
+      expect(storage.getCodeVerifier(testServerUrl)).toBe("verifier");
+      storage.clearCodeVerifier(testServerUrl);
+      expect(storage.getCodeVerifier(testServerUrl)).toBeUndefined();
+    });
+
+    it("clearScope removes only the scope", async () => {
+      await storage.saveScope(testServerUrl, "read write");
+      expect(storage.getScope(testServerUrl)).toBe("read write");
+      storage.clearScope(testServerUrl);
+      expect(storage.getScope(testServerUrl)).toBeUndefined();
+    });
+
+    it("clearServerMetadata removes only the cached metadata", async () => {
+      const metadata: OAuthMetadata = {
+        issuer: "http://localhost:3000",
+        authorization_endpoint: "http://localhost:3000/authorize",
+        token_endpoint: "http://localhost:3000/token",
+        response_types_supported: ["code"],
+      };
+      await storage.saveServerMetadata(testServerUrl, metadata);
+      expect(storage.getServerMetadata(testServerUrl)).toEqual(metadata);
+      storage.clearServerMetadata(testServerUrl);
+      expect(storage.getServerMetadata(testServerUrl)).toBeNull();
+    });
+  });
+
   describe("clearServerState", () => {
     it("should clear all state for a server", async () => {
       const clientInfo: OAuthClientInformation = {
@@ -479,6 +545,20 @@ describe("NodeOAuthStorage with custom storagePath", () => {
         /* ignore */
       }
     }
+  });
+
+  it("clearAllOAuthClientState clears every server in the default store", async () => {
+    const defaultStore = getOAuthStore();
+    defaultStore.getState().setServerState("http://server-a.test", {
+      tokens: { access_token: "a", token_type: "Bearer" },
+    });
+    defaultStore.getState().setServerState("http://server-b.test", {
+      tokens: { access_token: "b", token_type: "Bearer" },
+    });
+    clearAllOAuthClientState();
+    const all = defaultStore.getState();
+    expect(all.getServerState("http://server-a.test").tokens).toBeUndefined();
+    expect(all.getServerState("http://server-b.test").tokens).toBeUndefined();
   });
 
   it("should isolate state from default store", async () => {

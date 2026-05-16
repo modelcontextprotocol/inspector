@@ -10,15 +10,86 @@ import { playwright } from '@vitest/browser-playwright';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(dirname, '../..');
 
-// Aliases shared between the top-level resolve and the unit vitest project.
-// Vitest projects don't inherit `resolve` from the parent, so the unit project
-// redeclares them — keeping a single source here prevents the two from drifting
-// (e.g. if a new core/* alias is added).
+// Aliases shared between the top-level resolve and the vitest projects.
+// Vitest projects don't inherit `resolve` from the parent, so the unit and
+// integration projects redeclare them — keeping a single source here prevents
+// them from drifting (e.g. if a new core/* alias is added).
 const sharedAliases = {
   '@inspector/core': path.resolve(dirname, '../../core'),
-  '@modelcontextprotocol/inspector-test-server': path.resolve(dirname, '../../test-servers/src/index.ts'),
+  // Point at the BUILT test-servers entry, not src/, so that any test which
+  // calls `getTestMcpServerPath()` (via `fileURLToPath(import.meta.url)`)
+  // resolves to a `.js` path Node can spawn directly as a subprocess. The
+  // integration tests build test-servers via `npm run test:integration`
+  // (or `npm run test-servers:build`) before running.
+  '@modelcontextprotocol/inspector-test-server': path.resolve(dirname, '../../test-servers/build/index.js'),
 };
-const sharedDedupe = ['react', 'react-dom'];
+const sharedDedupe = [
+  'react',
+  'react-dom',
+  // The SDK is installed under both clients/web/node_modules and the repo
+  // root's node_modules (hoisted by npm). Without dedupe, source files in
+  // core/ (no local node_modules) resolve to the root copy while test files
+  // resolve to the clients/web copy — splitting class identity and breaking
+  // vi.mock() / instanceof checks (see #1307).
+  '@modelcontextprotocol/sdk',
+];
+
+// Bare-module aliases needed when running tests from repoRoot (which has no
+// node_modules of its own). Shared between the unit and integration projects.
+// Use anchored regex `find` patterns so each package's own `exports` field
+// handles subpath resolution.
+const nodeModulesAliases = [
+  { find: /^react$/, replacement: path.resolve(dirname, 'node_modules/react') },
+  { find: /^pino$/, replacement: path.resolve(dirname, 'node_modules/pino') },
+  { find: /^pino\/browser\.js$/, replacement: path.resolve(dirname, 'node_modules/pino/browser.js') },
+  { find: /^zustand$/, replacement: path.resolve(dirname, 'node_modules/zustand') },
+  { find: /^zustand\/middleware$/, replacement: path.resolve(dirname, 'node_modules/zustand/middleware.js') },
+  { find: /^zustand\/vanilla$/, replacement: path.resolve(dirname, 'node_modules/zustand/vanilla.js') },
+  { find: /^hono$/, replacement: path.resolve(dirname, 'node_modules/hono/dist/index.js') },
+  { find: /^hono\/streaming$/, replacement: path.resolve(dirname, 'node_modules/hono/dist/helper/streaming/index.js') },
+  { find: /^@hono\/node-server$/, replacement: path.resolve(dirname, 'node_modules/@hono/node-server') },
+  { find: /^atomically$/, replacement: path.resolve(dirname, 'node_modules/atomically') },
+  { find: /^express$/, replacement: path.resolve(dirname, 'node_modules/express') },
+  { find: /^yaml$/, replacement: path.resolve(dirname, 'node_modules/yaml') },
+  // Pin the SDK auth subpath so test and source resolve to the exact same
+  // module ID. Without this, the source's `import` from core/auth/*.ts and
+  // the test's `vi.mock(...)` can resolve through different cache keys in
+  // Vitest's transformer pipeline — the mock then fails to intercept the
+  // source-side import (see #1307).
+  { find: /^@modelcontextprotocol\/sdk\/client\/auth\.js$/, replacement: path.resolve(dirname, 'node_modules/@modelcontextprotocol/sdk/dist/esm/client/auth.js') },
+];
+
+// Project resolve config shared between the unit and integration projects.
+// sharedAliases come first as exact-match entries, then the bare-module
+// regex aliases that node-style imports from core/ rely on.
+const projectResolve = {
+  alias: [
+    ...Object.entries(sharedAliases).map(([find, replacement]) => ({ find, replacement })),
+    ...nodeModulesAliases,
+  ],
+  dedupe: sharedDedupe,
+};
+
+// v1.5-ported integration tests that need a node-env vitest project — they
+// spawn real HTTP/stdio servers via test-servers/, run end-to-end OAuth flows,
+// talk to fs/network, or mock `@modelcontextprotocol/sdk/client/auth.js` (the
+// SDK auth mock identity is lost under happy-dom + Vitest 4, but works under
+// node env). Tracked in #1307.
+const integrationTests = [
+  'clients/web/src/test/core/inspectorClient.test.ts',
+  'clients/web/src/test/core/inspectorClient-oauth.test.ts',
+  'clients/web/src/test/core/inspectorClient-oauth-e2e.test.ts',
+  'clients/web/src/test/core/inspectorClient-oauth-fetchFn.test.ts',
+  'clients/web/src/test/core/inspectorClient-oauth-remote-storage-e2e.test.ts',
+  'clients/web/src/test/core/transport.test.ts',
+  'clients/web/src/test/core/remote-transport.test.ts',
+  'clients/web/src/test/core/remote-server-config.test.ts',
+  'clients/web/src/test/core/storage-adapters.test.ts',
+  'clients/web/src/test/core/auth/storage-node.test.ts',
+  'clients/web/src/test/core/auth/oauth-callback-server.test.ts',
+  'clients/web/src/test/core/auth/discovery.test.ts',
+  'clients/web/src/test/core/auth/state-machine.test.ts',
+];
 
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig({
@@ -46,6 +117,9 @@ export default defineConfig({
         'src/utils/**/*.{ts,tsx}',
         path.join(repoRoot, 'core/mcp/**/*.{ts,tsx}'),
         path.join(repoRoot, 'core/react/**/*.{ts,tsx}'),
+        path.join(repoRoot, 'core/auth/**/*.{ts,tsx}'),
+        path.join(repoRoot, 'core/storage/**/*.{ts,tsx}'),
+        path.join(repoRoot, 'core/logging/**/*.{ts,tsx}'),
       ],
       exclude: [
         '**/*.stories.{ts,tsx}',
@@ -61,25 +135,30 @@ export default defineConfig({
         path.join(repoRoot, 'core/mcp/samplingCreateMessage.ts'),
         path.join(repoRoot, 'core/mcp/sessionStorage.ts'),
         path.join(repoRoot, 'core/mcp/inspectorClientProtocol.ts'),
+        path.join(repoRoot, 'core/mcp/remote/types.ts'),
+        // .d.ts files are declaration-only.
+        path.join(repoRoot, '**/*.d.ts'),
+        // TODO(#1310): coverage debt on two large v1.5-ported files that the
+        // existing v1.5 tests don't fully exercise. #1307 brought the
+        // integration suite back online and lifted all other v1.5 coverage
+        // gates; #1310 tracks filling these two:
+        //   - inspectorClient.ts (2184 LOC) is at 73% lines despite 4005 LOC
+        //     of integration tests; remaining gaps are scattered across OAuth,
+        //     subscription, and error-path code (~150 lines, 107 ranges).
+        //   - remote/node/server.ts is at 88% lines / 78% functions; gaps are
+        //     in transport-failure / 401-propagation error paths and the
+        //     private createTokenAuthProvider helper.
+        path.join(repoRoot, 'core/mcp/inspectorClient.ts'),
+        path.join(repoRoot, 'core/mcp/remote/node/server.ts'),
         // inspectorClientEventTarget.ts is types + a single empty-body class
         // (extends TypedEventTarget). v8/istanbul records 0 statements for it
         // today. TODO(#1243): drop this exclusion once the class gains real
         // behavior as the v1.5 InspectorClient port progresses.
         path.join(repoRoot, 'core/mcp/inspectorClientEventTarget.ts'),
         path.join(repoRoot, 'core/mcp/__tests__/**'),
-        // v1.5-ported runtime files (#1302) whose v1.5 tests are excluded from
-        // the unit project pending a node-env vitest setup. Tracked in #1307 —
-        // drop each entry below as the corresponding test family comes online.
-        path.join(repoRoot, 'core/mcp/inspectorClient.ts'),
-        path.join(repoRoot, 'core/mcp/oauthManager.ts'),
-        path.join(repoRoot, 'core/mcp/fetchTracking.ts'),
-        path.join(repoRoot, 'core/mcp/messageTrackingTransport.ts'),
-        path.join(repoRoot, 'core/mcp/config.ts'),
-        path.join(repoRoot, 'core/mcp/node/**'),
-        path.join(repoRoot, 'core/mcp/remote/**'),
-        path.join(repoRoot, 'core/auth/**'),
-        path.join(repoRoot, 'core/storage/**'),
-        path.join(repoRoot, 'core/logging/**'),
+        // test-servers/ is test infrastructure (composable MCP servers and
+        // fixtures), not application code — its build output also lives at
+        // test-servers/build/, which we don't want to measure either.
         path.join(repoRoot, 'test-servers/**'),
       ],
       thresholds: {
@@ -93,37 +172,12 @@ export default defineConfig({
     projects: [
       {
         extends: true,
-        // Vitest projects don't inherit `resolve` from the parent, so we
-        // redeclare the shared aliases here. The extra `react` alias is
-        // required because we move the unit project root to repoRoot below
-        // (so vitest's coverage transformer can reach core/), and the repo
-        // root has no node_modules of its own — bare `react` imports from
-        // core/react/*.ts would otherwise fail to resolve.
-        resolve: {
-          alias: [
-            // sharedAliases first as exact-match entries
-            ...Object.entries(sharedAliases).map(([find, replacement]) => ({ find, replacement })),
-            { find: /^react$/, replacement: path.resolve(dirname, 'node_modules/react') },
-            // v1.5 core/ modules (#1302) import these from clients/web/node_modules,
-            // but the unit project runs from repoRoot (which has no node_modules of
-            // its own). Use anchored regex `find` patterns so the package's own
-            // `exports` field handles subpath resolution (otherwise a bare `hono`
-            // string alias would rewrite `hono/streaming` to `<honoDir>/streaming`,
-            // bypassing the exports map).
-            { find: /^pino$/, replacement: path.resolve(dirname, 'node_modules/pino') },
-            { find: /^pino\/browser\.js$/, replacement: path.resolve(dirname, 'node_modules/pino/browser.js') },
-            { find: /^zustand$/, replacement: path.resolve(dirname, 'node_modules/zustand') },
-            { find: /^zustand\/middleware$/, replacement: path.resolve(dirname, 'node_modules/zustand/middleware.js') },
-            { find: /^zustand\/vanilla$/, replacement: path.resolve(dirname, 'node_modules/zustand/vanilla.js') },
-            { find: /^hono$/, replacement: path.resolve(dirname, 'node_modules/hono/dist/index.js') },
-            { find: /^hono\/streaming$/, replacement: path.resolve(dirname, 'node_modules/hono/dist/helper/streaming/index.js') },
-            { find: /^@hono\/node-server$/, replacement: path.resolve(dirname, 'node_modules/@hono/node-server') },
-            { find: /^atomically$/, replacement: path.resolve(dirname, 'node_modules/atomically') },
-            { find: /^express$/, replacement: path.resolve(dirname, 'node_modules/express') },
-            { find: /^yaml$/, replacement: path.resolve(dirname, 'node_modules/yaml') },
-          ],
-          dedupe: sharedDedupe,
-        },
+        // Vitest projects don't inherit `resolve` from the parent. The unit
+        // project runs from repoRoot (so vitest's coverage transformer can
+        // reach core/), but repoRoot has no node_modules of its own — the
+        // shared regex aliases redirect bare `react`/`pino`/etc. imports
+        // from core/ back into clients/web/node_modules.
+        resolve: projectResolve,
         test: {
           name: 'unit',
           environment: 'happy-dom',
@@ -139,30 +193,41 @@ export default defineConfig({
           // consistent and avoids relying on auto-cleanup tied to Vitest's
           // global lifecycle hooks; cleanup is invoked manually in setup.ts.
           include: ['clients/web/src/**/*.test.{ts,tsx}'],
-          // These v1.5-ported tests need either a node-env vitest project
-          // (they spawn real HTTP/stdio servers via test-servers/, run
-          // end-to-end OAuth flows, or talk to fs/network) or substantial
-          // happy-dom-friendly mocks. Tracked in #1307 — remove each entry
-          // below as the corresponding test starts passing.
-          exclude: [
-            'clients/web/src/test/core/inspectorClient.test.ts',
-            'clients/web/src/test/core/inspectorClient-oauth.test.ts',
-            'clients/web/src/test/core/inspectorClient-oauth-e2e.test.ts',
-            'clients/web/src/test/core/inspectorClient-oauth-fetchFn.test.ts',
-            'clients/web/src/test/core/inspectorClient-oauth-remote-storage-e2e.test.ts',
-            'clients/web/src/test/core/transport.test.ts',
-            'clients/web/src/test/core/remote-transport.test.ts',
-            'clients/web/src/test/core/remote-server-config.test.ts',
-            'clients/web/src/test/core/storage-adapters.test.ts',
-            'clients/web/src/test/core/auth/storage-node.test.ts',
-            'clients/web/src/test/core/auth/oauth-callback-server.test.ts',
-            // discovery.test.ts + state-machine.test.ts mock the SDK auth
-            // module, but happy-dom + Vitest mock resolution drops the mock
-            // (real fetch fires → CORS). Excluded pending mock rework.
-            'clients/web/src/test/core/auth/discovery.test.ts',
-            'clients/web/src/test/core/auth/state-machine.test.ts',
-          ],
+          // Integration tests run in the integration project below (node env).
+          exclude: integrationTests,
           setupFiles: [path.join(dirname, 'src/test/setup.ts')],
+        },
+      },
+      {
+        extends: true,
+        // See note on the unit project: integration tests also run from
+        // repoRoot and import core/ modules, so they need the same alias
+        // setup. The shared bare-module aliases keep `pino`, `hono`, etc.
+        // resolving against clients/web/node_modules.
+        resolve: projectResolve,
+        test: {
+          name: 'integration',
+          environment: 'node',
+          // Same reason as the unit project: rooted at repoRoot so vitest
+          // can transform core/ modules and run tests against the source.
+          root: repoRoot,
+          include: integrationTests,
+          // Integration tests spawn real HTTP/stdio servers via test-servers/,
+          // bind sockets, run e2e OAuth flows, and exercise filesystem-backed
+          // storage. 30s matches the v1.5 core/vitest.config.ts.
+          testTimeout: 30000,
+          hookTimeout: 30000,
+          // Inline the MCP SDK so vi.mock("@modelcontextprotocol/sdk/...")
+          // hooks the same transformed copy that source files import.
+          // Externalized node_modules are loaded via Node's loader and bypass
+          // Vitest's mock system. The explicit alias above pins the auth.js
+          // subpath to one canonical ID; inlining ensures the transformer
+          // pipeline owns the module rather than the Node loader.
+          server: {
+            deps: {
+              inline: [/@modelcontextprotocol\/sdk/],
+            },
+          },
         },
       },
       {
