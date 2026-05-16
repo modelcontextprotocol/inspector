@@ -53,28 +53,37 @@ describe("RemoteClientTransport", () => {
   });
 
   it("send() throws Transport is closed after a transport_error SSE event sets closed", async () => {
-    // The SSE consumer can transition `closed` to true without unsetting
-    // `_sessionId` (e.g. when the remote sends a transport_error event), so
-    // a subsequent send() hits the "Transport is closed" branch rather than
+    // After the SSE consumer processes a transport_error event the transport
+    // marks itself closed (closed=true) without unsetting _sessionId — so a
+    // subsequent send() must hit the "Transport is closed" branch rather than
     // the "Transport not started" branch.
     const fetchFn = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ sessionId: "abc" }), { status: 200 }),
       )
-      .mockResolvedValueOnce(sseStreamResponse());
+      .mockResolvedValueOnce(
+        sseResponse(
+          'data: {"type":"transport_error","data":{"error":"upstream died"}}\n\n',
+        ),
+      );
     const transport = new RemoteClientTransport(
       { baseUrl, fetchFn: fetchFn as unknown as typeof fetch },
       config,
     );
+    const onclose = vi.fn();
+    transport.onclose = onclose;
     await transport.start();
-    // Simulate the SSE consumer marking the transport closed (matches the
-    // transport_error branch at remoteClientTransport.ts ~L247).
-    (transport as unknown as { closed: boolean }).closed = true;
+    // Wait for the SSE consumer to observe the transport_error event and
+    // fire onclose — at that point `closed` is true but `_sessionId` is still
+    // set, which is exactly the precondition we need for the send() branch.
+    await vi.waitFor(() => expect(onclose).toHaveBeenCalled(), {
+      timeout: 1000,
+      interval: 10,
+    });
     await expect(
       transport.send({ jsonrpc: "2.0", id: 1, method: "ping" }),
     ).rejects.toThrow(/Transport is closed/);
-    await transport.close();
   });
 
   it("send() throws a tagged error on non-ok response", async () => {
