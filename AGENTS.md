@@ -26,8 +26,15 @@ inspector/
 │   ├── react/                          # React hooks over the state stores
 │   └── storage/                        # File and remote storage adapters (Zustand middleware)
 ├── test-servers/                       # Composable MCP test servers + fixtures used by integration tests.
-│                                       # Aliased as `@modelcontextprotocol/inspector-test-server`
-│                                       # in clients/web/vite.config.ts and tsconfig.test.json.
+│   ├── src/                            # TypeScript sources.
+│   ├── build/                          # Built JS (gitignored). Produced by `npm run test-servers:build`
+│   │                                   # so integration tests can spawn the stdio server as a real
+│   │                                   # subprocess via `node test-servers/build/test-server-stdio.js`.
+│   └── tsconfig.json                   # tsc build config (NodeNext, outDir ./build).
+│                                       # The Vite alias `@modelcontextprotocol/inspector-test-server`
+│                                       # in clients/web/vite.config.ts points at build/index.js
+│                                       # (not src/) so `getTestMcpServerPath()` returns a `.js` path.
+│                                       # tsconfig.test.json keeps paths pointing at src for typecheck.
 ├── specification/                      # Build specification
 ...
 ```
@@ -82,7 +89,8 @@ All work should be driven by items on the project board.
 - In unit tests that expect error output, suppress it from the console
 - Run unit tests with `npm run test` (or `npm run test:watch` during development) from `clients/web/`
 - Run `npm run test:coverage` to verify the per-file gate: lines ≥ 90, statements ≥ 85, functions ≥ 80, branches ≥ 50 (CI enforces this gate). Branches is intentionally relaxed because Mantine portal/media-query branches are not exercisable under happy-dom; new business-logic branches should still be covered.
-- Test files live alongside the source as `<Name>.test.tsx` (or `.test.ts` for non-React modules)
+- Run `npm run test:integration` (also from `clients/web/`) for the v1.5-ported InspectorClient + transport + auth integration suite. It runs under a separate `integration` vitest project in node env (no happy-dom) with 30s timeouts. The script builds `test-servers/` first via `tsc -p ../../test-servers --noCheck` so the stdio MCP test server can be spawned as a real subprocess. CI runs it as its own step after unit tests.
+- Test files live alongside the source as `<Name>.test.tsx` (or `.test.ts` for non-React modules). v1.5-ported integration tests live under `clients/web/src/test/core/` and are wired into the `integration` project via the `integrationTests` list in `vite.config.ts`.
 - Use `renderWithMantine` from `src/test/renderWithMantine.tsx` to render components — it wraps in `MantineProvider` with the project theme
 
 ### Responding to Code Reviews

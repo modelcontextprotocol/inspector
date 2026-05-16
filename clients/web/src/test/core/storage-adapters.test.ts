@@ -50,6 +50,78 @@ async function startRemoteServer(
 }
 
 describe("Storage adapters", () => {
+  describe("createRemoteStorageAdapter (unit, mocked fetch)", () => {
+    function makeAdapter(fetchFn: typeof fetch, authToken?: string) {
+      return createRemoteStorageAdapter({
+        baseUrl: "http://remote.example/",
+        storeId: "test",
+        fetchFn,
+        authToken,
+      })!;
+    }
+
+    it("getItem returns null on 404 and parses stored blob otherwise", async () => {
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response("not found", { status: 404 }))
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ state: { hi: 1 }, version: 0 })),
+        )
+        .mockResolvedValueOnce(new Response("{}"));
+
+      const adapter = makeAdapter(fetchFn as typeof fetch);
+      expect(await adapter.getItem("anything")).toBeNull();
+      const blob = await adapter.getItem("anything");
+      expect(blob).toBeTruthy();
+      // Empty object response → treated as "not initialized" → null.
+      expect(await adapter.getItem("anything")).toBeNull();
+    });
+
+    it("getItem throws on non-404 error responses", async () => {
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response("boom", { status: 500 }));
+      const adapter = makeAdapter(fetchFn as typeof fetch);
+      await expect(adapter.getItem("x")).rejects.toThrow(/500/);
+    });
+
+    it("setItem throws when the POST fails", async () => {
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response("nope", { status: 500 }));
+      const adapter = makeAdapter(fetchFn as typeof fetch);
+      await expect(
+        adapter.setItem("name", { state: { a: 1 }, version: 0 }),
+      ).rejects.toThrow(/500/);
+    });
+
+    it("removeItem tolerates 404 but rethrows on other failures", async () => {
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response(null, { status: 204 }))
+        .mockResolvedValueOnce(new Response(null, { status: 404 }))
+        .mockResolvedValueOnce(new Response("boom", { status: 500 }));
+      const adapter = makeAdapter(fetchFn as typeof fetch);
+      await expect(adapter.removeItem("x")).resolves.toBeUndefined();
+      await expect(adapter.removeItem("x")).resolves.toBeUndefined();
+      await expect(adapter.removeItem("x")).rejects.toThrow(/500/);
+    });
+
+    it("sends the x-mcp-remote-auth header on all three verbs when authToken is set", async () => {
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response("{}"));
+      const adapter = makeAdapter(fetchFn as typeof fetch, "secret");
+      await adapter.getItem("x");
+      await adapter.setItem("x", { state: {}, version: 0 });
+      await adapter.removeItem("x");
+      for (const call of fetchFn.mock.calls) {
+        const headers = call[1]?.headers as Record<string, string> | undefined;
+        expect(headers?.["x-mcp-remote-auth"]).toBe("Bearer secret");
+      }
+    });
+  });
+
   describe("FileStorageAdapter", () => {
     let tempDir: string | null = null;
 
@@ -145,6 +217,24 @@ describe("Storage adapters", () => {
       const fileContent = readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(fileContent);
       expect(Object.keys(parsed.state.servers).length).toBe(0);
+    });
+
+    it("removeItem deletes the underlying file", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const filePath = join(tempDir!, "test-store.json");
+      const storage = createFileStorageAdapter({ filePath });
+      // createJSONStorage returns a PersistStorage<S> wrapper that delegates to
+      // our adapter's removeItem callback (line 25 of file-storage.ts).
+      const store = createOAuthStore(storage);
+      store.getState().setServerState("https://example.com", {
+        tokens: { access_token: "t", token_type: "Bearer" },
+      });
+      await vi.waitFor(() => expect(existsSync(filePath)).toBe(true), {
+        timeout: 2000,
+        interval: 20,
+      });
+      await storage!.removeItem("inspector-oauth-store");
+      expect(existsSync(filePath)).toBe(false);
     });
   });
 

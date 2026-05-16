@@ -4,5 +4,6 @@
 .claude/
 node_modules
 dist
+test-servers/build
 .env
 /.playwright-mcp/

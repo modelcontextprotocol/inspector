@@ -175,6 +175,50 @@ describe("OAuthCallbackServer", () => {
     ).rejects.toThrow();
   });
 
+  it("succeeds with 200 when no onCallback handler is configured", async () => {
+    server = createOAuthCallbackServer();
+    const result = await server.start({ port: 0 });
+
+    const res = await fetch(
+      `http://localhost:${result.port}/oauth/callback?code=lonely`,
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("OAuth complete");
+  });
+
+  it("returns 409 when a callback arrives after handled=true but before stop completes", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    server = createOAuthCallbackServer();
+    const result = await server.start({
+      port: 0,
+      // Hold onCallback open so handled=true is set but the server hasn't
+      // yet finished stopping — second request slips into the 409 branch.
+      onCallback: async () => {
+        await gate;
+      },
+    });
+
+    const firstP = fetch(
+      `http://localhost:${result.port}/oauth/callback?code=first`,
+    );
+    // Give the server time to register handled=true before second hit.
+    await new Promise((r) => setTimeout(r, 50));
+    const secondP = fetch(
+      `http://localhost:${result.port}/oauth/callback?code=second`,
+    );
+    const second = await secondP;
+    expect(second.status).toBe(409);
+    release();
+    const first = await firstP;
+    expect(first.status).toBe(200);
+  });
+
   it("onCallback rejection returns 500 and error HTML", async () => {
     server = createOAuthCallbackServer();
     const result = await server.start({

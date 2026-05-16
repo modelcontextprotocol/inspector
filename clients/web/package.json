@@ -15,9 +15,12 @@
     "build-storybook": "storybook build",
     "test": "vitest run --project=unit",
     "test:watch": "vitest --project=unit",
-    "test:coverage": "vitest run --project=unit --coverage",
+    "test:coverage": "npm run test-servers:build && vitest run --project=unit --project=integration --coverage",
     "test:storybook": "vitest run --project=storybook",
-    "test:storybook:watch": "vitest --project=storybook"
+    "test:storybook:watch": "vitest --project=storybook",
+    "test-servers:build": "tsc -p ../../test-servers --noCheck",
+    "test:integration": "npm run test-servers:build && vitest run --project=integration",
+    "test:integration:watch": "npm run test-servers:build && vitest --project=integration"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
