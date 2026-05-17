@@ -205,17 +205,24 @@ function parseKeyValuePair(
   value: string,
   previous: Record<string, string> = {},
 ): Record<string, string> {
-  const parts = value.split("=");
-  const key = parts[0];
-  const val = parts.slice(1).join("=");
+  const equalsIndex = value.indexOf("=");
 
-  if (val === undefined || val === "") {
+  if (equalsIndex === -1) {
     throw new Error(
       `Invalid parameter format: ${value}. Use key=value format.`,
     );
   }
 
-  return { ...previous, [key as string]: val };
+  const key = value.slice(0, equalsIndex);
+  const val = value.slice(equalsIndex + 1);
+
+  if (key === "") {
+    throw new Error(
+      `Invalid parameter format: ${value}. Use key=value format.`,
+    );
+  }
+
+  return { ...previous, [key]: val };
 }
 
 function parseHeaderPair(
