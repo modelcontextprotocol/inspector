@@ -23,8 +23,7 @@ import { createTransportNode } from "../../node/transport.js";
 import type { RemoteConnectRequest, RemoteSendRequest } from "../types.js";
 import type { MCPServerConfig } from "../../types.js";
 import { RemoteSession } from "./remote-session.js";
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
-import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { createTokenAuthProvider } from "./tokenAuthProvider.js";
 import { API_SERVER_ENV_VARS } from "../constants.js";
 
 /**
@@ -183,44 +182,6 @@ function createAuthMiddleware(authToken: string) {
 
     await next();
   };
-}
-
-/**
- * Simple OAuth client provider that just returns tokens.
- * Used by remote server to inject Bearer tokens into transport requests.
- */
-function createTokenAuthProvider(
-  tokens: RemoteConnectRequest["oauthTokens"],
-): OAuthClientProvider | undefined {
-  if (!tokens) return undefined;
-
-  return {
-    async tokens(): Promise<OAuthTokens | undefined> {
-      return tokens as OAuthTokens;
-    },
-    // Other methods not needed for transport Bearer token injection
-    async clientInformation() {
-      return undefined;
-    },
-    async saveTokens() {
-      // No-op
-    },
-    codeVerifier() {
-      return undefined;
-    },
-    async saveCodeVerifier() {
-      // No-op
-    },
-    clear() {
-      // No-op
-    },
-    redirectToAuthorization() {
-      // No-op
-    },
-    state() {
-      return "";
-    },
-  } as unknown as OAuthClientProvider;
 }
 
 function forwardLogEvent(

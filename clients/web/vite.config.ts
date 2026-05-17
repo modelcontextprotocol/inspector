@@ -138,18 +138,6 @@ export default defineConfig({
         path.join(repoRoot, 'core/mcp/remote/types.ts'),
         // .d.ts files are declaration-only.
         path.join(repoRoot, '**/*.d.ts'),
-        // TODO(#1310): coverage debt on two large v1.5-ported files that the
-        // existing v1.5 tests don't fully exercise. #1307 brought the
-        // integration suite back online and lifted all other v1.5 coverage
-        // gates; #1310 tracks filling these two:
-        //   - inspectorClient.ts (2184 LOC) is at 73% lines despite 4005 LOC
-        //     of integration tests; remaining gaps are scattered across OAuth,
-        //     subscription, and error-path code (~150 lines, 107 ranges).
-        //   - remote/node/server.ts is at 88% lines / 78% functions; gaps are
-        //     in transport-failure / 401-propagation error paths and the
-        //     private createTokenAuthProvider helper.
-        path.join(repoRoot, 'core/mcp/inspectorClient.ts'),
-        path.join(repoRoot, 'core/mcp/remote/node/server.ts'),
         // inspectorClientEventTarget.ts is types + a single empty-body class
         // (extends TypedEventTarget). v8/istanbul records 0 statements for it
         // today. TODO(#1243): drop this exclusion once the class gains real

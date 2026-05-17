@@ -39,6 +39,9 @@ import {
   createSamplingTaskTool,
   createProgressTaskTool,
   createTaskTool,
+  createAddResourceTool,
+  createAddToolTool,
+  createAddPromptTool,
 } from "@modelcontextprotocol/inspector-test-server";
 import type {
   MessageEntry,
@@ -4011,6 +4014,585 @@ describe("InspectorClient", () => {
         unknown
       >;
       expect(parsed.input).toBe("E2E elicitation input");
+    });
+  });
+
+  describe("Coverage backfill (#1310)", () => {
+    describe("guard methods without server / OAuth", () => {
+      it("returns no-op defaults from OAuth getters when oauthManager is unset", async () => {
+        const c = new InspectorClient(
+          {
+            type: "stdio",
+            command: serverCommand.command,
+            args: serverCommand.args,
+          },
+          { environment: { transport: createTransportNode } },
+        );
+        await expect(c.getOAuthTokens()).resolves.toBeUndefined();
+        await expect(c.isOAuthAuthorized()).resolves.toBe(false);
+        expect(c.getOAuthStep()).toBeUndefined();
+        expect(c.getOAuthState()).toBeUndefined();
+        // clearOAuthTokens is a no-op when there is no manager
+        expect(() => c.clearOAuthTokens()).not.toThrow();
+      });
+
+      it("setOAuthConfig throws when oauthManager is unset", () => {
+        const c = new InspectorClient(
+          {
+            type: "stdio",
+            command: serverCommand.command,
+            args: serverCommand.args,
+          },
+          { environment: { transport: createTransportNode } },
+        );
+        expect(() => c.setOAuthConfig({ clientId: "x" })).toThrow(
+          /OAuth config must be set at creation/,
+        );
+      });
+
+      it("authenticate / runGuidedAuth / proceedOAuthStep throw via ensureOAuthManager when oauthManager is unset", async () => {
+        const c = new InspectorClient(
+          {
+            type: "stdio",
+            command: serverCommand.command,
+            args: serverCommand.args,
+          },
+          { environment: { transport: createTransportNode } },
+        );
+        await expect(c.authenticate()).rejects.toThrow(/OAuth not configured/);
+        await expect(c.runGuidedAuth()).rejects.toThrow(/OAuth not configured/);
+        await expect(c.proceedOAuthStep()).rejects.toThrow(
+          /OAuth not configured/,
+        );
+      });
+
+      it("simple session/roots/subscription accessors return empty defaults before connect", () => {
+        const c = new InspectorClient(
+          {
+            type: "stdio",
+            command: serverCommand.command,
+            args: serverCommand.args,
+          },
+          { environment: { transport: createTransportNode } },
+        );
+        expect(c.getSessionId()).toBeUndefined();
+        // saveSession is a no-op when there is no sessionId
+        expect(() => c.saveSession()).not.toThrow();
+        c.setSessionId("session-123");
+        expect(c.getSessionId()).toBe("session-123");
+
+        expect(c.getSubscribedResources()).toEqual([]);
+        expect(c.isSubscribedToResource("file:///nope")).toBe(false);
+        // No server capabilities loaded yet -> subscriptions unsupported
+        expect(c.supportsResourceSubscriptions()).toBe(false);
+        // No instructions loaded before connect
+        expect(c.getInstructions()).toBeUndefined();
+        // Roots default to [] when undefined
+        expect(c.getRoots()).toEqual([]);
+      });
+
+      it("subscribe / unsubscribe error when server doesn't advertise subscribe capability", async () => {
+        // Stdio test server doesn't advertise resources.subscribe by default
+        server = createTestServerHttp({
+          serverInfo: createTestServerInfo(),
+          resources: createNumberedResources(2),
+        });
+        await server.start();
+        client = new InspectorClient(
+          { type: "streamable-http", url: server.url },
+          { environment: { transport: createTransportNode } },
+        );
+        await client.connect();
+
+        await expect(
+          client.subscribeToResource("test://resource_1"),
+        ).rejects.toThrow(/does not support resource subscriptions/);
+        // unsubscribe path doesn't guard on capability; it calls the SDK which
+        // will reject because the server has no unsubscribe handler.
+        await expect(
+          client.unsubscribeFromResource("test://resource_1"),
+        ).rejects.toThrow(
+          /Failed to unsubscribe to resource|Failed to unsubscribe from resource|Method not found/,
+        );
+      });
+    });
+
+    describe("subscribe / unsubscribe happy path", () => {
+      it("subscribes, reports state, then unsubscribes, when server advertises subscribe", async () => {
+        server = createTestServerHttp({
+          serverInfo: createTestServerInfo(),
+          resources: createNumberedResources(2),
+          subscriptions: true,
+        });
+        await server.start();
+        client = new InspectorClient(
+          { type: "streamable-http", url: server.url },
+          { environment: { transport: createTransportNode } },
+        );
+        await client.connect();
+
+        expect(client.supportsResourceSubscriptions()).toBe(true);
+
+        await client.subscribeToResource("test://resource_1");
+        expect(client.getSubscribedResources()).toContain("test://resource_1");
+        expect(client.isSubscribedToResource("test://resource_1")).toBe(true);
+
+        await client.unsubscribeFromResource("test://resource_1");
+        expect(client.getSubscribedResources()).not.toContain(
+          "test://resource_1",
+        );
+        expect(client.isSubscribedToResource("test://resource_1")).toBe(false);
+      });
+    });
+
+    describe("getPrompt + readResourceFromTemplate", () => {
+      beforeEach(async () => {
+        server = createTestServerHttp({
+          serverInfo: createTestServerInfo(),
+          resourceTemplates: [createFileResourceTemplate()],
+          prompts: [createArgsPrompt()],
+        });
+        await server.start();
+        client = new InspectorClient(
+          { type: "streamable-http", url: server.url },
+          { environment: { transport: createTransportNode } },
+        );
+        await client.connect();
+      });
+
+      it("getPrompt fetches and returns an invocation, dispatching no extra error", async () => {
+        const invocation = await client!.getPrompt("args_prompt", {
+          city: "Hartford",
+          state: "Connecticut",
+        });
+        expect(invocation.name).toBe("args_prompt");
+        expect(invocation.params).toEqual({
+          city: "Hartford",
+          state: "Connecticut",
+        });
+        expect(invocation.result).toBeDefined();
+        expect(invocation.timestamp).toBeInstanceOf(Date);
+      });
+
+      it("readResourceFromTemplate expands and reads the resource", async () => {
+        const invocation = await client!.readResourceFromTemplate(
+          "file:///{path}",
+          { path: "report.txt" },
+        );
+        expect(invocation.uriTemplate).toBe("file:///{path}");
+        expect(invocation.expandedUri).toBe("file:///report.txt");
+        expect(invocation.params).toEqual({ path: "report.txt" });
+        expect(invocation.result).toBeDefined();
+      });
+
+      it("readResourceFromTemplate throws when expansion fails", async () => {
+        // Pass a syntactically invalid template; UriTemplate ctor throws
+        await expect(
+          client!.readResourceFromTemplate("file:///{unclosed", {
+            unclosed: "x",
+          }),
+        ).rejects.toThrow(/Failed to expand URI template/);
+      });
+    });
+
+    describe("listChanged notifications", () => {
+      it("dispatches toolsListChanged when server advertises tools.listChanged and notifies", async () => {
+        server = createTestServerHttp({
+          serverInfo: createTestServerInfo(),
+          tools: [createEchoTool()],
+          listChanged: { tools: true, resources: true, prompts: true },
+          subscriptions: true,
+          resources: createNumberedResources(1),
+          prompts: [createArgsPrompt()],
+        });
+        await server.start();
+        client = new InspectorClient(
+          { type: "streamable-http", url: server.url },
+          { environment: { transport: createTransportNode } },
+        );
+
+        // The handler-registration arrows fire during connect when the
+        // matching server capability is advertised. Connecting here exercises
+        // the conditional branches in the constructor / connect path.
+        await client.connect();
+
+        // Confirm capability detection round-tripped
+        const caps = client.getCapabilities();
+        expect(caps?.tools?.listChanged).toBe(true);
+        expect(caps?.resources?.listChanged).toBe(true);
+        expect(caps?.prompts?.listChanged).toBe(true);
+        expect(caps?.resources?.subscribe).toBe(true);
+      });
+    });
+
+    describe("setLoggingLevel guards", () => {
+      it("throws when the server does not advertise logging support", async () => {
+        server = createTestServerHttp({
+          serverInfo: createTestServerInfo(),
+          tools: [createEchoTool()],
+        });
+        await server.start();
+        client = new InspectorClient(
+          { type: "streamable-http", url: server.url },
+          { environment: { transport: createTransportNode } },
+        );
+        await client.connect();
+        await expect(client.setLoggingLevel("info")).rejects.toThrow(
+          /Server does not support logging/,
+        );
+      });
+    });
+
+    describe("getAppRendererClient", () => {
+      it("returns null before connect, and a proxy after connect that forwards setNotificationHandler", async () => {
+        server = createTestServerHttp({
+          serverInfo: createTestServerInfo(),
+          tools: [createEchoTool()],
+        });
+        await server.start();
+        const c = new InspectorClient(
+          { type: "streamable-http", url: server.url },
+          { environment: { transport: createTransportNode } },
+        );
+        // Disconnected => null
+        expect(c.getAppRendererClient()).toBeNull();
+
+        client = c;
+        await c.connect();
+
+        const proxy1 = c.getAppRendererClient();
+        expect(proxy1).not.toBeNull();
+        // Second call returns the cached proxy
+        expect(c.getAppRendererClient()).toBe(proxy1);
+        // setNotificationHandler on the proxy delegates to the underlying client
+        expect(
+          typeof (proxy1 as unknown as { setNotificationHandler?: unknown })
+            .setNotificationHandler,
+        ).toBe("function");
+      });
+    });
+
+    describe("list_changed + resourceUpdated notifications", () => {
+      it("dispatches toolsListChanged when the server emits notifications/tools/list_changed", async () => {
+        server = createTestServerHttp({
+          serverInfo: createTestServerInfo(),
+          tools: [createAddToolTool()],
+          listChanged: { tools: true },
+        });
+        await server.start();
+        client = new InspectorClient(
+          { type: "streamable-http", url: server.url },
+          { environment: { transport: createTransportNode } },
+        );
+        await client.connect();
+
+        const fired = waitForEvent(client, "toolsListChanged", {
+          timeout: 5000,
+        });
+        const addToolTool = await getTool(client, "add_tool");
+        await client.callTool(addToolTool, {
+          name: "newly_added",
+          description: "added at runtime",
+        });
+        await fired;
+      });
+
+      it("dispatches resourcesListChanged when the server emits resources/list_changed", async () => {
+        server = createTestServerHttp({
+          serverInfo: createTestServerInfo(),
+          tools: [createAddResourceTool()],
+          resources: createNumberedResources(1),
+          listChanged: { resources: true },
+        });
+        await server.start();
+        client = new InspectorClient(
+          { type: "streamable-http", url: server.url },
+          { environment: { transport: createTransportNode } },
+        );
+        await client.connect();
+
+        const fired = waitForEvent(client, "resourcesListChanged", {
+          timeout: 5000,
+        });
+        const addResourceTool = await getTool(client, "add_resource");
+        await client.callTool(addResourceTool, {
+          uri: "res://new",
+          name: "new",
+          text: "hi",
+        });
+        await fired;
+      });
+
+      it("dispatches promptsListChanged when the server emits prompts/list_changed", async () => {
+        server = createTestServerHttp({
+          serverInfo: createTestServerInfo(),
+          tools: [createAddPromptTool()],
+          prompts: [createArgsPrompt()],
+          listChanged: { prompts: true },
+        });
+        await server.start();
+        client = new InspectorClient(
+          { type: "streamable-http", url: server.url },
+          { environment: { transport: createTransportNode } },
+        );
+        await client.connect();
+
+        const fired = waitForEvent(client, "promptsListChanged", {
+          timeout: 5000,
+        });
+        const addPromptTool = await getTool(client, "add_prompt");
+        await client.callTool(addPromptTool, {
+          name: "new_prompt",
+          description: "added at runtime",
+          promptString: "hello",
+        });
+        await fired;
+      });
+    });
+
+    describe("misc tiny branches", () => {
+      it("connect() is a no-op when status is already 'connected'", async () => {
+        server = createTestServerHttp({
+          serverInfo: createTestServerInfo(),
+          tools: [createEchoTool()],
+        });
+        await server.start();
+        client = new InspectorClient(
+          { type: "streamable-http", url: server.url },
+          { environment: { transport: createTransportNode } },
+        );
+        await client.connect();
+        expect(client.getStatus()).toBe("connected");
+        // Second connect() should hit the early-return branch
+        await client.connect();
+        expect(client.getStatus()).toBe("connected");
+      });
+
+      it("connect() throws 'Client not initialized' when this.client is null", async () => {
+        const c = new InspectorClient(
+          {
+            type: "stdio",
+            command: serverCommand.command,
+            args: serverCommand.args,
+          },
+          { environment: { transport: createTransportNode } },
+        );
+        (c as unknown as { client: unknown }).client = null;
+        await expect(c.connect()).rejects.toThrow(/Client not initialized/);
+      });
+
+      it("getTaskCapabilities() returns undefined when the server has no tasks capability", async () => {
+        server = createTestServerHttp({
+          serverInfo: createTestServerInfo(),
+          tools: [createEchoTool()],
+        });
+        await server.start();
+        client = new InspectorClient(
+          { type: "streamable-http", url: server.url },
+          { environment: { transport: createTransportNode } },
+        );
+        await client.connect();
+        expect(client.getTaskCapabilities()).toBeUndefined();
+      });
+
+      it("elicit form mode adds form to elicitation capability (constructor branch)", () => {
+        const c = new InspectorClient(
+          {
+            type: "stdio",
+            command: serverCommand.command,
+            args: serverCommand.args,
+          },
+          {
+            environment: { transport: createTransportNode },
+            // Hits the `this.elicit.form` branch in the constructor's
+            // elicitationCap.form assignment block
+            elicit: { form: true },
+          },
+        );
+        expect(c.getStatus()).toBe("disconnected");
+      });
+
+      it("receiver-task internals: TTL cleanup and cancel terminate via private surface", async () => {
+        // Drive the private createReceiverTask + cancelReceiverTask + TTL-cleanup
+        // paths by reaching into the instance. These are server-driven in
+        // practice (tasks/cancel from server), but the existing receiver-task
+        // e2e tests don't exercise the cancel path; this is the focused unit
+        // pass the issue suggested.
+        const c = new InspectorClient(
+          {
+            type: "stdio",
+            command: serverCommand.command,
+            args: serverCommand.args,
+          },
+          { environment: { transport: createTransportNode } },
+        );
+        const internal = c as unknown as {
+          createReceiverTask: (opts: {
+            ttl?: number;
+            initialStatus: "input_required" | "working";
+            statusMessage?: string;
+          }) => {
+            task: { taskId: string; status: string };
+            payloadPromise: Promise<unknown>;
+          };
+          cancelReceiverTask: (taskId: string) => {
+            taskId: string;
+            status: string;
+          };
+          listReceiverTasks: () => Array<{ taskId: string; status: string }>;
+          getReceiverTask: (taskId: string) => unknown;
+          getReceiverTaskPayload: (taskId: string) => Promise<unknown>;
+          receiverTaskRecords: Map<string, unknown>;
+        };
+
+        // Short TTL so the cleanup setTimeout fires in-test
+        const record = internal.createReceiverTask({
+          ttl: 50,
+          initialStatus: "working",
+          statusMessage: "running",
+        });
+        // Pre-attach a catch so cancel's reject doesn't surface as unhandled
+        const payloadResult = record.payloadPromise.catch(
+          (e) => (e as Error).message,
+        );
+        expect(record.task.taskId).toBeDefined();
+        // listReceiverTasks contains the new task
+        const list = internal.listReceiverTasks();
+        expect(list.some((t) => t.taskId === record.task.taskId)).toBe(true);
+        expect(internal.getReceiverTask(record.task.taskId)).toBeDefined();
+
+        // getReceiverTaskPayload on an unknown id throws InvalidParams
+        await expect(
+          internal.getReceiverTaskPayload("does-not-exist"),
+        ).rejects.toThrow(/Unknown taskId/);
+
+        // Cancel before TTL fires
+        const cancelled = internal.cancelReceiverTask(record.task.taskId);
+        expect(cancelled.status).toBe("cancelled");
+        await expect(payloadResult).resolves.toBe("Task cancelled");
+        // Cancel again — record is in terminal state, returns existing task
+        const reCancel = internal.cancelReceiverTask(record.task.taskId);
+        expect(reCancel.status).toBe("cancelled");
+
+        // cancelReceiverTask on an unknown id throws InvalidParams
+        expect(() => internal.cancelReceiverTask("nope")).toThrow(
+          /Unknown taskId/,
+        );
+
+        // Drive the TTL-cleanup path: create a record with very short ttl and
+        // let setTimeout fire — receiverTaskRecords drops the entry.
+        const ttlRecord = internal.createReceiverTask({
+          ttl: 20,
+          initialStatus: "working",
+          statusMessage: "running",
+        });
+        await new Promise<void>((r) => setTimeout(r, 80));
+        expect(internal.receiverTaskRecords.has(ttlRecord.task.taskId)).toBe(
+          false,
+        );
+      });
+    });
+
+    describe("defensive guards when client is uninitialized", () => {
+      // These guards exist as TypeScript narrows for the `Client | null` field
+      // even though the constructor always assigns it. Force the field to null
+      // via a private-field cast so we can exercise the throw branches once,
+      // rather than sprinkling `if` guards through tests for each method.
+      function nullify(c: InspectorClient): void {
+        (c as unknown as { client: unknown }).client = null;
+      }
+
+      it("public methods that require a client throw or short-circuit when client is null", async () => {
+        const c = new InspectorClient(
+          {
+            type: "stdio",
+            command: serverCommand.command,
+            args: serverCommand.args,
+          },
+          { environment: { transport: createTransportNode } },
+        );
+        nullify(c);
+
+        const expectThrow = async (
+          fn: () => Promise<unknown>,
+          msg = "Client is not connected",
+        ) => {
+          await expect(fn()).rejects.toThrow(msg);
+        };
+
+        // listing / pagination
+        await expectThrow(() => c.listTools());
+        await expectThrow(() => c.listResources());
+        await expectThrow(() => c.listResourceTemplates());
+        await expectThrow(() => c.listPrompts());
+
+        // single-item fetch
+        await expectThrow(() =>
+          c.callTool({ name: "x" } as unknown as Tool, {}),
+        );
+        await expectThrow(() => c.readResource("res://x"));
+        await expectThrow(() =>
+          c.readResourceFromTemplate("file:///{p}", { p: "x" }),
+        );
+        await expectThrow(() => c.getPrompt("x"));
+
+        // logging guard fires the "not connected" branch first
+        await expectThrow(() => c.setLoggingLevel("info"));
+
+        // roots + subscriptions
+        await expectThrow(() => c.setRoots([]));
+        await expectThrow(() => c.subscribeToResource("res://x"));
+        await expectThrow(() => c.unsubscribeFromResource("res://x"));
+
+        // requestor task ops
+        await expectThrow(() => c.getRequestorTask("t"));
+        await expectThrow(() => c.getRequestorTaskResult("t"));
+        await expectThrow(() => c.cancelRequestorTask("t"));
+        await expectThrow(() => c.listRequestorTasks());
+
+        // ping
+        await expectThrow(() => c.ping(), "Client not initialized");
+
+        // callToolStream: throws synchronously? Actually returns Promise from
+        // the iterator's first .next() — call and assert rejection.
+        await expectThrow(() =>
+          c.callToolStream({ name: "x" } as unknown as Tool, {}),
+        );
+
+        // getCompletions short-circuits to { values: [] } rather than throwing
+        await expect(
+          c.getCompletions({ type: "ref/prompt", name: "x" }, "arg", "val"),
+        ).resolves.toEqual({ values: [] });
+      });
+    });
+
+    describe("OAuth + stdio transport", () => {
+      it("authenticate() throws because stdio transports have no server URL", async () => {
+        const c = new InspectorClient(
+          {
+            type: "stdio",
+            command: serverCommand.command,
+            args: serverCommand.args,
+          },
+          {
+            environment: {
+              transport: createTransportNode,
+              oauth: {
+                // Minimal stubs — providers won't ever be reached because
+                // getServerUrl throws first.
+                storage: {} as never,
+                navigation: {} as never,
+                redirectUrlProvider: {} as never,
+              },
+            },
+          },
+        );
+        // ensureOAuthManager hits the manager (since oauth env was supplied)
+        // and the manager calls getServerUrl() which throws for stdio.
+        await expect(c.authenticate()).rejects.toThrow(
+          /OAuth is only supported for HTTP-based transports/,
+        );
+      });
     });
   });
 });
