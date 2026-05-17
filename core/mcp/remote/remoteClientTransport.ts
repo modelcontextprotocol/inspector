@@ -99,6 +99,8 @@ export class RemoteClientTransport implements Transport {
     null;
   private eventStreamAbort: AbortController | null = null;
   private closed = false;
+  private readonly options: RemoteTransportOptions;
+  private readonly config: import("../types.js").MCPServerConfig;
 
   /**
    * Intentionally returns undefined. The MCP Client checks transport.sessionId to detect
@@ -112,9 +114,12 @@ export class RemoteClientTransport implements Transport {
   }
 
   constructor(
-    private readonly options: RemoteTransportOptions,
-    private readonly config: import("../types.js").MCPServerConfig,
-  ) {}
+    options: RemoteTransportOptions,
+    config: import("../types.js").MCPServerConfig,
+  ) {
+    this.options = options;
+    this.config = config;
+  }
 
   private get fetchFn(): typeof fetch {
     return this.options.fetchFn ?? globalThis.fetch;

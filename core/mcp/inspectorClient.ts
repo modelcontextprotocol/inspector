@@ -174,12 +174,14 @@ export class InspectorClient extends InspectorClientEventTarget {
   private effectiveAuthFetch: typeof fetch;
   // Session ID (for OAuth state and saveSession event; persistence is in FetchRequestLogState)
   private sessionId?: string;
+  private transportConfig: MCPServerConfig;
 
   constructor(
-    private transportConfig: MCPServerConfig,
+    transportConfig: MCPServerConfig,
     options: InspectorClientOptions,
   ) {
     super();
+    this.transportConfig = transportConfig;
     // Extract environment components
     this.transportClientFactory = options.environment.transport;
     this.fetchFn = options.environment.fetch;
@@ -309,7 +311,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     return {
       trackRequest: (message: JSONRPCRequest) => {
         const entry: MessageEntry = {
-          id: `${Date.now()}-${Math.random()}`,
+          id: crypto.randomUUID(),
           timestamp: new Date(),
           direction: "request",
           message,
@@ -320,7 +322,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         message: JSONRPCResultResponse | JSONRPCErrorResponse,
       ) => {
         const entry: MessageEntry = {
-          id: `${Date.now()}-${Math.random()}`,
+          id: crypto.randomUUID(),
           timestamp: new Date(),
           direction: "response",
           message,
@@ -329,7 +331,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       },
       trackNotification: (message: JSONRPCNotification) => {
         const entry: MessageEntry = {
-          id: `${Date.now()}-${Math.random()}`,
+          id: crypto.randomUUID(),
           timestamp: new Date(),
           direction: "notification",
           message,
@@ -415,10 +417,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     statusMessage?: string;
     pollInterval?: number;
   }): ReceiverTaskRecord {
-    const taskId =
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `task-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    const taskId = crypto.randomUUID();
     const ttlMs =
       opts.ttl ??
       (typeof this.receiverTaskTtlMs === "function"
@@ -1962,7 +1961,10 @@ export class InspectorClient extends InspectorClientEventTarget {
       });
     } catch (error) {
       // Log but don't throw - roots were updated locally even if notification failed
-      console.error("Failed to send roots/list_changed notification:", error);
+      this.logger.error(
+        { error },
+        "Failed to send roots/list_changed notification",
+      );
     }
   }
 

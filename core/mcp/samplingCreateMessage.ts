@@ -28,14 +28,16 @@ export class SamplingCreateMessage {
   public readonly taskId?: string;
   private resolvePromise?: (result: CreateMessageResult) => void;
   private rejectPromise?: (error: Error) => void;
+  private onRemove: (id: string) => void;
 
   constructor(
     request: CreateMessageRequest,
     resolve: (result: CreateMessageResult) => void,
     reject: (error: Error) => void,
-    private onRemove: (id: string) => void,
+    onRemove: (id: string) => void,
   ) {
-    this.id = `sampling-${Date.now()}-${Math.random()}`;
+    this.onRemove = onRemove;
+    this.id = `sampling-${crypto.randomUUID()}`;
     this.timestamp = new Date();
     this.request = request;
     // Extract taskId from request params metadata if present

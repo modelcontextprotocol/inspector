@@ -256,12 +256,22 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
 };
 
 export class OAuthStateMachine {
+  private serverUrl: string;
+  private provider: BaseOAuthClientProvider;
+  private updateState: (updates: Partial<AuthGuidedState>) => void;
+  private fetchFn?: typeof fetch;
+
   constructor(
-    private serverUrl: string,
-    private provider: BaseOAuthClientProvider,
-    private updateState: (updates: Partial<AuthGuidedState>) => void,
-    private fetchFn?: typeof fetch,
-  ) {}
+    serverUrl: string,
+    provider: BaseOAuthClientProvider,
+    updateState: (updates: Partial<AuthGuidedState>) => void,
+    fetchFn?: typeof fetch,
+  ) {
+    this.serverUrl = serverUrl;
+    this.provider = provider;
+    this.updateState = updateState;
+    this.fetchFn = fetchFn;
+  }
 
   async executeStep(state: AuthGuidedState): Promise<void> {
     const context: StateMachineContext = {

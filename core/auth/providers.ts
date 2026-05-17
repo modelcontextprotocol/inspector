@@ -51,8 +51,11 @@ export type OAuthNavigationCallback = (
  */
 export class CallbackNavigation implements OAuthNavigation {
   private authorizationUrl: URL | null = null;
+  private callback: OAuthNavigationCallback;
 
-  constructor(private callback: OAuthNavigationCallback) {}
+  constructor(callback: OAuthNavigationCallback) {
+    this.callback = callback;
+  }
 
   navigateToAuthorization(authorizationUrl: URL): void {
     this.authorizationUrl = authorizationUrl;
@@ -100,6 +103,7 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   private capturedAuthUrl: URL | null = null;
   private eventTarget: EventTarget | null = null;
 
+  protected serverUrl: string;
   protected storage: OAuthStorage;
   protected redirectUrlProvider: RedirectUrlProvider;
   protected navigation: OAuthNavigation;
@@ -107,10 +111,11 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   protected mode: "normal" | "guided";
 
   constructor(
-    protected serverUrl: string,
+    serverUrl: string,
     oauthConfig: OAuthProviderConfig,
     mode: "normal" | "guided" = "normal",
   ) {
+    this.serverUrl = serverUrl;
     this.storage = oauthConfig.storage;
     this.redirectUrlProvider = oauthConfig.redirectUrlProvider;
     this.navigation = oauthConfig.navigation;
