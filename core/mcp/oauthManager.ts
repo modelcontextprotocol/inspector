@@ -41,11 +41,13 @@ export interface OAuthManagerParams {
  * InspectorClient creates this when oauth is configured and delegates all OAuth methods.
  */
 export class OAuthManager {
+  private params: OAuthManagerParams;
   private oauthConfig: OAuthManagerConfig;
   private oauthStateMachine: OAuthStateMachine | null = null;
   private oauthState: AuthGuidedState | null = null;
 
-  constructor(private params: OAuthManagerParams) {
+  constructor(params: OAuthManagerParams) {
+    this.params = params;
     this.oauthConfig = { ...params.initialConfig };
   }
 

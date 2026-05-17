@@ -29,14 +29,16 @@ export class ElicitationCreateMessage {
   private resolvePromise?: (result: ElicitResult) => void;
   /** Set only for task-augmented elicit; used when user declines so server's tasks/result receives an error */
   private rejectCallback?: (error: Error) => void;
+  private onRemove: (id: string) => void;
 
   constructor(
     request: ElicitRequest,
     resolve: (result: ElicitResult) => void,
-    private onRemove: (id: string) => void,
+    onRemove: (id: string) => void,
     reject?: (error: Error) => void,
   ) {
-    this.id = `elicitation-${Date.now()}-${Math.random()}`;
+    this.onRemove = onRemove;
+    this.id = `elicitation-${crypto.randomUUID()}`;
     this.timestamp = new Date();
     this.request = request;
     // Extract taskId from request params metadata if present

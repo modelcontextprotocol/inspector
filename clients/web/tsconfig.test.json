@@ -14,7 +14,9 @@
       "zustand": ["./node_modules/zustand"],
       "zustand/*": ["./node_modules/zustand/*"],
       "hono": ["./node_modules/hono"],
-      "hono/*": ["./node_modules/hono/*"],
+      "hono/streaming": [
+        "./node_modules/hono/dist/types/helper/streaming/index"
+      ],
       "@hono/node-server": ["./node_modules/@hono/node-server"],
       "atomically": ["./node_modules/atomically"],
       "express": ["./node_modules/@types/express"],

@@ -20,11 +20,7 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    /* erasableSyntaxOnly disabled: the ported v1.5 core/ subsystem (#1302)
-     * uses TS parameter properties (`constructor(private foo: T)`) extensively.
-     * Re-enable once we either rewrite those constructors or move core/ to
-     * a separate tsconfig with looser rules. */
-    "erasableSyntaxOnly": false,
+    "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
 
@@ -44,7 +40,9 @@
       "zustand": ["./node_modules/zustand"],
       "zustand/*": ["./node_modules/zustand/*"],
       "hono": ["./node_modules/hono"],
-      "hono/*": ["./node_modules/hono/*"],
+      "hono/streaming": [
+        "./node_modules/hono/dist/types/helper/streaming/index"
+      ],
       "@hono/node-server": ["./node_modules/@hono/node-server"],
       "atomically": ["./node_modules/atomically"]
     }

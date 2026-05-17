@@ -23,10 +23,16 @@ export interface MessageTrackingCallbacks {
 
 // Transport wrapper that intercepts all messages for tracking
 export class MessageTrackingTransport implements Transport {
+  private baseTransport: Transport;
+  private callbacks: MessageTrackingCallbacks;
+
   constructor(
-    private baseTransport: Transport,
-    private callbacks: MessageTrackingCallbacks,
-  ) {}
+    baseTransport: Transport,
+    callbacks: MessageTrackingCallbacks,
+  ) {
+    this.baseTransport = baseTransport;
+    this.callbacks = callbacks;
+  }
 
   async start(): Promise<void> {
     return this.baseTransport.start();

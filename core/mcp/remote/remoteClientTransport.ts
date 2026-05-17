@@ -111,10 +111,16 @@ export class RemoteClientTransport implements Transport {
     return undefined;
   }
 
+  private readonly options: RemoteTransportOptions;
+  private readonly config: import("../types.js").MCPServerConfig;
+
   constructor(
-    private readonly options: RemoteTransportOptions,
-    private readonly config: import("../types.js").MCPServerConfig,
-  ) {}
+    options: RemoteTransportOptions,
+    config: import("../types.js").MCPServerConfig,
+  ) {
+    this.options = options;
+    this.config = config;
+  }
 
   private get fetchFn(): typeof fetch {
     return this.options.fetchFn ?? globalThis.fetch;

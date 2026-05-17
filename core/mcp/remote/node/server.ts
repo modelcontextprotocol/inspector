@@ -17,7 +17,7 @@ import {
 } from "../../../storage/store-io.js";
 import type { LogEvent } from "pino";
 import { Hono } from "hono";
-import type { Context, Next } from "hono";
+import type { Context, Env, Next } from "hono";
 import { streamSSE } from "hono/streaming";
 import { createTransportNode } from "../../node/transport.js";
 import type { RemoteConnectRequest, RemoteSendRequest } from "../types.js";
@@ -277,7 +277,7 @@ export function createRemoteApp(
       process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] ||
       randomBytes(32).toString("hex");
 
-  const app = new Hono();
+  const app = new Hono<Env>();
   const sessions = new Map<string, RemoteSession>();
   const { logger: fileLogger, allowedOrigins } = options;
   const storageDir = options.storageDir ?? getDefaultStorageDir();
@@ -453,9 +453,7 @@ export function createRemoteApp(
       return c.json({ error: "Session not found" }, 404);
     }
 
-    // hono's streamSSE generic typing has tightened since v1.5; cast the
-    // route-typed Context down to the broader Context shape it expects.
-    return streamSSE(c as unknown as Parameters<typeof streamSSE>[0], async (stream) => {
+    return streamSSE(c as Context, async (stream) => {
       session.setEventConsumer((event) => {
         const data = JSON.stringify(event);
         void stream.writeSSE({
