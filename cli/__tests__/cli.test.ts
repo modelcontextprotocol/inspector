@@ -123,6 +123,26 @@ describe("CLI Tests", () => {
       expect(envVars.API_KEY).toBe("abc123=xyz789==");
     });
 
+    it("should accept empty environment variable values", async () => {
+      const { command, args } = getTestMcpServerCommand();
+      const result = await runCli([
+        command,
+        ...args,
+        "-e",
+        "EMPTY_ENV=",
+        "--cli",
+        "--method",
+        "resources/read",
+        "--uri",
+        "test://env",
+      ]);
+
+      expectCliSuccess(result);
+      const json = expectValidJson(result);
+      const envVars = JSON.parse(json.contents[0].text);
+      expect(envVars.EMPTY_ENV).toBe("");
+    });
+
     it("should handle environment variable with base64-encoded value", async () => {
       const { command, args } = getTestMcpServerCommand();
       const result = await runCli([
