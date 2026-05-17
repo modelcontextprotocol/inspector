@@ -453,7 +453,7 @@ export function createRemoteApp(
       return c.json({ error: "Session not found" }, 404);
     }
 
-    return streamSSE(c as Context, async (stream) => {
+    return streamSSE(c, async (stream) => {
       session.setEventConsumer((event) => {
         const data = JSON.stringify(event);
         void stream.writeSSE({

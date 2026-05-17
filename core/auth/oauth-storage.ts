@@ -57,7 +57,6 @@ export class OAuthStorageBase implements OAuthStorage {
   }
 
   clearClientInformation(serverUrl: string, isPreregistered?: boolean): void {
-    this.store.getState().getServerState(serverUrl);
     const updates: Partial<ServerOAuthState> = {};
 
     if (isPreregistered) {

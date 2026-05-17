@@ -417,10 +417,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     statusMessage?: string;
     pollInterval?: number;
   }): ReceiverTaskRecord {
-    const taskId =
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `task-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    const taskId = crypto.randomUUID();
     const ttlMs =
       opts.ttl ??
       (typeof this.receiverTaskTtlMs === "function"
