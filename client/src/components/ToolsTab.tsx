@@ -176,6 +176,7 @@ const ToolsTab = ({
   nextCursor,
   error,
   resourceContent,
+  resourceError,
   onReadResource,
   serverSupportsTaskRequests,
 }: {
@@ -195,6 +196,7 @@ const ToolsTab = ({
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
   resourceContent: Record<string, string>;
+  resourceError?: Record<string, string>;
   onReadResource?: (uri: string) => void;
   serverSupportsTaskRequests: boolean;
 }) => {
@@ -884,6 +886,7 @@ const ToolsTab = ({
                   toolResult={toolResult}
                   selectedTool={selectedTool}
                   resourceContent={resourceContent}
+                  resourceError={resourceError}
                   onReadResource={onReadResource}
                   isPollingTask={isPollingTask}
                 />
