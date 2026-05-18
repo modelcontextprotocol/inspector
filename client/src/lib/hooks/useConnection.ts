@@ -576,7 +576,7 @@ export function useConnection({
         }
         switch (transportType) {
           case "sse":
-            requestHeaders["Accept"] = "text/event-stream";
+            requestHeaders["accept"] = "text/event-stream";
             requestHeaders["content-type"] = "application/json";
             transportOptions = {
               authProvider: serverAuthProvider,
@@ -584,10 +584,7 @@ export function useConnection({
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
               ) => {
-                const response = await fetch(url, {
-                  ...init,
-                  headers: requestHeaders,
-                });
+                const response = await fetch(url, init);
 
                 // Capture protocol-related headers from response
                 captureResponseHeaders(response);
@@ -600,19 +597,15 @@ export function useConnection({
             break;
 
           case "streamable-http":
+            requestHeaders["accept"] = "text/event-stream, application/json";
+            requestHeaders["content-type"] = "application/json";
             transportOptions = {
               authProvider: serverAuthProvider,
               fetch: async (
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
               ) => {
-                requestHeaders["Accept"] =
-                  "text/event-stream, application/json";
-                requestHeaders["Content-Type"] = "application/json";
-                const response = await fetch(url, {
-                  headers: requestHeaders,
-                  ...init,
-                });
+                const response = await fetch(url, init);
 
                 // Capture protocol-related headers from response
                 captureResponseHeaders(response);
