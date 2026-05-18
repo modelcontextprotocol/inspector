@@ -35,7 +35,7 @@ import {
 import {
   createOAuthClientConfig,
   completeOAuthAuthorization,
-} from "./helpers/oauth-client-fixtures.js";
+} from "../helpers/oauth-client-fixtures.js";
 import { ConsoleNavigation } from "@inspector/core/auth/providers.js";
 import type { InspectorClientOptions } from "@inspector/core/mcp/inspectorClient.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";

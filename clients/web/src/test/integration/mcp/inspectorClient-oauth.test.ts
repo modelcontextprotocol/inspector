@@ -25,7 +25,7 @@ import {
 import {
   createOAuthClientConfig,
   completeOAuthAuthorization,
-} from "./helpers/oauth-client-fixtures.js";
+} from "../helpers/oauth-client-fixtures.js";
 import type { InspectorClientOptions } from "@inspector/core/mcp/inspectorClient.js";
 
 const oauthTestStatePath = path.join(
