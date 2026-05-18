@@ -3,7 +3,15 @@
  * Verifies connection, tools, fetch tracking, stderr logging, and remote logging over the remote.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  beforeAll,
+  afterAll,
+} from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -381,10 +389,28 @@ describe("Remote transport e2e", () => {
   });
 
   describe("authentication", () => {
-    it("rejects requests without auth token", async () => {
-      const { baseUrl, server } = await startRemoteServer(0);
-      remoteServer = server;
+    // Each it() in this block only fires an unauthenticated request and asserts
+    // 401 — no server state mutation — so one server is shared across the whole
+    // describe via beforeAll/afterAll. Cleanup is local; the outer afterEach's
+    // `if (remoteServer)` skips this server because we don't assign to it.
+    let sharedServer: ServerType;
+    let baseUrl: string;
+    let authToken: string;
 
+    beforeAll(async () => {
+      const started = await startRemoteServer(0);
+      sharedServer = started.server;
+      baseUrl = started.baseUrl;
+      authToken = started.authToken;
+    });
+
+    afterAll(async () => {
+      await new Promise<void>((resolve, reject) => {
+        sharedServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    });
+
+    it("rejects requests without auth token", async () => {
       const res = await fetch(`${baseUrl}/api/mcp/connect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -400,9 +426,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("rejects requests with incorrect auth token", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0);
-      remoteServer = server;
-
       const res = await fetch(`${baseUrl}/api/mcp/connect`, {
         method: "POST",
         headers: {
@@ -420,9 +443,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("rejects requests without Bearer prefix", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0);
-      remoteServer = server;
-
       const res = await fetch(`${baseUrl}/api/mcp/connect`, {
         method: "POST",
         headers: {
@@ -440,9 +460,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("rejects requests to /api/fetch without auth token", async () => {
-      const { baseUrl, server } = await startRemoteServer(0);
-      remoteServer = server;
-
       const res = await fetch(`${baseUrl}/api/fetch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -455,9 +472,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("rejects requests to /api/log without auth token", async () => {
-      const { baseUrl, server } = await startRemoteServer(0);
-      remoteServer = server;
-
       const res = await fetch(`${baseUrl}/api/log`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -470,9 +484,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("rejects requests to /api/mcp/send without auth token", async () => {
-      const { baseUrl, server } = await startRemoteServer(0);
-      remoteServer = server;
-
       const res = await fetch(`${baseUrl}/api/mcp/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -488,9 +499,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("rejects requests to /api/mcp/events without auth token", async () => {
-      const { baseUrl, server } = await startRemoteServer(0);
-      remoteServer = server;
-
       const res = await fetch(`${baseUrl}/api/mcp/events?sessionId=test`, {
         method: "GET",
       });
@@ -501,9 +509,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("rejects requests to /api/mcp/disconnect without auth token", async () => {
-      const { baseUrl, server } = await startRemoteServer(0);
-      remoteServer = server;
-
       const res = await fetch(`${baseUrl}/api/mcp/disconnect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -517,12 +522,24 @@ describe("Remote transport e2e", () => {
   });
 
   describe("when dangerouslyOmitAuth is true", () => {
-    it("accepts /api/mcp/connect without auth token", async () => {
-      const { baseUrl, server } = await startRemoteServer(0, {
+    let sharedServer: ServerType;
+    let baseUrl: string;
+
+    beforeAll(async () => {
+      const started = await startRemoteServer(0, {
         dangerouslyOmitAuth: true,
       });
-      remoteServer = server;
+      sharedServer = started.server;
+      baseUrl = started.baseUrl;
+    });
 
+    afterAll(async () => {
+      await new Promise<void>((resolve, reject) => {
+        sharedServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    });
+
+    it("accepts /api/mcp/connect without auth token", async () => {
       const res = await fetch(`${baseUrl}/api/mcp/connect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -537,11 +554,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("accepts /api/log without auth token", async () => {
-      const { baseUrl, server } = await startRemoteServer(0, {
-        dangerouslyOmitAuth: true,
-      });
-      remoteServer = server;
-
       const res = await fetch(`${baseUrl}/api/log`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -554,11 +566,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("accepts /api/storage GET without auth token", async () => {
-      const { baseUrl, server } = await startRemoteServer(0, {
-        dangerouslyOmitAuth: true,
-      });
-      remoteServer = server;
-
       const res = await fetch(`${baseUrl}/api/storage/test-store`, {
         method: "GET",
       });
@@ -962,9 +969,24 @@ describe("Remote transport e2e", () => {
   });
 
   describe("endpoint error paths", () => {
+    let sharedServer: ServerType;
+    let baseUrl: string;
+    let authToken: string;
+
+    beforeAll(async () => {
+      const started = await startRemoteServer(0);
+      sharedServer = started.server;
+      baseUrl = started.baseUrl;
+      authToken = started.authToken;
+    });
+
+    afterAll(async () => {
+      await new Promise<void>((resolve, reject) => {
+        sharedServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    });
+
     it("/api/mcp/connect returns 400 on invalid JSON body", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0);
-      remoteServer = server;
       const res = await fetch(`${baseUrl}/api/mcp/connect`, {
         method: "POST",
         headers: {
@@ -978,8 +1000,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("/api/mcp/connect returns 400 when config is missing", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0);
-      remoteServer = server;
       const res = await fetch(`${baseUrl}/api/mcp/connect`, {
         method: "POST",
         headers: {
@@ -993,8 +1013,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("/api/mcp/send returns 400 on invalid JSON body", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0);
-      remoteServer = server;
       const res = await fetch(`${baseUrl}/api/mcp/send`, {
         method: "POST",
         headers: {
@@ -1007,8 +1025,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("/api/mcp/send returns 400 when sessionId or message is missing", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0);
-      remoteServer = server;
       const res = await fetch(`${baseUrl}/api/mcp/send`, {
         method: "POST",
         headers: {
@@ -1021,8 +1037,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("/api/mcp/send returns 404 for unknown sessionId", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0);
-      remoteServer = server;
       const res = await fetch(`${baseUrl}/api/mcp/send`, {
         method: "POST",
         headers: {
@@ -1038,8 +1052,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("/api/mcp/events returns 400 when sessionId is missing", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0);
-      remoteServer = server;
       const res = await fetch(`${baseUrl}/api/mcp/events`, {
         headers: { "x-mcp-remote-auth": `Bearer ${authToken}` },
       });
@@ -1047,8 +1059,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("/api/mcp/events returns 404 for unknown sessionId", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0);
-      remoteServer = server;
       const res = await fetch(`${baseUrl}/api/mcp/events?sessionId=missing`, {
         headers: { "x-mcp-remote-auth": `Bearer ${authToken}` },
       });
@@ -1056,8 +1066,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("/api/mcp/disconnect returns 400 on invalid JSON body", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0);
-      remoteServer = server;
       const res = await fetch(`${baseUrl}/api/mcp/disconnect`, {
         method: "POST",
         headers: {
@@ -1070,8 +1078,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("/api/mcp/disconnect returns 400 when sessionId is missing", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0);
-      remoteServer = server;
       const res = await fetch(`${baseUrl}/api/mcp/disconnect`, {
         method: "POST",
         headers: {
@@ -1084,8 +1090,6 @@ describe("Remote transport e2e", () => {
     });
 
     it("/api/fetch returns 400 on invalid JSON body", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0);
-      remoteServer = server;
       const res = await fetch(`${baseUrl}/api/fetch`, {
         method: "POST",
         headers: {
@@ -1099,136 +1103,153 @@ describe("Remote transport e2e", () => {
   });
 
   describe("Origin validation", () => {
-    it("allows requests with valid origin", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0, {
-        allowedOrigins: ["http://localhost:3000"],
-      });
-      remoteServer = server;
+    // Split by server config: 5 tests use { allowedOrigins } and share one
+    // server; the "not configured" case needs its own server and is split into
+    // its own describe so each block has symmetric beforeAll/afterAll cleanup.
+    describe("with allowedOrigins configured", () => {
+      let sharedServer: ServerType;
+      let baseUrl: string;
+      let authToken: string;
 
-      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-mcp-remote-auth": `Bearer ${authToken}`,
-          Origin: "http://localhost:3000",
-        },
-        body: JSON.stringify({
-          config: { type: "sse" as const, url: "http://localhost:3000" },
-        }),
+      beforeAll(async () => {
+        const started = await startRemoteServer(0, {
+          allowedOrigins: ["http://localhost:3000"],
+        });
+        sharedServer = started.server;
+        baseUrl = started.baseUrl;
+        authToken = started.authToken;
       });
 
-      // Should not be blocked by origin validation (may fail for other reasons)
-      expect(res.status).not.toBe(403);
-      const json = (await res.json()) as { error?: string };
-      // Should not be "Forbidden" due to origin
-      expect(json.error).not.toBe("Forbidden");
+      afterAll(async () => {
+        await new Promise<void>((resolve, reject) => {
+          sharedServer.close((err) => (err ? reject(err) : resolve()));
+        });
+      });
+
+      it("allows requests with valid origin", async () => {
+        const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-mcp-remote-auth": `Bearer ${authToken}`,
+            Origin: "http://localhost:3000",
+          },
+          body: JSON.stringify({
+            config: { type: "sse" as const, url: "http://localhost:3000" },
+          }),
+        });
+
+        // Should not be blocked by origin validation (may fail for other reasons)
+        expect(res.status).not.toBe(403);
+        const json = (await res.json()) as { error?: string };
+        // Should not be "Forbidden" due to origin
+        expect(json.error).not.toBe("Forbidden");
+      });
+
+      it("blocks requests with invalid origin", async () => {
+        const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-mcp-remote-auth": `Bearer ${authToken}`,
+            Origin: "http://evil.com",
+          },
+          body: JSON.stringify({
+            config: { type: "sse" as const, url: "http://localhost:3000" },
+          }),
+        });
+
+        expect(res.status).toBe(403);
+        const json = (await res.json()) as { error?: string; message?: string };
+        expect(json.error).toBe("Forbidden");
+        expect(json.message).toContain("Invalid origin");
+      });
+
+      it("allows requests without origin header (same-origin or non-browser)", async () => {
+        const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-mcp-remote-auth": `Bearer ${authToken}`,
+            // No Origin header
+          },
+          body: JSON.stringify({
+            config: { type: "sse" as const, url: "http://localhost:3000" },
+          }),
+        });
+
+        // Should not be blocked by origin validation
+        expect(res.status).not.toBe(403);
+      });
+
+      it("handles CORS preflight requests with valid origin", async () => {
+        const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+          method: "OPTIONS",
+          headers: {
+            Origin: "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,x-mcp-remote-auth",
+          },
+        });
+
+        expect(res.status).toBe(204);
+        expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
+          "http://localhost:3000",
+        );
+        expect(res.headers.get("Access-Control-Allow-Methods")).toContain(
+          "POST",
+        );
+      });
+
+      it("blocks CORS preflight requests with invalid origin", async () => {
+        const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+          method: "OPTIONS",
+          headers: {
+            Origin: "http://evil.com",
+            "Access-Control-Request-Method": "POST",
+          },
+        });
+
+        expect(res.status).toBe(403);
+        const json = (await res.json()) as { error?: string };
+        expect(json.error).toBe("Forbidden");
+      });
     });
 
-    it("blocks requests with invalid origin", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0, {
-        allowedOrigins: ["http://localhost:3000"],
-      });
-      remoteServer = server;
+    describe("without allowedOrigins configured", () => {
+      let sharedServer: ServerType;
+      let baseUrl: string;
+      let authToken: string;
 
-      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-mcp-remote-auth": `Bearer ${authToken}`,
-          Origin: "http://evil.com",
-        },
-        body: JSON.stringify({
-          config: { type: "sse" as const, url: "http://localhost:3000" },
-        }),
+      beforeAll(async () => {
+        const started = await startRemoteServer(0);
+        sharedServer = started.server;
+        baseUrl = started.baseUrl;
+        authToken = started.authToken;
       });
 
-      expect(res.status).toBe(403);
-      const json = (await res.json()) as { error?: string; message?: string };
-      expect(json.error).toBe("Forbidden");
-      expect(json.message).toContain("Invalid origin");
-    });
-
-    it("allows requests without origin header (same-origin or non-browser)", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0, {
-        allowedOrigins: ["http://localhost:3000"],
-      });
-      remoteServer = server;
-
-      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-mcp-remote-auth": `Bearer ${authToken}`,
-          // No Origin header
-        },
-        body: JSON.stringify({
-          config: { type: "sse" as const, url: "http://localhost:3000" },
-        }),
+      afterAll(async () => {
+        await new Promise<void>((resolve, reject) => {
+          sharedServer.close((err) => (err ? reject(err) : resolve()));
+        });
       });
 
-      // Should not be blocked by origin validation
-      expect(res.status).not.toBe(403);
-    });
+      it("allows all origins when allowedOrigins is not configured", async () => {
+        const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-mcp-remote-auth": `Bearer ${authToken}`,
+            Origin: "http://any-origin.com",
+          },
+          body: JSON.stringify({
+            config: { type: "sse" as const, url: "http://localhost:3000" },
+          }),
+        });
 
-    it("handles CORS preflight requests with valid origin", async () => {
-      const { baseUrl, server } = await startRemoteServer(0, {
-        allowedOrigins: ["http://localhost:3000"],
+        // Should not be blocked by origin validation
+        expect(res.status).not.toBe(403);
       });
-      remoteServer = server;
-
-      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
-        method: "OPTIONS",
-        headers: {
-          Origin: "http://localhost:3000",
-          "Access-Control-Request-Method": "POST",
-          "Access-Control-Request-Headers": "content-type,x-mcp-remote-auth",
-        },
-      });
-
-      expect(res.status).toBe(204);
-      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
-        "http://localhost:3000",
-      );
-      expect(res.headers.get("Access-Control-Allow-Methods")).toContain("POST");
-    });
-
-    it("blocks CORS preflight requests with invalid origin", async () => {
-      const { baseUrl, server } = await startRemoteServer(0, {
-        allowedOrigins: ["http://localhost:3000"],
-      });
-      remoteServer = server;
-
-      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
-        method: "OPTIONS",
-        headers: {
-          Origin: "http://evil.com",
-          "Access-Control-Request-Method": "POST",
-        },
-      });
-
-      expect(res.status).toBe(403);
-      const json = (await res.json()) as { error?: string };
-      expect(json.error).toBe("Forbidden");
-    });
-
-    it("allows all origins when allowedOrigins is not configured", async () => {
-      const { baseUrl, server, authToken } = await startRemoteServer(0);
-      remoteServer = server;
-
-      const res = await fetch(`${baseUrl}/api/mcp/connect`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-mcp-remote-auth": `Bearer ${authToken}`,
-          Origin: "http://any-origin.com",
-        },
-        body: JSON.stringify({
-          config: { type: "sse" as const, url: "http://localhost:3000" },
-        }),
-      });
-
-      // Should not be blocked by origin validation
-      expect(res.status).not.toBe(403);
     });
   });
 
