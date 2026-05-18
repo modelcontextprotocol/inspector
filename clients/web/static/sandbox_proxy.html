@@ -3,8 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="color-scheme" content="light dark" />
-    <!-- CSP is set via HTTP headers by serve.ts (based on ?csp= query param).
-       The inner iframe inherits this CSP since we use document.write(). -->
+    <!-- Isolation model: the iframe `sandbox` attribute set on the inner
+         frame below ("allow-scripts allow-same-origin allow-forms") is the
+         only enforced isolation boundary. Plus the parent-origin allowlist
+         (ALLOWED_REFERRER_PATTERN + EXPECTED_HOST_ORIGIN check on incoming
+         messages). A CSP header is intentionally NOT set by the sandbox
+         controller — if you need one, send it from server.ts when serving
+         this file. -->
     <title>MCP-UI Proxy</title>
     <style>
       html,
@@ -117,8 +122,9 @@
       // intercepted here (not relayed) because the Sandbox uses it to configure and
       // load the inner iframe with the view HTML content.
       //
-      // Security: CSP is enforced via HTTP headers on sandbox.html (set by serve.ts
-      // based on ?csp= query param). This is tamper-proof unlike meta tags.
+      // Security: isolation comes from the iframe `sandbox` attribute and
+      // the origin allowlist above. No CSP header is set on this page (see
+      // the head comment); the sandbox attribute is the enforced boundary.
 
       window.addEventListener("message", async (event) => {
         if (event.source === window.parent) {

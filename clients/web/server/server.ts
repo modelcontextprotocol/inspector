@@ -19,13 +19,12 @@ import {
   buildWebServerConfigFromEnv,
   printServerBanner,
 } from "./web-server-config.js";
+import type { WebServerHandle } from "./types.js";
+
+export type { WebServerHandle };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-export interface WebServerHandle {
-  close(): Promise<void>;
-}
 
 /**
  * Start the Hono production server in-process. Returns a handle that closes sandbox then HTTP server.

@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { createServer, type Server } from "node:http";
 import {
   createSandboxController,
   resolveSandboxPort,
@@ -155,6 +156,39 @@ describe("createSandboxController", () => {
       expect(url).toMatch(/^http:\/\/127\.0\.0\.1:/);
     } finally {
       await controller.close();
+    }
+  });
+
+  it("resolves with empty values when listen fails (EADDRINUSE)", async () => {
+    // Bind a placeholder HTTP server to claim a port, then point a sandbox
+    // controller at the same port to force EADDRINUSE. The Vite plugin awaits
+    // start() in configureServer; if start() ever stops resolving, the entire
+    // dev backend hangs. This test pins down the resolve-on-error contract.
+    const blocker: Server = createServer();
+    await new Promise<void>((resolve) =>
+      blocker.listen(0, "127.0.0.1", () => resolve()),
+    );
+    const addr = blocker.address();
+    const port =
+      typeof addr === "object" && addr !== null && "port" in addr
+        ? addr.port
+        : 0;
+    expect(port).toBeGreaterThan(0);
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const controller = createSandboxController({ port, host: "127.0.0.1" });
+    try {
+      const result = await controller.start();
+      expect(result).toEqual({ port: 0, url: "" });
+      expect(controller.getUrl()).toBeNull();
+      // close() must be a no-op since the server never bound.
+      await expect(controller.close()).resolves.toBeUndefined();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Sandbox: port ${port} in use`),
+      );
+    } finally {
+      errorSpy.mockRestore();
+      await new Promise<void>((resolve) => blocker.close(() => resolve()));
     }
   });
 });

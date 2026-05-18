@@ -12,12 +12,11 @@ import react from "@vitejs/plugin-react";
 import type { WebServerConfig } from "./web-server-config.js";
 import { honoMiddlewarePlugin } from "./vite-hono-plugin.js";
 import { getViteBaseConfig } from "./vite-base-config.js";
+import type { WebServerHandle } from "./types.js";
+
+export type { WebServerHandle };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-export interface WebServerHandle {
-  close(): Promise<void>;
-}
 
 /**
  * Start the Vite dev server in-process. Passes config into the plugin. Caller owns SIGINT/SIGTERM.

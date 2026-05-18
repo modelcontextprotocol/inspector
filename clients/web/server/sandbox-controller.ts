@@ -65,6 +65,16 @@ export function createSandboxController(
         return { port: p, url: sandboxUrl };
       }
       return new Promise((resolve) => {
+        // Guard so a `listen` error followed by a (theoretically possible)
+        // late `listening` callback doesn't double-resolve the promise. The
+        // first signal wins.
+        let settled = false;
+        const settle = (value: { port: number; url: string }) => {
+          if (settled) return;
+          settled = true;
+          resolve(value);
+        };
+
         server = createServer((req, res) => {
           if (
             req.method !== "GET" ||
@@ -89,6 +99,12 @@ export function createSandboxController(
           } else {
             console.error("Sandbox server error:", err);
           }
+          // Best-effort degradation: resolve with empty values rather than
+          // rejecting so callers (the Vite plugin in particular) keep
+          // attaching `/api/*`. `sandboxUrl` stays null, `getUrl()` keeps
+          // returning null, and the banner omits the sandbox line.
+          server = null;
+          settle({ port: 0, url: "" });
         });
         server.listen(port, host, () => {
           const addr = server!.address();
@@ -97,7 +113,7 @@ export function createSandboxController(
               ? addr.port
               : (addr as unknown as number);
           sandboxUrl = `http://${host}:${actualPort}/sandbox`;
-          resolve({ port: actualPort, url: sandboxUrl });
+          settle({ port: actualPort, url: sandboxUrl });
         });
       });
     },

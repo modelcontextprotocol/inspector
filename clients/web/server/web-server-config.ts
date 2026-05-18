@@ -109,6 +109,12 @@ export function webServerConfigToInitialPayload(
       defaultEnvironment,
     };
   }
+  // Forward-compat fallback: if a future SDK ships a new transport type the
+  // launcher hasn't taught us about yet, prefer streamable-http (the most
+  // permissive shape with `url` + optional `headers`) over throwing. Worst
+  // case the UI shows the URL the user supplied; throwing here would deny
+  // the user a hint at startup. Add a real branch above once the type is
+  // known.
   const c = mc as unknown as { url: string; headers?: Record<string, string> };
   return {
     defaultTransport: "streamable-http",
@@ -190,15 +196,22 @@ export function buildWebServerConfigFromEnv(): WebServerConfig {
     sandboxPort,
     sandboxHost: hostname,
     logger,
-    // Vitest runs share `vite.config.ts` and end up loading the Hono plugin's
-    // banner code. Default `autoOpen` to false under VITEST so test runs
-    // don't shell out to `open()`. Explicit `MCP_AUTO_OPEN_ENABLED=true`
-    // overrides if a test genuinely needs to exercise the auto-open path.
-    autoOpen:
-      process.env.MCP_AUTO_OPEN_ENABLED === "true"
-        ? true
-        : process.env.MCP_AUTO_OPEN_ENABLED === "false"
-          ? false
-          : !process.env.VITEST,
+    autoOpen: resolveAutoOpen(),
   };
+}
+
+/**
+ * Three-way resolution for `autoOpen`:
+ *   - explicit `MCP_AUTO_OPEN_ENABLED=true`  → always open (overrides VITEST)
+ *   - explicit `MCP_AUTO_OPEN_ENABLED=false` → never open
+ *   - anything else                          → open by default UNLESS Vitest
+ *     is running (Vitest sets `VITEST=true`; vite.config.ts is shared with
+ *     vitest projects and the Hono plugin would otherwise shell out to
+ *     `open()` on every test invocation).
+ */
+function resolveAutoOpen(): boolean {
+  const flag = process.env.MCP_AUTO_OPEN_ENABLED;
+  if (flag === "true") return true;
+  if (flag === "false") return false;
+  return !process.env.VITEST;
 }

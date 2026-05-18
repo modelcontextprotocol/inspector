@@ -120,8 +120,16 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
           if (req.method !== "GET" && req.method !== "HEAD") {
             const chunks: Buffer[] = [];
             req.on("data", (chunk: Buffer) => chunks.push(chunk));
+            // Listen for `end`, `error`, AND `close`. Without `error`/`close`
+            // an aborted upload (browser navigates away mid-POST) leaves this
+            // promise pending forever, leaking memory and the connection.
+            // We resolve on every terminal event — partial body bytes flow on
+            // to Hono; the underlying fetch will fail downstream if the
+            // payload is truncated, which is the expected behavior on abort.
             await new Promise<void>((resolve) => {
-              req.on("end", () => resolve());
+              req.once("end", () => resolve());
+              req.once("error", () => resolve());
+              req.once("close", () => resolve());
             });
             if (chunks.length > 0) {
               init.body = Buffer.concat(chunks);
@@ -168,7 +176,14 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
                 res.end();
               }
             };
-            pump();
+            // The recursive pump() awaits internally, but a sync throw before
+            // the first `await reader.read()` (e.g. a broken reader) would
+            // surface as an unhandled rejection without this kickoff catch.
+            pump().catch((err) => {
+              console.error("[Hono Middleware] Initial pump error:", err);
+              reader.cancel().catch(() => {});
+              res.end();
+            });
           } else {
             res.end();
           }
