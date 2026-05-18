@@ -8,6 +8,15 @@ This is an application for inspecting MCP servers. Has three incarnations, Web, 
 inspector/
 ├── clients/
 │   ├── web/                            # Web client (Vite + React + Mantine)
+│   │   ├── src/                        # Browser source (React app, hooks, components)
+│   │   ├── server/                     # Node-only dev/prod backend wiring:
+│   │   │                               #   vite-hono-plugin.ts (Hono middleware on the Vite dev server),
+│   │   │                               #   server.ts (standalone Hono prod server),
+│   │   │                               #   start-vite-dev-server.ts (in-process Vite starter for the launcher),
+│   │   │                               #   web-server-config.ts (env parsing + initial-config payload + banner),
+│   │   │                               #   sandbox-controller.ts (MCP Apps sandbox HTTP server),
+│   │   │                               #   vite-base-config.ts (shared optimizeDeps exclusions)
+│   │   └── static/                     # sandbox_proxy.html (served by sandbox-controller for MCP Apps tab)
 │   ├── cli/                            # CLI client
 │   ├── tui/                            # TUI client
 │   ├── launcher/                       # Shared launcher

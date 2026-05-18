@@ -7,6 +7,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
+import { honoMiddlewarePlugin } from './server/vite-hono-plugin';
+import { getViteBaseConfig } from './server/vite-base-config';
+import { buildWebServerConfigFromEnv } from './server/web-server-config';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(dirname, '../..');
 
@@ -84,7 +87,36 @@ const integrationGlob = 'clients/web/src/test/integration/**/*.test.{ts,tsx}';
 
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig({
-  plugins: [react()],
+  // `honoMiddlewarePlugin` is gated by `apply: 'serve'` so it only attaches
+  // during `vite dev` / `vite preview` — vitest projects share this config
+  // but never invoke `configureServer`, so the plugin stays inert there.
+  plugins: [react(), honoMiddlewarePlugin(buildWebServerConfigFromEnv())],
+  // Shared optimizeDeps exclusions so node-only packages
+  // (`@modelcontextprotocol/sdk/client/stdio.js`, `cross-spawn`, `which`)
+  // consumed by the dev backend aren't scanned for browser pre-bundling.
+  // Browser code reaches the node-side stack via the Hono plugin only.
+  ...getViteBaseConfig(),
+  build: {
+    rollupOptions: {
+      // Loading vite.config.ts pulls `core/mcp/remote/node/server.ts` (via the
+      // Hono plugin) into Rollup's module cache. That chain reaches
+      // `core/storage/store-io.ts`, which imports node-only `atomically`. The
+      // module never lands in the browser bundle (it's unreachable from
+      // `index.html`), but Rollup's scanner still warns about the unresolved
+      // import. Silence it here so the build log stays clean.
+      onwarn(warning, defaultHandler) {
+        if (
+          warning.code === 'UNRESOLVED_IMPORT' &&
+          typeof warning.message === 'string' &&
+          warning.message.includes("'atomically'") &&
+          warning.message.includes('store-io.ts')
+        ) {
+          return;
+        }
+        defaultHandler(warning);
+      },
+    },
+  },
   resolve: {
     // NOTE: the unit vitest project (below) overrides this — see comment there.
     alias: sharedAliases,
@@ -106,6 +138,7 @@ export default defineConfig({
       include: [
         'src/components/**/*.{ts,tsx}',
         'src/utils/**/*.{ts,tsx}',
+        'clients/web/server/**/*.{ts,tsx}',
         path.join(repoRoot, 'core/mcp/**/*.{ts,tsx}'),
         path.join(repoRoot, 'core/react/**/*.{ts,tsx}'),
         path.join(repoRoot, 'core/auth/**/*.{ts,tsx}'),
@@ -118,6 +151,17 @@ export default defineConfig({
         '**/*.fixtures.{ts,tsx}',
         '**/index.{ts,tsx}',
         'src/components/**/types.ts',
+        // Dev-backend runtime glue: each file is exercised end-to-end via
+        // `npm run dev` (Hono plugin attaches, banner prints, /api/* serves).
+        // `vite-hono-plugin.ts` requires standing up a real Vite server with
+        // an HTTP listener to drive `configureServer`; `server.ts` is the
+        // production Hono entry that the v2 launcher (not yet ported, #1246)
+        // will invoke; `start-vite-dev-server.ts` is its dev counterpart.
+        // The non-glue parts are extracted to `web-server-config.ts` (fully
+        // tested) and `sandbox-controller.ts` (HTTP behavior tested).
+        'clients/web/server/vite-hono-plugin.ts',
+        'clients/web/server/server.ts',
+        'clients/web/server/start-vite-dev-server.ts',
         // Pure-type modules: `interface`/`type` declarations only, no runtime
         // statements. Excluding them keeps the report clean (would otherwise
         // surface as misleading 0/0 rows).
