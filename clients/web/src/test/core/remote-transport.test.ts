@@ -1280,7 +1280,11 @@ describe("Remote transport e2e", () => {
       await mcpHttpServer.stop();
       mcpHttpServer = null;
 
-      // Give the transport a moment to notice the closed connection
+      // Give the transport a moment to notice the closed upstream. The
+      // assertion below is intentionally permissive (status >= 500) so the
+      // test passes whether the SDK transport marks itself dead (short-
+      // circuit at /api/mcp/send) or the send call surfaces the failure
+      // directly. Either path covers a 5xx branch in send().
       await new Promise<void>((r) => setTimeout(r, 250));
 
       const sendRes = await fetch(`${baseUrl}/api/mcp/send`, {

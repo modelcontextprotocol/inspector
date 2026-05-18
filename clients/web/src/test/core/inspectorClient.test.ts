@@ -4195,28 +4195,30 @@ describe("InspectorClient", () => {
       });
     });
 
-    describe("listChanged notifications", () => {
-      it("dispatches toolsListChanged when server advertises tools.listChanged and notifies", async () => {
+    describe("capability detection after connect", () => {
+      it("round-trips listChanged + subscribe flags via getCapabilities()", async () => {
+        // The handler-registration arrows in InspectorClient fire during
+        // connect only when the matching server capability is advertised.
+        // Exercise all four conditional branches in one connect by enabling
+        // tools/resources/prompts listChanged + resource subscriptions.
+        // The resources/prompts arrays are required for the test server to
+        // actually emit those capability blocks (an empty list omits the
+        // capability rather than advertising an empty one).
         server = createTestServerHttp({
           serverInfo: createTestServerInfo(),
           tools: [createEchoTool()],
-          listChanged: { tools: true, resources: true, prompts: true },
-          subscriptions: true,
           resources: createNumberedResources(1),
           prompts: [createArgsPrompt()],
+          listChanged: { tools: true, resources: true, prompts: true },
+          subscriptions: true,
         });
         await server.start();
         client = new InspectorClient(
           { type: "streamable-http", url: server.url },
           { environment: { transport: createTransportNode } },
         );
-
-        // The handler-registration arrows fire during connect when the
-        // matching server capability is advertised. Connecting here exercises
-        // the conditional branches in the constructor / connect path.
         await client.connect();
 
-        // Confirm capability detection round-tripped
         const caps = client.getCapabilities();
         expect(caps?.tools?.listChanged).toBe(true);
         expect(caps?.resources?.listChanged).toBe(true);
@@ -4498,6 +4500,12 @@ describe("InspectorClient", () => {
       // even though the constructor always assigns it. Force the field to null
       // via a private-field cast so we can exercise the throw branches once,
       // rather than sprinkling `if` guards through tests for each method.
+      //
+      // NOTE: keep this list in sync with the `if (!this.client) throw …`
+      // sites in core/mcp/inspectorClient.ts. If a guard is removed during a
+      // future refactor (e.g. when the field becomes `Client` instead of
+      // `Client | null`) this test will silently under-cover rather than
+      // fail — the matching call below should be removed at the same time.
       function nullify(c: InspectorClient): void {
         (c as unknown as { client: unknown }).client = null;
       }
