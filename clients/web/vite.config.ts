@@ -76,7 +76,11 @@ const projectResolve = {
 // outside is a unit test (happy-dom). This prevents the silent
 // misclassification trap where a file's environment depended on whether
 // someone remembered to add it to an enumeration (#1314).
-const integrationGlob = 'clients/web/src/test/integration/**/*.test.ts';
+//
+// Match `{ts,tsx}` to mirror the unit project's include below — otherwise a
+// stray `.test.tsx` placed inside this folder would slip past the integration
+// include AND fail to be excluded from unit, silently landing under happy-dom.
+const integrationGlob = 'clients/web/src/test/integration/**/*.test.{ts,tsx}';
 
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig({
