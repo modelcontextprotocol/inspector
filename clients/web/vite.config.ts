@@ -70,26 +70,17 @@ const projectResolve = {
   dedupe: sharedDedupe,
 };
 
-// v1.5-ported integration tests that need a node-env vitest project — they
-// spawn real HTTP/stdio servers via test-servers/, run end-to-end OAuth flows,
-// talk to fs/network, or mock `@modelcontextprotocol/sdk/client/auth.js` (the
-// SDK auth mock identity is lost under happy-dom + Vitest 4, but works under
-// node env). Tracked in #1307.
-const integrationTests = [
-  'clients/web/src/test/core/inspectorClient.test.ts',
-  'clients/web/src/test/core/inspectorClient-oauth.test.ts',
-  'clients/web/src/test/core/inspectorClient-oauth-e2e.test.ts',
-  'clients/web/src/test/core/inspectorClient-oauth-fetchFn.test.ts',
-  'clients/web/src/test/core/inspectorClient-oauth-remote-storage-e2e.test.ts',
-  'clients/web/src/test/core/transport.test.ts',
-  'clients/web/src/test/core/remote-transport.test.ts',
-  'clients/web/src/test/core/remote-server-config.test.ts',
-  'clients/web/src/test/core/storage-adapters.test.ts',
-  'clients/web/src/test/core/auth/storage-node.test.ts',
-  'clients/web/src/test/core/auth/oauth-callback-server.test.ts',
-  'clients/web/src/test/core/auth/discovery.test.ts',
-  'clients/web/src/test/core/auth/state-machine.test.ts',
-];
+// Integration tests live under clients/web/src/test/integration/ and run in
+// the node-env vitest project below. The folder is the manifest: anything
+// inside it is integration (node env, 30s timeout, real servers); anything
+// outside is a unit test (happy-dom). This prevents the silent
+// misclassification trap where a file's environment depended on whether
+// someone remembered to add it to an enumeration (#1314).
+//
+// Match `{ts,tsx}` to mirror the unit project's include below — otherwise a
+// stray `.test.tsx` placed inside this folder would slip past the integration
+// include AND fail to be excluded from unit, silently landing under happy-dom.
+const integrationGlob = 'clients/web/src/test/integration/**/*.test.{ts,tsx}';
 
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig({
@@ -182,7 +173,7 @@ export default defineConfig({
           // global lifecycle hooks; cleanup is invoked manually in setup.ts.
           include: ['clients/web/src/**/*.test.{ts,tsx}'],
           // Integration tests run in the integration project below (node env).
-          exclude: integrationTests,
+          exclude: [integrationGlob],
           setupFiles: [path.join(dirname, 'src/test/setup.ts')],
         },
       },
@@ -199,7 +190,7 @@ export default defineConfig({
           // Same reason as the unit project: rooted at repoRoot so vitest
           // can transform core/ modules and run tests against the source.
           root: repoRoot,
-          include: integrationTests,
+          include: [integrationGlob],
           // Integration tests spawn real HTTP/stdio servers via test-servers/,
           // bind sockets, run e2e OAuth flows, and exercise filesystem-backed
           // storage. 30s matches the v1.5 core/vitest.config.ts.

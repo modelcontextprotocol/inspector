@@ -34,7 +34,7 @@ import {
   completeOAuthAuthorization,
   createClientMetadataServer,
   type ClientMetadataDocument,
-} from "./helpers/oauth-client-fixtures.js";
+} from "../helpers/oauth-client-fixtures.js";
 import {
   clearAllOAuthClientState,
   NodeOAuthStorage,
