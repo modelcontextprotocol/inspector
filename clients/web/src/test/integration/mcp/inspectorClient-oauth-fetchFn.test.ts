@@ -14,7 +14,7 @@ import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import { NodeOAuthStorage } from "@inspector/core/auth/node/storage-node.js";
-import { createOAuthClientConfig } from "./helpers/oauth-client-fixtures.js";
+import { createOAuthClientConfig } from "../helpers/oauth-client-fixtures.js";
 import type { InspectorClientOptions } from "@inspector/core/mcp/inspectorClient.js";
 
 const oauthTestStatePath = path.join(
