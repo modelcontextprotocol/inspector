@@ -32,8 +32,9 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
   metadata_discovery: {
     canTransition: async () => true,
     execute: async (context) => {
-      // Default to discovering from the server's URL
-      let authServerUrl = new URL("/", context.serverUrl);
+      // Default to discovering from the server's URL, preserving the path for
+      // RFC 8414 path-aware discovery (/.well-known/oauth-authorization-server{/path}).
+      let authServerUrl = new URL(context.serverUrl);
       let resourceMetadata: OAuthProtectedResourceMetadata | null = null;
       let resourceMetadataError: Error | null = null;
       try {
@@ -42,15 +43,32 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
           {},
           context.fetchFn,
         );
-        if (resourceMetadata?.authorization_servers?.length) {
-          authServerUrl = new URL(resourceMetadata.authorization_servers[0]);
+      } catch {
+        // RFC 8707 path-aware and bare-origin discovery both failed.
+        // For sub-path mounted servers (e.g. FastMCP), the protected resource
+        // metadata is served at {serverUrl}/.well-known/oauth-protected-resource
+        // (mount-relative), so try that URL explicitly before giving up.
+        const serverURL = new URL(context.serverUrl);
+        if (serverURL.pathname !== "/") {
+          const path = serverURL.pathname.endsWith("/")
+            ? serverURL.pathname.slice(0, -1)
+            : serverURL.pathname;
+          const mountRelativeUrl = `${serverURL.origin}${path}/.well-known/oauth-protected-resource`;
+          try {
+            resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+              context.serverUrl,
+              { resourceMetadataUrl: mountRelativeUrl },
+              context.fetchFn,
+            );
+          } catch (innerE) {
+            resourceMetadataError =
+              innerE instanceof Error ? innerE : new Error(String(innerE));
+          }
         }
-      } catch (e) {
-        if (e instanceof Error) {
-          resourceMetadataError = e;
-        } else {
-          resourceMetadataError = new Error(String(e));
-        }
+      }
+
+      if (resourceMetadata?.authorization_servers?.length) {
+        authServerUrl = new URL(resourceMetadata.authorization_servers[0]);
       }
 
       const resource: URL | undefined = await selectResourceURL(
