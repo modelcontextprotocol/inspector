@@ -102,4 +102,15 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   // Misc surface required by hooks/state
   setLoggingLevel(level: LoggingLevel): Promise<void>;
   getSessionId(): string | undefined;
+
+  // Completions (resource templates / prompt arguments)
+  getCompletions(
+    ref:
+      | { type: "ref/resource"; uri: string }
+      | { type: "ref/prompt"; name: string },
+    argumentName: string,
+    argumentValue: string,
+    context?: Record<string, string>,
+    metadata?: Record<string, string>,
+  ): Promise<{ values: string[]; total?: number; hasMore?: boolean }>;
 }

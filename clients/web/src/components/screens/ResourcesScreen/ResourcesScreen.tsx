@@ -25,10 +25,19 @@ export interface ResourcesScreenProps {
   subscriptions: InspectorResourceSubscription[];
   readState?: ReadResourceState;
   listChanged: boolean;
+  completionsSupported?: boolean;
   onRefreshList: () => void;
   onReadResource: (uri: string) => void;
   onSubscribeResource: (uri: string) => void;
   onUnsubscribeResource: (uri: string) => void;
+  onCompleteArgument?: (
+    ref:
+      | { type: "ref/resource"; uri: string }
+      | { type: "ref/prompt"; name: string },
+    argumentName: string,
+    argumentValue: string,
+    context: Record<string, string>,
+  ) => Promise<string[]>;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -88,10 +97,12 @@ export function ResourcesScreen({
   subscriptions,
   readState,
   listChanged,
+  completionsSupported,
   onRefreshList,
   onReadResource,
   onSubscribeResource,
   onUnsubscribeResource,
+  onCompleteArgument,
 }: ResourcesScreenProps) {
   const [selectedResourceUri, setSelectedResourceUri] = useState<
     string | undefined
@@ -210,6 +221,21 @@ export function ResourcesScreen({
             <ResourceTemplatePanel
               template={selectedTemplate}
               onReadResource={handleReadResource}
+              completionsSupported={completionsSupported}
+              onCompleteArgument={
+                onCompleteArgument
+                  ? (argName, value, context) =>
+                      onCompleteArgument(
+                        {
+                          type: "ref/resource",
+                          uri: selectedTemplate.uriTemplate,
+                        },
+                        argName,
+                        value,
+                        context,
+                      )
+                  : undefined
+              }
             />
           </PreviewCard>
         </PreviewPane>

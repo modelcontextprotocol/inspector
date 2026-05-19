@@ -508,6 +508,27 @@ function App() {
     [inspectorClient],
   );
 
+  const onCompleteArgument = useCallback(
+    async (
+      ref:
+        | { type: "ref/resource"; uri: string }
+        | { type: "ref/prompt"; name: string },
+      argumentName: string,
+      argumentValue: string,
+      context: Record<string, string>,
+    ): Promise<string[]> => {
+      if (!inspectorClient) return [];
+      const result = await inspectorClient.getCompletions(
+        ref,
+        argumentName,
+        argumentValue,
+        context,
+      );
+      return result.values;
+    },
+    [inspectorClient],
+  );
+
   const onCancelTask = useCallback(
     (taskId: string) => {
       if (!inspectorClient) return;
@@ -630,6 +651,8 @@ function App() {
       onSubscribeResource={onSubscribeResource}
       onUnsubscribeResource={onUnsubscribeResource}
       onRefreshResources={onRefreshResources}
+      onCompleteArgument={onCompleteArgument}
+      completionsSupported={capabilities?.completions !== undefined}
       onCancelTask={onCancelTask}
       onClearCompletedTasks={todoNoop}
       onRefreshTasks={onRefreshTasks}

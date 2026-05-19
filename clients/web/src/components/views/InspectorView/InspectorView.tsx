@@ -174,6 +174,15 @@ export interface InspectorViewProps {
   onSubscribeResource: (uri: string) => void;
   onUnsubscribeResource: (uri: string) => void;
   onRefreshResources: () => void;
+  onCompleteArgument?: (
+    ref:
+      | { type: "ref/resource"; uri: string }
+      | { type: "ref/prompt"; name: string },
+    argumentName: string,
+    argumentValue: string,
+    context: Record<string, string>,
+  ) => Promise<string[]>;
+  completionsSupported?: boolean;
 
   onCancelTask: (taskId: string) => void;
   onClearCompletedTasks: () => void;
@@ -240,6 +249,8 @@ export function InspectorView({
   onSubscribeResource,
   onUnsubscribeResource,
   onRefreshResources,
+  onCompleteArgument,
+  completionsSupported,
   onCancelTask,
   onClearCompletedTasks,
   onRefreshTasks,
@@ -394,10 +405,12 @@ export function InspectorView({
               subscriptions={subscriptions}
               readState={readResourceState}
               listChanged={false}
+              completionsSupported={completionsSupported}
               onRefreshList={onRefreshResources}
               onReadResource={onReadResource}
               onSubscribeResource={onSubscribeResource}
               onUnsubscribeResource={onUnsubscribeResource}
+              onCompleteArgument={onCompleteArgument}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Tasks"}>

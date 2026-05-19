@@ -120,6 +120,20 @@ export class FakeInspectorClient
 
   setLoggingLevel = vi.fn(async (_level: LoggingLevel) => {});
 
+  getCompletions = vi.fn(
+    async (
+      _ref:
+        | { type: "ref/resource"; uri: string }
+        | { type: "ref/prompt"; name: string },
+      _argumentName: string,
+      _argumentValue: string,
+      _context?: Record<string, string>,
+      _metadata?: Record<string, string>,
+    ): Promise<{ values: string[]; total?: number; hasMore?: boolean }> => ({
+      values: [],
+    }),
+  );
+
   constructor(options: FakeInspectorClientOptions = {}) {
     super();
     this.status = options.status ?? "disconnected";
