@@ -34,10 +34,13 @@ import type { BridgeFactory } from "./components/elements/AppRenderer/AppRendere
 import type { LogEntryData } from "./components/elements/LogEntry/LogEntry";
 import { createWebEnvironment } from "./lib/environmentFactory";
 
-// One hardcoded seed server so the Servers screen has something to connect
-// to. Persistence + an "Add server" UI are explicitly out of scope for
-// #1244 (the useServers v2-only hook is a separate effort); follow-up work
-// will replace this with a real `useServers` store.
+// Hardcoded seed servers so the Servers screen has something to connect to.
+// Persistence + an "Add server" UI are explicitly out of scope for #1244 (the
+// useServers v2-only hook is a separate effort); follow-up work will replace
+// this with a real `useServers` store. The two seeds here cover the common
+// shapes a developer reaches for first: a real filesystem (scoped to /tmp so
+// nothing destructive is possible by default) and the canonical "everything"
+// reference server (tools / prompts / resources / sampling / completion).
 const SEED_SERVERS: ServerEntry[] = [
   {
     id: "filesystem-server-default",
@@ -46,6 +49,16 @@ const SEED_SERVERS: ServerEntry[] = [
       type: "stdio",
       command: "npx",
       args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+    },
+    connection: { status: "disconnected" },
+  },
+  {
+    id: "everything-server-default",
+    name: "Everything (npx)",
+    config: {
+      type: "stdio",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-everything"],
     },
     connection: { status: "disconnected" },
   },
