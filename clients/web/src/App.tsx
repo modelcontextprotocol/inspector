@@ -8,6 +8,7 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import type { JsonValue } from "@inspector/core/mcp/index.js";
 import type { MessageEntry, ServerEntry } from "@inspector/core/mcp/types.js";
 import { API_SERVER_ENV_VARS } from "@inspector/core/mcp/remote/constants.js";
 import { ManagedToolsState } from "@inspector/core/mcp/state/managedToolsState.js";
@@ -253,10 +254,26 @@ function App() {
     }
   }, [connectionStatus]);
 
+  // Disconnect the previous InspectorClient when it's replaced (server
+  // switch) or when App unmounts (HMR, tests). Without this the prior
+  // session's transport — a spawned stdio subprocess, an SSE stream, or
+  // an HTTP session — stays open until GC eventually lets go. The
+  // state-manager destroys in `setupClientForServer` only handle the
+  // listener side; this effect handles the transport side. `disconnect()`
+  // is the canonical lifecycle hook (InspectorClient has no `destroy()`);
+  // it closes the transport, clears subscriptions, cancels receiver TTLs.
+  useEffect(() => {
+    return () => {
+      if (inspectorClient) {
+        void inspectorClient.disconnect();
+      }
+    };
+  }, [inspectorClient]);
+
   // Build the InitializeResult the connected ViewHeader expects from the
   // hook's split fields. `protocolVersion` is hard-coded for now — the
-  // useInspectorClient hook doesn't expose it; revisit if/when InspectorView
-  // grows a need for the real negotiated value.
+  // useInspectorClient hook doesn't expose it. TODO(#1324): consume the
+  // negotiated value once the hook surfaces it.
   const initializeResult = useMemo<InitializeResult | undefined>(() => {
     if (connectionStatus !== "connected" || !serverInfo) return undefined;
     return {
@@ -358,6 +375,10 @@ function App() {
       try {
         await client.connect();
       } catch (err) {
+        // Handshake-only. A mid-session transport failure transitions the
+        // client status to "error" without rejecting any pending promise,
+        // and `errorMessage` stays stale. TODO(#1323): consume an `error`
+        // event from `InspectorClientEventMap` once it exists.
         connectStartRef.current = undefined;
         const message = err instanceof Error ? err.message : String(err);
         setErrorMessage(message);
@@ -386,9 +407,14 @@ function App() {
       if (!tool) return;
       setToolCallState({ status: "pending" });
       try {
+        // ToolsScreen types the args as `Record<string, unknown>` (it accepts
+        // anything the user types into the schema form). `callTool` requires
+        // `Record<string, JsonValue>` — narrow at the boundary instead of
+        // claiming the object is empty (which the previous `as Record<string,
+        // never>` cast did, misleadingly).
         const invocation = await inspectorClient.callTool(
           tool,
-          args as Record<string, never>,
+          args as Record<string, JsonValue>,
         );
         setToolCallState({
           status: invocation.success ? "ok" : "error",
@@ -531,6 +557,9 @@ function App() {
       prompts={prompts}
       resources={resources}
       resourceTemplates={resourceTemplates}
+      // TODO(#1325): drop the empty fallback once `useResourceSubscriptions`
+      // surfaces the live subscription list — subscribe/unsubscribe buttons
+      // currently fire but the screen never reflects the result.
       subscriptions={[]}
       logs={logs}
       tasks={tasks}
@@ -591,10 +620,3 @@ function App() {
 }
 
 export default App;
-
-// Surface so the FetchRequestLog + Stderr state managers are kept alive
-// (their effects subscribe to client events for #1262 / future panels).
-// Marking them void here keeps the no-unused-vars lint quiet without
-// hiding the intent.
-void FetchRequestLogState;
-void StderrLogState;
