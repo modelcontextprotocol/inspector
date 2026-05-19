@@ -1,10 +1,12 @@
 import type {
+  InitializeResult,
   Prompt,
   Resource,
   ResourceTemplate,
   Task,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type {
   InspectorResourceSubscription,
   MessageEntry,
@@ -17,6 +19,19 @@ import { mixedEntries as demoLogs } from "../../screens/LoggingScreen/LoggingScr
 import { longToolList as demoRegularTools } from "../../screens/ToolsScreen/ToolsScreen.fixtures";
 import { SUN_ICON_SVG } from "../../../test/fixtures/storyIcons";
 import type { TaskProgress } from "../../groups/TaskCard/TaskCard";
+import type { BridgeFactory } from "../../elements/AppRenderer/AppRenderer";
+
+// Stories never drive a real MCP App bridge — render the iframe stage with
+// a no-op factory so the AppsScreen mounts without trying to postMessage to
+// a real sandbox.
+const noopBridgeFactory: BridgeFactory = () =>
+  ({
+    sendToolInput: async () => {},
+    sendToolResult: async () => {},
+    sendToolCancelled: async () => {},
+    teardownResource: async () => ({}),
+    close: async () => {},
+  }) as unknown as AppBridge;
 
 // MCP App tools — `isAppTool` detects these via `_meta.ui.resourceUri`,
 // so they get filtered into the Apps tab while still appearing on Tools.
@@ -234,12 +249,18 @@ const demoHistory: MessageEntry[] = [
   },
 ];
 
+const demoInitializeResult: InitializeResult = {
+  protocolVersion: "2025-06-18",
+  capabilities: {},
+  serverInfo: { name: "Local Dev Server", version: "1.2.0" },
+};
+
 const meta: Meta<typeof InspectorView> = {
   title: "Views/InspectorView",
   component: InspectorView,
   parameters: { layout: "fullscreen" },
   args: {
-    onToggleTheme: fn(),
+    // Data
     servers: demoServers,
     tools: demoTools,
     prompts: demoPrompts,
@@ -250,6 +271,57 @@ const meta: Meta<typeof InspectorView> = {
     tasks: demoTasks,
     progressByTaskId: demoProgressByTaskId,
     history: demoHistory,
+
+    // Connection state — stories default to "disconnected"; per-story
+    // overrides drive the connected / error narratives.
+    activeServer: undefined,
+    connectionStatus: "disconnected",
+    initializeResult: undefined,
+    latencyMs: undefined,
+    errorMessage: undefined,
+
+    // Misc state
+    currentLogLevel: "info",
+    sandboxPath: "about:blank",
+    bridgeFactory: noopBridgeFactory,
+
+    // Callbacks — all wired to storybook spies so play functions can assert
+    // on dispatch. Real wiring routes these to InspectorClient methods (the
+    // app shell at clients/web/src/App.tsx).
+    onToggleTheme: fn(),
+    onToggleConnection: fn(),
+    onDisconnect: fn(),
+    onServerAdd: fn(),
+    onServerImportConfig: fn(),
+    onServerImportJson: fn(),
+    onServerInfo: fn(),
+    onServerSettings: fn(),
+    onServerEdit: fn(),
+    onServerClone: fn(),
+    onServerRemove: fn(),
+    onCallTool: fn(),
+    onRefreshTools: fn(),
+    onGetPrompt: fn(),
+    onRefreshPrompts: fn(),
+    onReadResource: fn(),
+    onSubscribeResource: fn(),
+    onUnsubscribeResource: fn(),
+    onRefreshResources: fn(),
+    onCancelTask: fn(),
+    onClearCompletedTasks: fn(),
+    onRefreshTasks: fn(),
+    onSetLogLevel: fn(),
+    onClearLogs: fn(),
+    onExportLogs: fn(),
+    onCopyAllLogs: fn(),
+    onClearHistory: fn(),
+    onExportHistory: fn(),
+    onReplayHistory: fn(),
+    onTogglePinHistory: fn(),
+    onSelectApp: fn(),
+    onOpenApp: fn(),
+    onCloseApp: fn(),
+    onRefreshApps: fn(),
   },
 };
 
@@ -261,5 +333,26 @@ export const Default: Story = {};
 export const NoServers: Story = {
   args: {
     servers: [],
+  },
+};
+
+// Renders the connected-state shell (full tab list, ViewHeader in connected
+// mode). The other tabs still render their disconnected fixtures because
+// the lists are passed through as static data — that's fine for visual
+// regression / storybook play function coverage.
+export const Connected: Story = {
+  args: {
+    activeServer: demoServers[0]!.id,
+    connectionStatus: "connected",
+    initializeResult: demoInitializeResult,
+    latencyMs: 142,
+  },
+};
+
+export const ConnectionError: Story = {
+  args: {
+    activeServer: demoServers[0]!.id,
+    connectionStatus: "error",
+    errorMessage: "Handshake timeout",
   },
 };

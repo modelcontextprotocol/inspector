@@ -119,14 +119,39 @@ export default defineConfig({
   },
   resolve: {
     // NOTE: the unit vitest project (below) overrides this — see comment there.
-    alias: sharedAliases,
+    //
+    // Once App.tsx started consuming the full hook + state-manager surface
+    // (#1244), the browser dep graph reached bare-module subpaths in core/
+    // that Rolldown couldn't resolve against `core/`'s parent (it has no
+    // node_modules of its own). Promote the same bare-module aliases the
+    // vitest projects use so `vite dev` / `vite build` can resolve them
+    // from `clients/web/node_modules`.
+    alias: [
+      ...Object.entries(sharedAliases).map(([find, replacement]) => ({
+        find,
+        replacement,
+      })),
+      ...nodeModulesAliases,
+    ],
     // Source files in core/ import bare modules (react, @testing-library/react,
     // etc.) that only exist in clients/web/node_modules. Dedupe ensures Vite
     // resolves them from this package rather than walking up from core/'s
     // location (which has no node_modules of its own yet).
     dedupe: sharedDedupe,
   },
+  // Pin the Vite dev server to the same port (and host) the Hono plugin
+  // configures from env, so `allowedOrigins` actually matches the browser
+  // origin. Without this, `vite dev` falls back to Vite's default 5173
+  // while the dev backend's `buildWebServerConfigFromEnv()` defaults to
+  // CLIENT_PORT=6274 — origin check rejects every `/api/*` request from
+  // the browser. CLIENT_PORT / HOST overrides flow through here too.
+  // `strictPort: true` so a port collision fails loudly instead of
+  // silently picking a different port (which would leave `allowedOrigins`
+  // pointing at the wrong host and break browser fetches).
   server: {
+    port: parseInt(process.env.CLIENT_PORT ?? '6274', 10),
+    host: process.env.HOST ?? 'localhost',
+    strictPort: true,
     fs: {
       allow: [path.resolve(dirname, '../..')],
     },
