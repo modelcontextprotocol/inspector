@@ -183,8 +183,8 @@ export function ResourcesScreen({
       </Sidebar>
 
       {selectedTemplate ? (
-        <Group flex={1} gap="md" align="flex-start" wrap="nowrap">
-          <ScrollArea.Autosize flex={1} mah={SCROLL_MAX_HEIGHT}>
+        <Group flex={1} miw={0} gap="md" align="flex-start" wrap="nowrap">
+          <ScrollArea.Autosize flex={1} miw={0} mah={SCROLL_MAX_HEIGHT}>
             <DetailCard>
               <ResourceTemplatePanel
                 template={selectedTemplate}
@@ -192,7 +192,7 @@ export function ResourcesScreen({
               />
             </DetailCard>
           </ScrollArea.Autosize>
-          <ScrollArea.Autosize flex={1} mah={SCROLL_MAX_HEIGHT}>
+          <ScrollArea.Autosize flex={1} miw={0} mah={SCROLL_MAX_HEIGHT}>
             {renderReadState() ?? (
               <DetailCard>
                 <EmptyState>Enter a URI and click Read to preview</EmptyState>
@@ -201,7 +201,10 @@ export function ResourcesScreen({
           </ScrollArea.Autosize>
         </Group>
       ) : selectedResource ? (
-        <ScrollArea.Autosize flex={1} mah={SCROLL_MAX_HEIGHT}>
+        // miw=0 lets the flex item shrink below its content's intrinsic
+        // width; without it a single long unwrappable line in the resource
+        // body would push the panel past the viewport's right edge.
+        <ScrollArea.Autosize flex={1} miw={0} mah={SCROLL_MAX_HEIGHT}>
           {renderReadState()}
         </ScrollArea.Autosize>
       ) : (

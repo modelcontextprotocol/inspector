@@ -147,3 +147,38 @@
 .grid-align-start {
   align-items: start;
 }
+
+/* ── Markdown content (third-party HTML from react-markdown) ───── */
+
+.markdown-content {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.markdown-content > :first-child {
+  margin-top: 0;
+}
+
+.markdown-content > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.markdown-content code {
+  word-break: break-word;
+}
+
+.markdown-content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.markdown-content img {
+  max-width: 100%;
+  height: auto;
+}

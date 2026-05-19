@@ -88,6 +88,30 @@ const ActionGroup = Group.withProps({
 
 const Spacer = Flex.withProps({});
 
+// Infer a markdown MIME from the URI when the server didn't supply one.
+// MCP servers often return `text/plain` (or omit mimeType entirely) for
+// `.md` resources; the file extension is the most reliable fallback signal.
+function inferMimeFromUri(uri: string): string | undefined {
+  const path = uri.split("?")[0].split("#")[0];
+  const lower = path.toLowerCase();
+  if (lower.endsWith(".md") || lower.endsWith(".markdown")) {
+    return "text/markdown";
+  }
+  return undefined;
+}
+
+function effectiveMime(
+  itemMime: string | undefined,
+  resource: Resource,
+): string {
+  return (
+    itemMime ??
+    resource.mimeType ??
+    inferMimeFromUri(resource.uri) ??
+    "application/octet-stream"
+  );
+}
+
 export function ResourcePreviewPanel({
   resource,
   contents,
@@ -98,8 +122,7 @@ export function ResourcePreviewPanel({
   onUnsubscribe,
 }: ResourcePreviewPanelProps) {
   const { uri, annotations } = resource;
-  const mimeType =
-    contents[0]?.mimeType ?? resource.mimeType ?? "application/octet-stream";
+  const mimeType = effectiveMime(contents[0]?.mimeType, resource);
 
   return (
     <Stack gap="md">
@@ -111,7 +134,12 @@ export function ResourcePreviewPanel({
         </UriGroup>
       </HeaderRow>
       {contents.map((item, index) => (
-        <ContentViewer key={index} block={toContentBlock(item)} copyable />
+        <ContentViewer
+          key={index}
+          block={toContentBlock(item)}
+          mimeType={effectiveMime(item.mimeType, resource)}
+          copyable
+        />
       ))}
       <MetaRow>
         {lastUpdated ? (
