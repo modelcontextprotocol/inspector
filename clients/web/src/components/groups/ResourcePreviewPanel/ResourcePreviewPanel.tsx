@@ -1,4 +1,12 @@
-import { Button, Flex, Group, Stack, Text, Title } from "@mantine/core";
+import {
+  Button,
+  Flex,
+  Group,
+  ScrollArea,
+  Stack,
+  Text,
+  Title,
+} from "@mantine/core";
 import type {
   BlobResourceContents,
   ContentBlock,
@@ -88,6 +96,31 @@ const ActionGroup = Group.withProps({
 
 const Spacer = Flex.withProps({});
 
+// Outer container fills the parent (a fixed-height Card in the resource
+// branch of ResourcesScreen) so the header/footer can pin to its edges
+// while the content area scrolls.
+const PanelStack = Stack.withProps({
+  gap: "md",
+  h: "100%",
+  flex: 1,
+  miw: 0,
+});
+
+// The middle scroll region. flex=1 lets it absorb the height left over
+// after the header / meta / footer rows; miw=0 prevents wide markdown
+// (tables, long links) from pushing the panel past the viewport.
+const ContentScroll = ScrollArea.withProps({
+  flex: 1,
+  miw: 0,
+  type: "auto",
+  scrollbars: "y",
+  offsetScrollbars: true,
+});
+
+const ContentStack = Stack.withProps({
+  gap: "md",
+});
+
 // Infer a markdown MIME from the URI when the server didn't supply one.
 // MCP servers often return `text/plain` (or omit mimeType entirely) for
 // `.md` resources; the file extension is the most reliable fallback signal.
@@ -125,7 +158,7 @@ export function ResourcePreviewPanel({
   const mimeType = effectiveMime(contents[0]?.mimeType, resource);
 
   return (
-    <Stack gap="md">
+    <PanelStack>
       <HeaderRow>
         <Title order={4}>Resource</Title>
         <UriGroup>
@@ -133,14 +166,18 @@ export function ResourcePreviewPanel({
           <CopyButton value={uri} />
         </UriGroup>
       </HeaderRow>
-      {contents.map((item, index) => (
-        <ContentViewer
-          key={index}
-          block={toContentBlock(item)}
-          mimeType={effectiveMime(item.mimeType, resource)}
-          copyable
-        />
-      ))}
+      <ContentScroll>
+        <ContentStack>
+          {contents.map((item, index) => (
+            <ContentViewer
+              key={index}
+              block={toContentBlock(item)}
+              mimeType={effectiveMime(item.mimeType, resource)}
+              copyable
+            />
+          ))}
+        </ContentStack>
+      </ContentScroll>
       <MetaRow>
         {lastUpdated ? (
           <TimestampText>{formatLastUpdated(lastUpdated)}</TimestampText>
@@ -168,6 +205,6 @@ export function ResourcePreviewPanel({
           />
         </ActionGroup>
       </FooterRow>
-    </Stack>
+    </PanelStack>
   );
 }

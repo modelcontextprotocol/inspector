@@ -62,6 +62,24 @@ const DetailCard = Card.withProps({
   padding: "lg",
 });
 
+// Same as DetailCard but stretched to fill its parent's height. Used in
+// the preview pane so the ResourcePreviewPanel can pin its header/footer
+// to the card's edges while the content scrolls in the middle.
+const FillDetailCard = Card.withProps({
+  withBorder: true,
+  padding: "lg",
+  h: "100%",
+});
+
+// Fixed-height column that hosts the FillDetailCard. Replaces the prior
+// ScrollArea.Autosize wrapping so the panel's internal scroll region —
+// not the whole card — handles overflow.
+const PreviewPane = Flex.withProps({
+  flex: 1,
+  miw: 0,
+  direction: "column",
+});
+
 const EmptyState = Text.withProps({
   c: "dimmed",
   ta: "center",
@@ -125,28 +143,28 @@ export function ResourcesScreen({
 
     if (readState.status === "pending") {
       return (
-        <DetailCard>
+        <FillDetailCard>
           <Stack align="center" py="xl">
             <Loader size="sm" />
             <Text c="dimmed">Reading resource...</Text>
           </Stack>
-        </DetailCard>
+        </FillDetailCard>
       );
     }
 
     if (readState.status === "error") {
       return (
-        <DetailCard>
+        <FillDetailCard>
           <Alert color="red" variant="light" title="Read Error">
             {readState.error ?? "Failed to read resource"}
           </Alert>
-        </DetailCard>
+        </FillDetailCard>
       );
     }
 
     if (readState.result && readResource) {
       return (
-        <DetailCard>
+        <FillDetailCard>
           <ResourcePreviewPanel
             resource={readResource}
             contents={readState.result.contents}
@@ -156,7 +174,7 @@ export function ResourcesScreen({
             onSubscribe={() => onSubscribeResource(readResource.uri)}
             onUnsubscribe={() => onUnsubscribeResource(readResource.uri)}
           />
-        </DetailCard>
+        </FillDetailCard>
       );
     }
 
@@ -183,7 +201,14 @@ export function ResourcesScreen({
       </Sidebar>
 
       {selectedTemplate ? (
-        <Group flex={1} miw={0} gap="md" align="flex-start" wrap="nowrap">
+        <Group
+          flex={1}
+          miw={0}
+          mah={SCROLL_MAX_HEIGHT}
+          gap="md"
+          align="stretch"
+          wrap="nowrap"
+        >
           <ScrollArea.Autosize flex={1} miw={0} mah={SCROLL_MAX_HEIGHT}>
             <DetailCard>
               <ResourceTemplatePanel
@@ -192,21 +217,21 @@ export function ResourcesScreen({
               />
             </DetailCard>
           </ScrollArea.Autosize>
-          <ScrollArea.Autosize flex={1} miw={0} mah={SCROLL_MAX_HEIGHT}>
+          <PreviewPane>
             {renderReadState() ?? (
-              <DetailCard>
+              <FillDetailCard>
                 <EmptyState>Enter a URI and click Read to preview</EmptyState>
-              </DetailCard>
+              </FillDetailCard>
             )}
-          </ScrollArea.Autosize>
+          </PreviewPane>
         </Group>
       ) : selectedResource ? (
-        // miw=0 lets the flex item shrink below its content's intrinsic
-        // width; without it a single long unwrappable line in the resource
-        // body would push the panel past the viewport's right edge.
-        <ScrollArea.Autosize flex={1} miw={0} mah={SCROLL_MAX_HEIGHT}>
-          {renderReadState()}
-        </ScrollArea.Autosize>
+        // Fixed-height column lets the preview panel pin its header and
+        // subscribe/refresh footer to the card's edges while the resource
+        // body scrolls inside the panel. miw=0 prevents wide content
+        // (long unbroken lines, tables) from pushing the pane past the
+        // viewport's right edge.
+        <PreviewPane mah={SCROLL_MAX_HEIGHT}>{renderReadState()}</PreviewPane>
       ) : (
         <DetailCard flex={1}>
           <EmptyState>Select a resource to preview</EmptyState>
