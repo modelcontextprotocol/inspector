@@ -12,7 +12,9 @@ const resolver: CSSVariablesResolver = () => ({
   variables: {},
   light: {},
   dark: {
-    "--mantine-color-body": "var(--mantine-color-blue-9)",
+    // Matches `.storybook/preview.tsx` so the dev app and the story preview
+    // share the same dark-mode page background.
+    "--mantine-color-body": "var(--mantine-color-dark-9)",
   },
 });
 
