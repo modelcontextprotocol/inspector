@@ -9,7 +9,10 @@
  * When no resource is found in the managed list (e.g. a template-expanded URI
  * the user subscribed to before the resources list refreshed), a synthetic
  * Resource `{ uri, name: uri }` is used — mirroring the fallback pattern in
- * ResourcesScreen.
+ * ResourcesScreen. If the server later removes a previously-listed resource
+ * while the user is still subscribed, the tile regresses to that synthetic
+ * form: the managed list is the source of truth, so displaying a stale name
+ * for a server-removed resource is intentionally avoided.
  */
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
@@ -69,9 +72,10 @@ export class ResourceSubscriptionsState extends TypedEventTarget<ResourceSubscri
       event: TypedEventGeneric<InspectorClientEventMap, "resourceUpdated">,
     ): void => {
       const { uri } = event.detail;
-      // Only stamp + emit if the URI is currently subscribed. The client
-      // already guards on subscribedResources before dispatching, but we
-      // re-check so out-of-order events can't resurrect a stale entry.
+      // Belt-and-braces: the client's dispatch site is already guarded by
+      // subscribedResources.has(uri), so this re-check should be redundant.
+      // It stays correct if a future change ever decouples dispatch from
+      // subscription state.
       if (!this.subscribedUris.includes(uri)) return;
       this.lastUpdatedByUri.set(uri, new Date());
       this.rebuild();
@@ -82,7 +86,7 @@ export class ResourceSubscriptionsState extends TypedEventTarget<ResourceSubscri
         this.subscribedUris = [];
         this.lastUpdatedByUri.clear();
         this.subscriptions = [];
-        this.dispatchTypedEvent("subscriptionsChange", []);
+        this.dispatchTypedEvent("subscriptionsChange", this.getSubscriptions());
       }
     };
 
