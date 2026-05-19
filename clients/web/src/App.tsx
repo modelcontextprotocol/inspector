@@ -16,6 +16,7 @@ import { ManagedPromptsState } from "@inspector/core/mcp/state/managedPromptsSta
 import { ManagedResourcesState } from "@inspector/core/mcp/state/managedResourcesState.js";
 import { ManagedResourceTemplatesState } from "@inspector/core/mcp/state/managedResourceTemplatesState.js";
 import { ManagedRequestorTasksState } from "@inspector/core/mcp/state/managedRequestorTasksState.js";
+import { ResourceSubscriptionsState } from "@inspector/core/mcp/state/resourceSubscriptionsState.js";
 import { MessageLogState } from "@inspector/core/mcp/state/messageLogState.js";
 import { FetchRequestLogState } from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import { StderrLogState } from "@inspector/core/mcp/state/stderrLogState.js";
@@ -26,6 +27,7 @@ import { useManagedPrompts } from "@inspector/core/react/useManagedPrompts.js";
 import { useManagedResources } from "@inspector/core/react/useManagedResources.js";
 import { useManagedResourceTemplates } from "@inspector/core/react/useManagedResourceTemplates.js";
 import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
+import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubscriptions.js";
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { InspectorView } from "./components/views/InspectorView/InspectorView";
 import type { ToolCallState } from "./components/screens/ToolsScreen/ToolsScreen";
@@ -173,6 +175,8 @@ function App() {
     useState<ManagedResourceTemplatesState | null>(null);
   const [managedRequestorTasksState, setManagedRequestorTasksState] =
     useState<ManagedRequestorTasksState | null>(null);
+  const [resourceSubscriptionsState, setResourceSubscriptionsState] =
+    useState<ResourceSubscriptionsState | null>(null);
   const [messageLogState, setMessageLogState] =
     useState<MessageLogState | null>(null);
   const [fetchRequestLogState, setFetchRequestLogState] =
@@ -236,6 +240,9 @@ function App() {
   const { tasks, refresh: refreshTasks } = useManagedRequestorTasks(
     inspectorClient,
     managedRequestorTasksState,
+  );
+  const { subscriptions } = useResourceSubscriptions(
+    resourceSubscriptionsState,
   );
   const { messages } = useMessageLog(messageLogState);
 
@@ -304,6 +311,7 @@ function App() {
       managedResourcesState?.destroy();
       managedResourceTemplatesState?.destroy();
       managedRequestorTasksState?.destroy();
+      resourceSubscriptionsState?.destroy();
       messageLogState?.destroy();
       fetchRequestLogState?.destroy();
       stderrLogState?.destroy();
@@ -325,11 +333,19 @@ function App() {
       setInspectorClient(client);
       setManagedToolsState(new ManagedToolsState(client));
       setManagedPromptsState(new ManagedPromptsState(client));
-      setManagedResourcesState(new ManagedResourcesState(client));
+      const nextResourcesState = new ManagedResourcesState(client);
+      setManagedResourcesState(nextResourcesState);
       setManagedResourceTemplatesState(
         new ManagedResourceTemplatesState(client),
       );
       setManagedRequestorTasksState(new ManagedRequestorTasksState(client));
+      // ResourceSubscriptionsState consults the managed resources list to
+      // resolve subscribed URIs to full Resource objects (so the subscription
+      // tile shows the server-supplied name/title). Pass the freshly created
+      // state to avoid the React update lag from setManagedResourcesState.
+      setResourceSubscriptionsState(
+        new ResourceSubscriptionsState(client, nextResourcesState),
+      );
       setMessageLogState(new MessageLogState(client));
       setFetchRequestLogState(new FetchRequestLogState(client));
       setStderrLogState(new StderrLogState(client));
@@ -342,6 +358,7 @@ function App() {
       managedResourcesState,
       managedResourceTemplatesState,
       managedRequestorTasksState,
+      resourceSubscriptionsState,
       messageLogState,
       fetchRequestLogState,
       stderrLogState,
@@ -557,10 +574,7 @@ function App() {
       prompts={prompts}
       resources={resources}
       resourceTemplates={resourceTemplates}
-      // TODO(#1325): drop the empty fallback once `useResourceSubscriptions`
-      // surfaces the live subscription list — subscribe/unsubscribe buttons
-      // currently fire but the screen never reflects the result.
-      subscriptions={[]}
+      subscriptions={subscriptions}
       logs={logs}
       tasks={tasks}
       history={messages}

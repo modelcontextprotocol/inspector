@@ -48,3 +48,5 @@ export type {
   PagedRequestorTasksStateEventMap,
   LoadPageResult as PagedRequestorTasksLoadPageResult,
 } from "./pagedRequestorTasksState.js";
+export { ResourceSubscriptionsState } from "./resourceSubscriptionsState.js";
+export type { ResourceSubscriptionsStateEventMap } from "./resourceSubscriptionsState.js";
