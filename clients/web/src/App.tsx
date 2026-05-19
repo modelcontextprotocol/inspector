@@ -562,6 +562,22 @@ function App() {
     /* TODO: not wired yet */
   }, []);
 
+  // The Resources screen needs `isSubscribed` to flip the Subscribe button
+  // label to "Unsubscribe". Derive it from the live subscriptions list rather
+  // than threading it through every setReadResourceState site — that way the
+  // button reflects state changes from any source (preview panel, subscribed
+  // tile, or future server-initiated subscribe notifications).
+  const effectiveReadResourceState = useMemo<
+    ReadResourceState | undefined
+  >(() => {
+    if (!readResourceState) return undefined;
+    if (!readResourceState.uri) return readResourceState;
+    const isSubscribed = subscriptions.some(
+      (s) => s.resource.uri === readResourceState.uri,
+    );
+    return { ...readResourceState, isSubscribed };
+  }, [readResourceState, subscriptions]);
+
   return (
     <InspectorView
       servers={servers}
@@ -580,7 +596,7 @@ function App() {
       history={messages}
       toolCallState={toolCallState}
       getPromptState={getPromptState}
-      readResourceState={readResourceState}
+      readResourceState={effectiveReadResourceState}
       currentLogLevel={currentLogLevel}
       sandboxPath={STUB_SANDBOX_PATH}
       bridgeFactory={stubBridgeFactory}
