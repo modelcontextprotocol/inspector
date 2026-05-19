@@ -107,6 +107,7 @@ export function ResourcesScreen({
   function handleSelectResource(uri: string) {
     setSelectedTemplateUri(undefined);
     setSelectedResourceUri(uri);
+    onReadResource(uri);
   }
 
   function handleSelectTemplate(uriTemplate: string) {
@@ -201,11 +202,7 @@ export function ResourcesScreen({
         </Group>
       ) : selectedResource ? (
         <ScrollArea.Autosize flex={1} mah={SCROLL_MAX_HEIGHT}>
-          {renderReadState() ?? (
-            <DetailCard>
-              <EmptyState>Click to read this resource</EmptyState>
-            </DetailCard>
-          )}
+          {renderReadState()}
         </ScrollArea.Autosize>
       ) : (
         <DetailCard flex={1}>

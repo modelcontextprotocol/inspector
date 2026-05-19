@@ -114,11 +114,14 @@ describe("ResourcesScreen", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders empty state when a resource is selected but no readState", async () => {
+  it("auto-reads when a resource is clicked in the sidebar", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<ResourcesScreen {...baseProps} />);
+    const onReadResource = vi.fn();
+    renderWithMantine(
+      <ResourcesScreen {...baseProps} onReadResource={onReadResource} />,
+    );
     await user.click(screen.getByText("x.txt"));
-    expect(screen.getByText("Click to read this resource")).toBeInTheDocument();
+    expect(onReadResource).toHaveBeenCalledWith("file:///x");
   });
 
   it("forwards refresh and subscribe events from the preview panel", async () => {
