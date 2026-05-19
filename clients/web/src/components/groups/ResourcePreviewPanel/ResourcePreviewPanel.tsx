@@ -54,6 +54,7 @@ function formatLastUpdated(date: Date): string {
 const HeaderRow = Group.withProps({
   justify: "space-between",
   wrap: "nowrap",
+  flex: "0 0 auto",
 });
 
 const UriGroup = Group.withProps({
@@ -70,6 +71,7 @@ const UriText = Text.withProps({
 const MetaRow = Group.withProps({
   justify: "space-between",
   wrap: "nowrap",
+  flex: "0 0 auto",
 });
 
 const TimestampText = Text.withProps({
@@ -84,6 +86,7 @@ const MimeText = Text.withProps({
 
 const FooterRow = Group.withProps({
   justify: "space-between",
+  flex: "0 0 auto",
 });
 
 const AnnotationGroup = Group.withProps({
@@ -96,22 +99,25 @@ const ActionGroup = Group.withProps({
 
 const Spacer = Flex.withProps({});
 
-// Outer container fills the parent (a fixed-height Card in the resource
-// branch of ResourcesScreen) so the header/footer can pin to its edges
-// while the content area scrolls.
+// The panel sizes to its content: when the resource body is short the
+// Card hugs it; when the body would overflow the Card's `mah`, the
+// browser shrinks shrinkable flex items (only ContentScroll, since the
+// header / meta / footer rows opt out with `flex: 0 0 auto`) and the
+// inner ScrollArea takes over scrolling — keeping the subscribe button
+// pinned at the bottom edge of the cap.
 const PanelStack = Stack.withProps({
   gap: "md",
-  h: "100%",
-  flex: 1,
   miw: 0,
+  mih: 0,
 });
 
-// The middle scroll region. flex=1 lets it absorb the height left over
-// after the header / meta / footer rows; miw=0 prevents wide markdown
-// (tables, long links) from pushing the panel past the viewport.
+// Middle scroll region: basis sized to its own content, can shrink to
+// fit the available space when content overflows, never grows past its
+// content (so a short resource body doesn't push the footer down).
 const ContentScroll = ScrollArea.withProps({
-  flex: 1,
+  flex: "0 1 auto",
   miw: 0,
+  mih: 0,
   type: "auto",
   scrollbars: "y",
   offsetScrollbars: true,

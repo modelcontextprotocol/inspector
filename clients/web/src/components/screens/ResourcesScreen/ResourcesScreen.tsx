@@ -1,14 +1,5 @@
 import { useState } from "react";
-import {
-  Alert,
-  Card,
-  Flex,
-  Group,
-  Loader,
-  ScrollArea,
-  Stack,
-  Text,
-} from "@mantine/core";
+import { Alert, Card, Flex, Loader, Stack, Text } from "@mantine/core";
 import type {
   ReadResourceResult,
   Resource,
@@ -62,22 +53,24 @@ const DetailCard = Card.withProps({
   padding: "lg",
 });
 
-// Same as DetailCard but stretched to fill its parent's height. Used in
-// the preview pane so the ResourcePreviewPanel can pin its header/footer
-// to the card's edges while the content scrolls in the middle.
-const FillDetailCard = Card.withProps({
+// Card that sizes to its content but caps at the screen's available
+// height. When content fits, the card stays compact (footer sits right
+// under the body); when content would overflow, the inner ScrollArea
+// inside ResourcePreviewPanel shrinks and scrolls.
+const PreviewCard = Card.withProps({
   withBorder: true,
   padding: "lg",
-  h: "100%",
+  variant: "preview",
 });
 
-// Fixed-height column that hosts the FillDetailCard. Replaces the prior
-// ScrollArea.Autosize wrapping so the panel's internal scroll region —
-// not the whole card — handles overflow.
+// Column that pins the preview card to the top of the available space
+// and bounds its growth via the consumer-set `mah`. The card inside
+// keeps its natural height up to that cap.
 const PreviewPane = Flex.withProps({
   flex: 1,
   miw: 0,
   direction: "column",
+  align: "stretch",
 });
 
 const EmptyState = Text.withProps({
@@ -134,6 +127,11 @@ export function ResourcesScreen({
   }
 
   function handleReadResource(uri: string) {
+    // Once the user reads (either from the template form or a refresh
+    // inside the preview panel), hand the screen over to the preview:
+    // clearing the template selection hides the template form so only
+    // the rendered resource is shown.
+    setSelectedTemplateUri(undefined);
     setSelectedResourceUri(uri);
     onReadResource(uri);
   }
@@ -143,28 +141,28 @@ export function ResourcesScreen({
 
     if (readState.status === "pending") {
       return (
-        <FillDetailCard>
+        <PreviewCard>
           <Stack align="center" py="xl">
             <Loader size="sm" />
             <Text c="dimmed">Reading resource...</Text>
           </Stack>
-        </FillDetailCard>
+        </PreviewCard>
       );
     }
 
     if (readState.status === "error") {
       return (
-        <FillDetailCard>
+        <PreviewCard>
           <Alert color="red" variant="light" title="Read Error">
             {readState.error ?? "Failed to read resource"}
           </Alert>
-        </FillDetailCard>
+        </PreviewCard>
       );
     }
 
     if (readState.result && readResource) {
       return (
-        <FillDetailCard>
+        <PreviewCard>
           <ResourcePreviewPanel
             resource={readResource}
             contents={readState.result.contents}
@@ -174,7 +172,7 @@ export function ResourcesScreen({
             onSubscribe={() => onSubscribeResource(readResource.uri)}
             onUnsubscribe={() => onUnsubscribeResource(readResource.uri)}
           />
-        </FillDetailCard>
+        </PreviewCard>
       );
     }
 
@@ -201,36 +199,25 @@ export function ResourcesScreen({
       </Sidebar>
 
       {selectedTemplate ? (
-        <Group
-          flex={1}
-          miw={0}
-          mah={SCROLL_MAX_HEIGHT}
-          gap="md"
-          align="stretch"
-          wrap="nowrap"
-        >
-          <ScrollArea.Autosize flex={1} miw={0} mah={SCROLL_MAX_HEIGHT}>
-            <DetailCard>
-              <ResourceTemplatePanel
-                template={selectedTemplate}
-                onReadResource={handleReadResource}
-              />
-            </DetailCard>
-          </ScrollArea.Autosize>
-          <PreviewPane>
-            {renderReadState() ?? (
-              <FillDetailCard>
-                <EmptyState>Enter a URI and click Read to preview</EmptyState>
-              </FillDetailCard>
-            )}
-          </PreviewPane>
-        </Group>
-      ) : selectedResource ? (
-        // Fixed-height column lets the preview panel pin its header and
-        // subscribe/refresh footer to the card's edges while the resource
-        // body scrolls inside the panel. miw=0 prevents wide content
-        // (long unbroken lines, tables) from pushing the pane past the
-        // viewport's right edge.
+        // Template form only — once the user clicks Read Resource,
+        // handleReadResource clears the template selection so the
+        // resource branch takes over and the preview is shown alone.
+        <PreviewPane mah={SCROLL_MAX_HEIGHT}>
+          <PreviewCard>
+            <ResourceTemplatePanel
+              template={selectedTemplate}
+              onReadResource={handleReadResource}
+            />
+          </PreviewCard>
+        </PreviewPane>
+      ) : readResource ? (
+        // Sized-to-content preview pane, capped at the screen's available
+        // height. When the resource body fits, the card hugs its content
+        // and the subscribe/refresh row sits right under it. When the body
+        // would overflow, the inner ScrollArea inside ResourcePreviewPanel
+        // shrinks and scrolls, keeping the footer pinned at the cap.
+        // miw=0 prevents wide content (long unbroken lines, tables) from
+        // pushing the pane past the viewport's right edge.
         <PreviewPane mah={SCROLL_MAX_HEIGHT}>{renderReadState()}</PreviewPane>
       ) : (
         <DetailCard flex={1}>
