@@ -9,6 +9,7 @@ import type {
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { MessageEntry, ServerEntry } from "@inspector/core/mcp/types.js";
+import { API_SERVER_ENV_VARS } from "@inspector/core/mcp/remote/constants.js";
 import { ManagedToolsState } from "@inspector/core/mcp/state/managedToolsState.js";
 import { ManagedPromptsState } from "@inspector/core/mcp/state/managedPromptsState.js";
 import { ManagedResourcesState } from "@inspector/core/mcp/state/managedResourcesState.js";
@@ -57,6 +58,34 @@ const SEED_SERVERS: ServerEntry[] = [
 const redirectUrlProvider: RedirectUrlProvider = {
   getRedirectUrl: () => `${window.location.origin}/oauth/callback`,
 };
+
+// Pull the dev-backend's auth token off the URL the launcher banner prints.
+// `npm run dev` opens `http://localhost:6274?MCP_INSPECTOR_API_TOKEN=…`;
+// every browser request to /api/* needs the same token in the
+// `x-mcp-remote-auth: Bearer …` header or the Hono backend returns 401.
+// Persist to sessionStorage so SPA navigations / OAuth round-trips don't
+// drop the token from the URL bar.
+function getAuthToken(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const STORAGE_KEY = API_SERVER_ENV_VARS.AUTH_TOKEN;
+  const params = new URLSearchParams(window.location.search);
+  const fromUrl = params.get(API_SERVER_ENV_VARS.AUTH_TOKEN);
+  if (fromUrl) {
+    try {
+      window.sessionStorage.setItem(STORAGE_KEY, fromUrl);
+    } catch {
+      // Best-effort persistence — sessionStorage may be unavailable
+      // (privacy mode, iframe sandboxing, etc.); the URL value still
+      // works for the current page load.
+    }
+    return fromUrl;
+  }
+  try {
+    return window.sessionStorage.getItem(STORAGE_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 // MCP Apps sandbox — the iframe URL the parent should embed, plus the
 // per-tool bridge factory. The dev backend serves `sandbox_proxy.html` on
@@ -250,7 +279,7 @@ function App() {
       stderrLogState?.destroy();
 
       const { environment } = createWebEnvironment(
-        undefined,
+        getAuthToken(),
         redirectUrlProvider,
       );
       const client = new InspectorClient(server.config, {
