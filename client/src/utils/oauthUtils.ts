@@ -87,3 +87,31 @@ export const generateOAuthErrorDescription = (
     .filter(Boolean)
     .join("\n");
 };
+
+/**
+ * Returns the primary OAuth authorization server metadata discovery URL
+ * for a given authorization server URL, including tenant path handling.
+ */
+export const getAuthorizationServerMetadataDiscoveryUrl = (
+  authorizationServerUrl: string | URL,
+): string => {
+  const url =
+    typeof authorizationServerUrl === "string"
+      ? new URL(authorizationServerUrl)
+      : authorizationServerUrl;
+  const hasPath = url.pathname !== "/";
+
+  if (!hasPath) {
+    return new URL("/.well-known/oauth-authorization-server", url.origin).href;
+  }
+
+  // Strip trailing slash to avoid double slashes in tenant-aware discovery URLs.
+  const pathname = url.pathname.endsWith("/")
+    ? url.pathname.slice(0, -1)
+    : url.pathname;
+
+  return new URL(
+    `/.well-known/oauth-authorization-server${pathname}`,
+    url.origin,
+  ).href;
+};

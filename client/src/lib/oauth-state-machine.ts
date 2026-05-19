@@ -19,6 +19,7 @@ export interface StateMachineContext {
   serverUrl: string;
   provider: DebugInspectorOAuthClientProvider;
   updateState: (updates: Partial<AuthDebuggerState>) => void;
+  fetchFn?: typeof fetch;
 }
 
 export interface StateTransition {
@@ -38,6 +39,8 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       try {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(
           context.serverUrl,
+          {},
+          context.fetchFn,
         );
         if (resourceMetadata?.authorization_servers?.length) {
           authServerUrl = new URL(resourceMetadata.authorization_servers[0]);
@@ -57,7 +60,10 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         resourceMetadata ?? undefined,
       );
 
-      const metadata = await discoverAuthorizationServerMetadata(authServerUrl);
+      const metadata = await discoverAuthorizationServerMetadata(
+        authServerUrl,
+        { fetchFn: context.fetchFn },
+      );
       if (!metadata) {
         throw new Error("Failed to discover OAuth metadata");
       }
@@ -98,6 +104,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         fullInformation = await registerClient(context.serverUrl, {
           metadata,
           clientMetadata,
+          fetchFn: context.fetchFn,
         });
         context.provider.saveClientInformation(fullInformation);
       }
@@ -122,6 +129,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
         scope = await discoverScopes(
           context.serverUrl,
           context.state.resourceMetadata ?? undefined,
+          context.fetchFn,
         );
       }
 
@@ -189,6 +197,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
             ? context.state.resource
             : new URL(context.state.resource)
           : undefined,
+        fetchFn: context.fetchFn,
       });
 
       context.provider.saveTokens(tokens);
@@ -211,6 +220,7 @@ export class OAuthStateMachine {
   constructor(
     private serverUrl: string,
     private updateState: (updates: Partial<AuthDebuggerState>) => void,
+    private fetchFn?: typeof fetch,
   ) {}
 
   async executeStep(state: AuthDebuggerState): Promise<void> {
@@ -220,6 +230,7 @@ export class OAuthStateMachine {
       serverUrl: this.serverUrl,
       provider,
       updateState: this.updateState,
+      fetchFn: this.fetchFn,
     };
 
     const transition = oauthTransitions[state.oauthStep];

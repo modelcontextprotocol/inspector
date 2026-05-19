@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { Tabs } from "@/components/ui/tabs";
+import { Tabs } from "../ui/tabs";
 import ResourcesTab from "../ResourcesTab";
 import { ResourceTemplate, Resource } from "@modelcontextprotocol/sdk/types.js";
 

@@ -24,6 +24,7 @@ import {
   CompatibilityCallToolResult,
   ListToolsResult,
   Tool,
+  ToolAnnotations,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   Loader2,
@@ -52,9 +53,116 @@ import {
   isReservedMetaKey,
 } from "@/utils/metaUtils";
 
+/**
+ * Extended Tool type that includes optional fields used by the inspector.
+ */
+export interface ExtendedTool extends Tool, WithIcons {
+  _meta?: Record<string, unknown>;
+  execution?: {
+    taskSupport?: "forbidden" | "required" | "optional";
+  };
+}
+
 // Type guard to safely detect the optional _meta field without using `any`
-const hasMeta = (tool: Tool): tool is Tool & { _meta: unknown } =>
-  typeof (tool as { _meta?: unknown })._meta !== "undefined";
+const hasMeta = (
+  tool: Tool,
+): tool is ExtendedTool & { _meta: Record<string, unknown> } =>
+  typeof (tool as ExtendedTool)._meta !== "undefined";
+
+// Returns the execution.taskSupport value for a tool, defaulting to "forbidden" per MCP spec
+const getTaskSupport = (
+  tool: Tool | null,
+): "forbidden" | "required" | "optional" => {
+  if (!tool) return "forbidden";
+  const extendedTool = tool as ExtendedTool;
+  const taskSupport = extendedTool.execution?.taskSupport;
+  if (
+    taskSupport === "forbidden" ||
+    taskSupport === "required" ||
+    taskSupport === "optional"
+  ) {
+    return taskSupport;
+  }
+  return "forbidden";
+};
+
+// Type guard to safely detect the optional annotations field
+const hasAnnotations = (
+  tool: Tool,
+): tool is Tool & { annotations: ToolAnnotations } =>
+  typeof (tool as { annotations?: unknown }).annotations !== "undefined" &&
+  (tool as { annotations?: unknown }).annotations !== null;
+
+// Helper to render annotation badges
+// Shows all 4 annotation values with their state (true/false/implied default)
+const AnnotationBadges = ({
+  annotations,
+}: {
+  annotations: ToolAnnotations | undefined;
+}) => {
+  // Spec defaults: readOnlyHint=false, destructiveHint=true, idempotentHint=false, openWorldHint=true
+  const getValueAndImplied = (
+    value: boolean | undefined,
+    defaultValue: boolean,
+  ): { value: boolean; implied: boolean } => ({
+    value: value ?? defaultValue,
+    implied: value === undefined,
+  });
+
+  const readOnly = getValueAndImplied(annotations?.readOnlyHint, false);
+  const destructive = getValueAndImplied(annotations?.destructiveHint, true);
+  const idempotent = getValueAndImplied(annotations?.idempotentHint, false);
+  const openWorld = getValueAndImplied(annotations?.openWorldHint, true);
+
+  // Descriptions from MCP spec
+  const badges = [
+    {
+      label: "Read-only",
+      value: readOnly.value,
+      implied: readOnly.implied,
+      description: "Tool does not modify its environment",
+    },
+    {
+      label: "Destructive",
+      value: destructive.value,
+      implied: destructive.implied,
+      description:
+        "Tool may perform destructive updates (delete/overwrite data)",
+    },
+    {
+      label: "Idempotent",
+      value: idempotent.value,
+      implied: idempotent.implied,
+      description: "Calling repeatedly with same args has no additional effect",
+    },
+    {
+      label: "Open-world",
+      value: openWorld.value,
+      implied: openWorld.implied,
+      description:
+        "Tool may interact with external entities beyond its local environment",
+    },
+  ];
+
+  return (
+    <div className="flex flex-wrap gap-1 mt-2">
+      {badges.map(({ label, value, implied, description }) => (
+        <span
+          key={label}
+          title={`${description}\n\nValue: ${value ? "Yes" : "No"} (${implied ? "implied default" : "explicitly set"})`}
+          className={cn(
+            "inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border",
+            "bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600",
+            implied && "border-dashed opacity-60",
+            !implied && "border-solid",
+          )}
+        >
+          {value ? "✓" : "✗"} {label}
+        </span>
+      ))}
+    </div>
+  );
+};
 
 const ToolsTab = ({
   tools,
@@ -64,10 +172,12 @@ const ToolsTab = ({
   selectedTool,
   setSelectedTool,
   toolResult,
+  isPollingTask,
   nextCursor,
   error,
   resourceContent,
   onReadResource,
+  serverSupportsTaskRequests,
 }: {
   tools: Tool[];
   listTools: () => void;
@@ -76,16 +186,20 @@ const ToolsTab = ({
     name: string,
     params: Record<string, unknown>,
     metadata?: Record<string, unknown>,
-  ) => Promise<void>;
+    runAsTask?: boolean,
+  ) => Promise<CompatibilityCallToolResult>;
   selectedTool: Tool | null;
   setSelectedTool: (tool: Tool | null) => void;
   toolResult: CompatibilityCallToolResult | null;
+  isPollingTask?: boolean;
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
   resourceContent: Record<string, string>;
   onReadResource?: (uri: string) => void;
+  serverSupportsTaskRequests: boolean;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
+  const [runAsTask, setRunAsTask] = useState(false);
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
   const [isMetadataExpanded, setIsMetadataExpanded] = useState(false);
@@ -98,9 +212,11 @@ const ToolsTab = ({
   const { copied, setCopied } = useCopy();
 
   // Function to check if any form has validation errors
-  const checkValidationErrors = () => {
+  const checkValidationErrors = (validateChildren: boolean = false) => {
     const errors = Object.values(formRefs.current).some(
-      (ref) => ref && !ref.validateJson().isValid,
+      (ref) =>
+        ref &&
+        (validateChildren ? !ref.validateJson().isValid : ref.hasJsonError()),
     );
     setHasValidationErrors(errors);
     return errors;
@@ -125,13 +241,17 @@ const ToolsTab = ({
       ];
     });
     setParams(Object.fromEntries(params));
+    const toolTaskSupport = serverSupportsTaskRequests
+      ? getTaskSupport(selectedTool)
+      : "forbidden";
+    setRunAsTask(toolTaskSupport === "required");
 
     // Reset validation errors when switching tools
     setHasValidationErrors(false);
 
     // Clear form refs for the previous tool
     formRefs.current = {};
-  }, [selectedTool]);
+  }, [selectedTool, serverSupportsTaskRequests]);
 
   const hasReservedMetadataEntry = metadataEntries.some(({ key }) => {
     const trimmedKey = key.trim();
@@ -148,6 +268,10 @@ const ToolsTab = ({
     return trimmedKey !== "" && !hasValidMetaName(trimmedKey);
   });
 
+  const taskSupport = serverSupportsTaskRequests
+    ? getTaskSupport(selectedTool)
+    : "forbidden";
+
   return (
     <TabsContent value="tools" className="h-[calc(100vh-16rem)]">
       <div className="grid grid-cols-2 gap-4 h-full">
@@ -157,15 +281,16 @@ const ToolsTab = ({
           clearItems={() => {
             clearTools();
             setSelectedTool(null);
+            setRunAsTask(false);
           }}
           setSelectedItem={setSelectedTool}
           renderItem={(tool) => (
             <div className="flex items-start w-full gap-2">
               <div className="flex-shrink-0 mt-1">
-                <IconDisplay icons={(tool as WithIcons).icons} size="sm" />
+                <IconDisplay icons={(tool as ExtendedTool).icons} size="sm" />
               </div>
               <div className="flex flex-col flex-1 min-w-0">
-                <span className="truncate">{tool.name}</span>
+                <span className="truncate">{tool.title || tool.name}</span>
                 <span className="text-sm text-gray-500 text-left line-clamp-2">
                   {tool.description}
                 </span>
@@ -183,12 +308,14 @@ const ToolsTab = ({
             <div className="flex items-center gap-2">
               {selectedTool && (
                 <IconDisplay
-                  icons={(selectedTool as WithIcons).icons}
+                  icons={(selectedTool as ExtendedTool).icons}
                   size="md"
                 />
               )}
               <h3 className="font-semibold">
-                {selectedTool ? selectedTool.name : "Select a tool"}
+                {selectedTool
+                  ? selectedTool.title || selectedTool.name
+                  : "Select a tool"}
               </h3>
             </div>
           </div>
@@ -207,6 +334,13 @@ const ToolsTab = ({
                 <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap max-h-48 overflow-y-auto">
                   {selectedTool.description}
                 </p>
+                <AnnotationBadges
+                  annotations={
+                    hasAnnotations(selectedTool)
+                      ? selectedTool.annotations
+                      : undefined
+                  }
+                />
                 {Object.entries(selectedTool.inputSchema.properties ?? []).map(
                   ([key, value]) => {
                     // First resolve any $ref references
@@ -651,10 +785,28 @@ const ToolsTab = ({
                       </div>
                     </div>
                   )}
+                {taskSupport !== "forbidden" && (
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="run-as-task"
+                      checked={runAsTask}
+                      onCheckedChange={(checked: boolean) =>
+                        setRunAsTask(checked)
+                      }
+                      disabled={taskSupport === "required"}
+                    />
+                    <Label
+                      htmlFor="run-as-task"
+                      className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
+                    >
+                      Run as task
+                    </Label>
+                  </div>
+                )}
                 <Button
                   onClick={async () => {
                     // Validate JSON inputs before calling tool
-                    if (checkValidationErrors()) return;
+                    if (checkValidationErrors(true)) return;
 
                     try {
                       setIsToolRunning(true);
@@ -676,6 +828,7 @@ const ToolsTab = ({
                         selectedTool.name,
                         params,
                         Object.keys(metadata).length ? metadata : undefined,
+                        runAsTask,
                       );
                     } finally {
                       setIsToolRunning(false);
@@ -683,16 +836,17 @@ const ToolsTab = ({
                   }}
                   disabled={
                     isToolRunning ||
+                    isPollingTask ||
                     hasValidationErrors ||
                     hasReservedMetadataEntry ||
                     hasInvalidMetaPrefixEntry ||
                     hasInvalidMetaNameEntry
                   }
                 >
-                  {isToolRunning ? (
+                  {isToolRunning || isPollingTask ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Running...
+                      {isPollingTask ? "Polling Task..." : "Running..."}
                     </>
                   ) : (
                     <>
@@ -731,6 +885,7 @@ const ToolsTab = ({
                   selectedTool={selectedTool}
                   resourceContent={resourceContent}
                   onReadResource={onReadResource}
+                  isPollingTask={isPollingTask}
                 />
               </div>
             ) : (

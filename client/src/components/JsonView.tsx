@@ -55,7 +55,12 @@ const JsonView = memo(
     }, [toast, normalizedData, setCopied]);
 
     return (
-      <div className={clsx("p-4 border rounded relative", className)}>
+      <div
+        className={clsx(
+          "p-4 border overflow-x-auto rounded relative",
+          className,
+        )}
+      >
         {withCopyButton && (
           <Button
             size="icon"

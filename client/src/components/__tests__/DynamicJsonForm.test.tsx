@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, it, expect, jest } from "@jest/globals";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import DynamicJsonForm, { DynamicJsonFormRef } from "../DynamicJsonForm";
 import type { JsonSchemaType } from "@/utils/jsonUtils";
 
@@ -401,6 +401,29 @@ describe("DynamicJsonForm Number Fields", () => {
       fireEvent.change(input, { target: { value: "98.6" } });
 
       expect(onChange).toHaveBeenCalledWith(98.6);
+    });
+
+    it("should preserve decimal zero while typing", () => {
+      const schema: JsonSchemaType = {
+        type: "number",
+        description: "Coordinate",
+      };
+
+      const WrappedForm = () => {
+        const [value, setValue] = useState<number>(0);
+        return (
+          <DynamicJsonForm schema={schema} value={value} onChange={setValue} />
+        );
+      };
+
+      render(<WrappedForm />);
+      const input = screen.getByRole("spinbutton") as HTMLInputElement;
+
+      fireEvent.change(input, { target: { value: "-74.0" } });
+      expect(input.value).toBe("-74.0");
+
+      fireEvent.change(input, { target: { value: "-74.01" } });
+      expect(input.value).toBe("-74.01");
     });
   });
 });

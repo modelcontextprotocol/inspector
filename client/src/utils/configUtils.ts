@@ -54,6 +54,9 @@ export const getMCPProxyAuthToken = (
     header: "X-MCP-Proxy-Auth",
   };
 };
+export const getMCPTaskTtl = (config: InspectorConfig): number => {
+  return config.MCP_TASK_TTL.value as number;
+};
 
 export const getInitialTransportType = ():
   | "stdio"

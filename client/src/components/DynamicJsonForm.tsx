@@ -28,6 +28,7 @@ interface DynamicJsonFormProps {
 
 export interface DynamicJsonFormRef {
   validateJson: () => { isValid: boolean; error: string | null };
+  hasJsonError: () => boolean;
 }
 
 const isTypeSupported = (
@@ -124,10 +125,48 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
     const [rawJsonValue, setRawJsonValue] = useState<string>(
       JSON.stringify(value ?? generateDefaultValue(schema), null, 2),
     );
+    const [numericInputDrafts, setNumericInputDrafts] = useState<
+      Record<string, string>
+    >({});
 
     // Use a ref to manage debouncing timeouts to avoid parsing JSON
     // on every keystroke which would be inefficient and error-prone
     const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+
+    const hasJsonError = () => {
+      return !!jsonError;
+    };
+
+    const getPathKey = (path: string[]) =>
+      path.length === 0 ? "$root" : path.join(".");
+
+    const getNumericDisplayValue = (
+      path: string[],
+      currentValue: JsonValue,
+    ): string => {
+      const pathKey = getPathKey(path);
+      if (Object.prototype.hasOwnProperty.call(numericInputDrafts, pathKey)) {
+        return numericInputDrafts[pathKey];
+      }
+      return typeof currentValue === "number" ? currentValue.toString() : "";
+    };
+
+    const updateNumericDraft = (path: string[], draftValue: string) => {
+      const pathKey = getPathKey(path);
+      setNumericInputDrafts((prev) => ({ ...prev, [pathKey]: draftValue }));
+    };
+
+    const clearNumericDraft = (path: string[]) => {
+      const pathKey = getPathKey(path);
+      setNumericInputDrafts((prev) => {
+        if (!Object.prototype.hasOwnProperty.call(prev, pathKey)) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[pathKey];
+        return next;
+      });
+    };
 
     // Debounce JSON parsing and parent updates to handle typing gracefully
     const debouncedUpdateParent = useCallback(
@@ -253,6 +292,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
 
     useImperativeHandle(ref, () => ({
       validateJson,
+      hasJsonError,
     }));
 
     const renderFormFields = (
@@ -423,9 +463,10 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
           return (
             <Input
               type="number"
-              value={(currentValue as number)?.toString() ?? ""}
+              value={getNumericDisplayValue(path, currentValue)}
               onChange={(e) => {
                 const val = e.target.value;
+                updateNumericDraft(path, val);
                 if (!val && !isRequired) {
                   handleFieldChange(path, undefined);
                 } else {
@@ -434,6 +475,19 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
                     handleFieldChange(path, num);
                   }
                 }
+              }}
+              onBlur={(e) => {
+                const val = e.target.value;
+                if (!val) {
+                  clearNumericDraft(path);
+                  return;
+                }
+
+                const num = Number(val);
+                if (!isNaN(num)) {
+                  handleFieldChange(path, num);
+                }
+                clearNumericDraft(path);
               }}
               placeholder={propSchema.description}
               required={isRequired}
@@ -447,9 +501,10 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
             <Input
               type="number"
               step="1"
-              value={(currentValue as number)?.toString() ?? ""}
+              value={getNumericDisplayValue(path, currentValue)}
               onChange={(e) => {
                 const val = e.target.value;
+                updateNumericDraft(path, val);
                 if (!val && !isRequired) {
                   handleFieldChange(path, undefined);
                 } else {
@@ -458,6 +513,19 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
                     handleFieldChange(path, num);
                   }
                 }
+              }}
+              onBlur={(e) => {
+                const val = e.target.value;
+                if (!val) {
+                  clearNumericDraft(path);
+                  return;
+                }
+
+                const num = Number(val);
+                if (!isNaN(num) && Number.isInteger(num)) {
+                  handleFieldChange(path, num);
+                }
+                clearNumericDraft(path);
               }}
               placeholder={propSchema.description}
               required={isRequired}
