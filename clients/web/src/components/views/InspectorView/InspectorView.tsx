@@ -9,7 +9,6 @@ import type {
   Task,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type {
   ConnectionStatus,
   InspectorResourceSubscription,
@@ -19,14 +18,23 @@ import type {
 import { isAppTool } from "@inspector/core/mcp/apps.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
 import { ServerListScreen } from "../../screens/ServerListScreen/ServerListScreen";
-import { ToolsScreen } from "../../screens/ToolsScreen/ToolsScreen";
+import {
+  ToolsScreen,
+  type ToolCallState,
+} from "../../screens/ToolsScreen/ToolsScreen";
 import { AppsScreen } from "../../screens/AppsScreen/AppsScreen";
 import type {
   AppRendererHandle,
   BridgeFactory,
 } from "../../elements/AppRenderer/AppRenderer";
-import { PromptsScreen } from "../../screens/PromptsScreen/PromptsScreen";
-import { ResourcesScreen } from "../../screens/ResourcesScreen/ResourcesScreen";
+import {
+  PromptsScreen,
+  type GetPromptState,
+} from "../../screens/PromptsScreen/PromptsScreen";
+import {
+  ResourcesScreen,
+  type ReadResourceState,
+} from "../../screens/ResourcesScreen/ResourcesScreen";
 import { LoggingScreen } from "../../screens/LoggingScreen/LoggingScreen";
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
 import { TasksScreen } from "../../screens/TasksScreen/TasksScreen";
@@ -46,20 +54,6 @@ const ALL_TABS: string[] = [
   "History",
 ];
 
-// Demo stub: Phase 3 wiring will replace this with a factory derived from
-// the active MCP `Client`. Apps are detected from the tools list, so the
-// "Apps" tab is exposed whenever the server advertises tools capability —
-// the screen itself receives only the already-filtered subset.
-const STUB_SANDBOX_PATH = "about:blank";
-const stubBridgeFactory: BridgeFactory = () =>
-  ({
-    sendToolInput: async () => {},
-    sendToolResult: async () => {},
-    sendToolCancelled: async () => {},
-    teardownResource: async () => ({}),
-    close: async () => {},
-  }) as unknown as AppBridge;
-
 const SCREEN_ENTER_MS = 350;
 const SCREEN_EXIT_MS = 250;
 
@@ -67,8 +61,7 @@ const SCREEN_EXIT_MS = 250;
 // children. `mih: "100%"` requires `AppShell.Main` to provide a definite
 // height for the stack itself to fill — the absolute children render
 // regardless, but nested ScrollArea screens need a non-collapsing parent
-// for their scroll containment to work. Revisit if Phase 3 reveals
-// scroll issues in real screens.
+// for their scroll containment to work.
 const ScreenStageContainer = Stack.withProps({
   pos: "relative",
   gap: 0,
@@ -79,10 +72,7 @@ const ScreenStageContainer = Stack.withProps({
 // Wraps each screen in a Mantine Transition. With Transition's default
 // (`keepMounted={false}`), the outgoing screen unmounts after its exit
 // animation — any local screen state (search filters, scroll position,
-// expanded sections) is reset on tab switch. This matches the previous
-// `{activeTab === "X" && <Screen />}` behavior. If Phase 3 needs state
-// to persist across tab switches, add `keepMounted` to the Transition
-// below.
+// expanded sections) is reset on tab switch.
 function ScreenStage({
   active,
   children,
@@ -109,26 +99,20 @@ function ScreenStage({
   );
 }
 
-// Demo stub: every screen-action callback below resolves to noop. Phase 3
-// wiring will replace each with its real `useManaged*` / `useConnection`
-// hook call. Anything still pointing here in Phase 3 is unfinished.
-const noop = () => undefined;
-
-// Demo stub: simulated handshake delays and a sample of plausible failure
-// reasons. Replace with real handshake telemetry once `useConnection` is wired.
-const STUB_MIN_DELAY_MS = 50;
-const STUB_MAX_DELAY_MS = 500;
-const STUB_SUCCESS_RATE = 0.85;
-const STUB_ERROR_MESSAGES = [
-  "Connection refused",
-  "Handshake timeout",
-  "Protocol version mismatch",
-  "Authentication required",
-  "Server returned invalid response",
-];
-
 export interface InspectorViewProps {
+  // Server list (static config; runtime connection state comes from the
+  // separate fields below and is merged into each card by this component).
   servers: ServerEntry[];
+
+  // Connection state — driven by the parent via `useInspectorClient`.
+  activeServer?: string;
+  connectionStatus: ConnectionStatus;
+  initializeResult?: InitializeResult;
+  latencyMs?: number;
+  errorMessage?: string;
+
+  // Primitive lists, log streams, task state — all sourced from the
+  // per-primitive `useManaged*` / `useMessageLog` hooks in the parent.
   tools: Tool[];
   prompts: Prompt[];
   resources: Resource[];
@@ -138,11 +122,86 @@ export interface InspectorViewProps {
   tasks: Task[];
   progressByTaskId?: Record<string, TaskProgress>;
   history: MessageEntry[];
+
+  // Per-screen "operation in flight" states (panel-level; optional because
+  // the underlying screens accept them as optional).
+  toolCallState?: ToolCallState;
+  getPromptState?: GetPromptState;
+  readResourceState?: ReadResourceState;
+
+  // Logging level. The MCP `logging/setLevel` request has no echo
+  // notification, so the parent keeps the optimistic current value.
+  currentLogLevel: LoggingLevel;
+
+  // MCP Apps sandbox. The parent's web environment provides both the
+  // sandbox iframe URL and the per-app bridge factory.
+  sandboxPath: string;
+  bridgeFactory: BridgeFactory;
+
+  // History pinning. Optional because pin state isn't persisted yet (#1244
+  // is single-PR; persistence is a separate concern).
+  pinnedHistoryIds?: Set<string>;
+
+  // Theme toggle (lives in the parent so the color scheme can also flow
+  // into other top-level UI later).
   onToggleTheme: () => void;
+
+  // Connection lifecycle (dispatched to `useInspectorClient.connect/disconnect`).
+  onToggleConnection: (id: string) => void;
+  onDisconnect: () => void;
+
+  // Server list actions.
+  onServerAdd: () => void;
+  onServerImportConfig: () => void;
+  onServerImportJson: () => void;
+  onServerInfo: (id: string) => void;
+  onServerSettings: (id: string) => void;
+  onServerEdit: (id: string) => void;
+  onServerClone: (id: string) => void;
+  onServerRemove: (id: string) => void;
+
+  // Per-primitive actions (route to `inspectorClient` methods / hook refresh).
+  onCallTool: (name: string, args: Record<string, unknown>) => void;
+  onCancelToolCall?: () => void;
+  onClearToolResult?: () => void;
+  onRefreshTools: () => void;
+
+  onGetPrompt: (name: string, args: Record<string, string>) => void;
+  onCopyPromptMessages?: () => void;
+  onRefreshPrompts: () => void;
+
+  onReadResource: (uri: string) => void;
+  onSubscribeResource: (uri: string) => void;
+  onUnsubscribeResource: (uri: string) => void;
+  onRefreshResources: () => void;
+
+  onCancelTask: (taskId: string) => void;
+  onClearCompletedTasks: () => void;
+  onRefreshTasks: () => void;
+
+  onSetLogLevel: (level: LoggingLevel) => void;
+  onClearLogs: () => void;
+  onExportLogs: () => void;
+  onCopyAllLogs: () => void;
+
+  onClearHistory: () => void;
+  onExportHistory: () => void;
+  onReplayHistory: (id: string) => void;
+  onTogglePinHistory: (id: string) => void;
+
+  onSelectApp: (name: string) => void;
+  onOpenApp: (name: string, args: Record<string, unknown>) => void;
+  onCloseApp: () => void;
+  onRefreshApps: () => void;
 }
 
 export function InspectorView({
   servers: serversInput,
+  activeServer,
+  connectionStatus,
+  initializeResult,
+  latencyMs,
+  errorMessage,
   tools,
   prompts,
   resources,
@@ -152,29 +211,76 @@ export function InspectorView({
   tasks,
   progressByTaskId,
   history,
+  toolCallState,
+  getPromptState,
+  readResourceState,
+  currentLogLevel,
+  sandboxPath,
+  bridgeFactory,
+  pinnedHistoryIds,
   onToggleTheme,
+  onToggleConnection,
+  onDisconnect,
+  onServerAdd,
+  onServerImportConfig,
+  onServerImportJson,
+  onServerInfo,
+  onServerSettings,
+  onServerEdit,
+  onServerClone,
+  onServerRemove,
+  onCallTool,
+  onCancelToolCall,
+  onClearToolResult,
+  onRefreshTools,
+  onGetPrompt,
+  onCopyPromptMessages,
+  onRefreshPrompts,
+  onReadResource,
+  onSubscribeResource,
+  onUnsubscribeResource,
+  onRefreshResources,
+  onCancelTask,
+  onClearCompletedTasks,
+  onRefreshTasks,
+  onSetLogLevel,
+  onClearLogs,
+  onExportLogs,
+  onCopyAllLogs,
+  onClearHistory,
+  onExportHistory,
+  onReplayHistory,
+  onTogglePinHistory,
+  onSelectApp,
+  onOpenApp,
+  onCloseApp,
+  onRefreshApps,
 }: InspectorViewProps) {
-  const [activeServer, setActiveServer] = useState<string | undefined>(
-    undefined,
-  );
-  const [initializeResult, setInitializeResult] = useState<
-    InitializeResult | undefined
-  >(undefined);
-  const [connectionStatus, setConnectionStatus] =
-    useState<ConnectionStatus>("disconnected");
-  const [latencyMs, setLatencyMs] = useState<number | undefined>(undefined);
-  const [errorMessage, setErrorMessage] = useState<string | undefined>(
-    undefined,
-  );
-  const [activeTab, setActiveTab] = useState<string>(SERVERS_TAB);
-  const [availableTabs, setAvailableTabs] = useState<string[]>([SERVERS_TAB]);
-  const [logLevel, setLogLevel] = useState<LoggingLevel>("info");
+  // UI-only state. Connection state, primitive lists, and all action
+  // dispatching live in the parent; this component only owns navigation
+  // (which tab is visible) and a couple of view-local toggles.
+  const [selectedTab, setSelectedTab] = useState<string>(SERVERS_TAB);
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
-  // Tracks the in-flight stub handshake timer so rapid Connect→Connect
-  // toggles can cancel the previous attempt before it resolves and
-  // overwrites the new server's state.
-  const handshakeTimer = useRef<number | undefined>(undefined);
   const appRendererRef = useRef<AppRendererHandle>(null);
+
+  // Only show the non-Servers tabs when actually connected. Capability-aware
+  // tab gating (hide Tools when the server doesn't advertise `tools`, etc.)
+  // can layer in later once the parent passes capabilities through.
+  const availableTabs = useMemo<string[]>(
+    () => (connectionStatus === "connected" ? ALL_TABS : [SERVERS_TAB]),
+    [connectionStatus],
+  );
+
+  // Clamp the rendered tab to whatever's currently available. If the user
+  // had "Tools" selected and the connection drops, `availableTabs` becomes
+  // `[Servers]` and the view renders Servers without us having to imperatively
+  // reset the state (and trip the `set-state-in-effect` lint). When the
+  // connection comes back, the previous selection pops in again because
+  // `selectedTab` is preserved.
+  const activeTab = availableTabs.includes(selectedTab)
+    ? selectedTab
+    : SERVERS_TAB;
+
   const appTools = useMemo<Tool[]>(() => {
     return tools.filter((tool) => {
       try {
@@ -188,10 +294,9 @@ export function InspectorView({
     });
   }, [tools]);
 
-  // The view is the single source of truth for connection state. Any
-  // `connection` field on incoming `serversInput` items is intentionally
-  // ignored — cards mirror the global `connectionStatus` for the active
-  // server and render as `disconnected` otherwise.
+  // Merge the parent's `serversInput` (static config) with the runtime
+  // connection state owned by the parent — only the active server reflects
+  // the live status; the rest render as `disconnected`.
   const servers = useMemo<ServerEntry[]>(
     () =>
       serversInput.map((s) => {
@@ -212,75 +317,6 @@ export function InspectorView({
     [serversInput, activeServer, connectionStatus, errorMessage],
   );
 
-  function disconnect() {
-    if (handshakeTimer.current !== undefined) {
-      window.clearTimeout(handshakeTimer.current);
-      handshakeTimer.current = undefined;
-    }
-    setActiveServer(undefined);
-    setConnectionStatus("disconnected");
-    setInitializeResult(undefined);
-    setLatencyMs(undefined);
-    setErrorMessage(undefined);
-    setAvailableTabs([SERVERS_TAB]);
-    setActiveTab(SERVERS_TAB);
-  }
-
-  // Demo stub: simulates the full connect → connecting → connected/error
-  // transition with a randomized handshake delay. Real wiring will dispatch
-  // `useConnection.connect(id)` and let the hook drive these state changes.
-  // The `protocolVersion`, `capabilities`, and `serverInfo` populated below
-  // are placeholders until a real `InitializeResult` arrives from the server.
-  function handleToggleConnection(id: string) {
-    if (id === activeServer && connectionStatus === "connected") {
-      disconnect();
-      return;
-    }
-    const target = serversInput.find((s) => s.id === id);
-    if (!target) return;
-
-    // Cancel any in-flight handshake so a rapid switch to a different
-    // server doesn't get overwritten by the previous server's resolver.
-    if (handshakeTimer.current !== undefined) {
-      window.clearTimeout(handshakeTimer.current);
-    }
-
-    // Capture `start` at the "connecting" edge and compute observed
-    // latency at the "connected" edge. Both edges are owned by this
-    // handler so the timing is deterministic — no useEffect chain needed
-    // (which would otherwise trip `react-hooks/set-state-in-effect`).
-    const start = Date.now();
-    setActiveServer(id);
-    setLatencyMs(undefined);
-    setErrorMessage(undefined);
-    setConnectionStatus("connecting");
-
-    const delay =
-      STUB_MIN_DELAY_MS +
-      Math.floor(Math.random() * (STUB_MAX_DELAY_MS - STUB_MIN_DELAY_MS + 1));
-
-    handshakeTimer.current = window.setTimeout(() => {
-      handshakeTimer.current = undefined;
-      if (Math.random() < STUB_SUCCESS_RATE) {
-        setInitializeResult({
-          protocolVersion: "2025-06-18",
-          capabilities: {},
-          serverInfo: target.info ?? { name: target.name, version: "0.0.0" },
-        });
-        setAvailableTabs(ALL_TABS);
-        setLatencyMs(Date.now() - start);
-        setConnectionStatus("connected");
-      } else {
-        setErrorMessage(
-          STUB_ERROR_MESSAGES[
-            Math.floor(Math.random() * STUB_ERROR_MESSAGES.length)
-          ],
-        );
-        setConnectionStatus("error");
-      }
-    }, delay);
-  }
-
   return (
     <AppShell header={{ height: 60 }} padding="md">
       <AppShell.Header>
@@ -292,8 +328,8 @@ export function InspectorView({
             latencyMs={latencyMs}
             activeTab={activeTab}
             availableTabs={availableTabs}
-            onTabChange={setActiveTab}
-            onDisconnect={disconnect}
+            onTabChange={setSelectedTab}
+            onDisconnect={onDisconnect}
             onToggleTheme={onToggleTheme}
           />
         ) : (
@@ -306,44 +342,49 @@ export function InspectorView({
             <ServerListScreen
               servers={servers}
               activeServer={activeServer}
-              onAddManually={noop}
-              onImportConfig={noop}
-              onImportServerJson={noop}
-              onToggleConnection={handleToggleConnection}
-              onServerInfo={noop}
-              onSettings={noop}
-              onEdit={noop}
-              onClone={noop}
-              onRemove={noop}
+              onAddManually={onServerAdd}
+              onImportConfig={onServerImportConfig}
+              onImportServerJson={onServerImportJson}
+              onToggleConnection={onToggleConnection}
+              onServerInfo={onServerInfo}
+              onSettings={onServerSettings}
+              onEdit={onServerEdit}
+              onClone={onServerClone}
+              onRemove={onServerRemove}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Tools"}>
             <ToolsScreen
               tools={tools}
+              callState={toolCallState}
               listChanged={false}
-              onRefreshList={noop}
-              onCallTool={noop}
+              onRefreshList={onRefreshTools}
+              onCallTool={onCallTool}
+              onCancelCall={onCancelToolCall}
+              onClearResult={onClearToolResult}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Apps"}>
             <AppsScreen
               tools={appTools}
               listChanged={false}
-              sandboxPath={STUB_SANDBOX_PATH}
-              bridgeFactory={stubBridgeFactory}
+              sandboxPath={sandboxPath}
+              bridgeFactory={bridgeFactory}
               rendererRef={appRendererRef}
-              onRefreshList={noop}
-              onSelectApp={noop}
-              onOpenApp={noop}
-              onCloseApp={noop}
+              onRefreshList={onRefreshApps}
+              onSelectApp={onSelectApp}
+              onOpenApp={onOpenApp}
+              onCloseApp={onCloseApp}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Prompts"}>
             <PromptsScreen
               prompts={prompts}
+              getPromptState={getPromptState}
               listChanged={false}
-              onRefreshList={noop}
-              onGetPrompt={noop}
+              onRefreshList={onRefreshPrompts}
+              onGetPrompt={onGetPrompt}
+              onCopyMessages={onCopyPromptMessages}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Resources"}>
@@ -351,42 +392,43 @@ export function InspectorView({
               resources={resources}
               templates={resourceTemplates}
               subscriptions={subscriptions}
+              readState={readResourceState}
               listChanged={false}
-              onRefreshList={noop}
-              onReadResource={noop}
-              onSubscribeResource={noop}
-              onUnsubscribeResource={noop}
+              onRefreshList={onRefreshResources}
+              onReadResource={onReadResource}
+              onSubscribeResource={onSubscribeResource}
+              onUnsubscribeResource={onUnsubscribeResource}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Tasks"}>
             <TasksScreen
               tasks={tasks}
               progressByTaskId={progressByTaskId}
-              onRefresh={noop}
-              onClearCompleted={noop}
-              onCancel={noop}
+              onRefresh={onRefreshTasks}
+              onClearCompleted={onClearCompletedTasks}
+              onCancel={onCancelTask}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Logs"}>
             <LoggingScreen
               entries={logs}
-              currentLevel={logLevel}
-              onSetLevel={setLogLevel}
-              onClear={noop}
-              onExport={noop}
+              currentLevel={currentLogLevel}
+              onSetLevel={onSetLogLevel}
+              onClear={onClearLogs}
+              onExport={onExportLogs}
               autoScroll={autoScroll}
               onToggleAutoScroll={() => setAutoScroll((prev) => !prev)}
-              onCopyAll={noop}
+              onCopyAll={onCopyAllLogs}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "History"}>
             <HistoryScreen
               entries={history}
-              pinnedIds={new Set()}
-              onClearAll={noop}
-              onExport={noop}
-              onReplay={noop}
-              onTogglePin={noop}
+              pinnedIds={pinnedHistoryIds ?? new Set()}
+              onClearAll={onClearHistory}
+              onExport={onExportHistory}
+              onReplay={onReplayHistory}
+              onTogglePin={onTogglePinHistory}
             />
           </ScreenStage>
         </ScreenStageContainer>

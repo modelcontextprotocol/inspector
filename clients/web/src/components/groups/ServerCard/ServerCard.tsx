@@ -75,7 +75,13 @@ function getCommandOrUrl(config: MCPServerConfig): string {
   if (config.type === "sse" || config.type === "streamable-http") {
     return config.url;
   }
-  return config.command;
+  // Show the full argv for stdio so the card displays the same thing
+  // that gets spawned. Otherwise a `command: "npx", args: ["-y", "pkg"]`
+  // config renders as just "npx", which is misleading.
+  const args = config.args ?? [];
+  return args.length > 0
+    ? `${config.command} ${args.join(" ")}`
+    : config.command;
 }
 
 export function ServerCard({
