@@ -44,7 +44,7 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
           context.fetchFn,
         );
       } catch {
-        // RFC 8707 path-aware and bare-origin discovery both failed.
+        // RFC 9728 path-aware and bare-origin discovery both failed.
         // For sub-path mounted servers (e.g. FastMCP), the protected resource
         // metadata is served at {serverUrl}/.well-known/oauth-protected-resource
         // (mount-relative), so try that URL explicitly before giving up.
