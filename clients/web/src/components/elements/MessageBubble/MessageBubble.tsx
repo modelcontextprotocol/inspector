@@ -39,6 +39,15 @@ function isRenderableBlock(block: unknown): block is ContentBlock {
 // markdown by default so prompt prose with code fences, lists, and links
 // looks like prose rather than a preformatted dump. Image / audio blocks
 // already carry mimeType; ContentViewer routes them itself.
+//
+// Caveat: this is unconditional — a server that emits a raw shell
+// snippet, log line, or string containing `#` / `_` / backticks will
+// have it transformed. Most prompts are prose so the trade-off is
+// worth it, but this differs from the resource side (where
+// ResourcePreviewPanel only promotes to markdown when the server
+// supplies `text/markdown` or the URI suffix matches). If the MCP
+// spec ever adds a per-block mimeType for prompt messages, switch
+// back to opt-in rendering here.
 function effectiveMimeForBlock(block: ContentBlock): string | undefined {
   if (block.type === "text") return "text/markdown";
   return undefined;

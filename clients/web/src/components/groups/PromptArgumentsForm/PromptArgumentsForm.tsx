@@ -113,30 +113,43 @@ export function PromptArgumentsForm({
     [onCompleteArgument],
   );
 
+  // Hold the latest argumentValues in a ref so debounced fires can read
+  // sibling values at *fire* time, not at schedule time. Without this,
+  // typing in arg A then arg B within the debounce window would ship
+  // A's request with B's value stuck at its pre-keystroke state.
+  const argumentValuesRef = useRef(argumentValues);
+  useEffect(() => {
+    argumentValuesRef.current = argumentValues;
+  }, [argumentValues]);
+
   // Build the `context.arguments` payload for a completion request.
   // Includes every prompt argument the user could fill in (with `""`
   // for ones they haven't typed yet) except the one being completed —
   // the completing arg goes in `params.argument`. Servers that
   // disambiguate based on co-arguments need all of them, not just
   // whatever the user has already typed.
-  function buildContext(currentArg: string): Record<string, string> {
-    const ctx: Record<string, string> = {};
-    for (const a of promptArguments ?? []) {
-      if (a.name === currentArg) continue;
-      ctx[a.name] = argumentValues[a.name] ?? "";
-    }
-    return ctx;
-  }
+  const buildContext = useCallback(
+    (currentArg: string): Record<string, string> => {
+      const ctx: Record<string, string> = {};
+      for (const a of promptArguments ?? []) {
+        if (a.name === currentArg) continue;
+        ctx[a.name] = argumentValuesRef.current[a.name] ?? "";
+      }
+      return ctx;
+    },
+    [promptArguments],
+  );
 
   function handleChange(argName: string, value: string) {
     onArgumentChange(argName, value);
     if (!useAutocomplete) return;
-    const context = buildContext(argName);
     const existing = timersRef.current.get(argName);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
       timersRef.current.delete(argName);
-      void runCompletion(argName, value, context);
+      // Build context at fire time so sibling values that arrived
+      // between schedule and fire are picked up.
+      void runCompletion(argName, value, buildContext(argName));
     }, COMPLETION_DEBOUNCE_MS);
     timersRef.current.set(argName, timer);
   }
@@ -151,9 +164,16 @@ export function PromptArgumentsForm({
       clearTimeout(existing);
       timersRef.current.delete(argName);
     }
-    const value = argumentValues[argName] ?? "";
+    const value = argumentValuesRef.current[argName] ?? "";
     void runCompletion(argName, value, buildContext(argName));
   }
+
+  // Mirror ResourceTemplatePanel: every required argument must be
+  // filled before Get Prompt is enabled. Optional args are allowed to
+  // stay empty; the server will treat them as absent.
+  const canSubmit = (promptArguments ?? [])
+    .filter((a) => a.required === true)
+    .every((a) => (argumentValues[a.name] ?? "").length > 0);
 
   return (
     <Stack gap="md">
@@ -198,7 +218,7 @@ export function PromptArgumentsForm({
         </>
       )}
       <Group justify="flex-end">
-        <Button size="sm" onClick={onGetPrompt}>
+        <Button size="sm" disabled={!canSubmit} onClick={onGetPrompt}>
           Get Prompt
         </Button>
       </Group>

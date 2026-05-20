@@ -127,6 +127,11 @@ export function PromptsScreen({
     : undefined;
 
   function handleSelectPrompt(name: string) {
+    // Re-clicking the active prompt in the sidebar shouldn't wipe the
+    // user's typed argument values or trigger a re-fetch — sidebar is
+    // for navigation, ✕ is for dismiss. Closing-then-reselecting is
+    // its own thing (the close handler clears submittedFor).
+    if (name === selectedPromptName) return;
     setArgumentValues({});
     setSelectedPromptName(name);
     // Auto-fetch no-argument prompts the moment they're selected — the

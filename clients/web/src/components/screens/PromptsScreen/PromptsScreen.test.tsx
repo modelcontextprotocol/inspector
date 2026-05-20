@@ -186,6 +186,24 @@ describe("PromptsScreen", () => {
     expect(screen.queryByText("Messages")).not.toBeInTheDocument();
   });
 
+  it("re-clicking the active prompt preserves form values and does not re-fetch", async () => {
+    const user = userEvent.setup();
+    const onGetPrompt = vi.fn();
+    renderWithMantine(
+      <PromptsScreen
+        {...baseProps}
+        prompts={noArgPrompts}
+        onGetPrompt={onGetPrompt}
+      />,
+    );
+    await user.click(screen.getByText("ping"));
+    expect(onGetPrompt).toHaveBeenCalledTimes(1);
+    // Sidebar re-click on the same prompt should be a no-op — sidebar
+    // is navigation, ✕ is dismiss.
+    await user.click(screen.getByText("ping"));
+    expect(onGetPrompt).toHaveBeenCalledTimes(1);
+  });
+
   it("resets argument values when switching prompts", async () => {
     const user = userEvent.setup();
     const arglessTwoStep: Prompt[] = [

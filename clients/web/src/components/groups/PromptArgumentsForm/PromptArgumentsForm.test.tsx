@@ -150,13 +150,41 @@ describe("PromptArgumentsForm", () => {
     renderWithMantine(
       <PromptArgumentsForm
         prompt={promptWithArgs}
-        argumentValues={{}}
+        // Required arg filled — otherwise the button is disabled.
+        argumentValues={{ text: "Hello" }}
         onArgumentChange={vi.fn()}
         onGetPrompt={onGetPrompt}
       />,
     );
     await user.click(screen.getByRole("button", { name: "Get Prompt" }));
     expect(onGetPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables Get Prompt until every required argument has a value", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <StatefulForm prompt={promptWithArgs} onGetPrompt={vi.fn()} />,
+    );
+    const button = screen.getByRole("button", { name: "Get Prompt" });
+    expect(button).toBeDisabled();
+    await user.type(screen.getByPlaceholderText("Enter text..."), "hi");
+    expect(button).not.toBeDisabled();
+  });
+
+  it("allows submission when only optional arguments are blank", () => {
+    renderWithMantine(
+      <PromptArgumentsForm
+        prompt={promptWithArgs}
+        argumentValues={{ text: "Hello" }}
+        onArgumentChange={vi.fn()}
+        onGetPrompt={vi.fn()}
+      />,
+    );
+    // targetLanguage is required: false, so leaving it blank should
+    // not disable submission.
+    expect(
+      screen.getByRole("button", { name: "Get Prompt" }),
+    ).not.toBeDisabled();
   });
 
   it("renders without description when none is provided", () => {
@@ -265,6 +293,92 @@ describe("PromptArgumentsForm", () => {
       expect(onCompleteArgument).toHaveBeenLastCalledWith("text", "h", {
         targetLanguage: "es",
       });
+    });
+
+    it("captures sibling values at fire time, not at schedule time", async () => {
+      const user = userEvent.setup();
+      const onCompleteArgument = vi
+        .fn<
+          (
+            argName: string,
+            value: string,
+            context: Record<string, string>,
+          ) => Promise<string[]>
+        >()
+        .mockResolvedValue([]);
+
+      renderWithMantine(
+        <StatefulForm
+          prompt={promptWithArgs}
+          onGetPrompt={vi.fn()}
+          completionsSupported
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+
+      // Type into "text" — this schedules a debounced completion call.
+      await user.type(screen.getByRole("textbox", { name: /^text/ }), "h");
+      // Before the 300ms debounce fires, update the sibling. The
+      // text-arg fire that lands at t=300 must see the latest sibling
+      // value, not the empty one captured at schedule time.
+      await user.type(
+        screen.getByRole("textbox", { name: /targetLanguage/ }),
+        "es",
+      );
+      await new Promise((r) => setTimeout(r, 400));
+
+      // The most recent call for "text" carries the up-to-date
+      // sibling value, even though it was scheduled before "es" was
+      // typed. (There's also a focus-fire call when the second input
+      // gained focus — separate stream, not asserted here.)
+      const textCalls = onCompleteArgument.mock.calls.filter(
+        ([n]) => n === "text",
+      );
+      expect(textCalls.at(-1)).toEqual(["text", "h", { targetLanguage: "es" }]);
+    });
+
+    it("aborts an in-flight request when a faster keystroke arrives", async () => {
+      const user = userEvent.setup();
+      const calls: Array<{
+        value: string;
+        resolve: (values: string[]) => void;
+      }> = [];
+      const onCompleteArgument = vi.fn(
+        (_argName: string, value: string) =>
+          new Promise<string[]>((resolve) => {
+            calls.push({ value, resolve });
+          }),
+      );
+
+      renderWithMantine(
+        <StatefulForm
+          prompt={promptWithArgs}
+          onGetPrompt={vi.fn()}
+          completionsSupported
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+
+      // Focus fires the first call (value=""). Type "h" → second call
+      // after debounce. Type "i" → third call after debounce.
+      await user.type(screen.getByRole("textbox", { name: /^text/ }), "h");
+      await new Promise((r) => setTimeout(r, 350));
+      await user.type(screen.getByRole("textbox", { name: /^text/ }), "i");
+      await new Promise((r) => setTimeout(r, 350));
+
+      // Resolve the late "h" response — it should be dropped because
+      // the form aborted that controller when the "hi" request started.
+      const hi = calls.find((c) => c.value === "hi");
+      const h = calls.find((c) => c.value === "h");
+      expect(hi).toBeDefined();
+      expect(h).toBeDefined();
+      h?.resolve(["from-stale-h"]);
+      hi?.resolve(["from-fresh-hi"]);
+      await new Promise((r) => setTimeout(r, 0));
+
+      // The dropdown shows the fresh response, not the stale one.
+      expect(await screen.findByText("from-fresh-hi")).toBeInTheDocument();
+      expect(screen.queryByText("from-stale-h")).not.toBeInTheDocument();
     });
 
     it("does not call onCompleteArgument when completions are unsupported", async () => {
