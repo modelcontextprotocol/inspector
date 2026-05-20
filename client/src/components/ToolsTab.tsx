@@ -201,6 +201,9 @@ const ToolsTab = ({
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [runAsTask, setRunAsTask] = useState(false);
   const [isToolRunning, setIsToolRunning] = useState(false);
+  const [toolRunDurationMs, setToolRunDurationMs] = useState<number | null>(
+    null,
+  );
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
   const [isMetadataExpanded, setIsMetadataExpanded] = useState(false);
   const [metadataEntries, setMetadataEntries] = useState<
@@ -248,6 +251,7 @@ const ToolsTab = ({
 
     // Reset validation errors when switching tools
     setHasValidationErrors(false);
+    setToolRunDurationMs(null);
 
     // Clear form refs for the previous tool
     formRefs.current = {};
@@ -808,8 +812,10 @@ const ToolsTab = ({
                     // Validate JSON inputs before calling tool
                     if (checkValidationErrors(true)) return;
 
+                    const runStartedAt = Date.now();
                     try {
                       setIsToolRunning(true);
+                      setToolRunDurationMs(null);
                       const metadata = metadataEntries.reduce<
                         Record<string, unknown>
                       >((acc, { key, value }) => {
@@ -831,6 +837,7 @@ const ToolsTab = ({
                         runAsTask,
                       );
                     } finally {
+                      setToolRunDurationMs(Date.now() - runStartedAt);
                       setIsToolRunning(false);
                     }
                   }}
@@ -886,6 +893,7 @@ const ToolsTab = ({
                   resourceContent={resourceContent}
                   onReadResource={onReadResource}
                   isPollingTask={isPollingTask}
+                  toolRunDurationMs={toolRunDurationMs}
                 />
               </div>
             ) : (

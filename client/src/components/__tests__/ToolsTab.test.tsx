@@ -423,6 +423,36 @@ describe("ToolsTab", () => {
     expect(submitButton.getAttribute("disabled")).toBeNull();
   });
 
+  it("should show how long the last tool run took", async () => {
+    let currentTime = 1000;
+    const nowSpy = jest
+      .spyOn(Date, "now")
+      .mockImplementation(() => currentTime);
+    const mockCallTool = jest.fn(async () => {
+      currentTime = 6240;
+      return { content: [] };
+    });
+
+    try {
+      renderToolsTab({
+        selectedTool: mockTools[0],
+        callTool: mockCallTool,
+        toolResult: { content: [] },
+      });
+
+      expect(screen.queryByText(/Took /)).not.toBeInTheDocument();
+
+      const submitButton = screen.getByRole("button", { name: /run tool/i });
+      await act(async () => {
+        fireEvent.click(submitButton);
+      });
+
+      expect(screen.getByText("Took 5.24s")).toBeInTheDocument();
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   describe("Output Schema Display", () => {
     const toolWithOutputSchema: Tool = {
       name: "weatherTool",
