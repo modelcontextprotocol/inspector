@@ -1,10 +1,24 @@
-import { Button, Group, ScrollArea, Stack, Text, Title } from "@mantine/core";
+import {
+  Button,
+  CloseButton,
+  Group,
+  ScrollArea,
+  Stack,
+  Text,
+  Title,
+} from "@mantine/core";
 import type { PromptMessage } from "@modelcontextprotocol/sdk/types.js";
 import { MessageBubble } from "../../elements/MessageBubble/MessageBubble";
 
 export interface PromptMessagesDisplayProps {
   messages: PromptMessage[];
   onCopyAll?: () => void;
+  /**
+   * When provided, a top-left X button dismisses the panel. The host
+   * (`PromptsScreen`) decides what to show in its place — typically
+   * the prompt's argument form (if it has arguments) or the empty state.
+   */
+  onClose?: () => void;
 }
 
 const CopyAllButton = Button.withProps({
@@ -26,6 +40,11 @@ const HeaderRow = Group.withProps({
   flex: "0 0 auto",
 });
 
+const HeaderLeft = Group.withProps({
+  gap: "xs",
+  wrap: "nowrap",
+});
+
 // `0 1 auto` lets the scroll region shrink (but not grow) when the card
 // hits its mah. `mih: 0` is required for flex children to shrink below
 // their content's intrinsic height.
@@ -45,11 +64,17 @@ const MessagesStack = Stack.withProps({
 export function PromptMessagesDisplay({
   messages,
   onCopyAll,
+  onClose,
 }: PromptMessagesDisplayProps) {
   return (
     <PanelStack>
       <HeaderRow>
-        <Title order={4}>Messages</Title>
+        <HeaderLeft>
+          {onClose && (
+            <CloseButton aria-label="Close messages" onClick={onClose} />
+          )}
+          <Title order={4}>Messages</Title>
+        </HeaderLeft>
         {onCopyAll && messages.length > 0 && (
           <CopyAllButton onClick={onCopyAll}>Copy All</CopyAllButton>
         )}

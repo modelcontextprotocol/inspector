@@ -1,5 +1,6 @@
 import {
   Button,
+  CloseButton,
   Flex,
   Group,
   ScrollArea,
@@ -26,6 +27,12 @@ export interface ResourcePreviewPanelProps {
   onRefresh: () => void;
   onSubscribe: () => void;
   onUnsubscribe: () => void;
+  /**
+   * When provided, a top-left X button dismisses the panel. The host
+   * (`ResourcesScreen`) decides what to show in its place — either the
+   * originating template form or the empty state.
+   */
+  onClose?: () => void;
 }
 
 function toContentBlock(
@@ -55,6 +62,11 @@ const HeaderRow = Group.withProps({
   justify: "space-between",
   wrap: "nowrap",
   flex: "0 0 auto",
+});
+
+const HeaderLeft = Group.withProps({
+  gap: "xs",
+  wrap: "nowrap",
 });
 
 const UriGroup = Group.withProps({
@@ -159,6 +171,7 @@ export function ResourcePreviewPanel({
   onRefresh,
   onSubscribe,
   onUnsubscribe,
+  onClose,
 }: ResourcePreviewPanelProps) {
   const { uri, annotations } = resource;
   const mimeType = effectiveMime(contents[0]?.mimeType, resource);
@@ -166,7 +179,12 @@ export function ResourcePreviewPanel({
   return (
     <PanelStack>
       <HeaderRow>
-        <Title order={4}>Resource</Title>
+        <HeaderLeft>
+          {onClose && (
+            <CloseButton aria-label="Close preview" onClick={onClose} />
+          )}
+          <Title order={4}>Resource</Title>
+        </HeaderLeft>
         <UriGroup>
           <UriText>{uri}</UriText>
           <CopyButton value={uri} />

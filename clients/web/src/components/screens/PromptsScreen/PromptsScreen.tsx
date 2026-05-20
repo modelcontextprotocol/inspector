@@ -138,6 +138,19 @@ export function PromptsScreen({
     onGetPrompt(selectedPrompt.name, argumentValues);
   }
 
+  function handleClosePreview() {
+    // For prompts with arguments, flip back to the form so the user can
+    // edit and re-submit (argumentValues are preserved). For no-arg
+    // prompts there's no form to return to, so drop the selection and
+    // fall back to the empty state.
+    if (selectedPrompt && hasArguments(selectedPrompt)) {
+      setSubmittedFor(undefined);
+    } else {
+      setSelectedPromptName(undefined);
+      setSubmittedFor(undefined);
+    }
+  }
+
   // The preview is "active" when we've submitted (or auto-fetched) the
   // currently-selected prompt and the parent's result/pending/error state
   // matches. Without the name check, a stale result from a previous
@@ -175,6 +188,7 @@ export function PromptsScreen({
           <PromptMessagesDisplay
             messages={getPromptState.result.messages}
             onCopyAll={onCopyMessages}
+            onClose={handleClosePreview}
           />
         </PreviewCard>
       );

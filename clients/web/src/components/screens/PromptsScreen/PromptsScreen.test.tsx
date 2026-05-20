@@ -201,6 +201,55 @@ describe("PromptsScreen", () => {
     expect(screen.getByPlaceholderText("Enter y...")).toHaveValue("");
   });
 
+  it("closing the preview for an arg-bearing prompt brings the form back", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <PromptsScreen
+        {...baseProps}
+        getPromptState={{
+          status: "ok",
+          promptName: "summarize",
+          result: {
+            messages: [{ role: "user", content: { type: "text", text: "hi" } }],
+          },
+        }}
+      />,
+    );
+    await user.click(screen.getByText("summarize"));
+    await user.type(screen.getByPlaceholderText("Enter topic..."), "math");
+    await user.click(screen.getByRole("button", { name: "Get Prompt" }));
+    // Preview is showing now — close it.
+    await user.click(screen.getByRole("button", { name: "Close messages" }));
+    expect(
+      screen.getByRole("button", { name: "Get Prompt" }),
+    ).toBeInTheDocument();
+    // Argument value is preserved so the user can edit + re-submit.
+    expect(screen.getByPlaceholderText("Enter topic...")).toHaveValue("math");
+  });
+
+  it("closing the preview for a no-arg prompt drops the selection", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <PromptsScreen
+        {...baseProps}
+        prompts={noArgPrompts}
+        getPromptState={{
+          status: "ok",
+          promptName: "ping",
+          result: {
+            messages: [{ role: "user", content: { type: "text", text: "hi" } }],
+          },
+        }}
+      />,
+    );
+    await user.click(screen.getByText("ping"));
+    await user.click(screen.getByRole("button", { name: "Close messages" }));
+    // No form to fall back to → empty state.
+    expect(
+      screen.getByText("Select a prompt to view details"),
+    ).toBeInTheDocument();
+  });
+
   it("threads onCompleteArgument with a ref/prompt envelope", async () => {
     const user = userEvent.setup();
     const onCompleteArgument = vi

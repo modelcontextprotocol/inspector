@@ -165,6 +165,70 @@ describe("ResourcesScreen", () => {
     expect(onSubscribeResource).toHaveBeenCalledWith("file:///x");
   });
 
+  it("closing the preview returns to the originating template form", async () => {
+    const user = userEvent.setup();
+    const onReadResource = vi.fn();
+    const templates: ResourceTemplate[] = [
+      { uriTemplate: "file:///{path}", name: "files" },
+    ];
+    const { rerender } = renderWithMantine(
+      <ResourcesScreen
+        {...baseProps}
+        templates={templates}
+        onReadResource={onReadResource}
+      />,
+    );
+    // Open the template form.
+    await user.click(screen.getByText("Templates (1)"));
+    await user.click(screen.getByText("files"));
+    // Submit it — the screen calls onReadResource and remembers the
+    // template URI for the close handler.
+    await user.type(screen.getByLabelText("path"), "alpha");
+    await user.click(screen.getByRole("button", { name: "Read Resource" }));
+    expect(onReadResource).toHaveBeenCalledWith("file:///alpha");
+
+    // Parent re-renders with the read result; the preview appears.
+    rerender(
+      <ResourcesScreen
+        {...baseProps}
+        templates={templates}
+        onReadResource={onReadResource}
+        readState={{
+          status: "ok",
+          uri: "file:///alpha",
+          result: okResult,
+        }}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Read Resource" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close preview" }));
+    // Closing brings the template form back.
+    expect(
+      screen.getByRole("button", { name: "Read Resource" }),
+    ).toBeInTheDocument();
+  });
+
+  it("closing the preview for a plain resource returns to the empty state", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ResourcesScreen
+        {...baseProps}
+        readState={{
+          status: "ok",
+          uri: "file:///x",
+          result: okResult,
+        }}
+      />,
+    );
+    await user.click(screen.getByText("x.txt"));
+    await user.click(screen.getByRole("button", { name: "Close preview" }));
+    expect(
+      screen.getByText("Select a resource to preview"),
+    ).toBeInTheDocument();
+  });
+
   it("invokes onUnsubscribeResource when already subscribed", async () => {
     const user = userEvent.setup();
     const onUnsubscribeResource = vi.fn();
