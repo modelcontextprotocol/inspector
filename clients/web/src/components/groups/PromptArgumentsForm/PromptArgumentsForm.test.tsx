@@ -173,6 +173,37 @@ describe("PromptArgumentsForm", () => {
   });
 
   describe("completions", () => {
+    it("fires a completion immediately on focus before any keystroke", async () => {
+      const user = userEvent.setup();
+      const onCompleteArgument = vi
+        .fn<
+          (
+            argName: string,
+            value: string,
+            context: Record<string, string>,
+          ) => Promise<string[]>
+        >()
+        .mockResolvedValue(["alpha", "alphabet"]);
+
+      renderWithMantine(
+        <StatefulForm
+          prompt={promptWithArgs}
+          onGetPrompt={vi.fn()}
+          completionsSupported
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+
+      await user.click(screen.getByRole("textbox", { name: /^text/ }));
+      // No debounce on focus — the call fires synchronously off the
+      // focus handler. A microtask is enough for the response to settle.
+      await new Promise((r) => setTimeout(r, 0));
+      expect(onCompleteArgument).toHaveBeenCalledWith("text", "", {
+        targetLanguage: "",
+      });
+      expect(await screen.findByText("alpha")).toBeInTheDocument();
+    });
+
     it("calls onCompleteArgument (debounced) and surfaces values when supported", async () => {
       const user = userEvent.setup();
       const onCompleteArgument = vi
@@ -196,13 +227,16 @@ describe("PromptArgumentsForm", () => {
 
       await user.type(screen.getByRole("textbox", { name: /^text/ }), "al");
       await new Promise((r) => setTimeout(r, 400));
-      expect(onCompleteArgument).toHaveBeenCalled();
-      expect(onCompleteArgument).toHaveBeenLastCalledWith("text", "al", {});
+      // The last call carries the typed value and the context for the
+      // other (still empty) sibling.
+      expect(onCompleteArgument).toHaveBeenLastCalledWith("text", "al", {
+        targetLanguage: "",
+      });
       expect(await screen.findByText("alpha")).toBeInTheDocument();
       expect(screen.getByText("alphabet")).toBeInTheDocument();
     });
 
-    it("passes sibling argument values as completion context", async () => {
+    it("sends every sibling argument in context, including the unset ones", async () => {
       const user = userEvent.setup();
       const onCompleteArgument = vi
         .fn<
@@ -226,7 +260,8 @@ describe("PromptArgumentsForm", () => {
 
       await user.type(screen.getByRole("textbox", { name: /^text/ }), "h");
       await new Promise((r) => setTimeout(r, 400));
-      // The completing arg ("text") is excluded from context; siblings ride along.
+      // The completing arg ("text") is excluded from context; every
+      // other declared argument rides along — even ones still empty.
       expect(onCompleteArgument).toHaveBeenLastCalledWith("text", "h", {
         targetLanguage: "es",
       });
@@ -243,6 +278,8 @@ describe("PromptArgumentsForm", () => {
           onCompleteArgument={onCompleteArgument}
         />,
       );
+      // Focus the input first, then type — neither should trigger a call.
+      await user.click(screen.getByPlaceholderText("Enter text..."));
       await user.type(screen.getByPlaceholderText("Enter text..."), "ab");
       await new Promise((r) => setTimeout(r, 400));
       expect(onCompleteArgument).not.toHaveBeenCalled();

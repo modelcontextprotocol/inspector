@@ -113,16 +113,25 @@ export function PromptArgumentsForm({
     [onCompleteArgument],
   );
 
+  // Build the `context.arguments` payload for a completion request.
+  // Includes every prompt argument the user could fill in (with `""`
+  // for ones they haven't typed yet) except the one being completed —
+  // the completing arg goes in `params.argument`. Servers that
+  // disambiguate based on co-arguments need all of them, not just
+  // whatever the user has already typed.
+  function buildContext(currentArg: string): Record<string, string> {
+    const ctx: Record<string, string> = {};
+    for (const a of promptArguments ?? []) {
+      if (a.name === currentArg) continue;
+      ctx[a.name] = argumentValues[a.name] ?? "";
+    }
+    return ctx;
+  }
+
   function handleChange(argName: string, value: string) {
     onArgumentChange(argName, value);
     if (!useAutocomplete) return;
-    // The completing arg is excluded from context so the server can
-    // disambiguate when one argument depends on another.
-    const context: Record<string, string> = {
-      ...argumentValues,
-      [argName]: value,
-    };
-    delete context[argName];
+    const context = buildContext(argName);
     const existing = timersRef.current.get(argName);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
@@ -130,6 +139,20 @@ export function PromptArgumentsForm({
       void runCompletion(argName, value, context);
     }, COMPLETION_DEBOUNCE_MS);
     timersRef.current.set(argName, timer);
+  }
+
+  function handleFocus(argName: string) {
+    if (!useAutocomplete) return;
+    // Fire immediately so the dropdown isn't empty when the user first
+    // clicks in. Cancel any pending debounce so a stale keystroke
+    // request doesn't overwrite this fresher one.
+    const existing = timersRef.current.get(argName);
+    if (existing) {
+      clearTimeout(existing);
+      timersRef.current.delete(argName);
+    }
+    const value = argumentValues[argName] ?? "";
+    void runCompletion(argName, value, buildContext(argName));
   }
 
   return (
@@ -155,6 +178,7 @@ export function PromptArgumentsForm({
                   // suggestions client-side.
                   filter={({ options }) => options}
                   onChange={(value) => handleChange(arg.name, value)}
+                  onFocus={() => handleFocus(arg.name)}
                 />
               ) : (
                 <TextInput
