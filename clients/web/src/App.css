@@ -110,20 +110,22 @@
   background-color: var(--mantine-primary-color-light);
 }
 
-/* ── Combobox dropdown / option (dark mode) ──────────────────────
+/* ── Select / Autocomplete dropdown / option (dark mode) ─────────
  *
- * Targets `.mantine-Combobox-*` so the same dark-mode dropdown
- * background + hover apply to every Combobox-built input (Select,
- * Autocomplete, MultiSelect, TagsInput, …). Earlier this scoped to
- * `.mantine-Select-*` only and the argument-completion Autocompletes
- * shipped an unstyled dropdown that looked nothing like the rest of
- * the app's filter dropdowns. */
+ * Select and Autocomplete each render with their own static selector
+ * (`mantine-Select-*` / `mantine-Autocomplete-*`) — they share the
+ * Combobox primitive but don't emit a shared `mantine-Combobox-*`
+ * class on the dropdown root. List both so the argument-completion
+ * Autocompletes get the same gray surface + primary-light hover as
+ * the filter dropdowns. */
 
-[data-mantine-color-scheme="dark"] .mantine-Combobox-dropdown {
+[data-mantine-color-scheme="dark"] .mantine-Select-dropdown,
+[data-mantine-color-scheme="dark"] .mantine-Autocomplete-dropdown {
   background-color: var(--mantine-color-gray-8);
 }
 
-[data-mantine-color-scheme="dark"] .mantine-Combobox-option:hover {
+[data-mantine-color-scheme="dark"] .mantine-Select-option:hover,
+[data-mantine-color-scheme="dark"] .mantine-Autocomplete-option:hover {
   background-color: var(--mantine-primary-color-light);
 }
 
