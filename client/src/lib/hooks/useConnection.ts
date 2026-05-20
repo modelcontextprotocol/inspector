@@ -1200,6 +1200,7 @@ export function useConnection({
   return {
     connectionStatus,
     serverCapabilities,
+    mcpProtocolVersion,
     serverImplementation,
     mcpClient,
     requestHistory,

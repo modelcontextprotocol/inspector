@@ -1213,6 +1213,34 @@ describe("useConnection", () => {
         mockStreamableHTTPTransport.options?.requestInit?.headers,
       ).toHaveProperty("X-MCP-Proxy-Auth", "Bearer test-proxy-token");
     });
+
+    test("exposes negotiated protocol version from response headers", async () => {
+      const response = {
+        headers: {
+          get: jest.fn((name: string) =>
+            name === "mcp-protocol-version" ? "2025-06-18" : null,
+          ),
+        },
+      } as unknown as Response;
+      (global.fetch as jest.Mock).mockResolvedValueOnce(response);
+
+      const { result } = renderHook(() =>
+        useConnection({
+          ...defaultProps,
+          connectionType: "direct",
+        }),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      await act(async () => {
+        await mockSSETransport.options?.fetch?.("http://localhost:8080");
+      });
+
+      expect(result.current.mcpProtocolVersion).toBe("2025-06-18");
+    });
   });
 
   describe("Custom Headers", () => {

@@ -374,6 +374,7 @@ const App = () => {
   const {
     connectionStatus,
     serverCapabilities,
+    mcpProtocolVersion,
     serverImplementation,
     mcpClient,
     requestHistory,
@@ -1342,6 +1343,7 @@ const App = () => {
           connectionType={connectionType}
           setConnectionType={setConnectionType}
           serverImplementation={serverImplementation}
+          mcpProtocolVersion={mcpProtocolVersion}
         />
         <div
           onMouseDown={handleSidebarDragStart}

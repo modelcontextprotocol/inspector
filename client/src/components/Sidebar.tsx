@@ -78,6 +78,7 @@ interface SidebarProps {
   serverImplementation?:
     | (WithIcons & { name?: string; version?: string; websiteUrl?: string })
     | null;
+  mcpProtocolVersion?: string | null;
 }
 
 const Sidebar = ({
@@ -110,6 +111,7 @@ const Sidebar = ({
   connectionType,
   setConnectionType,
   serverImplementation,
+  mcpProtocolVersion,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
@@ -845,6 +847,11 @@ const Sidebar = ({
                     {serverImplementation.version && (
                       <div className="text-xs text-gray-500 dark:text-gray-400">
                         Version: {serverImplementation.version}
+                      </div>
+                    )}
+                    {mcpProtocolVersion && (
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        Protocol: {mcpProtocolVersion}
                       </div>
                     )}
                   </div>
