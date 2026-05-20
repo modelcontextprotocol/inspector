@@ -184,6 +184,24 @@ export function ResourceTemplatePanel({
     });
   }
 
+  function handleVariableFocus(varName: string) {
+    if (!useAutocomplete) return;
+    // Fire immediately so the dropdown isn't empty when the user first
+    // clicks in. Cancel any pending debounce for this variable so a
+    // stale keystroke request doesn't overwrite the fresher focus
+    // response. `variables` already carries every declared template
+    // variable (seeded with "") so the context is complete by default.
+    const existing = timersRef.current.get(varName);
+    if (existing) {
+      clearTimeout(existing);
+      timersRef.current.delete(varName);
+    }
+    const value = variables[varName] ?? "";
+    const context: Record<string, string> = { ...variables };
+    delete context[varName];
+    void runCompletion(varName, value, context);
+  }
+
   const canSubmit = variableNames.every((n) => variables[n]?.length > 0);
 
   function handleSubmit() {
@@ -217,6 +235,7 @@ export function ResourceTemplatePanel({
               // substring-match what the server returned.
               filter={({ options }) => options}
               onChange={(value) => handleVariableChange(varName, value)}
+              onFocus={() => handleVariableFocus(varName)}
             />
           ) : (
             <TextInput

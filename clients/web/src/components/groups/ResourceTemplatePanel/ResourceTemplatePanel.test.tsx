@@ -139,6 +139,37 @@ describe("ResourceTemplatePanel", () => {
   });
 
   describe("completions", () => {
+    it("fires a completion immediately on focus before any keystroke", async () => {
+      const user = userEvent.setup();
+      const onCompleteArgument = vi
+        .fn<
+          (
+            argName: string,
+            value: string,
+            context: Record<string, string>,
+          ) => Promise<string[]>
+        >()
+        .mockResolvedValue(["alpha", "alphabet"]);
+
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={titledTemplate}
+          onReadResource={vi.fn()}
+          completionsSupported
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+
+      await user.click(screen.getByRole("textbox", { name: "tableName" }));
+      await new Promise((r) => setTimeout(r, 0));
+      // Empty value, empty sibling — but the sibling key is still
+      // present so the server sees the full argument set.
+      expect(onCompleteArgument).toHaveBeenCalledWith("tableName", "", {
+        rowId: "",
+      });
+      expect(await screen.findByText("alpha")).toBeInTheDocument();
+    });
+
     it("calls onCompleteArgument (debounced) and surfaces values when supported", async () => {
       const user = userEvent.setup();
       const onCompleteArgument = vi
@@ -163,8 +194,10 @@ describe("ResourceTemplatePanel", () => {
       await user.type(screen.getByRole("textbox", { name: "userId" }), "al");
       // Wait past the 300ms debounce.
       await new Promise((r) => setTimeout(r, 400));
-      expect(onCompleteArgument).toHaveBeenCalledTimes(1);
-      expect(onCompleteArgument).toHaveBeenCalledWith("userId", "al", {});
+      // user.type focuses first (firing one immediate completion) and
+      // then types the characters (firing the debounced one). Only the
+      // typed-prefix call is the one we care about here.
+      expect(onCompleteArgument).toHaveBeenLastCalledWith("userId", "al", {});
 
       // Server-returned values surface in the Autocomplete dropdown.
       expect(await screen.findByText("alpha")).toBeInTheDocument();
