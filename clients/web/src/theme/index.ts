@@ -1,6 +1,7 @@
 export { ThemeActionIcon } from "./ActionIcon";
 export { ThemeAlert } from "./Alert";
 export { ThemeAppShell } from "./AppShell";
+export { ThemeAutocomplete } from "./Autocomplete";
 export { ThemeBadge } from "./Badge";
 export { ThemeButton } from "./Button";
 export { ThemeCard } from "./Card";
