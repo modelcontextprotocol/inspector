@@ -13,7 +13,28 @@ interface ToolResultsProps {
   resourceContent: Record<string, string>;
   onReadResource?: (uri: string) => void;
   isPollingTask?: boolean;
+  toolRunDurationMs?: number | null;
 }
+
+const formatToolRunDuration = (durationMs: number): string => {
+  const roundedMs = Math.max(0, Math.round(durationMs));
+  if (roundedMs < 1000) {
+    return `${roundedMs}ms`;
+  }
+  return `${(roundedMs / 1000).toFixed(2)}s`;
+};
+
+const ToolRunDuration = ({ durationMs }: { durationMs?: number | null }) => {
+  if (typeof durationMs !== "number" || !Number.isFinite(durationMs)) {
+    return null;
+  }
+
+  return (
+    <span className="ml-2 text-xs font-medium text-muted-foreground">
+      Took {formatToolRunDuration(durationMs)}
+    </span>
+  );
+};
 
 const checkContentCompatibility = (
   structuredContent: unknown,
@@ -65,6 +86,7 @@ const ToolResults = ({
   resourceContent,
   onReadResource,
   isPollingTask,
+  toolRunDurationMs,
 }: ToolResultsProps) => {
   if (!toolResult) return null;
 
@@ -73,7 +95,10 @@ const ToolResults = ({
     if (!parsedResult.success) {
       return (
         <>
-          <h4 className="font-semibold mb-2">Invalid Tool Result:</h4>
+          <h4 className="font-semibold mb-2">
+            Invalid Tool Result:
+            <ToolRunDuration durationMs={toolRunDurationMs} />
+          </h4>
           <JsonView data={toolResult} />
           <h4 className="font-semibold mb-2">Errors:</h4>
           {parsedResult.error.issues.map((issue, idx) => (
@@ -141,6 +166,7 @@ const ToolResults = ({
           ) : (
             <span className="text-green-600 font-semibold">Success</span>
           )}
+          <ToolRunDuration durationMs={toolRunDurationMs} />
         </h4>
         {structuredResult.structuredContent && (
           <div className="mb-4">
@@ -240,7 +266,10 @@ const ToolResults = ({
   } else if ("toolResult" in toolResult) {
     return (
       <>
-        <h4 className="font-semibold mb-2">Tool Result (Legacy):</h4>
+        <h4 className="font-semibold mb-2">
+          Tool Result (Legacy):
+          <ToolRunDuration durationMs={toolRunDurationMs} />
+        </h4>
         <JsonView data={toolResult.toolResult} />
       </>
     );
