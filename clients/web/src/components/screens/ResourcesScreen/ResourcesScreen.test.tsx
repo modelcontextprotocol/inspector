@@ -110,15 +110,35 @@ describe("ResourcesScreen", () => {
     await user.click(screen.getByText("Templates (1)"));
     await user.click(screen.getByText("files"));
     expect(
-      screen.getByText("Enter a URI and click Read to preview"),
+      screen.getByRole("button", { name: "Read Resource" }),
     ).toBeInTheDocument();
   });
 
-  it("renders empty state when a resource is selected but no readState", async () => {
+  it("hides the template panel once the user reads the resource", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<ResourcesScreen {...baseProps} />);
+    const onReadResource = vi.fn();
+    renderWithMantine(
+      <ResourcesScreen {...baseProps} onReadResource={onReadResource} />,
+    );
+    await user.click(screen.getByText("Templates (1)"));
+    await user.click(screen.getByText("files"));
+    await user.type(screen.getByLabelText("path"), "alpha");
+    await user.click(screen.getByRole("button", { name: "Read Resource" }));
+    expect(onReadResource).toHaveBeenCalledWith("file:///alpha");
+    // After read, the template form is gone and the preview branch is active.
+    expect(
+      screen.queryByRole("button", { name: "Read Resource" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("auto-reads when a resource is clicked in the sidebar", async () => {
+    const user = userEvent.setup();
+    const onReadResource = vi.fn();
+    renderWithMantine(
+      <ResourcesScreen {...baseProps} onReadResource={onReadResource} />,
+    );
     await user.click(screen.getByText("x.txt"));
-    expect(screen.getByText("Click to read this resource")).toBeInTheDocument();
+    expect(onReadResource).toHaveBeenCalledWith("file:///x");
   });
 
   it("forwards refresh and subscribe events from the preview panel", async () => {

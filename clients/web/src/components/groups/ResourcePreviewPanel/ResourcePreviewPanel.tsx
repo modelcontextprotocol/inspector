@@ -1,4 +1,12 @@
-import { Button, Flex, Group, Stack, Text, Title } from "@mantine/core";
+import {
+  Button,
+  Flex,
+  Group,
+  ScrollArea,
+  Stack,
+  Text,
+  Title,
+} from "@mantine/core";
 import type {
   BlobResourceContents,
   ContentBlock,
@@ -46,6 +54,7 @@ function formatLastUpdated(date: Date): string {
 const HeaderRow = Group.withProps({
   justify: "space-between",
   wrap: "nowrap",
+  flex: "0 0 auto",
 });
 
 const UriGroup = Group.withProps({
@@ -62,6 +71,7 @@ const UriText = Text.withProps({
 const MetaRow = Group.withProps({
   justify: "space-between",
   wrap: "nowrap",
+  flex: "0 0 auto",
 });
 
 const TimestampText = Text.withProps({
@@ -76,6 +86,7 @@ const MimeText = Text.withProps({
 
 const FooterRow = Group.withProps({
   justify: "space-between",
+  flex: "0 0 auto",
 });
 
 const AnnotationGroup = Group.withProps({
@@ -88,6 +99,58 @@ const ActionGroup = Group.withProps({
 
 const Spacer = Flex.withProps({});
 
+// The panel sizes to its content: when the resource body is short the
+// Card hugs it; when the body would overflow the Card's `mah`, the
+// browser shrinks shrinkable flex items (only ContentScroll, since the
+// header / meta / footer rows opt out with `flex: 0 0 auto`) and the
+// inner ScrollArea takes over scrolling — keeping the subscribe button
+// pinned at the bottom edge of the cap.
+const PanelStack = Stack.withProps({
+  gap: "md",
+  miw: 0,
+  mih: 0,
+});
+
+// Middle scroll region: basis sized to its own content, can shrink to
+// fit the available space when content overflows, never grows past its
+// content (so a short resource body doesn't push the footer down).
+const ContentScroll = ScrollArea.withProps({
+  flex: "0 1 auto",
+  miw: 0,
+  mih: 0,
+  type: "auto",
+  scrollbars: "y",
+  offsetScrollbars: true,
+});
+
+const ContentStack = Stack.withProps({
+  gap: "md",
+});
+
+// Infer a markdown MIME from the URI when the server didn't supply one.
+// MCP servers often return `text/plain` (or omit mimeType entirely) for
+// `.md` resources; the file extension is the most reliable fallback signal.
+function inferMimeFromUri(uri: string): string | undefined {
+  const path = uri.split("?")[0].split("#")[0];
+  const lower = path.toLowerCase();
+  if (lower.endsWith(".md") || lower.endsWith(".markdown")) {
+    return "text/markdown";
+  }
+  return undefined;
+}
+
+function effectiveMime(
+  itemMime: string | undefined,
+  resource: Resource,
+): string {
+  return (
+    itemMime ??
+    resource.mimeType ??
+    inferMimeFromUri(resource.uri) ??
+    "application/octet-stream"
+  );
+}
+
 export function ResourcePreviewPanel({
   resource,
   contents,
@@ -98,11 +161,10 @@ export function ResourcePreviewPanel({
   onUnsubscribe,
 }: ResourcePreviewPanelProps) {
   const { uri, annotations } = resource;
-  const mimeType =
-    contents[0]?.mimeType ?? resource.mimeType ?? "application/octet-stream";
+  const mimeType = effectiveMime(contents[0]?.mimeType, resource);
 
   return (
-    <Stack gap="md">
+    <PanelStack>
       <HeaderRow>
         <Title order={4}>Resource</Title>
         <UriGroup>
@@ -110,9 +172,18 @@ export function ResourcePreviewPanel({
           <CopyButton value={uri} />
         </UriGroup>
       </HeaderRow>
-      {contents.map((item, index) => (
-        <ContentViewer key={index} block={toContentBlock(item)} copyable />
-      ))}
+      <ContentScroll>
+        <ContentStack>
+          {contents.map((item, index) => (
+            <ContentViewer
+              key={index}
+              block={toContentBlock(item)}
+              mimeType={effectiveMime(item.mimeType, resource)}
+              copyable
+            />
+          ))}
+        </ContentStack>
+      </ContentScroll>
       <MetaRow>
         {lastUpdated ? (
           <TimestampText>{formatLastUpdated(lastUpdated)}</TimestampText>
@@ -140,6 +211,6 @@ export function ResourcePreviewPanel({
           />
         </ActionGroup>
       </FooterRow>
-    </Stack>
+    </PanelStack>
   );
 }

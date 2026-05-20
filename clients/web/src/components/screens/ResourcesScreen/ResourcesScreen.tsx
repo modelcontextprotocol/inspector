@@ -1,14 +1,5 @@
 import { useState } from "react";
-import {
-  Alert,
-  Card,
-  Flex,
-  Group,
-  Loader,
-  ScrollArea,
-  Stack,
-  Text,
-} from "@mantine/core";
+import { Alert, Card, Flex, Loader, Stack, Text } from "@mantine/core";
 import type {
   ReadResourceResult,
   Resource,
@@ -34,10 +25,19 @@ export interface ResourcesScreenProps {
   subscriptions: InspectorResourceSubscription[];
   readState?: ReadResourceState;
   listChanged: boolean;
+  completionsSupported?: boolean;
   onRefreshList: () => void;
   onReadResource: (uri: string) => void;
   onSubscribeResource: (uri: string) => void;
   onUnsubscribeResource: (uri: string) => void;
+  onCompleteArgument?: (
+    ref:
+      | { type: "ref/resource"; uri: string }
+      | { type: "ref/prompt"; name: string },
+    argumentName: string,
+    argumentValue: string,
+    context: Record<string, string>,
+  ) => Promise<string[]>;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -62,6 +62,26 @@ const DetailCard = Card.withProps({
   padding: "lg",
 });
 
+// Card that sizes to its content but caps at the screen's available
+// height. When content fits, the card stays compact (footer sits right
+// under the body); when content would overflow, the inner ScrollArea
+// inside ResourcePreviewPanel shrinks and scrolls.
+const PreviewCard = Card.withProps({
+  withBorder: true,
+  padding: "lg",
+  variant: "preview",
+});
+
+// Column that pins the preview card to the top of the available space
+// and bounds its growth via the consumer-set `mah`. The card inside
+// keeps its natural height up to that cap.
+const PreviewPane = Flex.withProps({
+  flex: 1,
+  miw: 0,
+  direction: "column",
+  align: "stretch",
+});
+
 const EmptyState = Text.withProps({
   c: "dimmed",
   ta: "center",
@@ -77,10 +97,12 @@ export function ResourcesScreen({
   subscriptions,
   readState,
   listChanged,
+  completionsSupported,
   onRefreshList,
   onReadResource,
   onSubscribeResource,
   onUnsubscribeResource,
+  onCompleteArgument,
 }: ResourcesScreenProps) {
   const [selectedResourceUri, setSelectedResourceUri] = useState<
     string | undefined
@@ -107,6 +129,7 @@ export function ResourcesScreen({
   function handleSelectResource(uri: string) {
     setSelectedTemplateUri(undefined);
     setSelectedResourceUri(uri);
+    onReadResource(uri);
   }
 
   function handleSelectTemplate(uriTemplate: string) {
@@ -115,6 +138,11 @@ export function ResourcesScreen({
   }
 
   function handleReadResource(uri: string) {
+    // Once the user reads (either from the template form or a refresh
+    // inside the preview panel), hand the screen over to the preview:
+    // clearing the template selection hides the template form so only
+    // the rendered resource is shown.
+    setSelectedTemplateUri(undefined);
     setSelectedResourceUri(uri);
     onReadResource(uri);
   }
@@ -124,28 +152,28 @@ export function ResourcesScreen({
 
     if (readState.status === "pending") {
       return (
-        <DetailCard>
+        <PreviewCard>
           <Stack align="center" py="xl">
             <Loader size="sm" />
             <Text c="dimmed">Reading resource...</Text>
           </Stack>
-        </DetailCard>
+        </PreviewCard>
       );
     }
 
     if (readState.status === "error") {
       return (
-        <DetailCard>
+        <PreviewCard>
           <Alert color="red" variant="light" title="Read Error">
             {readState.error ?? "Failed to read resource"}
           </Alert>
-        </DetailCard>
+        </PreviewCard>
       );
     }
 
     if (readState.result && readResource) {
       return (
-        <DetailCard>
+        <PreviewCard>
           <ResourcePreviewPanel
             resource={readResource}
             contents={readState.result.contents}
@@ -155,7 +183,7 @@ export function ResourcesScreen({
             onSubscribe={() => onSubscribeResource(readResource.uri)}
             onUnsubscribe={() => onUnsubscribeResource(readResource.uri)}
           />
-        </DetailCard>
+        </PreviewCard>
       );
     }
 
@@ -182,31 +210,44 @@ export function ResourcesScreen({
       </Sidebar>
 
       {selectedTemplate ? (
-        <Group flex={1} gap="md" align="flex-start" wrap="nowrap">
-          <ScrollArea.Autosize flex={1} mah={SCROLL_MAX_HEIGHT}>
-            <DetailCard>
-              <ResourceTemplatePanel
-                template={selectedTemplate}
-                onReadResource={handleReadResource}
-              />
-            </DetailCard>
-          </ScrollArea.Autosize>
-          <ScrollArea.Autosize flex={1} mah={SCROLL_MAX_HEIGHT}>
-            {renderReadState() ?? (
-              <DetailCard>
-                <EmptyState>Enter a URI and click Read to preview</EmptyState>
-              </DetailCard>
-            )}
-          </ScrollArea.Autosize>
-        </Group>
-      ) : selectedResource ? (
-        <ScrollArea.Autosize flex={1} mah={SCROLL_MAX_HEIGHT}>
-          {renderReadState() ?? (
-            <DetailCard>
-              <EmptyState>Click to read this resource</EmptyState>
-            </DetailCard>
-          )}
-        </ScrollArea.Autosize>
+        // Template form only — once the user clicks Read Resource,
+        // handleReadResource clears the template selection so the
+        // resource branch takes over and the preview is shown alone.
+        // maw=40% keeps the form from stretching across the whole
+        // main area; an unconstrained text input + Read button at
+        // viewport width looks weird, especially on wide displays.
+        <PreviewPane mah={SCROLL_MAX_HEIGHT} maw="40%">
+          <PreviewCard>
+            <ResourceTemplatePanel
+              template={selectedTemplate}
+              onReadResource={handleReadResource}
+              completionsSupported={completionsSupported}
+              onCompleteArgument={
+                onCompleteArgument
+                  ? (argName, value, context) =>
+                      onCompleteArgument(
+                        {
+                          type: "ref/resource",
+                          uri: selectedTemplate.uriTemplate,
+                        },
+                        argName,
+                        value,
+                        context,
+                      )
+                  : undefined
+              }
+            />
+          </PreviewCard>
+        </PreviewPane>
+      ) : readResource ? (
+        // Sized-to-content preview pane, capped at the screen's available
+        // height. When the resource body fits, the card hugs its content
+        // and the subscribe/refresh row sits right under it. When the body
+        // would overflow, the inner ScrollArea inside ResourcePreviewPanel
+        // shrinks and scrolls, keeping the footer pinned at the cap.
+        // miw=0 prevents wide content (long unbroken lines, tables) from
+        // pushing the pane past the viewport's right edge.
+        <PreviewPane mah={SCROLL_MAX_HEIGHT}>{renderReadState()}</PreviewPane>
       ) : (
         <DetailCard flex={1}>
           <EmptyState>Select a resource to preview</EmptyState>

@@ -137,4 +137,95 @@ describe("ResourceTemplatePanel", () => {
       screen.getByRole("button", { name: "Read Resource" }),
     ).not.toBeDisabled();
   });
+
+  describe("completions", () => {
+    it("calls onCompleteArgument (debounced) and surfaces values when supported", async () => {
+      const user = userEvent.setup();
+      const onCompleteArgument = vi
+        .fn<
+          (
+            argName: string,
+            value: string,
+            context: Record<string, string>,
+          ) => Promise<string[]>
+        >()
+        .mockResolvedValue(["alpha", "alphabet"]);
+
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={singleVarTemplate}
+          onReadResource={vi.fn()}
+          completionsSupported
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+
+      await user.type(screen.getByRole("textbox", { name: "userId" }), "al");
+      // Wait past the 300ms debounce.
+      await new Promise((r) => setTimeout(r, 400));
+      expect(onCompleteArgument).toHaveBeenCalledTimes(1);
+      expect(onCompleteArgument).toHaveBeenCalledWith("userId", "al", {});
+
+      // Server-returned values surface in the Autocomplete dropdown.
+      expect(await screen.findByText("alpha")).toBeInTheDocument();
+      expect(screen.getByText("alphabet")).toBeInTheDocument();
+    });
+
+    it("passes sibling variables as completion context", async () => {
+      const user = userEvent.setup();
+      const onCompleteArgument = vi
+        .fn<
+          (
+            argName: string,
+            value: string,
+            context: Record<string, string>,
+          ) => Promise<string[]>
+        >()
+        .mockResolvedValue([]);
+
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={titledTemplate}
+          onReadResource={vi.fn()}
+          completionsSupported
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+
+      await user.type(
+        screen.getByRole("textbox", { name: "tableName" }),
+        "users",
+      );
+      await new Promise((r) => setTimeout(r, 400));
+      // The completing arg ("tableName") is excluded from context; only
+      // the other variables ride along.
+      expect(onCompleteArgument).toHaveBeenLastCalledWith(
+        "tableName",
+        "users",
+        { rowId: "" },
+      );
+
+      await user.type(screen.getByRole("textbox", { name: "rowId" }), "42");
+      await new Promise((r) => setTimeout(r, 400));
+      expect(onCompleteArgument).toHaveBeenLastCalledWith("rowId", "42", {
+        tableName: "users",
+      });
+    });
+
+    it("does not call onCompleteArgument when completions are unsupported", async () => {
+      const user = userEvent.setup();
+      const onCompleteArgument = vi.fn();
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={singleVarTemplate}
+          onReadResource={vi.fn()}
+          completionsSupported={false}
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+      await user.type(screen.getByLabelText("userId"), "ab");
+      await new Promise((r) => setTimeout(r, 400));
+      expect(onCompleteArgument).not.toHaveBeenCalled();
+    });
+  });
 });

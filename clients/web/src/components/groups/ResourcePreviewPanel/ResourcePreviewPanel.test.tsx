@@ -199,4 +199,59 @@ describe("ResourcePreviewPanel", () => {
     );
     expect(screen.getByText("text/markdown")).toBeInTheDocument();
   });
+
+  it("renders text/markdown content as markdown", () => {
+    renderWithMantine(
+      <ResourcePreviewPanel
+        {...baseProps}
+        resource={{ name: "readme", uri: "file:///readme.md" }}
+        contents={[
+          {
+            uri: "file:///readme.md",
+            mimeType: "text/markdown",
+            text: "# Hello",
+          },
+        ]}
+      />,
+    );
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Hello" }),
+    ).toBeInTheDocument();
+  });
+
+  it("infers markdown from a .md URI when mimeType is missing", () => {
+    renderWithMantine(
+      <ResourcePreviewPanel
+        {...baseProps}
+        resource={{ name: "notes", uri: "demo://resource/notes.md" }}
+        contents={[
+          {
+            uri: "demo://resource/notes.md",
+            text: "## From URI",
+          },
+        ]}
+      />,
+    );
+    expect(
+      screen.getByRole("heading", { level: 2, name: "From URI" }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not render plain-text content as markdown even with markdown-looking text", () => {
+    renderWithMantine(
+      <ResourcePreviewPanel
+        {...baseProps}
+        resource={{ name: "notes", uri: "file:///notes.txt" }}
+        contents={[
+          {
+            uri: "file:///notes.txt",
+            mimeType: "text/plain",
+            text: "# not a heading",
+          },
+        ]}
+      />,
+    );
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
+    expect(screen.getByText("# not a heading")).toBeInTheDocument();
+  });
 });
