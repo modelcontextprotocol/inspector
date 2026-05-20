@@ -7,17 +7,29 @@ import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { MessageBubble } from "./MessageBubble";
 
 describe("MessageBubble", () => {
-  it("renders a text sampling message", () => {
+  it("renders a text sampling message as markdown", () => {
     const message: SamplingMessage = {
       role: "user",
       content: { type: "text", text: "hello" },
     };
     renderWithMantine(<MessageBubble index={0} message={message} />);
     expect(screen.getByText("[0] role: user")).toBeInTheDocument();
-    expect(screen.getByText('"hello"')).toBeInTheDocument();
+    expect(screen.getByText("hello")).toBeInTheDocument();
   });
 
-  it("renders a copy button when there is text", () => {
+  it("renders markdown formatting in prompt text", () => {
+    const message: PromptMessage = {
+      role: "assistant",
+      content: { type: "text", text: "# Heading\n\nSome **bold** text" },
+    };
+    renderWithMantine(<MessageBubble index={0} message={message} />);
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Heading" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("bold")).toBeInTheDocument();
+  });
+
+  it("renders a copy button for text content via ContentViewer copyable", () => {
     const message: SamplingMessage = {
       role: "user",
       content: { type: "text", text: "hello" },
@@ -52,7 +64,7 @@ describe("MessageBubble", () => {
     );
   });
 
-  it("renders embedded resource text from a prompt message array", () => {
+  it("renders embedded resource text from a prompt message", () => {
     const message: PromptMessage = {
       role: "user",
       content: {
@@ -61,7 +73,7 @@ describe("MessageBubble", () => {
       },
     };
     renderWithMantine(<MessageBubble index={3} message={message} />);
-    expect(screen.getByText('"embedded"')).toBeInTheDocument();
+    expect(screen.getByText("embedded")).toBeInTheDocument();
   });
 
   it("renders blob resource placeholder", () => {
@@ -77,24 +89,39 @@ describe("MessageBubble", () => {
       },
     };
     renderWithMantine(<MessageBubble index={4} message={message} />);
-    expect(screen.getByText('"[resource: file:///b]"')).toBeInTheDocument();
+    expect(screen.getByText("[blob: file:///b]")).toBeInTheDocument();
   });
 
   it("renders resource_link content", () => {
     const message = {
       role: "user",
-      content: { type: "resource_link", uri: "ui://app" },
+      content: { type: "resource_link", uri: "ui://app", name: "Cool App" },
     } as unknown as PromptMessage;
     renderWithMantine(<MessageBubble index={5} message={message} />);
-    expect(screen.getByText('"[resource: ui://app]"')).toBeInTheDocument();
+    expect(screen.getByText("Cool App")).toBeInTheDocument();
   });
 
-  it("renders fallback for unknown content types", () => {
+  it("still renders the role label for unknown content types", () => {
     const message = {
       role: "user",
       content: { type: "weird" },
     } as unknown as SamplingMessage;
     renderWithMantine(<MessageBubble index={6} message={message} />);
-    expect(screen.getByText('"[weird]"')).toBeInTheDocument();
+    // ContentViewer returns null for unknown block types; the bubble's
+    // role-label header still renders so the message isn't invisible.
+    expect(screen.getByText("[6] role: user")).toBeInTheDocument();
+  });
+
+  it("renders multiple content blocks from an array", () => {
+    const message: PromptMessage = {
+      role: "user",
+      content: [
+        { type: "text", text: "first" },
+        { type: "text", text: "second" },
+      ] as unknown as PromptMessage["content"],
+    };
+    renderWithMantine(<MessageBubble index={7} message={message} />);
+    expect(screen.getByText("first")).toBeInTheDocument();
+    expect(screen.getByText("second")).toBeInTheDocument();
   });
 });

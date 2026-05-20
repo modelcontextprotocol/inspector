@@ -69,7 +69,7 @@ describe("SamplingRequestPanel", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Messages:")).toBeInTheDocument();
     expect(
-      screen.getByText('"What is the capital of France?"'),
+      screen.getByText("What is the capital of France?"),
     ).toBeInTheDocument();
   });
 

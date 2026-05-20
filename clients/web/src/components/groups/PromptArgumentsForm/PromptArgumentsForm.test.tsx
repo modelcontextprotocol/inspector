@@ -1,8 +1,36 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { PromptArgumentsForm } from "./PromptArgumentsForm";
+
+/**
+ * Wrapper that owns `argumentValues` state so completion tests can
+ * type multi-character input naturally — the production parent
+ * (PromptsScreen) is what holds this state, and the form is controlled
+ * via its onArgumentChange callback.
+ */
+function StatefulForm(
+  props: Omit<
+    React.ComponentProps<typeof PromptArgumentsForm>,
+    "argumentValues" | "onArgumentChange"
+  > & { initialValues?: Record<string, string> },
+) {
+  const { initialValues, ...rest } = props;
+  const [values, setValues] = useState<Record<string, string>>(
+    initialValues ?? {},
+  );
+  return (
+    <PromptArgumentsForm
+      {...rest}
+      argumentValues={values}
+      onArgumentChange={(name, value) =>
+        setValues((prev) => ({ ...prev, [name]: value }))
+      }
+    />
+  );
+}
 
 const promptNoArgs: Prompt = {
   name: "summarize",
@@ -142,5 +170,82 @@ describe("PromptArgumentsForm", () => {
     );
     expect(screen.getByText("code-review")).toBeInTheDocument();
     expect(screen.getByText("Arguments")).toBeInTheDocument();
+  });
+
+  describe("completions", () => {
+    it("calls onCompleteArgument (debounced) and surfaces values when supported", async () => {
+      const user = userEvent.setup();
+      const onCompleteArgument = vi
+        .fn<
+          (
+            argName: string,
+            value: string,
+            context: Record<string, string>,
+          ) => Promise<string[]>
+        >()
+        .mockResolvedValue(["alpha", "alphabet"]);
+
+      renderWithMantine(
+        <StatefulForm
+          prompt={promptWithArgs}
+          onGetPrompt={vi.fn()}
+          completionsSupported
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+
+      await user.type(screen.getByRole("textbox", { name: /^text/ }), "al");
+      await new Promise((r) => setTimeout(r, 400));
+      expect(onCompleteArgument).toHaveBeenCalled();
+      expect(onCompleteArgument).toHaveBeenLastCalledWith("text", "al", {});
+      expect(await screen.findByText("alpha")).toBeInTheDocument();
+      expect(screen.getByText("alphabet")).toBeInTheDocument();
+    });
+
+    it("passes sibling argument values as completion context", async () => {
+      const user = userEvent.setup();
+      const onCompleteArgument = vi
+        .fn<
+          (
+            argName: string,
+            value: string,
+            context: Record<string, string>,
+          ) => Promise<string[]>
+        >()
+        .mockResolvedValue([]);
+
+      renderWithMantine(
+        <StatefulForm
+          prompt={promptWithArgs}
+          initialValues={{ targetLanguage: "es" }}
+          onGetPrompt={vi.fn()}
+          completionsSupported
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+
+      await user.type(screen.getByRole("textbox", { name: /^text/ }), "h");
+      await new Promise((r) => setTimeout(r, 400));
+      // The completing arg ("text") is excluded from context; siblings ride along.
+      expect(onCompleteArgument).toHaveBeenLastCalledWith("text", "h", {
+        targetLanguage: "es",
+      });
+    });
+
+    it("does not call onCompleteArgument when completions are unsupported", async () => {
+      const user = userEvent.setup();
+      const onCompleteArgument = vi.fn();
+      renderWithMantine(
+        <StatefulForm
+          prompt={promptWithArgs}
+          onGetPrompt={vi.fn()}
+          completionsSupported={false}
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+      await user.type(screen.getByPlaceholderText("Enter text..."), "ab");
+      await new Promise((r) => setTimeout(r, 400));
+      expect(onCompleteArgument).not.toHaveBeenCalled();
+    });
   });
 });

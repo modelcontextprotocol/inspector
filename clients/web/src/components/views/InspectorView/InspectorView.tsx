@@ -393,9 +393,11 @@ export function InspectorView({
               prompts={prompts}
               getPromptState={getPromptState}
               listChanged={false}
+              completionsSupported={completionsSupported}
               onRefreshList={onRefreshPrompts}
               onGetPrompt={onGetPrompt}
               onCopyMessages={onCopyPromptMessages}
+              onCompleteArgument={onCompleteArgument}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Resources"}>
