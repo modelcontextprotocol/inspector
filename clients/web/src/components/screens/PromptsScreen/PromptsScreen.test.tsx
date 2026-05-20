@@ -201,6 +201,28 @@ describe("PromptsScreen", () => {
     expect(screen.getByPlaceholderText("Enter y...")).toHaveValue("");
   });
 
+  it("closing the preview from the error state brings the form back", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <PromptsScreen
+        {...baseProps}
+        getPromptState={{
+          status: "error",
+          promptName: "summarize",
+          error: "Bad input",
+        }}
+      />,
+    );
+    await user.click(screen.getByText("summarize"));
+    await user.type(screen.getByPlaceholderText("Enter topic..."), "x");
+    await user.click(screen.getByRole("button", { name: "Get Prompt" }));
+    expect(screen.getByText("Prompt Error")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close messages" }));
+    expect(
+      screen.getByRole("button", { name: "Get Prompt" }),
+    ).toBeInTheDocument();
+  });
+
   it("closing the preview for an arg-bearing prompt brings the form back", async () => {
     const user = userEvent.setup();
     renderWithMantine(

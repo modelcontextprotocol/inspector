@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { Alert, Card, Flex, Loader, Stack, Text } from "@mantine/core";
+import {
+  Alert,
+  Card,
+  CloseButton,
+  Flex,
+  Group,
+  Loader,
+  Stack,
+  Text,
+} from "@mantine/core";
 import type {
   GetPromptResult,
   Prompt,
@@ -166,9 +175,17 @@ export function PromptsScreen({
     if (getPromptState.status === "pending") {
       return (
         <PreviewCard>
-          <Stack align="center" py="xl">
-            <Loader size="sm" />
-            <Text c="dimmed">Loading prompt...</Text>
+          <Stack gap="md">
+            <Group justify="flex-start">
+              <CloseButton
+                aria-label="Close messages"
+                onClick={handleClosePreview}
+              />
+            </Group>
+            <Stack align="center" py="xl">
+              <Loader size="sm" />
+              <Text c="dimmed">Loading prompt...</Text>
+            </Stack>
           </Stack>
         </PreviewCard>
       );
@@ -176,9 +193,17 @@ export function PromptsScreen({
     if (getPromptState.status === "error") {
       return (
         <PreviewCard>
-          <Alert color="red" variant="light" title="Prompt Error">
-            {getPromptState.error ?? "Failed to get prompt"}
-          </Alert>
+          <Stack gap="md">
+            <Group justify="flex-start">
+              <CloseButton
+                aria-label="Close messages"
+                onClick={handleClosePreview}
+              />
+            </Group>
+            <Alert color="red" variant="light" title="Prompt Error">
+              {getPromptState.error ?? "Failed to get prompt"}
+            </Alert>
+          </Stack>
         </PreviewCard>
       );
     }

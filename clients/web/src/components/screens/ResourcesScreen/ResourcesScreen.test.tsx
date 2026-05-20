@@ -210,6 +210,39 @@ describe("ResourcesScreen", () => {
     ).toBeInTheDocument();
   });
 
+  it("closing the preview from the error state returns to the template form", async () => {
+    const user = userEvent.setup();
+    const templates: ResourceTemplate[] = [
+      { uriTemplate: "demo://resource/dynamic/text/{id}", name: "Dynamic" },
+    ];
+    const { rerender } = renderWithMantine(
+      <ResourcesScreen {...baseProps} templates={templates} />,
+    );
+    await user.click(screen.getByText("Templates (1)"));
+    await user.click(screen.getByText("Dynamic"));
+    await user.type(screen.getByLabelText("id"), "asdf");
+    await user.click(screen.getByRole("button", { name: "Read Resource" }));
+
+    // Server rejects the URI.
+    rerender(
+      <ResourcesScreen
+        {...baseProps}
+        templates={templates}
+        readState={{
+          status: "error",
+          uri: "demo://resource/dynamic/text/asdf",
+          error: "MCP error -32603: Unknown resource",
+        }}
+      />,
+    );
+    expect(screen.getByText("Read Error")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close preview" }));
+    // The template form is restored so the user can fix their input.
+    expect(
+      screen.getByRole("button", { name: "Read Resource" }),
+    ).toBeInTheDocument();
+  });
+
   it("closing the preview for a plain resource returns to the empty state", async () => {
     const user = userEvent.setup();
     renderWithMantine(

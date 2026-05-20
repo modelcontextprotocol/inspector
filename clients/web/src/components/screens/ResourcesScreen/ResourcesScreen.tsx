@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { Alert, Card, Flex, Loader, Stack, Text } from "@mantine/core";
+import {
+  Alert,
+  Card,
+  CloseButton,
+  Flex,
+  Group,
+  Loader,
+  Stack,
+  Text,
+} from "@mantine/core";
 import type {
   ReadResourceResult,
   Resource,
@@ -174,9 +183,17 @@ export function ResourcesScreen({
     if (readState.status === "pending") {
       return (
         <PreviewCard>
-          <Stack align="center" py="xl">
-            <Loader size="sm" />
-            <Text c="dimmed">Reading resource...</Text>
+          <Stack gap="md">
+            <Group justify="flex-start">
+              <CloseButton
+                aria-label="Close preview"
+                onClick={handleClosePreview}
+              />
+            </Group>
+            <Stack align="center" py="xl">
+              <Loader size="sm" />
+              <Text c="dimmed">Reading resource...</Text>
+            </Stack>
           </Stack>
         </PreviewCard>
       );
@@ -185,9 +202,17 @@ export function ResourcesScreen({
     if (readState.status === "error") {
       return (
         <PreviewCard>
-          <Alert color="red" variant="light" title="Read Error">
-            {readState.error ?? "Failed to read resource"}
-          </Alert>
+          <Stack gap="md">
+            <Group justify="flex-start">
+              <CloseButton
+                aria-label="Close preview"
+                onClick={handleClosePreview}
+              />
+            </Group>
+            <Alert color="red" variant="light" title="Read Error">
+              {readState.error ?? "Failed to read resource"}
+            </Alert>
+          </Stack>
         </PreviewCard>
       );
     }
