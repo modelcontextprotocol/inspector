@@ -42,9 +42,9 @@ const ResourcesTab = ({
 }: {
   resources: Resource[];
   resourceTemplates: ResourceTemplate[];
-  listResources: () => void;
+  listResources: (loadMore?: boolean) => void;
   clearResources: () => void;
-  listResourceTemplates: () => void;
+  listResourceTemplates: (loadMore?: boolean) => void;
   clearResourceTemplates: () => void;
   readResource: (uri: string) => void;
   selectedResource: Resource | null;
@@ -115,7 +115,7 @@ const ResourcesTab = ({
       <div className="grid grid-cols-3 gap-4">
         <ListPane
           items={resources}
-          listItems={listResources}
+          listItems={() => listResources(!!nextCursor)}
           clearItems={() => {
             clearResources();
             // Condition to check if selected resource is not resource template's resource
@@ -141,13 +141,19 @@ const ResourcesTab = ({
             </div>
           )}
           title="Resources"
-          buttonText={nextCursor ? "List More Resources" : "List Resources"}
-          isButtonDisabled={!nextCursor && resources.length > 0}
+          buttonText={
+            nextCursor
+              ? "List More Resources"
+              : resources.length > 0
+                ? "Refresh Resources"
+                : "List Resources"
+          }
+          isButtonDisabled={false}
         />
 
         <ListPane
           items={resourceTemplates}
-          listItems={listResourceTemplates}
+          listItems={() => listResourceTemplates(!!nextTemplateCursor)}
           clearItems={() => {
             clearResourceTemplates();
             // Condition to check if selected resource is resource template's resource
@@ -175,9 +181,13 @@ const ResourcesTab = ({
           )}
           title="Resource Templates"
           buttonText={
-            nextTemplateCursor ? "List More Templates" : "List Templates"
+            nextTemplateCursor
+              ? "List More Templates"
+              : resourceTemplates.length > 0
+                ? "Refresh Templates"
+                : "List Templates"
           }
-          isButtonDisabled={!nextTemplateCursor && resourceTemplates.length > 0}
+          isButtonDisabled={false}
         />
 
         <div className="bg-card border border-border rounded-lg shadow">

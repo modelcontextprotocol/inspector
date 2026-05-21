@@ -46,7 +46,7 @@ const PromptsTab = ({
   error,
 }: {
   prompts: Prompt[];
-  listPrompts: () => void;
+  listPrompts: (loadMore?: boolean) => void;
   clearPrompts: () => void;
   getPrompt: (name: string, args: Record<string, string>) => void;
   selectedPrompt: Prompt | null;
@@ -105,7 +105,7 @@ const PromptsTab = ({
       <div className="grid grid-cols-2 gap-4">
         <ListPane
           items={prompts}
-          listItems={listPrompts}
+          listItems={() => listPrompts(!!nextCursor)}
           clearItems={() => {
             clearPrompts();
             setSelectedPrompt(null);
@@ -129,8 +129,14 @@ const PromptsTab = ({
             </div>
           )}
           title="Prompts"
-          buttonText={nextCursor ? "List More Prompts" : "List Prompts"}
-          isButtonDisabled={!nextCursor && prompts.length > 0}
+          buttonText={
+            nextCursor
+              ? "List More Prompts"
+              : prompts.length > 0
+                ? "Refresh Prompts"
+                : "List Prompts"
+          }
+          isButtonDisabled={false}
         />
 
         <div className="bg-card border border-border rounded-lg shadow">
