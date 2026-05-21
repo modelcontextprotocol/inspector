@@ -404,6 +404,15 @@ const App = () => {
       if (notification.method === "notifications/tasks/list_changed") {
         void listTasks();
       }
+      if (notification.method === "notifications/tools/list_changed") {
+        void listTools();
+      }
+      if (notification.method === "notifications/resources/list_changed") {
+        void listResources();
+      }
+      if (notification.method === "notifications/prompts/list_changed") {
+        void listPrompts();
+      }
 
       if (notification.method === "notifications/tasks/status") {
         const task = notification.params as unknown as Task;
