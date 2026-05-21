@@ -16,6 +16,7 @@ export interface CliResult {
 export interface CliOptions {
   timeout?: number;
   cwd?: string;
+  cliPath?: string;
   env?: Record<string, string>;
   signal?: AbortSignal;
 }
@@ -28,7 +29,7 @@ export async function runCli(
   options: CliOptions = {},
 ): Promise<CliResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn("node", [CLI_PATH, ...args], {
+    const child = spawn("node", [options.cliPath ?? CLI_PATH, ...args], {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: options.cwd,
       env: { ...process.env, ...options.env },
