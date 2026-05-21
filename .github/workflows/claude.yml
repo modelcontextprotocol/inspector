@@ -69,8 +69,30 @@ jobs:
             core.setOutput('sha', pr.data.head.sha);
             core.setOutput('repo', pr.data.head.repo.full_name);
 
+      # Refuse @claude mentions on fork PRs from this (broader) job. Even with
+      # the maintainer collaborator gate above, a maintainer @claude'ing a fork
+      # PR would have Claude read untrusted fork content with `Bash` and the
+      # ANTHROPIC_API_KEY in scope — that's an exfiltration path. Fork PRs must
+      # go through the hardened `claude-fork-review` job via the `claude-review`
+      # label instead. This step posts a comment with that pointer and the
+      # downstream checkout / run-claude steps short-circuit on cross-repo PRs.
+      - name: Refuse @claude on fork PRs (point to claude-review label)
+        if: steps.pr.outcome == 'success' && steps.pr.outputs.repo != github.repository
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const prNumber = context.eventName === 'issue_comment'
+              ? context.issue.number
+              : context.payload.pull_request.number;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: '`@claude` mentions are not supported on fork PRs from this workflow path — Claude would read untrusted fork content with broader tooling than is safe. To get a Claude review on this PR, a maintainer can apply the `claude-review` label, which runs the hardened, sandboxed review job.'
+            });
+
       - name: Checkout PR branch
-        if: steps.pr.outcome == 'success'
+        if: steps.pr.outcome == 'success' && steps.pr.outputs.repo == github.repository
         uses: actions/checkout@v6
         with:
           ref: ${{ steps.pr.outputs.sha }}
@@ -85,7 +107,15 @@ jobs:
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@v1
+        # Skip on fork PRs — they go through claude-fork-review via the label.
+        if: steps.pr.outcome != 'success' || steps.pr.outputs.repo == github.repository
+        # Pinned to v1.0.99 for the same AJV-schema-drift / version-regression
+        # reasons documented on the fork-review job below. SHA pinning applies
+        # symmetrically: the first-party path also reads PR diffs (and on a
+        # @claude mention of an authored-on-fork PR by a collaborator, reads
+        # the proposed code), so a broken action version here breaks reviews
+        # the same way it would on the fork-review path.
+        uses: anthropics/claude-code-action@12310e4417c3473095c957cb311b3cf59a38d659 # v1.0.99
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
@@ -115,23 +145,29 @@ jobs:
   #   - Mitigations: (a) no Bash glob, no Edit, no WebFetch — Claude can
   #     only post inline comments, read PR metadata via narrow `gh`
   #     commands, and query the MCP docs server at modelcontextprotocol.io
-  #     (the only network egress; the fork's `.mcp.json` is removed and
-  #     replaced with a base-repo-controlled config — see the "Prepare
-  #     trusted MCP config" step); (b) no fork code is ever executed (no
-  #     install, build, or test steps); (c) the GITHUB_TOKEN is scoped to
-  #     pull-requests:write only; (d) the ANTHROPIC_API_KEY exists in the
-  #     runner env but isn't reachable through Claude's allowed tool
-  #     surface.
+  #     (the only outbound HTTP Claude can direct; the fork's `.mcp.json`,
+  #     `.claude/`, `CLAUDE.md`, `.husky/`, etc. are all stripped after
+  #     checkout — see the "Strip fork-supplied CLI config" step); (b) no
+  #     fork code is ever executed (no install, build, or test steps);
+  #     (c) the GITHUB_TOKEN is scoped to pull-requests:write only;
+  #     (d) the ANTHROPIC_API_KEY exists in the runner env but isn't
+  #     reachable through Claude's allowed tool surface.
   # ---------------------------------------------------------------------------
   claude-fork-review:
     if: |
       github.event_name == 'pull_request_target' &&
       github.event.label.name == 'claude-review'
     runs-on: ubuntu-latest
+    # Coalesce rapid label→unlabel→relabel cycles per PR. cancel-in-progress
+    # is false so an in-flight review finishes (and removes the label) rather
+    # than being aborted partway, which would otherwise leave the PR in a
+    # half-reviewed state.
+    concurrency:
+      group: claude-fork-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     permissions:
       contents: read
       pull-requests: write
-      issues: read
     steps:
       # Check out the FORK head explicitly. We use a separate, least-privileged
       # token here and disable credential persistence so nothing fork-side can
@@ -144,29 +180,39 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      # Prepare a trusted, base-repo-controlled MCP config for the review run.
+      # Strip ALL fork-supplied Claude/CLI config from cwd before launching the
+      # action, then write a trusted MCP config under $RUNNER_TEMP.
       #
-      # Why we `rm -f .mcp.json`:
-      # Claude Code auto-discovers a project-level `.mcp.json` from the
-      # working directory in addition to anything passed via `--mcp-config`.
-      # The fork's checkout above may contain a `.mcp.json` that has been
-      # modified to point at attacker-controlled MCP servers, which would
-      # become an exfiltration channel the moment Claude connected to it
-      # (an injection in the diff could coerce tool calls that leak review
-      # context). Deleting the fork's copy guarantees the only MCP servers
-      # in scope for this run are the ones in our trusted, inline config
-      # below.
+      # The most dangerous of these is `.claude/settings.json`: Claude Code
+      # reads it from cwd at startup and will execute `SessionStart` /
+      # `PreToolUse` hooks declared in it BEFORE any --allowedTools allowlist
+      # is applied. A fork shipping a `.claude/settings.json` with a hook
+      # would get arbitrary shell on the runner, bypassing every tool
+      # restriction on this job. `.mcp.json` is the analogous threat for MCP
+      # servers (auto-discovered from cwd, would expose Claude to attacker-
+      # controlled servers as an exfiltration channel). The remaining paths
+      # (CLAUDE.md, CLAUDE.local.md, .claude.json, .husky/, .gitmodules,
+      # .ripgreprc) are the rest of the config-discovery surface that the
+      # action treats as sensitive.
       #
-      # The trusted config is written under $RUNNER_TEMP (outside the fork
-      # checkout, so the fork cannot shadow it) and exposes only the
+      # `anthropics/claude-code-action` itself restores all of these from the
+      # base branch via `restoreConfigFromBase` before launching the CLI, so
+      # in v1.0.99 the fork-review job is already safe on this axis. This
+      # step is defense-in-depth: it ensures the security model survives
+      # future action versions that might narrow or remove that behavior —
+      # exactly the regression class we SHA-pinned to defend against.
+      #
+      # The trusted MCP config is written under $RUNNER_TEMP (outside the
+      # fork checkout, so the fork cannot shadow it) and exposes only the
       # read-only MCP docs server at https://modelcontextprotocol.io/mcp.
       # Combined with no WebFetch and no unrestricted Bash in --allowedTools,
-      # this means the only outbound HTTP this job can make is to
-      # modelcontextprotocol.io — useful for protocol lookups while
-      # reviewing, with no other network egress.
-      - name: Prepare trusted MCP config
+      # the only outbound HTTP Claude can direct is to modelcontextprotocol.io
+      # — useful for protocol lookups while reviewing, with no other network
+      # egress reachable through Claude's tool surface.
+      - name: Strip fork-supplied CLI config + write trusted MCP config
         run: |
-          rm -f .mcp.json
+          rm -rf .claude .husky
+          rm -f .mcp.json .claude.json .gitmodules .ripgreprc CLAUDE.md CLAUDE.local.md
           mkdir -p "$RUNNER_TEMP/claude-fork-review"
           printf '%s\n' '{"mcpServers":{"mcp-docs":{"type":"http","url":"https://modelcontextprotocol.io/mcp"}}}' > "$RUNNER_TEMP/claude-fork-review/mcp.json"
           echo "FORK_REVIEW_MCP_CONFIG=$RUNNER_TEMP/claude-fork-review/mcp.json" >> "$GITHUB_ENV"

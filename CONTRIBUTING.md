@@ -30,6 +30,10 @@ We're actively developing **Inspector V2** to address architectural and UX impro
 7. Submit a pull request
 8. PRs will be reviewed by maintainers
 
+### Automated Claude review on fork PRs
+
+Maintainers can apply the `claude-review` label to a fork PR to trigger an automated review by Claude. The job runs in a hardened, sandboxed mode: Claude sees the PR diff and can post inline comments, but cannot install, build, run, or check out the rest of the codebase. As a result, Claude's review is **diff-scoped** — it sees the hunks under change but not surrounding file context — so maintainers remain responsible for whole-file audits and broader architectural review. The label is removed automatically after each run; re-apply it to trigger a fresh review.
+
 ## Code of Conduct
 
 This project follows our [Code of Conduct](CODE_OF_CONDUCT.md). Please read it before contributing.
