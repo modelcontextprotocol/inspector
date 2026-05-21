@@ -37,10 +37,17 @@ jobs:
           contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association))
       )
     runs-on: ubuntu-latest
+    # pull-requests: write and issues: write are required by the
+    # "Refuse @claude on fork PRs" step below (which posts a comment via
+    # actions/github-script). Safe because Checkout PR branch and Run
+    # Claude Code short-circuit on cross-repo PRs via the
+    # steps.pr.outputs.repo == github.repository guard, so no fork code is
+    # ever checked out or executed on this job — elevating these scopes
+    # does not widen the fork-code attack surface.
     permissions:
       contents: read
-      pull-requests: read
-      issues: read
+      pull-requests: write
+      issues: write
       id-token: write
       actions: read
     steps:
