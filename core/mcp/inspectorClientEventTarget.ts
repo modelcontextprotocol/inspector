@@ -55,6 +55,7 @@ export interface InspectorClientEventMap {
   capabilitiesChange: ServerCapabilities | undefined;
   serverInfoChange: Implementation | undefined;
   instructionsChange: string | undefined;
+  protocolVersionChange: string | undefined;
   message: MessageEntry;
   stderrLog: StderrLogEntry;
   fetchRequest: FetchRequestEntry;

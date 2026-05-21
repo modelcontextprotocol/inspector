@@ -67,6 +67,7 @@ import type {
   ContentBlock,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
+  LATEST_PROTOCOL_VERSION,
   RELATED_TASK_META_KEY,
   McpError,
   ErrorCode,
@@ -4560,6 +4561,20 @@ describe("InspectorClient", () => {
     });
 
     describe("capability detection after connect", () => {
+      it("captures the negotiated protocol version from initialize", async () => {
+        server = createTestServerHttp({
+          serverInfo: createTestServerInfo(),
+        });
+        await server.start();
+        client = new InspectorClient(
+          { type: "streamable-http", url: server.url },
+          { environment: { transport: createTransportNode } },
+        );
+        await client.connect();
+
+        expect(client.getProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+      });
+
       it("round-trips listChanged + subscribe flags via getCapabilities()", async () => {
         // The handler-registration arrows in InspectorClient fire during
         // connect only when the matching server capability is advertised.

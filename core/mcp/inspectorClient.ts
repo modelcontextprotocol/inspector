@@ -160,6 +160,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   // UI surfaces (Server Info modal) can display them without poking at the
   // SDK Client's private state.
   private clientCapabilities: ClientCapabilities = {};
+  private protocolVersion?: string;
+  private pendingInitializeRequestIds = new Set<JSONRPCRequest["id"]>();
   // Sampling requests
   private pendingSamples: SamplingCreateMessage[] = [];
   // Elicitation requests
@@ -338,6 +340,9 @@ export class InspectorClient extends InspectorClientEventTarget {
   private createMessageTrackingCallbacks(): MessageTrackingCallbacks {
     return {
       trackRequest: (message: JSONRPCRequest) => {
+        if (message.method === "initialize") {
+          this.pendingInitializeRequestIds.add(message.id);
+        }
         const entry: MessageEntry = {
           id: crypto.randomUUID(),
           timestamp: new Date(),
@@ -349,6 +354,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       trackResponse: (
         message: JSONRPCResultResponse | JSONRPCErrorResponse,
       ) => {
+        this.captureInitializeProtocolVersion(message);
         const entry: MessageEntry = {
           id: crypto.randomUUID(),
           timestamp: new Date(),
@@ -1021,10 +1027,12 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.capabilities = undefined;
     this.serverInfo = undefined;
     this.instructions = undefined;
+    this.protocolVersion = undefined;
     this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
     this.dispatchTypedEvent("capabilitiesChange", this.capabilities);
     this.dispatchTypedEvent("serverInfoChange", this.serverInfo);
     this.dispatchTypedEvent("instructionsChange", this.instructions);
+    this.dispatchTypedEvent("protocolVersionChange", this.protocolVersion);
   }
 
   /**
@@ -1263,6 +1271,13 @@ export class InspectorClient extends InspectorClientEventTarget {
    */
   getInstructions(): string | undefined {
     return this.instructions;
+  }
+
+  /**
+   * Get the negotiated MCP protocol version from the initialize response
+   */
+  getProtocolVersion(): string | undefined {
+    return this.protocolVersion;
   }
 
   /**
@@ -2013,6 +2028,30 @@ export class InspectorClient extends InspectorClientEventTarget {
       }
     } catch {
       // Ignore errors in fetching server info
+    }
+  }
+
+  private captureInitializeProtocolVersion(
+    message: JSONRPCResultResponse | JSONRPCErrorResponse,
+  ): void {
+    if (message.id === undefined) {
+      return;
+    }
+    if (!this.pendingInitializeRequestIds.delete(message.id)) {
+      return;
+    }
+    if (!("result" in message)) {
+      return;
+    }
+    const result = message.result;
+    if (
+      typeof result === "object" &&
+      result !== null &&
+      "protocolVersion" in result &&
+      typeof result.protocolVersion === "string"
+    ) {
+      this.protocolVersion = result.protocolVersion;
+      this.dispatchTypedEvent("protocolVersionChange", this.protocolVersion);
     }
   }
 

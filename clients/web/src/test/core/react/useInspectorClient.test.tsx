@@ -19,12 +19,14 @@ describe("useInspectorClient", () => {
       capabilities: CAPABILITIES,
       serverInfo: SERVER_INFO,
       instructions: "hello",
+      protocolVersion: "2025-03-26",
     });
     const { result } = renderHook(() => useInspectorClient(client));
     expect(result.current.status).toBe("connected");
     expect(result.current.capabilities).toEqual(CAPABILITIES);
     expect(result.current.serverInfo).toEqual(SERVER_INFO);
     expect(result.current.instructions).toBe("hello");
+    expect(result.current.protocolVersion).toBe("2025-03-26");
     expect(result.current.appRendererClient).toBeNull();
   });
 
@@ -34,6 +36,7 @@ describe("useInspectorClient", () => {
     expect(result.current.capabilities).toBeUndefined();
     expect(result.current.serverInfo).toBeUndefined();
     expect(result.current.instructions).toBeUndefined();
+    expect(result.current.protocolVersion).toBeUndefined();
     expect(result.current.appRendererClient).toBeNull();
   });
 
@@ -51,17 +54,19 @@ describe("useInspectorClient", () => {
     expect(result.current.status).toBe("connected");
   });
 
-  it("subscribes to capabilities/serverInfo/instructions changes", () => {
+  it("subscribes to capabilities/serverInfo/instructions/protocolVersion changes", () => {
     const client = new FakeInspectorClient();
     const { result } = renderHook(() => useInspectorClient(client));
     act(() => {
       client.setCapabilities(CAPABILITIES);
       client.setServerInfo(SERVER_INFO);
       client.setInstructions("after");
+      client.setProtocolVersion("2025-06-18");
     });
     expect(result.current.capabilities).toEqual(CAPABILITIES);
     expect(result.current.serverInfo).toEqual(SERVER_INFO);
     expect(result.current.instructions).toBe("after");
+    expect(result.current.protocolVersion).toBe("2025-06-18");
   });
 
   it("connect() and disconnect() proxy to the client and update status", async () => {
@@ -98,6 +103,7 @@ describe("useInspectorClient", () => {
     rerender({ c: null });
     expect(result.current.status).toBe("disconnected");
     expect(result.current.capabilities).toBeUndefined();
+    expect(result.current.protocolVersion).toBeUndefined();
   });
 
   it("re-subscribes when the client prop changes", () => {
