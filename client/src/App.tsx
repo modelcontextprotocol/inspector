@@ -890,8 +890,18 @@ const App = () => {
     if (loadMore) {
       setResources((prev) => prev.concat(response.resources ?? []));
     } else {
-      setResources(response.resources ?? []);
-      setSelectedResource(null);
+      const newResources = response.resources ?? [];
+      setResources(newResources);
+
+      // Preserve selection if it still exists
+      if (selectedResource) {
+        const stillExists = newResources.some(
+          (r) => r.uri === selectedResource.uri,
+        );
+        if (!stillExists) {
+          setSelectedResource(null);
+        }
+      }
     }
     setNextResourceCursor(response.nextCursor);
   };
@@ -1020,9 +1030,19 @@ const App = () => {
     if (loadMore) {
       setPrompts((prev) => prev.concat(response.prompts ?? []));
     } else {
-      setPrompts(response.prompts ?? []);
-      setSelectedPrompt(null);
-      setPromptContent("");
+      const newPrompts = response.prompts ?? [];
+      setPrompts(newPrompts);
+
+      // Preserve selection if it still exists
+      if (selectedPrompt) {
+        const stillExists = newPrompts.some(
+          (p) => p.name === selectedPrompt.name,
+        );
+        if (!stillExists) {
+          setSelectedPrompt(null);
+          setPromptContent("");
+        }
+      }
     }
     setNextPromptCursor(response.nextCursor);
   };
@@ -1044,10 +1064,18 @@ const App = () => {
         return nextTools;
       });
     } else {
-      setTools(response.tools ?? []);
-      cacheToolOutputSchemas(response.tools ?? []);
-      setSelectedTool(null);
-      setToolResult(null);
+      const newTools = response.tools ?? [];
+      setTools(newTools);
+      cacheToolOutputSchemas(newTools);
+
+      // Preserve selection if it still exists
+      if (selectedTool) {
+        const stillExists = newTools.some((t) => t.name === selectedTool.name);
+        if (!stillExists) {
+          setSelectedTool(null);
+          setToolResult(null);
+        }
+      }
     }
     setNextToolCursor(response.nextCursor);
   };
@@ -1270,20 +1298,38 @@ const App = () => {
     listTasksRef.current = listTasks;
   });
 
-  const listTasks = useCallback(async () => {
-    try {
-      const response = await listMcpTasks(nextTaskCursor);
-      setTasks(response.tasks);
-      setNextTaskCursor(response.nextCursor);
-      // Inline error clear to avoid extra dependency on clearError
-      setErrors((prev) => ({ ...prev, tasks: null }));
-    } catch (e) {
-      setErrors((prev) => ({
-        ...prev,
-        tasks: (e as Error).message ?? String(e),
-      }));
-    }
-  }, [listMcpTasks, nextTaskCursor]);
+  const listTasks = useCallback(
+    async (loadMore: boolean = false) => {
+      try {
+        const cursor = loadMore ? nextTaskCursor : undefined;
+        const response = await listMcpTasks(cursor);
+        if (loadMore) {
+          setTasks((prev) => prev.concat(response.tasks));
+        } else {
+          setTasks(response.tasks);
+          // Selection is handled via ref in TasksTab, but we should clear selectedTask
+          // if it's no longer in the list after a full refresh
+          if (selectedTaskRef.current) {
+            const stillExists = response.tasks.some(
+              (t) => t.taskId === selectedTaskRef.current?.taskId,
+            );
+            if (!stillExists) {
+              setSelectedTask(null);
+            }
+          }
+        }
+        setNextTaskCursor(response.nextCursor);
+        // Inline error clear to avoid extra dependency on clearError
+        setErrors((prev) => ({ ...prev, tasks: null }));
+      } catch (e) {
+        setErrors((prev) => ({
+          ...prev,
+          tasks: (e as Error).message ?? String(e),
+        }));
+      }
+    },
+    [listMcpTasks, nextTaskCursor],
+  );
 
   const cancelTask = async (taskId: string) => {
     try {

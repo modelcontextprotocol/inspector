@@ -44,7 +44,7 @@ const TasksTab = ({
   nextCursor,
 }: {
   tasks: Task[];
-  listTasks: () => void;
+  listTasks: (loadMore?: boolean) => void;
   clearTasks: () => void;
   cancelTask: (taskId: string) => Promise<void>;
   selectedTask: Task | null;
@@ -75,10 +75,16 @@ const TasksTab = ({
             title="Tasks"
             items={tasks}
             setSelectedItem={setSelectedTask}
-            listItems={listTasks}
+            listItems={() => listTasks(!!nextCursor)}
             clearItems={clearTasks}
-            buttonText={nextCursor ? "List More Tasks" : "List Tasks"}
-            isButtonDisabled={!nextCursor && tasks.length > 0}
+            buttonText={
+              nextCursor
+                ? "List More Tasks"
+                : tasks.length > 0
+                  ? "Refresh Tasks"
+                  : "List Tasks"
+            }
+            isButtonDisabled={false}
             renderItem={(task) => (
               <div className="flex items-center gap-2 overflow-hidden w-full">
                 <TaskStatusIcon status={task.status} />
@@ -212,7 +218,7 @@ const TasksTab = ({
                   variant="outline"
                   size="sm"
                   className="mt-4"
-                  onClick={listTasks}
+                  onClick={() => listTasks()}
                 >
                   <RefreshCw className="mr-2 h-4 w-4" />
                   Refresh Tasks
