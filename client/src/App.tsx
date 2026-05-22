@@ -1285,7 +1285,11 @@ const App = () => {
     );
     return (
       <Suspense fallback={<div>Loading...</div>}>
-        <OAuthCallback onConnect={onOAuthConnect} />
+        <OAuthCallback
+          onConnect={onOAuthConnect}
+          config={config}
+          connectionType={connectionType}
+        />
       </Suspense>
     );
   }
