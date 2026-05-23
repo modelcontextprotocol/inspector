@@ -146,36 +146,6 @@ describe("resolveServerConfigs — single mode", () => {
     });
   });
 
-  it("attaches headers on remote configs when provided", () => {
-    const [config] = resolveServerConfigs(
-      {
-        target: ["http://example.com/mcp"],
-        headers: { Authorization: "Bearer x" },
-      },
-      "single",
-    );
-    expect(config).toMatchObject({
-      type: "streamable-http",
-      url: "http://example.com/mcp",
-      headers: { Authorization: "Bearer x" },
-    });
-  });
-
-  it("attaches headers on sse configs when provided", () => {
-    const [config] = resolveServerConfigs(
-      {
-        target: ["http://example.com/sse"],
-        headers: { Authorization: "Bearer x" },
-      },
-      "single",
-    );
-    expect(config).toMatchObject({
-      type: "sse",
-      url: "http://example.com/sse",
-      headers: { Authorization: "Bearer x" },
-    });
-  });
-
   it("rejects args passed alongside a URL target", () => {
     expect(() =>
       resolveServerConfigs(
@@ -323,7 +293,7 @@ describe("resolveServerConfigs — single mode", () => {
     ).toThrow(/Server 'bar' not found/);
   });
 
-  it("applies env/cwd/headers overrides when loading from config", () => {
+  it("applies env/cwd overrides when loading from config", () => {
     writeFileSync(
       configPath,
       JSON.stringify({
@@ -349,19 +319,6 @@ describe("resolveServerConfigs — single mode", () => {
       type: "stdio",
       env: { X: "1" },
       cwd: "/tmp",
-    });
-
-    const [http] = resolveServerConfigs(
-      {
-        configPath,
-        serverName: "bar",
-        headers: { Authorization: "Bearer x" },
-      },
-      "single",
-    );
-    expect(http).toMatchObject({
-      type: "streamable-http",
-      headers: { Authorization: "Bearer x" },
     });
   });
 });
@@ -460,13 +417,15 @@ describe("getNamedServerConfigs", () => {
     const named = getNamedServerConfigs({
       configPath,
       env: { X: "1" },
-      headers: { Authorization: "Bearer x" },
     });
     expect((named.a as { env: Record<string, string> }).env).toEqual({
       X: "1",
     });
-    expect((named.b as { headers: Record<string, string> }).headers).toEqual({
-      Authorization: "Bearer x",
+    // env override does not apply to non-stdio servers; the streamable-http
+    // entry stays as-is.
+    expect(named.b).toMatchObject({
+      type: "streamable-http",
+      url: "http://example.com/mcp",
     });
   });
 

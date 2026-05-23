@@ -185,10 +185,46 @@ Per `AGENTS.md`'s "test new or modified code" rule plus the UI-changes guidance:
 - **Schema drift with Claude Desktop / Cursor.** They occasionally add fields (e.g. Claude Desktop's `disabled`). `loadMcpServersConfig` currently does `JSON.parse(...) as MCPConfig` — extra fields survive the round-trip as long as we don't filter them. The converters in `serverList.ts` should preserve unknown fields on `MCPServerConfig` rather than copying a fixed allow-list.
 - **Migration from `SEED_SERVERS`.** Existing dev users have no file. First boot writes one — they won't notice. No code path persists the in-memory `useState` list today, so nothing to migrate.
 
+## Per-server settings (#1352)
+
+Each server entry may carry an optional `settings` node alongside the transport config:
+
+```jsonc
+{
+  "mcpServers": {
+    "my-server": {
+      "type": "streamable-http",
+      "url": "https://example.com/mcp",
+      "settings": {
+        "headers":  [{ "key": "Authorization", "value": "Bearer xxx" }],
+        "metadata": [{ "key": "tenant",        "value": "acme" }],
+        "connectionTimeout": 30000,
+        "requestTimeout":    60000,
+        "oauthClientId":     "...",
+        "oauthClientSecret": "...",
+        "oauthScopes":       "read:tools write:tools"
+      }
+    }
+  }
+}
+```
+
+- **Shape**: `InspectorServerSettings` in `core/mcp/types.ts`. The `settings` field on `StoredMCPServer` (also in `types.ts`) is the on-disk extension; other MCP tools (Claude Desktop, Cursor, Cline) ignore unknown fields.
+- **Where it takes effect**:
+  - `settings.headers` → wire headers on every SSE / streamable-http request (`core/mcp/node/transport.ts`).
+  - `settings.metadata` → default `_meta` payload merged into every outgoing MCP request (`core/mcp/inspectorClient.ts`'s `mergeMeta` helper). Per-call metadata wins on key collision.
+  - `settings.requestTimeout` → `InspectorClientOptions.timeout`.
+  - `settings.connectionTimeout` → `Promise.race` wrapper around `InspectorClient.connect()` in the web client.
+  - `settings.oauthClientId` / `oauthClientSecret` / `oauthScopes` → pre-seeded OAuth client credentials via `InspectorClientOptions.oauth`.
+- **First-connect contract**: settings apply on the *first* outbound request after the entry loads from disk — no need to open the settings form. The browser sends `settings` to the backend in the `/api/mcp/connect` body; the backend reads it from `RemoteConnectRequest` and threads it into `createTransportNode`.
+- **Secret storage**: `oauthClientSecret` is persisted in `mcp.json` alongside stdio `env` values, both protected by the file's `0o600` permission. OS-keychain integration is out of scope; a follow-up may switch the layout if a stronger secret store is needed.
+- **Removed**: `MCPServerConfig.headers` (previously on `SseServerConfig` / `StreamableHttpServerConfig`) has been deleted. The headers textarea in `ServerConfigModal` is gone; HTTP headers are entered only in `ServerSettingsForm`. v2 has not shipped a stable release with the old shape, so no on-read migration is included.
+- **UI**: `ServerSettingsModal` is opened from the server card's settings affordance; saving routes through `useServers.updateServerSettings(id, settings)` which calls `PUT /api/servers/:id` with `{ id, config, settings }`. `useServers.updateServer` re-sends the existing settings whenever it issues a PUT so the config-modal save does not clobber persisted settings.
+
 ## Out of scope (follow-ups)
 
 - Import-from-Claude-Desktop button (read `~/Library/Application Support/Claude/claude_desktop_config.json` or the Windows/Linux equivalent, merge into our file).
 - File watching for hot reload of external edits.
 - Per-server tags / folders / groups.
 - Export current list as JSON.
-- CLI/TUI: switch their default `--config` to `getDefaultMcpConfigPath()` when no `--config` flag is given. Touch when those clients are wired up to v2.
+- CLI/TUI: switch their default `--config` to `getDefaultMcpConfigPath()` when no `--config` flag is given. Touch when those clients are wired up to v2. While porting, re-add a `--header` flag that writes to `settings.headers` rather than to `MCPServerConfig`.

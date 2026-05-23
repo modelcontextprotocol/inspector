@@ -45,7 +45,6 @@ export interface StdioServerConfig {
 export interface SseServerConfig {
   type: "sse";
   url: string;
-  headers?: Record<string, string>;
   eventSourceInit?: Record<string, unknown>;
   requestInit?: Record<string, unknown>;
 }
@@ -54,7 +53,6 @@ export interface SseServerConfig {
 export interface StreamableHttpServerConfig {
   type: "streamable-http";
   url: string;
-  headers?: Record<string, string>;
   requestInit?: Record<string, unknown>;
 }
 
@@ -65,8 +63,17 @@ export type MCPServerConfig =
 
 export type ServerType = "stdio" | "sse" | "streamable-http";
 
+/**
+ * On-disk shape for a single `mcp.json` server entry. The base is the
+ * SDK-compatible `MCPServerConfig`; the optional `settings` node is an
+ * Inspector-specific extension that other MCP tools simply ignore.
+ */
+export type StoredMCPServer = MCPServerConfig & {
+  settings?: InspectorServerSettings;
+};
+
 export interface MCPConfig {
-  mcpServers: Record<string, MCPServerConfig>;
+  mcpServers: Record<string, StoredMCPServer>;
 }
 
 export type ConnectionStatus =
@@ -91,6 +98,13 @@ export interface ServerEntry {
   /** Display label shown in the card header. May or may not equal id. */
   name: string;
   config: MCPServerConfig;
+  /**
+   * Optional per-server runtime settings (headers, metadata, timeouts, OAuth
+   * credentials). Lives alongside `config` on disk under the `settings` key.
+   * Edited via ServerSettingsForm; consumed by the transport / InspectorClient
+   * at connect time.
+   */
+  settings?: InspectorServerSettings;
   info?: Implementation;
   connection: ConnectionState;
 }
@@ -339,6 +353,13 @@ export interface CreateTransportOptions {
    * When set, the SDK injects tokens and handles 401 via the provider.
    */
   authProvider?: OAuthClientProvider;
+
+  /**
+   * Optional per-server runtime settings. Currently used to source custom
+   * HTTP headers (settings.headers) for SSE / streamable-http transports.
+   * Stdio ignores this — headers are not applicable.
+   */
+  settings?: InspectorServerSettings;
 }
 
 export interface CreateTransportResult {
@@ -494,6 +515,23 @@ export interface InspectorClientOptions {
    * Per-request timeout in milliseconds. If not set, the SDK default (60_000) is used.
    */
   timeout?: number;
+
+  /**
+   * Default `_meta` payload merged into every outgoing request the client
+   * issues (tools/list, tools/call, prompts/get, resources/read, etc.). Call-
+   * site metadata wins on key collision. Set this from `InspectorServerSettings.metadata`
+   * so persisted server-wide metadata reaches the wire on the first request.
+   */
+  defaultMetadata?: Record<string, string>;
+
+  /**
+   * Optional per-server runtime settings forwarded to the transport factory
+   * (for HTTP transports, settings.headers becomes the wire headers). The
+   * other fields on `InspectorServerSettings` are unpacked by the caller
+   * into `timeout`, `defaultMetadata`, and `oauth` on this options object —
+   * `serverSettings` itself is only consumed by the transport.
+   */
+  serverSettings?: InspectorServerSettings;
 
   /**
    * OAuth configuration (client credentials, scope, etc.)

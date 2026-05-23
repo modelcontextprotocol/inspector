@@ -6,6 +6,7 @@ import type {
   MessageEntry,
   FetchRequestEntry,
   FetchRequestEntryBase,
+  InspectorServerSettings,
   ResourceReadInvocation,
   ResourceTemplateReadInvocation,
   PromptGetInvocation,
@@ -142,6 +143,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   private progress: boolean;
   private resetTimeoutOnProgress: boolean;
   private requestTimeout: number | undefined;
+  private defaultMetadata: Record<string, string> | undefined;
+  private serverSettings: InspectorServerSettings | undefined;
   private status: ConnectionStatus = "disconnected";
   // Server data (resources, resourceTemplates, prompts are in state managers)
   private capabilities?: ServerCapabilities;
@@ -197,6 +200,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.progress = options.progress ?? true;
     this.resetTimeoutOnProgress = options.resetTimeoutOnProgress ?? true;
     this.requestTimeout = options.timeout;
+    this.defaultMetadata =
+      options.defaultMetadata && Object.keys(options.defaultMetadata).length > 0
+        ? options.defaultMetadata
+        : undefined;
+    this.serverSettings = options.serverSettings;
     // Only set roots if explicitly provided (even if empty array) - this enables roots capability
     this.roots = options.roots;
     // Initialize listChangedNotifications config (default: all enabled)
@@ -368,6 +376,23 @@ export class InspectorClient extends InspectorClientEventTarget {
    * @param progressToken Optional token from request metadata; injected into progressNotification
    * events when provided (not sent to server).
    */
+  /**
+   * Merge per-call metadata with this client's `defaultMetadata` (from
+   * `InspectorClientOptions.defaultMetadata`, set from
+   * `InspectorServerSettings.metadata`). Call-time keys override defaults.
+   * Returns `undefined` when the combined map is empty so callers can skip
+   * injecting an empty `_meta` field.
+   */
+  private mergeMeta(
+    callMetadata?: Record<string, string>,
+  ): Record<string, string> | undefined {
+    const defaults = this.defaultMetadata;
+    const hasDefaults = defaults && Object.keys(defaults).length > 0;
+    const hasCall = callMetadata && Object.keys(callMetadata).length > 0;
+    if (!hasDefaults && !hasCall) return undefined;
+    return { ...(defaults ?? {}), ...(callMetadata ?? {}) };
+  }
+
   private getRequestOptions(progressToken?: ProgressToken): RequestOptions {
     const opts: RequestOptions = {
       resetTimeoutOnProgress: this.resetTimeoutOnProgress,
@@ -544,6 +569,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         onFetchRequest: (entry: FetchRequestEntryBase) => {
           this.dispatchFetchRequest({ ...entry, category: "transport" });
         },
+        ...(this.serverSettings && { settings: this.serverSettings }),
       };
       const oauthManager = this.oauthManager;
       if (this.isHttpOAuthConfig() && oauthManager) {
@@ -1189,10 +1215,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
+    const effectiveMeta = this.mergeMeta(metadata);
     const params: ListToolsRequest["params"] = {
-      ...(metadata && Object.keys(metadata).length > 0
-        ? { _meta: metadata }
-        : {}),
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
       ...(cursor ? { cursor } : {}),
     };
     const response = await this.client.listTools(
@@ -1242,20 +1267,16 @@ export class InspectorClient extends InspectorClientEventTarget {
         convertedArgs = { ...args, ...convertedStringArgs };
       }
 
-      // Merge general metadata with tool-specific metadata
-      let mergedMetadata: Record<string, string> | undefined;
-      if (generalMetadata || toolSpecificMetadata) {
-        mergedMetadata = {
-          ...(generalMetadata || {}),
-          ...(toolSpecificMetadata || {}),
-        };
-      }
+      // Merge general metadata with tool-specific metadata; tool-specific wins.
+      const callMetadata: Record<string, string> | undefined =
+        generalMetadata || toolSpecificMetadata
+          ? { ...(generalMetadata || {}), ...(toolSpecificMetadata || {}) }
+          : undefined;
 
       const timestamp = new Date();
-      const metadata =
-        mergedMetadata && Object.keys(mergedMetadata).length > 0
-          ? mergedMetadata
-          : undefined;
+      // Fold in this client's defaultMetadata so server-wide _meta reaches
+      // the wire even when the caller passed nothing.
+      const metadata = this.mergeMeta(callMetadata);
 
       const callParams: {
         name: string;
@@ -1298,19 +1319,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       return invocation;
     } catch (error) {
       // Merge general metadata with tool-specific metadata for error case
-      let mergedMetadata: Record<string, string> | undefined;
-      if (generalMetadata || toolSpecificMetadata) {
-        mergedMetadata = {
-          ...(generalMetadata || {}),
-          ...(toolSpecificMetadata || {}),
-        };
-      }
+      const callMetadata: Record<string, string> | undefined =
+        generalMetadata || toolSpecificMetadata
+          ? { ...(generalMetadata || {}), ...(toolSpecificMetadata || {}) }
+          : undefined;
 
       const timestamp = new Date();
-      const metadata =
-        mergedMetadata && Object.keys(mergedMetadata).length > 0
-          ? mergedMetadata
-          : undefined;
+      const metadata = this.mergeMeta(callMetadata);
 
       const invocation: ToolCallInvocation = {
         toolName: tool.name,
@@ -1369,20 +1384,14 @@ export class InspectorClient extends InspectorClientEventTarget {
         convertedArgs = { ...args, ...convertedStringArgs };
       }
 
-      // Merge general metadata with tool-specific metadata
-      let mergedMetadata: Record<string, string> | undefined;
-      if (generalMetadata || toolSpecificMetadata) {
-        mergedMetadata = {
-          ...(generalMetadata || {}),
-          ...(toolSpecificMetadata || {}),
-        };
-      }
+      // Merge general metadata with tool-specific metadata; tool-specific wins.
+      const callMetadata: Record<string, string> | undefined =
+        generalMetadata || toolSpecificMetadata
+          ? { ...(generalMetadata || {}), ...(toolSpecificMetadata || {}) }
+          : undefined;
 
       const timestamp = new Date();
-      const metadata =
-        mergedMetadata && Object.keys(mergedMetadata).length > 0
-          ? mergedMetadata
-          : undefined;
+      const metadata = this.mergeMeta(callMetadata);
 
       // Call the streaming API
       const streamParams: Record<string, unknown> = {
@@ -1531,19 +1540,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       return invocation;
     } catch (error) {
       // Merge general metadata with tool-specific metadata for error case
-      let mergedMetadata: Record<string, string> | undefined;
-      if (generalMetadata || toolSpecificMetadata) {
-        mergedMetadata = {
-          ...(generalMetadata || {}),
-          ...(toolSpecificMetadata || {}),
-        };
-      }
+      const callMetadata: Record<string, string> | undefined =
+        generalMetadata || toolSpecificMetadata
+          ? { ...(generalMetadata || {}), ...(toolSpecificMetadata || {}) }
+          : undefined;
 
       const timestamp = new Date();
-      const metadata =
-        mergedMetadata && Object.keys(mergedMetadata).length > 0
-          ? mergedMetadata
-          : undefined;
+      const metadata = this.mergeMeta(callMetadata);
 
       this.dispatchTypedEvent("toolCallResultChange", {
         toolName: tool.name,
@@ -1572,10 +1575,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
+    const effectiveMeta = this.mergeMeta(metadata);
     const params: ListResourcesRequest["params"] = {
-      ...(metadata && Object.keys(metadata).length > 0
-        ? { _meta: metadata }
-        : {}),
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
       ...(cursor ? { cursor } : {}),
     };
     const response = await this.client.listResources(
@@ -1601,11 +1603,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
+    const effectiveMeta = this.mergeMeta(metadata);
     const params: ReadResourceRequest["params"] = {
       uri,
-      ...(metadata && Object.keys(metadata).length > 0
-        ? { _meta: metadata }
-        : {}),
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
     };
     const result = await this.client.readResource(
       params,
@@ -1615,7 +1616,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       result,
       timestamp: new Date(),
       uri,
-      metadata,
+      metadata: effectiveMeta,
     };
     this.dispatchTypedEvent("resourceContentChange", {
       uri,
@@ -1660,14 +1661,15 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Always fetch fresh content: Call readResource with expanded URI
     const readInvocation = await this.readResource(expandedUri, metadata);
 
-    // Create the template invocation object
+    // Create the template invocation object. Use the merged metadata recorded
+    // by readResource so the template-level history matches what was sent.
     const invocation: ResourceTemplateReadInvocation = {
       uriTemplate: uriTemplateString,
       expandedUri,
       result: readInvocation.result,
       timestamp: readInvocation.timestamp,
       params,
-      metadata,
+      metadata: readInvocation.metadata,
     };
 
     this.dispatchTypedEvent("resourceTemplateContentChange", {
@@ -1693,10 +1695,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
+    const effectiveMeta = this.mergeMeta(metadata);
     const params: ListResourceTemplatesRequest["params"] = {
-      ...(metadata && Object.keys(metadata).length > 0
-        ? { _meta: metadata }
-        : {}),
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
       ...(cursor ? { cursor } : {}),
     };
     const response = await this.client.listResourceTemplates(
@@ -1722,10 +1723,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
+    const effectiveMeta = this.mergeMeta(metadata);
     const params: ListPromptsRequest["params"] = {
-      ...(metadata && Object.keys(metadata).length > 0
-        ? { _meta: metadata }
-        : {}),
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
       ...(cursor ? { cursor } : {}),
     };
     const response = await this.client.listPrompts(
@@ -1756,12 +1756,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Convert all arguments to strings for prompt arguments
     const stringArgs = args ? convertPromptArguments(args) : {};
 
+    const effectiveMeta = this.mergeMeta(metadata);
     const params: GetPromptRequest["params"] = {
       name,
       arguments: stringArgs,
-      ...(metadata && Object.keys(metadata).length > 0
-        ? { _meta: metadata }
-        : {}),
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
     };
 
     const result = await this.client.getPrompt(
@@ -1774,7 +1773,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       timestamp: new Date(),
       name,
       params: Object.keys(stringArgs).length > 0 ? stringArgs : undefined,
-      metadata,
+      metadata: effectiveMeta,
     };
 
     this.dispatchTypedEvent("promptContentChange", {
@@ -1810,6 +1809,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
 
     try {
+      const effectiveMeta = this.mergeMeta(metadata);
       const params: CompleteRequest["params"] = {
         ref,
         argument: {
@@ -1817,9 +1817,7 @@ export class InspectorClient extends InspectorClientEventTarget {
           value: argumentValue,
         },
         ...(context ? { context: { arguments: context } } : {}),
-        ...(metadata && Object.keys(metadata).length > 0
-          ? { _meta: metadata }
-          : {}),
+        ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
       };
 
       const response = await this.client.complete(

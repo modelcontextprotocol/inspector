@@ -23,7 +23,12 @@ import type { Context, Env, Next } from "hono";
 import { streamSSE } from "hono/streaming";
 import { createTransportNode } from "../../node/transport.js";
 import type { RemoteConnectRequest, RemoteSendRequest } from "../types.js";
-import type { MCPConfig, MCPServerConfig } from "../../types.js";
+import type {
+  InspectorServerSettings,
+  MCPConfig,
+  MCPServerConfig,
+  StoredMCPServer,
+} from "../../types.js";
 import {
   DEFAULT_SEED_CONFIG,
   normalizeServerType,
@@ -40,7 +45,6 @@ export interface InitialConfigPayload {
   defaultArgs?: string[];
   defaultTransport?: string;
   defaultServerUrl?: string;
-  defaultHeaders?: Record<string, string>;
   defaultCwd?: string;
   defaultEnvironment: Record<string, string>;
 }
@@ -295,6 +299,7 @@ export function createRemoteApp(
         onStderr: (entry) => session.onStderr(entry),
         onFetchRequest: (entry) => session.onFetchRequest(entry),
         authProvider,
+        settings: body.settings,
       });
       transport = result.transport;
     } catch (err) {
@@ -630,17 +635,34 @@ export function createRemoteApp(
   // --- /api/servers (server list backed by mcp.json) ---
 
   // Defensive normalize so editor-edited files with type:"http" or missing
-  // type round-trip into the canonical form on every read.
-  const normalizeMcpServers = (raw: unknown): Record<string, MCPServerConfig> => {
+  // type round-trip into the canonical form on every read. The optional
+  // Inspector-specific `settings` node is preserved verbatim by the spread
+  // inside normalizeServerType.
+  const normalizeMcpServers = (raw: unknown): Record<string, StoredMCPServer> => {
     if (!raw || typeof raw !== "object") return {};
-    const out: Record<string, MCPServerConfig> = {};
+    const out: Record<string, StoredMCPServer> = {};
     for (const [id, val] of Object.entries(raw as Record<string, unknown>)) {
       if (!val || typeof val !== "object") continue;
       out[id] = normalizeServerType(
         val as Record<string, unknown> & { type?: string },
-      );
+      ) as StoredMCPServer;
     }
     return out;
+  };
+
+  // Build a single on-disk entry from `{ config, settings }`, normalizing the
+  // type discriminator and attaching settings only when defined.
+  const buildStoredEntry = (
+    config: unknown,
+    settings: unknown,
+  ): StoredMCPServer => {
+    const normalized = normalizeServerType(
+      config as Record<string, unknown> & { type?: string },
+    ) as StoredMCPServer;
+    if (settings && typeof settings === "object") {
+      normalized.settings = settings as InspectorServerSettings;
+    }
+    return normalized;
   };
 
   // In-process serialization for the read-modify-write flow on the
@@ -695,9 +717,13 @@ export function createRemoteApp(
   });
 
   app.post("/api/servers", async (c) => {
-    let body: { id?: unknown; config?: unknown };
+    let body: { id?: unknown; config?: unknown; settings?: unknown };
     try {
-      body = (await c.req.json()) as { id?: unknown; config?: unknown };
+      body = (await c.req.json()) as {
+        id?: unknown;
+        config?: unknown;
+        settings?: unknown;
+      };
     } catch {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
@@ -713,6 +739,12 @@ export function createRemoteApp(
     if (!body.config || typeof body.config !== "object") {
       return c.json({ error: "Missing or invalid config" }, 400);
     }
+    if (
+      body.settings !== undefined &&
+      (body.settings === null || typeof body.settings !== "object")
+    ) {
+      return c.json({ error: "Invalid settings" }, 400);
+    }
     const id = body.id;
 
     try {
@@ -721,9 +753,7 @@ export function createRemoteApp(
         if (id in current.mcpServers) {
           return c.json({ error: `Server '${id}' already exists` }, 409);
         }
-        current.mcpServers[id] = normalizeServerType(
-          body.config as Record<string, unknown> & { type?: string },
-        );
+        current.mcpServers[id] = buildStoredEntry(body.config, body.settings);
         await writeStoreFile(mcpConfigPath, serializeStore(current));
         return c.json({ ok: true });
       });
@@ -738,14 +768,24 @@ export function createRemoteApp(
     if (!originalId || !validateStoreId(originalId)) {
       return c.json({ error: "Invalid id" }, 400);
     }
-    let body: { id?: unknown; config?: unknown };
+    let body: { id?: unknown; config?: unknown; settings?: unknown };
     try {
-      body = (await c.req.json()) as { id?: unknown; config?: unknown };
+      body = (await c.req.json()) as {
+        id?: unknown;
+        config?: unknown;
+        settings?: unknown;
+      };
     } catch {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
     if (!body.config || typeof body.config !== "object") {
       return c.json({ error: "Missing or invalid config" }, 400);
+    }
+    if (
+      body.settings !== undefined &&
+      (body.settings === null || typeof body.settings !== "object")
+    ) {
+      return c.json({ error: "Invalid settings" }, 400);
     }
     const newId = typeof body.id === "string" ? body.id : originalId;
     if (!validateStoreId(newId)) {
@@ -766,8 +806,9 @@ export function createRemoteApp(
         const next: MCPConfig = { mcpServers: {} };
         for (const [key, val] of Object.entries(current.mcpServers)) {
           if (key === originalId) {
-            next.mcpServers[newId] = normalizeServerType(
-              body.config as Record<string, unknown> & { type?: string },
+            next.mcpServers[newId] = buildStoredEntry(
+              body.config,
+              body.settings,
             );
           } else {
             next.mcpServers[key] = val;

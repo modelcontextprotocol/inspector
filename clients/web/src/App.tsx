@@ -10,6 +10,7 @@ import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
 import type {
+  InspectorServerSettings,
   MCPServerConfig,
   MessageEntry,
   ServerEntry,
@@ -45,6 +46,7 @@ import {
   ServerConfigModal,
   type ServerConfigModalMode,
 } from "./components/groups/ServerConfigModal/ServerConfigModal";
+import { ServerSettingsModal } from "./components/groups/ServerSettingsModal/ServerSettingsModal";
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
 import { downloadJsonFile } from "./lib/downloadFile";
 import { createWebEnvironment } from "./lib/environmentFactory";
@@ -135,7 +137,13 @@ function App() {
   // Server list — sourced from ~/.mcp-inspector/mcp.json via the backend's
   // `/api/servers` routes. First-launch seeds are written by the backend when
   // the file is absent, so this hook returns a non-empty list on first load.
-  const { servers, addServer, updateServer, removeServer } = useServers({
+  const {
+    servers,
+    addServer,
+    updateServer,
+    updateServerSettings,
+    removeServer,
+  } = useServers({
     baseUrl:
       typeof window !== "undefined"
         ? window.location.origin
@@ -149,6 +157,9 @@ function App() {
     mode: ServerConfigModalMode;
     targetId?: string;
   } | null>(null);
+  const [settingsModalTargetId, setSettingsModalTargetId] = useState<
+    string | undefined
+  >(undefined);
   const [removeTarget, setRemoveTarget] = useState<ServerEntry | null>(null);
 
   // The active connection target. `null` between sessions; set as soon as
@@ -336,6 +347,31 @@ function App() {
         getAuthToken(),
         redirectUrlProvider,
       );
+      const settings = server.settings;
+      // Flatten the persisted settings into the InspectorClient options shape.
+      // Empty / zero values stay unset so the SDK defaults apply.
+      const defaultMetadata = settings?.metadata
+        ? Object.fromEntries(
+            settings.metadata
+              .filter((m) => m.key.trim() !== "")
+              .map((m) => [m.key, m.value]),
+          )
+        : undefined;
+      const oauth =
+        settings &&
+        (settings.oauthClientId ||
+          settings.oauthClientSecret ||
+          settings.oauthScopes)
+          ? {
+              ...(settings.oauthClientId && {
+                clientId: settings.oauthClientId,
+              }),
+              ...(settings.oauthClientSecret && {
+                clientSecret: settings.oauthClientSecret,
+              }),
+              ...(settings.oauthScopes && { scope: settings.oauthScopes }),
+            }
+          : undefined;
       const client = new InspectorClient(server.config, {
         environment,
         // The Tasks tab needs the receiver-task pipeline; the
@@ -344,6 +380,16 @@ function App() {
         // Sampling / elicitation are on by default; keep the parameterized
         // options off until the UI grows the surface to render them.
         elicit: { form: true, url: true },
+        ...(settings &&
+          settings.requestTimeout > 0 && {
+            timeout: settings.requestTimeout,
+          }),
+        ...(defaultMetadata &&
+          Object.keys(defaultMetadata).length > 0 && {
+            defaultMetadata,
+          }),
+        ...(oauth && { oauth }),
+        ...(settings && { serverSettings: settings }),
       });
 
       setInspectorClient(client);
@@ -405,8 +451,29 @@ function App() {
 
       setErrorMessage(undefined);
       connectStartRef.current = Date.now();
+      const connectionTimeout = target.settings?.connectionTimeout ?? 0;
       try {
-        await client.connect();
+        if (connectionTimeout > 0) {
+          // Race the handshake against a hard timeout. The MCP SDK has no
+          // connect-time timeout option, so we wrap here and tear the
+          // transport down on timeout so it doesn't leak.
+          const connectClient = client;
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const timeout = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              reject(
+                new Error(`Connection timed out after ${connectionTimeout} ms`),
+              );
+            }, connectionTimeout);
+          });
+          try {
+            await Promise.race([connectClient.connect(), timeout]);
+          } finally {
+            if (timer) clearTimeout(timer);
+          }
+        } else {
+          await client.connect();
+        }
       } catch (err) {
         // Handshake-only. A mid-session transport failure transitions the
         // client status to "error" without rejecting any pending promise,
@@ -415,6 +482,9 @@ function App() {
         connectStartRef.current = undefined;
         const message = err instanceof Error ? err.message : String(err);
         setErrorMessage(message);
+        // On timeout (or any handshake failure) drop the transport so the
+        // next toggle starts clean.
+        await client.disconnect().catch(() => {});
       }
     },
     [
@@ -705,6 +775,32 @@ function App() {
     return servers.find((s) => s.id === configModal.targetId);
   }, [configModal, servers]);
 
+  const settingsModalTarget = useMemo(() => {
+    if (!settingsModalTargetId) return undefined;
+    return servers.find((s) => s.id === settingsModalTargetId);
+  }, [settingsModalTargetId, servers]);
+
+  // Stable starting shape for entries that have no `settings` node yet — the
+  // form needs concrete arrays / numbers to render.
+  const settingsModalValue = useMemo<InspectorServerSettings>(() => {
+    return (
+      settingsModalTarget?.settings ?? {
+        headers: [],
+        metadata: [],
+        connectionTimeout: 0,
+        requestTimeout: 0,
+      }
+    );
+  }, [settingsModalTarget]);
+
+  const onSettingsChange = useCallback(
+    (next: InspectorServerSettings) => {
+      if (!settingsModalTargetId) return;
+      void updateServerSettings(settingsModalTargetId, next);
+    },
+    [settingsModalTargetId, updateServerSettings],
+  );
+
   // The Resources screen needs `isSubscribed` to flip the Subscribe button
   // label to "Unsubscribe". Derive it from the live subscriptions list rather
   // than threading it through every setReadResourceState site — that way the
@@ -756,7 +852,7 @@ function App() {
         onServerImportJson={todoNoop}
         onServerExport={onServerExport}
         onServerInfo={todoNoop}
-        onServerSettings={todoNoop}
+        onServerSettings={(id) => setSettingsModalTargetId(id)}
         onServerEdit={(id) => setConfigModal({ mode: "edit", targetId: id })}
         onServerClone={(id) => setConfigModal({ mode: "clone", targetId: id })}
         onServerRemove={(id) => {
@@ -804,6 +900,12 @@ function App() {
         existingIds={existingIds}
         onClose={() => setConfigModal(null)}
         onSubmit={onConfigSubmit}
+      />
+      <ServerSettingsModal
+        opened={settingsModalTargetId !== undefined}
+        settings={settingsModalValue}
+        onClose={() => setSettingsModalTargetId(undefined)}
+        onSettingsChange={onSettingsChange}
       />
       <ServerRemoveConfirmModal
         opened={removeTarget !== null}

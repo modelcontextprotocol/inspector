@@ -778,6 +778,115 @@ describe("InspectorClient", () => {
     });
   });
 
+  describe("Default metadata (server-wide _meta)", () => {
+    function metaOf(req: { message: unknown }): Record<string, unknown> {
+      const params = (req.message as { params?: { _meta?: unknown } }).params;
+      return (params?._meta as Record<string, unknown>) ?? {};
+    }
+
+    it("merges defaultMetadata into the _meta of outgoing tools/list and tools/call", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+          defaultMetadata: { tenant: "acme", env: "prod" },
+        },
+      );
+      const messageLogState = new MessageLogState(client);
+      await client.connect();
+      await client.listTools();
+      const tool = await getTool(client, "echo");
+      await client.callTool(tool, { message: "hi" });
+
+      const requests = messageLogState
+        .getMessages()
+        .filter((m) => m.direction === "request");
+      const listToolsReq = requests.find(
+        (m) => (m.message as { method?: string }).method === "tools/list",
+      );
+      const callToolReq = requests.find(
+        (m) => (m.message as { method?: string }).method === "tools/call",
+      );
+      expect(listToolsReq).toBeDefined();
+      expect(callToolReq).toBeDefined();
+      expect(metaOf(listToolsReq!)).toMatchObject({
+        tenant: "acme",
+        env: "prod",
+      });
+      expect(metaOf(callToolReq!)).toMatchObject({
+        tenant: "acme",
+        env: "prod",
+      });
+      messageLogState.destroy();
+    });
+
+    it("call-time metadata overrides defaultMetadata on key collision", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+          defaultMetadata: { tenant: "acme" },
+        },
+      );
+      const messageLogState = new MessageLogState(client);
+      await client.connect();
+      const tool = await getTool(client, "echo");
+      await client.callTool(tool, { message: "hi" }, { tenant: "override" });
+
+      const callToolReq = messageLogState
+        .getMessages()
+        .find(
+          (m) =>
+            m.direction === "request" &&
+            (m.message as { method?: string }).method === "tools/call",
+        );
+      expect(callToolReq).toBeDefined();
+      expect(metaOf(callToolReq!).tenant).toBe("override");
+      messageLogState.destroy();
+    });
+
+    it("does not inject defaults into _meta when defaultMetadata is unset", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+          // defaultMetadata omitted on purpose
+        },
+      );
+      const messageLogState = new MessageLogState(client);
+      await client.connect();
+      await client.listTools();
+
+      const listToolsReq = messageLogState
+        .getMessages()
+        .find(
+          (m) =>
+            m.direction === "request" &&
+            (m.message as { method?: string }).method === "tools/list",
+        );
+      expect(listToolsReq).toBeDefined();
+      // The SDK auto-injects a `progressToken` for progress-tracked requests
+      // — that's an SDK concern, not user metadata. Assert only that none of
+      // our example default keys leak through when defaultMetadata is unset.
+      const meta = metaOf(listToolsReq!);
+      expect(meta.tenant).toBeUndefined();
+      expect(meta.env).toBeUndefined();
+      messageLogState.destroy();
+    });
+  });
+
   describe("Resource Methods", () => {
     beforeEach(async () => {
       client = new InspectorClient(

@@ -6,11 +6,29 @@ import type {
   StreamableHttpServerConfig,
   CreateTransportOptions,
   CreateTransportResult,
+  InspectorServerSettings,
 } from "../types.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createFetchTracker } from "../fetchTracking.js";
+
+/**
+ * Build the wire `headers` record from `settings.headers`, dropping rows with
+ * empty keys (the form lets users leave new rows blank). Returns `undefined`
+ * when the result is empty so we can omit the field instead of sending `{}`.
+ */
+function headersFromSettings(
+  settings: InspectorServerSettings | undefined,
+): Record<string, string> | undefined {
+  if (!settings || settings.headers.length === 0) return undefined;
+  const out: Record<string, string> = {};
+  for (const { key, value } of settings.headers) {
+    if (key.trim() === "") continue;
+    out[key] = value;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 /**
  * Creates the appropriate transport for an MCP server configuration.
@@ -26,6 +44,7 @@ export function createTransportNode(
     pipeStderr = false,
     onFetchRequest,
     authProvider,
+    settings,
   } = options;
 
   const baseFetch = optionsFetchFn ?? globalThis.fetch;
@@ -64,15 +83,17 @@ export function createTransportNode(
       ? createFetchTracker(sseFetch, { trackRequest: onFetchRequest })
       : sseFetch;
 
+    const headers = headersFromSettings(settings);
+
     const eventSourceInit: Record<string, unknown> = {
       ...sseConfig.eventSourceInit,
-      ...(sseConfig.headers && { headers: sseConfig.headers }),
+      ...(headers && { headers }),
       fetch: trackedFetch,
     };
 
     const requestInit: RequestInit = {
       ...sseConfig.requestInit,
-      ...(sseConfig.headers && { headers: sseConfig.headers }),
+      ...(headers && { headers }),
     };
 
     const postFetch = onFetchRequest
@@ -92,9 +113,11 @@ export function createTransportNode(
     const httpConfig = config as StreamableHttpServerConfig;
     const url = new URL(httpConfig.url);
 
+    const headers = headersFromSettings(settings);
+
     const requestInit: RequestInit = {
       ...httpConfig.requestInit,
-      ...(httpConfig.headers && { headers: httpConfig.headers }),
+      ...(headers && { headers }),
     };
 
     const transportFetch = onFetchRequest

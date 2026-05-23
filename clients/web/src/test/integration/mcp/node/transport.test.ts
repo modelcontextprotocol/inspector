@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { getServerType } from "@inspector/core/mcp/config.js";
 import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
 import type {
+  InspectorServerSettings,
   MCPServerConfig,
   FetchRequestEntryBase,
 } from "@inspector/core/mcp/types.js";
@@ -190,6 +191,128 @@ describe("Transport", () => {
       } finally {
         await server.stop();
       }
+    });
+
+    it("applies settings.headers to the outgoing streamable-http request", async () => {
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+        serverType: "streamable-http",
+      });
+
+      try {
+        await server.start();
+
+        const config: MCPServerConfig = {
+          type: "streamable-http",
+          url: server.url,
+        };
+        const settings: InspectorServerSettings = {
+          headers: [
+            { key: "X-Tenant", value: "acme" },
+            { key: "X-Trace", value: "abc123" },
+            { key: "", value: "ignored-empty-key" },
+          ],
+          metadata: [],
+          connectionTimeout: 0,
+          requestTimeout: 0,
+        };
+
+        const fetchRequests: FetchRequestEntryBase[] = [];
+        const result = createTransportNode(config, {
+          settings,
+          onFetchRequest: (entry) => {
+            fetchRequests.push(entry);
+          },
+        });
+
+        const client = new Client(
+          { name: "test-client", version: "1.0.0" },
+          { capabilities: {} },
+        );
+        await client.connect(result.transport);
+        await client.close();
+
+        // The very first outbound request — the initialize handshake — must
+        // already carry settings.headers (acceptance criterion: applied on
+        // *first* outbound request, no settings-form open required).
+        expect(fetchRequests.length).toBeGreaterThan(0);
+        const first = fetchRequests[0];
+        const lowered: Record<string, string> = {};
+        for (const [k, v] of Object.entries(first?.requestHeaders ?? {})) {
+          lowered[k.toLowerCase()] = v;
+        }
+        expect(lowered["x-tenant"]).toBe("acme");
+        expect(lowered["x-trace"]).toBe("abc123");
+        // Rows with an empty key are dropped.
+        expect(Object.keys(lowered)).not.toContain("");
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it("applies settings.headers to the outgoing SSE request", async () => {
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+        serverType: "sse",
+      });
+
+      try {
+        await server.start();
+
+        const config: MCPServerConfig = { type: "sse", url: server.url };
+        const settings: InspectorServerSettings = {
+          headers: [{ key: "X-Tenant", value: "acme" }],
+          metadata: [],
+          connectionTimeout: 0,
+          requestTimeout: 0,
+        };
+
+        const fetchRequests: FetchRequestEntryBase[] = [];
+        const result = createTransportNode(config, {
+          settings,
+          onFetchRequest: (entry) => {
+            fetchRequests.push(entry);
+          },
+        });
+
+        const client = new Client(
+          { name: "test-client", version: "1.0.0" },
+          { capabilities: {} },
+        );
+        await client.connect(result.transport);
+        await client.close();
+
+        // SSE initiates with a GET — that GET must already carry the header.
+        expect(fetchRequests.length).toBeGreaterThan(0);
+        const getRequest = fetchRequests.find((r) => r.method === "GET");
+        expect(getRequest).toBeDefined();
+        const lowered: Record<string, string> = {};
+        for (const [k, v] of Object.entries(getRequest?.requestHeaders ?? {})) {
+          lowered[k.toLowerCase()] = v;
+        }
+        expect(lowered["x-tenant"]).toBe("acme");
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it("omits headers when settings.headers is empty", async () => {
+      const config: MCPServerConfig = {
+        type: "streamable-http",
+        url: "http://localhost:3000/mcp",
+      };
+      const settings: InspectorServerSettings = {
+        headers: [],
+        metadata: [],
+        connectionTimeout: 0,
+        requestTimeout: 0,
+      };
+      const result = createTransportNode(config, { settings });
+      // Just exercise the empty-headers path — no transport construction
+      // should throw and no client connection is necessary.
+      expect(result.transport).toBeDefined();
     });
   });
 });

@@ -363,6 +363,121 @@ describe("/api/servers routes", () => {
     });
   });
 
+  describe("settings round-trip", () => {
+    it("persists a settings node on POST", async () => {
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "gamma",
+          config: { type: "streamable-http", url: "https://x.test/mcp" },
+          settings: {
+            headers: [{ key: "Authorization", value: "Bearer xyz" }],
+            metadata: [{ key: "tenant", value: "acme" }],
+            connectionTimeout: 30000,
+            requestTimeout: 60000,
+            oauthClientId: "client-abc",
+            oauthScopes: "read:tools",
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.gamma as {
+        settings?: unknown;
+      };
+      expect(stored.settings).toEqual({
+        headers: [{ key: "Authorization", value: "Bearer xyz" }],
+        metadata: [{ key: "tenant", value: "acme" }],
+        connectionTimeout: 30000,
+        requestTimeout: 60000,
+        oauthClientId: "client-abc",
+        oauthScopes: "read:tools",
+      });
+    });
+
+    it("updates a settings node on PUT", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            delta: { type: "streamable-http", url: "https://x.test/mcp" },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/delta`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "streamable-http", url: "https://x.test/mcp" },
+          settings: {
+            headers: [{ key: "X-Tenant", value: "acme" }],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 45000,
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.delta as {
+        settings?: unknown;
+      };
+      expect(stored.settings).toEqual({
+        headers: [{ key: "X-Tenant", value: "acme" }],
+        metadata: [],
+        connectionTimeout: 0,
+        requestTimeout: 45000,
+      });
+    });
+
+    it("rejects a non-object settings field", async () => {
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "bad-settings",
+          config: { type: "stdio", command: "node" },
+          settings: "not-an-object",
+        }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("preserves the settings node when PUT omits it (no clobber on rename)", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            epsilon: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              settings: {
+                headers: [{ key: "X-Keep", value: "yes" }],
+                metadata: [],
+                connectionTimeout: 0,
+                requestTimeout: 0,
+              },
+            },
+          },
+        }),
+      );
+      // PUT without settings — current behavior is that settings are dropped
+      // when the body omits them. We document that here so callers know to
+      // re-send the existing settings on every PUT that changes config.
+      const res = await fetch(`${h.baseUrl}/api/servers/epsilon`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "streamable-http", url: "https://x.test/other" },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.epsilon as {
+        settings?: unknown;
+      };
+      expect(stored.settings).toBeUndefined();
+    });
+  });
+
   describe("concurrent mutations", () => {
     it("does not lose updates when many adds fire in parallel (write-lock)", async () => {
       // Without the in-process mutex, concurrent POSTs would all read the

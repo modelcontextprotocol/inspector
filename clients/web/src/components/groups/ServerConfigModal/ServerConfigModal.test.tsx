@@ -95,7 +95,7 @@ describe("ServerConfigModal", () => {
   // open reliably; we exercise the sse rendering branch by seeding the form
   // with an sse initialConfig (the same code path the Select onChange takes).
 
-  it("renders url + headers (and hides stdio fields) when transport is sse", () => {
+  it("renders url (and hides stdio fields) when transport is sse", () => {
     renderWithMantine(
       <ServerConfigModal
         {...base()}
@@ -105,11 +105,11 @@ describe("ServerConfigModal", () => {
       />,
     );
     expect(screen.getByLabelText(/^URL/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Headers/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Headers/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/^Command/)).not.toBeInTheDocument();
   });
 
-  it("submits an sse config with parsed headers", async () => {
+  it("submits an sse config with just the url (headers move to the settings form)", async () => {
     const user = userEvent.setup();
     const props = base();
     renderWithMantine(
@@ -122,38 +122,16 @@ describe("ServerConfigModal", () => {
     );
 
     await user.type(screen.getByLabelText(/^URL/), "https://x.test/sse");
-    await user.type(
-      screen.getByLabelText(/Headers/i),
-      "Authorization: Bearer xxx",
-    );
     await user.click(screen.getByRole("button", { name: /^Save$/ }));
 
     await waitFor(() => expect(props.onSubmit).toHaveBeenCalledOnce());
     expect(props.onSubmit).toHaveBeenCalledWith("remote", {
       type: "sse",
       url: "https://x.test/sse",
-      headers: { Authorization: "Bearer xxx" },
     });
   });
 
-  it("rejects malformed header lines on sse submission", async () => {
-    const user = userEvent.setup();
-    const props = base();
-    renderWithMantine(
-      <ServerConfigModal
-        {...props}
-        mode="edit"
-        initialId="remote"
-        initialConfig={{ type: "sse", url: "https://x.test/sse" }}
-      />,
-    );
-    await user.type(screen.getByLabelText(/Headers/i), "BAD_HEADER_LINE");
-    await user.click(screen.getByRole("button", { name: /^Save$/ }));
-    expect(screen.getByRole("alert")).toHaveTextContent(/Invalid header/i);
-    expect(props.onSubmit).not.toHaveBeenCalled();
-  });
-
-  it("submits a streamable-http config (with no headers)", async () => {
+  it("submits a streamable-http config", async () => {
     const user = userEvent.setup();
     const props = base();
     renderWithMantine(
@@ -172,7 +150,7 @@ describe("ServerConfigModal", () => {
     });
   });
 
-  it("loads initial headers + url from a streamable-http config", () => {
+  it("loads the url from a streamable-http config", () => {
     renderWithMantine(
       <ServerConfigModal
         {...base()}
@@ -181,12 +159,10 @@ describe("ServerConfigModal", () => {
         initialConfig={{
           type: "streamable-http",
           url: "https://x.test/mcp",
-          headers: { "X-Trace": "abc" },
         }}
       />,
     );
     expect(screen.getByLabelText(/^URL/)).toHaveValue("https://x.test/mcp");
-    expect(screen.getByLabelText(/Headers/i)).toHaveValue("X-Trace: abc");
   });
 
   it("rejects an empty URL on sse submission", async () => {

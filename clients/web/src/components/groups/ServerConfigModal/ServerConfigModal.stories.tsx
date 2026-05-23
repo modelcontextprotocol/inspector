@@ -39,7 +39,6 @@ const stdioConfig: MCPServerConfig = {
 const sseConfig: MCPServerConfig = {
   type: "sse",
   url: "https://example.com/sse",
-  headers: { Authorization: "Bearer xxx" },
 };
 
 const meta: Meta<typeof ServerConfigModal> = {
@@ -120,6 +119,7 @@ export const EditSse: Story = {
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body);
     await expect(await body.findByLabelText(/^URL/)).toBeInTheDocument();
-    await expect(body.getByLabelText(/Headers/i)).toBeInTheDocument();
+    // Headers are no longer entered here — they live in ServerSettingsForm.
+    await expect(body.queryByLabelText(/Headers/i)).toBeNull();
   },
 };

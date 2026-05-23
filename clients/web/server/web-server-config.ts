@@ -97,7 +97,6 @@ export function webServerConfigToInitialPayload(
     return {
       defaultTransport: "sse",
       defaultServerUrl: mc.url,
-      defaultHeaders: mc.headers ?? undefined,
       defaultEnvironment,
     };
   }
@@ -105,21 +104,18 @@ export function webServerConfigToInitialPayload(
     return {
       defaultTransport: "streamable-http",
       defaultServerUrl: mc.url,
-      defaultHeaders: mc.headers ?? undefined,
       defaultEnvironment,
     };
   }
   // Forward-compat fallback: if a future SDK ships a new transport type the
   // launcher hasn't taught us about yet, prefer streamable-http (the most
-  // permissive shape with `url` + optional `headers`) over throwing. Worst
-  // case the UI shows the URL the user supplied; throwing here would deny
-  // the user a hint at startup. Add a real branch above once the type is
-  // known.
-  const c = mc as unknown as { url: string; headers?: Record<string, string> };
+  // permissive shape with `url`) over throwing. Worst case the UI shows the
+  // URL the user supplied; throwing here would deny the user a hint at
+  // startup. Add a real branch above once the type is known.
+  const c = mc as unknown as { url: string };
   return {
     defaultTransport: "streamable-http",
     defaultServerUrl: c.url,
-    defaultHeaders: c.headers,
     defaultEnvironment,
   };
 }
