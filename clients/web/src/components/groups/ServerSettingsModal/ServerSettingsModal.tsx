@@ -109,7 +109,7 @@ export function ServerSettingsModal({
       <Stack gap="md">
         <Group justify="space-between" wrap="nowrap">
           <ListToggle
-            compact={allExpanded}
+            compact={!allExpanded}
             variant="subtle"
             onToggle={handleToggleAll}
           />
