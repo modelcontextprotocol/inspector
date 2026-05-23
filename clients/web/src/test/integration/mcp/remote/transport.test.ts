@@ -386,6 +386,63 @@ describe("Remote transport e2e", () => {
         await client.disconnect();
       }
     });
+
+    it("end-to-end: settings.headers reach the upstream MCP server (browser → backend → upstream)", async () => {
+      mcpHttpServer = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+        serverType: "streamable-http",
+      });
+      await mcpHttpServer.start();
+
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+
+      const config: MCPServerConfig = {
+        type: "streamable-http",
+        url: mcpHttpServer.url,
+      };
+      const serverSettings = {
+        headers: [
+          { key: "X-Tenant", value: "acme" },
+          { key: "X-Trace", value: "abc123" },
+        ],
+        metadata: [],
+        connectionTimeout: 0,
+        requestTimeout: 0,
+      };
+
+      const createTransport = createRemoteTransport({ baseUrl, authToken });
+      const client = new InspectorClient(config, {
+        environment: { transport: createTransport },
+        serverSettings,
+      });
+      const fetchRequestLogState = new FetchRequestLogState(client);
+
+      try {
+        await client.connect();
+        await client.listTools();
+
+        // Backend-side fetch tracking sees the upstream HTTP request with the
+        // settings.headers applied — this is the e2e contract from
+        // `ServerSettingsForm` → on-disk `settings.headers` → backend
+        // `createTransportNode` → SDK `requestInit.headers` → upstream wire.
+        const fetchRequests = fetchRequestLogState.getFetchRequests();
+        expect(fetchRequests.length).toBeGreaterThan(0);
+        const postRequest = fetchRequests.find((r) => r.method === "POST");
+        expect(postRequest).toBeDefined();
+        const lowered: Record<string, string> = {};
+        for (const [k, v] of Object.entries(
+          postRequest?.requestHeaders ?? {},
+        )) {
+          lowered[k.toLowerCase()] = v;
+        }
+        expect(lowered["x-tenant"]).toBe("acme");
+        expect(lowered["x-trace"]).toBe("abc123");
+      } finally {
+        await client.disconnect();
+      }
+    });
   });
 
   describe("authentication", () => {
