@@ -618,9 +618,35 @@ export function createRemoteApp(
     return out;
   };
 
-  // Load current config from disk, treating ENOENT and malformed files as
-  // empty. The seed-write on first GET happens in the route, not here, so
-  // mutating routes don't accidentally trigger it.
+  // In-process serialization for the read-modify-write flow on the
+  // mutating routes (POST/PUT/DELETE). `atomically` guarantees torn-write
+  // safety on the file itself, but two concurrent requests can both read the
+  // same baseline and the second write clobbers the first. Single-user local
+  // dev tool, so this is a guardrail rather than a hot-path concern, but it
+  // avoids a real lost-update once file watching (#1345) or any remote/
+  // multi-client usage lands.
+  let writeQueue: Promise<void> = Promise.resolve();
+  const withWriteLock = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const prev = writeQueue;
+    let release: () => void = () => {};
+    writeQueue = new Promise<void>((r) => {
+      release = r;
+    });
+    try {
+      await prev;
+      return await fn();
+    } finally {
+      release();
+    }
+  };
+
+  // Load current config from disk. ENOENT → empty. A valid-JSON file without
+  // `mcpServers` is treated as empty (the user may have deliberately wiped it
+  // or a future field arrived above the key). Invalid JSON surfaces a 500
+  // from the route's outer try — we'd rather flag corruption than silently
+  // present "no servers" and let the next write clobber the broken file.
+  // The seed-write on first GET happens in the route, not here, so mutating
+  // routes don't accidentally trigger it.
   const readMcpConfig = async (): Promise<MCPConfig> => {
     const raw = await readStoreFile(mcpConfigPath);
     if (raw === null) return { mcpServers: {} };
@@ -665,15 +691,17 @@ export function createRemoteApp(
     const id = body.id;
 
     try {
-      const current = await readMcpConfig();
-      if (id in current.mcpServers) {
-        return c.json({ error: `Server '${id}' already exists` }, 409);
-      }
-      current.mcpServers[id] = normalizeServerType(
-        body.config as Record<string, unknown> & { type?: string },
-      );
-      await writeStoreFile(mcpConfigPath, serializeStore(current));
-      return c.json({ ok: true });
+      return await withWriteLock(async () => {
+        const current = await readMcpConfig();
+        if (id in current.mcpServers) {
+          return c.json({ error: `Server '${id}' already exists` }, 409);
+        }
+        current.mcpServers[id] = normalizeServerType(
+          body.config as Record<string, unknown> & { type?: string },
+        );
+        await writeStoreFile(mcpConfigPath, serializeStore(current));
+        return c.json({ ok: true });
+      });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to add server: ${msg}` }, 500);
@@ -700,27 +728,29 @@ export function createRemoteApp(
     }
 
     try {
-      const current = await readMcpConfig();
-      if (!(originalId in current.mcpServers)) {
-        return c.json({ error: `Server '${originalId}' not found` }, 404);
-      }
-      if (newId !== originalId && newId in current.mcpServers) {
-        return c.json({ error: `Server '${newId}' already exists` }, 409);
-      }
-      // Rebuild preserving insertion order; replace the original key in place
-      // so the file diff stays minimal when not renaming.
-      const next: MCPConfig = { mcpServers: {} };
-      for (const [key, val] of Object.entries(current.mcpServers)) {
-        if (key === originalId) {
-          next.mcpServers[newId] = normalizeServerType(
-            body.config as Record<string, unknown> & { type?: string },
-          );
-        } else {
-          next.mcpServers[key] = val;
+      return await withWriteLock(async () => {
+        const current = await readMcpConfig();
+        if (!(originalId in current.mcpServers)) {
+          return c.json({ error: `Server '${originalId}' not found` }, 404);
         }
-      }
-      await writeStoreFile(mcpConfigPath, serializeStore(next));
-      return c.json({ ok: true });
+        if (newId !== originalId && newId in current.mcpServers) {
+          return c.json({ error: `Server '${newId}' already exists` }, 409);
+        }
+        // Rebuild preserving insertion order; replace the original key in place
+        // so the file diff stays minimal when not renaming.
+        const next: MCPConfig = { mcpServers: {} };
+        for (const [key, val] of Object.entries(current.mcpServers)) {
+          if (key === originalId) {
+            next.mcpServers[newId] = normalizeServerType(
+              body.config as Record<string, unknown> & { type?: string },
+            );
+          } else {
+            next.mcpServers[key] = val;
+          }
+        }
+        await writeStoreFile(mcpConfigPath, serializeStore(next));
+        return c.json({ ok: true });
+      });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to update server: ${msg}` }, 500);
@@ -734,13 +764,15 @@ export function createRemoteApp(
     }
 
     try {
-      const current = await readMcpConfig();
-      if (!(id in current.mcpServers)) {
+      return await withWriteLock(async () => {
+        const current = await readMcpConfig();
+        if (!(id in current.mcpServers)) {
+          return c.json({ ok: true });
+        }
+        delete current.mcpServers[id];
+        await writeStoreFile(mcpConfigPath, serializeStore(current));
         return c.json({ ok: true });
-      }
-      delete current.mcpServers[id];
-      await writeStoreFile(mcpConfigPath, serializeStore(current));
-      return c.json({ ok: true });
+      });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to delete server: ${msg}` }, 500);

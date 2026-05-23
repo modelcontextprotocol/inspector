@@ -586,9 +586,11 @@ function App() {
     /* TODO: not wired yet */
   }, []);
 
-  // Remove handler — runs after the user confirms in the modal. If removing
-  // the active server, disconnect first so the session's transport/subprocess
-  // closes cleanly before the row disappears.
+  // Remove handler — runs after the user confirms in the modal. When removing
+  // the active server, also tear down the session in-place so the client and
+  // its 9 state managers can be GC'd now instead of lingering until the next
+  // server switch. Mirrors the destroy sequence at the top of
+  // `setupClientForServer` (lines ~304-312) but additionally nulls every ref.
   const onConfirmRemove = useCallback(async () => {
     if (!removeTarget) return;
     const id = removeTarget.id;
@@ -596,11 +598,44 @@ function App() {
       if (inspectorClient) {
         await inspectorClient.disconnect();
       }
+      managedToolsState?.destroy();
+      managedPromptsState?.destroy();
+      managedResourcesState?.destroy();
+      managedResourceTemplatesState?.destroy();
+      managedRequestorTasksState?.destroy();
+      resourceSubscriptionsState?.destroy();
+      messageLogState?.destroy();
+      fetchRequestLogState?.destroy();
+      stderrLogState?.destroy();
+      setInspectorClient(null);
+      setManagedToolsState(null);
+      setManagedPromptsState(null);
+      setManagedResourcesState(null);
+      setManagedResourceTemplatesState(null);
+      setManagedRequestorTasksState(null);
+      setResourceSubscriptionsState(null);
+      setMessageLogState(null);
+      setFetchRequestLogState(null);
+      setStderrLogState(null);
       setActiveServerId(undefined);
     }
     await removeServer(id);
     setRemoveTarget(null);
-  }, [removeTarget, activeServerId, inspectorClient, removeServer]);
+  }, [
+    removeTarget,
+    activeServerId,
+    inspectorClient,
+    managedToolsState,
+    managedPromptsState,
+    managedResourcesState,
+    managedResourceTemplatesState,
+    managedRequestorTasksState,
+    resourceSubscriptionsState,
+    messageLogState,
+    fetchRequestLogState,
+    stderrLogState,
+    removeServer,
+  ]);
 
   // Submit handler for the Add / Edit / Clone modal. Add and Clone both go
   // through addServer; Edit uses updateServer (which supports id rename).

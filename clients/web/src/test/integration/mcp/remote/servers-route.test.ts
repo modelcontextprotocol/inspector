@@ -129,12 +129,24 @@ describe("/api/servers routes", () => {
       expect(body.mcpServers.httpish?.type).toBe("streamable-http");
     });
 
-    it("treats a malformed file as empty (returns mcpServers: {})", async () => {
+    it("treats a valid-JSON file without `mcpServers` as empty", async () => {
       writeFileSync(h.configPath, JSON.stringify({ unrelated: 1 }));
 
       const res = await fetch(`${h.baseUrl}/api/servers`);
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ mcpServers: {} });
+    });
+
+    it("surfaces a 500 (not silent empty) on invalid-JSON contents", async () => {
+      // Surfacing corruption rather than silently presenting "no servers" —
+      // the next POST/PUT/DELETE would otherwise read empty and clobber the
+      // user's broken-but-recoverable file.
+      writeFileSync(h.configPath, "not json {");
+
+      const res = await fetch(`${h.baseUrl}/api/servers`);
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/Failed to read server list/i);
     });
   });
 
@@ -203,6 +215,19 @@ describe("/api/servers routes", () => {
         body: "not json",
       });
       expect(res.status).toBe(400);
+    });
+
+    it("returns 500 when the existing file is invalid JSON (matches GET semantics)", async () => {
+      writeFileSync(h.configPath, "not json {");
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "alpha",
+          config: { type: "stdio", command: "node" },
+        }),
+      });
+      expect(res.status).toBe(500);
     });
 
     it("normalizes the incoming config (http → streamable-http)", async () => {
@@ -335,6 +360,32 @@ describe("/api/servers routes", () => {
         body: "not json",
       });
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe("concurrent mutations", () => {
+    it("does not lose updates when many adds fire in parallel (write-lock)", async () => {
+      // Without the in-process mutex, concurrent POSTs would all read the
+      // empty baseline and the last writer would clobber everyone else's
+      // entry. With the mutex, every entry should land on disk.
+      const ids = Array.from({ length: 25 }, (_, i) => `concurrent-${i}`);
+      const responses = await Promise.all(
+        ids.map((id) =>
+          fetch(`${h.baseUrl}/api/servers`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id,
+              config: { type: "stdio", command: `cmd-${id}` },
+            }),
+          }),
+        ),
+      );
+      for (const res of responses) {
+        expect(res.status).toBe(200);
+      }
+      const cfg = readConfig(h.configPath);
+      expect(Object.keys(cfg.mcpServers).sort()).toEqual([...ids].sort());
     });
   });
 

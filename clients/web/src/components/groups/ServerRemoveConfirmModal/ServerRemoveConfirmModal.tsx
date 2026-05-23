@@ -14,7 +14,7 @@ const Actions = Group.withProps({ justify: "flex-end", gap: "sm", mt: "md" });
 const Summary = Paper.withProps({
   p: "sm",
   radius: "sm",
-  bg: "var(--mantine-color-default-hover)",
+  bg: "var(--inspector-surface-subtle)",
   withBorder: true,
 });
 

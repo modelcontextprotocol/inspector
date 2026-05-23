@@ -25,6 +25,9 @@
   --inspector-surface-body: var(--mantine-color-dark-9);
   --inspector-surface-card: var(--mantine-color-gray-0);
   --inspector-surface-code: var(--mantine-color-white);
+  /* Subtle inset surface for modal call-outs / summary panels. Mantine's
+     `default-hover` already adapts to color scheme, so no dark override. */
+  --inspector-surface-subtle: var(--mantine-color-default-hover);
 
   /* ── Inputs ────────────────────────────────────────────── */
   --inspector-input-background: var(--mantine-color-white);

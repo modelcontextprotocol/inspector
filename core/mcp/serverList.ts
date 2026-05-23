@@ -12,22 +12,40 @@ import type {
   ServerType,
 } from "./types.js";
 
+// The full set of valid `type` discriminator values, used to reject anything
+// else read off disk so unknown strings can't propagate to narrowing sites.
+const VALID_SERVER_TYPES: ReadonlySet<ServerType> = new Set([
+  "stdio",
+  "sse",
+  "streamable-http",
+]);
+
 /**
- * Normalizes server type: missing → "stdio", "http" → "streamable-http".
- * Returns a new object; input may be parsed JSON with type omitted or "http".
+ * Normalizes server type:
+ * - missing / unknown / non-string → "stdio" (matches Claude Desktop's default)
+ * - "http" → "streamable-http" (legacy alias)
+ * - valid ServerType → passed through unchanged
+ *
  * Lives here (rather than in node/config.ts) so the file stays Node-free
  * and the same normalization is applied by every consumer of `mcp.json`.
+ * The "unknown → stdio" branch keeps a hand-edited file with `"type":"websocket"`
+ * or `"type": 42` from leaking through `as ServerType` casts into narrowing
+ * sites that would then fall through in surprising ways.
  */
 export function normalizeServerType(
-  config: Record<string, unknown> & { type?: string },
+  config: Record<string, unknown> & { type?: unknown },
 ): MCPServerConfig {
   const type = config.type;
-  const normalizedType: ServerType =
-    type === undefined
-      ? "stdio"
-      : type === "http"
-        ? "streamable-http"
-        : (type as ServerType);
+  let normalizedType: ServerType;
+  if (typeof type !== "string") {
+    normalizedType = "stdio";
+  } else if (type === "http") {
+    normalizedType = "streamable-http";
+  } else if (VALID_SERVER_TYPES.has(type as ServerType)) {
+    normalizedType = type as ServerType;
+  } else {
+    normalizedType = "stdio";
+  }
   return { ...config, type: normalizedType } as MCPServerConfig;
 }
 

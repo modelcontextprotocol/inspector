@@ -138,6 +138,9 @@ function parseEnv(raw: string):
       return { ok: false, error: `Invalid env line "${line}". Use KEY=VALUE.` };
     }
     const key = line.slice(0, eq).trim();
+    // env values preserve trailing whitespace — they're shell-style strings
+    // where spaces / tabs can be load-bearing; header values are HTTP-style
+    // and parseHeaders below trims them per RFC 7230 §3.2.4.
     const value = line.slice(eq + 1);
     if (!key)
       return { ok: false, error: `Invalid env line "${line}". Empty key.` };

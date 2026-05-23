@@ -38,10 +38,10 @@ export interface UseServersResult {
 
 function buildHeaders(
   authToken: string | undefined,
-  contentType: boolean,
+  includeJsonBody: boolean,
 ): Record<string, string> {
   const headers: Record<string, string> = {};
-  if (contentType) headers["Content-Type"] = "application/json";
+  if (includeJsonBody) headers["Content-Type"] = "application/json";
   if (authToken) headers["x-mcp-remote-auth"] = `Bearer ${authToken}`;
   return headers;
 }

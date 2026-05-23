@@ -36,6 +36,24 @@ describe("normalizeServerType", () => {
     ).toMatchObject({ type: "streamable-http" });
   });
 
+  it("defaults an unknown string type to stdio (lenient on read)", () => {
+    expect(
+      normalizeServerType({ type: "websocket", command: "node" } as never),
+    ).toMatchObject({ type: "stdio" });
+    expect(
+      normalizeServerType({ type: "", command: "node" } as never),
+    ).toMatchObject({ type: "stdio" });
+  });
+
+  it("defaults a non-string type to stdio", () => {
+    expect(
+      normalizeServerType({ type: 42, command: "node" } as never),
+    ).toMatchObject({ type: "stdio" });
+    expect(
+      normalizeServerType({ type: null, command: "node" } as never),
+    ).toMatchObject({ type: "stdio" });
+  });
+
   it("returns a fresh object (does not mutate input)", () => {
     const input = { command: "node" };
     const out = normalizeServerType(input);
