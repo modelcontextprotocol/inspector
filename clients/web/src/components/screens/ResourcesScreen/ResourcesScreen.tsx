@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { Alert, Card, Flex, Loader, Stack, Text } from "@mantine/core";
+import {
+  Alert,
+  Card,
+  CloseButton,
+  Flex,
+  Group,
+  Loader,
+  Stack,
+  Text,
+} from "@mantine/core";
 import type {
   ReadResourceResult,
   Resource,
@@ -110,6 +119,13 @@ export function ResourcesScreen({
   const [selectedTemplateUri, setSelectedTemplateUri] = useState<
     string | undefined
   >(undefined);
+  // Tracks which template (if any) produced the current preview so that
+  // closing the preview can restore the template form. Cleared when the
+  // user navigates to a non-template resource or picks a different
+  // template directly from the sidebar.
+  const [originatingTemplateUri, setOriginatingTemplateUri] = useState<
+    string | undefined
+  >(undefined);
 
   const selectedResource = selectedResourceUri
     ? resources.find((r) => r.uri === selectedResourceUri)
@@ -129,22 +145,36 @@ export function ResourcesScreen({
   function handleSelectResource(uri: string) {
     setSelectedTemplateUri(undefined);
     setSelectedResourceUri(uri);
+    setOriginatingTemplateUri(undefined);
     onReadResource(uri);
   }
 
   function handleSelectTemplate(uriTemplate: string) {
     setSelectedResourceUri(undefined);
     setSelectedTemplateUri(uriTemplate);
+    setOriginatingTemplateUri(undefined);
   }
 
   function handleReadResource(uri: string) {
     // Once the user reads (either from the template form or a refresh
     // inside the preview panel), hand the screen over to the preview:
     // clearing the template selection hides the template form so only
-    // the rendered resource is shown.
+    // the rendered resource is shown. We remember the template URI so
+    // closing the preview can restore the form.
+    if (selectedTemplateUri) {
+      setOriginatingTemplateUri(selectedTemplateUri);
+    }
     setSelectedTemplateUri(undefined);
     setSelectedResourceUri(uri);
     onReadResource(uri);
+  }
+
+  function handleClosePreview() {
+    setSelectedResourceUri(undefined);
+    if (originatingTemplateUri) {
+      setSelectedTemplateUri(originatingTemplateUri);
+      setOriginatingTemplateUri(undefined);
+    }
   }
 
   function renderReadState() {
@@ -153,9 +183,17 @@ export function ResourcesScreen({
     if (readState.status === "pending") {
       return (
         <PreviewCard>
-          <Stack align="center" py="xl">
-            <Loader size="sm" />
-            <Text c="dimmed">Reading resource...</Text>
+          <Stack gap="md">
+            <Group justify="flex-start">
+              <CloseButton
+                aria-label="Close preview"
+                onClick={handleClosePreview}
+              />
+            </Group>
+            <Stack align="center" py="xl">
+              <Loader size="sm" />
+              <Text c="dimmed">Reading resource...</Text>
+            </Stack>
           </Stack>
         </PreviewCard>
       );
@@ -164,9 +202,17 @@ export function ResourcesScreen({
     if (readState.status === "error") {
       return (
         <PreviewCard>
-          <Alert color="red" variant="light" title="Read Error">
-            {readState.error ?? "Failed to read resource"}
-          </Alert>
+          <Stack gap="md">
+            <Group justify="flex-start">
+              <CloseButton
+                aria-label="Close preview"
+                onClick={handleClosePreview}
+              />
+            </Group>
+            <Alert color="red" variant="light" title="Read Error">
+              {readState.error ?? "Failed to read resource"}
+            </Alert>
+          </Stack>
         </PreviewCard>
       );
     }
@@ -182,6 +228,7 @@ export function ResourcesScreen({
             onRefresh={() => handleReadResource(readResource.uri)}
             onSubscribe={() => onSubscribeResource(readResource.uri)}
             onUnsubscribe={() => onUnsubscribeResource(readResource.uri)}
+            onClose={handleClosePreview}
           />
         </PreviewCard>
       );

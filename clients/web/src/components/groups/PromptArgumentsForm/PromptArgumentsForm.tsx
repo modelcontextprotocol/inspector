@@ -1,4 +1,13 @@
-import { Button, Group, Stack, Text, TextInput, Title } from "@mantine/core";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Autocomplete,
+  Button,
+  Group,
+  Stack,
+  Text,
+  TextInput,
+  Title,
+} from "@mantine/core";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 
 export interface PromptArgumentsFormProps {
@@ -6,7 +15,26 @@ export interface PromptArgumentsFormProps {
   argumentValues: Record<string, string>;
   onArgumentChange: (name: string, value: string) => void;
   onGetPrompt: () => void;
+  /**
+   * When provided, each keystroke in an argument input dispatches a
+   * (debounced) `completion/complete` request to the server and surfaces
+   * the returned values as a dropdown via Mantine `Autocomplete`.
+   * Wire to `InspectorClient.getCompletions` in the host App.
+   */
+  onCompleteArgument?: (
+    argumentName: string,
+    argumentValue: string,
+    context: Record<string, string>,
+  ) => Promise<string[]>;
+  /**
+   * Gates whether to render Autocomplete (with live completions) vs the
+   * plain TextInput. Typically derived from the server's
+   * `completions` capability.
+   */
+  completionsSupported?: boolean;
 }
+
+const COMPLETION_DEBOUNCE_MS = 300;
 
 const PromptTitle = Text.withProps({
   fw: 700,
@@ -28,8 +56,134 @@ export function PromptArgumentsForm({
   argumentValues,
   onArgumentChange,
   onGetPrompt,
+  onCompleteArgument,
+  completionsSupported = false,
 }: PromptArgumentsFormProps) {
   const { name, title, description, arguments: promptArguments } = prompt;
+
+  const [completions, setCompletions] = useState<Record<string, string[]>>({});
+
+  // Reset completion state whenever the active prompt changes — completions
+  // are keyed by argument name, and the same name could mean different
+  // things across prompts.
+  useEffect(() => {
+    setCompletions({});
+  }, [name]);
+
+  // Per-arg in-flight controller (later keystroke aborts older request).
+  const requestsRef = useRef<Map<string, AbortController>>(new Map());
+  // Per-arg debounce timer so we don't spam the server on every key.
+  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  );
+
+  useEffect(() => {
+    const timers = timersRef.current;
+    const requests = requestsRef.current;
+    return () => {
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
+      for (const c of requests.values()) c.abort();
+      requests.clear();
+    };
+  }, []);
+
+  const useAutocomplete = completionsSupported && !!onCompleteArgument;
+
+  const runCompletion = useCallback(
+    async (argName: string, value: string, context: Record<string, string>) => {
+      if (!onCompleteArgument) return;
+      requestsRef.current.get(argName)?.abort();
+      const controller = new AbortController();
+      requestsRef.current.set(argName, controller);
+      try {
+        const values = await onCompleteArgument(argName, value, context);
+        if (controller.signal.aborted) return;
+        setCompletions((prev) => ({ ...prev, [argName]: values }));
+      } catch {
+        if (!controller.signal.aborted) {
+          setCompletions((prev) => ({ ...prev, [argName]: [] }));
+        }
+      } finally {
+        if (requestsRef.current.get(argName) === controller) {
+          requestsRef.current.delete(argName);
+        }
+      }
+    },
+    [onCompleteArgument],
+  );
+
+  // Hold the latest argumentValues in a ref so debounced fires can read
+  // sibling values at *fire* time, not at schedule time. Without this,
+  // typing in arg A then arg B within the debounce window would ship
+  // A's request with B's value stuck at its pre-keystroke state.
+  const argumentValuesRef = useRef(argumentValues);
+  useEffect(() => {
+    argumentValuesRef.current = argumentValues;
+  }, [argumentValues]);
+
+  // Build the `context.arguments` payload for a completion request.
+  // Includes every prompt argument the user could fill in (with `""`
+  // for ones they haven't typed yet) except the one being completed —
+  // the completing arg goes in `params.argument`. Servers that
+  // disambiguate based on co-arguments need all of them, not just
+  // whatever the user has already typed.
+  const buildContext = useCallback(
+    (currentArg: string): Record<string, string> => {
+      const ctx: Record<string, string> = {};
+      for (const a of promptArguments ?? []) {
+        if (a.name === currentArg) continue;
+        ctx[a.name] = argumentValuesRef.current[a.name] ?? "";
+      }
+      return ctx;
+    },
+    [promptArguments],
+  );
+
+  function handleChange(argName: string, value: string) {
+    onArgumentChange(argName, value);
+    if (!useAutocomplete) return;
+    // Drop the previous prefix's completions so the dropdown doesn't
+    // show ghost suggestions from the old keystroke while the new
+    // request is in flight (300ms debounce + network latency). The
+    // fresh response repopulates the array when it arrives.
+    setCompletions((prev) => {
+      if (prev[argName] === undefined) return prev;
+      const next = { ...prev };
+      delete next[argName];
+      return next;
+    });
+    const existing = timersRef.current.get(argName);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      timersRef.current.delete(argName);
+      // Build context at fire time so sibling values that arrived
+      // between schedule and fire are picked up.
+      void runCompletion(argName, value, buildContext(argName));
+    }, COMPLETION_DEBOUNCE_MS);
+    timersRef.current.set(argName, timer);
+  }
+
+  function handleFocus(argName: string) {
+    if (!useAutocomplete) return;
+    // Fire immediately so the dropdown isn't empty when the user first
+    // clicks in. Cancel any pending debounce so a stale keystroke
+    // request doesn't overwrite this fresher one.
+    const existing = timersRef.current.get(argName);
+    if (existing) {
+      clearTimeout(existing);
+      timersRef.current.delete(argName);
+    }
+    const value = argumentValuesRef.current[argName] ?? "";
+    void runCompletion(argName, value, buildContext(argName));
+  }
+
+  // Mirror ResourceTemplatePanel: every required argument must be
+  // filled before Get Prompt is enabled. Optional args are allowed to
+  // stay empty; the server will treat them as absent.
+  const canSubmit = (promptArguments ?? [])
+    .filter((a) => a.required === true)
+    .every((a) => (argumentValues[a.name] ?? "").length > 0);
 
   return (
     <Stack gap="md">
@@ -39,24 +193,42 @@ export function PromptArgumentsForm({
         <>
           <Title order={4}>Arguments</Title>
           <Stack gap="sm">
-            {promptArguments.map((arg) => (
-              <TextInput
-                key={arg.name}
-                label={arg.name}
-                withAsterisk={arg.required === true}
-                description={arg.description}
-                placeholder={formatPlaceholder(arg.name)}
-                value={argumentValues[arg.name] || ""}
-                onChange={(event) =>
-                  onArgumentChange(arg.name, event.currentTarget.value)
-                }
-              />
-            ))}
+            {promptArguments.map((arg) =>
+              useAutocomplete ? (
+                <Autocomplete
+                  key={arg.name}
+                  label={arg.name}
+                  withAsterisk={arg.required === true}
+                  description={arg.description}
+                  placeholder={formatPlaceholder(arg.name)}
+                  value={argumentValues[arg.name] || ""}
+                  data={completions[arg.name] ?? []}
+                  // The server already filtered for the typed prefix.
+                  // Passing options through verbatim avoids hiding valid
+                  // suggestions client-side.
+                  filter={({ options }) => options}
+                  onChange={(value) => handleChange(arg.name, value)}
+                  onFocus={() => handleFocus(arg.name)}
+                />
+              ) : (
+                <TextInput
+                  key={arg.name}
+                  label={arg.name}
+                  withAsterisk={arg.required === true}
+                  description={arg.description}
+                  placeholder={formatPlaceholder(arg.name)}
+                  value={argumentValues[arg.name] || ""}
+                  onChange={(event) =>
+                    handleChange(arg.name, event.currentTarget.value)
+                  }
+                />
+              ),
+            )}
           </Stack>
         </>
       )}
       <Group justify="flex-end">
-        <Button size="sm" onClick={onGetPrompt}>
+        <Button size="sm" disabled={!canSubmit} onClick={onGetPrompt}>
           Get Prompt
         </Button>
       </Group>

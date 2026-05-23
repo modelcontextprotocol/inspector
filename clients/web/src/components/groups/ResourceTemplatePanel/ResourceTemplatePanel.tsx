@@ -163,25 +163,58 @@ export function ResourceTemplatePanel({
     [onCompleteArgument],
   );
 
+  // Hold the latest `variables` in a ref so a debounced completion
+  // call reads sibling values at fire time, not at schedule time.
+  // Typing in A then B within the 300ms window would otherwise ship
+  // A's request with B's value still empty in context.
+  const variablesRef = useRef(variables);
+  useEffect(() => {
+    variablesRef.current = variables;
+  }, [variables]);
+
+  function buildContext(varName: string): Record<string, string> {
+    const ctx: Record<string, string> = { ...variablesRef.current };
+    delete ctx[varName];
+    return ctx;
+  }
+
   function handleVariableChange(varName: string, value: string) {
-    setVariables((prev) => {
-      const next = { ...prev, [varName]: value };
-      if (useAutocomplete) {
-        // Schedule a debounced completion call. The `context` carries the
-        // other variables' current values so the server can disambiguate
-        // when one variable depends on another.
-        const context: Record<string, string> = { ...next };
-        delete context[varName];
-        const existing = timersRef.current.get(varName);
-        if (existing) clearTimeout(existing);
-        const timer = setTimeout(() => {
-          timersRef.current.delete(varName);
-          void runCompletion(varName, value, context);
-        }, COMPLETION_DEBOUNCE_MS);
-        timersRef.current.set(varName, timer);
-      }
+    setVariables((prev) => ({ ...prev, [varName]: value }));
+    if (!useAutocomplete) return;
+    // Drop the previous prefix's completions so the dropdown doesn't
+    // show ghost suggestions from the old keystroke while the new
+    // request is in flight (300ms debounce + network latency).
+    setCompletions((prev) => {
+      if (prev[varName] === undefined) return prev;
+      const next = { ...prev };
+      delete next[varName];
       return next;
     });
+    const existing = timersRef.current.get(varName);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      timersRef.current.delete(varName);
+      // Build context at fire time so sibling updates that arrived
+      // between schedule and fire are picked up.
+      void runCompletion(varName, value, buildContext(varName));
+    }, COMPLETION_DEBOUNCE_MS);
+    timersRef.current.set(varName, timer);
+  }
+
+  function handleVariableFocus(varName: string) {
+    if (!useAutocomplete) return;
+    // Fire immediately so the dropdown isn't empty when the user first
+    // clicks in. Cancel any pending debounce for this variable so a
+    // stale keystroke request doesn't overwrite the fresher focus
+    // response. `variables` already carries every declared template
+    // variable (seeded with "") so the context is complete by default.
+    const existing = timersRef.current.get(varName);
+    if (existing) {
+      clearTimeout(existing);
+      timersRef.current.delete(varName);
+    }
+    const value = variablesRef.current[varName] ?? "";
+    void runCompletion(varName, value, buildContext(varName));
   }
 
   const canSubmit = variableNames.every((n) => variables[n]?.length > 0);
@@ -217,6 +250,7 @@ export function ResourceTemplatePanel({
               // substring-match what the server returned.
               filter={({ options }) => options}
               onChange={(value) => handleVariableChange(varName, value)}
+              onFocus={() => handleVariableFocus(varName)}
             />
           ) : (
             <TextInput

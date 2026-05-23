@@ -165,6 +165,103 @@ describe("ResourcesScreen", () => {
     expect(onSubscribeResource).toHaveBeenCalledWith("file:///x");
   });
 
+  it("closing the preview returns to the originating template form", async () => {
+    const user = userEvent.setup();
+    const onReadResource = vi.fn();
+    const templates: ResourceTemplate[] = [
+      { uriTemplate: "file:///{path}", name: "files" },
+    ];
+    const { rerender } = renderWithMantine(
+      <ResourcesScreen
+        {...baseProps}
+        templates={templates}
+        onReadResource={onReadResource}
+      />,
+    );
+    // Open the template form.
+    await user.click(screen.getByText("Templates (1)"));
+    await user.click(screen.getByText("files"));
+    // Submit it — the screen calls onReadResource and remembers the
+    // template URI for the close handler.
+    await user.type(screen.getByLabelText("path"), "alpha");
+    await user.click(screen.getByRole("button", { name: "Read Resource" }));
+    expect(onReadResource).toHaveBeenCalledWith("file:///alpha");
+
+    // Parent re-renders with the read result; the preview appears.
+    rerender(
+      <ResourcesScreen
+        {...baseProps}
+        templates={templates}
+        onReadResource={onReadResource}
+        readState={{
+          status: "ok",
+          uri: "file:///alpha",
+          result: okResult,
+        }}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Read Resource" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close preview" }));
+    // Closing brings the template form back.
+    expect(
+      screen.getByRole("button", { name: "Read Resource" }),
+    ).toBeInTheDocument();
+  });
+
+  it("closing the preview from the error state returns to the template form", async () => {
+    const user = userEvent.setup();
+    const templates: ResourceTemplate[] = [
+      { uriTemplate: "demo://resource/dynamic/text/{id}", name: "Dynamic" },
+    ];
+    const { rerender } = renderWithMantine(
+      <ResourcesScreen {...baseProps} templates={templates} />,
+    );
+    await user.click(screen.getByText("Templates (1)"));
+    await user.click(screen.getByText("Dynamic"));
+    await user.type(screen.getByLabelText("id"), "asdf");
+    await user.click(screen.getByRole("button", { name: "Read Resource" }));
+
+    // Server rejects the URI.
+    rerender(
+      <ResourcesScreen
+        {...baseProps}
+        templates={templates}
+        readState={{
+          status: "error",
+          uri: "demo://resource/dynamic/text/asdf",
+          error: "MCP error -32603: Unknown resource",
+        }}
+      />,
+    );
+    expect(screen.getByText("Read Error")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close preview" }));
+    // The template form is restored so the user can fix their input.
+    expect(
+      screen.getByRole("button", { name: "Read Resource" }),
+    ).toBeInTheDocument();
+  });
+
+  it("closing the preview for a plain resource returns to the empty state", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ResourcesScreen
+        {...baseProps}
+        readState={{
+          status: "ok",
+          uri: "file:///x",
+          result: okResult,
+        }}
+      />,
+    );
+    await user.click(screen.getByText("x.txt"));
+    await user.click(screen.getByRole("button", { name: "Close preview" }));
+    expect(
+      screen.getByText("Select a resource to preview"),
+    ).toBeInTheDocument();
+  });
+
   it("invokes onUnsubscribeResource when already subscribed", async () => {
     const user = userEvent.setup();
     const onUnsubscribeResource = vi.fn();

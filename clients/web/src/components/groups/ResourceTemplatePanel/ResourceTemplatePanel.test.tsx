@@ -139,6 +139,37 @@ describe("ResourceTemplatePanel", () => {
   });
 
   describe("completions", () => {
+    it("fires a completion immediately on focus before any keystroke", async () => {
+      const user = userEvent.setup();
+      const onCompleteArgument = vi
+        .fn<
+          (
+            argName: string,
+            value: string,
+            context: Record<string, string>,
+          ) => Promise<string[]>
+        >()
+        .mockResolvedValue(["alpha", "alphabet"]);
+
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={titledTemplate}
+          onReadResource={vi.fn()}
+          completionsSupported
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+
+      await user.click(screen.getByRole("textbox", { name: "tableName" }));
+      await new Promise((r) => setTimeout(r, 0));
+      // Empty value, empty sibling — but the sibling key is still
+      // present so the server sees the full argument set.
+      expect(onCompleteArgument).toHaveBeenCalledWith("tableName", "", {
+        rowId: "",
+      });
+      expect(await screen.findByText("alpha")).toBeInTheDocument();
+    });
+
     it("calls onCompleteArgument (debounced) and surfaces values when supported", async () => {
       const user = userEvent.setup();
       const onCompleteArgument = vi
@@ -163,8 +194,10 @@ describe("ResourceTemplatePanel", () => {
       await user.type(screen.getByRole("textbox", { name: "userId" }), "al");
       // Wait past the 300ms debounce.
       await new Promise((r) => setTimeout(r, 400));
-      expect(onCompleteArgument).toHaveBeenCalledTimes(1);
-      expect(onCompleteArgument).toHaveBeenCalledWith("userId", "al", {});
+      // user.type focuses first (firing one immediate completion) and
+      // then types the characters (firing the debounced one). Only the
+      // typed-prefix call is the one we care about here.
+      expect(onCompleteArgument).toHaveBeenLastCalledWith("userId", "al", {});
 
       // Server-returned values surface in the Autocomplete dropdown.
       expect(await screen.findByText("alpha")).toBeInTheDocument();
@@ -210,6 +243,45 @@ describe("ResourceTemplatePanel", () => {
       expect(onCompleteArgument).toHaveBeenLastCalledWith("rowId", "42", {
         tableName: "users",
       });
+    });
+
+    it("clears stale dropdown options the instant a new keystroke arrives", async () => {
+      const user = userEvent.setup();
+      const deferred: Array<{
+        value: string;
+        resolve: (values: string[]) => void;
+      }> = [];
+      const onCompleteArgument = vi.fn(
+        (_argName: string, value: string) =>
+          new Promise<string[]>((resolve) => {
+            deferred.push({ value, resolve });
+          }),
+      );
+
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={singleVarTemplate}
+          onReadResource={vi.fn()}
+          completionsSupported
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+
+      // Focus → first call (value=""). Resolve so the dropdown has
+      // something to show.
+      await user.click(screen.getByRole("textbox", { name: "userId" }));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(deferred.length).toBe(1);
+      deferred[0].resolve(["alpha", "alphabet"]);
+      expect(await screen.findByText("alpha")).toBeInTheDocument();
+
+      // Type a new character — the keystroke handler must drop the
+      // stale options immediately so the dropdown doesn't show
+      // "alpha" / "alphabet" while the next request is in flight
+      // (300ms debounce + network latency).
+      await user.type(screen.getByRole("textbox", { name: "userId" }), "z");
+      expect(screen.queryByText("alpha")).not.toBeInTheDocument();
+      expect(screen.queryByText("alphabet")).not.toBeInTheDocument();
     });
 
     it("does not call onCompleteArgument when completions are unsupported", async () => {

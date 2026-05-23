@@ -455,13 +455,21 @@ function App() {
   const onGetPrompt = useCallback(
     async (name: string, args: Record<string, string>) => {
       if (!inspectorClient) return;
-      setGetPromptState({ status: "pending" });
+      // Tag the in-flight + final state with the prompt name so the
+      // PromptsScreen can guard against showing a stale result for a
+      // prompt the user has already navigated away from.
+      setGetPromptState({ status: "pending", promptName: name });
       try {
         const invocation = await inspectorClient.getPrompt(name, args);
-        setGetPromptState({ status: "ok", result: invocation.result });
+        setGetPromptState({
+          status: "ok",
+          promptName: name,
+          result: invocation.result,
+        });
       } catch (err) {
         setGetPromptState({
           status: "error",
+          promptName: name,
           error: err instanceof Error ? err.message : String(err),
         });
       }

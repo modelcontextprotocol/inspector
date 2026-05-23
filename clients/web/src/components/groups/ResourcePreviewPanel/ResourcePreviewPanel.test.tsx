@@ -237,6 +237,23 @@ describe("ResourcePreviewPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders a close button when onClose is provided and invokes it on click", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderWithMantine(
+      <ResourcePreviewPanel {...baseProps} onClose={onClose} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Close preview" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not render a close button when onClose is omitted", () => {
+    renderWithMantine(<ResourcePreviewPanel {...baseProps} />);
+    expect(
+      screen.queryByRole("button", { name: "Close preview" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("does not render plain-text content as markdown even with markdown-looking text", () => {
     renderWithMantine(
       <ResourcePreviewPanel

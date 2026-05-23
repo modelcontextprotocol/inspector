@@ -46,4 +46,21 @@ describe("PromptMessagesDisplay", () => {
     await user.click(screen.getByRole("button", { name: "Copy All" }));
     expect(onCopyAll).toHaveBeenCalledTimes(1);
   });
+
+  it("renders a close button when onClose is provided and invokes it on click", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderWithMantine(
+      <PromptMessagesDisplay messages={messages} onClose={onClose} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Close messages" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not render a close button when onClose is omitted", () => {
+    renderWithMantine(<PromptMessagesDisplay messages={messages} />);
+    expect(
+      screen.queryByRole("button", { name: "Close messages" }),
+    ).not.toBeInTheDocument();
+  });
 });
