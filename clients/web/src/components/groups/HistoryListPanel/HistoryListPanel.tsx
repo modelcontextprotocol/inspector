@@ -101,13 +101,15 @@ export function HistoryListPanel({
       <Group justify="space-between" mb="sm">
         <Title order={4}>Requests</Title>
         <Group gap="xs">
-          <ToolbarButton onClick={onExport}>Export JSON</ToolbarButton>
           {hasResults && (
             <ListToggle
               compact={compact}
               onToggle={() => setCompact((c) => !c)}
             />
           )}
+          <Button variant="default" onClick={onExport} disabled={!hasResults}>
+            Export
+          </Button>
         </Group>
       </Group>
 
