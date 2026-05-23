@@ -166,14 +166,16 @@ export function PromptsScreen({
   }
 
   // The preview is "active" when we've submitted (or auto-fetched) the
-  // currently-selected prompt and the parent's result/pending/error state
-  // matches. Without the name check, a stale result from a previous
-  // prompt would leak into the new prompt's pane.
+  // currently-selected prompt and the parent's state is tagged with
+  // the matching prompt name. The name match guards against a stale
+  // result from a previously-selected prompt leaking into the new
+  // prompt's pane. App.tsx tags every state transition with
+  // `promptName`, so we don't need a fallback for untagged states.
   const previewActive =
     !!selectedPrompt &&
+    !!getPromptState &&
     submittedFor === selectedPrompt.name &&
-    (!getPromptState?.promptName ||
-      getPromptState.promptName === selectedPrompt.name);
+    getPromptState.promptName === selectedPrompt.name;
 
   function renderPreview() {
     if (!previewActive || !getPromptState) return null;

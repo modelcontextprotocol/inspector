@@ -181,6 +181,15 @@ export function ResourceTemplatePanel({
   function handleVariableChange(varName: string, value: string) {
     setVariables((prev) => ({ ...prev, [varName]: value }));
     if (!useAutocomplete) return;
+    // Drop the previous prefix's completions so the dropdown doesn't
+    // show ghost suggestions from the old keystroke while the new
+    // request is in flight (300ms debounce + network latency).
+    setCompletions((prev) => {
+      if (prev[varName] === undefined) return prev;
+      const next = { ...prev };
+      delete next[varName];
+      return next;
+    });
     const existing = timersRef.current.get(varName);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {

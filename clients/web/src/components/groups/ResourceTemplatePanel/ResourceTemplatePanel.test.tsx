@@ -245,6 +245,45 @@ describe("ResourceTemplatePanel", () => {
       });
     });
 
+    it("clears stale dropdown options the instant a new keystroke arrives", async () => {
+      const user = userEvent.setup();
+      const deferred: Array<{
+        value: string;
+        resolve: (values: string[]) => void;
+      }> = [];
+      const onCompleteArgument = vi.fn(
+        (_argName: string, value: string) =>
+          new Promise<string[]>((resolve) => {
+            deferred.push({ value, resolve });
+          }),
+      );
+
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={singleVarTemplate}
+          onReadResource={vi.fn()}
+          completionsSupported
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+
+      // Focus → first call (value=""). Resolve so the dropdown has
+      // something to show.
+      await user.click(screen.getByRole("textbox", { name: "userId" }));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(deferred.length).toBe(1);
+      deferred[0].resolve(["alpha", "alphabet"]);
+      expect(await screen.findByText("alpha")).toBeInTheDocument();
+
+      // Type a new character — the keystroke handler must drop the
+      // stale options immediately so the dropdown doesn't show
+      // "alpha" / "alphabet" while the next request is in flight
+      // (300ms debounce + network latency).
+      await user.type(screen.getByRole("textbox", { name: "userId" }), "z");
+      expect(screen.queryByText("alpha")).not.toBeInTheDocument();
+      expect(screen.queryByText("alphabet")).not.toBeInTheDocument();
+    });
+
     it("does not call onCompleteArgument when completions are unsupported", async () => {
       const user = userEvent.setup();
       const onCompleteArgument = vi.fn();
