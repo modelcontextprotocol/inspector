@@ -9,7 +9,11 @@ import type {
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
-import type { MessageEntry, ServerEntry } from "@inspector/core/mcp/types.js";
+import type {
+  MCPServerConfig,
+  MessageEntry,
+  ServerEntry,
+} from "@inspector/core/mcp/types.js";
 import { API_SERVER_ENV_VARS } from "@inspector/core/mcp/remote/constants.js";
 import { ManagedToolsState } from "@inspector/core/mcp/state/managedToolsState.js";
 import { ManagedPromptsState } from "@inspector/core/mcp/state/managedPromptsState.js";
@@ -22,6 +26,7 @@ import { FetchRequestLogState } from "@inspector/core/mcp/state/fetchRequestLogS
 import { StderrLogState } from "@inspector/core/mcp/state/stderrLogState.js";
 import type { RedirectUrlProvider } from "@inspector/core/auth/index.js";
 import { useInspectorClient } from "@inspector/core/react/useInspectorClient.js";
+import { useServers } from "@inspector/core/react/useServers.js";
 import { useManagedTools } from "@inspector/core/react/useManagedTools.js";
 import { useManagedPrompts } from "@inspector/core/react/useManagedPrompts.js";
 import { useManagedResources } from "@inspector/core/react/useManagedResources.js";
@@ -35,37 +40,12 @@ import type { GetPromptState } from "./components/screens/PromptsScreen/PromptsS
 import type { ReadResourceState } from "./components/screens/ResourcesScreen/ResourcesScreen";
 import type { BridgeFactory } from "./components/elements/AppRenderer/AppRenderer";
 import type { LogEntryData } from "./components/elements/LogEntry/LogEntry";
+import {
+  ServerConfigModal,
+  type ServerConfigModalMode,
+} from "./components/groups/ServerConfigModal/ServerConfigModal";
+import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
 import { createWebEnvironment } from "./lib/environmentFactory";
-
-// Hardcoded seed servers so the Servers screen has something to connect to.
-// Persistence + an "Add server" UI are explicitly out of scope for #1244 (the
-// useServers v2-only hook is a separate effort); follow-up work will replace
-// this with a real `useServers` store. The two seeds here cover the common
-// shapes a developer reaches for first: a real filesystem (scoped to /tmp so
-// nothing destructive is possible by default) and the canonical "everything"
-// reference server (tools / prompts / resources / sampling / completion).
-const SEED_SERVERS: ServerEntry[] = [
-  {
-    id: "filesystem-server-default",
-    name: "Local Filesystem (npx)",
-    config: {
-      type: "stdio",
-      command: "npx",
-      args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-    },
-    connection: { status: "disconnected" },
-  },
-  {
-    id: "everything-server-default",
-    name: "Everything (npx)",
-    config: {
-      type: "stdio",
-      command: "npx",
-      args: ["-y", "@modelcontextprotocol/server-everything"],
-    },
-    connection: { status: "disconnected" },
-  },
-];
 
 // OAuth redirect URL provider — points at the dev backend's `/oauth/callback`
 // handler. The InspectorClient only consults this when the active server
@@ -150,9 +130,24 @@ function App() {
     setColorScheme(isDark ? "light" : "dark");
   }, [isDark, setColorScheme]);
 
-  // Server list — held locally; one seed entry per #1244's "hardcoded
-  // sample server" scope decision. Future work: useServers hook.
-  const [servers] = useState<ServerEntry[]>(SEED_SERVERS);
+  // Server list — sourced from ~/.mcp-inspector/mcp.json via the backend's
+  // `/api/servers` routes. First-launch seeds are written by the backend when
+  // the file is absent, so this hook returns a non-empty list on first load.
+  const { servers, addServer, updateServer, removeServer } = useServers({
+    baseUrl:
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "http://localhost",
+    authToken: getAuthToken(),
+  });
+
+  // CRUD-modal state. `configModal` drives Add / Edit / Clone via a single
+  // shared form modal; `removeTarget` drives the remove-confirmation modal.
+  const [configModal, setConfigModal] = useState<{
+    mode: ServerConfigModalMode;
+    targetId?: string;
+  } | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<ServerEntry | null>(null);
 
   // The active connection target. `null` between sessions; set as soon as
   // the user toggles a server card on. Drives state-manager lifetime.
@@ -274,6 +269,25 @@ function App() {
       if (inspectorClient) {
         void inspectorClient.disconnect();
       }
+    };
+  }, [inspectorClient]);
+
+  // Reset activeServerId whenever the live session ends. Without this the
+  // other ServerCards stay `inert` after disconnect — ServerCard dims any
+  // card whose id differs from `activeServer`. Subscribing to
+  // InspectorClient's own `disconnect` event covers all three paths
+  // (explicit toggle, header Disconnect button, mid-session transport
+  // failure / process exit) and avoids the first-render-clobbers-new-id
+  // trap that watching connectionStatus has (status starts as
+  // "disconnected" for the new client before connect() runs).
+  useEffect(() => {
+    if (!inspectorClient) return;
+    const onDisconnect = () => {
+      setActiveServerId(undefined);
+    };
+    inspectorClient.addEventListener("disconnect", onDisconnect);
+    return () => {
+      inspectorClient.removeEventListener("disconnect", onDisconnect);
     };
   }, [inspectorClient]);
 
@@ -591,6 +605,92 @@ function App() {
     /* TODO: not wired yet */
   }, []);
 
+  // Remove handler — runs after the user confirms in the modal. When removing
+  // the active server, also tear down the session in-place so the client and
+  // its 9 state managers can be GC'd now instead of lingering until the next
+  // server switch. Mirrors the destroy sequence at the top of
+  // `setupClientForServer` (lines ~304-312) but additionally nulls every ref.
+  const onConfirmRemove = useCallback(async () => {
+    if (!removeTarget) return;
+    const id = removeTarget.id;
+    if (id === activeServerId) {
+      if (inspectorClient) {
+        await inspectorClient.disconnect();
+      }
+      managedToolsState?.destroy();
+      managedPromptsState?.destroy();
+      managedResourcesState?.destroy();
+      managedResourceTemplatesState?.destroy();
+      managedRequestorTasksState?.destroy();
+      resourceSubscriptionsState?.destroy();
+      messageLogState?.destroy();
+      fetchRequestLogState?.destroy();
+      stderrLogState?.destroy();
+      setInspectorClient(null);
+      setManagedToolsState(null);
+      setManagedPromptsState(null);
+      setManagedResourcesState(null);
+      setManagedResourceTemplatesState(null);
+      setManagedRequestorTasksState(null);
+      setResourceSubscriptionsState(null);
+      setMessageLogState(null);
+      setFetchRequestLogState(null);
+      setStderrLogState(null);
+      setActiveServerId(undefined);
+    }
+    await removeServer(id);
+    setRemoveTarget(null);
+  }, [
+    removeTarget,
+    activeServerId,
+    inspectorClient,
+    managedToolsState,
+    managedPromptsState,
+    managedResourcesState,
+    managedResourceTemplatesState,
+    managedRequestorTasksState,
+    resourceSubscriptionsState,
+    messageLogState,
+    fetchRequestLogState,
+    stderrLogState,
+    removeServer,
+  ]);
+
+  // Submit handler for the Add / Edit / Clone modal. Add and Clone both go
+  // through addServer; Edit uses updateServer (which supports id rename).
+  // On rename of the active server, keep activeServerId pointed at the new id.
+  const onConfigSubmit = useCallback(
+    async (id: string, config: MCPServerConfig) => {
+      if (configModal?.mode === "edit" && configModal.targetId) {
+        const originalId = configModal.targetId;
+        await updateServer(originalId, id, config);
+        if (originalId === activeServerId && id !== originalId) {
+          setActiveServerId(id);
+        }
+        return;
+      }
+      // add or clone
+      await addServer(id, config);
+    },
+    [configModal, addServer, updateServer, activeServerId],
+  );
+
+  // Derive the existingIds list the modal uses for uniqueness validation.
+  // In edit mode the target's own id must be excluded so saving without
+  // renaming doesn't trip the "already exists" check.
+  const existingIds = useMemo(() => {
+    const ids = servers.map((s) => s.id);
+    if (configModal?.mode === "edit" && configModal.targetId) {
+      return ids.filter((id) => id !== configModal.targetId);
+    }
+    return ids;
+  }, [servers, configModal]);
+
+  const configModalTarget = useMemo(() => {
+    if (!configModal?.targetId) return undefined;
+    return servers.find((s) => s.id === configModal.targetId);
+  }, [configModal, servers]);
+
   // The Resources screen needs `isSubscribed` to flip the Subscribe button
   // label to "Unsubscribe". Derive it from the live subscriptions list rather
   // than threading it through every setReadResourceState site — that way the
@@ -608,75 +708,95 @@ function App() {
   }, [readResourceState, subscriptions]);
 
   return (
-    <InspectorView
-      servers={servers}
-      activeServer={activeServerId}
-      connectionStatus={connectionStatus}
-      initializeResult={initializeResult}
-      latencyMs={latencyMs}
-      errorMessage={errorMessage}
-      tools={tools}
-      prompts={prompts}
-      resources={resources}
-      resourceTemplates={resourceTemplates}
-      subscriptions={subscriptions}
-      logs={logs}
-      tasks={tasks}
-      history={messages}
-      toolCallState={toolCallState}
-      getPromptState={getPromptState}
-      readResourceState={effectiveReadResourceState}
-      currentLogLevel={currentLogLevel}
-      sandboxPath={STUB_SANDBOX_PATH}
-      bridgeFactory={stubBridgeFactory}
-      onToggleTheme={onToggleTheme}
-      onToggleConnection={(id) => {
-        void onToggleConnection(id);
-      }}
-      onDisconnect={() => {
-        void onDisconnect();
-      }}
-      onServerAdd={todoNoop}
-      onServerImportConfig={todoNoop}
-      onServerImportJson={todoNoop}
-      onServerInfo={todoNoop}
-      onServerSettings={todoNoop}
-      onServerEdit={todoNoop}
-      onServerClone={todoNoop}
-      onServerRemove={todoNoop}
-      onCallTool={(name, args) => {
-        void onCallTool(name, args);
-      }}
-      onClearToolResult={onClearToolResult}
-      onRefreshTools={onRefreshTools}
-      onGetPrompt={(name, args) => {
-        void onGetPrompt(name, args);
-      }}
-      onRefreshPrompts={onRefreshPrompts}
-      onReadResource={(uri) => {
-        void onReadResource(uri);
-      }}
-      onSubscribeResource={onSubscribeResource}
-      onUnsubscribeResource={onUnsubscribeResource}
-      onRefreshResources={onRefreshResources}
-      onCompleteArgument={onCompleteArgument}
-      completionsSupported={capabilities?.completions !== undefined}
-      onCancelTask={onCancelTask}
-      onClearCompletedTasks={todoNoop}
-      onRefreshTasks={onRefreshTasks}
-      onSetLogLevel={onSetLogLevel}
-      onClearLogs={onClearLogs}
-      onExportLogs={todoNoop}
-      onCopyAllLogs={todoNoop}
-      onClearHistory={onClearHistory}
-      onExportHistory={todoNoop}
-      onReplayHistory={todoNoop}
-      onTogglePinHistory={todoNoop}
-      onSelectApp={todoNoop}
-      onOpenApp={todoNoop}
-      onCloseApp={todoNoop}
-      onRefreshApps={onRefreshTools}
-    />
+    <>
+      <InspectorView
+        servers={servers}
+        activeServer={activeServerId}
+        connectionStatus={connectionStatus}
+        initializeResult={initializeResult}
+        latencyMs={latencyMs}
+        errorMessage={errorMessage}
+        tools={tools}
+        prompts={prompts}
+        resources={resources}
+        resourceTemplates={resourceTemplates}
+        subscriptions={subscriptions}
+        logs={logs}
+        tasks={tasks}
+        history={messages}
+        toolCallState={toolCallState}
+        getPromptState={getPromptState}
+        readResourceState={effectiveReadResourceState}
+        currentLogLevel={currentLogLevel}
+        sandboxPath={STUB_SANDBOX_PATH}
+        bridgeFactory={stubBridgeFactory}
+        onToggleTheme={onToggleTheme}
+        onToggleConnection={(id) => {
+          void onToggleConnection(id);
+        }}
+        onDisconnect={() => {
+          void onDisconnect();
+        }}
+        onServerAdd={() => setConfigModal({ mode: "add" })}
+        onServerImportConfig={todoNoop}
+        onServerImportJson={todoNoop}
+        onServerInfo={todoNoop}
+        onServerSettings={todoNoop}
+        onServerEdit={(id) => setConfigModal({ mode: "edit", targetId: id })}
+        onServerClone={(id) => setConfigModal({ mode: "clone", targetId: id })}
+        onServerRemove={(id) => {
+          const target = servers.find((s) => s.id === id);
+          if (target) setRemoveTarget(target);
+        }}
+        onCallTool={(name, args) => {
+          void onCallTool(name, args);
+        }}
+        onClearToolResult={onClearToolResult}
+        onRefreshTools={onRefreshTools}
+        onGetPrompt={(name, args) => {
+          void onGetPrompt(name, args);
+        }}
+        onRefreshPrompts={onRefreshPrompts}
+        onReadResource={(uri) => {
+          void onReadResource(uri);
+        }}
+        onSubscribeResource={onSubscribeResource}
+        onUnsubscribeResource={onUnsubscribeResource}
+        onRefreshResources={onRefreshResources}
+        onCompleteArgument={onCompleteArgument}
+        completionsSupported={capabilities?.completions !== undefined}
+        onCancelTask={onCancelTask}
+        onClearCompletedTasks={todoNoop}
+        onRefreshTasks={onRefreshTasks}
+        onSetLogLevel={onSetLogLevel}
+        onClearLogs={onClearLogs}
+        onExportLogs={todoNoop}
+        onCopyAllLogs={todoNoop}
+        onClearHistory={onClearHistory}
+        onExportHistory={todoNoop}
+        onReplayHistory={todoNoop}
+        onTogglePinHistory={todoNoop}
+        onSelectApp={todoNoop}
+        onOpenApp={todoNoop}
+        onCloseApp={todoNoop}
+        onRefreshApps={onRefreshTools}
+      />
+      <ServerConfigModal
+        opened={configModal !== null}
+        mode={configModal?.mode ?? "add"}
+        initialId={configModalTarget?.id}
+        initialConfig={configModalTarget?.config}
+        existingIds={existingIds}
+        onClose={() => setConfigModal(null)}
+        onSubmit={onConfigSubmit}
+      />
+      <ServerRemoveConfirmModal
+        opened={removeTarget !== null}
+        target={removeTarget}
+        onCancel={() => setRemoveTarget(null)}
+        onConfirm={onConfirmRemove}
+      />
+    </>
   );
 }
 
