@@ -255,7 +255,7 @@ describe("InspectorClient", () => {
       pagedPromptsState.destroy();
     });
 
-    it("MessageLogState clears on connect when attached to client", async () => {
+    it("MessageLogState clears across a disconnect → reconnect cycle", async () => {
       client = new InspectorClient(
         {
           type: "stdio",
@@ -395,6 +395,52 @@ describe("InspectorClient", () => {
       expect(notifications.every((m) => m.direction === "notification")).toBe(
         true,
       );
+      messageLogState.destroy();
+    });
+
+    it("matches responses to requests when a sibling listener fires a request inside the same connect event (regression for unmatched */list responses)", async () => {
+      // Reproduces the pre-fix bug where MessageLogState's clear-on-connect
+      // listener ran after sibling state-manager onConnect listeners had
+      // already synchronously tracked their initial list requests. That clear
+      // wiped pendingRequestEntries before the responses arrived, leaving
+      // the history with unmatched "response" entries marked PENDING.
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        { environment: { transport: createTransportNode } },
+      );
+      const messageLogState = new MessageLogState(client);
+
+      // Simulate the App.tsx wiring: ManagedToolsState et al. register their
+      // own connect listeners that synchronously fire `void client.listTools()`.
+      const refreshClient = client;
+      client.addEventListener("connect", () => {
+        void refreshClient.listTools();
+      });
+
+      await client.connect();
+      // Settle: drain pending microtasks so the listTools response can fold.
+      await new Promise((r) => setTimeout(r, 100));
+
+      const requests = messageLogState
+        .getMessages()
+        .filter((m) => m.direction === "request");
+      const orphanResponses = messageLogState
+        .getMessages()
+        .filter((m) => m.direction === "response");
+      const listToolsReq = requests.find(
+        (m) => (m.message as { method?: string }).method === "tools/list",
+      );
+      expect(listToolsReq).toBeDefined();
+      // Its response must be folded into the request entry, not pushed as a
+      // separate "response" entry.
+      expect(listToolsReq?.response).toBeDefined();
+      expect(listToolsReq?.duration).toBeGreaterThanOrEqual(0);
+      expect(orphanResponses).toEqual([]);
+
       messageLogState.destroy();
     });
   });
