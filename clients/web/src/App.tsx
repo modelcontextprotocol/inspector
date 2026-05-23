@@ -442,10 +442,13 @@ function App() {
       const target = servers.find((s) => s.id === id);
       if (!target) return;
 
-      // Different server (or first connect): rebuild the client + managers.
-      let client = inspectorClient;
-      if (id !== activeServerId || client === null) {
-        client = setupClientForServer(target);
+      // Always rebuild the InspectorClient on a (re)connect so the latest
+      // `target.settings` (headers, metadata, timeouts, OAuth credentials)
+      // are picked up. Reusing the previous client object would freeze the
+      // settings at the moment it was first constructed, which would be
+      // surprising right after the user edited them in the settings modal.
+      const client = setupClientForServer(target);
+      if (id !== activeServerId) {
         setActiveServerId(id);
       }
 
