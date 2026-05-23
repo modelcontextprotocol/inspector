@@ -301,9 +301,14 @@ export function ServerConfigModal({
             description="Used as the key in mcp.json. Letters, numbers, hyphens, underscores."
             placeholder="my-server"
             value={form.id}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, id: e.currentTarget.value }))
-            }
+            onChange={(e) => {
+              // Capture before the functional updater closes over it — React
+              // nulls SyntheticEvent.currentTarget after the synchronous
+              // handler returns, so reading inside `setForm((f) => ...)`
+              // throws "Cannot read properties of null".
+              const next = e.currentTarget.value;
+              setForm((f) => ({ ...f, id: next }));
+            }}
             error={idError}
             data-autofocus
             required
@@ -334,9 +339,10 @@ export function ServerConfigModal({
                 label="Command"
                 placeholder="npx"
                 value={form.command}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, command: e.currentTarget.value }))
-                }
+                onChange={(e) => {
+                  const next = e.currentTarget.value;
+                  setForm((f) => ({ ...f, command: next }));
+                }}
                 required
                 disabled={submitting}
               />
@@ -345,9 +351,10 @@ export function ServerConfigModal({
                 description="One argument per line."
                 placeholder={"-y\n@modelcontextprotocol/server-everything"}
                 value={form.argsText}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, argsText: e.currentTarget.value }))
-                }
+                onChange={(e) => {
+                  const next = e.currentTarget.value;
+                  setForm((f) => ({ ...f, argsText: next }));
+                }}
                 autosize
                 minRows={3}
                 disabled={submitting}
@@ -357,9 +364,10 @@ export function ServerConfigModal({
                 description="KEY=VALUE per line."
                 placeholder="DEBUG=1"
                 value={form.envText}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, envText: e.currentTarget.value }))
-                }
+                onChange={(e) => {
+                  const next = e.currentTarget.value;
+                  setForm((f) => ({ ...f, envText: next }));
+                }}
                 autosize
                 minRows={2}
                 disabled={submitting}
@@ -368,9 +376,10 @@ export function ServerConfigModal({
                 label="Working directory"
                 placeholder="(inherit)"
                 value={form.cwd}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, cwd: e.currentTarget.value }))
-                }
+                onChange={(e) => {
+                  const next = e.currentTarget.value;
+                  setForm((f) => ({ ...f, cwd: next }));
+                }}
                 disabled={submitting}
               />
             </>
@@ -380,9 +389,10 @@ export function ServerConfigModal({
                 label="URL"
                 placeholder="https://example.com/mcp"
                 value={form.url}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, url: e.currentTarget.value }))
-                }
+                onChange={(e) => {
+                  const next = e.currentTarget.value;
+                  setForm((f) => ({ ...f, url: next }));
+                }}
                 required
                 disabled={submitting}
               />
@@ -391,9 +401,10 @@ export function ServerConfigModal({
                 description='"Header-Name: value" per line.'
                 placeholder="Authorization: Bearer xxxxx"
                 value={form.headersText}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, headersText: e.currentTarget.value }))
-                }
+                onChange={(e) => {
+                  const next = e.currentTarget.value;
+                  setForm((f) => ({ ...f, headersText: next }));
+                }}
                 autosize
                 minRows={2}
                 disabled={submitting}

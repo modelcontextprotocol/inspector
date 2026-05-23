@@ -1,6 +1,6 @@
 import { AppShell } from "@mantine/core";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, fn, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
 import { useArgs } from "storybook/preview-api";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import {
@@ -63,8 +63,18 @@ export const AddEmpty: Story = {
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body);
     await expect(await body.findByText("Add server")).toBeInTheDocument();
-    await expect(body.getByLabelText(/Server ID/i)).toBeInTheDocument();
+    const idInput = body.getByLabelText(/Server ID/i) as HTMLInputElement;
+    await expect(idInput).toBeInTheDocument();
     await expect(body.getByLabelText(/Command/i)).toBeInTheDocument();
+    // Regression guard for the synthetic-event currentTarget bug — happy-dom
+    // doesn't null currentTarget after the handler returns, so unit tests
+    // sail past it. Real Chromium (here) does, so any future onChange that
+    // reads e.currentTarget inside a setState updater will throw here.
+    await userEvent.type(idInput, "my-server");
+    await expect(idInput.value).toBe("my-server");
+    const cmdInput = body.getByLabelText(/Command/i) as HTMLInputElement;
+    await userEvent.type(cmdInput, "node");
+    await expect(cmdInput.value).toBe("node");
   },
 };
 
