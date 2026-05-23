@@ -58,6 +58,7 @@ function makeProps(
     onServerAdd: vi.fn(),
     onServerImportConfig: vi.fn(),
     onServerImportJson: vi.fn(),
+    onServerExport: vi.fn(),
     onServerInfo: vi.fn(),
     onServerSettings: vi.fn(),
     onServerEdit: vi.fn(),

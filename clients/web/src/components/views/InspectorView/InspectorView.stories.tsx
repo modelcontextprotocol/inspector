@@ -294,6 +294,7 @@ const meta: Meta<typeof InspectorView> = {
     onServerAdd: fn(),
     onServerImportConfig: fn(),
     onServerImportJson: fn(),
+    onServerExport: fn(),
     onServerInfo: fn(),
     onServerSettings: fn(),
     onServerEdit: fn(),

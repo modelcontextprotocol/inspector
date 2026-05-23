@@ -21,6 +21,7 @@ import { ManagedResourcesState } from "@inspector/core/mcp/state/managedResource
 import { ManagedResourceTemplatesState } from "@inspector/core/mcp/state/managedResourceTemplatesState.js";
 import { ManagedRequestorTasksState } from "@inspector/core/mcp/state/managedRequestorTasksState.js";
 import { ResourceSubscriptionsState } from "@inspector/core/mcp/state/resourceSubscriptionsState.js";
+import { serverEntriesToMcpConfig } from "@inspector/core/mcp/serverList.js";
 import { MessageLogState } from "@inspector/core/mcp/state/messageLogState.js";
 import { FetchRequestLogState } from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import { StderrLogState } from "@inspector/core/mcp/state/stderrLogState.js";
@@ -605,6 +606,26 @@ function App() {
     /* TODO: not wired yet */
   }, []);
 
+  // Download the current server list as a canonical mcp.json file. Uses the
+  // in-memory `servers` list (kept in sync with disk by useServers' refresh-
+  // after-mutate flow) so there's no extra HTTP roundtrip. The 2-space
+  // indent matches serializeStore on the backend, so a round-trip through
+  // export → hand-edit → import (or symlink into Claude Desktop) preserves
+  // formatting. Append-to-body before click is for Firefox compatibility;
+  // modern browsers don't require it but it's the safe pattern.
+  const onServerExport = useCallback(() => {
+    const json = JSON.stringify(serverEntriesToMcpConfig(servers), null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "mcp.json";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  }, [servers]);
+
   // Remove handler — runs after the user confirms in the modal. When removing
   // the active server, also tear down the session in-place so the client and
   // its 9 state managers can be GC'd now instead of lingering until the next
@@ -740,6 +761,7 @@ function App() {
         onServerAdd={() => setConfigModal({ mode: "add" })}
         onServerImportConfig={todoNoop}
         onServerImportJson={todoNoop}
+        onServerExport={onServerExport}
         onServerInfo={todoNoop}
         onServerSettings={todoNoop}
         onServerEdit={(id) => setConfigModal({ mode: "edit", targetId: id })}
