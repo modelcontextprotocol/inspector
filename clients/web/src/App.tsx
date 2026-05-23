@@ -272,6 +272,25 @@ function App() {
     };
   }, [inspectorClient]);
 
+  // Reset activeServerId whenever the live session ends. Without this the
+  // other ServerCards stay `inert` after disconnect — ServerCard dims any
+  // card whose id differs from `activeServer`. Subscribing to
+  // InspectorClient's own `disconnect` event covers all three paths
+  // (explicit toggle, header Disconnect button, mid-session transport
+  // failure / process exit) and avoids the first-render-clobbers-new-id
+  // trap that watching connectionStatus has (status starts as
+  // "disconnected" for the new client before connect() runs).
+  useEffect(() => {
+    if (!inspectorClient) return;
+    const onDisconnect = () => {
+      setActiveServerId(undefined);
+    };
+    inspectorClient.addEventListener("disconnect", onDisconnect);
+    return () => {
+      inspectorClient.removeEventListener("disconnect", onDisconnect);
+    };
+  }, [inspectorClient]);
+
   // Build the InitializeResult the connected ViewHeader expects from the
   // hook's split fields. `protocolVersion` is hard-coded for now — the
   // useInspectorClient hook doesn't expose it. TODO(#1324): consume the
