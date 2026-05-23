@@ -4,6 +4,7 @@ import {
   mcpConfigToServerEntries,
   normalizeServerType,
   serverEntriesToMcpConfig,
+  serializeMcpConfig,
 } from "@inspector/core/mcp/serverList.js";
 import type { MCPConfig, ServerEntry } from "@inspector/core/mcp/types.js";
 
@@ -166,6 +167,42 @@ describe("serverEntriesToMcpConfig", () => {
       "a",
       "b",
     ]);
+  });
+});
+
+describe("serializeMcpConfig", () => {
+  it("produces 2-space-indented canonical JSON", () => {
+    const json = serializeMcpConfig([
+      {
+        id: "alpha",
+        name: "alpha",
+        config: { type: "stdio", command: "node" },
+        connection: { status: "disconnected" },
+      },
+    ]);
+    expect(json).toBe(
+      `{\n  "mcpServers": {\n    "alpha": {\n      "type": "stdio",\n      "command": "node"\n    }\n  }\n}`,
+    );
+  });
+
+  it("strips runtime-only fields (connection, info, name) from the output", () => {
+    const json = serializeMcpConfig([
+      {
+        id: "alpha",
+        name: "Alpha (pretty)",
+        config: { type: "stdio", command: "node" },
+        connection: { status: "connected" },
+        info: { name: "alpha-impl", version: "1.0.0" },
+      },
+    ]);
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    expect(parsed).toEqual({
+      mcpServers: { alpha: { type: "stdio", command: "node" } },
+    });
+  });
+
+  it('returns `{ "mcpServers": {} }` for an empty list', () => {
+    expect(serializeMcpConfig([])).toBe(`{\n  "mcpServers": {}\n}`);
   });
 });
 

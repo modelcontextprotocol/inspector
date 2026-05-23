@@ -79,6 +79,17 @@ export function serverEntriesToMcpConfig(entries: ServerEntry[]): MCPConfig {
 }
 
 /**
+ * Canonical JSON serialization for `mcp.json` files. Two-space indent — the
+ * same format `serializeStore` in core/storage/store-io.ts writes on the
+ * backend, so a round-trip through export → hand-edit → import preserves
+ * the on-disk shape. Browser-safe (no Node imports); the backend uses the
+ * Node-only serializeStore but the formatting must match.
+ */
+export function serializeMcpConfig(entries: ServerEntry[]): string {
+  return JSON.stringify(serverEntriesToMcpConfig(entries), null, 2);
+}
+
+/**
  * Default seeds written to `~/.mcp-inspector/mcp.json` on first launch when
  * the file is absent. Picked to cover the two shapes a developer reaches for
  * first: a real filesystem scoped to /tmp, and the canonical "everything"

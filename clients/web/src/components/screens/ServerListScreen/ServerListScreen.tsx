@@ -11,6 +11,8 @@ export interface ServerListScreenProps {
   onAddManually: () => void;
   onImportConfig: () => void;
   onImportServerJson: () => void;
+  /** Download the current server list as a canonical `mcp.json` file. */
+  onExport: () => void;
   onToggleConnection: (id: string) => void;
   onServerInfo: (id: string) => void;
   onSettings: (id: string) => void;
@@ -35,6 +37,7 @@ export function ServerListScreen({
   onAddManually,
   onImportConfig,
   onImportServerJson,
+  onExport,
   onToggleConnection,
   onServerInfo,
   onSettings,
@@ -57,6 +60,7 @@ export function ServerListScreen({
         onAddManually={onAddManually}
         onImportConfig={onImportConfig}
         onImportServerJson={onImportServerJson}
+        onExport={onExport}
       />
 
       <ScrollArea.Autosize mah="calc(100vh - var(--app-shell-header-height, 60px) - var(--mantine-spacing-xl) * 2 - 60px)">

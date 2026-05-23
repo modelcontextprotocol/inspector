@@ -21,6 +21,7 @@ import { ManagedResourcesState } from "@inspector/core/mcp/state/managedResource
 import { ManagedResourceTemplatesState } from "@inspector/core/mcp/state/managedResourceTemplatesState.js";
 import { ManagedRequestorTasksState } from "@inspector/core/mcp/state/managedRequestorTasksState.js";
 import { ResourceSubscriptionsState } from "@inspector/core/mcp/state/resourceSubscriptionsState.js";
+import { serializeMcpConfig } from "@inspector/core/mcp/serverList.js";
 import { MessageLogState } from "@inspector/core/mcp/state/messageLogState.js";
 import { FetchRequestLogState } from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import { StderrLogState } from "@inspector/core/mcp/state/stderrLogState.js";
@@ -45,6 +46,7 @@ import {
   type ServerConfigModalMode,
 } from "./components/groups/ServerConfigModal/ServerConfigModal";
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
+import { downloadJsonFile } from "./lib/downloadFile";
 import { createWebEnvironment } from "./lib/environmentFactory";
 
 // OAuth redirect URL provider — points at the dev backend's `/oauth/callback`
@@ -605,6 +607,18 @@ function App() {
     /* TODO: not wired yet */
   }, []);
 
+  // Download the current server list as a canonical mcp.json file. Uses the
+  // in-memory `servers` list (kept in sync with disk by useServers' refresh-
+  // after-mutate flow) so there's no extra HTTP roundtrip. Serialization
+  // format (2-space indent) lives in serializeMcpConfig so the export
+  // matches what serializeStore writes on the backend. The button is
+  // disabled when the list is empty, but the guard here keeps the handler
+  // locally correct against any future programmatic caller.
+  const onServerExport = useCallback(() => {
+    if (servers.length === 0) return;
+    downloadJsonFile("mcp.json", serializeMcpConfig(servers));
+  }, [servers]);
+
   // Remove handler — runs after the user confirms in the modal. When removing
   // the active server, also tear down the session in-place so the client and
   // its 9 state managers can be GC'd now instead of lingering until the next
@@ -740,6 +754,7 @@ function App() {
         onServerAdd={() => setConfigModal({ mode: "add" })}
         onServerImportConfig={todoNoop}
         onServerImportJson={todoNoop}
+        onServerExport={onServerExport}
         onServerInfo={todoNoop}
         onServerSettings={todoNoop}
         onServerEdit={(id) => setConfigModal({ mode: "edit", targetId: id })}
