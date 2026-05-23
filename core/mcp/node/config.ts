@@ -3,11 +3,11 @@ import { resolve } from "path";
 import type {
   MCPConfig,
   MCPServerConfig,
-  ServerType,
   StdioServerConfig,
   SseServerConfig,
   StreamableHttpServerConfig,
 } from "../types.js";
+import { normalizeServerType } from "../serverList.js";
 
 /**
  * Options object passed to resolveServerConfigs by runners (parsed from argv).
@@ -72,23 +72,6 @@ export function parseHeaderPair(
   }
 
   return { ...previous, [key]: val };
-}
-
-/**
- * Normalizes server type: missing → "stdio", "http" → "streamable-http".
- * Returns a new object; input may be parsed JSON with type omitted or "http".
- */
-function normalizeServerType(
-  config: Record<string, unknown> & { type?: string },
-): MCPServerConfig {
-  const type = config.type;
-  const normalizedType: ServerType =
-    type === undefined
-      ? "stdio"
-      : type === "http"
-        ? "streamable-http"
-        : (type as ServerType);
-  return { ...config, type: normalizedType } as MCPServerConfig;
 }
 
 /**

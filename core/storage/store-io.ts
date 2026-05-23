@@ -16,6 +16,15 @@ export function getDefaultStorageDir(): string {
 }
 
 /**
+ * Default path for the user's server list file
+ * (~/.mcp-inspector/mcp.json or %USERPROFILE%\.mcp-inspector\mcp.json on Windows).
+ */
+export function getDefaultMcpConfigPath(): string {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || ".";
+  return path.join(homeDir, ".mcp-inspector", "mcp.json");
+}
+
+/**
  * Path for a store ID under the given storage directory.
  * Callers must pass a validated storeId.
  */

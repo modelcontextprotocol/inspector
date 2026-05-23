@@ -1,12 +1,14 @@
 /**
  * Hono-based remote server for MCP transports.
- * Hosts /api/config, /api/mcp/connect, send, events, disconnect, /api/fetch, /api/log, /api/storage/:storeId.
+ * Hosts /api/config, /api/mcp/connect, send, events, disconnect, /api/fetch, /api/log,
+ * /api/storage/:storeId, /api/servers (+ /api/servers/:id).
  */
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import type pino from "pino";
 import {
   getDefaultStorageDir,
+  getDefaultMcpConfigPath,
   getStoreFilePath,
   validateStoreId,
   readStoreFile,
@@ -21,7 +23,11 @@ import type { Context, Env, Next } from "hono";
 import { streamSSE } from "hono/streaming";
 import { createTransportNode } from "../../node/transport.js";
 import type { RemoteConnectRequest, RemoteSendRequest } from "../types.js";
-import type { MCPServerConfig } from "../../types.js";
+import type { MCPConfig, MCPServerConfig } from "../../types.js";
+import {
+  DEFAULT_SEED_CONFIG,
+  normalizeServerType,
+} from "../../serverList.js";
 import { RemoteSession } from "./remote-session.js";
 import { createTokenAuthProvider } from "./tokenAuthProvider.js";
 import { API_SERVER_ENV_VARS } from "../constants.js";
@@ -58,6 +64,9 @@ export interface RemoteServerOptions {
 
   /** Optional storage directory for /api/storage/:storeId. Default: ~/.mcp-inspector/storage */
   storageDir?: string;
+
+  /** Optional path for the user's server list file (/api/servers). Default: ~/.mcp-inspector/mcp.json */
+  mcpConfigPath?: string;
 
   /** Optional sandbox URL for MCP Apps tab. When set, GET /api/config includes sandboxUrl. */
   sandboxUrl?: string;
@@ -242,6 +251,7 @@ export function createRemoteApp(
   const sessions = new Map<string, RemoteSession>();
   const { logger: fileLogger, allowedOrigins } = options;
   const storageDir = options.storageDir ?? getDefaultStorageDir();
+  const mcpConfigPath = options.mcpConfigPath ?? getDefaultMcpConfigPath();
 
   // Apply origin validation middleware first (before auth)
   // This prevents DNS rebinding attacks by validating Origin header
@@ -589,6 +599,151 @@ export function createRemoteApp(
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to delete store: ${msg}` }, 500);
+    }
+  });
+
+  // --- /api/servers (server list backed by mcp.json) ---
+
+  // Defensive normalize so editor-edited files with type:"http" or missing
+  // type round-trip into the canonical form on every read.
+  const normalizeMcpServers = (raw: unknown): Record<string, MCPServerConfig> => {
+    if (!raw || typeof raw !== "object") return {};
+    const out: Record<string, MCPServerConfig> = {};
+    for (const [id, val] of Object.entries(raw as Record<string, unknown>)) {
+      if (!val || typeof val !== "object") continue;
+      out[id] = normalizeServerType(
+        val as Record<string, unknown> & { type?: string },
+      );
+    }
+    return out;
+  };
+
+  // Load current config from disk, treating ENOENT and malformed files as
+  // empty. The seed-write on first GET happens in the route, not here, so
+  // mutating routes don't accidentally trigger it.
+  const readMcpConfig = async (): Promise<MCPConfig> => {
+    const raw = await readStoreFile(mcpConfigPath);
+    if (raw === null) return { mcpServers: {} };
+    const parsed = parseStore(raw) as { mcpServers?: unknown } | null;
+    return { mcpServers: normalizeMcpServers(parsed?.mcpServers) };
+  };
+
+  app.get("/api/servers", async (c) => {
+    try {
+      const raw = await readStoreFile(mcpConfigPath);
+      if (raw === null) {
+        await writeStoreFile(mcpConfigPath, serializeStore(DEFAULT_SEED_CONFIG));
+        return c.json(DEFAULT_SEED_CONFIG);
+      }
+      const parsed = parseStore(raw) as { mcpServers?: unknown } | null;
+      return c.json({ mcpServers: normalizeMcpServers(parsed?.mcpServers) });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return c.json({ error: `Failed to read server list: ${msg}` }, 500);
+    }
+  });
+
+  app.post("/api/servers", async (c) => {
+    let body: { id?: unknown; config?: unknown };
+    try {
+      body = (await c.req.json()) as { id?: unknown; config?: unknown };
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    if (typeof body.id !== "string" || !validateStoreId(body.id)) {
+      return c.json(
+        {
+          error:
+            "Invalid id: must be non-empty and contain only alphanumeric, hyphen, or underscore",
+        },
+        400,
+      );
+    }
+    if (!body.config || typeof body.config !== "object") {
+      return c.json({ error: "Missing or invalid config" }, 400);
+    }
+    const id = body.id;
+
+    try {
+      const current = await readMcpConfig();
+      if (id in current.mcpServers) {
+        return c.json({ error: `Server '${id}' already exists` }, 409);
+      }
+      current.mcpServers[id] = normalizeServerType(
+        body.config as Record<string, unknown> & { type?: string },
+      );
+      await writeStoreFile(mcpConfigPath, serializeStore(current));
+      return c.json({ ok: true });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return c.json({ error: `Failed to add server: ${msg}` }, 500);
+    }
+  });
+
+  app.put("/api/servers/:id", async (c) => {
+    const originalId = c.req.param("id");
+    if (!originalId || !validateStoreId(originalId)) {
+      return c.json({ error: "Invalid id" }, 400);
+    }
+    let body: { id?: unknown; config?: unknown };
+    try {
+      body = (await c.req.json()) as { id?: unknown; config?: unknown };
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    if (!body.config || typeof body.config !== "object") {
+      return c.json({ error: "Missing or invalid config" }, 400);
+    }
+    const newId = typeof body.id === "string" ? body.id : originalId;
+    if (!validateStoreId(newId)) {
+      return c.json({ error: "Invalid new id" }, 400);
+    }
+
+    try {
+      const current = await readMcpConfig();
+      if (!(originalId in current.mcpServers)) {
+        return c.json({ error: `Server '${originalId}' not found` }, 404);
+      }
+      if (newId !== originalId && newId in current.mcpServers) {
+        return c.json({ error: `Server '${newId}' already exists` }, 409);
+      }
+      // Rebuild preserving insertion order; replace the original key in place
+      // so the file diff stays minimal when not renaming.
+      const next: MCPConfig = { mcpServers: {} };
+      for (const [key, val] of Object.entries(current.mcpServers)) {
+        if (key === originalId) {
+          next.mcpServers[newId] = normalizeServerType(
+            body.config as Record<string, unknown> & { type?: string },
+          );
+        } else {
+          next.mcpServers[key] = val;
+        }
+      }
+      await writeStoreFile(mcpConfigPath, serializeStore(next));
+      return c.json({ ok: true });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return c.json({ error: `Failed to update server: ${msg}` }, 500);
+    }
+  });
+
+  app.delete("/api/servers/:id", async (c) => {
+    const id = c.req.param("id");
+    if (!id || !validateStoreId(id)) {
+      return c.json({ error: "Invalid id" }, 400);
+    }
+
+    try {
+      const current = await readMcpConfig();
+      if (!(id in current.mcpServers)) {
+        return c.json({ ok: true });
+      }
+      delete current.mcpServers[id];
+      await writeStoreFile(mcpConfigPath, serializeStore(current));
+      return c.json({ ok: true });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return c.json({ error: `Failed to delete server: ${msg}` }, 500);
     }
   });
 
