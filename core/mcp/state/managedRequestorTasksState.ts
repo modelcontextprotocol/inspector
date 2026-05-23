@@ -108,6 +108,16 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
     if (!client || client.getStatus() !== "connected") {
       return this.getTasks();
     }
+    // Gate on the server's `tasks` capability — calling tasks/list against a
+    // server that doesn't advertise it returns -32601 "Method not found",
+    // which then surfaces in the console for every connect against any
+    // server that doesn't implement task tracking. Empty list is the right
+    // semantics for "this server doesn't support tasks."
+    if (!client.getCapabilities()?.tasks) {
+      this.tasks = [];
+      this.dispatchTypedEvent("tasksChange", this.tasks);
+      return this.getTasks();
+    }
     this.tasks = [];
     let cursor: string | undefined;
     let pageCount = 0;

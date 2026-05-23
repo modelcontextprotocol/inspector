@@ -26,7 +26,10 @@ describe("ManagedRequestorTasksState", () => {
   let state: ManagedRequestorTasksState;
 
   beforeEach(() => {
-    client = new FakeInspectorClient();
+    // Default to a server that advertises `tasks` so the existing flow tests
+    // exercise the live `listRequestorTasks` path; capability-absent tests
+    // below override this.
+    client = new FakeInspectorClient({ capabilities: { tasks: {} } });
     state = new ManagedRequestorTasksState(client);
   });
 
@@ -44,6 +47,38 @@ describe("ManagedRequestorTasksState", () => {
     const result = await state.refresh();
     expect(result).toEqual([]);
     expect(client.listRequestorTasks).not.toHaveBeenCalled();
+  });
+
+  it("refresh skips listRequestorTasks when the server doesn't advertise tasks capability", async () => {
+    // Regression: pre-fix we always called tasks/list on connect; servers
+    // that don't implement task tracking (the common case) replied with
+    // -32601 "Method not found" and the error surfaced in the console.
+    const taskless = new FakeInspectorClient({
+      capabilities: { tools: {}, prompts: {}, resources: {} },
+    });
+    taskless.setStatus("connected");
+    const tasklessState = new ManagedRequestorTasksState(taskless);
+
+    const result = await tasklessState.refresh();
+    expect(result).toEqual([]);
+    expect(taskless.listRequestorTasks).not.toHaveBeenCalled();
+  });
+
+  it("connect against a tasks-less server doesn't fire listRequestorTasks", async () => {
+    // The connect event runs refresh; the capability gate must also catch it
+    // there, not only the publicly-callable refresh().
+    const taskless = new FakeInspectorClient({
+      capabilities: { tools: {} },
+    });
+    taskless.setStatus("connected");
+    const tasklessState = new ManagedRequestorTasksState(taskless);
+
+    taskless.dispatchTypedEvent("connect");
+    // Yield once so the async refresh chained off connect runs.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(taskless.listRequestorTasks).not.toHaveBeenCalled();
+    expect(tasklessState.getTasks()).toEqual([]);
   });
 
   it("refresh fetches a single page and dispatches tasksChange", async () => {

@@ -20,7 +20,12 @@ describe("useManagedRequestorTasks", () => {
   let state: ManagedRequestorTasksState;
 
   beforeEach(() => {
-    client = new FakeInspectorClient({ status: "connected" });
+    // Capabilities include `tasks` so refresh() reaches the live
+    // listRequestorTasks path; the state manager gates on capability.
+    client = new FakeInspectorClient({
+      status: "connected",
+      capabilities: { tasks: {} },
+    });
     state = new ManagedRequestorTasksState(client);
   });
 
