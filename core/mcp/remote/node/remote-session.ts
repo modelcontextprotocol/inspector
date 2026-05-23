@@ -46,16 +46,18 @@ export class RemoteSession {
   markTransportDead(error: string): void {
     this.transportDead = true;
     this.transportError = error;
-    // Send error event if client is connected
-    if (this.eventConsumer) {
-      this.pushEvent({
-        type: "transport_error",
-        data: {
-          error,
-          code: -32000, // MCP error code for connection closed
-        },
-      });
-    }
+    // Always push the transport_error event — pushEvent queues it if no
+    // consumer is attached yet, so a process that crashes during startup
+    // (between POST /api/mcp/connect returning 200 and the browser opening
+    // /api/mcp/events) still surfaces its error to the eventual consumer
+    // instead of vanishing.
+    this.pushEvent({
+      type: "transport_error",
+      data: {
+        error,
+        code: -32000, // MCP error code for connection closed
+      },
+    });
   }
 
   isTransportDead(): boolean {

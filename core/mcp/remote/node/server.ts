@@ -329,9 +329,21 @@ export function createRemoteApp(
         const errorMsg =
           transportError || "Transport closed - process may have exited";
         session.markTransportDead(errorMsg);
-        // If no client connected, can cleanup immediately
+        // If no client connected yet, the client may still be about to
+        // open /api/mcp/events for this session — common path when the
+        // subprocess fails during startup, after we've already returned
+        // 200 with the sessionId. Hold the session (with the queued
+        // stderr + transport_error event) for a grace window so the
+        // events endpoint can drain them and surface a real error to
+        // the user. The endpoint cleans up on stream close; this TTL
+        // sweeps sessions whose client never connects at all.
         if (!session.hasEventConsumer()) {
-          sessions.delete(sessionId);
+          setTimeout(() => {
+            const stale = sessions.get(sessionId);
+            if (stale && !stale.hasEventConsumer()) {
+              sessions.delete(sessionId);
+            }
+          }, 30_000);
         }
       } else {
         // Session not created yet - failed during start
@@ -432,6 +444,19 @@ export function createRemoteApp(
           data,
         });
       });
+
+      // Crash-on-startup path: if the subprocess died between POST
+      // /api/mcp/connect (which returned 200) and this GET, the session is
+      // alive but the transport is dead. setEventConsumer above just
+      // drained the queued stderr + the transport_error event. Yield once
+      // so the writeSSE writes flush, then return — closing the stream and
+      // surfacing the real error instead of a bare 404 / silent hang.
+      if (session.isTransportDead()) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        session.clearEventConsumer();
+        sessions.delete(sessionId);
+        return;
+      }
 
       stream.onAbort(() => {
         // Client disconnected - clear event consumer
