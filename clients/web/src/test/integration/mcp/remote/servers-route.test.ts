@@ -605,6 +605,37 @@ describe("/api/servers routes", () => {
       expect(res.status).toBe(400);
     });
 
+    it("validateSettings drops unknown keys (explicit pick-and-build, not spread)", async () => {
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "unknown-keys",
+          config: { type: "stdio", command: "node" },
+          settings: {
+            headers: [{ key: "X-A", value: "1" }],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            // Unknown stowaway — must not survive the validator.
+            stowaway: { keep: "me" },
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers["unknown-keys"] as {
+        settings?: Record<string, unknown>;
+      };
+      expect(stored.settings).toBeDefined();
+      expect(stored.settings).not.toHaveProperty("stowaway");
+      expect(stored.settings).toEqual({
+        headers: [{ key: "X-A", value: "1" }],
+        metadata: [],
+        connectionTimeout: 0,
+        requestTimeout: 0,
+      });
+    });
+
     it("strips smuggled config.settings on POST (validateSettings is the only write path)", async () => {
       // `normalizeServerType` spreads unknown keys verbatim. Without the
       // strip in buildStoredEntry, a body that nests `settings` inside

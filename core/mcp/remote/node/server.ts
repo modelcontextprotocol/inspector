@@ -667,13 +667,21 @@ export function createRemoteApp(
   // through verbatim, so a caller that included `config.settings` on the
   // wire would smuggle a `settings` field straight onto the stored entry —
   // bypassing `validateSettings`. Strip it here so `validateSettings`
-  // remains the single write path for the settings node.
+  // remains the single write path for the settings node. Log a warning if
+  // we observe this — it indicates a client bug (settings should travel
+  // through the body's top-level `settings` field, not nested in config).
   const buildStoredEntry = (
     config: unknown,
     settings: InspectorServerSettings | undefined,
   ): StoredMCPServer => {
-    const { settings: _smuggled, ...configOnly } =
-      (config as Record<string, unknown>) ?? {};
+    const configObj = (config as Record<string, unknown>) ?? {};
+    if ("settings" in configObj) {
+      fileLogger?.warn(
+        { route: "/api/servers", smuggledKey: "settings" },
+        "Stripping `settings` key from request body's `config` — settings must travel through the top-level `settings` field, not nested inside `config`.",
+      );
+    }
+    const { settings: _smuggled, ...configOnly } = configObj;
     const normalized = normalizeServerType(
       configOnly as Record<string, unknown> & { type?: string },
     ) as StoredMCPServer;
@@ -743,7 +751,26 @@ export function createRemoteApp(
         return { ok: false, error: `settings.${optional} must be a string` };
       }
     }
-    return { ok: true, value: obj as unknown as InspectorServerSettings };
+    // Build the validated value from explicitly named fields rather than
+    // casting the raw object through. Unknown keys silently drop so a
+    // misconfigured client can't smuggle stowaways onto disk, and consumers
+    // can rely on the validated shape being exactly InspectorServerSettings.
+    const value: InspectorServerSettings = {
+      headers: obj.headers as { key: string; value: string }[],
+      metadata: obj.metadata as { key: string; value: string }[],
+      connectionTimeout: obj.connectionTimeout as number,
+      requestTimeout: obj.requestTimeout as number,
+    };
+    if (typeof obj.oauthClientId === "string") {
+      value.oauthClientId = obj.oauthClientId;
+    }
+    if (typeof obj.oauthClientSecret === "string") {
+      value.oauthClientSecret = obj.oauthClientSecret;
+    }
+    if (typeof obj.oauthScopes === "string") {
+      value.oauthScopes = obj.oauthScopes;
+    }
+    return { ok: true, value };
   };
 
   // In-process serialization for the read-modify-write flow on the
