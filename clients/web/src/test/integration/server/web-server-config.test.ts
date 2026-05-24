@@ -233,12 +233,10 @@ describe("webServerConfigToInitialPayload", () => {
     cfg.initialMcpConfig = {
       type: "sse",
       url: "https://srv/sse",
-      headers: { "x-foo": "bar" },
     };
     const payload = webServerConfigToInitialPayload(cfg);
     expect(payload.defaultTransport).toBe("sse");
     expect(payload.defaultServerUrl).toBe("https://srv/sse");
-    expect(payload.defaultHeaders).toEqual({ "x-foo": "bar" });
   });
 
   it("emits streamable-http defaults", () => {
@@ -250,7 +248,6 @@ describe("webServerConfigToInitialPayload", () => {
     const payload = webServerConfigToInitialPayload(cfg);
     expect(payload.defaultTransport).toBe("streamable-http");
     expect(payload.defaultServerUrl).toBe("https://srv/mcp");
-    expect(payload.defaultHeaders).toBeUndefined();
   });
 
   it("falls back to streamable-http when the type discriminator is unknown", () => {
@@ -260,12 +257,10 @@ describe("webServerConfigToInitialPayload", () => {
     cfg.initialMcpConfig = {
       type: "unknown",
       url: "https://srv/other",
-      headers: { auth: "bearer" },
     } as unknown as WebServerConfig["initialMcpConfig"];
     const payload = webServerConfigToInitialPayload(cfg);
     expect(payload.defaultTransport).toBe("streamable-http");
     expect(payload.defaultServerUrl).toBe("https://srv/other");
-    expect(payload.defaultHeaders).toEqual({ auth: "bearer" });
   });
 });
 

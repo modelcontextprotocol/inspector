@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useComputedColorScheme, useMantineColorScheme } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import type {
   InitializeResult,
   LoggingLevel,
@@ -10,6 +11,7 @@ import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
 import type {
+  InspectorServerSettings,
   MCPServerConfig,
   MessageEntry,
   ServerEntry,
@@ -45,6 +47,7 @@ import {
   ServerConfigModal,
   type ServerConfigModalMode,
 } from "./components/groups/ServerConfigModal/ServerConfigModal";
+import { ServerSettingsModal } from "./components/groups/ServerSettingsModal/ServerSettingsModal";
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
 import { downloadJsonFile } from "./lib/downloadFile";
 import { createWebEnvironment } from "./lib/environmentFactory";
@@ -135,7 +138,13 @@ function App() {
   // Server list — sourced from ~/.mcp-inspector/mcp.json via the backend's
   // `/api/servers` routes. First-launch seeds are written by the backend when
   // the file is absent, so this hook returns a non-empty list on first load.
-  const { servers, addServer, updateServer, removeServer } = useServers({
+  const {
+    servers,
+    addServer,
+    updateServer,
+    updateServerSettings,
+    removeServer,
+  } = useServers({
     baseUrl:
       typeof window !== "undefined"
         ? window.location.origin
@@ -149,6 +158,9 @@ function App() {
     mode: ServerConfigModalMode;
     targetId?: string;
   } | null>(null);
+  const [settingsModalTargetId, setSettingsModalTargetId] = useState<
+    string | undefined
+  >(undefined);
   const [removeTarget, setRemoveTarget] = useState<ServerEntry | null>(null);
 
   // The active connection target. `null` between sessions; set as soon as
@@ -336,6 +348,35 @@ function App() {
         getAuthToken(),
         redirectUrlProvider,
       );
+      // The settings node persisted in mcp.json for this server — distinct
+      // from the InspectorClient options we're about to derive from it.
+      const savedSettings = server.settings;
+      // Flatten the persisted settings into the InspectorClient options shape.
+      // Empty / zero values stay unset so the SDK defaults apply.
+      const defaultMetadata = savedSettings?.metadata
+        ? Object.fromEntries(
+            savedSettings.metadata
+              .filter((m) => m.key.trim() !== "")
+              .map((m) => [m.key, m.value]),
+          )
+        : undefined;
+      const oauth =
+        savedSettings &&
+        (savedSettings.oauthClientId ||
+          savedSettings.oauthClientSecret ||
+          savedSettings.oauthScopes)
+          ? {
+              ...(savedSettings.oauthClientId && {
+                clientId: savedSettings.oauthClientId,
+              }),
+              ...(savedSettings.oauthClientSecret && {
+                clientSecret: savedSettings.oauthClientSecret,
+              }),
+              ...(savedSettings.oauthScopes && {
+                scope: savedSettings.oauthScopes,
+              }),
+            }
+          : undefined;
       const client = new InspectorClient(server.config, {
         environment,
         // The Tasks tab needs the receiver-task pipeline; the
@@ -344,6 +385,16 @@ function App() {
         // Sampling / elicitation are on by default; keep the parameterized
         // options off until the UI grows the surface to render them.
         elicit: { form: true, url: true },
+        ...(savedSettings &&
+          savedSettings.requestTimeout > 0 && {
+            timeout: savedSettings.requestTimeout,
+          }),
+        ...(defaultMetadata &&
+          Object.keys(defaultMetadata).length > 0 && {
+            defaultMetadata,
+          }),
+        ...(oauth && { oauth }),
+        ...(savedSettings && { serverSettings: savedSettings }),
       });
 
       setInspectorClient(client);
@@ -396,16 +447,23 @@ function App() {
       const target = servers.find((s) => s.id === id);
       if (!target) return;
 
-      // Different server (or first connect): rebuild the client + managers.
-      let client = inspectorClient;
-      if (id !== activeServerId || client === null) {
-        client = setupClientForServer(target);
+      // Always rebuild the InspectorClient on a (re)connect so the latest
+      // `target.settings` (headers, metadata, timeouts, OAuth credentials)
+      // are picked up. Reusing the previous client object would freeze the
+      // settings at the moment it was first constructed, which would be
+      // surprising right after the user edited them in the settings modal.
+      const client = setupClientForServer(target);
+      if (id !== activeServerId) {
         setActiveServerId(id);
       }
 
       setErrorMessage(undefined);
       connectStartRef.current = Date.now();
       try {
+        // `settings.connectionTimeout` is consumed inside InspectorClient.connect
+        // (Promise.race + transport teardown live there now), so this branch
+        // stays unaware of the per-server timeout. TUI/CLI consumers get the
+        // same behavior by reading from `serverSettings` on the client.
         await client.connect();
       } catch (err) {
         // Handshake-only. A mid-session transport failure transitions the
@@ -705,6 +763,91 @@ function App() {
     return servers.find((s) => s.id === configModal.targetId);
   }, [configModal, servers]);
 
+  const settingsModalTarget = useMemo(() => {
+    if (!settingsModalTargetId) return undefined;
+    return servers.find((s) => s.id === settingsModalTargetId);
+  }, [settingsModalTargetId, servers]);
+
+  // Stable starting shape for entries that have no `settings` node yet — the
+  // form needs concrete arrays / numbers to render.
+  const settingsModalValue = useMemo<InspectorServerSettings>(() => {
+    return (
+      settingsModalTarget?.settings ?? {
+        headers: [],
+        metadata: [],
+        connectionTimeout: 0,
+        requestTimeout: 0,
+      }
+    );
+  }, [settingsModalTarget]);
+
+  // The settings modal fires onSettingsChange on every keystroke. Persisting
+  // each character would run a tight PUT-then-full-refresh loop against the
+  // backend (and the in-memory `servers` state could flicker mid-typing as
+  // each refresh resets the modal's prop). Debounce so a burst of edits
+  // coalesces into a single PUT, and flush on modal close so nothing is lost.
+  const pendingSettingsRef = useRef<{
+    id: string;
+    settings: InspectorServerSettings;
+  } | null>(null);
+  const pendingSettingsTimerRef = useRef<
+    ReturnType<typeof setTimeout> | undefined
+  >(undefined);
+
+  const flushPendingSettings = useCallback(() => {
+    if (pendingSettingsTimerRef.current) {
+      clearTimeout(pendingSettingsTimerRef.current);
+      pendingSettingsTimerRef.current = undefined;
+    }
+    const pending = pendingSettingsRef.current;
+    if (!pending) return;
+    pendingSettingsRef.current = null;
+    // Fire-and-forget — but surface failures via toast. The modal closes
+    // immediately on user dismiss, so a silent fail-on-flush would leave
+    // the user thinking their last edits saved when they didn't (especially
+    // painful for the OAuth client secret).
+    updateServerSettings(pending.id, pending.settings).catch((err) => {
+      notifications.show({
+        title: `Failed to save settings for "${pending.id}"`,
+        message: err instanceof Error ? err.message : String(err),
+        color: "red",
+      });
+    });
+  }, [updateServerSettings]);
+
+  const onSettingsChange = useCallback(
+    (next: InspectorServerSettings) => {
+      if (!settingsModalTargetId) return;
+      pendingSettingsRef.current = {
+        id: settingsModalTargetId,
+        settings: next,
+      };
+      if (pendingSettingsTimerRef.current) {
+        clearTimeout(pendingSettingsTimerRef.current);
+      }
+      pendingSettingsTimerRef.current = setTimeout(flushPendingSettings, 300);
+    },
+    [settingsModalTargetId, flushPendingSettings],
+  );
+
+  const onSettingsModalClose = useCallback(() => {
+    flushPendingSettings();
+    setSettingsModalTargetId(undefined);
+  }, [flushPendingSettings]);
+
+  // Cancel any pending debounce on unmount (route change / HMR). Without
+  // this a stale setTimeout could still fire one final `updateServerSettings`
+  // against an unmounted component — harmless today (just an extra PUT of
+  // the final payload) but the cleanest pattern is to clear the timer.
+  useEffect(() => {
+    return () => {
+      if (pendingSettingsTimerRef.current) {
+        clearTimeout(pendingSettingsTimerRef.current);
+        pendingSettingsTimerRef.current = undefined;
+      }
+    };
+  }, []);
+
   // The Resources screen needs `isSubscribed` to flip the Subscribe button
   // label to "Unsubscribe". Derive it from the live subscriptions list rather
   // than threading it through every setReadResourceState site — that way the
@@ -756,7 +899,7 @@ function App() {
         onServerImportJson={todoNoop}
         onServerExport={onServerExport}
         onServerInfo={todoNoop}
-        onServerSettings={todoNoop}
+        onServerSettings={(id) => setSettingsModalTargetId(id)}
         onServerEdit={(id) => setConfigModal({ mode: "edit", targetId: id })}
         onServerClone={(id) => setConfigModal({ mode: "clone", targetId: id })}
         onServerRemove={(id) => {
@@ -804,6 +947,12 @@ function App() {
         existingIds={existingIds}
         onClose={() => setConfigModal(null)}
         onSubmit={onConfigSubmit}
+      />
+      <ServerSettingsModal
+        opened={settingsModalTargetId !== undefined}
+        settings={settingsModalValue}
+        onClose={onSettingsModalClose}
+        onSettingsChange={onSettingsChange}
       />
       <ServerRemoveConfirmModal
         opened={removeTarget !== null}

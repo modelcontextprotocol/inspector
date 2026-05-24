@@ -7,3 +7,7 @@ dist
 test-servers/build
 .env
 /.playwright-mcp/
+
+# Local debugging screenshots dropped at the repo root (e.g. attached to
+# Claude Code conversations). Should never be part of the source tree.
+/*.png

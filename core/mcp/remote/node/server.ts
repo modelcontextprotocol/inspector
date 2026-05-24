@@ -23,7 +23,12 @@ import type { Context, Env, Next } from "hono";
 import { streamSSE } from "hono/streaming";
 import { createTransportNode } from "../../node/transport.js";
 import type { RemoteConnectRequest, RemoteSendRequest } from "../types.js";
-import type { MCPConfig, MCPServerConfig } from "../../types.js";
+import type {
+  InspectorServerSettings,
+  MCPConfig,
+  MCPServerConfig,
+  StoredMCPServer,
+} from "../../types.js";
 import {
   DEFAULT_SEED_CONFIG,
   normalizeServerType,
@@ -40,7 +45,6 @@ export interface InitialConfigPayload {
   defaultArgs?: string[];
   defaultTransport?: string;
   defaultServerUrl?: string;
-  defaultHeaders?: Record<string, string>;
   defaultCwd?: string;
   defaultEnvironment: Record<string, string>;
 }
@@ -295,6 +299,7 @@ export function createRemoteApp(
         onStderr: (entry) => session.onStderr(entry),
         onFetchRequest: (entry) => session.onFetchRequest(entry),
         authProvider,
+        settings: body.settings,
       });
       transport = result.transport;
     } catch (err) {
@@ -630,17 +635,160 @@ export function createRemoteApp(
   // --- /api/servers (server list backed by mcp.json) ---
 
   // Defensive normalize so editor-edited files with type:"http" or missing
-  // type round-trip into the canonical form on every read.
-  const normalizeMcpServers = (raw: unknown): Record<string, MCPServerConfig> => {
+  // type round-trip into the canonical form on every read. Settings that
+  // fail `validateSettings` are silently stripped (lenient-on-read pattern
+  // matching `normalizeServerType`'s unknown→stdio fallback) so a malformed
+  // hand-edit can't propagate through preserve-on-PUT.
+  const normalizeMcpServers = (raw: unknown): Record<string, StoredMCPServer> => {
     if (!raw || typeof raw !== "object") return {};
-    const out: Record<string, MCPServerConfig> = {};
+    const out: Record<string, StoredMCPServer> = {};
     for (const [id, val] of Object.entries(raw as Record<string, unknown>)) {
       if (!val || typeof val !== "object") continue;
-      out[id] = normalizeServerType(
+      const normalized = normalizeServerType(
         val as Record<string, unknown> & { type?: string },
-      );
+      ) as StoredMCPServer;
+      if (normalized.settings !== undefined) {
+        const checked = validateSettings(normalized.settings);
+        if (checked.ok) {
+          normalized.settings = checked.value;
+        } else {
+          delete normalized.settings;
+        }
+      }
+      out[id] = normalized;
     }
     return out;
+  };
+
+  // Build a single on-disk entry from `{ config, settings }`, normalizing the
+  // type discriminator and attaching settings only when defined.
+  //
+  // `normalizeServerType` spreads unknown keys from the incoming config
+  // through verbatim, so a caller that included `config.settings` on the
+  // wire would smuggle a `settings` field straight onto the stored entry —
+  // bypassing `validateSettings`. Strip it here so `validateSettings`
+  // remains the single write path for the settings node. Log a warning if
+  // we observe this — it indicates a client bug (settings should travel
+  // through the body's top-level `settings` field, not nested in config).
+  //
+  // `id` is threaded through purely so the warning correlates to a
+  // specific entry; the route ultimately reaches here via POST or PUT and
+  // both know the target id at call time.
+  const buildStoredEntry = (
+    id: string,
+    config: unknown,
+    settings: InspectorServerSettings | undefined,
+  ): StoredMCPServer => {
+    // `unknown` parameter contract: be honest about the shape rather than
+    // assuming the route layer's pre-checks. The route handlers do reject
+    // non-object config before reaching here, but this helper should stay
+    // safe to call from anywhere.
+    const configObj: Record<string, unknown> =
+      config !== null && typeof config === "object"
+        ? (config as Record<string, unknown>)
+        : {};
+    if ("settings" in configObj) {
+      fileLogger?.warn(
+        { route: "/api/servers", id, smuggledKey: "settings" },
+        "Stripping `settings` key from request body's `config` — settings must travel through the top-level `settings` field, not nested inside `config`.",
+      );
+    }
+    const { settings: _smuggled, ...configOnly } = configObj;
+    const normalized = normalizeServerType(
+      configOnly as Record<string, unknown> & { type?: string },
+    ) as StoredMCPServer;
+    if (settings !== undefined) {
+      normalized.settings = settings;
+    }
+    return normalized;
+  };
+
+  // Structurally validates an InspectorServerSettings payload off the wire so
+  // a malformed body can't persist to disk and crash the UI later (e.g.
+  // `settings: []` or `settings: { headers: "oops" }`). Mirrors the lenient
+  // read on `normalizeMcpServers` so the only fully-trusted invariant is
+  // "what we accept on the write path."
+  const validateSettings = (
+    raw: unknown,
+  ):
+    | { ok: true; value: InspectorServerSettings }
+    | { ok: false; error: string } => {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      return { ok: false, error: "settings must be an object" };
+    }
+    const obj = raw as Record<string, unknown>;
+    const isKvArray = (v: unknown): v is { key: string; value: string }[] => {
+      if (!Array.isArray(v)) return false;
+      return v.every(
+        (e) =>
+          e !== null &&
+          typeof e === "object" &&
+          typeof (e as Record<string, unknown>).key === "string" &&
+          typeof (e as Record<string, unknown>).value === "string",
+      );
+    };
+    if (!isKvArray(obj.headers)) {
+      return {
+        ok: false,
+        error: "settings.headers must be an array of { key, value }",
+      };
+    }
+    if (!isKvArray(obj.metadata)) {
+      return {
+        ok: false,
+        error: "settings.metadata must be an array of { key, value }",
+      };
+    }
+    if (
+      typeof obj.connectionTimeout !== "number" ||
+      obj.connectionTimeout < 0
+    ) {
+      return {
+        ok: false,
+        error: "settings.connectionTimeout must be a non-negative number",
+      };
+    }
+    if (typeof obj.requestTimeout !== "number" || obj.requestTimeout < 0) {
+      return {
+        ok: false,
+        error: "settings.requestTimeout must be a non-negative number",
+      };
+    }
+    for (const optional of [
+      "oauthClientId",
+      "oauthClientSecret",
+      "oauthScopes",
+    ] as const) {
+      if (obj[optional] !== undefined && typeof obj[optional] !== "string") {
+        return { ok: false, error: `settings.${optional} must be a string` };
+      }
+    }
+    // Build the validated value from explicitly named fields rather than
+    // casting the raw object through. Unknown keys silently drop so a
+    // misconfigured client can't smuggle stowaways onto disk, and consumers
+    // can rely on the validated shape being exactly InspectorServerSettings.
+    // Empty-string OAuth fields coerce to absent — the form emits `""` when
+    // the user clears an input, and an empty `oauthClientId` on disk would
+    // later be misread as "OAuth configured."
+    const value: InspectorServerSettings = {
+      headers: obj.headers as { key: string; value: string }[],
+      metadata: obj.metadata as { key: string; value: string }[],
+      connectionTimeout: obj.connectionTimeout as number,
+      requestTimeout: obj.requestTimeout as number,
+    };
+    if (typeof obj.oauthClientId === "string" && obj.oauthClientId !== "") {
+      value.oauthClientId = obj.oauthClientId;
+    }
+    if (
+      typeof obj.oauthClientSecret === "string" &&
+      obj.oauthClientSecret !== ""
+    ) {
+      value.oauthClientSecret = obj.oauthClientSecret;
+    }
+    if (typeof obj.oauthScopes === "string" && obj.oauthScopes !== "") {
+      value.oauthScopes = obj.oauthScopes;
+    }
+    return { ok: true, value };
   };
 
   // In-process serialization for the read-modify-write flow on the
@@ -695,9 +843,13 @@ export function createRemoteApp(
   });
 
   app.post("/api/servers", async (c) => {
-    let body: { id?: unknown; config?: unknown };
+    let body: { id?: unknown; config?: unknown; settings?: unknown };
     try {
-      body = (await c.req.json()) as { id?: unknown; config?: unknown };
+      body = (await c.req.json()) as {
+        id?: unknown;
+        config?: unknown;
+        settings?: unknown;
+      };
     } catch {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
@@ -713,6 +865,14 @@ export function createRemoteApp(
     if (!body.config || typeof body.config !== "object") {
       return c.json({ error: "Missing or invalid config" }, 400);
     }
+    // Settings on POST: optional. `undefined` → no settings node persisted.
+    // Any provided value must structurally match InspectorServerSettings.
+    let postSettings: InspectorServerSettings | undefined;
+    if (body.settings !== undefined && body.settings !== null) {
+      const validated = validateSettings(body.settings);
+      if (!validated.ok) return c.json({ error: validated.error }, 400);
+      postSettings = validated.value;
+    }
     const id = body.id;
 
     try {
@@ -721,8 +881,10 @@ export function createRemoteApp(
         if (id in current.mcpServers) {
           return c.json({ error: `Server '${id}' already exists` }, 409);
         }
-        current.mcpServers[id] = normalizeServerType(
-          body.config as Record<string, unknown> & { type?: string },
+        current.mcpServers[id] = buildStoredEntry(
+          id,
+          body.config,
+          postSettings,
         );
         await writeStoreFile(mcpConfigPath, serializeStore(current));
         return c.json({ ok: true });
@@ -738,14 +900,48 @@ export function createRemoteApp(
     if (!originalId || !validateStoreId(originalId)) {
       return c.json({ error: "Invalid id" }, 400);
     }
-    let body: { id?: unknown; config?: unknown };
+    let body: { id?: unknown; config?: unknown; settings?: unknown };
     try {
-      body = (await c.req.json()) as { id?: unknown; config?: unknown };
+      body = (await c.req.json()) as {
+        id?: unknown;
+        config?: unknown;
+        settings?: unknown;
+      };
     } catch {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
-    if (!body.config || typeof body.config !== "object") {
-      return c.json({ error: "Missing or invalid config" }, 400);
+    // Config on PUT: optional. If the field is omitted, preserve the
+    // existing transport config from disk. This makes "patch only settings"
+    // a first-class shape — callers like updateServerSettings don't have to
+    // snapshot the current config off in-memory state (which could race
+    // against a concurrent refresh and silently revert a separate edit).
+    // A provided config must structurally be an object; we let
+    // `normalizeServerType` do the lenient type coercion downstream.
+    if (
+      body.config !== undefined &&
+      (body.config === null || typeof body.config !== "object")
+    ) {
+      return c.json({ error: "Invalid config" }, 400);
+    }
+    // Settings on PUT have three intents:
+    //   - field omitted (`undefined`)  → preserve the existing settings node
+    //   - explicit `null`              → clear the settings node
+    //   - a settings object            → validate and apply
+    // Preserving on omission means callers that only want to update config
+    // (e.g. ServerConfigModal save) don't silently wipe persisted settings.
+    type SettingsIntent =
+      | { kind: "preserve" }
+      | { kind: "clear" }
+      | { kind: "apply"; value: InspectorServerSettings };
+    let settingsIntent: SettingsIntent;
+    if (body.settings === undefined) {
+      settingsIntent = { kind: "preserve" };
+    } else if (body.settings === null) {
+      settingsIntent = { kind: "clear" };
+    } else {
+      const validated = validateSettings(body.settings);
+      if (!validated.ok) return c.json({ error: validated.error }, 400);
+      settingsIntent = { kind: "apply", value: validated.value };
     }
     const newId = typeof body.id === "string" ? body.id : originalId;
     if (!validateStoreId(newId)) {
@@ -761,13 +957,38 @@ export function createRemoteApp(
         if (newId !== originalId && newId in current.mcpServers) {
           return c.json({ error: `Server '${newId}' already exists` }, 409);
         }
-        // Rebuild preserving insertion order; replace the original key in place
-        // so the file diff stays minimal when not renaming.
+        // Rebuild preserving insertion order; replace the original key in
+        // place so the file diff stays minimal when not renaming. Writing
+        // the full map back also means normalize-on-read self-heals any
+        // malformed settings node on *other* servers in the file — a
+        // deliberate side-effect of using `readMcpConfig` + full rewrite
+        // here.
+        const existing = current.mcpServers[originalId]!;
+        // Split the existing entry into its config (everything except
+        // settings) and its settings, then apply patch semantics from the
+        // body to each.
+        const { settings: _existingSettings, ...existingConfig } = existing;
+        const nextConfig =
+          body.config !== undefined ? body.config : existingConfig;
+        let nextSettings: InspectorServerSettings | undefined;
+        switch (settingsIntent.kind) {
+          case "preserve":
+            nextSettings = existing.settings;
+            break;
+          case "clear":
+            nextSettings = undefined;
+            break;
+          case "apply":
+            nextSettings = settingsIntent.value;
+            break;
+        }
         const next: MCPConfig = { mcpServers: {} };
         for (const [key, val] of Object.entries(current.mcpServers)) {
           if (key === originalId) {
-            next.mcpServers[newId] = normalizeServerType(
-              body.config as Record<string, unknown> & { type?: string },
+            next.mcpServers[newId] = buildStoredEntry(
+              newId,
+              nextConfig,
+              nextSettings,
             );
           } else {
             next.mcpServers[key] = val;

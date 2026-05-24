@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { mcpConfigToServerEntries } from "../mcp/serverList.js";
 import type {
+  InspectorServerSettings,
   MCPConfig,
   MCPServerConfig,
   ServerEntry,
@@ -32,6 +33,15 @@ export interface UseServersResult {
     originalId: string,
     newId: string,
     config: MCPServerConfig,
+  ) => Promise<void>;
+  /**
+   * Patch only the `settings` node on an existing server entry, leaving the
+   * transport config and id untouched. Routes through `PUT /api/servers/:id`
+   * with the current `config` plus the new settings.
+   */
+  updateServerSettings: (
+    id: string,
+    settings: InspectorServerSettings,
   ) => Promise<void>;
   removeServer: (id: string) => Promise<void>;
 }
@@ -111,12 +121,42 @@ export function useServers(opts: UseServersOptions): UseServersResult {
       newId: string,
       config: MCPServerConfig,
     ): Promise<void> => {
+      // `settings` is intentionally omitted from the body. The backend route
+      // treats omission as "preserve the existing settings node on disk", so
+      // a config-only save (e.g. ServerConfigModal) cannot silently wipe
+      // persisted headers / metadata / OAuth credentials. To explicitly
+      // clear settings, send `settings: null`.
       const res = await doFetch(
         `${base}/api/servers/${encodeURIComponent(originalId)}`,
         {
           method: "PUT",
           headers: buildHeaders(authToken, true),
           body: JSON.stringify({ id: newId, config }),
+        },
+      );
+      if (!res.ok) {
+        throw new Error(await readErrorMessage(res));
+      }
+      await refresh();
+    },
+    [base, authToken, doFetch, refresh],
+  );
+
+  const updateServerSettings = useCallback(
+    async (id: string, settings: InspectorServerSettings): Promise<void> => {
+      // Settings-only PUT — we deliberately omit `config` so the route
+      // preserves the on-disk transport config inside its write lock.
+      // Reading `existing.config` from in-memory `servers` here would pin a
+      // stale snapshot at scheduling time and could silently revert a
+      // separate concurrent edit (e.g. a future file-watcher refreshing
+      // `servers` between debounce schedule and flush). The server is the
+      // single source of truth for config.
+      const res = await doFetch(
+        `${base}/api/servers/${encodeURIComponent(id)}`,
+        {
+          method: "PUT",
+          headers: buildHeaders(authToken, true),
+          body: JSON.stringify({ id, settings }),
         },
       );
       if (!res.ok) {
@@ -151,6 +191,7 @@ export function useServers(opts: UseServersOptions): UseServersResult {
     refresh,
     addServer,
     updateServer,
+    updateServerSettings,
     removeServer,
   };
 }

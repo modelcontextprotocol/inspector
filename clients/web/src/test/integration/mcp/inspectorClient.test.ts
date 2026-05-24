@@ -255,7 +255,7 @@ describe("InspectorClient", () => {
       pagedPromptsState.destroy();
     });
 
-    it("MessageLogState clears on connect when attached to client", async () => {
+    it("MessageLogState clears across a disconnect → reconnect cycle", async () => {
       client = new InspectorClient(
         {
           type: "stdio",
@@ -288,6 +288,51 @@ describe("InspectorClient", () => {
         }
       }
       messageLogState.destroy();
+    });
+
+    it("rejects connect() with a timeout error when serverSettings.connectionTimeout fires", async () => {
+      // Stub transport whose start() never resolves — simulates a slow /
+      // unreachable upstream. InspectorClient.connect() should race against
+      // serverSettings.connectionTimeout and reject with a descriptive error;
+      // status should end up in "error", and the client should have
+      // internally torn down the transport (next connect() must rebuild).
+      const hangingTransport = {
+        start: () => new Promise<void>(() => {}),
+        send: async () => {},
+        close: async () => {},
+        onclose: undefined,
+        onerror: undefined,
+        onmessage: undefined,
+        sessionId: undefined,
+      };
+      const fakeFactory = () => ({
+        transport:
+          hangingTransport as unknown as import("@modelcontextprotocol/sdk/shared/transport.js").Transport,
+      });
+      client = new InspectorClient(
+        { type: "streamable-http", url: "http://localhost:1/never" },
+        {
+          environment: { transport: fakeFactory },
+          serverSettings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 50,
+            requestTimeout: 0,
+          },
+        },
+      );
+
+      const before = Date.now();
+      await expect(client.connect()).rejects.toThrow(
+        /Connection timed out after 50 ms/,
+      );
+      const elapsed = Date.now() - before;
+      // Sanity: the race should fire near the configured timeout, not at
+      // some far-future SDK default.
+      expect(elapsed).toBeLessThan(2000);
+      // connect() rejected → the outer catch transitions status to "error"
+      // (the same end state any other handshake failure would produce).
+      expect(client.getStatus()).toBe("error");
     });
   });
 
@@ -395,6 +440,52 @@ describe("InspectorClient", () => {
       expect(notifications.every((m) => m.direction === "notification")).toBe(
         true,
       );
+      messageLogState.destroy();
+    });
+
+    it("matches responses to requests when a sibling listener fires a request inside the same connect event (regression for unmatched */list responses)", async () => {
+      // Reproduces the pre-fix bug where MessageLogState's clear-on-connect
+      // listener ran after sibling state-manager onConnect listeners had
+      // already synchronously tracked their initial list requests. That clear
+      // wiped pendingRequestEntries before the responses arrived, leaving
+      // the history with unmatched "response" entries marked PENDING.
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        { environment: { transport: createTransportNode } },
+      );
+      const messageLogState = new MessageLogState(client);
+
+      // Simulate the App.tsx wiring: ManagedToolsState et al. register their
+      // own connect listeners that synchronously fire `void client.listTools()`.
+      const refreshClient = client;
+      client.addEventListener("connect", () => {
+        void refreshClient.listTools();
+      });
+
+      await client.connect();
+      // Settle: drain pending microtasks so the listTools response can fold.
+      await new Promise((r) => setTimeout(r, 100));
+
+      const requests = messageLogState
+        .getMessages()
+        .filter((m) => m.direction === "request");
+      const orphanResponses = messageLogState
+        .getMessages()
+        .filter((m) => m.direction === "response");
+      const listToolsReq = requests.find(
+        (m) => (m.message as { method?: string }).method === "tools/list",
+      );
+      expect(listToolsReq).toBeDefined();
+      // Its response must be folded into the request entry, not pushed as a
+      // separate "response" entry.
+      expect(listToolsReq?.response).toBeDefined();
+      expect(listToolsReq?.duration).toBeGreaterThanOrEqual(0);
+      expect(orphanResponses).toEqual([]);
+
       messageLogState.destroy();
     });
   });
@@ -775,6 +866,115 @@ describe("InspectorClient", () => {
       expect(page4.tools.length).toBe(1);
       expect(page4.nextCursor).toBeUndefined();
       expect(page4.tools[0]?.name).toBe("tool_10");
+    });
+  });
+
+  describe("Default metadata (server-wide _meta)", () => {
+    function metaOf(req: { message: unknown }): Record<string, unknown> {
+      const params = (req.message as { params?: { _meta?: unknown } }).params;
+      return (params?._meta as Record<string, unknown>) ?? {};
+    }
+
+    it("merges defaultMetadata into the _meta of outgoing tools/list and tools/call", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+          defaultMetadata: { tenant: "acme", env: "prod" },
+        },
+      );
+      const messageLogState = new MessageLogState(client);
+      await client.connect();
+      await client.listTools();
+      const tool = await getTool(client, "echo");
+      await client.callTool(tool, { message: "hi" });
+
+      const requests = messageLogState
+        .getMessages()
+        .filter((m) => m.direction === "request");
+      const listToolsReq = requests.find(
+        (m) => (m.message as { method?: string }).method === "tools/list",
+      );
+      const callToolReq = requests.find(
+        (m) => (m.message as { method?: string }).method === "tools/call",
+      );
+      expect(listToolsReq).toBeDefined();
+      expect(callToolReq).toBeDefined();
+      expect(metaOf(listToolsReq!)).toMatchObject({
+        tenant: "acme",
+        env: "prod",
+      });
+      expect(metaOf(callToolReq!)).toMatchObject({
+        tenant: "acme",
+        env: "prod",
+      });
+      messageLogState.destroy();
+    });
+
+    it("call-time metadata overrides defaultMetadata on key collision", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+          defaultMetadata: { tenant: "acme" },
+        },
+      );
+      const messageLogState = new MessageLogState(client);
+      await client.connect();
+      const tool = await getTool(client, "echo");
+      await client.callTool(tool, { message: "hi" }, { tenant: "override" });
+
+      const callToolReq = messageLogState
+        .getMessages()
+        .find(
+          (m) =>
+            m.direction === "request" &&
+            (m.message as { method?: string }).method === "tools/call",
+        );
+      expect(callToolReq).toBeDefined();
+      expect(metaOf(callToolReq!).tenant).toBe("override");
+      messageLogState.destroy();
+    });
+
+    it("does not inject defaults into _meta when defaultMetadata is unset", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+          // defaultMetadata omitted on purpose
+        },
+      );
+      const messageLogState = new MessageLogState(client);
+      await client.connect();
+      await client.listTools();
+
+      const listToolsReq = messageLogState
+        .getMessages()
+        .find(
+          (m) =>
+            m.direction === "request" &&
+            (m.message as { method?: string }).method === "tools/list",
+        );
+      expect(listToolsReq).toBeDefined();
+      // The SDK auto-injects a `progressToken` for progress-tracked requests
+      // — that's an SDK concern, not user metadata. Assert only that none of
+      // our example default keys leak through when defaultMetadata is unset.
+      const meta = metaOf(listToolsReq!);
+      expect(meta.tenant).toBeUndefined();
+      expect(meta.env).toBeUndefined();
+      messageLogState.destroy();
     });
   });
 

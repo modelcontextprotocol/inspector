@@ -69,12 +69,10 @@ const baseProps = {
 };
 
 describe("HistoryListPanel", () => {
-  it("renders the title and Export JSON button", () => {
+  it("renders the title and Export button", () => {
     renderWithMantine(<HistoryListPanel {...baseProps} entries={[]} />);
     expect(screen.getByText("Requests")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Export JSON" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
   });
 
   it("renders the empty state when there are no entries", () => {
@@ -134,7 +132,7 @@ describe("HistoryListPanel", () => {
     expect(screen.getByText("History (1)")).toBeInTheDocument();
   });
 
-  it("invokes onExport when Export JSON is clicked", async () => {
+  it("invokes onExport when Export is clicked", async () => {
     const user = userEvent.setup();
     const onExport = vi.fn();
     renderWithMantine(
@@ -144,7 +142,7 @@ describe("HistoryListPanel", () => {
         onExport={onExport}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Export JSON" }));
+    await user.click(screen.getByRole("button", { name: "Export" }));
     expect(onExport).toHaveBeenCalledTimes(1);
   });
 

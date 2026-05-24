@@ -24,11 +24,6 @@ export interface HistoryListPanelProps {
   onTogglePin: (id: string) => void;
 }
 
-const ToolbarButton = Button.withProps({
-  variant: "subtle",
-  size: "sm",
-});
-
 const PanelContainer = Paper.withProps({
   withBorder: true,
   p: "lg",
@@ -101,13 +96,22 @@ export function HistoryListPanel({
       <Group justify="space-between" mb="sm">
         <Title order={4}>Requests</Title>
         <Group gap="xs">
-          <ToolbarButton onClick={onExport}>Export JSON</ToolbarButton>
           {hasResults && (
             <ListToggle
               compact={compact}
               onToggle={() => setCompact((c) => !c)}
             />
           )}
+          <Button
+            variant="default"
+            onClick={onClearAll}
+            disabled={unpinnedEntries.length === 0}
+          >
+            Clear
+          </Button>
+          <Button variant="default" onClick={onExport} disabled={!hasResults}>
+            Export
+          </Button>
         </Group>
       </Group>
 
@@ -136,12 +140,9 @@ export function HistoryListPanel({
 
             {unpinnedEntries.length > 0 && (
               <>
-                <Group justify="space-between">
-                  <Title order={5}>
-                    {formatHistoryTitle(unpinnedEntries.length)}
-                  </Title>
-                  <ToolbarButton onClick={onClearAll}>Clear</ToolbarButton>
-                </Group>
+                <Title order={5}>
+                  {formatHistoryTitle(unpinnedEntries.length)}
+                </Title>
                 {unpinnedEntries.map((entry) => (
                   <HistoryEntry
                     key={entry.id}

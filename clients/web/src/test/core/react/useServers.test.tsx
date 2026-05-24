@@ -281,6 +281,113 @@ describe("useServers", () => {
     expect(seenHeaders[0]?.get("x-mcp-remote-auth")).toBe("Bearer secret");
   });
 
+  it("updateServerSettings persists the new settings node without touching config", async () => {
+    writeFileSync(
+      h.configPath,
+      JSON.stringify({
+        mcpServers: {
+          alpha: { type: "streamable-http", url: "https://x.test/mcp" },
+        },
+      }),
+    );
+
+    const { result } = renderHook(() =>
+      useServers({ baseUrl: "http://test.local", fetchFn: h.fetchFn }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.updateServerSettings("alpha", {
+        headers: [{ key: "X-Tenant", value: "acme" }],
+        metadata: [{ key: "trace", value: "abc" }],
+        connectionTimeout: 5000,
+        requestTimeout: 30000,
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.servers[0]?.settings).toEqual({
+        headers: [{ key: "X-Tenant", value: "acme" }],
+        metadata: [{ key: "trace", value: "abc" }],
+        connectionTimeout: 5000,
+        requestTimeout: 30000,
+      });
+    });
+    const stored = readConfig(h.configPath).mcpServers.alpha as {
+      type?: string;
+      url?: string;
+      settings?: unknown;
+    };
+    expect(stored.type).toBe("streamable-http");
+    expect(stored.url).toBe("https://x.test/mcp");
+    expect(stored.settings).toBeDefined();
+  });
+
+  it("updateServerSettings throws when the target id does not exist (server-side 404)", async () => {
+    const { result } = renderHook(() =>
+      useServers({ baseUrl: "http://test.local", fetchFn: h.fetchFn }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await expect(
+      act(async () => {
+        await result.current.updateServerSettings("nonexistent", {
+          headers: [],
+          metadata: [],
+          connectionTimeout: 0,
+          requestTimeout: 0,
+        });
+      }),
+    ).rejects.toThrow(/not found/);
+  });
+
+  it("updateServer preserves the existing settings node across a config update", async () => {
+    writeFileSync(
+      h.configPath,
+      JSON.stringify({
+        mcpServers: {
+          alpha: {
+            type: "streamable-http",
+            url: "https://x.test/mcp",
+            settings: {
+              headers: [{ key: "X-Keep", value: "yes" }],
+              metadata: [],
+              connectionTimeout: 0,
+              requestTimeout: 0,
+            },
+          },
+        },
+      }),
+    );
+
+    const { result } = renderHook(() =>
+      useServers({ baseUrl: "http://test.local", fetchFn: h.fetchFn }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      // ServerConfigModal saves do not touch settings; updateServer must not
+      // drop them, otherwise the user loses persisted headers / metadata when
+      // they tweak the URL.
+      await result.current.updateServer("alpha", "alpha", {
+        type: "streamable-http",
+        url: "https://x.test/other",
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.servers[0]?.config).toMatchObject({
+        url: "https://x.test/other",
+      });
+    });
+    expect(result.current.servers[0]?.settings).toEqual({
+      headers: [{ key: "X-Keep", value: "yes" }],
+      metadata: [],
+      connectionTimeout: 0,
+      requestTimeout: 0,
+    });
+  });
+
   it("uses DEFAULT_SEED_CONFIG keys on the first load (seed-write contract)", async () => {
     const { result } = renderHook(() =>
       useServers({ baseUrl: "http://test.local", fetchFn: h.fetchFn }),

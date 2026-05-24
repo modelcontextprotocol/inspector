@@ -2,12 +2,22 @@
  * Types for the remote transport protocol.
  */
 
-import type { MCPServerConfig, FetchRequestEntryBase } from "../types.js";
+import type {
+  MCPServerConfig,
+  FetchRequestEntryBase,
+  InspectorServerSettings,
+} from "../types.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 
 export interface RemoteConnectRequest {
   /** MCP server config (stdio, sse, or streamable-http) */
   config: MCPServerConfig;
+  /**
+   * Optional per-server runtime settings (headers, etc.). When supplied the
+   * backend sources transport-level headers from settings.headers rather than
+   * from the legacy `config.headers` field (which has been removed).
+   */
+  settings?: InspectorServerSettings;
   /** Optional OAuth tokens for Bearer authentication (for HTTP transports) */
   oauthTokens?: {
     access_token: string;

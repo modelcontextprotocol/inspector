@@ -322,4 +322,62 @@ describe("RemoteClientTransport", () => {
       expect((err as Error).message).toMatch(/Remote connect failed \(401\)/);
     }
   });
+
+  it("start() includes settings on the /api/mcp/connect body when provided", async () => {
+    const seenBodies: string[] = [];
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (_input, init) => {
+        if (init?.method === "POST") {
+          seenBodies.push(init.body as string);
+          return new Response(JSON.stringify({ sessionId: "abc" }), {
+            status: 200,
+          });
+        }
+        return sseStreamResponse();
+      });
+    const settings = {
+      headers: [{ key: "X-Tenant", value: "acme" }],
+      metadata: [],
+      connectionTimeout: 0,
+      requestTimeout: 0,
+    };
+    const transport = new RemoteClientTransport(
+      {
+        baseUrl,
+        fetchFn: fetchFn as unknown as typeof fetch,
+        settings,
+      },
+      config,
+    );
+    await transport.start();
+    await transport.close();
+
+    expect(seenBodies.length).toBeGreaterThan(0);
+    const parsed = JSON.parse(seenBodies[0]!) as { settings?: unknown };
+    expect(parsed.settings).toEqual(settings);
+  });
+
+  it("start() omits the settings field when no settings are provided", async () => {
+    const seenBodies: string[] = [];
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (_input, init) => {
+        if (init?.method === "POST") {
+          seenBodies.push(init.body as string);
+          return new Response(JSON.stringify({ sessionId: "abc" }), {
+            status: 200,
+          });
+        }
+        return sseStreamResponse();
+      });
+    const transport = new RemoteClientTransport(
+      { baseUrl, fetchFn: fetchFn as unknown as typeof fetch },
+      config,
+    );
+    await transport.start();
+    await transport.close();
+    const parsed = JSON.parse(seenBodies[0]!) as Record<string, unknown>;
+    expect("settings" in parsed).toBe(false);
+  });
 });

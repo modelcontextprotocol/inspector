@@ -344,13 +344,19 @@ describe("/api/servers routes", () => {
       expect(res.status).toBe(400);
     });
 
-    it("rejects a missing config", async () => {
+    it("accepts a body with neither config nor settings (no-op patch)", async () => {
+      // Both fields are now optional patches. An empty body is a degenerate
+      // but valid request — it preserves both config and settings on disk.
       const res = await fetch(`${h.baseUrl}/api/servers/alpha`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: "alpha" }),
       });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
+      expect(readConfig(h.configPath).mcpServers.alpha).toEqual({
+        type: "stdio",
+        command: "old",
+      });
     });
 
     it("rejects malformed JSON body", async () => {
@@ -360,6 +366,429 @@ describe("/api/servers routes", () => {
         body: "not json",
       });
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe("settings round-trip", () => {
+    it("persists a settings node on POST", async () => {
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "gamma",
+          config: { type: "streamable-http", url: "https://x.test/mcp" },
+          settings: {
+            headers: [{ key: "Authorization", value: "Bearer xyz" }],
+            metadata: [{ key: "tenant", value: "acme" }],
+            connectionTimeout: 30000,
+            requestTimeout: 60000,
+            oauthClientId: "client-abc",
+            oauthScopes: "read:tools",
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.gamma as {
+        settings?: unknown;
+      };
+      expect(stored.settings).toEqual({
+        headers: [{ key: "Authorization", value: "Bearer xyz" }],
+        metadata: [{ key: "tenant", value: "acme" }],
+        connectionTimeout: 30000,
+        requestTimeout: 60000,
+        oauthClientId: "client-abc",
+        oauthScopes: "read:tools",
+      });
+    });
+
+    it("updates a settings node on PUT", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            delta: { type: "streamable-http", url: "https://x.test/mcp" },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/delta`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "streamable-http", url: "https://x.test/mcp" },
+          settings: {
+            headers: [{ key: "X-Tenant", value: "acme" }],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 45000,
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.delta as {
+        settings?: unknown;
+      };
+      expect(stored.settings).toEqual({
+        headers: [{ key: "X-Tenant", value: "acme" }],
+        metadata: [],
+        connectionTimeout: 0,
+        requestTimeout: 45000,
+      });
+    });
+
+    it("rejects a non-object settings field", async () => {
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "bad-settings",
+          config: { type: "stdio", command: "node" },
+          settings: "not-an-object",
+        }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("preserves the settings node when PUT omits it (no clobber on config-only save)", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            epsilon: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              settings: {
+                headers: [{ key: "X-Keep", value: "yes" }],
+                metadata: [],
+                connectionTimeout: 0,
+                requestTimeout: 0,
+              },
+            },
+          },
+        }),
+      );
+      // PUT without a settings field: the existing settings node must
+      // survive. A caller updating only the transport config (e.g. the
+      // server config modal) must not silently wipe persisted headers.
+      const res = await fetch(`${h.baseUrl}/api/servers/epsilon`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "streamable-http", url: "https://x.test/other" },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.epsilon as {
+        settings?: { headers: { key: string; value: string }[] };
+      };
+      expect(stored.settings).toBeDefined();
+      expect(stored.settings?.headers).toEqual([
+        { key: "X-Keep", value: "yes" },
+      ]);
+    });
+
+    it("clears the settings node when PUT sends settings: null (explicit intent)", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            zeta: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              settings: {
+                headers: [{ key: "X-Tenant", value: "acme" }],
+                metadata: [],
+                connectionTimeout: 0,
+                requestTimeout: 0,
+              },
+            },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/zeta`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "streamable-http", url: "https://x.test/mcp" },
+          settings: null,
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.zeta as {
+        settings?: unknown;
+      };
+      expect(stored.settings).toBeUndefined();
+    });
+
+    it("rejects a malformed settings shape with 400", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            eta: { type: "stdio", command: "node" },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/eta`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "stdio", command: "node" },
+          // headers should be an array of {key, value}; "oops" is a string.
+          settings: {
+            headers: "oops",
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+          },
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/settings\.headers/);
+    });
+
+    it("accepts a settings-only PUT and preserves config from disk", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            theta: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+            },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/theta`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // No config — server should preserve the existing one inside its
+          // write lock and apply only the settings patch.
+          settings: {
+            headers: [{ key: "X-Tenant", value: "acme" }],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.theta as {
+        type?: string;
+        url?: string;
+        settings?: { headers: { key: string; value: string }[] };
+      };
+      expect(stored.type).toBe("streamable-http");
+      expect(stored.url).toBe("https://x.test/mcp");
+      expect(stored.settings?.headers).toEqual([
+        { key: "X-Tenant", value: "acme" },
+      ]);
+    });
+
+    it("rejects a non-object config on PUT with 400", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            iota: { type: "stdio", command: "node" },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/iota`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: "not-an-object",
+        }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("validateSettings coerces empty-string OAuth fields to absent (cleared inputs don't read as 'configured')", async () => {
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "empty-oauth",
+          config: { type: "streamable-http", url: "https://x.test/mcp" },
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            oauthClientId: "",
+            oauthClientSecret: "",
+            oauthScopes: "",
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers["empty-oauth"] as {
+        settings?: Record<string, unknown>;
+      };
+      expect(stored.settings).toBeDefined();
+      expect(stored.settings).not.toHaveProperty("oauthClientId");
+      expect(stored.settings).not.toHaveProperty("oauthClientSecret");
+      expect(stored.settings).not.toHaveProperty("oauthScopes");
+    });
+
+    it("validateSettings drops unknown keys (explicit pick-and-build, not spread)", async () => {
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "unknown-keys",
+          config: { type: "stdio", command: "node" },
+          settings: {
+            headers: [{ key: "X-A", value: "1" }],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            // Unknown stowaway — must not survive the validator.
+            stowaway: { keep: "me" },
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers["unknown-keys"] as {
+        settings?: Record<string, unknown>;
+      };
+      expect(stored.settings).toBeDefined();
+      expect(stored.settings).not.toHaveProperty("stowaway");
+      expect(stored.settings).toEqual({
+        headers: [{ key: "X-A", value: "1" }],
+        metadata: [],
+        connectionTimeout: 0,
+        requestTimeout: 0,
+      });
+    });
+
+    it("strips smuggled config.settings on POST (validateSettings is the only write path)", async () => {
+      // `normalizeServerType` spreads unknown keys verbatim. Without the
+      // strip in buildStoredEntry, a body that nests `settings` inside
+      // `config` would land it on the stored entry without ever passing
+      // through `validateSettings`. Pin the strip.
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "smuggle-post",
+          config: {
+            type: "stdio",
+            command: "node",
+            settings: { bogus: true },
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers["smuggle-post"] as {
+        settings?: unknown;
+      };
+      expect(stored.settings).toBeUndefined();
+    });
+
+    it("strips smuggled config.settings on PUT even when settings:null clears the real node", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            smuggle: {
+              type: "stdio",
+              command: "node",
+              settings: {
+                headers: [{ key: "X-Real", value: "yes" }],
+                metadata: [],
+                connectionTimeout: 0,
+                requestTimeout: 0,
+              },
+            },
+          },
+        }),
+      );
+      // settings: null clears the real settings node; the bogus key nested
+      // under config must not re-attach via the spread inside normalizeServerType.
+      const res = await fetch(`${h.baseUrl}/api/servers/smuggle`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: {
+            type: "stdio",
+            command: "node",
+            settings: { bogus: true },
+          },
+          settings: null,
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.smuggle as {
+        settings?: unknown;
+      };
+      expect(stored.settings).toBeUndefined();
+    });
+
+    it("rejects a settings array (not an object) with 400", async () => {
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "arrays-not-allowed",
+          config: { type: "stdio", command: "node" },
+          settings: [],
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/object/);
+    });
+
+    it("strips a malformed settings node on read (lenient-on-read; preserve-on-PUT cannot propagate it)", async () => {
+      // Hand-edited mcp.json with a malformed `settings.headers` (string
+      // instead of array). The write-path validator would reject it, but a
+      // user could write it directly. GET should surface the entry with
+      // settings dropped, and a subsequent config-only PUT should not
+      // re-attach the broken node via the preserve branch.
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            broken: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              settings: {
+                headers: "oops",
+                metadata: [],
+                connectionTimeout: 0,
+                requestTimeout: 0,
+              },
+            },
+          },
+        }),
+      );
+
+      // GET surfaces the entry without the malformed settings.
+      const getRes = await fetch(`${h.baseUrl}/api/servers`);
+      expect(getRes.status).toBe(200);
+      const getBody = (await getRes.json()) as {
+        mcpServers: Record<string, { settings?: unknown }>;
+      };
+      expect(getBody.mcpServers.broken).toBeDefined();
+      expect(getBody.mcpServers.broken!.settings).toBeUndefined();
+
+      // PUT without settings preserves the (now-stripped) absence, not the
+      // original malformed node.
+      const putRes = await fetch(`${h.baseUrl}/api/servers/broken`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "streamable-http", url: "https://x.test/other" },
+        }),
+      });
+      expect(putRes.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.broken as {
+        settings?: unknown;
+      };
+      expect(stored.settings).toBeUndefined();
     });
   });
 

@@ -11,7 +11,7 @@ import type {
   JSONRPCMessage,
   MessageExtraInfo,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { StderrLogEntry } from "../types.js";
+import type { InspectorServerSettings, StderrLogEntry } from "../types.js";
 import type { FetchRequestEntryBase } from "../types.js";
 import type {
   RemoteConnectRequest,
@@ -37,6 +37,13 @@ export interface RemoteTransportOptions {
 
   /** Optional OAuth client provider for Bearer authentication */
   authProvider?: import("@modelcontextprotocol/sdk/client/auth.js").OAuthClientProvider;
+
+  /**
+   * Optional per-server settings forwarded in the /api/mcp/connect body.
+   * The backend uses settings.headers as the source of truth for transport
+   * custom headers (SSE / streamable-http).
+   */
+  settings?: InspectorServerSettings;
 }
 
 /**
@@ -160,6 +167,7 @@ export class RemoteClientTransport implements Transport {
     const body: RemoteConnectRequest = {
       config: this.config,
       oauthTokens,
+      ...(this.options.settings && { settings: this.options.settings }),
     };
 
     const res = await this.fetchFn(`${this.baseUrl}/api/mcp/connect`, {

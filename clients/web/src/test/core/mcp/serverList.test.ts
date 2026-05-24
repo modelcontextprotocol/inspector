@@ -140,12 +140,75 @@ describe("serverEntriesToMcpConfig", () => {
         beta: {
           type: "sse",
           url: "https://x.test",
-          headers: { Authorization: "Bearer y" },
         },
       },
     };
     const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
     expect(round).toEqual(original);
+  });
+
+  it("round-trips a populated settings node through both converters", () => {
+    const original: MCPConfig = {
+      mcpServers: {
+        gamma: {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          settings: {
+            headers: [{ key: "Authorization", value: "Bearer xyz" }],
+            metadata: [{ key: "tenant", value: "acme" }],
+            connectionTimeout: 30000,
+            requestTimeout: 60000,
+            oauthClientId: "client-abc",
+            oauthClientSecret: "secret-def",
+            oauthScopes: "read:tools",
+          },
+        },
+      },
+    };
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect(round).toEqual(original);
+  });
+
+  it("lifts the settings node from the stored entry onto ServerEntry.settings", () => {
+    const cfg: MCPConfig = {
+      mcpServers: {
+        alpha: {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          settings: {
+            headers: [{ key: "X-Tenant", value: "acme" }],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+          },
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(cfg);
+    expect(entry?.settings).toEqual({
+      headers: [{ key: "X-Tenant", value: "acme" }],
+      metadata: [],
+      connectionTimeout: 0,
+      requestTimeout: 0,
+    });
+    // `settings` should not leak back into config — the SDK transport must
+    // see a clean MCPServerConfig.
+    expect(
+      (entry?.config as unknown as Record<string, unknown>).settings,
+    ).toBeUndefined();
+  });
+
+  it("omits the settings key on disk when ServerEntry.settings is undefined", () => {
+    const entries: ServerEntry[] = [
+      {
+        id: "alpha",
+        name: "alpha",
+        config: { type: "stdio", command: "node" },
+        connection: { status: "disconnected" },
+      },
+    ];
+    const cfg = serverEntriesToMcpConfig(entries);
+    expect(cfg.mcpServers.alpha).not.toHaveProperty("settings");
   });
 
   it("preserves insertion order on serialize", () => {

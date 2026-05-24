@@ -22,7 +22,6 @@ export interface ServerConfigOptions {
   serverUrl?: string;
   cwd?: string;
   env?: Record<string, string>;
-  headers?: Record<string, string>;
 }
 
 /**
@@ -164,15 +163,9 @@ function buildConfigFromOptions(options: ServerConfigOptions): MCPServerConfig {
     }
     if (transportType === "sse") {
       const config: SseServerConfig = { type: "sse", url };
-      if (options.headers && Object.keys(options.headers).length > 0) {
-        config.headers = options.headers;
-      }
       return config;
     }
     const config: StreamableHttpServerConfig = { type: "streamable-http", url };
-    if (options.headers && Object.keys(options.headers).length > 0) {
-      config.headers = options.headers;
-    }
     return config;
   }
 
@@ -194,13 +187,15 @@ function buildConfigFromOptions(options: ServerConfigOptions): MCPServerConfig {
   return config;
 }
 
-/** Apply env/cwd overrides to a stdio config; headers to sse/streamable-http. */
+/** Apply env/cwd overrides to a stdio config. SSE / streamable-http configs
+ * carry no overridable per-request fields here — custom headers live in
+ * `InspectorServerSettings.headers` (the persisted per-server settings node),
+ * not on `MCPServerConfig`. */
 function applyOverrides(
   config: MCPServerConfig,
   overrides: {
     env?: Record<string, string>;
     cwd?: string;
-    headers?: Record<string, string>;
   },
 ): MCPServerConfig {
   if (config.type === "stdio") {
@@ -209,13 +204,6 @@ function applyOverrides(
       c.env = { ...(c.env ?? {}), ...overrides.env };
     }
     if (overrides.cwd) c.cwd = overrides.cwd;
-    return c;
-  }
-  if (config.type === "sse" || config.type === "streamable-http") {
-    const c = { ...config };
-    if (overrides.headers && Object.keys(overrides.headers).length > 0) {
-      c.headers = { ...(c.headers ?? {}), ...overrides.headers };
-    }
     return c;
   }
   return config;
@@ -248,7 +236,6 @@ export function resolveServerConfigs(
         applyOverrides(config, {
           env: options.env,
           cwd: options.cwd,
-          headers: options.headers,
         }),
       ];
     }
@@ -270,7 +257,6 @@ export function resolveServerConfigs(
         applyOverrides(config, {
           env: options.env,
           cwd: options.cwd,
-          headers: options.headers,
         }),
       ];
     }
@@ -280,7 +266,7 @@ export function resolveServerConfigs(
   if (mode === "multi") {
     if (hasConfigPath && hasAdHoc) {
       throw new Error(
-        "In multi-server mode with a config file, do not pass --transport, --server-url, or positional command/URL. Use only --config with optional -e, --cwd, --header.",
+        "In multi-server mode with a config file, do not pass --transport, --server-url, or positional command/URL. Use only --config with optional -e, --cwd.",
       );
     }
     if (hasConfigPath && options.configPath) {
@@ -290,7 +276,6 @@ export function resolveServerConfigs(
         applyOverrides({ ...c } as MCPServerConfig, {
           env: options.env,
           cwd: options.cwd,
-          headers: options.headers,
         }),
       );
       return configs;
@@ -320,7 +305,7 @@ export function getNamedServerConfigs(
   }
   if (hasAdHoc) {
     throw new Error(
-      "With a config file, do not pass --transport, --server-url, or positional command/URL. Use only --config with optional -e, --cwd, --header.",
+      "With a config file, do not pass --transport, --server-url, or positional command/URL. Use only --config with optional -e, --cwd.",
     );
   }
 
@@ -332,7 +317,6 @@ export function getNamedServerConfigs(
       {
         env: options.env,
         cwd: options.cwd,
-        headers: options.headers,
       },
     );
   }

@@ -31,11 +31,6 @@ const PanelContainer = Paper.withProps({
   variant: "panel",
 });
 
-const ToolbarButton = Button.withProps({
-  variant: "subtle",
-  size: "sm",
-});
-
 const EmptyCenter = Stack.withProps({
   flex: 1,
   align: "center",
@@ -88,9 +83,27 @@ export function LogStreamPanel({
             checked={autoScroll}
             onChange={onToggleAutoScroll}
           />
-          <ToolbarButton onClick={onClear}>Clear</ToolbarButton>
-          <ToolbarButton onClick={onExport}>Export</ToolbarButton>
-          <ToolbarButton onClick={onCopyAll}>Copy All</ToolbarButton>
+          <Button
+            variant="default"
+            onClick={onClear}
+            disabled={entries.length === 0}
+          >
+            Clear
+          </Button>
+          <Button
+            variant="default"
+            onClick={onExport}
+            disabled={entries.length === 0}
+          >
+            Export
+          </Button>
+          <Button
+            variant="default"
+            onClick={onCopyAll}
+            disabled={entries.length === 0}
+          >
+            Copy All
+          </Button>
         </Group>
       </Group>
       {filteredEntries.length > 0 ? (

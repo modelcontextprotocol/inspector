@@ -58,6 +58,7 @@ export function createRemoteTransport(
         onStderr: transportOptions.onStderr,
         onFetchRequest: transportOptions.onFetchRequest,
         authProvider: transportOptions.authProvider,
+        settings: transportOptions.settings,
       },
       config,
     );

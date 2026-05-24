@@ -2,8 +2,13 @@
  * MessageLogState: holds the message log, subscribes to the protocol "message"
  * event. Protocol emits per-entry; this manager owns the list and emits both
  * `message` (single entry) and `messagesChange` (full list) on append/update,
- * and `messagesChange` on clear. Clears on connect (new session) and on
- * disconnect.
+ * and `messagesChange` on clear. Clears on disconnect — the disconnect handler
+ * is the canonical session boundary. We do NOT clear on the subsequent
+ * `connect` event because state managers (Tools/Prompts/Resources/Templates)
+ * fire their initial list requests *synchronously* inside their own connect
+ * listeners; clearing here too would wipe `pendingRequestEntries` after those
+ * requests were tracked but before their responses came back, leaving the
+ * history with unmatched responses.
  *
  * Ported from v1.5/main. v2 substitutes `InspectorClientProtocol` for the
  * concrete `InspectorClient` since the runtime class is not yet ported.
@@ -99,19 +104,12 @@ export class MessageLogState extends TypedEventTarget<MessageLogStateEventMap> {
         this.dispatchTypedEvent("messagesChange", []);
       }
     };
-    const onConnect = (): void => {
-      this.messages = [];
-      this.pendingRequestEntries.clear();
-      this.dispatchTypedEvent("messagesChange", []);
-    };
     this.client.addEventListener("message", onMessage);
     this.client.addEventListener("statusChange", onStatusChange);
-    this.client.addEventListener("connect", onConnect);
     this.unsubscribe = () => {
       if (this.client) {
         this.client.removeEventListener("message", onMessage);
         this.client.removeEventListener("statusChange", onStatusChange);
-        this.client.removeEventListener("connect", onConnect);
       }
       this.client = null;
     };

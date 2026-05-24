@@ -10,6 +10,7 @@ import type {
   MCPServerConfig,
   ServerEntry,
   ServerType,
+  StoredMCPServer,
 } from "./types.js";
 
 // The full set of valid `type` discriminator values, used to reject anything
@@ -52,28 +53,39 @@ export function normalizeServerType(
 /**
  * Convert the on-disk `MCPConfig` into the `ServerEntry[]` the Servers screen
  * consumes. Map key becomes both `id` and `name`. Connection state initializes
- * to `disconnected` — the React layer drives it from there.
+ * to `disconnected` — the React layer drives it from there. The optional
+ * `settings` node is lifted from the stored entry into `ServerEntry.settings`
+ * so the rest of the app sees `config` as the pure SDK shape.
  */
 export function mcpConfigToServerEntries(config: MCPConfig): ServerEntry[] {
-  return Object.entries(config.mcpServers).map(([id, raw]) => ({
-    id,
-    name: id,
-    config: normalizeServerType(
-      raw as unknown as Record<string, unknown> & { type?: string },
-    ),
-    connection: { status: "disconnected" },
-  }));
+  return Object.entries(config.mcpServers).map(([id, raw]) => {
+    const { settings, ...rest } = raw as StoredMCPServer;
+    const normalizedConfig = normalizeServerType(
+      rest as unknown as Record<string, unknown> & { type?: string },
+    );
+    const entry: ServerEntry = {
+      id,
+      name: id,
+      config: normalizedConfig,
+      connection: { status: "disconnected" },
+    };
+    if (settings !== undefined) entry.settings = settings;
+    return entry;
+  });
 }
 
 /**
  * Convert `ServerEntry[]` back into `MCPConfig` for serialization. Strips
- * runtime-only fields (connection, info, name) — only id and config make it
- * to disk so the file stays a clean canonical `mcp.json`.
+ * runtime-only fields (connection, info, name); persists `config` and the
+ * optional `settings` node so the file remains a clean canonical `mcp.json`
+ * plus the Inspector-specific extension.
  */
 export function serverEntriesToMcpConfig(entries: ServerEntry[]): MCPConfig {
-  const mcpServers: Record<string, MCPServerConfig> = {};
+  const mcpServers: Record<string, StoredMCPServer> = {};
   for (const entry of entries) {
-    mcpServers[entry.id] = entry.config;
+    const stored: StoredMCPServer = { ...entry.config } as StoredMCPServer;
+    if (entry.settings !== undefined) stored.settings = entry.settings;
+    mcpServers[entry.id] = stored;
   }
   return { mcpServers };
 }

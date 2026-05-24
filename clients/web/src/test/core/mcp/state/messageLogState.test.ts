@@ -156,14 +156,14 @@ describe("MessageLogState", () => {
     expect(keep).toHaveLength(1);
   });
 
-  it("clears on connect", () => {
+  it("does not clear on connect (state managers fire requests synchronously inside their own connect listeners; clearing here would wipe their pendingRequestEntries before responses arrive)", () => {
     client.dispatchTypedEvent("message", notificationEntry());
     expect(state.getMessages()).toHaveLength(1);
     let dispatched = false;
     state.addEventListener("messagesChange", () => (dispatched = true));
     client.dispatchTypedEvent("connect");
-    expect(state.getMessages()).toEqual([]);
-    expect(dispatched).toBe(true);
+    expect(state.getMessages()).toHaveLength(1);
+    expect(dispatched).toBe(false);
   });
 
   it("clears on disconnect (statusChange -> disconnected)", () => {

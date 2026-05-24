@@ -35,7 +35,12 @@ describe("LoggingScreen", () => {
   it("invokes onClear when clear is clicked", async () => {
     const user = userEvent.setup();
     const onClear = vi.fn();
-    renderWithMantine(<LoggingScreen {...baseProps} onClear={onClear} />);
+    const entries = [
+      { receivedAt: new Date(), params: { level: "info" as const, data: "x" } },
+    ];
+    renderWithMantine(
+      <LoggingScreen {...baseProps} entries={entries} onClear={onClear} />,
+    );
     await user.click(screen.getByRole("button", { name: "Clear" }));
     expect(onClear).toHaveBeenCalledTimes(1);
   });
@@ -43,9 +48,21 @@ describe("LoggingScreen", () => {
   it("invokes onCopyAll when Copy All is clicked", async () => {
     const user = userEvent.setup();
     const onCopyAll = vi.fn();
-    renderWithMantine(<LoggingScreen {...baseProps} onCopyAll={onCopyAll} />);
+    const entries = [
+      { receivedAt: new Date(), params: { level: "info" as const, data: "x" } },
+    ];
+    renderWithMantine(
+      <LoggingScreen {...baseProps} entries={entries} onCopyAll={onCopyAll} />,
+    );
     await user.click(screen.getByRole("button", { name: "Copy All" }));
     expect(onCopyAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables Clear / Export / Copy All when there are no entries", () => {
+    renderWithMantine(<LoggingScreen {...baseProps} />);
+    expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Export" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Copy All" })).toBeDisabled();
   });
 
   it("toggles a single level on level button click", async () => {

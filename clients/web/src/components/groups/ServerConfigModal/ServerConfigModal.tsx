@@ -11,9 +11,7 @@ import {
 } from "@mantine/core";
 import type {
   MCPServerConfig,
-  SseServerConfig,
   StdioServerConfig,
-  StreamableHttpServerConfig,
 } from "@inspector/core/mcp/types.js";
 
 /** Allowed id pattern — mirrors validateStoreId in core/storage/store-io.ts */
@@ -47,7 +45,6 @@ interface FormState {
   cwd: string;
   // sse / streamable-http
   url: string;
-  headersText: string;
 }
 
 const SectionStack = Stack.withProps({ gap: "md" });
@@ -77,7 +74,6 @@ function configToFormState(
       envText: "",
       cwd: "",
       url: "",
-      headersText: "",
     };
   }
   if (transport === "stdio") {
@@ -92,11 +88,13 @@ function configToFormState(
         .join("\n"),
       cwd: c.cwd ?? "",
       url: "",
-      headersText: "",
     };
   }
-  // sse / streamable-http
-  const c = initialConfig as SseServerConfig | StreamableHttpServerConfig;
+  // sse / streamable-http — custom headers live in ServerSettingsForm now.
+  const url =
+    initialConfig.type === "sse" || initialConfig.type === "streamable-http"
+      ? initialConfig.url
+      : "";
   return {
     id,
     transport,
@@ -104,10 +102,7 @@ function configToFormState(
     argsText: "",
     envText: "",
     cwd: "",
-    url: c.url ?? "",
-    headersText: Object.entries(c.headers ?? {})
-      .map(([k, v]) => `${k}: ${v}`)
-      .join("\n"),
+    url: url ?? "",
   };
 }
 
@@ -139,43 +134,10 @@ function parseEnv(raw: string):
     }
     const key = line.slice(0, eq).trim();
     // env values preserve trailing whitespace — they're shell-style strings
-    // where spaces / tabs can be load-bearing; header values are HTTP-style
-    // and parseHeaders below trims them per RFC 7230 §3.2.4.
+    // where spaces / tabs can be load-bearing.
     const value = line.slice(eq + 1);
     if (!key)
       return { ok: false, error: `Invalid env line "${line}". Empty key.` };
-    out[key] = value;
-  }
-  return { ok: true, value: out };
-}
-
-function parseHeaders(raw: string):
-  | {
-      ok: true;
-      value: Record<string, string>;
-    }
-  | {
-      ok: false;
-      error: string;
-    } {
-  const out: Record<string, string> = {};
-  const lines = raw
-    .split("\n")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  for (const line of lines) {
-    const colon = line.indexOf(":");
-    if (colon <= 0) {
-      return {
-        ok: false,
-        error: `Invalid header line "${line}". Use "Header-Name: value".`,
-      };
-    }
-    const key = line.slice(0, colon).trim();
-    const value = line.slice(colon + 1).trim();
-    if (!key) {
-      return { ok: false, error: `Invalid header line "${line}". Empty name.` };
-    }
     out[key] = value;
   }
   return { ok: true, value: out };
@@ -247,14 +209,14 @@ export function ServerConfigModal({
     if (!form.url.trim()) {
       return { ok: false, error: "URL is required for sse / streamable-http." };
     }
-    const headers = parseHeaders(form.headersText);
-    if (!headers.ok) return headers;
     const base = { url: form.url.trim() };
-    const config: SseServerConfig | StreamableHttpServerConfig =
+    // Custom headers live in ServerSettingsForm now (persisted under
+    // settings.headers on the entry); the SSE / streamable-http config here
+    // only carries the canonical transport fields.
+    const config: MCPServerConfig =
       form.transport === "sse"
         ? { type: "sse", ...base }
         : { type: "streamable-http", ...base };
-    if (Object.keys(headers.value).length > 0) config.headers = headers.value;
     return { ok: true, config };
   }
 
@@ -384,32 +346,17 @@ export function ServerConfigModal({
               />
             </>
           ) : (
-            <>
-              <TextInput
-                label="URL"
-                placeholder="https://example.com/mcp"
-                value={form.url}
-                onChange={(e) => {
-                  const next = e.currentTarget.value;
-                  setForm((f) => ({ ...f, url: next }));
-                }}
-                required
-                disabled={submitting}
-              />
-              <Textarea
-                label="Headers"
-                description='"Header-Name: value" per line.'
-                placeholder="Authorization: Bearer xxxxx"
-                value={form.headersText}
-                onChange={(e) => {
-                  const next = e.currentTarget.value;
-                  setForm((f) => ({ ...f, headersText: next }));
-                }}
-                autosize
-                minRows={2}
-                disabled={submitting}
-              />
-            </>
+            <TextInput
+              label="URL"
+              placeholder="https://example.com/mcp"
+              value={form.url}
+              onChange={(e) => {
+                const next = e.currentTarget.value;
+                setForm((f) => ({ ...f, url: next }));
+              }}
+              required
+              disabled={submitting}
+            />
           )}
         </FieldGrid>
 
