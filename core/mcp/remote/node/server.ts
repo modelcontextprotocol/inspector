@@ -662,12 +662,20 @@ export function createRemoteApp(
 
   // Build a single on-disk entry from `{ config, settings }`, normalizing the
   // type discriminator and attaching settings only when defined.
+  //
+  // `normalizeServerType` spreads unknown keys from the incoming config
+  // through verbatim, so a caller that included `config.settings` on the
+  // wire would smuggle a `settings` field straight onto the stored entry —
+  // bypassing `validateSettings`. Strip it here so `validateSettings`
+  // remains the single write path for the settings node.
   const buildStoredEntry = (
     config: unknown,
     settings: InspectorServerSettings | undefined,
   ): StoredMCPServer => {
+    const { settings: _smuggled, ...configOnly } =
+      (config as Record<string, unknown>) ?? {};
     const normalized = normalizeServerType(
-      config as Record<string, unknown> & { type?: string },
+      configOnly as Record<string, unknown> & { type?: string },
     ) as StoredMCPServer;
     if (settings !== undefined) {
       normalized.settings = settings;

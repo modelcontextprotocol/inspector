@@ -605,6 +605,69 @@ describe("/api/servers routes", () => {
       expect(res.status).toBe(400);
     });
 
+    it("strips smuggled config.settings on POST (validateSettings is the only write path)", async () => {
+      // `normalizeServerType` spreads unknown keys verbatim. Without the
+      // strip in buildStoredEntry, a body that nests `settings` inside
+      // `config` would land it on the stored entry without ever passing
+      // through `validateSettings`. Pin the strip.
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "smuggle-post",
+          config: {
+            type: "stdio",
+            command: "node",
+            settings: { bogus: true },
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers["smuggle-post"] as {
+        settings?: unknown;
+      };
+      expect(stored.settings).toBeUndefined();
+    });
+
+    it("strips smuggled config.settings on PUT even when settings:null clears the real node", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            smuggle: {
+              type: "stdio",
+              command: "node",
+              settings: {
+                headers: [{ key: "X-Real", value: "yes" }],
+                metadata: [],
+                connectionTimeout: 0,
+                requestTimeout: 0,
+              },
+            },
+          },
+        }),
+      );
+      // settings: null clears the real settings node; the bogus key nested
+      // under config must not re-attach via the spread inside normalizeServerType.
+      const res = await fetch(`${h.baseUrl}/api/servers/smuggle`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: {
+            type: "stdio",
+            command: "node",
+            settings: { bogus: true },
+          },
+          settings: null,
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.smuggle as {
+        settings?: unknown;
+      };
+      expect(stored.settings).toBeUndefined();
+    });
+
     it("rejects a settings array (not an object) with 400", async () => {
       const res = await fetch(`${h.baseUrl}/api/servers`, {
         method: "POST",
