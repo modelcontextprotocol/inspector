@@ -144,20 +144,19 @@ export function useServers(opts: UseServersOptions): UseServersResult {
 
   const updateServerSettings = useCallback(
     async (id: string, settings: InspectorServerSettings): Promise<void> => {
-      const existing = servers.find((s) => s.id === id);
-      if (!existing) {
-        throw new Error(`Server '${id}' not found`);
-      }
+      // Settings-only PUT — we deliberately omit `config` so the route
+      // preserves the on-disk transport config inside its write lock.
+      // Reading `existing.config` from in-memory `servers` here would pin a
+      // stale snapshot at scheduling time and could silently revert a
+      // separate concurrent edit (e.g. a future file-watcher refreshing
+      // `servers` between debounce schedule and flush). The server is the
+      // single source of truth for config.
       const res = await doFetch(
         `${base}/api/servers/${encodeURIComponent(id)}`,
         {
           method: "PUT",
           headers: buildHeaders(authToken, true),
-          body: JSON.stringify({
-            id,
-            config: existing.config,
-            settings,
-          }),
+          body: JSON.stringify({ id, settings }),
         },
       );
       if (!res.ok) {
@@ -165,7 +164,7 @@ export function useServers(opts: UseServersOptions): UseServersResult {
       }
       await refresh();
     },
-    [base, authToken, doFetch, refresh, servers],
+    [base, authToken, doFetch, refresh],
   );
 
   const removeServer = useCallback(

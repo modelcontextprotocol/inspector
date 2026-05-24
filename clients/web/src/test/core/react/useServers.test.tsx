@@ -323,7 +323,7 @@ describe("useServers", () => {
     expect(stored.settings).toBeDefined();
   });
 
-  it("updateServerSettings throws when the target id does not exist", async () => {
+  it("updateServerSettings throws when the target id does not exist (server-side 404)", async () => {
     const { result } = renderHook(() =>
       useServers({ baseUrl: "http://test.local", fetchFn: h.fetchFn }),
     );

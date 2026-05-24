@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useComputedColorScheme, useMantineColorScheme } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import type {
   InitializeResult,
   LoggingLevel,
@@ -801,7 +802,17 @@ function App() {
     const pending = pendingSettingsRef.current;
     if (!pending) return;
     pendingSettingsRef.current = null;
-    void updateServerSettings(pending.id, pending.settings);
+    // Fire-and-forget — but surface failures via toast. The modal closes
+    // immediately on user dismiss, so a silent fail-on-flush would leave
+    // the user thinking their last edits saved when they didn't (especially
+    // painful for the OAuth client secret).
+    updateServerSettings(pending.id, pending.settings).catch((err) => {
+      notifications.show({
+        title: `Failed to save settings for "${pending.id}"`,
+        message: err instanceof Error ? err.message : String(err),
+        color: "red",
+      });
+    });
   }, [updateServerSettings]);
 
   const onSettingsChange = useCallback(

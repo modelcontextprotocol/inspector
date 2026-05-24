@@ -344,13 +344,19 @@ describe("/api/servers routes", () => {
       expect(res.status).toBe(400);
     });
 
-    it("rejects a missing config", async () => {
+    it("accepts a body with neither config nor settings (no-op patch)", async () => {
+      // Both fields are now optional patches. An empty body is a degenerate
+      // but valid request — it preserves both config and settings on disk.
       const res = await fetch(`${h.baseUrl}/api/servers/alpha`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: "alpha" }),
       });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
+      expect(readConfig(h.configPath).mcpServers.alpha).toEqual({
+        type: "stdio",
+        command: "old",
+      });
     });
 
     it("rejects malformed JSON body", async () => {
@@ -539,6 +545,64 @@ describe("/api/servers routes", () => {
       expect(res.status).toBe(400);
       const body = (await res.json()) as { error?: string };
       expect(body.error).toMatch(/settings\.headers/);
+    });
+
+    it("accepts a settings-only PUT and preserves config from disk", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            theta: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+            },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/theta`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // No config — server should preserve the existing one inside its
+          // write lock and apply only the settings patch.
+          settings: {
+            headers: [{ key: "X-Tenant", value: "acme" }],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.theta as {
+        type?: string;
+        url?: string;
+        settings?: { headers: { key: string; value: string }[] };
+      };
+      expect(stored.type).toBe("streamable-http");
+      expect(stored.url).toBe("https://x.test/mcp");
+      expect(stored.settings?.headers).toEqual([
+        { key: "X-Tenant", value: "acme" },
+      ]);
+    });
+
+    it("rejects a non-object config on PUT with 400", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            iota: { type: "stdio", command: "node" },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/iota`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: "not-an-object",
+        }),
+      });
+      expect(res.status).toBe(400);
     });
 
     it("rejects a settings array (not an object) with 400", async () => {

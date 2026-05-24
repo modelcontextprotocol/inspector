@@ -853,8 +853,18 @@ export function createRemoteApp(
     } catch {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
-    if (!body.config || typeof body.config !== "object") {
-      return c.json({ error: "Missing or invalid config" }, 400);
+    // Config on PUT: optional. If the field is omitted, preserve the
+    // existing transport config from disk. This makes "patch only settings"
+    // a first-class shape — callers like updateServerSettings don't have to
+    // snapshot the current config off in-memory state (which could race
+    // against a concurrent refresh and silently revert a separate edit).
+    // A provided config must structurally be an object; we let
+    // `normalizeServerType` do the lenient type coercion downstream.
+    if (
+      body.config !== undefined &&
+      (body.config === null || typeof body.config !== "object")
+    ) {
+      return c.json({ error: "Invalid config" }, 400);
     }
     // Settings on PUT have three intents:
     //   - field omitted (`undefined`)  → preserve the existing settings node
@@ -890,9 +900,19 @@ export function createRemoteApp(
         if (newId !== originalId && newId in current.mcpServers) {
           return c.json({ error: `Server '${newId}' already exists` }, 409);
         }
-        // Rebuild preserving insertion order; replace the original key in place
-        // so the file diff stays minimal when not renaming.
+        // Rebuild preserving insertion order; replace the original key in
+        // place so the file diff stays minimal when not renaming. Writing
+        // the full map back also means normalize-on-read self-heals any
+        // malformed settings node on *other* servers in the file — a
+        // deliberate side-effect of using `readMcpConfig` + full rewrite
+        // here.
         const existing = current.mcpServers[originalId]!;
+        // Split the existing entry into its config (everything except
+        // settings) and its settings, then apply patch semantics from the
+        // body to each.
+        const { settings: _existingSettings, ...existingConfig } = existing;
+        const nextConfig =
+          body.config !== undefined ? body.config : existingConfig;
         let nextSettings: InspectorServerSettings | undefined;
         switch (settingsIntent.kind) {
           case "preserve":
@@ -908,10 +928,7 @@ export function createRemoteApp(
         const next: MCPConfig = { mcpServers: {} };
         for (const [key, val] of Object.entries(current.mcpServers)) {
           if (key === originalId) {
-            next.mcpServers[newId] = buildStoredEntry(
-              body.config,
-              nextSettings,
-            );
+            next.mcpServers[newId] = buildStoredEntry(nextConfig, nextSettings);
           } else {
             next.mcpServers[key] = val;
           }
