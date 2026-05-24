@@ -347,29 +347,33 @@ function App() {
         getAuthToken(),
         redirectUrlProvider,
       );
-      const settings = server.settings;
+      // The settings node persisted in mcp.json for this server — distinct
+      // from the InspectorClient options we're about to derive from it.
+      const savedSettings = server.settings;
       // Flatten the persisted settings into the InspectorClient options shape.
       // Empty / zero values stay unset so the SDK defaults apply.
-      const defaultMetadata = settings?.metadata
+      const defaultMetadata = savedSettings?.metadata
         ? Object.fromEntries(
-            settings.metadata
+            savedSettings.metadata
               .filter((m) => m.key.trim() !== "")
               .map((m) => [m.key, m.value]),
           )
         : undefined;
       const oauth =
-        settings &&
-        (settings.oauthClientId ||
-          settings.oauthClientSecret ||
-          settings.oauthScopes)
+        savedSettings &&
+        (savedSettings.oauthClientId ||
+          savedSettings.oauthClientSecret ||
+          savedSettings.oauthScopes)
           ? {
-              ...(settings.oauthClientId && {
-                clientId: settings.oauthClientId,
+              ...(savedSettings.oauthClientId && {
+                clientId: savedSettings.oauthClientId,
               }),
-              ...(settings.oauthClientSecret && {
-                clientSecret: settings.oauthClientSecret,
+              ...(savedSettings.oauthClientSecret && {
+                clientSecret: savedSettings.oauthClientSecret,
               }),
-              ...(settings.oauthScopes && { scope: settings.oauthScopes }),
+              ...(savedSettings.oauthScopes && {
+                scope: savedSettings.oauthScopes,
+              }),
             }
           : undefined;
       const client = new InspectorClient(server.config, {
@@ -380,16 +384,16 @@ function App() {
         // Sampling / elicitation are on by default; keep the parameterized
         // options off until the UI grows the surface to render them.
         elicit: { form: true, url: true },
-        ...(settings &&
-          settings.requestTimeout > 0 && {
-            timeout: settings.requestTimeout,
+        ...(savedSettings &&
+          savedSettings.requestTimeout > 0 && {
+            timeout: savedSettings.requestTimeout,
           }),
         ...(defaultMetadata &&
           Object.keys(defaultMetadata).length > 0 && {
             defaultMetadata,
           }),
         ...(oauth && { oauth }),
-        ...(settings && { serverSettings: settings }),
+        ...(savedSettings && { serverSettings: savedSettings }),
       });
 
       setInspectorClient(client);
@@ -454,29 +458,12 @@ function App() {
 
       setErrorMessage(undefined);
       connectStartRef.current = Date.now();
-      const connectionTimeout = target.settings?.connectionTimeout ?? 0;
       try {
-        if (connectionTimeout > 0) {
-          // Race the handshake against a hard timeout. The MCP SDK has no
-          // connect-time timeout option, so we wrap here and tear the
-          // transport down on timeout so it doesn't leak.
-          const connectClient = client;
-          let timer: ReturnType<typeof setTimeout> | undefined;
-          const timeout = new Promise<never>((_, reject) => {
-            timer = setTimeout(() => {
-              reject(
-                new Error(`Connection timed out after ${connectionTimeout} ms`),
-              );
-            }, connectionTimeout);
-          });
-          try {
-            await Promise.race([connectClient.connect(), timeout]);
-          } finally {
-            if (timer) clearTimeout(timer);
-          }
-        } else {
-          await client.connect();
-        }
+        // `settings.connectionTimeout` is consumed inside InspectorClient.connect
+        // (Promise.race + transport teardown live there now), so this branch
+        // stays unaware of the per-server timeout. TUI/CLI consumers get the
+        // same behavior by reading from `serverSettings` on the client.
+        await client.connect();
       } catch (err) {
         // Handshake-only. A mid-session transport failure transitions the
         // client status to "error" without rejecting any pending promise,
@@ -485,9 +472,6 @@ function App() {
         connectStartRef.current = undefined;
         const message = err instanceof Error ? err.message : String(err);
         setErrorMessage(message);
-        // On timeout (or any handshake failure) drop the transport so the
-        // next toggle starts clean.
-        await client.disconnect().catch(() => {});
       }
     },
     [
@@ -796,13 +780,49 @@ function App() {
     );
   }, [settingsModalTarget]);
 
+  // The settings modal fires onSettingsChange on every keystroke. Persisting
+  // each character would run a tight PUT-then-full-refresh loop against the
+  // backend (and the in-memory `servers` state could flicker mid-typing as
+  // each refresh resets the modal's prop). Debounce so a burst of edits
+  // coalesces into a single PUT, and flush on modal close so nothing is lost.
+  const pendingSettingsRef = useRef<{
+    id: string;
+    settings: InspectorServerSettings;
+  } | null>(null);
+  const pendingSettingsTimerRef = useRef<
+    ReturnType<typeof setTimeout> | undefined
+  >(undefined);
+
+  const flushPendingSettings = useCallback(() => {
+    if (pendingSettingsTimerRef.current) {
+      clearTimeout(pendingSettingsTimerRef.current);
+      pendingSettingsTimerRef.current = undefined;
+    }
+    const pending = pendingSettingsRef.current;
+    if (!pending) return;
+    pendingSettingsRef.current = null;
+    void updateServerSettings(pending.id, pending.settings);
+  }, [updateServerSettings]);
+
   const onSettingsChange = useCallback(
     (next: InspectorServerSettings) => {
       if (!settingsModalTargetId) return;
-      void updateServerSettings(settingsModalTargetId, next);
+      pendingSettingsRef.current = {
+        id: settingsModalTargetId,
+        settings: next,
+      };
+      if (pendingSettingsTimerRef.current) {
+        clearTimeout(pendingSettingsTimerRef.current);
+      }
+      pendingSettingsTimerRef.current = setTimeout(flushPendingSettings, 300);
     },
-    [settingsModalTargetId, updateServerSettings],
+    [settingsModalTargetId, flushPendingSettings],
   );
+
+  const onSettingsModalClose = useCallback(() => {
+    flushPendingSettings();
+    setSettingsModalTargetId(undefined);
+  }, [flushPendingSettings]);
 
   // The Resources screen needs `isSubscribed` to flip the Subscribe button
   // label to "Unsubscribe". Derive it from the live subscriptions list rather
@@ -907,7 +927,7 @@ function App() {
       <ServerSettingsModal
         opened={settingsModalTargetId !== undefined}
         settings={settingsModalValue}
-        onClose={() => setSettingsModalTargetId(undefined)}
+        onClose={onSettingsModalClose}
         onSettingsChange={onSettingsChange}
       />
       <ServerRemoveConfirmModal

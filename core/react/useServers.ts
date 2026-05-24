@@ -121,21 +121,17 @@ export function useServers(opts: UseServersOptions): UseServersResult {
       newId: string,
       config: MCPServerConfig,
     ): Promise<void> => {
-      // Carry the existing settings across an update; the modal that edits
-      // transport config (ServerConfigModal) doesn't touch settings, so we
-      // mustn't drop them on save.
-      const existing = servers.find((s) => s.id === originalId);
-      const settings = existing?.settings;
+      // `settings` is intentionally omitted from the body. The backend route
+      // treats omission as "preserve the existing settings node on disk", so
+      // a config-only save (e.g. ServerConfigModal) cannot silently wipe
+      // persisted headers / metadata / OAuth credentials. To explicitly
+      // clear settings, send `settings: null`.
       const res = await doFetch(
         `${base}/api/servers/${encodeURIComponent(originalId)}`,
         {
           method: "PUT",
           headers: buildHeaders(authToken, true),
-          body: JSON.stringify({
-            id: newId,
-            config,
-            ...(settings && { settings }),
-          }),
+          body: JSON.stringify({ id: newId, config }),
         },
       );
       if (!res.ok) {
@@ -143,7 +139,7 @@ export function useServers(opts: UseServersOptions): UseServersResult {
       }
       await refresh();
     },
-    [base, authToken, doFetch, refresh, servers],
+    [base, authToken, doFetch, refresh],
   );
 
   const updateServerSettings = useCallback(

@@ -135,7 +135,9 @@ export function ServerSettingsForm({
           <Stack gap="md">
             <Group justify="space-between">
               <HintText>
-                Headers sent with every HTTP request to this server
+                Headers sent with every HTTP request to this server. If OAuth is
+                configured below, the `Authorization` header is owned by the
+                OAuth flow and any value set here is ignored.
               </HintText>
               <AddButton onClick={onAddHeader}>+ Add Header</AddButton>
             </Group>

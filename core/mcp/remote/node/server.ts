@@ -654,15 +654,78 @@ export function createRemoteApp(
   // type discriminator and attaching settings only when defined.
   const buildStoredEntry = (
     config: unknown,
-    settings: unknown,
+    settings: InspectorServerSettings | undefined,
   ): StoredMCPServer => {
     const normalized = normalizeServerType(
       config as Record<string, unknown> & { type?: string },
     ) as StoredMCPServer;
-    if (settings && typeof settings === "object") {
-      normalized.settings = settings as InspectorServerSettings;
+    if (settings !== undefined) {
+      normalized.settings = settings;
     }
     return normalized;
+  };
+
+  // Structurally validates an InspectorServerSettings payload off the wire so
+  // a malformed body can't persist to disk and crash the UI later (e.g.
+  // `settings: []` or `settings: { headers: "oops" }`). Mirrors the lenient
+  // read on `normalizeMcpServers` so the only fully-trusted invariant is
+  // "what we accept on the write path."
+  const validateSettings = (
+    raw: unknown,
+  ):
+    | { ok: true; value: InspectorServerSettings }
+    | { ok: false; error: string } => {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      return { ok: false, error: "settings must be an object" };
+    }
+    const obj = raw as Record<string, unknown>;
+    const isKvArray = (v: unknown): v is { key: string; value: string }[] => {
+      if (!Array.isArray(v)) return false;
+      return v.every(
+        (e) =>
+          e !== null &&
+          typeof e === "object" &&
+          typeof (e as Record<string, unknown>).key === "string" &&
+          typeof (e as Record<string, unknown>).value === "string",
+      );
+    };
+    if (!isKvArray(obj.headers)) {
+      return {
+        ok: false,
+        error: "settings.headers must be an array of { key, value }",
+      };
+    }
+    if (!isKvArray(obj.metadata)) {
+      return {
+        ok: false,
+        error: "settings.metadata must be an array of { key, value }",
+      };
+    }
+    if (
+      typeof obj.connectionTimeout !== "number" ||
+      obj.connectionTimeout < 0
+    ) {
+      return {
+        ok: false,
+        error: "settings.connectionTimeout must be a non-negative number",
+      };
+    }
+    if (typeof obj.requestTimeout !== "number" || obj.requestTimeout < 0) {
+      return {
+        ok: false,
+        error: "settings.requestTimeout must be a non-negative number",
+      };
+    }
+    for (const optional of [
+      "oauthClientId",
+      "oauthClientSecret",
+      "oauthScopes",
+    ] as const) {
+      if (obj[optional] !== undefined && typeof obj[optional] !== "string") {
+        return { ok: false, error: `settings.${optional} must be a string` };
+      }
+    }
+    return { ok: true, value: obj as unknown as InspectorServerSettings };
   };
 
   // In-process serialization for the read-modify-write flow on the
@@ -739,11 +802,13 @@ export function createRemoteApp(
     if (!body.config || typeof body.config !== "object") {
       return c.json({ error: "Missing or invalid config" }, 400);
     }
-    if (
-      body.settings !== undefined &&
-      (body.settings === null || typeof body.settings !== "object")
-    ) {
-      return c.json({ error: "Invalid settings" }, 400);
+    // Settings on POST: optional. `undefined` → no settings node persisted.
+    // Any provided value must structurally match InspectorServerSettings.
+    let postSettings: InspectorServerSettings | undefined;
+    if (body.settings !== undefined && body.settings !== null) {
+      const validated = validateSettings(body.settings);
+      if (!validated.ok) return c.json({ error: validated.error }, 400);
+      postSettings = validated.value;
     }
     const id = body.id;
 
@@ -753,7 +818,7 @@ export function createRemoteApp(
         if (id in current.mcpServers) {
           return c.json({ error: `Server '${id}' already exists` }, 409);
         }
-        current.mcpServers[id] = buildStoredEntry(body.config, body.settings);
+        current.mcpServers[id] = buildStoredEntry(body.config, postSettings);
         await writeStoreFile(mcpConfigPath, serializeStore(current));
         return c.json({ ok: true });
       });
@@ -781,11 +846,21 @@ export function createRemoteApp(
     if (!body.config || typeof body.config !== "object") {
       return c.json({ error: "Missing or invalid config" }, 400);
     }
-    if (
-      body.settings !== undefined &&
-      (body.settings === null || typeof body.settings !== "object")
-    ) {
-      return c.json({ error: "Invalid settings" }, 400);
+    // Settings on PUT have three intents:
+    //   - field omitted (`undefined`)  → preserve the existing settings node
+    //   - explicit `null`              → clear the settings node
+    //   - a settings object            → validate and apply
+    // Preserving on omission means callers that only want to update config
+    // (e.g. ServerConfigModal save) don't silently wipe persisted settings.
+    let settingsIntent: "preserve" | "clear" | { value: InspectorServerSettings };
+    if (body.settings === undefined) {
+      settingsIntent = "preserve";
+    } else if (body.settings === null) {
+      settingsIntent = "clear";
+    } else {
+      const validated = validateSettings(body.settings);
+      if (!validated.ok) return c.json({ error: validated.error }, 400);
+      settingsIntent = { value: validated.value };
     }
     const newId = typeof body.id === "string" ? body.id : originalId;
     if (!validateStoreId(newId)) {
@@ -803,12 +878,19 @@ export function createRemoteApp(
         }
         // Rebuild preserving insertion order; replace the original key in place
         // so the file diff stays minimal when not renaming.
+        const existing = current.mcpServers[originalId]!;
+        const nextSettings: InspectorServerSettings | undefined =
+          settingsIntent === "preserve"
+            ? existing.settings
+            : settingsIntent === "clear"
+              ? undefined
+              : settingsIntent.value;
         const next: MCPConfig = { mcpServers: {} };
         for (const [key, val] of Object.entries(current.mcpServers)) {
           if (key === originalId) {
             next.mcpServers[newId] = buildStoredEntry(
               body.config,
-              body.settings,
+              nextSettings,
             );
           } else {
             next.mcpServers[key] = val;

@@ -442,7 +442,7 @@ describe("/api/servers routes", () => {
       expect(res.status).toBe(400);
     });
 
-    it("preserves the settings node when PUT omits it (no clobber on rename)", async () => {
+    it("preserves the settings node when PUT omits it (no clobber on config-only save)", async () => {
       writeFileSync(
         h.configPath,
         JSON.stringify({
@@ -460,9 +460,9 @@ describe("/api/servers routes", () => {
           },
         }),
       );
-      // PUT without settings — current behavior is that settings are dropped
-      // when the body omits them. We document that here so callers know to
-      // re-send the existing settings on every PUT that changes config.
+      // PUT without a settings field: the existing settings node must
+      // survive. A caller updating only the transport config (e.g. the
+      // server config modal) must not silently wipe persisted headers.
       const res = await fetch(`${h.baseUrl}/api/servers/epsilon`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -472,9 +472,88 @@ describe("/api/servers routes", () => {
       });
       expect(res.status).toBe(200);
       const stored = readConfig(h.configPath).mcpServers.epsilon as {
+        settings?: { headers: { key: string; value: string }[] };
+      };
+      expect(stored.settings).toBeDefined();
+      expect(stored.settings?.headers).toEqual([
+        { key: "X-Keep", value: "yes" },
+      ]);
+    });
+
+    it("clears the settings node when PUT sends settings: null (explicit intent)", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            zeta: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              settings: {
+                headers: [{ key: "X-Tenant", value: "acme" }],
+                metadata: [],
+                connectionTimeout: 0,
+                requestTimeout: 0,
+              },
+            },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/zeta`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "streamable-http", url: "https://x.test/mcp" },
+          settings: null,
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.zeta as {
         settings?: unknown;
       };
       expect(stored.settings).toBeUndefined();
+    });
+
+    it("rejects a malformed settings shape with 400", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            eta: { type: "stdio", command: "node" },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/eta`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "stdio", command: "node" },
+          // headers should be an array of {key, value}; "oops" is a string.
+          settings: {
+            headers: "oops",
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+          },
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/settings\.headers/);
+    });
+
+    it("rejects a settings array (not an object) with 400", async () => {
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "arrays-not-allowed",
+          config: { type: "stdio", command: "node" },
+          settings: [],
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/object/);
     });
   });
 

@@ -597,7 +597,36 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.status = "connecting";
       this.dispatchTypedEvent("statusChange", this.status);
 
-      await this.client.connect(this.transport);
+      // Optional connect-time timeout from per-server settings. The MCP SDK
+      // has no connect-time timeout option, so we wrap the handshake in a
+      // Promise.race. On timeout, tear the transport down so the next
+      // connect() starts clean and the upstream socket isn't left hanging.
+      const connectTimeoutMs = this.serverSettings?.connectionTimeout ?? 0;
+      const connectPromise = this.client.connect(this.transport);
+      if (connectTimeoutMs > 0) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `Connection timed out after ${connectTimeoutMs} ms`,
+                ),
+              ),
+            connectTimeoutMs,
+          );
+        });
+        try {
+          await Promise.race([connectPromise, timeoutPromise]);
+        } catch (err) {
+          await this.disconnect().catch(() => {});
+          throw err;
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      } else {
+        await connectPromise;
+      }
       this.status = "connected";
       this.dispatchTypedEvent("statusChange", this.status);
       this.dispatchTypedEvent("connect");
