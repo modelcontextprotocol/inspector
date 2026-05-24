@@ -44,6 +44,22 @@ Replaces the hardcoded `SEED_SERVERS` in `clients/web/src/App.tsx:47` with a fil
       "type": "stdio",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-everything"]
+    },
+    "acme-api": {
+      "type": "streamable-http",
+      "url": "https://api.acme.example/mcp",
+      // Optional Inspector-specific extension. Other MCP tools
+      // (Claude Desktop, Cursor, Cline) ignore unknown keys. See
+      // [Per-server settings](#per-server-settings-1352) for the
+      // full contract.
+      "settings": {
+        "headers":  [{ "key": "X-Tenant", "value": "acme" }],
+        "metadata": [{ "key": "trace",    "value": "abc" }],
+        "connectionTimeout": 30000,
+        "requestTimeout":    60000,
+        "oauthClientId":     "client-abc",
+        "oauthScopes":       "read:tools write:tools"
+      }
     }
   }
 }
