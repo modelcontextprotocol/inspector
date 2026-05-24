@@ -605,6 +605,34 @@ describe("/api/servers routes", () => {
       expect(res.status).toBe(400);
     });
 
+    it("validateSettings coerces empty-string OAuth fields to absent (cleared inputs don't read as 'configured')", async () => {
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "empty-oauth",
+          config: { type: "streamable-http", url: "https://x.test/mcp" },
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            oauthClientId: "",
+            oauthClientSecret: "",
+            oauthScopes: "",
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers["empty-oauth"] as {
+        settings?: Record<string, unknown>;
+      };
+      expect(stored.settings).toBeDefined();
+      expect(stored.settings).not.toHaveProperty("oauthClientId");
+      expect(stored.settings).not.toHaveProperty("oauthClientSecret");
+      expect(stored.settings).not.toHaveProperty("oauthScopes");
+    });
+
     it("validateSettings drops unknown keys (explicit pick-and-build, not spread)", async () => {
       const res = await fetch(`${h.baseUrl}/api/servers`, {
         method: "POST",

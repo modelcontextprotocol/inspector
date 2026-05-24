@@ -670,14 +670,26 @@ export function createRemoteApp(
   // remains the single write path for the settings node. Log a warning if
   // we observe this — it indicates a client bug (settings should travel
   // through the body's top-level `settings` field, not nested in config).
+  //
+  // `id` is threaded through purely so the warning correlates to a
+  // specific entry; the route ultimately reaches here via POST or PUT and
+  // both know the target id at call time.
   const buildStoredEntry = (
+    id: string,
     config: unknown,
     settings: InspectorServerSettings | undefined,
   ): StoredMCPServer => {
-    const configObj = (config as Record<string, unknown>) ?? {};
+    // `unknown` parameter contract: be honest about the shape rather than
+    // assuming the route layer's pre-checks. The route handlers do reject
+    // non-object config before reaching here, but this helper should stay
+    // safe to call from anywhere.
+    const configObj: Record<string, unknown> =
+      config !== null && typeof config === "object"
+        ? (config as Record<string, unknown>)
+        : {};
     if ("settings" in configObj) {
       fileLogger?.warn(
-        { route: "/api/servers", smuggledKey: "settings" },
+        { route: "/api/servers", id, smuggledKey: "settings" },
         "Stripping `settings` key from request body's `config` — settings must travel through the top-level `settings` field, not nested inside `config`.",
       );
     }
@@ -755,19 +767,25 @@ export function createRemoteApp(
     // casting the raw object through. Unknown keys silently drop so a
     // misconfigured client can't smuggle stowaways onto disk, and consumers
     // can rely on the validated shape being exactly InspectorServerSettings.
+    // Empty-string OAuth fields coerce to absent — the form emits `""` when
+    // the user clears an input, and an empty `oauthClientId` on disk would
+    // later be misread as "OAuth configured."
     const value: InspectorServerSettings = {
       headers: obj.headers as { key: string; value: string }[],
       metadata: obj.metadata as { key: string; value: string }[],
       connectionTimeout: obj.connectionTimeout as number,
       requestTimeout: obj.requestTimeout as number,
     };
-    if (typeof obj.oauthClientId === "string") {
+    if (typeof obj.oauthClientId === "string" && obj.oauthClientId !== "") {
       value.oauthClientId = obj.oauthClientId;
     }
-    if (typeof obj.oauthClientSecret === "string") {
+    if (
+      typeof obj.oauthClientSecret === "string" &&
+      obj.oauthClientSecret !== ""
+    ) {
       value.oauthClientSecret = obj.oauthClientSecret;
     }
-    if (typeof obj.oauthScopes === "string") {
+    if (typeof obj.oauthScopes === "string" && obj.oauthScopes !== "") {
       value.oauthScopes = obj.oauthScopes;
     }
     return { ok: true, value };
@@ -863,7 +881,11 @@ export function createRemoteApp(
         if (id in current.mcpServers) {
           return c.json({ error: `Server '${id}' already exists` }, 409);
         }
-        current.mcpServers[id] = buildStoredEntry(body.config, postSettings);
+        current.mcpServers[id] = buildStoredEntry(
+          id,
+          body.config,
+          postSettings,
+        );
         await writeStoreFile(mcpConfigPath, serializeStore(current));
         return c.json({ ok: true });
       });
@@ -963,7 +985,11 @@ export function createRemoteApp(
         const next: MCPConfig = { mcpServers: {} };
         for (const [key, val] of Object.entries(current.mcpServers)) {
           if (key === originalId) {
-            next.mcpServers[newId] = buildStoredEntry(nextConfig, nextSettings);
+            next.mcpServers[newId] = buildStoredEntry(
+              newId,
+              nextConfig,
+              nextSettings,
+            );
           } else {
             next.mcpServers[key] = val;
           }

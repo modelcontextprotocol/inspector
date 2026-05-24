@@ -603,14 +603,16 @@ export class InspectorClient extends InspectorClientEventTarget {
       // connect() starts clean and the upstream socket isn't left hanging.
       const connectTimeoutMs = this.serverSettings?.connectionTimeout ?? 0;
       const connectPromise = this.client.connect(this.transport);
-      // Absorb any late rejection from `connectPromise` — when the timeout
-      // wins the race and `disconnect()` tears the transport down, real
-      // transports (SSE / streamable-http) reject the in-flight handshake
-      // *after* Promise.race has already settled. Without a handler here
-      // Node emits an unhandledRejection warning (and in test runs vitest
-      // can surface it as a suite failure).
-      connectPromise.catch(() => {});
       if (connectTimeoutMs > 0) {
+        // Absorb any late rejection from `connectPromise` — when the timeout
+        // wins the race and `disconnect()` tears the transport down, real
+        // transports (SSE / streamable-http) reject the in-flight handshake
+        // *after* Promise.race has already settled. Without a handler here
+        // Node emits an unhandledRejection warning (and in test runs vitest
+        // can surface it as a suite failure). Only needed on the race path;
+        // the await-only branch below propagates rejection cleanly through
+        // the outer try/catch.
+        connectPromise.catch(() => {});
         let timer: ReturnType<typeof setTimeout> | undefined;
         const timeoutPromise = new Promise<never>((_, reject) => {
           timer = setTimeout(
