@@ -289,6 +289,51 @@ describe("InspectorClient", () => {
       }
       messageLogState.destroy();
     });
+
+    it("rejects connect() with a timeout error when serverSettings.connectionTimeout fires", async () => {
+      // Stub transport whose start() never resolves — simulates a slow /
+      // unreachable upstream. InspectorClient.connect() should race against
+      // serverSettings.connectionTimeout and reject with a descriptive error;
+      // status should end up in "error", and the client should have
+      // internally torn down the transport (next connect() must rebuild).
+      const hangingTransport = {
+        start: () => new Promise<void>(() => {}),
+        send: async () => {},
+        close: async () => {},
+        onclose: undefined,
+        onerror: undefined,
+        onmessage: undefined,
+        sessionId: undefined,
+      };
+      const fakeFactory = () => ({
+        transport:
+          hangingTransport as unknown as import("@modelcontextprotocol/sdk/shared/transport.js").Transport,
+      });
+      client = new InspectorClient(
+        { type: "streamable-http", url: "http://localhost:1/never" },
+        {
+          environment: { transport: fakeFactory },
+          serverSettings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 50,
+            requestTimeout: 0,
+          },
+        },
+      );
+
+      const before = Date.now();
+      await expect(client.connect()).rejects.toThrow(
+        /Connection timed out after 50 ms/,
+      );
+      const elapsed = Date.now() - before;
+      // Sanity: the race should fire near the configured timeout, not at
+      // some far-future SDK default.
+      expect(elapsed).toBeLessThan(2000);
+      // connect() rejected → the outer catch transitions status to "error"
+      // (the same end state any other handshake failure would produce).
+      expect(client.getStatus()).toBe("error");
+    });
   });
 
   describe("Message Tracking", () => {

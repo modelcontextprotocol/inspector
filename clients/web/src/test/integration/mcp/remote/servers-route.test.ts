@@ -555,6 +555,55 @@ describe("/api/servers routes", () => {
       const body = (await res.json()) as { error?: string };
       expect(body.error).toMatch(/object/);
     });
+
+    it("strips a malformed settings node on read (lenient-on-read; preserve-on-PUT cannot propagate it)", async () => {
+      // Hand-edited mcp.json with a malformed `settings.headers` (string
+      // instead of array). The write-path validator would reject it, but a
+      // user could write it directly. GET should surface the entry with
+      // settings dropped, and a subsequent config-only PUT should not
+      // re-attach the broken node via the preserve branch.
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            broken: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              settings: {
+                headers: "oops",
+                metadata: [],
+                connectionTimeout: 0,
+                requestTimeout: 0,
+              },
+            },
+          },
+        }),
+      );
+
+      // GET surfaces the entry without the malformed settings.
+      const getRes = await fetch(`${h.baseUrl}/api/servers`);
+      expect(getRes.status).toBe(200);
+      const getBody = (await getRes.json()) as {
+        mcpServers: Record<string, { settings?: unknown }>;
+      };
+      expect(getBody.mcpServers.broken).toBeDefined();
+      expect(getBody.mcpServers.broken!.settings).toBeUndefined();
+
+      // PUT without settings preserves the (now-stripped) absence, not the
+      // original malformed node.
+      const putRes = await fetch(`${h.baseUrl}/api/servers/broken`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "streamable-http", url: "https://x.test/other" },
+        }),
+      });
+      expect(putRes.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.broken as {
+        settings?: unknown;
+      };
+      expect(stored.settings).toBeUndefined();
+    });
   });
 
   describe("concurrent mutations", () => {

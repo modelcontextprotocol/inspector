@@ -824,6 +824,19 @@ function App() {
     setSettingsModalTargetId(undefined);
   }, [flushPendingSettings]);
 
+  // Cancel any pending debounce on unmount (route change / HMR). Without
+  // this a stale setTimeout could still fire one final `updateServerSettings`
+  // against an unmounted component — harmless today (just an extra PUT of
+  // the final payload) but the cleanest pattern is to clear the timer.
+  useEffect(() => {
+    return () => {
+      if (pendingSettingsTimerRef.current) {
+        clearTimeout(pendingSettingsTimerRef.current);
+        pendingSettingsTimerRef.current = undefined;
+      }
+    };
+  }, []);
+
   // The Resources screen needs `isSubscribed` to flip the Subscribe button
   // label to "Unsubscribe". Derive it from the live subscriptions list rather
   // than threading it through every setReadResourceState site — that way the

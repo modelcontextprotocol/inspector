@@ -635,17 +635,27 @@ export function createRemoteApp(
   // --- /api/servers (server list backed by mcp.json) ---
 
   // Defensive normalize so editor-edited files with type:"http" or missing
-  // type round-trip into the canonical form on every read. The optional
-  // Inspector-specific `settings` node is preserved verbatim by the spread
-  // inside normalizeServerType.
+  // type round-trip into the canonical form on every read. Settings that
+  // fail `validateSettings` are silently stripped (lenient-on-read pattern
+  // matching `normalizeServerType`'s unknown→stdio fallback) so a malformed
+  // hand-edit can't propagate through preserve-on-PUT.
   const normalizeMcpServers = (raw: unknown): Record<string, StoredMCPServer> => {
     if (!raw || typeof raw !== "object") return {};
     const out: Record<string, StoredMCPServer> = {};
     for (const [id, val] of Object.entries(raw as Record<string, unknown>)) {
       if (!val || typeof val !== "object") continue;
-      out[id] = normalizeServerType(
+      const normalized = normalizeServerType(
         val as Record<string, unknown> & { type?: string },
       ) as StoredMCPServer;
+      if (normalized.settings !== undefined) {
+        const checked = validateSettings(normalized.settings);
+        if (checked.ok) {
+          normalized.settings = checked.value;
+        } else {
+          delete normalized.settings;
+        }
+      }
+      out[id] = normalized;
     }
     return out;
   };
@@ -852,15 +862,19 @@ export function createRemoteApp(
     //   - a settings object            → validate and apply
     // Preserving on omission means callers that only want to update config
     // (e.g. ServerConfigModal save) don't silently wipe persisted settings.
-    let settingsIntent: "preserve" | "clear" | { value: InspectorServerSettings };
+    type SettingsIntent =
+      | { kind: "preserve" }
+      | { kind: "clear" }
+      | { kind: "apply"; value: InspectorServerSettings };
+    let settingsIntent: SettingsIntent;
     if (body.settings === undefined) {
-      settingsIntent = "preserve";
+      settingsIntent = { kind: "preserve" };
     } else if (body.settings === null) {
-      settingsIntent = "clear";
+      settingsIntent = { kind: "clear" };
     } else {
       const validated = validateSettings(body.settings);
       if (!validated.ok) return c.json({ error: validated.error }, 400);
-      settingsIntent = { value: validated.value };
+      settingsIntent = { kind: "apply", value: validated.value };
     }
     const newId = typeof body.id === "string" ? body.id : originalId;
     if (!validateStoreId(newId)) {
@@ -879,12 +893,18 @@ export function createRemoteApp(
         // Rebuild preserving insertion order; replace the original key in place
         // so the file diff stays minimal when not renaming.
         const existing = current.mcpServers[originalId]!;
-        const nextSettings: InspectorServerSettings | undefined =
-          settingsIntent === "preserve"
-            ? existing.settings
-            : settingsIntent === "clear"
-              ? undefined
-              : settingsIntent.value;
+        let nextSettings: InspectorServerSettings | undefined;
+        switch (settingsIntent.kind) {
+          case "preserve":
+            nextSettings = existing.settings;
+            break;
+          case "clear":
+            nextSettings = undefined;
+            break;
+          case "apply":
+            nextSettings = settingsIntent.value;
+            break;
+        }
         const next: MCPConfig = { mcpServers: {} };
         for (const [key, val] of Object.entries(current.mcpServers)) {
           if (key === originalId) {
