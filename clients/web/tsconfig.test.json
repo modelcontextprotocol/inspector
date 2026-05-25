@@ -19,6 +19,7 @@
       ],
       "@hono/node-server": ["./node_modules/@hono/node-server"],
       "atomically": ["./node_modules/atomically"],
+      "chokidar": ["./node_modules/chokidar"],
       "express": ["./node_modules/@types/express"],
       "yaml": ["./node_modules/yaml"]
     }

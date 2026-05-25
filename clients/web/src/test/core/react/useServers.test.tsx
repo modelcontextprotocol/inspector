@@ -19,12 +19,13 @@ interface Harness {
   fetchFn: typeof fetch;
   configPath: string;
   tempDir: string;
+  closeApi: () => Promise<void>;
 }
 
 function setupHarness(): Harness {
   const tempDir = mkdtempSync(join(tmpdir(), "inspector-useServers-"));
   const configPath = join(tempDir, "mcp.json");
-  const { app } = createRemoteApp({
+  const { app, close: closeApi } = createRemoteApp({
     dangerouslyOmitAuth: true,
     mcpConfigPath: configPath,
     initialConfig: { defaultEnvironment: {} },
@@ -38,10 +39,16 @@ function setupHarness(): Harness {
         : new Request(input as string | URL, init);
     return app.fetch(req) as Promise<Response>;
   };
-  return { fetchFn, configPath, tempDir };
+  return { fetchFn, configPath, tempDir, closeApi };
 }
 
-function teardownHarness(h: Harness): void {
+async function teardownHarness(h: Harness): Promise<void> {
+  // Closing here releases the lazy chokidar watcher started by the SSE
+  // subscription useServers opens on mount. Without it the watcher would
+  // hang around for the lifetime of the vitest worker — harmless for the
+  // suite as a whole, but it would slow worker exit and could leak inotify
+  // watches on Linux.
+  await h.closeApi();
   try {
     rmSync(h.tempDir, { recursive: true });
   } catch {
@@ -60,8 +67,8 @@ describe("useServers", () => {
     h = setupHarness();
   });
 
-  afterEach(() => {
-    teardownHarness(h);
+  afterEach(async () => {
+    await teardownHarness(h);
   });
 
   it("starts in loading state, then loads and converts the seed config", async () => {
@@ -216,6 +223,83 @@ describe("useServers", () => {
     });
 
     expect(result.current.servers.map((s) => s.id)).toEqual(["hand"]);
+  });
+
+  it("auto-refreshes when the /api/servers/events SSE channel signals a change", async () => {
+    // Mount the hook (which also opens the SSE subscription) and let the
+    // initial GET settle so we're observing a steady state before mutating
+    // the file.
+    const { result } = renderHook(() =>
+      useServers({ baseUrl: "http://test.local", fetchFn: h.fetchFn }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Give chokidar a beat to register with the now-seeded file. The lazy
+    // watcher inside createRemoteApp starts on the first SSE subscriber, so
+    // by the time the initial GET resolves the watcher is already attached.
+    // The pause covers any platform-specific scan-stabilization window
+    // before we mutate.
+    await new Promise((r) => setTimeout(r, 200));
+
+    // Simulate an external editor save. The watcher fires → SSE broadcasts
+    // → the hook's reader-loop calls refresh() without us touching the
+    // exposed refresh() API.
+    writeFileSync(
+      h.configPath,
+      JSON.stringify({
+        mcpServers: { external: { type: "stdio", command: "outside" } },
+      }) + "\n",
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.servers.map((s) => s.id)).toEqual(["external"]);
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("SSE-driven refresh does not flip loading back to true (no skeleton flicker)", async () => {
+    // Regression guard for the background-refresh split: a consumer
+    // rendering a loading spinner / skeleton must not see `loading` go
+    // true on every external mcp.json edit. The hook's SSE handler calls
+    // refreshInternal(true), which skips the setLoading toggles entirely;
+    // sampling a single point can miss the bug under React batching, so
+    // record every observed `loading` value across the SSE cycle and
+    // assert none of them is true.
+    const loadingHistory: boolean[] = [];
+    const { result } = renderHook(() => {
+      const r = useServers({
+        baseUrl: "http://test.local",
+        fetchFn: h.fetchFn,
+      });
+      loadingHistory.push(r.loading);
+      return r;
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    // Slice off the mount-phase renders; only renders after the initial
+    // load are subject to the no-flicker contract.
+    const baselineLen = loadingHistory.length;
+
+    await new Promise((r) => setTimeout(r, 200));
+    writeFileSync(
+      h.configPath,
+      JSON.stringify({
+        mcpServers: { flicker: { type: "stdio", command: "outside" } },
+      }) + "\n",
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.servers.map((s) => s.id)).toEqual(["flicker"]);
+      },
+      { timeout: 3000 },
+    );
+
+    const postRefreshLoadings = loadingHistory.slice(baselineLen);
+    expect(postRefreshLoadings.length).toBeGreaterThan(0);
+    expect(postRefreshLoadings.every((v) => v === false)).toBe(true);
   });
 
   it("captures the error message on fetch network failure", async () => {

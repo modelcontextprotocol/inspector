@@ -41,7 +41,8 @@
         "./node_modules/hono/dist/types/helper/streaming/index"
       ],
       "@hono/node-server": ["./node_modules/@hono/node-server"],
-      "atomically": ["./node_modules/atomically"]
+      "atomically": ["./node_modules/atomically"],
+      "chokidar": ["./node_modules/chokidar"]
     }
   },
   "include": ["vite.config.ts", "server/**/*.ts"]

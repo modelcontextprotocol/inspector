@@ -5,6 +5,7 @@
  */
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { stat as fsStat } from "node:fs/promises";
 import type pino from "pino";
 import {
   getDefaultStorageDir,
@@ -21,6 +22,7 @@ import type { LogEvent } from "pino";
 import { Hono } from "hono";
 import type { Context, Env, Next } from "hono";
 import { streamSSE } from "hono/streaming";
+import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
 import type { RemoteConnectRequest, RemoteSendRequest } from "../types.js";
 import type {
@@ -84,6 +86,21 @@ export interface CreateRemoteAppResult {
   app: Hono;
   /** The auth token (from options, env var, or generated). Returned so caller can embed in client. */
   authToken: string;
+  /**
+   * Tear down stateful resources owned by the app (currently the lazy
+   * chokidar watcher behind `/api/servers/events`). Long-lived prod callers
+   * (the standalone server, the vite dev plugin) chain this into their own
+   * HTTP-server close so the watcher is released on shutdown. Tests that
+   * exercise SSE should call it in teardown — tests that never subscribe
+   * never start the watcher and can omit it without leaking.
+   *
+   * Resolves once the subscriber set is cleared and the watcher is closed.
+   * Individual SSE stream callbacks held inside `streamSSE` are not awaited
+   * here — they resolve on their own when the underlying socket aborts.
+   * Callers that need to be sure those have settled (e.g. the standalone
+   * server) should call `httpServer.closeAllConnections()` *after* this.
+   */
+  close: () => Promise<void>;
 }
 
 /**
@@ -256,6 +273,145 @@ export function createRemoteApp(
   const { logger: fileLogger, allowedOrigins } = options;
   const storageDir = options.storageDir ?? getDefaultStorageDir();
   const mcpConfigPath = options.mcpConfigPath ?? getDefaultMcpConfigPath();
+
+  // --- /api/servers/events: file-watch fanout state -----------------------
+  //
+  // Subscribers are SSE writers added by GET /api/servers/events and removed
+  // on stream abort. The chokidar watcher is created lazily on the first
+  // subscription and torn down again when the last one leaves, so tests (and
+  // headless tools) that never open the channel never spin up a real fs
+  // watcher. The `lastWrittenMtimeMs` field is captured after every write we
+  // initiate ourselves; the watcher handler stat()s on each event and
+  // suppresses the broadcast if the mtime matches — that's how we avoid
+  // refreshing every connected browser tab for our own POST/PUT/DELETE.
+  const serverEventSubscribers = new Set<(data: string) => void>();
+  let mcpConfigWatcher: FSWatcher | null = null;
+  let lastWrittenMtimeMs: number | null = null;
+
+  const broadcastServerListChange = (): void => {
+    const payload = JSON.stringify({ type: "change" });
+    for (const send of serverEventSubscribers) {
+      try {
+        send(payload);
+      } catch {
+        // Each subscriber owns its own write loop and cleans itself up in
+        // onAbort; swallowing here keeps one bad stream from blocking the
+        // fanout to the rest.
+      }
+    }
+  };
+
+  const writeMcpAndTrackMtime = async (data: string): Promise<void> => {
+    // If an external editor wrote the file between our previous write and
+    // this one, chokidar's `awaitWriteFinish` will coalesce both events
+    // into a single watcher fire whose mtime matches what we're about to
+    // write — and the watcher handler will then suppress the broadcast.
+    // Peer subscribers (e.g. a second browser tab) would never learn about
+    // the external edit. Detect that case here by comparing the current
+    // on-disk mtime against our last tracked mtime; broadcast after the
+    // write completes so peers re-fetch.
+    //
+    // This is a notification-of-divergence, not a preservation guarantee:
+    // depending on whether the external write landed before or after the
+    // route handler's `readMcpConfig()`, the external edit's content may
+    // already be inside our serialized payload (it'll round-trip) or it
+    // may have been read-around and the next `writeStoreFile` below will
+    // overwrite it. Either way peers learn there's been a change and
+    // re-fetch the resulting authoritative on-disk state. Preserving the
+    // external edit's content in the second ordering would require a
+    // read-modify-write retry loop, which is outside this PR's scope and
+    // probably not worth it for a single-user local dev tool.
+    //
+    // The originating tab's mutator triggers its own refresh on PUT/POST
+    // success, so this extra broadcast is intended for peers only — a
+    // double refresh on the originating tab is cheap (same GET, same
+    // payload) and acceptable.
+    let externalEditDetected = false;
+    if (lastWrittenMtimeMs !== null) {
+      try {
+        const s = await fsStat(mcpConfigPath);
+        if (s.mtimeMs !== lastWrittenMtimeMs) {
+          externalEditDetected = true;
+        }
+      } catch {
+        // File missing → an external delete slipped in between our writes.
+        // Treat as an external edit so peers learn about it.
+        externalEditDetected = true;
+      }
+    }
+
+    await writeStoreFile(mcpConfigPath, data);
+    try {
+      const s = await fsStat(mcpConfigPath);
+      lastWrittenMtimeMs = s.mtimeMs;
+    } catch {
+      // If the stat fails the next watcher event will broadcast — that's the
+      // correct fallback (the only cost is a redundant client refresh).
+    }
+
+    if (externalEditDetected) {
+      broadcastServerListChange();
+    }
+  };
+
+  const handleWatcherEvent = async (event: string): Promise<void> => {
+    if (event !== "add" && event !== "change" && event !== "unlink") return;
+    if (event !== "unlink") {
+      try {
+        const s = await fsStat(mcpConfigPath);
+        if (
+          lastWrittenMtimeMs !== null &&
+          s.mtimeMs === lastWrittenMtimeMs
+        ) {
+          return;
+        }
+      } catch {
+        // File vanished between event and stat — broadcast so subscribers
+        // re-fetch and the GET handler can re-seed on the next read.
+      }
+    }
+    broadcastServerListChange();
+  };
+
+  const handleWatcherError = (err: unknown): void => {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (fileLogger) {
+      fileLogger.warn({ err: msg }, "mcp.json watcher error");
+    } else {
+      console.warn("[mcp.json watcher]", msg);
+    }
+  };
+
+  const ensureWatcher = (): void => {
+    if (mcpConfigWatcher) return;
+    // `awaitWriteFinish` coalesces the multi-event sequence editors produce
+    // when they save via temp-file + rename (the watched path briefly
+    // disappears then reappears). The stability threshold also covers our
+    // own atomically-written rename, so a single backend POST yields one
+    // event to inspect rather than an unlink/add pair.
+    mcpConfigWatcher = chokidarWatch(mcpConfigPath, {
+      ignoreInitial: true,
+      awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
+    });
+    mcpConfigWatcher.on("all", (event) => {
+      void handleWatcherEvent(event);
+    });
+    mcpConfigWatcher.on("error", handleWatcherError);
+  };
+
+  const maybeStopWatcher = async (): Promise<void> => {
+    if (serverEventSubscribers.size > 0) return;
+    if (!mcpConfigWatcher) return;
+    const w = mcpConfigWatcher;
+    mcpConfigWatcher = null;
+    try {
+      await w.close();
+    } catch {
+      // Closing a chokidar instance can throw on already-closed handles
+      // (e.g. if the underlying fs watch was unhooked by a signal). The
+      // resource is gone either way; nothing to do.
+    }
+  };
 
   // Apply origin validation middleware first (before auth)
   // This prevents DNS rebinding attacks by validating Origin header
@@ -831,7 +987,7 @@ export function createRemoteApp(
     try {
       const raw = await readStoreFile(mcpConfigPath);
       if (raw === null) {
-        await writeStoreFile(mcpConfigPath, serializeStore(DEFAULT_SEED_CONFIG));
+        await writeMcpAndTrackMtime(serializeStore(DEFAULT_SEED_CONFIG));
         return c.json(DEFAULT_SEED_CONFIG);
       }
       const parsed = parseStore(raw) as { mcpServers?: unknown } | null;
@@ -886,7 +1042,7 @@ export function createRemoteApp(
           body.config,
           postSettings,
         );
-        await writeStoreFile(mcpConfigPath, serializeStore(current));
+        await writeMcpAndTrackMtime(serializeStore(current));
         return c.json({ ok: true });
       });
     } catch (error) {
@@ -994,7 +1150,7 @@ export function createRemoteApp(
             next.mcpServers[key] = val;
           }
         }
-        await writeStoreFile(mcpConfigPath, serializeStore(next));
+        await writeMcpAndTrackMtime(serializeStore(next));
         return c.json({ ok: true });
       });
     } catch (error) {
@@ -1016,7 +1172,7 @@ export function createRemoteApp(
           return c.json({ ok: true });
         }
         delete current.mcpServers[id];
-        await writeStoreFile(mcpConfigPath, serializeStore(current));
+        await writeMcpAndTrackMtime(serializeStore(current));
         return c.json({ ok: true });
       });
     } catch (error) {
@@ -1025,5 +1181,40 @@ export function createRemoteApp(
     }
   });
 
-  return { app, authToken };
+  // Server-sent events for `mcp.json` external edits. The payload is
+  // intentionally empty-of-meaning ({"type":"change"}) — the client only
+  // cares that *something* happened on disk and re-fetches GET /api/servers
+  // to get the authoritative state. This sidesteps any drift between an
+  // event payload and the canonical normalize-on-read shape.
+  app.get("/api/servers/events", async (c) => {
+    return streamSSE(c, async (stream) => {
+      const send = (data: string): void => {
+        void stream.writeSSE({ event: "change", data });
+      };
+      serverEventSubscribers.add(send);
+      ensureWatcher();
+
+      stream.onAbort(() => {
+        serverEventSubscribers.delete(send);
+        void maybeStopWatcher();
+        stream.close();
+      });
+
+      // Hono closes the stream the moment this callback returns, so hold the
+      // promise open until the client aborts. Cleanup happens in the
+      // onAbort handler registered above.
+      await new Promise<void>((resolve) => {
+        stream.onAbort(() => resolve());
+      });
+    });
+  });
+
+  return {
+    app,
+    authToken,
+    close: async () => {
+      serverEventSubscribers.clear();
+      await maybeStopWatcher();
+    },
+  };
 }

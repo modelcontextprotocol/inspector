@@ -23,6 +23,11 @@ export function getViteBaseConfig() {
         // keeps Vite's dev-time scanner from chasing it through the plugin's
         // node-only import chain.
         "atomically",
+        // `chokidar` is only loaded inside `core/mcp/remote/node/server.ts`
+        // when the lazy mcp.json watcher starts. It transitively imports
+        // `readdirp` and core node fs/os modules; excluding it keeps Vite's
+        // dep scanner from walking into them during dev startup.
+        "chokidar",
         "cross-spawn",
         "which",
       ],

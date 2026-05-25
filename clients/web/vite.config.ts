@@ -52,6 +52,7 @@ const nodeModulesAliases = [
   { find: /^hono\/streaming$/, replacement: path.resolve(dirname, 'node_modules/hono/dist/helper/streaming/index.js') },
   { find: /^@hono\/node-server$/, replacement: path.resolve(dirname, 'node_modules/@hono/node-server') },
   { find: /^atomically$/, replacement: path.resolve(dirname, 'node_modules/atomically') },
+  { find: /^chokidar$/, replacement: path.resolve(dirname, 'node_modules/chokidar') },
   { find: /^express$/, replacement: path.resolve(dirname, 'node_modules/express') },
   { find: /^yaml$/, replacement: path.resolve(dirname, 'node_modules/yaml') },
   // Pin the SDK auth subpath so test and source resolve to the exact same
@@ -110,6 +111,18 @@ export default defineConfig({
           typeof warning.message === 'string' &&
           warning.message.includes("'atomically'") &&
           warning.message.includes('store-io.ts')
+        ) {
+          return;
+        }
+        // Same story for `chokidar`: the mcp.json file watcher in
+        // `core/mcp/remote/node/server.ts` is reachable only through the dev
+        // backend, never from the browser bundle. Rollup still scans the
+        // import statement and warns when it can't resolve it.
+        if (
+          warning.code === 'UNRESOLVED_IMPORT' &&
+          typeof warning.message === 'string' &&
+          warning.message.includes("'chokidar'") &&
+          warning.message.includes('server.ts')
         ) {
           return;
         }

@@ -45,7 +45,7 @@ export async function startHonoServer(
 
   const rootPath = config.staticRoot ?? __dirname;
 
-  const { app: apiApp } = createRemoteApp({
+  const { app: apiApp, close: closeApi } = createRemoteApp({
     authToken: config.dangerouslyOmitAuth ? undefined : resolvedAuthToken,
     dangerouslyOmitAuth: config.dangerouslyOmitAuth,
     storageDir: config.storageDir,
@@ -117,6 +117,7 @@ export async function startHonoServer(
 
   return {
     async close(): Promise<void> {
+      await closeApi();
       await sandboxController.close();
       if ("closeAllConnections" in httpServer) {
         httpServer.closeAllConnections();
