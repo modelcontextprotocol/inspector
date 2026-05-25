@@ -864,8 +864,10 @@ export function createRemoteApp(
       if (!val || typeof val !== "object") continue;
       // `valObj` is the per-entry object we'll mutate in place via the
       // `delete` calls below. Safe because the only callers
-      // (`readMcpConfig` and the GET handler's seed branch) pass in
-      // freshly-parsed JSON they don't retain a reference to elsewhere.
+      // (`readMcpConfig` and the GET handler's file-present branch — the
+      // seed branch returns `DEFAULT_SEED_CONFIG` without normalizing)
+      // pass in freshly-parsed JSON they don't retain a reference to
+      // elsewhere.
       const valObj = val as Record<string, unknown>;
 
       // Strip a legacy nested `settings` node before normalizeServerType
