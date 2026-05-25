@@ -93,6 +93,12 @@ export interface CreateRemoteAppResult {
    * HTTP-server close so the watcher is released on shutdown. Tests that
    * exercise SSE should call it in teardown — tests that never subscribe
    * never start the watcher and can omit it without leaking.
+   *
+   * Resolves once the subscriber set is cleared and the watcher is closed.
+   * Individual SSE stream callbacks held inside `streamSSE` are not awaited
+   * here — they resolve on their own when the underlying socket aborts.
+   * Callers that need to be sure those have settled (e.g. the standalone
+   * server) should call `httpServer.closeAllConnections()` *after* this.
    */
   close: () => Promise<void>;
 }
@@ -296,6 +302,33 @@ export function createRemoteApp(
   };
 
   const writeMcpAndTrackMtime = async (data: string): Promise<void> => {
+    // If an external editor wrote the file between our previous write and
+    // this one, chokidar's `awaitWriteFinish` will coalesce both events
+    // into a single watcher fire whose mtime matches what we're about to
+    // write — and the watcher handler will then suppress the broadcast.
+    // Peer subscribers (e.g. a second browser tab) would never learn about
+    // the external edit. Detect that case here by comparing the current
+    // on-disk mtime against our last tracked mtime; broadcast after the
+    // write completes so peers re-fetch the merged state.
+    //
+    // The originating tab's mutator triggers its own refresh on PUT/POST
+    // success, so this extra broadcast is intended for peers only — a
+    // double refresh on the originating tab is cheap (same GET, same
+    // payload) and acceptable.
+    let externalEditDetected = false;
+    if (lastWrittenMtimeMs !== null) {
+      try {
+        const s = await fsStat(mcpConfigPath);
+        if (s.mtimeMs !== lastWrittenMtimeMs) {
+          externalEditDetected = true;
+        }
+      } catch {
+        // File missing → an external delete slipped in between our writes.
+        // Treat as an external edit so peers learn about it.
+        externalEditDetected = true;
+      }
+    }
+
     await writeStoreFile(mcpConfigPath, data);
     try {
       const s = await fsStat(mcpConfigPath);
@@ -303,6 +336,10 @@ export function createRemoteApp(
     } catch {
       // If the stat fails the next watcher event will broadcast — that's the
       // correct fallback (the only cost is a redundant client refresh).
+    }
+
+    if (externalEditDetected) {
+      broadcastServerListChange();
     }
   };
 

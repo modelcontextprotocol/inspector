@@ -225,6 +225,126 @@ describe("GET /api/servers/events", () => {
     sink.close();
   });
 
+  it("does NOT emit when the backend's own PUT /api/servers/:id writes the file", async () => {
+    writeFileSync(
+      h.configPath,
+      JSON.stringify(
+        { mcpServers: { alpha: { type: "stdio", command: "old" } } },
+        null,
+        2,
+      ) + "\n",
+    );
+    // A GET first so the backend records `lastWrittenMtimeMs` from any
+    // seed-write path it owns and so writeMcpAndTrackMtime's pre-stat below
+    // doesn't trip the external-edit-detected branch.
+    await fetch(`${h.baseUrl}/api/servers`);
+    const sink = await subscribe(h.baseUrl);
+    await new Promise((r) => setTimeout(r, 150));
+
+    const putRes = await fetch(`${h.baseUrl}/api/servers/alpha`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "alpha",
+        config: { type: "stdio", command: "new" },
+      }),
+    });
+    expect(putRes.status).toBe(200);
+
+    await new Promise((r) => setTimeout(r, 400));
+    expect(sink.events).toEqual([]);
+    sink.close();
+  });
+
+  it("does NOT emit when the backend's own DELETE /api/servers/:id writes the file", async () => {
+    writeFileSync(
+      h.configPath,
+      JSON.stringify(
+        { mcpServers: { alpha: { type: "stdio", command: "node" } } },
+        null,
+        2,
+      ) + "\n",
+    );
+    await fetch(`${h.baseUrl}/api/servers`);
+    const sink = await subscribe(h.baseUrl);
+    await new Promise((r) => setTimeout(r, 150));
+
+    const delRes = await fetch(`${h.baseUrl}/api/servers/alpha`, {
+      method: "DELETE",
+    });
+    expect(delRes.status).toBe(200);
+
+    await new Promise((r) => setTimeout(r, 400));
+    expect(sink.events).toEqual([]);
+    sink.close();
+  });
+
+  it("emits a broadcast when an external edit slips in between two backend writes (peer-tab visibility)", async () => {
+    // This is the race the watcher-handler suppression cannot catch on its
+    // own: external editor saves AFTER the backend has read the current
+    // mtime but BEFORE chokidar's awaitWriteFinish has fired, so chokidar
+    // coalesces the external mtime and our merged-write mtime into one
+    // event whose mtime matches our own write — and we'd suppress.
+    // `writeMcpAndTrackMtime` covers this by stat()ing on entry and
+    // broadcasting itself if the pre-write mtime doesn't match its tracked
+    // value, so a second connected subscriber learns about the change.
+    writeFileSync(
+      h.configPath,
+      JSON.stringify(
+        { mcpServers: { alpha: { type: "stdio", command: "v1" } } },
+        null,
+        2,
+      ) + "\n",
+    );
+    // Drive the first write through the backend so lastWrittenMtimeMs is
+    // populated with the mtime we expect on disk going into the next write.
+    const firstPut = await fetch(`${h.baseUrl}/api/servers/alpha`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "alpha",
+        config: { type: "stdio", command: "v2" },
+      }),
+    });
+    expect(firstPut.status).toBe(200);
+
+    // Subscribe AFTER the first write so the peer subscriber represents a
+    // separate tab opened mid-session.
+    const sink = await subscribe(h.baseUrl);
+    await new Promise((r) => setTimeout(r, 150));
+
+    // External editor writes the file directly. Need a fresh mtime distinct
+    // from the last backend write, so wait a beat (mtime granularity on
+    // older filesystems is ms-coarse).
+    await new Promise((r) => setTimeout(r, 20));
+    writeFileSync(
+      h.configPath,
+      JSON.stringify(
+        { mcpServers: { alpha: { type: "stdio", command: "external" } } },
+        null,
+        2,
+      ) + "\n",
+    );
+
+    // Backend write follows quickly enough that chokidar's
+    // awaitWriteFinish coalesces both events. Without the pre-stat check
+    // the peer subscriber would never see this edit.
+    const secondPut = await fetch(`${h.baseUrl}/api/servers/alpha`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "alpha",
+        config: { type: "stdio", command: "v3-merged" },
+      }),
+    });
+    expect(secondPut.status).toBe(200);
+
+    await sink.waitFor(1);
+    expect(sink.events.length).toBeGreaterThanOrEqual(1);
+    expect(JSON.parse(sink.events[0]!)).toEqual({ type: "change" });
+    sink.close();
+  });
+
   it("emits when the user deletes the config file", async () => {
     writeFileSync(
       h.configPath,

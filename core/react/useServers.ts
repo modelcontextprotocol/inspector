@@ -76,25 +76,39 @@ export function useServers(opts: UseServersOptions): UseServersResult {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | undefined>(undefined);
 
-  const refresh = useCallback(async (): Promise<void> => {
-    setLoading(true);
-    setError(undefined);
-    try {
-      const res = await doFetch(`${base}/api/servers`, {
-        method: "GET",
-        headers: buildHeaders(authToken, false),
-      });
-      if (!res.ok) {
-        throw new Error(await readErrorMessage(res));
+  // Inner refresh that the public `refresh` and the SSE-triggered background
+  // refresh both share. `background` skips the loading-state toggle so
+  // consumers rendering a spinner or skeleton don't flash on every external
+  // mcp.json edit — the existing list stays on screen while the re-fetch
+  // resolves. `error` is still reset / set either way so a real error
+  // surfaces even from a background refresh.
+  const refreshInternal = useCallback(
+    async (background: boolean): Promise<void> => {
+      if (!background) setLoading(true);
+      setError(undefined);
+      try {
+        const res = await doFetch(`${base}/api/servers`, {
+          method: "GET",
+          headers: buildHeaders(authToken, false),
+        });
+        if (!res.ok) {
+          throw new Error(await readErrorMessage(res));
+        }
+        const body = (await res.json()) as MCPConfig;
+        setServers(mcpConfigToServerEntries(body));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!background) setLoading(false);
       }
-      const body = (await res.json()) as MCPConfig;
-      setServers(mcpConfigToServerEntries(body));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [base, authToken, doFetch]);
+    },
+    [base, authToken, doFetch],
+  );
+
+  const refresh = useCallback(
+    (): Promise<void> => refreshInternal(false),
+    [refreshInternal],
+  );
 
   useEffect(() => {
     void refresh();
@@ -122,19 +136,28 @@ export function useServers(opts: UseServersOptions): UseServersResult {
         const decoder = new TextDecoder();
         let buffer = "";
         // SSE frames are separated by a blank line (`\n\n`). We don't parse
-        // the event type or data — `refresh()` re-fetches the canonical
-        // state regardless — so a single \n\n is enough to debounce a
-        // single broadcast into a single refresh.
+        // the event type or data — `refreshInternal()` re-fetches the
+        // canonical state regardless — so we just count frames and fire a
+        // single background refresh per decode chunk. Two `change`
+        // broadcasts landing in the same chunk become one re-fetch instead
+        // of two concurrent ones whose setState order is unspecified.
+        // Cross-chunk debounce is not added: `awaitWriteFinish`'s 100ms
+        // stability threshold already serializes external edits at the
+        // source, and chained fetches against the same GET endpoint are
+        // idempotent enough that a rare back-to-back pair just costs one
+        // extra round-trip.
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
+          let sawFrame = false;
           let frameEnd = buffer.indexOf("\n\n");
           while (frameEnd !== -1) {
             buffer = buffer.slice(frameEnd + 2);
-            void refresh();
+            sawFrame = true;
             frameEnd = buffer.indexOf("\n\n");
           }
+          if (sawFrame) void refreshInternal(true);
         }
       } catch {
         // AbortError on unmount, or a transient network blip. No reconnect:
@@ -143,7 +166,7 @@ export function useServers(opts: UseServersOptions): UseServersResult {
       }
     })();
     return () => controller.abort();
-  }, [base, authToken, doFetch, refresh]);
+  }, [base, authToken, doFetch, refreshInternal]);
 
   const addServer = useCallback(
     async (id: string, config: MCPServerConfig): Promise<void> => {
