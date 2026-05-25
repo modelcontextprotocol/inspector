@@ -1292,13 +1292,15 @@ export function createRemoteApp(
     return obsolete;
   };
 
+  // Parallel for symmetry with `readKeychainEntriesFor` /
+  // `writeKeychainEntriesFor`: distinct (id, field) deletes have no
+  // ordering requirement, and `secretStore.delete` is already a silent
+  // no-op on unavailability so Promise.all has no failure-mode surprise.
   const deleteKeychainFields = async (
     id: string,
     fields: string[],
   ): Promise<void> => {
-    for (const field of fields) {
-      await secretStore.delete(id, field);
-    }
+    await Promise.all(fields.map((field) => secretStore.delete(id, field)));
   };
 
   const keychainErrorResponse = (
