@@ -848,8 +848,12 @@ export function createRemoteApp(
     }
     return true;
   };
+  // `Number.isFinite` rejects `Infinity` and `NaN` as well as non-numbers,
+  // matching the write-side semantics in `validateSettings`. A hand-edited
+  // file with `connectionTimeout: Infinity` would otherwise pass the guard
+  // and propagate to the form (where it has no useful meaning).
   const isNonNegNumber = (v: unknown): v is number =>
-    typeof v === "number" && v >= 0;
+    typeof v === "number" && Number.isFinite(v) && v >= 0;
 
   const normalizeMcpServers = (
     raw: unknown,
@@ -858,6 +862,10 @@ export function createRemoteApp(
     const out: Record<string, StoredMCPServer> = {};
     for (const [id, val] of Object.entries(raw as Record<string, unknown>)) {
       if (!val || typeof val !== "object") continue;
+      // `valObj` is the per-entry object we'll mutate in place via the
+      // `delete` calls below. Safe because the only callers
+      // (`readMcpConfig` and the GET handler's seed branch) pass in
+      // freshly-parsed JSON they don't retain a reference to elsewhere.
       const valObj = val as Record<string, unknown>;
 
       // Strip a legacy nested `settings` node before normalizeServerType
