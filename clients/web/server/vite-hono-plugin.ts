@@ -53,13 +53,11 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
       });
       await sandboxController.start();
 
-      const originalClose = server.close.bind(server);
-      server.close = async () => {
-        await sandboxController.close();
-        return originalClose();
-      };
-
-      const { app: honoApp, authToken: resolvedToken } = createRemoteApp({
+      const {
+        app: honoApp,
+        authToken: resolvedToken,
+        close: closeApi,
+      } = createRemoteApp({
         authToken: config.dangerouslyOmitAuth ? undefined : config.authToken,
         dangerouslyOmitAuth: config.dangerouslyOmitAuth,
         storageDir: config.storageDir,
@@ -68,6 +66,15 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
         logger: config.logger,
         initialConfig: webServerConfigToInitialPayload(config),
       });
+
+      // Chain the API close (mcp.json watcher) and the sandbox into the
+      // Vite server's close so dev-server restarts release both resources.
+      const originalClose = server.close.bind(server);
+      server.close = async () => {
+        await closeApi();
+        await sandboxController.close();
+        return originalClose();
+      };
 
       const sandboxUrl = sandboxController.getUrl();
 

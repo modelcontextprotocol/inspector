@@ -33,6 +33,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "ajv": "^8.17.1",
     "atomically": "^2.1.1",
+    "chokidar": "^4.0.3",
     "hono": "^4.12.18",
     "open": "^10.2.0",
     "pino": "^9.14.0",

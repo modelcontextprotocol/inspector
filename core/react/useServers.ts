@@ -100,6 +100,51 @@ export function useServers(opts: UseServersOptions): UseServersResult {
     void refresh();
   }, [refresh]);
 
+  // Subscribe to `/api/servers/events` so external edits to mcp.json
+  // (the user editing the file by hand, or `mcp.json` written by another
+  // tool) propagate without a manual page refresh. We deliberately use
+  // fetch() + ReadableStream rather than EventSource because EventSource
+  // can't send the existing `x-mcp-remote-auth: Bearer …` header — the
+  // backend's auth contract is unchanged. The event payload itself is
+  // ignored: any signal triggers a re-fetch, since the GET handler is the
+  // sole source of truth for the list shape.
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const res = await doFetch(`${base}/api/servers/events`, {
+          method: "GET",
+          headers: buildHeaders(authToken, false),
+          signal: controller.signal,
+        });
+        if (!res.ok || !res.body) return;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        // SSE frames are separated by a blank line (`\n\n`). We don't parse
+        // the event type or data — `refresh()` re-fetches the canonical
+        // state regardless — so a single \n\n is enough to debounce a
+        // single broadcast into a single refresh.
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let frameEnd = buffer.indexOf("\n\n");
+          while (frameEnd !== -1) {
+            buffer = buffer.slice(frameEnd + 2);
+            void refresh();
+            frameEnd = buffer.indexOf("\n\n");
+          }
+        }
+      } catch {
+        // AbortError on unmount, or a transient network blip. No reconnect:
+        // a real failure leaves the hook in last-known-good state and the
+        // user can hit refresh manually. The dev-tool reload story is fine.
+      }
+    })();
+    return () => controller.abort();
+  }, [base, authToken, doFetch, refresh]);
+
   const addServer = useCallback(
     async (id: string, config: MCPServerConfig): Promise<void> => {
       const res = await doFetch(`${base}/api/servers`, {
