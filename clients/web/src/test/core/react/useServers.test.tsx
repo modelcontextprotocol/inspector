@@ -259,6 +259,49 @@ describe("useServers", () => {
     );
   });
 
+  it("SSE-driven refresh does not flip loading back to true (no skeleton flicker)", async () => {
+    // Regression guard for the background-refresh split: a consumer
+    // rendering a loading spinner / skeleton must not see `loading` go
+    // true on every external mcp.json edit. The hook's SSE handler calls
+    // refreshInternal(true), which skips the setLoading toggles entirely;
+    // sampling a single point can miss the bug under React batching, so
+    // record every observed `loading` value across the SSE cycle and
+    // assert none of them is true.
+    const loadingHistory: boolean[] = [];
+    const { result } = renderHook(() => {
+      const r = useServers({
+        baseUrl: "http://test.local",
+        fetchFn: h.fetchFn,
+      });
+      loadingHistory.push(r.loading);
+      return r;
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    // Slice off the mount-phase renders; only renders after the initial
+    // load are subject to the no-flicker contract.
+    const baselineLen = loadingHistory.length;
+
+    await new Promise((r) => setTimeout(r, 200));
+    writeFileSync(
+      h.configPath,
+      JSON.stringify({
+        mcpServers: { flicker: { type: "stdio", command: "outside" } },
+      }) + "\n",
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.servers.map((s) => s.id)).toEqual(["flicker"]);
+      },
+      { timeout: 3000 },
+    );
+
+    const postRefreshLoadings = loadingHistory.slice(baselineLen);
+    expect(postRefreshLoadings.length).toBeGreaterThan(0);
+    expect(postRefreshLoadings.every((v) => v === false)).toBe(true);
+  });
+
   it("captures the error message on fetch network failure", async () => {
     const failingFetch = vi
       .fn<typeof fetch>()

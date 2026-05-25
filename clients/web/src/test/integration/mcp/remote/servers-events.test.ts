@@ -234,10 +234,6 @@ describe("GET /api/servers/events", () => {
         2,
       ) + "\n",
     );
-    // A GET first so the backend records `lastWrittenMtimeMs` from any
-    // seed-write path it owns and so writeMcpAndTrackMtime's pre-stat below
-    // doesn't trip the external-edit-detected branch.
-    await fetch(`${h.baseUrl}/api/servers`);
     const sink = await subscribe(h.baseUrl);
     await new Promise((r) => setTimeout(r, 150));
 
@@ -265,7 +261,6 @@ describe("GET /api/servers/events", () => {
         2,
       ) + "\n",
     );
-    await fetch(`${h.baseUrl}/api/servers`);
     const sink = await subscribe(h.baseUrl);
     await new Promise((r) => setTimeout(r, 150));
 

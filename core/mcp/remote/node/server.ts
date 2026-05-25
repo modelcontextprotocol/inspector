@@ -309,7 +309,18 @@ export function createRemoteApp(
     // Peer subscribers (e.g. a second browser tab) would never learn about
     // the external edit. Detect that case here by comparing the current
     // on-disk mtime against our last tracked mtime; broadcast after the
-    // write completes so peers re-fetch the merged state.
+    // write completes so peers re-fetch.
+    //
+    // This is a notification-of-divergence, not a preservation guarantee:
+    // depending on whether the external write landed before or after the
+    // route handler's `readMcpConfig()`, the external edit's content may
+    // already be inside our serialized payload (it'll round-trip) or it
+    // may have been read-around and the next `writeStoreFile` below will
+    // overwrite it. Either way peers learn there's been a change and
+    // re-fetch the resulting authoritative on-disk state. Preserving the
+    // external edit's content in the second ordering would require a
+    // read-modify-write retry loop, which is outside this PR's scope and
+    // probably not worth it for a single-user local dev tool.
     //
     // The originating tab's mutator triggers its own refresh on PUT/POST
     // success, so this extra broadcast is intended for peers only — a
