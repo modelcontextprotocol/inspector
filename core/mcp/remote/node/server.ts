@@ -1148,13 +1148,20 @@ export function createRemoteApp(
   // — the only realistic trigger is Linux without libsecret, and the user
   // can install it without restarting.
 
+  // Same Promise.all reasoning as `readKeychainEntriesFor`: each set
+  // is a native round-trip and there's no ordering requirement among
+  // distinct (id, field) keys. If the keychain is unavailable every
+  // set will reject — Promise.all surfaces the first rejection, which
+  // is the right signal for the route handler (translates to 503).
   const writeKeychainEntriesFor = async (
     id: string,
     secrets: Record<string, string>,
   ): Promise<void> => {
-    for (const [field, value] of Object.entries(secrets)) {
-      await secretStore.set(id, field, value);
-    }
+    await Promise.all(
+      Object.entries(secrets).map(([field, value]) =>
+        secretStore.set(id, field, value),
+      ),
+    );
   };
 
   // Fetch every keychain value an entry could need into a flat record
@@ -1238,6 +1245,15 @@ export function createRemoteApp(
             "Keychain unavailable; skipping plaintext-secret migration on this read. Existing mcp.json plaintext values are preserved.",
           );
         }
+        // Partial-migration semantics: if `set` threw partway through
+        // the loop, some servers may already have keychain entries
+        // while others don't. We deliberately return the original
+        // `config` (not the partial `next`) so the disk file stays
+        // intact — the next successful GET runs the migration again,
+        // and the idempotent "keychain wins on conflict" branch
+        // (`existing !== null`) silently absorbs the already-set
+        // entries. No data loss; one wasted set on retry per
+        // already-migrated entry.
         return { migrated: config, changed: false };
       }
       throw err;
