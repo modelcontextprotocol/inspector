@@ -95,6 +95,10 @@ export function storedFieldsToInspectorSettings(
     connectionTimeout: stored.connectionTimeout ?? 0,
     requestTimeout: stored.requestTimeout ?? 0,
   };
+  // Truthiness drops empty-string OAuth fields — mirrors the write-side
+  // coercion in `validateSettings` (server.ts) so a round-trip can't
+  // accidentally surface `oauthClientId: ""` to the form, where the
+  // OAuth manager would misread it as "configured."
   if (stored.oauth?.clientId) settings.oauthClientId = stored.oauth.clientId;
   if (stored.oauth?.clientSecret)
     settings.oauthClientSecret = stored.oauth.clientSecret;
@@ -157,18 +161,51 @@ export function inspectorSettingsToStoredFields(
 }
 
 /**
- * Set of known Inspector-extension keys that live at the top level of a
- * `StoredMCPServer`. Used by the disk → memory converter to slice the
- * extension fields off the entry so what remains is a pure SDK
- * `MCPServerConfig`.
+ * Source of truth for the set of Inspector-extension keys that live at the
+ * top level of a `StoredMCPServer`. Enumerated through a map keyed by
+ * `keyof StoredInspectorFields` with a `satisfies` constraint so any new
+ * field added to the type forces a compile error here — the disk → memory
+ * converter slice, the server-side smuggle guard, and the PUT preserve
+ * path all derive from this single source.
+ *
+ * Don't replace this with a hand-typed string array — `satisfies
+ * Record<keyof StoredInspectorFields, true>` is what gives us the
+ * exhaustive check. `as const` plus the `satisfies` clause yields a
+ * narrow tuple-of-literals type that downstream consumers can use as
+ * `(keyof StoredInspectorFields)[]`.
  */
-const INSPECTOR_FIELD_KEYS = new Set<keyof StoredInspectorFields>([
-  "headers",
-  "metadata",
-  "connectionTimeout",
-  "requestTimeout",
-  "oauth",
-]);
+const INSPECTOR_FIELD_KEY_MAP = {
+  headers: true,
+  metadata: true,
+  connectionTimeout: true,
+  requestTimeout: true,
+  oauth: true,
+} as const satisfies Record<keyof StoredInspectorFields, true>;
+
+export const INSPECTOR_FIELD_KEYS = new Set(
+  Object.keys(INSPECTOR_FIELD_KEY_MAP) as (keyof StoredInspectorFields)[],
+);
+
+/**
+ * Strip the Inspector-extension fields off a `StoredMCPServer` so the
+ * remainder is the pure SDK config shape the PUT route's preserve path
+ * needs. Source-of-truth driven via `INSPECTOR_FIELD_KEYS` so adding a
+ * new extension field doesn't silently leak through this slice — the
+ * `satisfies` constraint above forces the map update, which propagates
+ * here.
+ */
+export function stripInspectorFields(
+  stored: StoredMCPServer,
+): MCPServerConfig {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(
+    stored as unknown as Record<string, unknown>,
+  )) {
+    if (INSPECTOR_FIELD_KEYS.has(k as keyof StoredInspectorFields)) continue;
+    out[k] = v;
+  }
+  return out as unknown as MCPServerConfig;
+}
 
 /**
  * Convert the on-disk `MCPConfig` into the `ServerEntry[]` the Servers screen

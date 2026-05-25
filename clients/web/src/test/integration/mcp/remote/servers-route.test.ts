@@ -793,6 +793,49 @@ describe("/api/servers routes", () => {
       expect(stored).not.toHaveProperty("headers");
     });
 
+    it("drops individually malformed Inspector-extension fields on read (read-path shape validation)", async () => {
+      // A hand-edited mcp.json with a mix of valid and malformed
+      // Inspector-extension fields. `normalizeMcpServers` drops each bad
+      // field independently with a warn — so one wrong key doesn't take
+      // out the whole entry, and garbage values can't reach the form via
+      // the disk → memory converter.
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            bad: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              // Good: should round-trip
+              headers: { "X-Keep": "yes" },
+              // Bad: string instead of pair-array → drop
+              metadata: "oops",
+              // Bad: non-number timeout → drop
+              connectionTimeout: "30s",
+              // Good: valid number
+              requestTimeout: 60000,
+              // Bad: array instead of object → drop
+              oauth: ["not", "an", "object"],
+            },
+          },
+        }),
+      );
+
+      const getRes = await fetch(`${h.baseUrl}/api/servers`);
+      expect(getRes.status).toBe(200);
+      const getBody = (await getRes.json()) as {
+        mcpServers: Record<string, Record<string, unknown>>;
+      };
+      const fetched = getBody.mcpServers.bad!;
+      // Good fields survive.
+      expect(fetched.headers).toEqual({ "X-Keep": "yes" });
+      expect(fetched.requestTimeout).toBe(60000);
+      // Bad fields are dropped.
+      expect(fetched).not.toHaveProperty("metadata");
+      expect(fetched).not.toHaveProperty("connectionTimeout");
+      expect(fetched).not.toHaveProperty("oauth");
+    });
+
     it("loads a hand-edited file with top-level Claude Code-style `headers` (interop with `.mcp.json`)", async () => {
       // A user pastes a server entry copied from the Claude Code docs:
       // top-level `headers: { ... }`, no settings wrapper. GET should

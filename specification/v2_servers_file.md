@@ -261,4 +261,4 @@ Each server entry may carry these Inspector-extension fields at the top level:
 - File watching for hot reload of external edits.
 - Per-server tags / folders / groups.
 - Export current list as JSON.
-- CLI/TUI: switch their default `--config` to `getDefaultMcpConfigPath()` when no `--config` flag is given. Touch when those clients are wired up to v2. While porting, re-add a `--header` flag that writes to `settings.headers` rather than to `MCPServerConfig`.
+- CLI/TUI: switch their default `--config` to `getDefaultMcpConfigPath()` when no `--config` flag is given. Touch when those clients are wired up to v2. While porting, re-add a `--header` flag that writes to the entry's top-level `headers` field on disk (post-#1358 flat shape) rather than to `MCPServerConfig`.
