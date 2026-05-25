@@ -397,14 +397,18 @@ describe("useServers", () => {
         requestTimeout: 30000,
       });
     });
-    const stored = readConfig(h.configPath).mcpServers.alpha as {
-      type?: string;
-      url?: string;
-      settings?: unknown;
-    };
+    const stored = readConfig(h.configPath).mcpServers
+      .alpha as unknown as Record<string, unknown>;
+    // Post-#1358: settings round-trip onto top-level keys on disk, no
+    // nested `settings` wrapper. Each non-zero/non-empty field surfaces
+    // as a sibling of `type` / `url`.
     expect(stored.type).toBe("streamable-http");
     expect(stored.url).toBe("https://x.test/mcp");
-    expect(stored.settings).toBeDefined();
+    expect(stored).not.toHaveProperty("settings");
+    expect(stored.headers).toEqual({ "X-Tenant": "acme" });
+    expect(stored.metadata).toEqual([{ key: "trace", value: "abc" }]);
+    expect(stored.connectionTimeout).toBe(5000);
+    expect(stored.requestTimeout).toBe(30000);
   });
 
   it("updateServerSettings throws when the target id does not exist (server-side 404)", async () => {
@@ -433,12 +437,9 @@ describe("useServers", () => {
           alpha: {
             type: "streamable-http",
             url: "https://x.test/mcp",
-            settings: {
-              headers: [{ key: "X-Keep", value: "yes" }],
-              metadata: [],
-              connectionTimeout: 0,
-              requestTimeout: 0,
-            },
+            // Post-#1358 flat shape on disk; the hook lifts `headers` into
+            // the pair-array `settings.headers` it exposes.
+            headers: { "X-Keep": "yes" },
           },
         },
       }),

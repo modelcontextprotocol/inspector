@@ -33,7 +33,11 @@ import type {
 } from "../../types.js";
 import {
   DEFAULT_SEED_CONFIG,
+  INSPECTOR_FIELD_KEYS,
+  inspectorSettingsToStoredFields,
   normalizeServerType,
+  storedFieldsToInspectorSettings,
+  stripInspectorFields,
 } from "../../serverList.js";
 import { RemoteSession } from "./remote-session.js";
 import { createTokenAuthProvider } from "./tokenAuthProvider.js";
@@ -790,46 +794,171 @@ export function createRemoteApp(
 
   // --- /api/servers (server list backed by mcp.json) ---
 
+  // Match handleWatcherError's pattern: log to the configured logger if
+  // present, fall back to console.warn for visibility in `npm run dev`
+  // where no logger is wired up. Both gates below feed user-visible
+  // signals (legacy on-disk shape, client bug smuggling fields), so a
+  // silent drop is worse than a console line.
+  const logWarn = (bindings: Record<string, unknown>, msg: string): void => {
+    if (fileLogger) {
+      fileLogger.warn(bindings, msg);
+    } else {
+      console.warn("[mcp.json]", msg, bindings);
+    }
+  };
+
   // Defensive normalize so editor-edited files with type:"http" or missing
-  // type round-trip into the canonical form on every read. Settings that
-  // fail `validateSettings` are silently stripped (lenient-on-read pattern
-  // matching `normalizeServerType`'s unknown→stdio fallback) so a malformed
-  // hand-edit can't propagate through preserve-on-PUT.
-  const normalizeMcpServers = (raw: unknown): Record<string, StoredMCPServer> => {
+  // type round-trip into the canonical form on every read. Inspector-
+  // extension fields (headers / metadata / connectionTimeout / requestTimeout
+  // / oauth) sit at the top level of each entry post-#1358; this function
+  // is the read-side gate — it validates each field's shape and drops
+  // anything malformed with a logged warn, so a hand-edited file with
+  // `headers: "oops"` can't put garbage rows into the form.
+  //
+  // Legacy `settings` nodes written by the pre-#1358 build (one #1352
+  // release on v2/main that never shipped stable) are dropped with a
+  // warn — those persisted headers / metadata / timeouts / OAuth
+  // credentials are intentionally lost on first read (hard cutover per
+  // #1358 decision 4). Users re-enter via the form or hand-edit into the
+  // flat shape.
+  const isStringRecord = (v: unknown): v is Record<string, string> => {
+    if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
+    for (const val of Object.values(v as Record<string, unknown>)) {
+      if (typeof val !== "string") return false;
+    }
+    return true;
+  };
+  const isKvArray = (v: unknown): v is { key: string; value: string }[] => {
+    if (!Array.isArray(v)) return false;
+    return v.every(
+      (e) =>
+        e !== null &&
+        typeof e === "object" &&
+        typeof (e as Record<string, unknown>).key === "string" &&
+        typeof (e as Record<string, unknown>).value === "string",
+    );
+  };
+  const isOauthObject = (
+    v: unknown,
+  ): v is { clientId?: string; clientSecret?: string; scopes?: string } => {
+    if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
+    const o = v as Record<string, unknown>;
+    for (const k of ["clientId", "clientSecret", "scopes"] as const) {
+      if (o[k] !== undefined && typeof o[k] !== "string") return false;
+    }
+    return true;
+  };
+  // `Number.isFinite` rejects `Infinity` and `NaN` as well as non-numbers,
+  // matching the write-side semantics in `validateSettings`. A hand-edited
+  // file with `connectionTimeout: Infinity` would otherwise pass the guard
+  // and propagate to the form (where it has no useful meaning).
+  const isNonNegNumber = (v: unknown): v is number =>
+    typeof v === "number" && Number.isFinite(v) && v >= 0;
+
+  const normalizeMcpServers = (
+    raw: unknown,
+  ): Record<string, StoredMCPServer> => {
     if (!raw || typeof raw !== "object") return {};
     const out: Record<string, StoredMCPServer> = {};
     for (const [id, val] of Object.entries(raw as Record<string, unknown>)) {
       if (!val || typeof val !== "object") continue;
-      const normalized = normalizeServerType(
-        val as Record<string, unknown> & { type?: string },
-      ) as StoredMCPServer;
-      if (normalized.settings !== undefined) {
-        const checked = validateSettings(normalized.settings);
-        if (checked.ok) {
-          normalized.settings = checked.value;
-        } else {
-          delete normalized.settings;
-        }
+      // `valObj` is the per-entry object we'll mutate in place via the
+      // `delete` calls below. Safe because the only callers
+      // (`readMcpConfig` and the GET handler's file-present branch — the
+      // seed branch returns `DEFAULT_SEED_CONFIG` without normalizing)
+      // pass in freshly-parsed JSON they don't retain a reference to
+      // elsewhere.
+      const valObj = val as Record<string, unknown>;
+
+      // Strip a legacy nested `settings` node before normalizeServerType
+      // would spread it through. Hard cutover per decision 4.
+      if ("settings" in valObj) {
+        logWarn(
+          { route: "/api/servers", id, droppedKey: "settings" },
+          "Dropping legacy `settings` node from mcp.json entry — fields now live at the top level. Re-enter via the settings form or hand-edit the file into the flat shape.",
+        );
+        delete valObj.settings;
       }
-      out[id] = normalized;
+
+      // Per-field shape validation on the Inspector-extension keys. The
+      // write path (validateSettings) is symmetric — same checks. Drop
+      // bad shapes individually so a single malformed key doesn't take
+      // out the rest of the entry; log so the user can fix the file.
+      if ("headers" in valObj && !isStringRecord(valObj.headers)) {
+        logWarn(
+          { route: "/api/servers", id, droppedKey: "headers" },
+          "Dropping malformed `headers` field — expected `Record<string, string>`.",
+        );
+        delete valObj.headers;
+      }
+      if ("metadata" in valObj && !isKvArray(valObj.metadata)) {
+        logWarn(
+          { route: "/api/servers", id, droppedKey: "metadata" },
+          "Dropping malformed `metadata` field — expected `Array<{ key: string, value: string }>`.",
+        );
+        delete valObj.metadata;
+      }
+      if (
+        "connectionTimeout" in valObj &&
+        !isNonNegNumber(valObj.connectionTimeout)
+      ) {
+        logWarn(
+          { route: "/api/servers", id, droppedKey: "connectionTimeout" },
+          "Dropping malformed `connectionTimeout` field — expected non-negative number.",
+        );
+        delete valObj.connectionTimeout;
+      }
+      if (
+        "requestTimeout" in valObj &&
+        !isNonNegNumber(valObj.requestTimeout)
+      ) {
+        logWarn(
+          { route: "/api/servers", id, droppedKey: "requestTimeout" },
+          "Dropping malformed `requestTimeout` field — expected non-negative number.",
+        );
+        delete valObj.requestTimeout;
+      }
+      if ("oauth" in valObj && !isOauthObject(valObj.oauth)) {
+        logWarn(
+          { route: "/api/servers", id, droppedKey: "oauth" },
+          "Dropping malformed `oauth` field — expected `{ clientId?, clientSecret?, scopes? }`.",
+        );
+        delete valObj.oauth;
+      }
+
+      out[id] = normalizeServerType(
+        valObj as Record<string, unknown> & { type?: string },
+      ) as StoredMCPServer;
     }
     return out;
   };
 
   // Build a single on-disk entry from `{ config, settings }`, normalizing the
-  // type discriminator and attaching settings only when defined.
+  // type discriminator and splatting Inspector-extension fields onto the
+  // entry as direct keys (post-#1358 flat shape).
   //
   // `normalizeServerType` spreads unknown keys from the incoming config
-  // through verbatim, so a caller that included `config.settings` on the
-  // wire would smuggle a `settings` field straight onto the stored entry —
-  // bypassing `validateSettings`. Strip it here so `validateSettings`
-  // remains the single write path for the settings node. Log a warning if
-  // we observe this — it indicates a client bug (settings should travel
-  // through the body's top-level `settings` field, not nested in config).
+  // through verbatim, so a caller that included `config.settings` (or any
+  // of the now-flat Inspector keys) on the wire would smuggle those values
+  // onto the stored entry — bypassing `validateSettings`. Strip them here
+  // so `validateSettings` remains the single write path for those fields.
+  // Log a warning if we observe this — it indicates a client bug (settings
+  // travel through the body's top-level `settings` field per the kept-
+  // envelope wire shape from #1358 decision 5, not nested in config).
   //
-  // `id` is threaded through purely so the warning correlates to a
-  // specific entry; the route ultimately reaches here via POST or PUT and
-  // both know the target id at call time.
+  // `id` is threaded through purely so the warning correlates to a specific
+  // entry; the route ultimately reaches here via POST or PUT and both know
+  // the target id at call time.
+  //
+  // The set of guarded keys is the source-of-truth `INSPECTOR_FIELD_KEYS`
+  // plus the legacy `"settings"` wrapper key. Adding a new Inspector-
+  // extension field to `StoredMCPServer` propagates through the
+  // `satisfies` check in `serverList.ts` and updates this guard
+  // automatically; nothing to remember to update here.
+  const SMUGGLE_GUARDED_KEYS: ReadonlySet<string> = new Set<string>([
+    ...INSPECTOR_FIELD_KEYS,
+    "settings",
+  ]);
   const buildStoredEntry = (
     id: string,
     config: unknown,
@@ -843,18 +972,26 @@ export function createRemoteApp(
       config !== null && typeof config === "object"
         ? (config as Record<string, unknown>)
         : {};
-    if ("settings" in configObj) {
-      fileLogger?.warn(
-        { route: "/api/servers", id, smuggledKey: "settings" },
-        "Stripping `settings` key from request body's `config` — settings must travel through the top-level `settings` field, not nested inside `config`.",
+    const smuggled: string[] = [];
+    const configOnly: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(configObj)) {
+      if (SMUGGLE_GUARDED_KEYS.has(k)) {
+        smuggled.push(k);
+        continue;
+      }
+      configOnly[k] = v;
+    }
+    if (smuggled.length > 0) {
+      logWarn(
+        { route: "/api/servers", id, smuggledKeys: smuggled },
+        "Stripping Inspector-extension keys from request body's `config` — those must travel through the top-level `settings` field, not nested inside `config`.",
       );
     }
-    const { settings: _smuggled, ...configOnly } = configObj;
     const normalized = normalizeServerType(
       configOnly as Record<string, unknown> & { type?: string },
     ) as StoredMCPServer;
     if (settings !== undefined) {
-      normalized.settings = settings;
+      Object.assign(normalized, inspectorSettingsToStoredFields(settings));
     }
     return normalized;
   };
@@ -1119,17 +1256,36 @@ export function createRemoteApp(
         // malformed settings node on *other* servers in the file — a
         // deliberate side-effect of using `readMcpConfig` + full rewrite
         // here.
-        const existing = current.mcpServers[originalId]!;
-        // Split the existing entry into its config (everything except
-        // settings) and its settings, then apply patch semantics from the
-        // body to each.
-        const { settings: _existingSettings, ...existingConfig } = existing;
+        const existing = current.mcpServers[originalId];
+        if (!existing) {
+          // The `in` check above guarantees this branch is unreachable;
+          // narrowing without the non-null assertion keeps TS happy and
+          // makes the contract explicit for future refactors.
+          return c.json(
+            { error: `Server '${originalId}' not found` },
+            404,
+          );
+        }
+        // Split the existing entry into its SDK-only config (no Inspector-
+        // extension fields) and its lifted settings, then apply patch
+        // semantics from the body to each. The flat-on-disk Inspector
+        // fields are sliced off `existing` so the preserve-on-omit `config`
+        // path doesn't accidentally carry them through as raw disk keys —
+        // they need to flow through `buildStoredEntry` so empty `settings`
+        // intents can clear them.
+        //
+        // `stripInspectorFields` + `storedFieldsToInspectorSettings` both
+        // derive from the same `INSPECTOR_FIELD_KEYS` set, so adding a new
+        // Inspector-extension field to `StoredMCPServer` doesn't silently
+        // leak through this preserve path.
+        const existingConfig = stripInspectorFields(existing);
+        const existingSettings = storedFieldsToInspectorSettings(existing);
         const nextConfig =
           body.config !== undefined ? body.config : existingConfig;
         let nextSettings: InspectorServerSettings | undefined;
         switch (settingsIntent.kind) {
           case "preserve":
-            nextSettings = existing.settings;
+            nextSettings = existingSettings;
             break;
           case "clear":
             nextSettings = undefined;
