@@ -7,7 +7,7 @@
 
 ## Summary
 
-Replaces the hardcoded `SEED_SERVERS` in `clients/web/src/App.tsx:47` with a file-backed list at `~/.mcp-inspector/mcp.json`, read at startup, mutated via REST endpoints, surfaced through a `useServers` hook. The file also stores the per-server **settings** (custom headers, request metadata, timeouts, pre-configured OAuth credentials) edited by `ServerSettingsForm` — see [Per-server settings](#per-server-settings-1352) below for the on-disk shape, UI rationale, and write/read invariants.
+Replaces the hardcoded `SEED_SERVERS` in `clients/web/src/App.tsx:47` with a file-backed list at `~/.mcp-inspector/mcp.json`, read at startup, mutated via REST endpoints, surfaced through a `useServers` hook. The file also stores the per-server **settings** (custom headers, request metadata, timeouts, pre-configured OAuth credentials) edited by `ServerSettingsForm` — see [Per-server settings](#per-server-settings-1352) below for the on-disk shape, UI rationale, and write/read invariants. Post-#1358 those settings fields live as direct keys on the entry (matching the Claude Code / Cursor / Cline `.mcp.json` convention) rather than under a nested `settings` block.
 
 ## Goals
 
@@ -48,17 +48,19 @@ Replaces the hardcoded `SEED_SERVERS` in `clients/web/src/App.tsx:47` with a fil
     "acme-api": {
       "type": "streamable-http",
       "url": "https://api.acme.example/mcp",
-      // Optional Inspector-specific extension. Other MCP tools
-      // (Claude Desktop, Cursor, Cline) ignore unknown keys. See
-      // [Per-server settings](#per-server-settings-1352) for the
-      // full contract.
-      "settings": {
-        "headers":  [{ "key": "X-Tenant", "value": "acme" }],
-        "metadata": [{ "key": "trace",    "value": "abc" }],
-        "connectionTimeout": 30000,
-        "requestTimeout":    60000,
-        "oauthClientId":     "client-abc",
-        "oauthScopes":       "read:tools write:tools"
+      // Inspector-extension fields (post-#1358) live as direct keys on the
+      // entry, matching the Claude Code / Cursor / Cline `.mcp.json`
+      // convention. See [Per-server settings](#per-server-settings-1352)
+      // for the full contract; the in-memory + wire shape keeps pair-array
+      // headers and flat oauth* fields for the form's controlled-component
+      // editing.
+      "headers":  { "X-Tenant": "acme" },
+      "metadata": [{ "key": "trace", "value": "abc" }],
+      "connectionTimeout": 30000,
+      "requestTimeout":    60000,
+      "oauth": {
+        "clientId": "client-abc",
+        "scopes":   "read:tools write:tools"
       }
     }
   }
@@ -69,7 +71,7 @@ Replaces the hardcoded `SEED_SERVERS` in `clients/web/src/App.tsx:47` with a fil
 - `type` omitted → normalized to `"stdio"`; `type: "http"` → `"streamable-http"` (`normalizeServerType` in `core/mcp/node/config.ts:81`).
 - The map key is the **server `id`**. `ServerEntry.id` already documents itself this way (`core/mcp/types.ts:89`: "The MCPConfig.mcpServers map key").
 - Display name: derived from the map key. The edit dialog treats id and display name as the same field; renaming = key-rotate + carry config across.
-- Each entry may optionally carry a `settings` node alongside the transport keys (`headers`, `metadata`, timeouts, OAuth credentials — see [Per-server settings](#per-server-settings-1352) below). It is an Inspector-specific extension; other MCP tools (Claude Desktop, Cursor, Cline) treat it as an unknown key and ignore it.
+- Each entry may optionally carry Inspector-extension fields (`headers`, `metadata`, `connectionTimeout`, `requestTimeout`, `oauth`) as direct keys on the entry — post-#1358 these are no longer nested under a `settings` wrapper. The `headers` and `oauth` shapes match the Claude Code / Cursor / Cline `.mcp.json` convention, so a file written by any of those tools is loadable on first connect. `metadata` / `connectionTimeout` / `requestTimeout` are Inspector-only and other tools simply ignore them.
 
 ## First-run behavior
 
@@ -202,11 +204,13 @@ Per `AGENTS.md`'s "test new or modified code" rule plus the UI-changes guidance:
 - **Schema drift with Claude Desktop / Cursor.** They occasionally add fields (e.g. Claude Desktop's `disabled`). `loadMcpServersConfig` currently does `JSON.parse(...) as MCPConfig` — extra fields survive the round-trip as long as we don't filter them. The converters in `serverList.ts` should preserve unknown fields on `MCPServerConfig` rather than copying a fixed allow-list.
 - **Migration from `SEED_SERVERS`.** Existing dev users have no file. First boot writes one — they won't notice. No code path persists the in-memory `useState` list today, so nothing to migrate.
 
-## Per-server settings (#1352)
+## Per-server settings (#1352, flattened in #1358)
 
-Our new UI design separates the basic server configuration (transport, URL or command + args + env) from settings (custom headers, connect/request timeout, global request metadata, client id/secret) into two dialogs. The latter is stored in an optional `settings` node of the server config. The reason they're separated in the UI is that custom settings are less likely to be needed than basic config, so a simpler, friendlier form greets most users.
+Our UI design separates the basic server configuration (transport, URL or command + args + env) from settings (custom headers, connect/request timeout, global request metadata, client id/secret) into two dialogs. The reason they're separated in the UI is that custom settings are less likely to be needed than basic config, so a simpler, friendlier form greets most users.
 
-Each server entry may carry an optional `settings` node alongside the transport config:
+#1352 originally persisted these settings under a nested `settings` block on each entry. #1358 flattens them onto the entry as direct keys, so the on-disk shape matches the `.mcp.json` convention Claude Code / Cursor / Cline use (`headers` as a `Record<string, string>`, `oauth` as a nested object). The in-memory + wire shape is unchanged: `InspectorServerSettings` keeps pair-array `headers` and flat `oauthClientId` / `oauthClientSecret` / `oauthScopes` because the form needs them in that shape for controlled-component editing.
+
+Each server entry may carry these Inspector-extension fields at the top level:
 
 ```jsonc
 {
@@ -214,39 +218,42 @@ Each server entry may carry an optional `settings` node alongside the transport 
     "my-server": {
       "type": "streamable-http",
       "url": "https://example.com/mcp",
-      "settings": {
-        "headers":  [{ "key": "Authorization", "value": "Bearer xxx" }],
-        "metadata": [{ "key": "tenant",        "value": "acme" }],
-        "connectionTimeout": 30000,
-        "requestTimeout":    60000,
-        "oauthClientId":     "...",
-        "oauthClientSecret": "...",
-        "oauthScopes":       "read:tools write:tools"
+      "headers":  { "Authorization": "Bearer xxx" },
+      "metadata": [{ "key": "tenant", "value": "acme" }],
+      "connectionTimeout": 30000,
+      "requestTimeout":    60000,
+      "oauth": {
+        "clientId":     "...",
+        "clientSecret": "...",
+        "scopes":       "read:tools write:tools"
       }
     }
   }
 }
 ```
 
-- **Shape**: `InspectorServerSettings` in `core/mcp/types.ts`. The `settings` field on `StoredMCPServer` (also in `types.ts`) is the on-disk extension; other MCP tools (Claude Desktop, Cursor, Cline) ignore unknown fields.
+- **Shape**:
+  - On disk (`StoredMCPServer` in `core/mcp/types.ts`): `headers` as `Record<string, string>`, `metadata` as a pair-array (Inspector-only — no compat target), numeric timeouts, `oauth` as a nested `{ clientId?, clientSecret?, scopes? }` object. Every field optional; absent fields are omitted on disk so the file diff stays minimal.
+  - In memory + on the wire (`InspectorServerSettings` in `core/mcp/types.ts`): `headers` as a pair-array `{ key, value }[]`, flat `oauthClientId` / `oauthClientSecret` / `oauthScopes` fields, required `metadata` (pair-array) + required numeric `connectionTimeout` / `requestTimeout` (the form needs concrete values to render; 0 is the SDK's "no timeout" signal).
+  - The bidirectional conversion lives in `core/mcp/serverList.ts` (`storedFieldsToInspectorSettings` / `inspectorSettingsToStoredFields`) and is invoked by `mcpConfigToServerEntries` / `serverEntriesToMcpConfig` and by the server route's `buildStoredEntry`.
 - **Where it takes effect**:
-  - `settings.headers` → wire headers on every SSE / streamable-http request (`core/mcp/node/transport.ts`).
-  - `settings.metadata` → default `_meta` payload merged into every outgoing MCP request (`core/mcp/inspectorClient.ts`'s `mergeMeta` helper). Per-call metadata wins on key collision.
-  - `settings.requestTimeout` → `InspectorClientOptions.timeout`.
-  - `settings.connectionTimeout` → `Promise.race` wrapper around `InspectorClient.connect()` in the web client.
-  - `settings.oauthClientId` / `oauthClientSecret` / `oauthScopes` → pre-seeded OAuth client credentials via `InspectorClientOptions.oauth`.
+  - `headers` → wire headers on every SSE / streamable-http request (`core/mcp/node/transport.ts` consumes the pair-array via `InspectorServerSettings.headers`).
+  - `metadata` → default `_meta` payload merged into every outgoing MCP request (`core/mcp/inspectorClient.ts`'s `mergeMeta` helper). Per-call metadata wins on key collision.
+  - `requestTimeout` → `InspectorClientOptions.timeout`.
+  - `connectionTimeout` → `Promise.race` wrapper around `InspectorClient.connect()` in the web client.
+  - `oauth.clientId` / `oauth.clientSecret` / `oauth.scopes` → pre-seeded OAuth client credentials via `InspectorClientOptions.oauth` (the disk-side `oauth` object is lifted into the flat `oauthClientId` / etc. fields on `InspectorServerSettings` for the form).
 - **First-connect contract**: settings apply on the *first* outbound request after the entry loads from disk — no need to open the settings form. The browser sends `settings` to the backend in the `/api/mcp/connect` body; the backend reads it from `RemoteConnectRequest` and threads it into `createTransportNode`.
-- **Secret storage**: `oauthClientSecret` is persisted in `mcp.json` alongside stdio `env` values, both protected by the file's `0o600` permission. OS-keychain integration is tracked separately in #1356 — when that lands, the secret will be lifted out of the file and replaced with a keychain reference.
-- **Removed**: `MCPServerConfig.headers` (previously on `SseServerConfig` / `StreamableHttpServerConfig`) has been deleted. The headers textarea in `ServerConfigModal` is gone; HTTP headers are entered only in `ServerSettingsForm`. v2 has not shipped a stable release with the old shape, so no on-read migration is included.
-- **UI**: `ServerSettingsModal` is opened from the server card's settings affordance. Saving routes through `useServers.updateServerSettings(id, settings)` which issues a settings-only `PUT /api/servers/:id` with `{ id, settings }` — the route preserves the on-disk transport config inside its write lock. Conversely, `useServers.updateServer` (driven by the basic-config modal) issues a config-only PUT with `{ id, config }` and the route preserves the on-disk settings node. Edits in either modal cannot silently wipe the other half.
+- **Secret storage**: `oauth.clientSecret` is persisted in `mcp.json` alongside stdio `env` values, both protected by the file's `0o600` permission. OS-keychain integration is tracked separately in #1356 — when that lands, the secret will be lifted out of the file and replaced with a keychain reference.
+- **Hard-cutover legacy behavior (per #1358 decision 4)**: files written by the one pre-#1358 build of v2/main have a nested `settings` block. `normalizeMcpServers` drops the node on read and logs a one-line warn including the server id; the persisted headers / metadata / timeouts / OAuth credentials are intentionally lost on first read. Users re-enter them via the settings form (or hand-edit the file into the flat shape). v2 has not shipped a stable release with the nested shape, so the blast radius is the small set of v2/main dogfooders who edited per-server settings between #1353 merging and this change.
+- **UI**: `ServerSettingsModal` is opened from the server card's settings affordance. Saving routes through `useServers.updateServerSettings(id, settings)` which issues a settings-only `PUT /api/servers/:id` with `{ id, settings }` — the route preserves the on-disk transport config inside its write lock. Conversely, `useServers.updateServer` (driven by the basic-config modal) issues a config-only PUT with `{ id, config }` and the route preserves the on-disk settings fields. Edits in either modal cannot silently wipe the other half.
 - **Save cadence**: the form fires `onSettingsChange` on every keystroke. `App.tsx` debounces 300 ms and flushes on modal close so a burst of edits coalesces into a single PUT. If the close-flush PUT fails (network hiccup, server 500), a red `@mantine/notifications` toast surfaces the failure — the modal has already closed so a silent failure would leave the user thinking the last edits saved.
-- **`PUT /api/servers/:id` patch semantics**: both `config` and `settings` are independent patches.
+- **`PUT /api/servers/:id` patch semantics (kept-envelope wire shape per #1358 decision 5)**: both `config` and `settings` are independent patches on the wire, even though the on-disk shape has no `settings` wrapper. The envelope-on-the-wire keeps the preserve/clear/apply semantics #1353 introduced — the backend splats validated `settings.*` into top-level disk keys when assembling the next on-disk shape.
   - Field omitted → preserve the on-disk value.
-  - Explicit `null` on `settings` → clear the settings node. (`config` may not be `null`; a body that wants to update only settings should omit `config` entirely.)
+  - Explicit `null` on `settings` → clear all Inspector-extension fields on disk (`headers` / `metadata` / `connectionTimeout` / `requestTimeout` / `oauth`). (`config` may not be `null`; a body that wants to update only settings should omit `config` entirely.)
   - Field present and well-formed → validate and apply.
   - A bare `PUT { id: "renamed" }` is a pure rename preserving both halves.
-- **Write-path gates**: `validateSettings` rejects malformed shapes (non-object, wrong-typed `headers` / `metadata`, non-numeric timeouts) with `400` + descriptive message and picks-and-builds the validated value so unknown stowaway keys silently drop. `buildStoredEntry` strips any `settings` key nested inside the incoming `config` (and logs a `warn` with the server id) so `validateSettings` remains the only path settings reach disk on the write side.
-- **Read-path gates**: `normalizeMcpServers` re-runs `validateSettings` on the on-disk settings node when loading; a malformed hand-edited `settings` node is silently dropped (lenient-on-read pattern matching `normalizeServerType`'s unknown→stdio fallback). A subsequent preserve-on-PUT cannot propagate the broken node, and `mcp.json` files written by future versions with unknown stowaway keys won't poison the in-memory shape.
+- **Write-path gates**: `validateSettings` rejects malformed shapes (non-object, wrong-typed `headers` / `metadata`, non-numeric timeouts) with `400` + descriptive message and picks-and-builds the validated value so unknown stowaway keys silently drop. `buildStoredEntry` strips any of the Inspector-extension keys (`settings`, `headers`, `metadata`, `connectionTimeout`, `requestTimeout`, `oauth`) smuggled inside the incoming `config` and logs a `warn` with the server id, so the wire envelope's `settings` field remains the only path those values reach disk.
+- **Read-path gates**: `normalizeMcpServers` passes the entry's flat Inspector-extension fields through verbatim — the form's `storedFieldsToInspectorSettings` does the lift into the in-memory pair-array / flat-OAuth shape. A legacy nested `settings` block triggers the hard-cutover drop described above.
 
 ## Out of scope (follow-ups)
 

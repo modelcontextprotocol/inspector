@@ -370,13 +370,17 @@ describe("/api/servers routes", () => {
   });
 
   describe("settings round-trip", () => {
-    it("persists a settings node on POST", async () => {
+    it("persists Inspector-extension fields at the top level on POST (post-#1358 flat shape)", async () => {
       const res = await fetch(`${h.baseUrl}/api/servers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: "gamma",
           config: { type: "streamable-http", url: "https://x.test/mcp" },
+          // Wire envelope unchanged from #1353: pair-array headers, flat
+          // oauth* fields. Backend splats these into the flat disk shape:
+          // object headers, nested oauth, plus the inspector-only fields
+          // at the top level.
           settings: {
             headers: [{ key: "Authorization", value: "Bearer xyz" }],
             metadata: [{ key: "tenant", value: "acme" }],
@@ -388,20 +392,21 @@ describe("/api/servers routes", () => {
         }),
       });
       expect(res.status).toBe(200);
-      const stored = readConfig(h.configPath).mcpServers.gamma as {
-        settings?: unknown;
-      };
-      expect(stored.settings).toEqual({
-        headers: [{ key: "Authorization", value: "Bearer xyz" }],
-        metadata: [{ key: "tenant", value: "acme" }],
-        connectionTimeout: 30000,
-        requestTimeout: 60000,
-        oauthClientId: "client-abc",
-        oauthScopes: "read:tools",
+      const stored = readConfig(h.configPath).mcpServers
+        .gamma as unknown as Record<string, unknown>;
+      // Disk shape: flat, no `settings` wrapper, object headers, nested oauth.
+      expect(stored).not.toHaveProperty("settings");
+      expect(stored.headers).toEqual({ Authorization: "Bearer xyz" });
+      expect(stored.metadata).toEqual([{ key: "tenant", value: "acme" }]);
+      expect(stored.connectionTimeout).toBe(30000);
+      expect(stored.requestTimeout).toBe(60000);
+      expect(stored.oauth).toEqual({
+        clientId: "client-abc",
+        scopes: "read:tools",
       });
     });
 
-    it("updates a settings node on PUT", async () => {
+    it("updates Inspector-extension fields at the top level on PUT", async () => {
       writeFileSync(
         h.configPath,
         JSON.stringify({
@@ -424,15 +429,14 @@ describe("/api/servers routes", () => {
         }),
       });
       expect(res.status).toBe(200);
-      const stored = readConfig(h.configPath).mcpServers.delta as {
-        settings?: unknown;
-      };
-      expect(stored.settings).toEqual({
-        headers: [{ key: "X-Tenant", value: "acme" }],
-        metadata: [],
-        connectionTimeout: 0,
-        requestTimeout: 45000,
-      });
+      const stored = readConfig(h.configPath).mcpServers
+        .delta as unknown as Record<string, unknown>;
+      expect(stored).not.toHaveProperty("settings");
+      expect(stored.headers).toEqual({ "X-Tenant": "acme" });
+      expect(stored.requestTimeout).toBe(45000);
+      // Zero/empty values are suppressed on disk to keep the diff minimal.
+      expect(stored).not.toHaveProperty("metadata");
+      expect(stored).not.toHaveProperty("connectionTimeout");
     });
 
     it("rejects a non-object settings field", async () => {
@@ -448,7 +452,7 @@ describe("/api/servers routes", () => {
       expect(res.status).toBe(400);
     });
 
-    it("preserves the settings node when PUT omits it (no clobber on config-only save)", async () => {
+    it("preserves Inspector-extension fields when PUT omits settings (no clobber on config-only save)", async () => {
       writeFileSync(
         h.configPath,
         JSON.stringify({
@@ -456,17 +460,13 @@ describe("/api/servers routes", () => {
             epsilon: {
               type: "streamable-http",
               url: "https://x.test/mcp",
-              settings: {
-                headers: [{ key: "X-Keep", value: "yes" }],
-                metadata: [],
-                connectionTimeout: 0,
-                requestTimeout: 0,
-              },
+              // Post-#1358 flat shape on disk.
+              headers: { "X-Keep": "yes" },
             },
           },
         }),
       );
-      // PUT without a settings field: the existing settings node must
+      // PUT without a settings field: the existing top-level headers must
       // survive. A caller updating only the transport config (e.g. the
       // server config modal) must not silently wipe persisted headers.
       const res = await fetch(`${h.baseUrl}/api/servers/epsilon`, {
@@ -477,16 +477,14 @@ describe("/api/servers routes", () => {
         }),
       });
       expect(res.status).toBe(200);
-      const stored = readConfig(h.configPath).mcpServers.epsilon as {
-        settings?: { headers: { key: string; value: string }[] };
-      };
-      expect(stored.settings).toBeDefined();
-      expect(stored.settings?.headers).toEqual([
-        { key: "X-Keep", value: "yes" },
-      ]);
+      const stored = readConfig(h.configPath).mcpServers
+        .epsilon as unknown as Record<string, unknown>;
+      expect(stored.headers).toEqual({ "X-Keep": "yes" });
+      // URL update must have applied.
+      expect(stored.url).toBe("https://x.test/other");
     });
 
-    it("clears the settings node when PUT sends settings: null (explicit intent)", async () => {
+    it("clears Inspector-extension fields when PUT sends settings: null (explicit intent)", async () => {
       writeFileSync(
         h.configPath,
         JSON.stringify({
@@ -494,12 +492,9 @@ describe("/api/servers routes", () => {
             zeta: {
               type: "streamable-http",
               url: "https://x.test/mcp",
-              settings: {
-                headers: [{ key: "X-Tenant", value: "acme" }],
-                metadata: [],
-                connectionTimeout: 0,
-                requestTimeout: 0,
-              },
+              headers: { "X-Tenant": "acme" },
+              metadata: [{ key: "trace", value: "abc" }],
+              connectionTimeout: 5000,
             },
           },
         }),
@@ -513,10 +508,14 @@ describe("/api/servers routes", () => {
         }),
       });
       expect(res.status).toBe(200);
-      const stored = readConfig(h.configPath).mcpServers.zeta as {
-        settings?: unknown;
-      };
-      expect(stored.settings).toBeUndefined();
+      const stored = readConfig(h.configPath).mcpServers
+        .zeta as unknown as Record<string, unknown>;
+      // All Inspector-extension fields gone.
+      expect(stored).not.toHaveProperty("headers");
+      expect(stored).not.toHaveProperty("metadata");
+      expect(stored).not.toHaveProperty("connectionTimeout");
+      expect(stored).not.toHaveProperty("requestTimeout");
+      expect(stored).not.toHaveProperty("oauth");
     });
 
     it("rejects a malformed settings shape with 400", async () => {
@@ -574,16 +573,11 @@ describe("/api/servers routes", () => {
         }),
       });
       expect(res.status).toBe(200);
-      const stored = readConfig(h.configPath).mcpServers.theta as {
-        type?: string;
-        url?: string;
-        settings?: { headers: { key: string; value: string }[] };
-      };
+      const stored = readConfig(h.configPath).mcpServers
+        .theta as unknown as Record<string, unknown>;
       expect(stored.type).toBe("streamable-http");
       expect(stored.url).toBe("https://x.test/mcp");
-      expect(stored.settings?.headers).toEqual([
-        { key: "X-Tenant", value: "acme" },
-      ]);
+      expect(stored.headers).toEqual({ "X-Tenant": "acme" });
     });
 
     it("rejects a non-object config on PUT with 400", async () => {
@@ -605,7 +599,7 @@ describe("/api/servers routes", () => {
       expect(res.status).toBe(400);
     });
 
-    it("validateSettings coerces empty-string OAuth fields to absent (cleared inputs don't read as 'configured')", async () => {
+    it("validateSettings coerces empty-string OAuth fields to absent (cleared inputs don't produce an oauth node on disk)", async () => {
       const res = await fetch(`${h.baseUrl}/api/servers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -624,13 +618,11 @@ describe("/api/servers routes", () => {
         }),
       });
       expect(res.status).toBe(200);
-      const stored = readConfig(h.configPath).mcpServers["empty-oauth"] as {
-        settings?: Record<string, unknown>;
-      };
-      expect(stored.settings).toBeDefined();
-      expect(stored.settings).not.toHaveProperty("oauthClientId");
-      expect(stored.settings).not.toHaveProperty("oauthClientSecret");
-      expect(stored.settings).not.toHaveProperty("oauthScopes");
+      const stored = readConfig(h.configPath).mcpServers[
+        "empty-oauth"
+      ] as unknown as Record<string, unknown>;
+      // No `oauth` node on disk — every field was empty.
+      expect(stored).not.toHaveProperty("oauth");
     });
 
     it("validateSettings drops unknown keys (explicit pick-and-build, not spread)", async () => {
@@ -651,24 +643,22 @@ describe("/api/servers routes", () => {
         }),
       });
       expect(res.status).toBe(200);
-      const stored = readConfig(h.configPath).mcpServers["unknown-keys"] as {
-        settings?: Record<string, unknown>;
-      };
-      expect(stored.settings).toBeDefined();
-      expect(stored.settings).not.toHaveProperty("stowaway");
-      expect(stored.settings).toEqual({
-        headers: [{ key: "X-A", value: "1" }],
-        metadata: [],
-        connectionTimeout: 0,
-        requestTimeout: 0,
-      });
+      const stored = readConfig(h.configPath).mcpServers[
+        "unknown-keys"
+      ] as unknown as Record<string, unknown>;
+      expect(stored).not.toHaveProperty("stowaway");
+      expect(stored).not.toHaveProperty("settings");
+      // Only the non-empty/non-zero settings field round-tripped to disk.
+      expect(stored.headers).toEqual({ "X-A": "1" });
     });
 
-    it("strips smuggled config.settings on POST (validateSettings is the only write path)", async () => {
+    it("strips smuggled Inspector-extension keys from config on POST (envelope is the only write path)", async () => {
       // `normalizeServerType` spreads unknown keys verbatim. Without the
-      // strip in buildStoredEntry, a body that nests `settings` inside
-      // `config` would land it on the stored entry without ever passing
-      // through `validateSettings`. Pin the strip.
+      // strip in buildStoredEntry, a body that nests Inspector-extension
+      // keys inside `config` would land them on the stored entry without
+      // ever passing through `validateSettings`. Pin the strip for both
+      // the legacy `settings` key and the new flat keys (`headers`,
+      // `metadata`, `connectionTimeout`, `requestTimeout`, `oauth`).
       const res = await fetch(`${h.baseUrl}/api/servers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -678,17 +668,21 @@ describe("/api/servers routes", () => {
             type: "stdio",
             command: "node",
             settings: { bogus: true },
+            headers: { Smuggled: "yes" },
+            oauth: { clientId: "smuggled" },
           },
         }),
       });
       expect(res.status).toBe(200);
-      const stored = readConfig(h.configPath).mcpServers["smuggle-post"] as {
-        settings?: unknown;
-      };
-      expect(stored.settings).toBeUndefined();
+      const stored = readConfig(h.configPath).mcpServers[
+        "smuggle-post"
+      ] as unknown as Record<string, unknown>;
+      expect(stored).not.toHaveProperty("settings");
+      expect(stored).not.toHaveProperty("headers");
+      expect(stored).not.toHaveProperty("oauth");
     });
 
-    it("strips smuggled config.settings on PUT even when settings:null clears the real node", async () => {
+    it("strips smuggled Inspector-extension keys from config on PUT even when settings:null clears the real fields", async () => {
       writeFileSync(
         h.configPath,
         JSON.stringify({
@@ -696,18 +690,14 @@ describe("/api/servers routes", () => {
             smuggle: {
               type: "stdio",
               command: "node",
-              settings: {
-                headers: [{ key: "X-Real", value: "yes" }],
-                metadata: [],
-                connectionTimeout: 0,
-                requestTimeout: 0,
-              },
+              headers: { "X-Real": "yes" },
             },
           },
         }),
       );
-      // settings: null clears the real settings node; the bogus key nested
-      // under config must not re-attach via the spread inside normalizeServerType.
+      // settings: null clears the real Inspector-extension fields; the bogus
+      // keys nested under config must not re-attach via the spread inside
+      // normalizeServerType.
       const res = await fetch(`${h.baseUrl}/api/servers/smuggle`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -716,15 +706,18 @@ describe("/api/servers routes", () => {
             type: "stdio",
             command: "node",
             settings: { bogus: true },
+            headers: { Smuggled: "yes" },
+            connectionTimeout: 9999,
           },
           settings: null,
         }),
       });
       expect(res.status).toBe(200);
-      const stored = readConfig(h.configPath).mcpServers.smuggle as {
-        settings?: unknown;
-      };
-      expect(stored.settings).toBeUndefined();
+      const stored = readConfig(h.configPath).mcpServers
+        .smuggle as unknown as Record<string, unknown>;
+      expect(stored).not.toHaveProperty("settings");
+      expect(stored).not.toHaveProperty("headers");
+      expect(stored).not.toHaveProperty("connectionTimeout");
     });
 
     it("rejects a settings array (not an object) with 400", async () => {
@@ -742,42 +735,51 @@ describe("/api/servers routes", () => {
       expect(body.error).toMatch(/object/);
     });
 
-    it("strips a malformed settings node on read (lenient-on-read; preserve-on-PUT cannot propagate it)", async () => {
-      // Hand-edited mcp.json with a malformed `settings.headers` (string
-      // instead of array). The write-path validator would reject it, but a
-      // user could write it directly. GET should surface the entry with
-      // settings dropped, and a subsequent config-only PUT should not
-      // re-attach the broken node via the preserve branch.
+    it("drops a legacy nested `settings` node on read (hard cutover per #1358 decision 4)", async () => {
+      // A user upgrading from the one-#1352 v2/main build has a file with a
+      // nested `settings` block. Per the hard-cutover decision the persisted
+      // headers / metadata / timeouts / OAuth credentials are intentionally
+      // lost on first read — users re-enter them through the form or hand-
+      // edit the file into the flat shape. GET surfaces the entry with
+      // settings dropped, and a subsequent config-only PUT does not
+      // re-attach the legacy node via the preserve branch.
       writeFileSync(
         h.configPath,
         JSON.stringify({
           mcpServers: {
-            broken: {
+            legacy: {
               type: "streamable-http",
               url: "https://x.test/mcp",
               settings: {
-                headers: "oops",
+                headers: [{ key: "X-Tenant", value: "acme" }],
                 metadata: [],
-                connectionTimeout: 0,
+                connectionTimeout: 30000,
                 requestTimeout: 0,
+                oauthClientId: "client-abc",
               },
             },
           },
         }),
       );
 
-      // GET surfaces the entry without the malformed settings.
+      // GET surfaces the entry with the legacy settings dropped — no flat
+      // fields lifted in either (this is hard cutover, not migration).
       const getRes = await fetch(`${h.baseUrl}/api/servers`);
       expect(getRes.status).toBe(200);
       const getBody = (await getRes.json()) as {
-        mcpServers: Record<string, { settings?: unknown }>;
+        mcpServers: Record<string, Record<string, unknown>>;
       };
-      expect(getBody.mcpServers.broken).toBeDefined();
-      expect(getBody.mcpServers.broken!.settings).toBeUndefined();
+      const fetched = getBody.mcpServers.legacy!;
+      expect(fetched).toBeDefined();
+      expect(fetched).not.toHaveProperty("settings");
+      expect(fetched).not.toHaveProperty("headers");
+      expect(fetched).not.toHaveProperty("metadata");
+      expect(fetched).not.toHaveProperty("connectionTimeout");
+      expect(fetched).not.toHaveProperty("oauth");
 
-      // PUT without settings preserves the (now-stripped) absence, not the
-      // original malformed node.
-      const putRes = await fetch(`${h.baseUrl}/api/servers/broken`, {
+      // PUT without settings preserves the (now-cleared) absence; the next
+      // save persists the flat shape with no `settings` field.
+      const putRes = await fetch(`${h.baseUrl}/api/servers/legacy`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -785,10 +787,65 @@ describe("/api/servers routes", () => {
         }),
       });
       expect(putRes.status).toBe(200);
-      const stored = readConfig(h.configPath).mcpServers.broken as {
-        settings?: unknown;
+      const stored = readConfig(h.configPath).mcpServers
+        .legacy as unknown as Record<string, unknown>;
+      expect(stored).not.toHaveProperty("settings");
+      expect(stored).not.toHaveProperty("headers");
+    });
+
+    it("loads a hand-edited file with top-level Claude Code-style `headers` (interop with `.mcp.json`)", async () => {
+      // A user pastes a server entry copied from the Claude Code docs:
+      // top-level `headers: { ... }`, no settings wrapper. GET should
+      // surface the entry verbatim (flat disk shape) and a subsequent
+      // settings-only PUT must preserve the headers when omitted.
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            "api-server": {
+              type: "streamable-http",
+              url: "https://api.example.com/mcp",
+              headers: { Authorization: "Bearer the-token" },
+            },
+          },
+        }),
+      );
+
+      const getRes = await fetch(`${h.baseUrl}/api/servers`);
+      expect(getRes.status).toBe(200);
+      const getBody = (await getRes.json()) as {
+        mcpServers: Record<string, Record<string, unknown>>;
       };
-      expect(stored.settings).toBeUndefined();
+      expect(getBody.mcpServers["api-server"]!.headers).toEqual({
+        Authorization: "Bearer the-token",
+      });
+
+      // Settings-only PUT (no `config`) preserves the existing url AND the
+      // existing headers per the preserve-on-omit branch.
+      const putRes = await fetch(`${h.baseUrl}/api/servers/api-server`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            headers: [
+              { key: "Authorization", value: "Bearer the-token" },
+              { key: "X-Tenant", value: "acme" },
+            ],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+          },
+        }),
+      });
+      expect(putRes.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers[
+        "api-server"
+      ] as unknown as Record<string, unknown>;
+      expect(stored.url).toBe("https://api.example.com/mcp");
+      expect(stored.headers).toEqual({
+        Authorization: "Bearer the-token",
+        "X-Tenant": "acme",
+      });
     });
   });
 

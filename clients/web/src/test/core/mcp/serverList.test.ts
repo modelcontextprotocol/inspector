@@ -147,20 +147,23 @@ describe("serverEntriesToMcpConfig", () => {
     expect(round).toEqual(original);
   });
 
-  it("round-trips a populated settings node through both converters", () => {
+  it("round-trips a populated set of Inspector-extension fields (post-#1358 flat shape)", () => {
+    // Disk shape: top-level `headers` (Record), `metadata` (pair-array),
+    // numeric timeouts, nested `oauth`. Round-trip must preserve the on-
+    // disk shape byte-equivalent so a hand-edited file is stable.
     const original: MCPConfig = {
       mcpServers: {
         gamma: {
           type: "streamable-http",
           url: "https://x.test/mcp",
-          settings: {
-            headers: [{ key: "Authorization", value: "Bearer xyz" }],
-            metadata: [{ key: "tenant", value: "acme" }],
-            connectionTimeout: 30000,
-            requestTimeout: 60000,
-            oauthClientId: "client-abc",
-            oauthClientSecret: "secret-def",
-            oauthScopes: "read:tools",
+          headers: { Authorization: "Bearer xyz" },
+          metadata: [{ key: "tenant", value: "acme" }],
+          connectionTimeout: 30000,
+          requestTimeout: 60000,
+          oauth: {
+            clientId: "client-abc",
+            clientSecret: "secret-def",
+            scopes: "read:tools",
           },
         },
       },
@@ -169,36 +172,58 @@ describe("serverEntriesToMcpConfig", () => {
     expect(round).toEqual(original);
   });
 
-  it("lifts the settings node from the stored entry onto ServerEntry.settings", () => {
+  it("lifts top-level Inspector-extension fields onto ServerEntry.settings (form shape)", () => {
     const cfg: MCPConfig = {
       mcpServers: {
         alpha: {
           type: "streamable-http",
           url: "https://x.test/mcp",
-          settings: {
-            headers: [{ key: "X-Tenant", value: "acme" }],
-            metadata: [],
-            connectionTimeout: 0,
-            requestTimeout: 0,
-          },
+          headers: { "X-Tenant": "acme" },
+          oauth: { clientId: "the-client" },
         },
       },
     };
     const [entry] = mcpConfigToServerEntries(cfg);
     expect(entry?.settings).toEqual({
+      // Object headers on disk → pair-array headers in memory
       headers: [{ key: "X-Tenant", value: "acme" }],
       metadata: [],
       connectionTimeout: 0,
       requestTimeout: 0,
+      // Nested oauth on disk → flat oauthClientId in memory
+      oauthClientId: "the-client",
     });
-    // `settings` should not leak back into config — the SDK transport must
-    // see a clean MCPServerConfig.
-    expect(
-      (entry?.config as unknown as Record<string, unknown>).settings,
-    ).toBeUndefined();
+    // None of the Inspector-extension keys leak back into config —
+    // the SDK transport must see a clean MCPServerConfig.
+    const configKeys = Object.keys(
+      entry?.config as unknown as Record<string, unknown>,
+    );
+    expect(configKeys).not.toContain("headers");
+    expect(configKeys).not.toContain("metadata");
+    expect(configKeys).not.toContain("oauth");
+    expect(configKeys).not.toContain("connectionTimeout");
+    expect(configKeys).not.toContain("requestTimeout");
   });
 
-  it("omits the settings key on disk when ServerEntry.settings is undefined", () => {
+  it("lifts the headers field for a streamable-http entry written by Claude Code", () => {
+    // A pasted-in `.mcp.json` example from the Claude Code docs — top-level
+    // headers, no nested settings node.
+    const cfg: MCPConfig = {
+      mcpServers: {
+        "api-server": {
+          type: "streamable-http",
+          url: "https://api.example.com/mcp",
+          headers: { Authorization: "Bearer the-token" },
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(cfg);
+    expect(entry?.settings?.headers).toEqual([
+      { key: "Authorization", value: "Bearer the-token" },
+    ]);
+  });
+
+  it("omits all Inspector-extension keys on disk when ServerEntry.settings is undefined", () => {
     const entries: ServerEntry[] = [
       {
         id: "alpha",
@@ -208,7 +233,67 @@ describe("serverEntriesToMcpConfig", () => {
       },
     ];
     const cfg = serverEntriesToMcpConfig(entries);
-    expect(cfg.mcpServers.alpha).not.toHaveProperty("settings");
+    const stored = cfg.mcpServers.alpha;
+    expect(stored).not.toHaveProperty("settings");
+    expect(stored).not.toHaveProperty("headers");
+    expect(stored).not.toHaveProperty("metadata");
+    expect(stored).not.toHaveProperty("oauth");
+    expect(stored).not.toHaveProperty("connectionTimeout");
+    expect(stored).not.toHaveProperty("requestTimeout");
+  });
+
+  it("drops empty-key header rows when serializing to disk", () => {
+    // The form leaves a blank row when the user clicks 'Add header' but
+    // hasn't typed yet. Those should not reach disk — the round-trip
+    // would otherwise produce `{ "": "..." }` which neither we nor the
+    // ecosystem can sensibly send as an HTTP header.
+    const entries: ServerEntry[] = [
+      {
+        id: "alpha",
+        name: "alpha",
+        config: { type: "streamable-http", url: "https://x.test" },
+        settings: {
+          headers: [
+            { key: "X-Tenant", value: "acme" },
+            { key: "", value: "stub" },
+            { key: "   ", value: "whitespace" },
+          ],
+          metadata: [],
+          connectionTimeout: 0,
+          requestTimeout: 0,
+        },
+        connection: { status: "disconnected" },
+      },
+    ];
+    const stored = serverEntriesToMcpConfig(entries).mcpServers.alpha;
+    expect(stored?.headers).toEqual({ "X-Tenant": "acme" });
+  });
+
+  it("omits zero-valued timeouts and empty oauth fields on serialize", () => {
+    // The form keeps numeric defaults at 0 and empty-string OAuth values.
+    // Round-tripping them onto disk would leave noisy `connectionTimeout: 0`
+    // / `oauth: {}` keys; suppress them so the diff stays minimal for
+    // entries the user never customized.
+    const entries: ServerEntry[] = [
+      {
+        id: "alpha",
+        name: "alpha",
+        config: { type: "streamable-http", url: "https://x.test" },
+        settings: {
+          headers: [],
+          metadata: [],
+          connectionTimeout: 0,
+          requestTimeout: 0,
+        },
+        connection: { status: "disconnected" },
+      },
+    ];
+    const stored = serverEntriesToMcpConfig(entries).mcpServers.alpha;
+    expect(stored).not.toHaveProperty("connectionTimeout");
+    expect(stored).not.toHaveProperty("requestTimeout");
+    expect(stored).not.toHaveProperty("oauth");
+    expect(stored).not.toHaveProperty("headers");
+    expect(stored).not.toHaveProperty("metadata");
   });
 
   it("preserves insertion order on serialize", () => {

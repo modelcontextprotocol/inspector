@@ -64,12 +64,55 @@ export type MCPServerConfig =
 export type ServerType = "stdio" | "sse" | "streamable-http";
 
 /**
- * On-disk shape for a single `mcp.json` server entry. The base is the
- * SDK-compatible `MCPServerConfig`; the optional `settings` node is an
- * Inspector-specific extension that other MCP tools simply ignore.
+ * On-disk shape for a single `mcp.json` server entry (post-#1358). The base
+ * is the SDK-compatible `MCPServerConfig`; each Inspector-specific extension
+ * field lives directly alongside `type` / `url` / `command` rather than
+ * under a nested `settings` wrapper. This matches the shape Claude Code /
+ * Cursor / Cline write to their own `.mcp.json` files (`headers` as a
+ * `Record<string, string>`, `oauth` as a nested object), so a hand-edited
+ * file from any of those tools is readable on Inspector's first connect.
+ *
+ * The in-memory + wire shape is unchanged from #1352: `InspectorServerSettings`
+ * keeps its pair-array `headers` and flat `oauth*` fields because the form
+ * needs them in that shape to drive controlled-component editing. The
+ * conversion between disk-flat and memory-pair-array lives in
+ * `serverList.ts` (`mcpConfigToServerEntries` /
+ * `serverEntriesToMcpConfig`) and the `/api/servers` route's
+ * `buildStoredEntry`.
+ *
+ * Files written by the pre-#1358 build (one #1352 release of v2/main that
+ * never shipped a stable tag) had a nested `settings` block here; that
+ * shape is dropped on read with a warn and not re-emitted on next write.
  */
 export type StoredMCPServer = MCPServerConfig & {
-  settings?: InspectorServerSettings;
+  /**
+   * HTTP headers for SSE / streamable-http transports. Persisted as a flat
+   * `Record<string, string>` matching the Claude Code / Cursor / Cline
+   * `.mcp.json` convention. Lifted into `InspectorServerSettings.headers`
+   * (pair-array form) when read into memory.
+   */
+  headers?: Record<string, string>;
+  /**
+   * Default `_meta` keys merged into every outgoing MCP request. Inspector-
+   * specific (no analog in the broader mcp.json ecosystem), so the pair-array
+   * shape is preserved on disk and in memory.
+   */
+  metadata?: { key: string; value: string }[];
+  /** Inspector-specific connect-time timeout (ms). */
+  connectionTimeout?: number;
+  /** Inspector-specific request timeout (ms). */
+  requestTimeout?: number;
+  /**
+   * Pre-configured OAuth client credentials for HTTP transports. Nested to
+   * match Claude Code's `.mcp.json` shape; lifted into the flat `oauthClientId`
+   * / `oauthClientSecret` / `oauthScopes` fields on `InspectorServerSettings`
+   * when read into memory.
+   */
+  oauth?: {
+    clientId?: string;
+    clientSecret?: string;
+    scopes?: string;
+  };
 };
 
 export interface MCPConfig {
@@ -100,9 +143,10 @@ export interface ServerEntry {
   config: MCPServerConfig;
   /**
    * Optional per-server runtime settings (headers, metadata, timeouts, OAuth
-   * credentials). Lives alongside `config` on disk under the `settings` key.
-   * Edited via ServerSettingsForm; consumed by the transport / InspectorClient
-   * at connect time.
+   * credentials). On disk these live as direct keys on the entry (post-#1358);
+   * in memory they're grouped here in the pair-array / flat-OAuth shape the
+   * form needs for controlled-component editing. Edited via ServerSettingsForm;
+   * consumed by the transport / InspectorClient at connect time.
    */
   settings?: InspectorServerSettings;
   info?: Implementation;
