@@ -33,8 +33,11 @@ import type {
 } from "../../types.js";
 import {
   DEFAULT_SEED_CONFIG,
+  expectedSecretFields,
+  extractSecretsFromStored,
   INSPECTOR_FIELD_KEYS,
   inspectorSettingsToStoredFields,
+  mergeSecretsIntoStored,
   normalizeServerType,
   storedFieldsToInspectorSettings,
   stripInspectorFields,
@@ -42,6 +45,11 @@ import {
 import { RemoteSession } from "./remote-session.js";
 import { createTokenAuthProvider } from "./tokenAuthProvider.js";
 import { API_SERVER_ENV_VARS } from "../constants.js";
+import {
+  KeychainUnavailableError,
+  KeyringSecretStore,
+  type SecretStore,
+} from "../../../auth/node/secret-store.js";
 
 /**
  * Shape of the initial config returned by GET /api/config (defaults for client).
@@ -83,6 +91,15 @@ export interface RemoteServerOptions {
 
   /** Initial config for GET /api/config. Caller must pass this (e.g. from webServerConfigToInitialPayload(config)). */
   initialConfig: InitialConfigPayload;
+
+  /**
+   * Backend for per-server secret values that we keep out of mcp.json
+   * (OAuth client secret, stdio env values). Defaults to a
+   * `KeyringSecretStore` that talks to the OS keychain via
+   * `@napi-rs/keyring`. Tests inject `InMemorySecretStore` so the suite
+   * doesn't need libsecret on Linux CI runners.
+   */
+  secretStore?: SecretStore;
 }
 
 export interface CreateRemoteAppResult {
@@ -277,6 +294,8 @@ export function createRemoteApp(
   const { logger: fileLogger, allowedOrigins } = options;
   const storageDir = options.storageDir ?? getDefaultStorageDir();
   const mcpConfigPath = options.mcpConfigPath ?? getDefaultMcpConfigPath();
+  const secretStore: SecretStore =
+    options.secretStore ?? new KeyringSecretStore();
 
   // --- /api/servers/events: file-watch fanout state -----------------------
   //
@@ -1120,16 +1139,148 @@ export function createRemoteApp(
     return { mcpServers: normalizeMcpServers(parsed?.mcpServers) };
   };
 
+  // ---- Keychain helpers -------------------------------------------------
+  //
+  // Centralizes the "write the secrets in this entry to the keychain" and
+  // "fetch all secrets for this entry from the keychain" steps so the
+  // POST/PUT/DELETE/GET handlers stay readable. Each operation translates a
+  // `KeychainUnavailableError` from the underlying store into a Hono 503
+  // — the only realistic trigger is Linux without libsecret, and the user
+  // can install it without restarting.
+
+  const writeKeychainEntriesFor = async (
+    id: string,
+    secrets: Record<string, string>,
+  ): Promise<void> => {
+    for (const [field, value] of Object.entries(secrets)) {
+      await secretStore.set(id, field, value);
+    }
+  };
+
+  // Fetch every keychain value an entry could need into a flat record
+  // keyed by field name. Used by the GET handler to rehydrate the on-disk
+  // stripped shape into the shape today's browser code expects. Missing
+  // fields are simply absent from the result (so `mergeSecretsIntoStored`
+  // leaves the disk value untouched).
+  const readKeychainEntriesFor = async (
+    id: string,
+    fields: string[],
+  ): Promise<Record<string, string>> => {
+    const out: Record<string, string> = {};
+    for (const field of fields) {
+      const v = await secretStore.get(id, field);
+      if (v !== null) out[field] = v;
+    }
+    return out;
+  };
+
+  // Migrate plaintext secrets in a freshly-read mcp.json into the
+  // keychain. Idempotent: when the keychain already has a value for
+  // `(id, field)`, that value wins and the disk plaintext is dropped
+  // unread. Returns the rewritten config plus a flag so the GET handler
+  // knows whether to persist the cleanup.
+  const migratePlaintextSecrets = async (
+    config: MCPConfig,
+  ): Promise<{ migrated: MCPConfig; changed: boolean }> => {
+    let changed = false;
+    const next: MCPConfig = { mcpServers: {} };
+    for (const [id, stored] of Object.entries(config.mcpServers)) {
+      const { stripped, secrets } = extractSecretsFromStored(stored);
+      if (Object.keys(secrets).length === 0) {
+        next.mcpServers[id] = stored;
+        continue;
+      }
+      for (const [field, value] of Object.entries(secrets)) {
+        const existing = await secretStore.get(id, field);
+        if (existing === null) {
+          await secretStore.set(id, field, value);
+        }
+        // existing !== null → keychain already had a value for this
+        // (id, field); keep the keychain authoritative and drop the
+        // plaintext from disk. This handles the case where a user has
+        // edited mcp.json by hand after the original migration.
+      }
+      next.mcpServers[id] = stripped;
+      changed = true;
+    }
+    return { migrated: next, changed };
+  };
+
+  // Rehydrate every server's secrets so the GET response matches what
+  // the browser saw before the keychain split. Runs after migration in
+  // the GET handler.
+  const rehydrateConfig = async (config: MCPConfig): Promise<MCPConfig> => {
+    const out: MCPConfig = { mcpServers: {} };
+    for (const [id, stored] of Object.entries(config.mcpServers)) {
+      const fields = expectedSecretFields(stored);
+      const secrets = await readKeychainEntriesFor(id, fields);
+      out.mcpServers[id] = mergeSecretsIntoStored(stored, secrets);
+    }
+    return out;
+  };
+
+  // Reconcile keychain state for a single server on the write path:
+  // delete any field the prior entry held but the new entry doesn't
+  // (e.g. an env key the user just removed), then write the new
+  // secrets. Order matters — we delete obsolete first so that a
+  // pathological case where a field is "renamed" (delete + add a
+  // different one) doesn't leave the old value behind.
+  const reconcileKeychainEntry = async (
+    id: string,
+    previousFields: Set<string>,
+    nextSecrets: Record<string, string>,
+  ): Promise<void> => {
+    const nextFieldSet = new Set(Object.keys(nextSecrets));
+    for (const field of previousFields) {
+      if (!nextFieldSet.has(field)) {
+        await secretStore.delete(id, field);
+      }
+    }
+    await writeKeychainEntriesFor(id, nextSecrets);
+  };
+
+  const keychainErrorResponse = (
+    c: Context,
+    err: unknown,
+  ): Response | undefined => {
+    if (err instanceof KeychainUnavailableError) {
+      return c.json({ error: err.message }, 503);
+    }
+    return undefined;
+  };
+
   app.get("/api/servers", async (c) => {
     try {
       const raw = await readStoreFile(mcpConfigPath);
+      let onDisk: MCPConfig;
       if (raw === null) {
+        // First-launch seed. The seed has no secrets so no migration to
+        // run; persist verbatim and respond. We rehydrate anyway so the
+        // GET path stays uniform (no-op on a seed without env values).
         await writeMcpAndTrackMtime(serializeStore(DEFAULT_SEED_CONFIG));
-        return c.json(DEFAULT_SEED_CONFIG);
+        onDisk = DEFAULT_SEED_CONFIG;
+      } else {
+        const parsed = parseStore(raw) as { mcpServers?: unknown } | null;
+        onDisk = { mcpServers: normalizeMcpServers(parsed?.mcpServers) };
       }
-      const parsed = parseStore(raw) as { mcpServers?: unknown } | null;
-      return c.json({ mcpServers: normalizeMcpServers(parsed?.mcpServers) });
+
+      // Migrate plaintext secrets that may have been written by an
+      // older Inspector build or hand-edited into mcp.json. Idempotent:
+      // on a clean file with no plaintext secrets it's a no-op. The
+      // rewrite happens inside the same write lock as POST/PUT/DELETE
+      // so concurrent mutations can't race with our cleanup.
+      const { migrated, changed } = await migratePlaintextSecrets(onDisk);
+      if (changed) {
+        await withWriteLock(async () => {
+          await writeMcpAndTrackMtime(serializeStore(migrated));
+        });
+      }
+
+      const rehydrated = await rehydrateConfig(migrated);
+      return c.json(rehydrated);
     } catch (error) {
+      const keychainResp = keychainErrorResponse(c, error);
+      if (keychainResp) return keychainResp;
       const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to read server list: ${msg}` }, 500);
     }
@@ -1174,15 +1325,22 @@ export function createRemoteApp(
         if (id in current.mcpServers) {
           return c.json({ error: `Server '${id}' already exists` }, 409);
         }
-        current.mcpServers[id] = buildStoredEntry(
-          id,
-          body.config,
-          postSettings,
-        );
+        const built = buildStoredEntry(id, body.config, postSettings);
+        // Split secret values out of the new entry — the stripped shape
+        // goes to disk, the values go to the keychain. We sweep any
+        // leftover keychain entries for this id first to handle the
+        // edge case where a previous DELETE failed midway and left
+        // orphans under the same id the user is now reusing.
+        const { stripped, secrets } = extractSecretsFromStored(built);
+        await secretStore.deleteAllForServer(id);
+        current.mcpServers[id] = stripped;
         await writeMcpAndTrackMtime(serializeStore(current));
+        await writeKeychainEntriesFor(id, secrets);
         return c.json({ ok: true });
       });
     } catch (error) {
+      const keychainResp = keychainErrorResponse(c, error);
+      if (keychainResp) return keychainResp;
       const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to add server: ${msg}` }, 500);
     }
@@ -1294,22 +1452,38 @@ export function createRemoteApp(
             nextSettings = settingsIntent.value;
             break;
         }
+        // Build the new entry, then split off secrets before writing to
+        // disk. Reconcile uses the previously-stored entry to know which
+        // keychain fields existed so any field the user removed (env
+        // key dropped, OAuth secret cleared) gets cleaned up rather
+        // than orphaned.
+        const built = buildStoredEntry(newId, nextConfig, nextSettings);
+        const { stripped, secrets } = extractSecretsFromStored(built);
         const next: MCPConfig = { mcpServers: {} };
         for (const [key, val] of Object.entries(current.mcpServers)) {
           if (key === originalId) {
-            next.mcpServers[newId] = buildStoredEntry(
-              newId,
-              nextConfig,
-              nextSettings,
-            );
+            next.mcpServers[newId] = stripped;
           } else {
             next.mcpServers[key] = val;
           }
         }
         await writeMcpAndTrackMtime(serializeStore(next));
+        // Keychain reconcile. On rename, every field under the old id
+        // is obsolete by definition — sweep then write under the new
+        // id. Otherwise diff against the previous field set so we only
+        // touch entries that actually need to change.
+        if (newId !== originalId) {
+          await secretStore.deleteAllForServer(originalId);
+          await writeKeychainEntriesFor(newId, secrets);
+        } else {
+          const previousFields = new Set(expectedSecretFields(existing));
+          await reconcileKeychainEntry(newId, previousFields, secrets);
+        }
         return c.json({ ok: true });
       });
     } catch (error) {
+      const keychainResp = keychainErrorResponse(c, error);
+      if (keychainResp) return keychainResp;
       const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to update server: ${msg}` }, 500);
     }
@@ -1325,13 +1499,20 @@ export function createRemoteApp(
       return await withWriteLock(async () => {
         const current = await readMcpConfig();
         if (!(id in current.mcpServers)) {
+          // Idempotent DELETE — but still sweep the keychain in case a
+          // prior delete failed after rewriting the file and orphaned
+          // entries are sitting there.
+          await secretStore.deleteAllForServer(id);
           return c.json({ ok: true });
         }
         delete current.mcpServers[id];
         await writeMcpAndTrackMtime(serializeStore(current));
+        await secretStore.deleteAllForServer(id);
         return c.json({ ok: true });
       });
     } catch (error) {
+      const keychainResp = keychainErrorResponse(c, error);
+      if (keychainResp) return keychainResp;
       const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to delete server: ${msg}` }, 500);
     }

@@ -11,8 +11,13 @@ import type {
   MCPServerConfig,
   ServerEntry,
   ServerType,
+  StdioServerConfig,
   StoredMCPServer,
 } from "./types.js";
+import {
+  SECRET_FIELD_OAUTH_CLIENT_SECRET,
+  envSecretField,
+} from "../auth/secret-fields.js";
 
 // The full set of valid `type` discriminator values, used to reject anything
 // else read off disk so unknown strings can't propagate to narrowing sites.
@@ -272,6 +277,147 @@ export function serverEntriesToMcpConfig(entries: ServerEntry[]): MCPConfig {
  */
 export function serializeMcpConfig(entries: ServerEntry[]): string {
   return JSON.stringify(serverEntriesToMcpConfig(entries), null, 2);
+}
+
+/**
+ * Result of splitting secret values off a `StoredMCPServer` for keychain
+ * persistence. `stripped` is what gets written to `mcp.json` on disk;
+ * `secrets` is the (field → value) map the keychain backend writes.
+ *
+ * Empty-string values are not written to keychain (they have the same
+ * semantic meaning as absence). Callers that want full reconcile
+ * semantics on update should also call `deleteAllForServer` first.
+ */
+export interface ExtractedSecrets {
+  stripped: StoredMCPServer;
+  secrets: Record<string, string>;
+}
+
+/**
+ * Type guard for the stdio branch of `MCPServerConfig`. The `type` field
+ * is optional on `StdioServerConfig` because stdio is the implicit
+ * default for entries written without a `type` key (matches Claude
+ * Desktop). So both `undefined` and the literal "stdio" route here.
+ */
+const isStdioStored = (
+  stored: StoredMCPServer,
+): stored is StdioServerConfig & StoredMCPServer =>
+  stored.type === "stdio" || stored.type === undefined;
+
+/**
+ * Strip secret values from a single on-disk entry. Returns the
+ * sanitized disk shape (oauth.clientSecret removed; stdio env values
+ * cleared to "") plus the map of field → value the keychain should
+ * hold.
+ *
+ * stdio env keys are preserved with empty-string values rather than
+ * dropped, so the on-disk file still documents the env interface the
+ * server expects (a user reading mcp.json can see "this server uses
+ * API_KEY and DB_PASSWORD" even though the values live in the
+ * keychain). Round-tripping with another tool that reads mcp.json
+ * gets the same key set but empty values, which is the intended
+ * trade-off: the secret never reaches another tool, but the key list
+ * is still visible.
+ */
+export function extractSecretsFromStored(
+  stored: StoredMCPServer,
+): ExtractedSecrets {
+  const secrets: Record<string, string> = {};
+  const stripped: StoredMCPServer = { ...stored };
+
+  if (stored.oauth?.clientSecret) {
+    secrets[SECRET_FIELD_OAUTH_CLIENT_SECRET] = stored.oauth.clientSecret;
+    const restOauth: { clientId?: string; scopes?: string } = {};
+    if (stored.oauth.clientId !== undefined)
+      restOauth.clientId = stored.oauth.clientId;
+    if (stored.oauth.scopes !== undefined)
+      restOauth.scopes = stored.oauth.scopes;
+    if (Object.keys(restOauth).length > 0) {
+      stripped.oauth = restOauth;
+    } else {
+      delete (stripped as unknown as Record<string, unknown>).oauth;
+    }
+  }
+
+  if (isStdioStored(stripped)) {
+    const env = stripped.env;
+    if (env) {
+      const newEnv: Record<string, string> = {};
+      for (const [k, v] of Object.entries(env)) {
+        if (typeof v === "string" && v.length > 0) {
+          secrets[envSecretField(k)] = v;
+        }
+        newEnv[k] = "";
+      }
+      stripped.env = newEnv;
+    }
+  }
+
+  return { stripped, secrets };
+}
+
+/**
+ * Inverse of `extractSecretsFromStored`. Merges a pre-fetched secrets
+ * record back into an on-disk entry. Used at the `/api/servers` GET
+ * boundary so the browser receives the same effective shape it has
+ * today.
+ *
+ * A missing key in `secrets` leaves the corresponding field alone,
+ * which matters for stdio env: if the keychain doesn't have a value
+ * for `env:KEY`, the on-disk empty string passes through unchanged.
+ */
+export function mergeSecretsIntoStored(
+  stored: StoredMCPServer,
+  secrets: Record<string, string>,
+): StoredMCPServer {
+  const out: StoredMCPServer = { ...stored };
+
+  const oauthSecret = secrets[SECRET_FIELD_OAUTH_CLIENT_SECRET];
+  if (oauthSecret) {
+    out.oauth = { ...(out.oauth ?? {}), clientSecret: oauthSecret };
+  }
+
+  if (isStdioStored(out) && out.env) {
+    const newEnv: Record<string, string> = { ...out.env };
+    let mutated = false;
+    for (const k of Object.keys(out.env)) {
+      const val = secrets[envSecretField(k)];
+      if (val !== undefined) {
+        newEnv[k] = val;
+        mutated = true;
+      }
+    }
+    if (mutated) {
+      out.env = newEnv;
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Enumerate the keychain field identifiers an on-disk entry expects
+ * to find values for. Handlers use this to know which keychain entries
+ * to fetch when rehydrating a server, and which keys to reconcile on
+ * update (env keys removed by the user should drop their keychain
+ * entries).
+ *
+ * Order is stable: OAuth first, then env keys in object iteration
+ * order. Callers that diff old vs new field sets rely on stable
+ * enumeration to avoid spurious churn.
+ */
+export function expectedSecretFields(stored: StoredMCPServer): string[] {
+  const fields: string[] = [];
+  // Always include OAuth slot — even if the entry has no `oauth` block
+  // on disk, the keychain may hold a leftover entry from a prior
+  // configuration that we want callers to be able to reconcile.
+  fields.push(SECRET_FIELD_OAUTH_CLIENT_SECRET);
+  if (isStdioStored(stored) && stored.env) {
+    for (const k of Object.keys(stored.env)) {
+      fields.push(envSecretField(k));
+    }
+  }
+  return fields;
 }
 
 /**

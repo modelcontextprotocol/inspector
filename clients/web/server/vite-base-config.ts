@@ -30,6 +30,12 @@ export function getViteBaseConfig() {
         "chokidar",
         "cross-spawn",
         "which",
+        // `@napi-rs/keyring` is loaded only inside
+        // `core/auth/node/secret-store.ts` from the Hono `/api/servers`
+        // handlers. It's a native-binding package (no browser code path) so
+        // excluding it keeps Vite's dep scanner from chasing into the
+        // platform-specific binaries during dev startup.
+        "@napi-rs/keyring",
       ],
     },
   };

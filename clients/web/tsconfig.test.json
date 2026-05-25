@@ -21,7 +21,8 @@
       "atomically": ["./node_modules/atomically"],
       "chokidar": ["./node_modules/chokidar"],
       "express": ["./node_modules/@types/express"],
-      "yaml": ["./node_modules/yaml"]
+      "yaml": ["./node_modules/yaml"],
+      "@napi-rs/keyring": ["./node_modules/@napi-rs/keyring"]
     }
   },
   "include": [
