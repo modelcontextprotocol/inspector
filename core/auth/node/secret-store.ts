@@ -121,12 +121,14 @@ export class KeyringSecretStore implements SecretStore {
     const entry = new AsyncEntry(SERVICE_NAME, buildAccount(serverId, field));
     try {
       await entry.deleteCredential();
-    } catch (err) {
-      // `deleteCredential` throws NoEntry for missing entries — treat as success.
-      const msg = err instanceof Error ? err.message : String(err);
-      if (/no entry|no matching|not found/i.test(msg)) return;
-      // Keychain unavailable → silently no-op. We couldn't have written
-      // anything either, so there's nothing to clean up.
+    } catch {
+      // Both reasons for a throw collapse to the same desired outcome
+      // ("the entry isn't there anymore"): `deleteCredential` raises
+      // NoEntry for a missing credential, and the native binding
+      // raises a runtime error when the keychain itself is unavailable.
+      // We treat both as success — there's no value to lose either
+      // way, and `set` is the operation that hard-fails when the
+      // keychain is actually down.
     }
   }
 

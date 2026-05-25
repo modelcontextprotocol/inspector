@@ -1479,6 +1479,54 @@ describe("/api/servers routes", () => {
       }
     });
 
+    it("POST 503 leaves no disk entry — retry is not trapped at 409", async () => {
+      // Regression for the write-ordering review comment. If keychain
+      // set ran AFTER the disk write, a failed `set` would leave the
+      // entry on disk and the user's retry would hit 409. With the
+      // reversed order, a failed `set` leaves disk untouched and the
+      // retry can proceed.
+      const u = await startUnavailableHarness();
+      try {
+        const first = await fetch(`${u.baseUrl}/api/servers`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: "retry-test",
+            config: { type: "streamable-http", url: "https://x.test/mcp" },
+            settings: {
+              headers: [],
+              metadata: [],
+              connectionTimeout: 0,
+              requestTimeout: 0,
+              oauthClientId: "cid",
+              oauthClientSecret: "shh",
+            },
+          }),
+        });
+        expect(first.status).toBe(503);
+
+        // Disk: no entry persisted. A GET should not see "retry-test".
+        const cfg = existsSync(u.configPath)
+          ? (JSON.parse(readFileSync(u.configPath, "utf-8")) as MCPConfig)
+          : { mcpServers: {} };
+        expect(cfg.mcpServers).not.toHaveProperty("retry-test");
+
+        // Retry with no secret should now succeed (no 409).
+        const second = await fetch(`${u.baseUrl}/api/servers`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: "retry-test",
+            config: { type: "stdio", command: "node" },
+          }),
+        });
+        expect(second.status).toBe(200);
+      } finally {
+        await new Promise<void>((r) => u.server.close(() => r()));
+        rmSync(u.tempDir, { recursive: true });
+      }
+    });
+
     it("DELETE succeeds (sweep silently no-ops)", async () => {
       const u = await startUnavailableHarness();
       try {

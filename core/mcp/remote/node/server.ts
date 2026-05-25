@@ -1162,16 +1162,36 @@ export function createRemoteApp(
   // stripped shape into the shape today's browser code expects. Missing
   // fields are simply absent from the result (so `mergeSecretsIntoStored`
   // leaves the disk value untouched).
+  // Issue many keychain reads in parallel. On macOS each round-trip to
+  // Keychain Services is 10-50ms; a server with 20 entries × 5 env vars
+  // each would otherwise serialize to ~5s of rehydration on every GET.
+  // `@napi-rs/keyring`'s async APIs release the event loop, so
+  // Promise.all is a real win, not just stylistic.
   const readKeychainEntriesFor = async (
     id: string,
     fields: string[],
   ): Promise<Record<string, string>> => {
+    const values = await Promise.all(
+      fields.map(async (field) => [field, await secretStore.get(id, field)] as const),
+    );
     const out: Record<string, string> = {};
-    for (const field of fields) {
-      const v = await secretStore.get(id, field);
+    for (const [field, v] of values) {
       if (v !== null) out[field] = v;
     }
     return out;
+  };
+
+  // Cheap structural check used by the GET handler to decide whether
+  // to enter the write lock for migration. Pure — no keychain or disk
+  // access. The actual migration (`migratePlaintextSecrets`) writes
+  // to the keychain, so we must not run it speculatively outside the
+  // lock; this predicate lets us keep the fast path lock-free.
+  const hasPlaintextSecrets = (config: MCPConfig): boolean => {
+    for (const stored of Object.values(config.mcpServers)) {
+      const { secrets } = extractSecretsFromStored(stored);
+      if (Object.keys(secrets).length > 0) return true;
+    }
+    return false;
   };
 
   // Migrate plaintext secrets in a freshly-read mcp.json into the
@@ -1238,24 +1258,31 @@ export function createRemoteApp(
     return out;
   };
 
-  // Reconcile keychain state for a single server on the write path:
-  // delete any field the prior entry held but the new entry doesn't
-  // (e.g. an env key the user just removed), then write the new
-  // secrets. Order matters — we delete obsolete first so that a
-  // pathological case where a field is "renamed" (delete + add a
-  // different one) doesn't leave the old value behind.
-  const reconcileKeychainEntry = async (
-    id: string,
+  // Fields the previous entry held that the new entry doesn't —
+  // candidates for deletion after the disk write succeeds. Returned
+  // as an array so the caller can decide where in the write sequence
+  // to perform the destructive operation (we want it after the disk
+  // write so a failed disk write doesn't leave the user with their
+  // old config on disk but missing keychain entries).
+  const computeObsoleteFields = (
     previousFields: Set<string>,
     nextSecrets: Record<string, string>,
-  ): Promise<void> => {
+  ): string[] => {
     const nextFieldSet = new Set(Object.keys(nextSecrets));
+    const obsolete: string[] = [];
     for (const field of previousFields) {
-      if (!nextFieldSet.has(field)) {
-        await secretStore.delete(id, field);
-      }
+      if (!nextFieldSet.has(field)) obsolete.push(field);
     }
-    await writeKeychainEntriesFor(id, nextSecrets);
+    return obsolete;
+  };
+
+  const deleteKeychainFields = async (
+    id: string,
+    fields: string[],
+  ): Promise<void> => {
+    for (const field of fields) {
+      await secretStore.delete(id, field);
+    }
   };
 
   const keychainErrorResponse = (
@@ -1270,33 +1297,55 @@ export function createRemoteApp(
 
   app.get("/api/servers", async (c) => {
     try {
+      // Fast path: peek at the file without taking the write lock. Most
+      // GETs land here — file exists, no plaintext to migrate. The
+      // unlocked read is safe because we don't write anything in this
+      // branch; a concurrent mutation just means the response is a
+      // snapshot from a moment ago.
       const raw = await readStoreFile(mcpConfigPath);
-      let onDisk: MCPConfig;
-      if (raw === null) {
-        // First-launch seed. The seed has no secrets so no migration to
-        // run; persist verbatim and respond. We rehydrate anyway so the
-        // GET path stays uniform (no-op on a seed without env values).
-        await writeMcpAndTrackMtime(serializeStore(DEFAULT_SEED_CONFIG));
-        onDisk = DEFAULT_SEED_CONFIG;
-      } else {
+      if (raw !== null) {
         const parsed = parseStore(raw) as { mcpServers?: unknown } | null;
-        onDisk = { mcpServers: normalizeMcpServers(parsed?.mcpServers) };
+        const onDisk: MCPConfig = {
+          mcpServers: normalizeMcpServers(parsed?.mcpServers),
+        };
+        if (!hasPlaintextSecrets(onDisk)) {
+          return c.json(await rehydrateConfig(onDisk));
+        }
       }
 
-      // Migrate plaintext secrets that may have been written by an
-      // older Inspector build or hand-edited into mcp.json. Idempotent:
-      // on a clean file with no plaintext secrets it's a no-op. The
-      // rewrite happens inside the same write lock as POST/PUT/DELETE
-      // so concurrent mutations can't race with our cleanup.
-      const { migrated, changed } = await migratePlaintextSecrets(onDisk);
-      if (changed) {
-        await withWriteLock(async () => {
+      // Slow path: either the file is missing (first-launch seed) or it
+      // contains plaintext we need to migrate. Both branches write the
+      // file, so the entire read + decide + write sequence must happen
+      // inside the write lock — otherwise a concurrent POST/PUT/DELETE
+      // could land between our unlocked read and our locked write, and
+      // we'd clobber it. Re-read once we hold the lock so the decision
+      // is based on the same snapshot we're about to mutate.
+      const settled = await withWriteLock(async () => {
+        const rawInside = await readStoreFile(mcpConfigPath);
+        if (rawInside === null) {
+          // Still absent after taking the lock → no concurrent POST
+          // beat us to it; seed the file ourselves. The seed has no
+          // secrets so nothing else to do.
+          await writeMcpAndTrackMtime(serializeStore(DEFAULT_SEED_CONFIG));
+          return DEFAULT_SEED_CONFIG;
+        }
+        const parsedInside = parseStore(rawInside) as
+          | { mcpServers?: unknown }
+          | null;
+        const inside: MCPConfig = {
+          mcpServers: normalizeMcpServers(parsedInside?.mcpServers),
+        };
+        // A concurrent POST may have run between the unlocked peek and
+        // the lock acquisition — if the file now has no plaintext to
+        // migrate, leave it alone and return the latest snapshot.
+        if (!hasPlaintextSecrets(inside)) return inside;
+        const { migrated, changed } = await migratePlaintextSecrets(inside);
+        if (changed) {
           await writeMcpAndTrackMtime(serializeStore(migrated));
-        });
-      }
-
-      const rehydrated = await rehydrateConfig(migrated);
-      return c.json(rehydrated);
+        }
+        return migrated;
+      });
+      return c.json(await rehydrateConfig(settled));
     } catch (error) {
       const keychainResp = keychainErrorResponse(c, error);
       if (keychainResp) return keychainResp;
@@ -1346,15 +1395,19 @@ export function createRemoteApp(
         }
         const built = buildStoredEntry(id, body.config, postSettings);
         // Split secret values out of the new entry — the stripped shape
-        // goes to disk, the values go to the keychain. We sweep any
-        // leftover keychain entries for this id first to handle the
-        // edge case where a previous DELETE failed midway and left
-        // orphans under the same id the user is now reusing.
+        // goes to disk, the values go to the keychain.
         const { stripped, secrets } = extractSecretsFromStored(built);
+        // Order: sweep → keychain → disk. The keychain write is the
+        // only step that can hard-fail (KeychainUnavailableError on
+        // `set`); doing it before the disk write means a 503 leaves no
+        // disk entry behind, so a retry POST isn't trapped at 409. The
+        // initial sweep handles the case where a previous DELETE failed
+        // midway and left orphans under the same id the user is now
+        // reusing; it's a silent no-op when the keychain is unavailable.
         await secretStore.deleteAllForServer(id);
+        await writeKeychainEntriesFor(id, secrets);
         current.mcpServers[id] = stripped;
         await writeMcpAndTrackMtime(serializeStore(current));
-        await writeKeychainEntriesFor(id, secrets);
         return c.json({ ok: true });
       });
     } catch (error) {
@@ -1486,17 +1539,35 @@ export function createRemoteApp(
             next.mcpServers[key] = val;
           }
         }
-        await writeMcpAndTrackMtime(serializeStore(next));
-        // Keychain reconcile. On rename, every field under the old id
-        // is obsolete by definition — sweep then write under the new
-        // id. Otherwise diff against the previous field set so we only
-        // touch entries that actually need to change.
+        // Ordering: write the new keychain entries first, then the
+        // disk file, then clean up obsolete keychain entries.
+        //
+        // - Keychain set is the only hard-fail step (it raises 503 on
+        //   `KeychainUnavailableError`). Doing it first means a failed
+        //   set leaves both disk and keychain in their pre-PUT state;
+        //   the user retries and nothing is half-applied.
+        // - The disk write happens after the keychain is fully primed,
+        //   so a successful disk write is also a fully-consistent end
+        //   state.
+        // - Obsolete deletion comes last because it's destructive: if
+        //   we deleted first and then the disk write failed, the user
+        //   would still see the old config on disk but with missing
+        //   keychain values. With the current order a failed disk
+        //   write leaves orphan keychain entries — recoverable on the
+        //   next reconcile or `deleteAllForServer` sweep.
         if (newId !== originalId) {
-          await secretStore.deleteAllForServer(originalId);
           await writeKeychainEntriesFor(newId, secrets);
+          await writeMcpAndTrackMtime(serializeStore(next));
+          await secretStore.deleteAllForServer(originalId);
         } else {
+          // In-place update: same id, possibly different fields. Set
+          // the new values first, then write disk, then drop obsolete
+          // fields (env keys the user removed, OAuth secret cleared).
           const previousFields = new Set(expectedSecretFields(existing));
-          await reconcileKeychainEntry(newId, previousFields, secrets);
+          const obsolete = computeObsoleteFields(previousFields, secrets);
+          await writeKeychainEntriesFor(newId, secrets);
+          await writeMcpAndTrackMtime(serializeStore(next));
+          await deleteKeychainFields(newId, obsolete);
         }
         return c.json({ ok: true });
       });
