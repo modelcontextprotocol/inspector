@@ -1179,29 +1179,48 @@ export function createRemoteApp(
   // `(id, field)`, that value wins and the disk plaintext is dropped
   // unread. Returns the rewritten config plus a flag so the GET handler
   // knows whether to persist the cleanup.
+  //
+  // When the keychain is unavailable (Linux without libsecret), the
+  // first `secretStore.set` throws `KeychainUnavailableError`. We catch
+  // it and abandon the migration for this GET — the on-disk file stays
+  // as-is so the user's secret isn't lost, and the next GET retries
+  // (e.g. after the user installs libsecret).
   const migratePlaintextSecrets = async (
     config: MCPConfig,
   ): Promise<{ migrated: MCPConfig; changed: boolean }> => {
     let changed = false;
     const next: MCPConfig = { mcpServers: {} };
-    for (const [id, stored] of Object.entries(config.mcpServers)) {
-      const { stripped, secrets } = extractSecretsFromStored(stored);
-      if (Object.keys(secrets).length === 0) {
-        next.mcpServers[id] = stored;
-        continue;
-      }
-      for (const [field, value] of Object.entries(secrets)) {
-        const existing = await secretStore.get(id, field);
-        if (existing === null) {
-          await secretStore.set(id, field, value);
+    try {
+      for (const [id, stored] of Object.entries(config.mcpServers)) {
+        const { stripped, secrets } = extractSecretsFromStored(stored);
+        if (Object.keys(secrets).length === 0) {
+          next.mcpServers[id] = stored;
+          continue;
         }
-        // existing !== null → keychain already had a value for this
-        // (id, field); keep the keychain authoritative and drop the
-        // plaintext from disk. This handles the case where a user has
-        // edited mcp.json by hand after the original migration.
+        for (const [field, value] of Object.entries(secrets)) {
+          const existing = await secretStore.get(id, field);
+          if (existing === null) {
+            await secretStore.set(id, field, value);
+          }
+          // existing !== null → keychain already had a value for this
+          // (id, field); keep the keychain authoritative and drop the
+          // plaintext from disk. This handles the case where a user has
+          // edited mcp.json by hand after the original migration.
+        }
+        next.mcpServers[id] = stripped;
+        changed = true;
       }
-      next.mcpServers[id] = stripped;
-      changed = true;
+    } catch (err) {
+      if (err instanceof KeychainUnavailableError) {
+        if (fileLogger) {
+          fileLogger.warn(
+            { err: err.message },
+            "Keychain unavailable; skipping plaintext-secret migration on this read. Existing mcp.json plaintext values are preserved.",
+          );
+        }
+        return { migrated: config, changed: false };
+      }
+      throw err;
     }
     return { migrated: next, changed };
   };

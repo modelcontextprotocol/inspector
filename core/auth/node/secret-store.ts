@@ -80,6 +80,15 @@ export interface SecretStore {
  * `undefined` for a missing entry — we normalize to `null` so callers
  * can use `=== null` rather than truthiness (an empty-string secret is
  * a real value and must round-trip).
+ *
+ * **Availability behavior.** When the keychain is unavailable (the
+ * typical case is Linux without libsecret / gnome-keyring), `set` is
+ * the only operation that throws `KeychainUnavailableError` — that's
+ * the moment where data would actually be lost. `get` returns `null`
+ * (as if no entry existed) and the destructive operations silently
+ * no-op (there's nothing to delete anyway). This keeps non-secret
+ * flows working on a stock CI runner / minimal Linux box; the user
+ * only hits a hard error when they actually try to save a secret.
  */
 export class KeyringSecretStore implements SecretStore {
   async get(serverId: string, field: string): Promise<string | null> {
@@ -87,8 +96,12 @@ export class KeyringSecretStore implements SecretStore {
     try {
       const v = await entry.getPassword();
       return v ?? null;
-    } catch (err) {
-      throw new KeychainUnavailableError(err);
+    } catch {
+      // Tolerate keychain unavailability on reads: there's no value to
+      // surface either way. Hard-failing here would break GET flows
+      // that don't touch any secret material (most of the test suite,
+      // and most user sessions on a Linux box without libsecret).
+      return null;
     }
   }
 
@@ -97,6 +110,9 @@ export class KeyringSecretStore implements SecretStore {
     try {
       await entry.setPassword(value);
     } catch (err) {
+      // The only operation that hard-fails — if we can't persist the
+      // secret, the user needs to know now rather than discover later
+      // that their value disappeared. Routes translate this to a 503.
       throw new KeychainUnavailableError(err);
     }
   }
@@ -109,7 +125,8 @@ export class KeyringSecretStore implements SecretStore {
       // `deleteCredential` throws NoEntry for missing entries — treat as success.
       const msg = err instanceof Error ? err.message : String(err);
       if (/no entry|no matching|not found/i.test(msg)) return;
-      throw new KeychainUnavailableError(err);
+      // Keychain unavailable → silently no-op. We couldn't have written
+      // anything either, so there's nothing to clean up.
     }
   }
 
@@ -117,8 +134,9 @@ export class KeyringSecretStore implements SecretStore {
     let creds: Array<{ account: string; password: string }>;
     try {
       creds = await findCredentialsAsync(SERVICE_NAME);
-    } catch (err) {
-      throw new KeychainUnavailableError(err);
+    } catch {
+      // Same reasoning as `delete`: nothing was written, nothing to sweep.
+      return;
     }
     const prefix = `${serverId}:`;
     for (const c of creds) {

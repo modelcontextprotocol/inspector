@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { useServers } from "@inspector/core/react/useServers";
 import { createRemoteApp } from "@inspector/core/mcp/remote/node/server";
 import { DEFAULT_SEED_CONFIG } from "@inspector/core/mcp/serverList";
+import { InMemorySecretStore } from "@inspector/core/auth/node/secret-store";
 import type { MCPConfig } from "@inspector/core/mcp/types";
 
 interface Harness {
@@ -29,6 +30,10 @@ function setupHarness(): Harness {
     dangerouslyOmitAuth: true,
     mcpConfigPath: configPath,
     initialConfig: { defaultEnvironment: {} },
+    // Inject an in-memory secret store so the test never touches the
+    // developer's real OS keychain (and so the suite passes on Linux CI
+    // runners without libsecret).
+    secretStore: new InMemorySecretStore(),
   });
   // Wrap so the typing matches Web fetch — Hono's app.fetch expects a Request
   // (not a URL string), so build one from string/URL inputs before dispatch.
