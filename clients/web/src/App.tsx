@@ -763,77 +763,108 @@ function App() {
     return servers.find((s) => s.id === configModal.targetId);
   }, [configModal, servers]);
 
-  const settingsModalTarget = useMemo(() => {
-    if (!settingsModalTargetId) return undefined;
-    return servers.find((s) => s.id === settingsModalTargetId);
-  }, [settingsModalTargetId, servers]);
+  // The settings modal is a "dumb" component fully driven by the
+  // `settings` prop we pass it — every keystroke fires `onSettingsChange`
+  // back up here for us to render the next value. That round-trip needs
+  // to be state, not a ref: a ref doesn't cause a re-render, so the
+  // displayed input value can only change after the debounced PUT
+  // completes and `servers` refetches, which feels broken (the user
+  // types and nothing shows for ~half a second). Hold the in-progress
+  // draft in `settingsDraft` so every keystroke re-renders immediately;
+  // background refetches of `servers` don't reset it because the draft
+  // is only (re)initialized when the modal opens to a new target id
+  // (see effect below).
+  const [settingsDraft, setSettingsDraft] =
+    useState<InspectorServerSettings | null>(null);
+  const settingsTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
 
-  // Stable starting shape for entries that have no `settings` node yet — the
-  // form needs concrete arrays / numbers to render.
-  const settingsModalValue = useMemo<InspectorServerSettings>(() => {
-    return (
-      settingsModalTarget?.settings ?? {
+  // Initialize / tear down the draft when the modal opens or closes
+  // against a different target. We intentionally do NOT depend on
+  // `servers` here — if the user is mid-edit and a background refresh
+  // arrives, we don't want to clobber their in-progress changes.
+  useEffect(() => {
+    if (!settingsModalTargetId) {
+      setSettingsDraft(null);
+      return;
+    }
+    const target = servers.find((s) => s.id === settingsModalTargetId);
+    setSettingsDraft(
+      target?.settings ?? {
         headers: [],
         metadata: [],
         connectionTimeout: 0,
         requestTimeout: 0,
-      }
+      },
     );
-  }, [settingsModalTarget]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsModalTargetId]);
 
-  // The settings modal fires onSettingsChange on every keystroke. Persisting
-  // each character would run a tight PUT-then-full-refresh loop against the
-  // backend (and the in-memory `servers` state could flicker mid-typing as
-  // each refresh resets the modal's prop). Debounce so a burst of edits
-  // coalesces into a single PUT, and flush on modal close so nothing is lost.
-  const pendingSettingsRef = useRef<{
-    id: string;
-    settings: InspectorServerSettings;
-  } | null>(null);
-  const pendingSettingsTimerRef = useRef<
-    ReturnType<typeof setTimeout> | undefined
-  >(undefined);
+  // Stable fallback so the modal always has a valid `settings` prop,
+  // even in the brief window where it's closed (Mantine renders the
+  // component shell regardless of `opened`).
+  const settingsModalValue = useMemo<InspectorServerSettings>(
+    () =>
+      settingsDraft ?? {
+        headers: [],
+        metadata: [],
+        connectionTimeout: 0,
+        requestTimeout: 0,
+      },
+    [settingsDraft],
+  );
 
-  const flushPendingSettings = useCallback(() => {
-    if (pendingSettingsTimerRef.current) {
-      clearTimeout(pendingSettingsTimerRef.current);
-      pendingSettingsTimerRef.current = undefined;
-    }
-    const pending = pendingSettingsRef.current;
-    if (!pending) return;
-    pendingSettingsRef.current = null;
-    // Fire-and-forget — but surface failures via toast. The modal closes
-    // immediately on user dismiss, so a silent fail-on-flush would leave
-    // the user thinking their last edits saved when they didn't (especially
-    // painful for the OAuth client secret).
-    updateServerSettings(pending.id, pending.settings).catch((err) => {
-      notifications.show({
-        title: `Failed to save settings for "${pending.id}"`,
-        message: err instanceof Error ? err.message : String(err),
-        color: "red",
+  // Fire the PUT. Surface failures via toast — the modal usually closes
+  // immediately on user dismiss, so a silent fail-on-flush would leave
+  // the user thinking their last edits saved when they didn't
+  // (especially painful for the OAuth client secret).
+  const sendSettingsUpdate = useCallback(
+    (id: string, settings: InspectorServerSettings) => {
+      updateServerSettings(id, settings).catch((err) => {
+        notifications.show({
+          title: `Failed to save settings for "${id}"`,
+          message: err instanceof Error ? err.message : String(err),
+          color: "red",
+        });
       });
-    });
-  }, [updateServerSettings]);
+    },
+    [updateServerSettings],
+  );
 
   const onSettingsChange = useCallback(
     (next: InspectorServerSettings) => {
       if (!settingsModalTargetId) return;
-      pendingSettingsRef.current = {
-        id: settingsModalTargetId,
-        settings: next,
-      };
-      if (pendingSettingsTimerRef.current) {
-        clearTimeout(pendingSettingsTimerRef.current);
-      }
-      pendingSettingsTimerRef.current = setTimeout(flushPendingSettings, 300);
+      // Update the displayed draft synchronously — this is the
+      // re-render that makes typed characters and added rows appear.
+      setSettingsDraft(next);
+      // Debounce the PUT. Persisting each character would run a tight
+      // PUT-then-full-refresh loop against the backend; coalesce a
+      // burst of edits into one PUT and flush on modal close.
+      if (settingsTimerRef.current) clearTimeout(settingsTimerRef.current);
+      const id = settingsModalTargetId;
+      settingsTimerRef.current = setTimeout(() => {
+        settingsTimerRef.current = undefined;
+        sendSettingsUpdate(id, next);
+      }, 300);
     },
-    [settingsModalTargetId, flushPendingSettings],
+    [settingsModalTargetId, sendSettingsUpdate],
   );
 
   const onSettingsModalClose = useCallback(() => {
-    flushPendingSettings();
+    // Flush any pending debounce synchronously so the last edits land
+    // even if the user dismisses before the 300ms timer fires. The
+    // useEffect above will null out the draft once the target id
+    // clears, so we don't need to touch it here.
+    if (settingsTimerRef.current) {
+      clearTimeout(settingsTimerRef.current);
+      settingsTimerRef.current = undefined;
+      if (settingsDraft && settingsModalTargetId) {
+        sendSettingsUpdate(settingsModalTargetId, settingsDraft);
+      }
+    }
     setSettingsModalTargetId(undefined);
-  }, [flushPendingSettings]);
+  }, [settingsDraft, settingsModalTargetId, sendSettingsUpdate]);
 
   // Cancel any pending debounce on unmount (route change / HMR). Without
   // this a stale setTimeout could still fire one final `updateServerSettings`
@@ -841,9 +872,9 @@ function App() {
   // the final payload) but the cleanest pattern is to clear the timer.
   useEffect(() => {
     return () => {
-      if (pendingSettingsTimerRef.current) {
-        clearTimeout(pendingSettingsTimerRef.current);
-        pendingSettingsTimerRef.current = undefined;
+      if (settingsTimerRef.current) {
+        clearTimeout(settingsTimerRef.current);
+        settingsTimerRef.current = undefined;
       }
     };
   }, []);
