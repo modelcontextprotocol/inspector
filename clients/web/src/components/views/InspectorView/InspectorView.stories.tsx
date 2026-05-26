@@ -8,6 +8,7 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type {
+  FetchRequestEntry,
   InspectorResourceSubscription,
   MessageEntry,
   ServerEntry,
@@ -249,6 +250,40 @@ const demoHistory: MessageEntry[] = [
   },
 ];
 
+const demoNetwork: FetchRequestEntry[] = [
+  {
+    id: "fetch-1",
+    timestamp: new Date("2026-03-17T10:00:00Z"),
+    method: "POST",
+    url: "https://example.com/mcp",
+    requestHeaders: {
+      "content-type": "application/json",
+      "x-test": "hello",
+    },
+    requestBody: '{"jsonrpc":"2.0","method":"initialize","id":1}',
+    responseStatus: 200,
+    responseStatusText: "OK",
+    responseHeaders: { "content-type": "application/json" },
+    responseBody: '{"jsonrpc":"2.0","id":1,"result":{}}',
+    duration: 45,
+    category: "transport",
+  },
+  {
+    id: "fetch-2",
+    timestamp: new Date("2026-03-17T10:00:05Z"),
+    method: "POST",
+    url: "https://example.com/oauth/token",
+    requestHeaders: { "content-type": "application/x-www-form-urlencoded" },
+    requestBody: "grant_type=authorization_code&code=abc",
+    responseStatus: 200,
+    responseStatusText: "OK",
+    responseHeaders: { "content-type": "application/json" },
+    responseBody: '{"access_token":"x","token_type":"bearer"}',
+    duration: 120,
+    category: "auth",
+  },
+];
+
 const demoInitializeResult: InitializeResult = {
   protocolVersion: "2025-06-18",
   capabilities: {},
@@ -271,6 +306,7 @@ const meta: Meta<typeof InspectorView> = {
     tasks: demoTasks,
     progressByTaskId: demoProgressByTaskId,
     history: demoHistory,
+    network: demoNetwork,
 
     // Connection state — stories default to "disconnected"; per-story
     // overrides drive the connected / error narratives.
@@ -319,6 +355,8 @@ const meta: Meta<typeof InspectorView> = {
     onExportHistory: fn(),
     onReplayHistory: fn(),
     onTogglePinHistory: fn(),
+    onClearNetwork: fn(),
+    onExportNetwork: fn(),
     onSelectApp: fn(),
     onOpenApp: fn(),
     onCloseApp: fn(),

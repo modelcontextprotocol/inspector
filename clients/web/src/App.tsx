@@ -38,6 +38,7 @@ import { useManagedResourceTemplates } from "@inspector/core/react/useManagedRes
 import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
 import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubscriptions.js";
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
+import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js";
 import { InspectorView } from "./components/views/InspectorView/InspectorView";
 import type { ToolCallState } from "./components/screens/ToolsScreen/ToolsScreen";
 import type { GetPromptState } from "./components/screens/PromptsScreen/PromptsScreen";
@@ -268,6 +269,7 @@ function App() {
     resourceSubscriptionsState,
   );
   const { messages } = useMessageLog(messageLogState);
+  const { fetchRequests } = useFetchRequestLog(fetchRequestLogState);
 
   // Capture observed handshake latency at the connecting → connected edge.
   // Reset when the status leaves "connected" so the next connect starts
@@ -671,6 +673,15 @@ function App() {
     messageLogState?.clearMessages();
   }, [messageLogState]);
 
+  const onClearNetwork = useCallback(() => {
+    fetchRequestLogState?.clearFetchRequests();
+  }, [fetchRequestLogState]);
+
+  const onExportNetwork = useCallback(() => {
+    if (fetchRequests.length === 0) return;
+    downloadJsonFile("network.json", JSON.stringify(fetchRequests, null, 2));
+  }, [fetchRequests]);
+
   // Action stubs — these UI affordances exist but require additional
   // wiring (server CRUD, history pinning, app sandbox round-trip, log
   // export). Tracked separately; the noop keeps the prop interface
@@ -857,6 +868,7 @@ function App() {
         logs={logs}
         tasks={tasks}
         history={messages}
+        network={fetchRequests}
         toolCallState={toolCallState}
         getPromptState={getPromptState}
         readResourceState={effectiveReadResourceState}
@@ -910,6 +922,8 @@ function App() {
         onExportHistory={todoNoop}
         onReplayHistory={todoNoop}
         onTogglePinHistory={todoNoop}
+        onClearNetwork={onClearNetwork}
+        onExportNetwork={onExportNetwork}
         onSelectApp={todoNoop}
         onOpenApp={todoNoop}
         onCloseApp={todoNoop}

@@ -11,6 +11,7 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import type {
   ConnectionStatus,
+  FetchRequestEntry,
   InspectorResourceSubscription,
   MessageEntry,
   ServerEntry,
@@ -40,6 +41,7 @@ import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
 import { TasksScreen } from "../../screens/TasksScreen/TasksScreen";
 import type { TaskProgress } from "../../groups/TaskCard/TaskCard";
 import { HistoryScreen } from "../../screens/HistoryScreen/HistoryScreen";
+import { NetworkScreen } from "../../screens/NetworkScreen/NetworkScreen";
 
 const SERVERS_TAB = "Servers";
 
@@ -52,6 +54,7 @@ const ALL_TABS: string[] = [
   "Tasks",
   "Logs",
   "History",
+  "Network",
 ];
 
 const SCREEN_ENTER_MS = 350;
@@ -122,6 +125,7 @@ export interface InspectorViewProps {
   tasks: Task[];
   progressByTaskId?: Record<string, TaskProgress>;
   history: MessageEntry[];
+  network: FetchRequestEntry[];
 
   // Per-screen "operation in flight" states (panel-level; optional because
   // the underlying screens accept them as optional).
@@ -200,6 +204,9 @@ export interface InspectorViewProps {
   onReplayHistory: (id: string) => void;
   onTogglePinHistory: (id: string) => void;
 
+  onClearNetwork: () => void;
+  onExportNetwork: () => void;
+
   onSelectApp: (name: string) => void;
   onOpenApp: (name: string, args: Record<string, unknown>) => void;
   onCloseApp: () => void;
@@ -222,6 +229,7 @@ export function InspectorView({
   tasks,
   progressByTaskId,
   history,
+  network,
   toolCallState,
   getPromptState,
   readResourceState,
@@ -265,6 +273,8 @@ export function InspectorView({
   onExportHistory,
   onReplayHistory,
   onTogglePinHistory,
+  onClearNetwork,
+  onExportNetwork,
   onSelectApp,
   onOpenApp,
   onCloseApp,
@@ -448,6 +458,13 @@ export function InspectorView({
               onExport={onExportHistory}
               onReplay={onReplayHistory}
               onTogglePin={onTogglePinHistory}
+            />
+          </ScreenStage>
+          <ScreenStage active={activeTab === "Network"}>
+            <NetworkScreen
+              entries={network}
+              onClear={onClearNetwork}
+              onExport={onExportNetwork}
             />
           </ScreenStage>
         </ScreenStageContainer>
