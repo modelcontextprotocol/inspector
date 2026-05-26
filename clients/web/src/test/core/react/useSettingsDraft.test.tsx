@@ -323,4 +323,56 @@ describe("useSettingsDraft", () => {
       rows: [],
     });
   });
+
+  it("unmount clears the debounce timer — no PUT after the component is gone", () => {
+    // Documented contract: unmount mid-debounce drops the final
+    // <debounceMs window of edits. Flushing on unmount could fire a
+    // PUT against an unmounting component, which is a worse footgun
+    // than losing a few hundred ms of typing during route change / HMR.
+    const onPersist = vi.fn(async () => {});
+    const { result, unmount } = renderHook(() =>
+      useSettingsDraft<SettingsShape>({
+        targetId: "alpha",
+        resolveInitial: () => EMPTY,
+        onPersist,
+        onError: vi.fn(),
+      }),
+    );
+    act(() => {
+      result.current.onChange({ text: "doomed", rows: [] });
+    });
+    unmount();
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(onPersist).not.toHaveBeenCalled();
+  });
+
+  it("flush identity is stable across keystrokes (no churn on consumer's onClose)", () => {
+    // Without ref-reading draft + targetId inside flush, every
+    // `setDraft` would change `flush`'s deps and produce a new
+    // identity. That cascades to App.tsx's `onSettingsModalClose`,
+    // which in turn re-allocates the modal's `onClose` prop on every
+    // character typed. Harmless in practice but the useCallback
+    // would be doing no work.
+    const { result } = renderHook(() =>
+      useSettingsDraft<SettingsShape>({
+        targetId: "alpha",
+        resolveInitial: () => EMPTY,
+        onPersist: vi.fn(),
+        onError: vi.fn(),
+      }),
+    );
+    const flushAfterMount = result.current.flush;
+    act(() => {
+      result.current.onChange({ text: "a", rows: [] });
+    });
+    act(() => {
+      result.current.onChange({ text: "ab", rows: [] });
+    });
+    act(() => {
+      result.current.onChange({ text: "abc", rows: [] });
+    });
+    expect(result.current.flush).toBe(flushAfterMount);
+  });
 });

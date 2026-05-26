@@ -73,17 +73,23 @@ export function useSettingsDraft<T>({
   const [draft, setDraft] = useState<T | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Read callbacks through refs so the consumer doesn't have to
-  // `useCallback` them. The effect that re-initializes the draft must
-  // depend on `targetId` only — anything else in its deps risks
-  // resetting an in-progress edit when the parent re-renders for
-  // unrelated reasons (e.g. a background server-list refresh).
+  // Read callbacks (and the current draft) through refs so the consumer
+  // doesn't have to `useCallback` them, and so the returned `flush`
+  // identity is stable across keystrokes. The effect that
+  // re-initializes the draft must depend on `targetId` only — anything
+  // else in its deps risks resetting an in-progress edit when the
+  // parent re-renders for unrelated reasons (e.g. a background
+  // server-list refresh).
   const resolveInitialRef = useRef(resolveInitial);
   const onPersistRef = useRef(onPersist);
   const onErrorRef = useRef(onError);
+  const draftRef = useRef<T | null>(null);
+  const targetIdRef = useRef(targetId);
   resolveInitialRef.current = resolveInitial;
   onPersistRef.current = onPersist;
   onErrorRef.current = onError;
+  draftRef.current = draft;
+  targetIdRef.current = targetId;
 
   useEffect(() => {
     if (!targetId) {
@@ -118,6 +124,11 @@ export function useSettingsDraft<T>({
       // bug this hook was extracted to fix was the input's controlled
       // `value` prop going stale until the round-trip completed.
       setDraft(next);
+      // Cancel any pending debounce — callers that switch `targetId`
+      // mid-debounce must call `flush()` first if they want the prior
+      // target's edits to land. The only switch path today
+      // (`onSettingsModalClose` in App.tsx) does exactly that, so the
+      // window is closed in practice.
       if (timerRef.current) clearTimeout(timerRef.current);
       const id = targetId;
       timerRef.current = setTimeout(() => {
@@ -128,14 +139,20 @@ export function useSettingsDraft<T>({
     [targetId, debounceMs, persist],
   );
 
+  // Read `targetId` and `draft` through refs so this callback's
+  // identity is stable across keystrokes. Without that, the parent's
+  // `onClose` prop (which closes over `flush`) churns on every
+  // `setDraft`, which churns the modal's prop identity.
   const flush = useCallback(() => {
     if (!timerRef.current) return;
     clearTimeout(timerRef.current);
     timerRef.current = undefined;
-    if (targetId && draft !== null) {
-      persist(targetId, draft);
+    const id = targetIdRef.current;
+    const value = draftRef.current;
+    if (id && value !== null) {
+      persist(id, value);
     }
-  }, [targetId, draft, persist]);
+  }, [persist]);
 
   return { draft, onChange, flush };
 }
