@@ -2,8 +2,14 @@ import { describe, it, expect, vi } from "vitest";
 import { createFetchTracker } from "@inspector/core/mcp/fetchTracking.js";
 import type { FetchRequestEntryBase } from "@inspector/core/mcp/types.js";
 
+// The tracker fires `trackRequest` synchronously with an entry whose
+// responseBody is always undefined, then reads the body in the background
+// and calls `updateResponseBody(id, body)` when done. This helper waits a
+// microtask so the background read can complete before assertions.
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
 describe("createFetchTracker", () => {
-  it("tracks a successful GET request with response body", async () => {
+  it("tracks a successful GET request and emits the response body asynchronously", async () => {
     const baseFetch = vi.fn(
       async () =>
         new Response("hello", {
@@ -13,8 +19,10 @@ describe("createFetchTracker", () => {
         }),
     );
     const tracked: FetchRequestEntryBase[] = [];
+    const bodies: Array<{ id: string; body: string }> = [];
     const fetcher = createFetchTracker(baseFetch as typeof fetch, {
       trackRequest: (entry) => tracked.push(entry),
+      updateResponseBody: (id, body) => bodies.push({ id, body }),
     });
 
     const res = await fetcher("https://example.com/data");
@@ -22,8 +30,11 @@ describe("createFetchTracker", () => {
     expect(tracked).toHaveLength(1);
     expect(tracked[0]?.method).toBe("GET");
     expect(tracked[0]?.url).toBe("https://example.com/data");
-    expect(tracked[0]?.responseBody).toBe("hello");
+    expect(tracked[0]?.responseBody).toBeUndefined();
     expect(tracked[0]?.responseStatus).toBe(200);
+
+    await flush();
+    expect(bodies).toEqual([{ id: tracked[0]!.id, body: "hello" }]);
   });
 
   it("accepts URL objects and Request instances as input", async () => {
@@ -99,7 +110,7 @@ describe("createFetchTracker", () => {
     expect(tracked[0]?.error).toBe("stringly-typed");
   });
 
-  it("skips body reading on event-stream responses", async () => {
+  it("skips body reading on GET event-stream responses (long-lived stream)", async () => {
     const baseFetch = vi.fn(
       async () =>
         new Response("ignored", {
@@ -107,20 +118,105 @@ describe("createFetchTracker", () => {
         }),
     );
     const tracked: FetchRequestEntryBase[] = [];
+    const bodies: Array<{ id: string; body: string }> = [];
     const fetcher = createFetchTracker(baseFetch as typeof fetch, {
       trackRequest: (entry) => tracked.push(entry),
+      updateResponseBody: (id, body) => bodies.push({ id, body }),
     });
-    await fetcher("https://example.com/events");
+    await fetcher("https://example.com/events", { method: "GET" });
+    await flush();
     expect(tracked[0]?.responseBody).toBeUndefined();
+    expect(bodies).toHaveLength(0);
   });
 
-  it("skips body reading for POST /mcp streamable responses", async () => {
-    const baseFetch = vi.fn(async () => new Response("streamed"));
+  it("skips body reading on GET application/x-ndjson responses", async () => {
+    const baseFetch = vi.fn(
+      async () =>
+        new Response("ignored", {
+          headers: { "content-type": "application/x-ndjson" },
+        }),
+    );
+    const tracked: FetchRequestEntryBase[] = [];
+    const bodies: Array<{ id: string; body: string }> = [];
+    const fetcher = createFetchTracker(baseFetch as typeof fetch, {
+      trackRequest: (entry) => tracked.push(entry),
+      updateResponseBody: (id, body) => bodies.push({ id, body }),
+    });
+    await fetcher("https://example.com/events", { method: "GET" });
+    await flush();
+    expect(bodies).toHaveLength(0);
+  });
+
+  it("emits the body for a POST event-stream response after the stream closes (bounded)", async () => {
+    // Streamable HTTP POST /mcp answers with SSE that closes after the
+    // reply. The tracker must NOT block on this read — the transport
+    // needs to consume the stream first to drive progress notifications.
+    // Body therefore arrives asynchronously via updateResponseBody.
+    const sse =
+      'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"tools":[]}}\n\n';
+    const baseFetch = vi.fn(
+      async () =>
+        new Response(sse, {
+          headers: { "content-type": "text/event-stream" },
+        }),
+    );
+    const tracked: FetchRequestEntryBase[] = [];
+    const bodies: Array<{ id: string; body: string }> = [];
+    const fetcher = createFetchTracker(baseFetch as typeof fetch, {
+      trackRequest: (entry) => tracked.push(entry),
+      updateResponseBody: (id, body) => bodies.push({ id, body }),
+    });
+    await fetcher("https://example.com/mcp", { method: "POST" });
+    expect(tracked[0]?.responseBody).toBeUndefined();
+    await flush();
+    expect(bodies).toEqual([{ id: tracked[0]!.id, body: sse }]);
+  });
+
+  it("emits the body for a POST /mcp JSON response asynchronously", async () => {
+    const baseFetch = vi.fn(
+      async () =>
+        new Response('{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}', {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const tracked: FetchRequestEntryBase[] = [];
+    const bodies: Array<{ id: string; body: string }> = [];
+    const fetcher = createFetchTracker(baseFetch as typeof fetch, {
+      trackRequest: (entry) => tracked.push(entry),
+      updateResponseBody: (id, body) => bodies.push({ id, body }),
+    });
+    await fetcher("https://example.com/mcp", { method: "POST" });
+    expect(tracked[0]?.responseBody).toBeUndefined();
+    await flush();
+    expect(bodies).toEqual([
+      {
+        id: tracked[0]!.id,
+        body: '{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}',
+      },
+    ]);
+  });
+
+  it("does not block the caller awaiting the response body", async () => {
+    // If the body promise hangs forever (simulating a long-lived stream
+    // mid-flight), the tracker still has to resolve the outer fetcher
+    // promise immediately. Otherwise the transport blocks waiting on us.
+    const neverEnding = new ReadableStream({
+      start() {
+        // Never enqueue, never close — `.text()` on a clone of this would hang.
+      },
+    });
+    const baseFetch = vi.fn(
+      async () => new Response(neverEnding, { status: 200 }),
+    );
     const tracked: FetchRequestEntryBase[] = [];
     const fetcher = createFetchTracker(baseFetch as typeof fetch, {
       trackRequest: (entry) => tracked.push(entry),
     });
-    await fetcher("https://example.com/mcp", { method: "POST" });
+    const res = await fetcher("https://example.com/slow", { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(tracked).toHaveLength(1);
     expect(tracked[0]?.responseBody).toBeUndefined();
   });
 
@@ -145,8 +241,9 @@ describe("createFetchTracker", () => {
     expect(tracked[0]?.requestBody).toBeUndefined();
   });
 
-  it("falls back to undefined when response.clone() throws", async () => {
+  it("does not call updateResponseBody when response.clone() throws", async () => {
     const tracked: FetchRequestEntryBase[] = [];
+    const bodies: Array<{ id: string; body: string }> = [];
     const baseFetch = vi.fn(async () => {
       const r = new Response("body");
       Object.defineProperty(r, "clone", {
@@ -158,8 +255,11 @@ describe("createFetchTracker", () => {
     });
     const fetcher = createFetchTracker(baseFetch as typeof fetch, {
       trackRequest: (entry) => tracked.push(entry),
+      updateResponseBody: (id, body) => bodies.push({ id, body }),
     });
     await fetcher("https://example.com/data");
+    await flush();
     expect(tracked[0]?.responseBody).toBeUndefined();
+    expect(bodies).toHaveLength(0);
   });
 });

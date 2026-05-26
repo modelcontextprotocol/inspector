@@ -110,10 +110,11 @@ describe("NetworkEntry", () => {
     expect(screen.getAllByText("(none)").length).toBe(2);
   });
 
-  it("shows a 'streaming' placeholder when responseBody is missing but content-type is SSE", async () => {
+  it("shows a 'long-lived stream' placeholder when a GET SSE response has no body", async () => {
     const user = userEvent.setup();
     const sse: FetchRequestEntry = {
       ...baseEntry,
+      method: "GET",
       responseHeaders: { "content-type": "text/event-stream" },
       responseBody: undefined,
     };
@@ -121,8 +122,21 @@ describe("NetworkEntry", () => {
     await user.click(screen.getByRole("button", { name: "Expand" }));
     expect(screen.getByText("Response Body")).toBeInTheDocument();
     expect(
-      screen.getByText(/Streaming response — body not captured/),
+      screen.getByText(/Long-lived stream — body not captured/),
     ).toBeInTheDocument();
+  });
+
+  it("shows '(empty)' for a POST SSE response with no body (bounded stream where capture failed)", async () => {
+    const user = userEvent.setup();
+    const sse: FetchRequestEntry = {
+      ...baseEntry,
+      method: "POST",
+      responseHeaders: { "content-type": "text/event-stream" },
+      responseBody: undefined,
+    };
+    renderWithMantine(<NetworkEntry entry={sse} isListExpanded={false} />);
+    await user.click(screen.getByRole("button", { name: "Expand" }));
+    expect(screen.getByText("(empty)")).toBeInTheDocument();
   });
 
   it("shows '(empty)' for a non-streaming response with no body", async () => {
@@ -155,7 +169,7 @@ describe("NetworkEntry", () => {
 
   it("shows a 'too large' notice when a body exceeds the inline preview limit", async () => {
     const user = userEvent.setup();
-    const huge = "x".repeat(5000);
+    const huge = "x".repeat(150_000);
     const big: FetchRequestEntry = {
       ...baseEntry,
       requestBody: huge,

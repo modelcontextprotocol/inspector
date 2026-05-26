@@ -2,6 +2,14 @@ import type { FetchRequestEntryBase } from "./types.js";
 
 export interface FetchTrackingCallbacks {
   trackRequest?: (entry: FetchRequestEntryBase) => void;
+  /**
+   * Called after the response body has been read asynchronously. Lets the
+   * consumer patch the already-dispatched entry with the body without
+   * blocking the transport on body reading. Fires only on success — if the
+   * body couldn't be read (long-lived stream, clone failure), this is
+   * never invoked and the entry's responseBody stays undefined.
+   */
+  updateResponseBody?: (id: string, responseBody: string) => void;
 }
 
 /**
@@ -99,37 +107,27 @@ export function createFetchTracker(
       responseHeaders[key] = value;
     });
 
-    // Check if this is a streaming response - if so, skip body reading entirely
-    // For streamable-http POST requests to /mcp, the response is always a stream
-    // that the transport needs to consume, so we should never try to read it
+    // Skip body reading only for *long-lived* streams. On streamable HTTP,
+    // GET /mcp opens an unbounded SSE channel for server-to-client pushes
+    // — calling `.text()` on a clone of that would buffer forever. POST
+    // responses with the same content-type are bounded: the server emits
+    // the JSON-RPC reply (sometimes preceded by progress events) and
+    // closes the connection, so cloning + reading is safe and gives the
+    // user the raw SSE payload they were missing.
     const contentType = response.headers.get("content-type");
-    const isStream =
-      contentType?.includes("text/event-stream") ||
-      contentType?.includes("application/x-ndjson") ||
-      (method === "POST" && url.includes("/mcp"));
+    const isLongLivedStream =
+      method === "GET" &&
+      (contentType?.includes("text/event-stream") ||
+        contentType?.includes("application/x-ndjson"));
 
-    let responseBody: string | undefined;
-    let duration: number;
+    const duration = Date.now() - startTime;
 
-    if (isStream) {
-      // For streams, don't try to read the body - just record metadata and return immediately
-      // The transport needs to consume the stream, so we can't clone/read it
-      duration = Date.now() - startTime;
-    } else {
-      // For regular responses, try to read the body (clone so we don't consume it)
-      if (response.body && !response.bodyUsed) {
-        try {
-          const cloned = response.clone();
-          responseBody = await cloned.text();
-        } catch {
-          // Can't read body (might be consumed, not readable, or other issue)
-          responseBody = undefined;
-        }
-      }
-      duration = Date.now() - startTime;
-    }
-
-    // Create entry and track it
+    // Create entry and track it immediately. The body is read asynchronously
+    // below to avoid blocking the transport — for streaming responses (POST
+    // + SSE), the server keeps the connection open until it has delivered
+    // every progress notification plus the final reply, so awaiting
+    // `.text()` here would force the transport to wait for all events
+    // before it could process any of them.
     const entry: FetchRequestEntryBase = {
       id,
       timestamp,
@@ -140,11 +138,33 @@ export function createFetchTracker(
       responseStatus,
       responseStatusText,
       responseHeaders,
-      responseBody,
+      responseBody: undefined,
       duration,
     };
 
     callbacks.trackRequest?.(entry);
+
+    // Kick off a fire-and-forget read of the cloned body. The clone is an
+    // independent tee'd stream so the transport keeps consuming the
+    // original at its own pace. When the read resolves we patch the entry
+    // via `updateResponseBody`. Skipped for long-lived streams (GET +
+    // SSE / ndjson) because `.text()` would never resolve on those.
+    if (!isLongLivedStream && response.body && !response.bodyUsed) {
+      try {
+        const cloned = response.clone();
+        cloned
+          .text()
+          .then((body) => {
+            callbacks.updateResponseBody?.(id, body);
+          })
+          .catch(() => {
+            // Stream errored after clone — leave the body undefined.
+          });
+      } catch {
+        // Clone failed (consumed body, transport quirks). Leave body
+        // undefined; the entry is already dispatched.
+      }
+    }
 
     return response;
   };

@@ -58,6 +58,8 @@ export interface InspectorClientEventMap {
   message: MessageEntry;
   stderrLog: StderrLogEntry;
   fetchRequest: FetchRequestEntry;
+  /** Fired when an in-flight fetch's response body is read asynchronously. */
+  fetchRequestBodyUpdate: { id: string; responseBody: string };
   error: Error;
   resourceUpdated: { uri: string };
   progressNotification: Progress & { progressToken?: ProgressToken };

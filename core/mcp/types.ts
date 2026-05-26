@@ -393,6 +393,14 @@ export interface CreateTransportOptions {
   onFetchRequest?: (entry: FetchRequestEntryBase) => void;
 
   /**
+   * Optional callback fired asynchronously when a previously tracked
+   * fetch's response body has been read. Lets the consumer update the
+   * already-dispatched entry without blocking the transport on body
+   * reading (critical for SSE responses that include progress events).
+   */
+  onFetchResponseBody?: (id: string, responseBody: string) => void;
+
+  /**
    * Optional OAuth client provider for Bearer authentication (SSE, streamable-http).
    * When set, the SDK injects tokens and handles 401 via the provider.
    */

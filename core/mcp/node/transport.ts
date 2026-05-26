@@ -43,6 +43,7 @@ export function createTransportNode(
     onStderr,
     pipeStderr = false,
     onFetchRequest,
+    onFetchResponseBody,
     authProvider,
     settings,
   } = options;
@@ -80,7 +81,10 @@ export function createTransportNode(
     const sseFetch =
       (sseConfig.eventSourceInit?.fetch as typeof fetch) || baseFetch;
     const trackedFetch = onFetchRequest
-      ? createFetchTracker(sseFetch, { trackRequest: onFetchRequest })
+      ? createFetchTracker(sseFetch, {
+          trackRequest: onFetchRequest,
+          updateResponseBody: onFetchResponseBody,
+        })
       : sseFetch;
 
     const headers = headersFromSettings(settings);
@@ -97,7 +101,10 @@ export function createTransportNode(
     };
 
     const postFetch = onFetchRequest
-      ? createFetchTracker(baseFetch, { trackRequest: onFetchRequest })
+      ? createFetchTracker(baseFetch, {
+          trackRequest: onFetchRequest,
+          updateResponseBody: onFetchResponseBody,
+        })
       : baseFetch;
 
     const transport = new SSEClientTransport(url, {
@@ -121,7 +128,10 @@ export function createTransportNode(
     };
 
     const transportFetch = onFetchRequest
-      ? createFetchTracker(baseFetch, { trackRequest: onFetchRequest })
+      ? createFetchTracker(baseFetch, {
+          trackRequest: onFetchRequest,
+          updateResponseBody: onFetchResponseBody,
+        })
       : baseFetch;
 
     const transport = new StreamableHTTPClientTransport(url, {

@@ -97,6 +97,13 @@ export class RemoteSession {
     });
   }
 
+  onFetchResponseBody(id: string, responseBody: string): void {
+    this.pushEvent({
+      type: "fetch_request_body_update",
+      data: { id, responseBody },
+    });
+  }
+
   onStderr(entry: { timestamp: Date; message: string }): void {
     this.pushEvent({
       type: "stdio_log",

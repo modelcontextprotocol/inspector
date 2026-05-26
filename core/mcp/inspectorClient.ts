@@ -312,6 +312,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     return createFetchTracker(base, {
       trackRequest: (entry) =>
         this.dispatchFetchRequest({ ...entry, category: "auth" }),
+      updateResponseBody: (id, body) =>
+        this.dispatchFetchRequestBodyUpdate(id, body),
     });
   }
 
@@ -568,6 +570,9 @@ export class InspectorClient extends InspectorClientEventTarget {
         },
         onFetchRequest: (entry: FetchRequestEntryBase) => {
           this.dispatchFetchRequest({ ...entry, category: "transport" });
+        },
+        onFetchResponseBody: (id: string, body: string) => {
+          this.dispatchFetchRequestBodyUpdate(id, body);
         },
         ...(this.serverSettings && { settings: this.serverSettings }),
       };
@@ -1941,6 +1946,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       `${entry.category} fetch`,
     );
     this.dispatchTypedEvent("fetchRequest", entry);
+  }
+
+  private dispatchFetchRequestBodyUpdate(
+    id: string,
+    responseBody: string,
+  ): void {
+    this.dispatchTypedEvent("fetchRequestBodyUpdate", { id, responseBody });
   }
 
   /**

@@ -50,7 +50,7 @@ const SubtleButton = Button.withProps({
   size: "xs",
 });
 
-const MAX_INLINE_BODY_BYTES = 4096;
+const MAX_INLINE_BODY_BYTES = 100_000;
 
 function formatDuration(ms: number): string {
   return `${ms}ms`;
@@ -83,7 +83,11 @@ function categoryColor(category: FetchRequestEntry["category"]): string {
   return category === "auth" ? "violet" : "blue";
 }
 
-function isStreamingResponse(entry: FetchRequestEntry): boolean {
+function isLongLivedStream(entry: FetchRequestEntry): boolean {
+  // Matches the fetch tracker's `isLongLivedStream` rule. Only the GET +
+  // SSE / ndjson case is unbounded; bounded POST SSE responses now have
+  // their bodies captured, so they would not reach this placeholder.
+  if (entry.method !== "GET") return false;
   const contentType = entry.responseHeaders?.["content-type"] ?? "";
   return (
     contentType.includes("text/event-stream") ||
@@ -201,8 +205,8 @@ export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
                   <BodyPreview body={entry.responseBody} />
                 ) : (
                   <Text size="xs" c="dimmed">
-                    {isStreamingResponse(entry)
-                      ? "Streaming response — body not captured"
+                    {isLongLivedStream(entry)
+                      ? "Long-lived stream — body not captured"
                       : "(empty)"}
                   </Text>
                 )}

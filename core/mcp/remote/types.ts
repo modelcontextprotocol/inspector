@@ -40,6 +40,7 @@ export interface RemoteSendRequest {
 export type RemoteEventType =
   | "message"
   | "fetch_request"
+  | "fetch_request_body_update"
   | "stdio_log"
   | "transport_error";
 
@@ -51,6 +52,11 @@ export interface RemoteEventMessage {
 export interface RemoteEventFetchRequest {
   type: "fetch_request";
   data: FetchRequestEntryBase;
+}
+
+export interface RemoteEventFetchRequestBodyUpdate {
+  type: "fetch_request_body_update";
+  data: { id: string; responseBody: string };
 }
 
 export interface RemoteEventStdioLog {
@@ -69,5 +75,6 @@ export interface RemoteEventTransportError {
 export type RemoteEvent =
   | RemoteEventMessage
   | RemoteEventFetchRequest
+  | RemoteEventFetchRequestBodyUpdate
   | RemoteEventStdioLog
   | RemoteEventTransportError;

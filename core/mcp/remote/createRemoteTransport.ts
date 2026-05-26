@@ -57,6 +57,7 @@ export function createRemoteTransport(
         fetchFn: options.fetchFn,
         onStderr: transportOptions.onStderr,
         onFetchRequest: transportOptions.onFetchRequest,
+        onFetchResponseBody: transportOptions.onFetchResponseBody,
         authProvider: transportOptions.authProvider,
         settings: transportOptions.settings,
       },
