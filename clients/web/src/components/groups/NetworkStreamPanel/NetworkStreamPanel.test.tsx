@@ -9,8 +9,15 @@ const entry: FetchRequestEntry = {
   timestamp: new Date("2026-03-17T10:00:00Z"),
   method: "POST",
   url: "https://example.com/mcp",
-  requestHeaders: { authorization: "Bearer abc" },
+  requestHeaders: {
+    authorization: "Bearer abc",
+    "content-type": "application/json",
+  },
+  requestBody: '{"jsonrpc":"2.0","method":"initialize","id":1}',
   responseStatus: 200,
+  responseStatusText: "OK",
+  responseHeaders: { "content-type": "application/json" },
+  responseBody: '{"jsonrpc":"2.0","id":1,"result":{}}',
   category: "transport",
 };
 
@@ -47,6 +54,39 @@ describe("NetworkStreamPanel", () => {
   it("filters entries by URL match", () => {
     renderWithMantine(
       <NetworkStreamPanel {...baseProps} filterText="example.com" />,
+    );
+    expect(screen.getByText("https://example.com/mcp")).toBeInTheDocument();
+  });
+
+  it("matches against header keys and values", () => {
+    renderWithMantine(
+      <NetworkStreamPanel {...baseProps} filterText="content-type" />,
+    );
+    expect(screen.getByText("https://example.com/mcp")).toBeInTheDocument();
+  });
+
+  it("matches against the request body", () => {
+    renderWithMantine(
+      <NetworkStreamPanel {...baseProps} filterText="initialize" />,
+    );
+    expect(screen.getByText("https://example.com/mcp")).toBeInTheDocument();
+  });
+
+  it("matches against the response body", () => {
+    renderWithMantine(
+      <NetworkStreamPanel {...baseProps} filterText="jsonrpc" />,
+    );
+    expect(screen.getByText("https://example.com/mcp")).toBeInTheDocument();
+  });
+
+  it("matches against responseStatusText", () => {
+    renderWithMantine(<NetworkStreamPanel {...baseProps} filterText="ok" />);
+    expect(screen.getByText("https://example.com/mcp")).toBeInTheDocument();
+  });
+
+  it("is case-insensitive", () => {
+    renderWithMantine(
+      <NetworkStreamPanel {...baseProps} filterText="CONTENT-TYPE" />,
     );
     expect(screen.getByText("https://example.com/mcp")).toBeInTheDocument();
   });

@@ -40,6 +40,13 @@ function formatTitle(count: number): string {
   return `Requests (${count})`;
 }
 
+function headersToString(headers: Record<string, string> | undefined): string {
+  if (!headers) return "";
+  return Object.entries(headers)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\n");
+}
+
 function matchesFilters(
   entry: FetchRequestEntry,
   filterText: string,
@@ -48,18 +55,21 @@ function matchesFilters(
   if (!visibleCategories[entry.category]) return false;
   if (filterText) {
     const term = filterText.toLowerCase();
-    const requestHeadersText = Object.entries(entry.requestHeaders)
-      .map(([k, v]) => `${k}: ${v}`)
-      .join("\n");
-    const responseHeadersText = entry.responseHeaders
-      ? Object.entries(entry.responseHeaders)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join("\n")
-      : "";
     const status =
       entry.responseStatus !== undefined ? String(entry.responseStatus) : "";
-    const searchable =
-      `${entry.method} ${entry.url} ${status} ${requestHeadersText} ${responseHeadersText} ${entry.error ?? ""}`.toLowerCase();
+    const searchable = [
+      entry.method,
+      entry.url,
+      status,
+      entry.responseStatusText ?? "",
+      headersToString(entry.requestHeaders),
+      headersToString(entry.responseHeaders),
+      entry.requestBody ?? "",
+      entry.responseBody ?? "",
+      entry.error ?? "",
+    ]
+      .join(" ")
+      .toLowerCase();
     if (!searchable.includes(term)) return false;
   }
   return true;
