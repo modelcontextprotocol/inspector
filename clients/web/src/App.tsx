@@ -30,6 +30,7 @@ import { StderrLogState } from "@inspector/core/mcp/state/stderrLogState.js";
 import type { RedirectUrlProvider } from "@inspector/core/auth/index.js";
 import { useInspectorClient } from "@inspector/core/react/useInspectorClient.js";
 import { useServers } from "@inspector/core/react/useServers.js";
+import { useSettingsDraft } from "@inspector/core/react/useSettingsDraft.js";
 import { useManagedTools } from "@inspector/core/react/useManagedTools.js";
 import { useManagedPrompts } from "@inspector/core/react/useManagedPrompts.js";
 import { useManagedResources } from "@inspector/core/react/useManagedResources.js";
@@ -125,6 +126,19 @@ function messagesToLogEntries(messages: MessageEntry[]): LogEntryData[] {
   }
   return out;
 }
+
+// Stable empty-shell for `InspectorServerSettings`. Used both as the
+// initial draft for a server entry that hasn't been touched yet, and as
+// the fallback the settings modal renders against when it's closed
+// (Mantine renders the dialog shell regardless of `opened`). Hoisted to
+// module scope so both call sites share the same object identity and so
+// React doesn't re-allocate on every render.
+const EMPTY_SETTINGS: InspectorServerSettings = {
+  headers: [],
+  metadata: [],
+  connectionTimeout: 0,
+  requestTimeout: 0,
+};
 
 function App() {
   // Theme toggle plumbing (preserved from the pre-wire placeholder).
@@ -763,121 +777,52 @@ function App() {
     return servers.find((s) => s.id === configModal.targetId);
   }, [configModal, servers]);
 
-  // The settings modal is a "dumb" component fully driven by the
-  // `settings` prop we pass it — every keystroke fires `onSettingsChange`
-  // back up here for us to render the next value. That round-trip needs
-  // to be state, not a ref: a ref doesn't cause a re-render, so the
-  // displayed input value can only change after the debounced PUT
-  // completes and `servers` refetches, which feels broken (the user
-  // types and nothing shows for ~half a second). Hold the in-progress
-  // draft in `settingsDraft` so every keystroke re-renders immediately;
-  // background refetches of `servers` don't reset it because the draft
-  // is only (re)initialized when the modal opens to a new target id
-  // (see effect below).
-  const [settingsDraft, setSettingsDraft] =
-    useState<InspectorServerSettings | null>(null);
-  const settingsTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
-
-  // Initialize / tear down the draft when the modal opens or closes
-  // against a different target. We intentionally do NOT depend on
-  // `servers` here — if the user is mid-edit and a background refresh
-  // arrives, we don't want to clobber their in-progress changes.
-  useEffect(() => {
-    if (!settingsModalTargetId) {
-      setSettingsDraft(null);
-      return;
-    }
-    const target = servers.find((s) => s.id === settingsModalTargetId);
-    setSettingsDraft(
-      target?.settings ?? {
-        headers: [],
-        metadata: [],
-        connectionTimeout: 0,
-        requestTimeout: 0,
-      },
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsModalTargetId]);
-
-  // Stable fallback so the modal always has a valid `settings` prop,
-  // even in the brief window where it's closed (Mantine renders the
-  // component shell regardless of `opened`).
-  const settingsModalValue = useMemo<InspectorServerSettings>(
-    () =>
-      settingsDraft ?? {
-        headers: [],
-        metadata: [],
-        connectionTimeout: 0,
-        requestTimeout: 0,
-      },
-    [settingsDraft],
-  );
-
-  // Fire the PUT. Surface failures via toast — the modal usually closes
-  // immediately on user dismiss, so a silent fail-on-flush would leave
-  // the user thinking their last edits saved when they didn't
-  // (especially painful for the OAuth client secret).
-  const sendSettingsUpdate = useCallback(
-    (id: string, settings: InspectorServerSettings) => {
-      updateServerSettings(id, settings).catch((err) => {
-        notifications.show({
-          title: `Failed to save settings for "${id}"`,
-          message: err instanceof Error ? err.message : String(err),
-          color: "red",
-        });
+  // The settings modal is fully controlled — every input change fires
+  // `onSettingsChange` back up here, and the input's `value` prop only
+  // updates when this component re-renders with a new `settings` prop.
+  // We hold the in-progress draft in `useSettingsDraft` so every change
+  // re-renders synchronously; the hook also debounces the PUT and
+  // exposes `flush` for the close handler to call. The draft is
+  // (re)initialized only when the modal opens to a *different* server,
+  // which is why a background refresh of `servers` can run without
+  // clobbering in-progress edits.
+  //
+  // `resolveInitial` reads `servers` from this render's closure — that
+  // works because the settings entry point is the "Settings" button on
+  // a rendered server card, so `servers` is always non-empty by the
+  // time this hook is called. A future caller that opens the modal
+  // from elsewhere (e.g. a keyboard shortcut on initial load) would
+  // need a different initialization path; the empty-shell fallback at
+  // least keeps the form renderable while `servers` hydrates.
+  const {
+    draft: settingsDraft,
+    onChange: onSettingsChange,
+    flush: flushSettingsDraft,
+  } = useSettingsDraft<InspectorServerSettings>({
+    targetId: settingsModalTargetId,
+    resolveInitial: (id) =>
+      servers.find((s) => s.id === id)?.settings ?? EMPTY_SETTINGS,
+    onPersist: updateServerSettings,
+    // Surface failures via toast — the modal usually closes
+    // immediately on user dismiss, so a silent fail-on-flush would
+    // leave the user thinking their last edits saved when they
+    // didn't (especially painful for the OAuth client secret).
+    onError: (id, err) => {
+      notifications.show({
+        title: `Failed to save settings for "${id}"`,
+        message: err instanceof Error ? err.message : String(err),
+        color: "red",
       });
     },
-    [updateServerSettings],
-  );
+  });
 
-  const onSettingsChange = useCallback(
-    (next: InspectorServerSettings) => {
-      if (!settingsModalTargetId) return;
-      // Update the displayed draft synchronously — this is the
-      // re-render that makes typed characters and added rows appear.
-      setSettingsDraft(next);
-      // Debounce the PUT. Persisting each character would run a tight
-      // PUT-then-full-refresh loop against the backend; coalesce a
-      // burst of edits into one PUT and flush on modal close.
-      if (settingsTimerRef.current) clearTimeout(settingsTimerRef.current);
-      const id = settingsModalTargetId;
-      settingsTimerRef.current = setTimeout(() => {
-        settingsTimerRef.current = undefined;
-        sendSettingsUpdate(id, next);
-      }, 300);
-    },
-    [settingsModalTargetId, sendSettingsUpdate],
-  );
+  const settingsModalValue: InspectorServerSettings =
+    settingsDraft ?? EMPTY_SETTINGS;
 
   const onSettingsModalClose = useCallback(() => {
-    // Flush any pending debounce synchronously so the last edits land
-    // even if the user dismisses before the 300ms timer fires. The
-    // useEffect above will null out the draft once the target id
-    // clears, so we don't need to touch it here.
-    if (settingsTimerRef.current) {
-      clearTimeout(settingsTimerRef.current);
-      settingsTimerRef.current = undefined;
-      if (settingsDraft && settingsModalTargetId) {
-        sendSettingsUpdate(settingsModalTargetId, settingsDraft);
-      }
-    }
+    flushSettingsDraft();
     setSettingsModalTargetId(undefined);
-  }, [settingsDraft, settingsModalTargetId, sendSettingsUpdate]);
-
-  // Cancel any pending debounce on unmount (route change / HMR). Without
-  // this a stale setTimeout could still fire one final `updateServerSettings`
-  // against an unmounted component — harmless today (just an extra PUT of
-  // the final payload) but the cleanest pattern is to clear the timer.
-  useEffect(() => {
-    return () => {
-      if (settingsTimerRef.current) {
-        clearTimeout(settingsTimerRef.current);
-        settingsTimerRef.current = undefined;
-      }
-    };
-  }, []);
+  }, [flushSettingsDraft]);
 
   // The Resources screen needs `isSubscribed` to flip the Subscribe button
   // label to "Unsubscribe". Derive it from the live subscriptions list rather
