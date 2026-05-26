@@ -18,6 +18,13 @@ import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import { createRemoteApp } from "@inspector/core/mcp/remote/node/server.js";
 import { DEFAULT_SEED_CONFIG } from "@inspector/core/mcp/serverList.js";
+import {
+  InMemorySecretStore,
+  KeychainUnavailableError,
+  SECRET_FIELD_OAUTH_CLIENT_SECRET,
+  envSecretField,
+  type SecretStore,
+} from "@inspector/core/auth/node/secret-store.js";
 import type { MCPConfig } from "@inspector/core/mcp/types.js";
 
 interface Harness {
@@ -25,9 +32,13 @@ interface Harness {
   server: ServerType;
   configPath: string;
   tempDir: string;
+  secretStore: InMemorySecretStore;
 }
 
-async function startServer(configPath: string): Promise<{
+async function startServer(
+  configPath: string,
+  secretStore: InMemorySecretStore,
+): Promise<{
   baseUrl: string;
   server: ServerType;
 }> {
@@ -35,6 +46,7 @@ async function startServer(configPath: string): Promise<{
     dangerouslyOmitAuth: true,
     mcpConfigPath: configPath,
     initialConfig: { defaultEnvironment: {} },
+    secretStore,
   });
   return new Promise((resolve, reject) => {
     const server = serve(
@@ -54,8 +66,9 @@ async function startServer(configPath: string): Promise<{
 async function setup(): Promise<Harness> {
   const tempDir = mkdtempSync(join(tmpdir(), "inspector-servers-route-"));
   const configPath = join(tempDir, "mcp.json");
-  const { baseUrl, server } = await startServer(configPath);
-  return { baseUrl, server, configPath, tempDir };
+  const secretStore = new InMemorySecretStore();
+  const { baseUrl, server } = await startServer(configPath, secretStore);
+  return { baseUrl, server, configPath, tempDir, secretStore };
 }
 
 async function teardown(h: Harness): Promise<void> {
@@ -963,6 +976,574 @@ describe("/api/servers routes", () => {
         method: "DELETE",
       });
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe("keychain secrets (#1356)", () => {
+    it("POST writes oauthClientSecret to the keychain, not the disk file", async () => {
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "oauth-srv",
+          config: { type: "streamable-http", url: "https://x.test/mcp" },
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            oauthClientId: "cid",
+            oauthClientSecret: "very-secret",
+            oauthScopes: "read",
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      // Disk: keeps clientId/scopes, no clientSecret.
+      const stored = readConfig(h.configPath).mcpServers["oauth-srv"] as {
+        oauth?: Record<string, string>;
+      };
+      expect(stored.oauth).toEqual({ clientId: "cid", scopes: "read" });
+      // The raw file text must not contain the secret value either — guards
+      // against the secret accidentally landing in a different field.
+      const raw = readFileSync(h.configPath, "utf-8");
+      expect(raw).not.toContain("very-secret");
+
+      // Keychain: holds the secret under the expected (id, field) tuple.
+      expect(
+        await h.secretStore.get("oauth-srv", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe("very-secret");
+    });
+
+    it("POST writes stdio env values to the keychain and leaves empty placeholders on disk", async () => {
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "stdio-srv",
+          config: {
+            type: "stdio",
+            command: "node",
+            env: { API_KEY: "abc-123", DEBUG: "" },
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      const stored = readConfig(h.configPath).mcpServers["stdio-srv"] as {
+        env?: Record<string, string>;
+      };
+      // Keys preserved, values stripped to "".
+      expect(stored.env).toEqual({ API_KEY: "", DEBUG: "" });
+      expect(readFileSync(h.configPath, "utf-8")).not.toContain("abc-123");
+
+      // Keychain has the non-empty value; empty values aren't written.
+      expect(
+        await h.secretStore.get("stdio-srv", envSecretField("API_KEY")),
+      ).toBe("abc-123");
+      expect(
+        await h.secretStore.get("stdio-srv", envSecretField("DEBUG")),
+      ).toBe(null);
+    });
+
+    it("GET rehydrates secrets from the keychain so the wire shape is unchanged", async () => {
+      // Set up disk + keychain by hand to simulate what POST would have done.
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            "hydrate-srv": {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              oauth: { clientId: "cid" },
+            },
+          },
+        }),
+      );
+      await h.secretStore.set(
+        "hydrate-srv",
+        SECRET_FIELD_OAUTH_CLIENT_SECRET,
+        "very-secret",
+      );
+
+      const res = await fetch(`${h.baseUrl}/api/servers`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as MCPConfig;
+      const entry = body.mcpServers["hydrate-srv"] as {
+        oauth?: Record<string, string>;
+      };
+      expect(entry.oauth).toEqual({
+        clientId: "cid",
+        clientSecret: "very-secret",
+      });
+    });
+
+    it("PUT in place reconciles obsolete env keys (removed key drops from keychain)", async () => {
+      // Pre-seed: server with two env keys, both backed by keychain values.
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            srv: {
+              type: "stdio",
+              command: "node",
+              env: { A: "", B: "" },
+            },
+          },
+        }),
+      );
+      await h.secretStore.set("srv", envSecretField("A"), "value-A");
+      await h.secretStore.set("srv", envSecretField("B"), "value-B");
+
+      // PUT keeps only A.
+      const res = await fetch(`${h.baseUrl}/api/servers/srv`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: {
+            type: "stdio",
+            command: "node",
+            env: { A: "value-A-updated" },
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      // Disk: only A's key remains, value stripped to "".
+      const stored = readConfig(h.configPath).mcpServers.srv as {
+        env?: Record<string, string>;
+      };
+      expect(stored.env).toEqual({ A: "" });
+
+      // Keychain: A updated, B swept.
+      expect(await h.secretStore.get("srv", envSecretField("A"))).toBe(
+        "value-A-updated",
+      );
+      expect(await h.secretStore.get("srv", envSecretField("B"))).toBe(null);
+    });
+
+    it("PUT clearing oauthClientSecret deletes the keychain entry", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            srv: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              oauth: { clientId: "cid" },
+            },
+          },
+        }),
+      );
+      await h.secretStore.set(
+        "srv",
+        SECRET_FIELD_OAUTH_CLIENT_SECRET,
+        "old-secret",
+      );
+
+      // PUT with settings.oauthClientSecret unset (user cleared the field).
+      const res = await fetch(`${h.baseUrl}/api/servers/srv`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            oauthClientId: "cid",
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect(
+        await h.secretStore.get("srv", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe(null);
+    });
+
+    it("PUT rename moves keychain entries from the old id to the new id", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            "old-name": {
+              type: "stdio",
+              command: "node",
+              env: { K: "" },
+            },
+          },
+        }),
+      );
+      await h.secretStore.set("old-name", envSecretField("K"), "v");
+
+      const res = await fetch(`${h.baseUrl}/api/servers/old-name`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "new-name",
+          config: { type: "stdio", command: "node", env: { K: "v" } },
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      expect(await h.secretStore.get("old-name", envSecretField("K"))).toBe(
+        null,
+      );
+      expect(await h.secretStore.get("new-name", envSecretField("K"))).toBe(
+        "v",
+      );
+    });
+
+    it("DELETE sweeps every keychain entry for the deleted server", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            srv: {
+              type: "stdio",
+              command: "node",
+              env: { K1: "", K2: "" },
+              oauth: { clientId: "cid" },
+            },
+            untouched: { type: "stdio", command: "node" },
+          },
+        }),
+      );
+      await h.secretStore.set("srv", envSecretField("K1"), "v1");
+      await h.secretStore.set("srv", envSecretField("K2"), "v2");
+      await h.secretStore.set(
+        "srv",
+        SECRET_FIELD_OAUTH_CLIENT_SECRET,
+        "secret",
+      );
+      await h.secretStore.set(
+        "untouched",
+        SECRET_FIELD_OAUTH_CLIENT_SECRET,
+        "untouched-secret",
+      );
+
+      const res = await fetch(`${h.baseUrl}/api/servers/srv`, {
+        method: "DELETE",
+      });
+      expect(res.status).toBe(200);
+
+      expect(await h.secretStore.get("srv", envSecretField("K1"))).toBe(null);
+      expect(await h.secretStore.get("srv", envSecretField("K2"))).toBe(null);
+      expect(
+        await h.secretStore.get("srv", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe(null);
+      // Different server's keychain entries are not touched.
+      expect(
+        await h.secretStore.get("untouched", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe("untouched-secret");
+    });
+
+    it("migrates plaintext secrets on first GET (idempotent)", async () => {
+      // mcp.json from a pre-#1356 build, hand-edited, or from another tool.
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            srv: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              oauth: { clientId: "cid", clientSecret: "leaked-from-disk" },
+            },
+          },
+        }),
+      );
+
+      // First GET migrates and returns the rehydrated shape.
+      const res1 = await fetch(`${h.baseUrl}/api/servers`);
+      expect(res1.status).toBe(200);
+      const body1 = (await res1.json()) as MCPConfig;
+      const wireOauth1 = (
+        body1.mcpServers.srv as { oauth?: Record<string, string> }
+      ).oauth;
+      expect(wireOauth1).toEqual({
+        clientId: "cid",
+        clientSecret: "leaked-from-disk",
+      });
+
+      // Disk: secret has been lifted out.
+      const onDisk = readConfig(h.configPath).mcpServers.srv as {
+        oauth?: Record<string, string>;
+      };
+      expect(onDisk.oauth).toEqual({ clientId: "cid" });
+      expect(readFileSync(h.configPath, "utf-8")).not.toContain(
+        "leaked-from-disk",
+      );
+
+      // Keychain: value present under the canonical field.
+      expect(
+        await h.secretStore.get("srv", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe("leaked-from-disk");
+
+      // Subsequent GET is a no-op (file unchanged, response identical).
+      const beforeSecondGet = readFileSync(h.configPath, "utf-8");
+      const res2 = await fetch(`${h.baseUrl}/api/servers`);
+      expect(res2.status).toBe(200);
+      expect(readFileSync(h.configPath, "utf-8")).toBe(beforeSecondGet);
+    });
+
+    it("migration prefers an existing keychain value over a re-introduced disk plaintext", async () => {
+      // Simulate the user hand-editing the file to put plaintext back in
+      // after migration. The keychain already holds the canonical value;
+      // we must not let the disk plaintext overwrite it.
+      await h.secretStore.set(
+        "srv",
+        SECRET_FIELD_OAUTH_CLIENT_SECRET,
+        "kept-in-keychain",
+      );
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            srv: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              oauth: { clientId: "cid", clientSecret: "disk-version" },
+            },
+          },
+        }),
+      );
+
+      const res = await fetch(`${h.baseUrl}/api/servers`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as MCPConfig;
+      const wireOauth = (
+        body.mcpServers.srv as { oauth?: Record<string, string> }
+      ).oauth;
+      // Wire reflects the keychain value, not the disk plaintext.
+      expect(wireOauth?.clientSecret).toBe("kept-in-keychain");
+      // Keychain untouched.
+      expect(
+        await h.secretStore.get("srv", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe("kept-in-keychain");
+      // Disk: plaintext has been stripped out regardless.
+      expect(readFileSync(h.configPath, "utf-8")).not.toContain("disk-version");
+    });
+  });
+
+  describe("keychain unavailable (Linux without libsecret)", () => {
+    // A SecretStore impl that simulates keychain unavailability: set is
+    // the hard-fail path; get / delete / deleteAllForServer silently no-op
+    // to match the production `KeyringSecretStore` tolerance contract.
+    class UnavailableSecretStore implements SecretStore {
+      async get(): Promise<string | null> {
+        return null;
+      }
+      async set(): Promise<void> {
+        throw new KeychainUnavailableError(new Error("libsecret missing"));
+      }
+      async delete(): Promise<void> {
+        // no-op
+      }
+      async deleteAllForServer(): Promise<void> {
+        // no-op
+      }
+    }
+
+    async function startUnavailableHarness(): Promise<{
+      baseUrl: string;
+      server: import("@hono/node-server").ServerType;
+      configPath: string;
+      tempDir: string;
+    }> {
+      const tempDir = mkdtempSync(
+        join(tmpdir(), "inspector-keychain-unavailable-"),
+      );
+      const configPath = join(tempDir, "mcp.json");
+      const { app } = createRemoteApp({
+        dangerouslyOmitAuth: true,
+        mcpConfigPath: configPath,
+        initialConfig: { defaultEnvironment: {} },
+        secretStore: new UnavailableSecretStore(),
+      });
+      const { baseUrl, server } = await new Promise<{
+        baseUrl: string;
+        server: import("@hono/node-server").ServerType;
+      }>((resolve, reject) => {
+        const s = serve(
+          { fetch: app.fetch, port: 0, hostname: "127.0.0.1" },
+          (info) => {
+            const port =
+              info && typeof info === "object" && "port" in info
+                ? (info as { port: number }).port
+                : 0;
+            resolve({ baseUrl: `http://127.0.0.1:${port}`, server: s });
+          },
+        );
+        s.on("error", reject);
+      });
+      return { baseUrl, server, configPath, tempDir };
+    }
+
+    it("GET succeeds when there are no plaintext secrets to migrate", async () => {
+      const u = await startUnavailableHarness();
+      try {
+        writeFileSync(
+          u.configPath,
+          JSON.stringify({
+            mcpServers: { plain: { type: "stdio", command: "node" } },
+          }),
+        );
+        const res = await fetch(`${u.baseUrl}/api/servers`);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as MCPConfig;
+        expect(body.mcpServers.plain).toBeDefined();
+      } finally {
+        await new Promise<void>((r) => u.server.close(() => r()));
+        rmSync(u.tempDir, { recursive: true });
+      }
+    });
+
+    it("GET preserves disk plaintext when migration can't write to the keychain", async () => {
+      const u = await startUnavailableHarness();
+      try {
+        // Pre-#1356 plaintext on disk. With the keychain unavailable,
+        // we must NOT strip it out — the user's secret would be lost.
+        writeFileSync(
+          u.configPath,
+          JSON.stringify({
+            mcpServers: {
+              srv: {
+                type: "streamable-http",
+                url: "https://x.test/mcp",
+                oauth: {
+                  clientId: "cid",
+                  clientSecret: "still-here",
+                },
+              },
+            },
+          }),
+        );
+        const beforeFile = readFileSync(u.configPath, "utf-8");
+
+        const res = await fetch(`${u.baseUrl}/api/servers`);
+        expect(res.status).toBe(200);
+
+        // Disk file unchanged — plaintext stays put.
+        expect(readFileSync(u.configPath, "utf-8")).toBe(beforeFile);
+      } finally {
+        await new Promise<void>((r) => u.server.close(() => r()));
+        rmSync(u.tempDir, { recursive: true });
+      }
+    });
+
+    it("POST without secrets succeeds (defensive sweep is a no-op)", async () => {
+      const u = await startUnavailableHarness();
+      try {
+        const res = await fetch(`${u.baseUrl}/api/servers`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: "no-secrets",
+            config: { type: "stdio", command: "node" },
+          }),
+        });
+        expect(res.status).toBe(200);
+      } finally {
+        await new Promise<void>((r) => u.server.close(() => r()));
+        rmSync(u.tempDir, { recursive: true });
+      }
+    });
+
+    it("POST with a secret returns 503 (the moment that matters)", async () => {
+      const u = await startUnavailableHarness();
+      try {
+        const res = await fetch(`${u.baseUrl}/api/servers`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: "needs-keychain",
+            config: { type: "streamable-http", url: "https://x.test/mcp" },
+            settings: {
+              headers: [],
+              metadata: [],
+              connectionTimeout: 0,
+              requestTimeout: 0,
+              oauthClientId: "cid",
+              oauthClientSecret: "shh",
+            },
+          }),
+        });
+        expect(res.status).toBe(503);
+        const body = (await res.json()) as { error?: string };
+        expect(body.error).toMatch(/keychain/i);
+        expect(body.error).toMatch(/libsecret/);
+      } finally {
+        await new Promise<void>((r) => u.server.close(() => r()));
+        rmSync(u.tempDir, { recursive: true });
+      }
+    });
+
+    it("POST 503 leaves no disk entry — retry is not trapped at 409", async () => {
+      // Regression for the write-ordering review comment. If keychain
+      // set ran AFTER the disk write, a failed `set` would leave the
+      // entry on disk and the user's retry would hit 409. With the
+      // reversed order, a failed `set` leaves disk untouched and the
+      // retry can proceed.
+      const u = await startUnavailableHarness();
+      try {
+        const first = await fetch(`${u.baseUrl}/api/servers`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: "retry-test",
+            config: { type: "streamable-http", url: "https://x.test/mcp" },
+            settings: {
+              headers: [],
+              metadata: [],
+              connectionTimeout: 0,
+              requestTimeout: 0,
+              oauthClientId: "cid",
+              oauthClientSecret: "shh",
+            },
+          }),
+        });
+        expect(first.status).toBe(503);
+
+        // Disk: no entry persisted. A GET should not see "retry-test".
+        const cfg = existsSync(u.configPath)
+          ? (JSON.parse(readFileSync(u.configPath, "utf-8")) as MCPConfig)
+          : { mcpServers: {} };
+        expect(cfg.mcpServers).not.toHaveProperty("retry-test");
+
+        // Retry with no secret should now succeed (no 409).
+        const second = await fetch(`${u.baseUrl}/api/servers`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: "retry-test",
+            config: { type: "stdio", command: "node" },
+          }),
+        });
+        expect(second.status).toBe(200);
+      } finally {
+        await new Promise<void>((r) => u.server.close(() => r()));
+        rmSync(u.tempDir, { recursive: true });
+      }
+    });
+
+    it("DELETE succeeds (sweep silently no-ops)", async () => {
+      const u = await startUnavailableHarness();
+      try {
+        writeFileSync(
+          u.configPath,
+          JSON.stringify({
+            mcpServers: { srv: { type: "stdio", command: "node" } },
+          }),
+        );
+        const res = await fetch(`${u.baseUrl}/api/servers/srv`, {
+          method: "DELETE",
+        });
+        expect(res.status).toBe(200);
+      } finally {
+        await new Promise<void>((r) => u.server.close(() => r()));
+        rmSync(u.tempDir, { recursive: true });
+      }
     });
   });
 });

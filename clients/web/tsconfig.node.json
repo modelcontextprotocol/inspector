@@ -42,7 +42,8 @@
       ],
       "@hono/node-server": ["./node_modules/@hono/node-server"],
       "atomically": ["./node_modules/atomically"],
-      "chokidar": ["./node_modules/chokidar"]
+      "chokidar": ["./node_modules/chokidar"],
+      "@napi-rs/keyring": ["./node_modules/@napi-rs/keyring"]
     }
   },
   "include": ["vite.config.ts", "server/**/*.ts"]

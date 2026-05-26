@@ -27,6 +27,7 @@ import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import { createRemoteApp } from "@inspector/core/mcp/remote/node/server.js";
+import { InMemorySecretStore } from "@inspector/core/auth/node/secret-store.js";
 
 interface Harness {
   baseUrl: string;
@@ -43,6 +44,10 @@ async function setup(): Promise<Harness> {
     dangerouslyOmitAuth: true,
     mcpConfigPath: configPath,
     initialConfig: { defaultEnvironment: {} },
+    // Inject an in-memory secret store so the suite passes on Linux CI
+    // runners without libsecret (and so a developer running locally
+    // doesn't pollute their real OS keychain with test entries).
+    secretStore: new InMemorySecretStore(),
   });
   const { baseUrl, server } = await new Promise<{
     baseUrl: string;

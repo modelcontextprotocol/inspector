@@ -53,6 +53,7 @@ const nodeModulesAliases = [
   { find: /^@hono\/node-server$/, replacement: path.resolve(dirname, 'node_modules/@hono/node-server') },
   { find: /^atomically$/, replacement: path.resolve(dirname, 'node_modules/atomically') },
   { find: /^chokidar$/, replacement: path.resolve(dirname, 'node_modules/chokidar') },
+  { find: /^@napi-rs\/keyring$/, replacement: path.resolve(dirname, 'node_modules/@napi-rs/keyring') },
   { find: /^express$/, replacement: path.resolve(dirname, 'node_modules/express') },
   { find: /^yaml$/, replacement: path.resolve(dirname, 'node_modules/yaml') },
   // Pin the SDK auth subpath so test and source resolve to the exact same
@@ -123,6 +124,19 @@ export default defineConfig({
           typeof warning.message === 'string' &&
           warning.message.includes("'chokidar'") &&
           warning.message.includes('server.ts')
+        ) {
+          return;
+        }
+        // `@napi-rs/keyring` is the native-binding keychain backend
+        // consumed by `core/auth/node/secret-store.ts` from the Hono
+        // `/api/servers` handlers. Same reasoning as the entries above:
+        // unreachable from the browser bundle, so the unresolved-import
+        // warning is noise.
+        if (
+          warning.code === 'UNRESOLVED_IMPORT' &&
+          typeof warning.message === 'string' &&
+          warning.message.includes("'@napi-rs/keyring'") &&
+          warning.message.includes('secret-store.ts')
         ) {
           return;
         }

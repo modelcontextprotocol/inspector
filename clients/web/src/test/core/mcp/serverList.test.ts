@@ -1,12 +1,23 @@
 import { describe, it, expect } from "vitest";
 import {
   DEFAULT_SEED_CONFIG,
+  expectedSecretFields,
+  extractSecretsFromStored,
   mcpConfigToServerEntries,
+  mergeSecretsIntoStored,
   normalizeServerType,
   serverEntriesToMcpConfig,
   serializeMcpConfig,
 } from "@inspector/core/mcp/serverList.js";
-import type { MCPConfig, ServerEntry } from "@inspector/core/mcp/types.js";
+import {
+  SECRET_FIELD_OAUTH_CLIENT_SECRET,
+  envSecretField,
+} from "@inspector/core/auth/secret-fields.js";
+import type {
+  MCPConfig,
+  ServerEntry,
+  StoredMCPServer,
+} from "@inspector/core/mcp/types.js";
 
 describe("normalizeServerType", () => {
   it("defaults missing type to stdio", () => {
@@ -376,5 +387,175 @@ describe("DEFAULT_SEED_CONFIG", () => {
     if (fs?.type === "stdio") {
       expect(fs.args).toContain("/tmp");
     }
+  });
+});
+
+describe("extractSecretsFromStored", () => {
+  it("lifts oauth.clientSecret into the secrets record and drops it from the stripped shape", () => {
+    const stored: StoredMCPServer = {
+      type: "streamable-http",
+      url: "https://x.test",
+      oauth: { clientId: "cid", clientSecret: "shh", scopes: "read" },
+    };
+    const { stripped, secrets } = extractSecretsFromStored(stored);
+    expect(secrets).toEqual({ [SECRET_FIELD_OAUTH_CLIENT_SECRET]: "shh" });
+    expect(stripped).toEqual({
+      type: "streamable-http",
+      url: "https://x.test",
+      oauth: { clientId: "cid", scopes: "read" },
+    });
+  });
+
+  it("removes the oauth block entirely when clientSecret was its only property", () => {
+    const stored: StoredMCPServer = {
+      type: "streamable-http",
+      url: "https://x.test",
+      oauth: { clientSecret: "shh" },
+    };
+    const { stripped, secrets } = extractSecretsFromStored(stored);
+    expect(secrets).toEqual({ [SECRET_FIELD_OAUTH_CLIENT_SECRET]: "shh" });
+    expect(stripped).not.toHaveProperty("oauth");
+  });
+
+  it("clears stdio env values into the keychain map but preserves the keys on disk", () => {
+    const stored: StoredMCPServer = {
+      type: "stdio",
+      command: "node",
+      env: { API_KEY: "secret-1", DB_PASS: "secret-2", DEBUG: "" },
+    };
+    const { stripped, secrets } = extractSecretsFromStored(stored);
+    expect(secrets).toEqual({
+      [envSecretField("API_KEY")]: "secret-1",
+      [envSecretField("DB_PASS")]: "secret-2",
+    });
+    // Empty values aren't written to the secrets record but the key stays.
+    if (stripped.type === "stdio") {
+      expect(stripped.env).toEqual({ API_KEY: "", DB_PASS: "", DEBUG: "" });
+    } else {
+      throw new Error("expected stdio");
+    }
+  });
+
+  it("treats type-undefined entries as stdio for env handling", () => {
+    const stored = {
+      command: "node",
+      env: { API_KEY: "v" },
+    } as unknown as StoredMCPServer;
+    const { stripped, secrets } = extractSecretsFromStored(stored);
+    expect(secrets).toEqual({ [envSecretField("API_KEY")]: "v" });
+    expect((stripped as { env?: Record<string, string> }).env).toEqual({
+      API_KEY: "",
+    });
+  });
+
+  it("is a no-op for entries with no secrets", () => {
+    const stored: StoredMCPServer = {
+      type: "stdio",
+      command: "node",
+    };
+    const { stripped, secrets } = extractSecretsFromStored(stored);
+    expect(secrets).toEqual({});
+    expect(stripped).toEqual(stored);
+  });
+
+  it("does not mutate the input", () => {
+    const stored: StoredMCPServer = {
+      type: "stdio",
+      command: "node",
+      env: { K: "v" },
+      oauth: { clientSecret: "shh" },
+    };
+    const snapshot = JSON.parse(JSON.stringify(stored));
+    extractSecretsFromStored(stored);
+    expect(stored).toEqual(snapshot);
+  });
+});
+
+describe("mergeSecretsIntoStored", () => {
+  it("inverses extractSecretsFromStored for OAuth", () => {
+    const stored: StoredMCPServer = {
+      type: "streamable-http",
+      url: "https://x.test",
+      oauth: { clientId: "cid" },
+    };
+    const merged = mergeSecretsIntoStored(stored, {
+      [SECRET_FIELD_OAUTH_CLIENT_SECRET]: "shh",
+    });
+    expect(merged.oauth).toEqual({ clientId: "cid", clientSecret: "shh" });
+  });
+
+  it("inverses extractSecretsFromStored for stdio env values", () => {
+    const stored: StoredMCPServer = {
+      type: "stdio",
+      command: "node",
+      env: { K: "" },
+    };
+    const merged = mergeSecretsIntoStored(stored, {
+      [envSecretField("K")]: "real",
+    });
+    if (merged.type === "stdio") {
+      expect(merged.env).toEqual({ K: "real" });
+    } else {
+      throw new Error("expected stdio");
+    }
+  });
+
+  it("round-trips extract then merge identically", () => {
+    const stored: StoredMCPServer = {
+      type: "stdio",
+      command: "node",
+      env: { API_KEY: "secret-1", DEBUG: "" },
+      oauth: { clientId: "cid", clientSecret: "shh" },
+    };
+    const { stripped, secrets } = extractSecretsFromStored(stored);
+    expect(mergeSecretsIntoStored(stripped, secrets)).toEqual(stored);
+  });
+
+  it("leaves env keys not present in the secrets map alone", () => {
+    const stored: StoredMCPServer = {
+      type: "stdio",
+      command: "node",
+      env: { ANSWERED: "", UNANSWERED: "" },
+    };
+    const merged = mergeSecretsIntoStored(stored, {
+      [envSecretField("ANSWERED")]: "v",
+    });
+    if (merged.type === "stdio") {
+      expect(merged.env).toEqual({ ANSWERED: "v", UNANSWERED: "" });
+    } else {
+      throw new Error("expected stdio");
+    }
+  });
+});
+
+describe("expectedSecretFields", () => {
+  it("always lists the OAuth slot first", () => {
+    const fields = expectedSecretFields({
+      type: "streamable-http",
+      url: "https://x.test",
+    });
+    expect(fields[0]).toBe(SECRET_FIELD_OAUTH_CLIENT_SECRET);
+  });
+
+  it("includes one entry per stdio env key", () => {
+    const fields = expectedSecretFields({
+      type: "stdio",
+      command: "node",
+      env: { A: "", B: "" },
+    });
+    expect(fields).toEqual([
+      SECRET_FIELD_OAUTH_CLIENT_SECRET,
+      envSecretField("A"),
+      envSecretField("B"),
+    ]);
+  });
+
+  it("returns only the OAuth slot when env is absent", () => {
+    expect(
+      expectedSecretFields({
+        type: "stdio",
+        command: "node",
+      }),
+    ).toEqual([SECRET_FIELD_OAUTH_CLIENT_SECRET]);
   });
 });
