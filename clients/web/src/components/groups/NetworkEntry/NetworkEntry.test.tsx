@@ -126,6 +126,24 @@ describe("NetworkEntry", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows an SSE badge on long-lived GET event-stream entries", () => {
+    const sse: FetchRequestEntry = {
+      ...baseEntry,
+      method: "GET",
+      responseHeaders: { "content-type": "text/event-stream" },
+      responseBody: undefined,
+    };
+    renderWithMantine(<NetworkEntry entry={sse} isListExpanded={false} />);
+    expect(screen.getByText("SSE")).toBeInTheDocument();
+  });
+
+  it("does not show an SSE badge on bounded POST entries", () => {
+    renderWithMantine(
+      <NetworkEntry entry={baseEntry} isListExpanded={false} />,
+    );
+    expect(screen.queryByText("SSE")).not.toBeInTheDocument();
+  });
+
   it("shows '(empty)' for a POST SSE response with no body (bounded stream where capture failed)", async () => {
     const user = userEvent.setup();
     const sse: FetchRequestEntry = {

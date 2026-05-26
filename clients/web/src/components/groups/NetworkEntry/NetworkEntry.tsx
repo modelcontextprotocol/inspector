@@ -161,6 +161,7 @@ export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
             {entry.duration != null && (
               <DurationText>{formatDuration(entry.duration)}</DurationText>
             )}
+            {isLongLivedStream(entry) && <Badge color="orange">SSE</Badge>}
             <Badge color={statusColor(entry)}>{statusLabel(entry)}</Badge>
           </Group>
         </HeaderRow>
