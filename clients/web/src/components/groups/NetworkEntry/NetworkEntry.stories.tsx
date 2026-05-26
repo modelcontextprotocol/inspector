@@ -57,6 +57,28 @@ const errorEntry: FetchRequestEntry = {
   category: "transport",
 };
 
+const streamingEntry: FetchRequestEntry = {
+  id: "n-stream",
+  timestamp: new Date("2026-03-17T10:30:12Z"),
+  method: "POST",
+  url: "http://localhost:3000/mcp",
+  requestHeaders: {
+    accept: "application/json, text/event-stream",
+    "content-type": "application/json",
+    "mcp-session-id": "0a0b0a5-fd27-4c95-a805-c0fba67e00fb",
+  },
+  requestBody: '{"method":"resources/templates/list","jsonrpc":"2.0","id":4}',
+  responseStatus: 200,
+  responseStatusText: "OK",
+  responseHeaders: {
+    "cache-control": "no-cache",
+    "content-type": "text/event-stream",
+    "mcp-session-id": "0a0b0a5-fd27-4c95-a805-c0fba67e00fb",
+  },
+  duration: 26,
+  category: "transport",
+};
+
 const transportError: FetchRequestEntry = {
   id: "n-4",
   timestamp: new Date("2026-03-17T10:30:15Z"),
@@ -81,6 +103,10 @@ export const AuthSuccess: Story = {
 
 export const HttpError: Story = {
   args: { entry: errorEntry, isListExpanded: true },
+};
+
+export const StreamingResponse: Story = {
+  args: { entry: streamingEntry, isListExpanded: true },
 };
 
 export const FetchError: Story = {

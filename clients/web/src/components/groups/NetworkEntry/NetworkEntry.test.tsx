@@ -110,6 +110,49 @@ describe("NetworkEntry", () => {
     expect(screen.getAllByText("(none)").length).toBe(2);
   });
 
+  it("shows a 'streaming' placeholder when responseBody is missing but content-type is SSE", async () => {
+    const user = userEvent.setup();
+    const sse: FetchRequestEntry = {
+      ...baseEntry,
+      responseHeaders: { "content-type": "text/event-stream" },
+      responseBody: undefined,
+    };
+    renderWithMantine(<NetworkEntry entry={sse} isListExpanded={false} />);
+    await user.click(screen.getByRole("button", { name: "Expand" }));
+    expect(screen.getByText("Response Body")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Streaming response — body not captured/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows '(empty)' for a non-streaming response with no body", async () => {
+    const user = userEvent.setup();
+    const empty: FetchRequestEntry = {
+      ...baseEntry,
+      responseHeaders: { "content-type": "application/json" },
+      responseBody: undefined,
+    };
+    renderWithMantine(<NetworkEntry entry={empty} isListExpanded={false} />);
+    await user.click(screen.getByRole("button", { name: "Expand" }));
+    expect(screen.getByText("Response Body")).toBeInTheDocument();
+    expect(screen.getByText("(empty)")).toBeInTheDocument();
+  });
+
+  it("omits the Response Body section entirely when no response was received", async () => {
+    const user = userEvent.setup();
+    const pending: FetchRequestEntry = {
+      ...baseEntry,
+      responseStatus: undefined,
+      responseStatusText: undefined,
+      responseHeaders: undefined,
+      responseBody: undefined,
+      duration: undefined,
+    };
+    renderWithMantine(<NetworkEntry entry={pending} isListExpanded={false} />);
+    await user.click(screen.getByRole("button", { name: "Expand" }));
+    expect(screen.queryByText("Response Body")).not.toBeInTheDocument();
+  });
+
   it("shows a 'too large' notice when a body exceeds the inline preview limit", async () => {
     const user = userEvent.setup();
     const huge = "x".repeat(5000);

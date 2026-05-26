@@ -83,6 +83,14 @@ function categoryColor(category: FetchRequestEntry["category"]): string {
   return category === "auth" ? "violet" : "blue";
 }
 
+function isStreamingResponse(entry: FetchRequestEntry): boolean {
+  const contentType = entry.responseHeaders?.["content-type"] ?? "";
+  return (
+    contentType.includes("text/event-stream") ||
+    contentType.includes("application/x-ndjson")
+  );
+}
+
 function HeadersTable({ headers }: { headers: Record<string, string> }) {
   const rows = Object.entries(headers);
   if (rows.length === 0) {
@@ -184,12 +192,20 @@ export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
                 <HeadersTable headers={entry.responseHeaders} />
               </Stack>
             )}
-            {entry.responseBody && (
+            {entry.responseStatus !== undefined && (
               <Stack gap="xs">
                 <Text size="sm" fw={500}>
                   Response Body
                 </Text>
-                <BodyPreview body={entry.responseBody} />
+                {entry.responseBody ? (
+                  <BodyPreview body={entry.responseBody} />
+                ) : (
+                  <Text size="xs" c="dimmed">
+                    {isStreamingResponse(entry)
+                      ? "Streaming response — body not captured"
+                      : "(empty)"}
+                  </Text>
+                )}
               </Stack>
             )}
             {entry.error && (
