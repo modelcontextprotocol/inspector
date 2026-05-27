@@ -224,19 +224,13 @@ describe("HistoryListPanel", () => {
     renderWithMantine(
       <HistoryListPanel {...baseProps} entries={sampleEntries} />,
     );
-    // Initially expanded — Collapse buttons exist on each entry
+    // Initially expanded — Collapse buttons exist on each entry, and the
+    // ListToggle exposes its aria-label as "Collapse all".
     expect(
       screen.getAllByRole("button", { name: "Collapse" }).length,
     ).toBeGreaterThan(0);
 
-    // Find the ListToggle button (last subtle toolbar button at top — has no accessible name)
-    const buttons = screen.getAllByRole("button");
-    const toggle = buttons.find(
-      (b) =>
-        b.textContent === "" && b.classList.contains("mantine-Button-root"),
-    );
-    expect(toggle).toBeDefined();
-    await user.click(toggle!);
+    await user.click(screen.getByRole("button", { name: "Collapse all" }));
 
     // After toggle, entries collapsed — they show Expand
     expect(
