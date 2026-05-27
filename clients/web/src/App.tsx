@@ -51,7 +51,7 @@ import {
 } from "./components/groups/ServerConfigModal/ServerConfigModal";
 import { ServerSettingsModal } from "./components/groups/ServerSettingsModal/ServerSettingsModal";
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
-import { downloadJsonFile } from "./lib/downloadFile";
+import { buildExportFilename, downloadJsonFile } from "./lib/downloadFile";
 import { createWebEnvironment } from "./lib/environmentFactory";
 
 // OAuth redirect URL provider — points at the dev backend's `/oauth/callback`
@@ -679,8 +679,27 @@ function App() {
 
   const onExportNetwork = useCallback(() => {
     if (fetchRequests.length === 0) return;
-    downloadJsonFile("network.json", JSON.stringify(fetchRequests, null, 2));
-  }, [fetchRequests]);
+    downloadJsonFile(
+      buildExportFilename("network", activeServerId),
+      JSON.stringify(fetchRequests, null, 2),
+    );
+  }, [fetchRequests, activeServerId]);
+
+  const onExportHistory = useCallback(() => {
+    if (messages.length === 0) return;
+    downloadJsonFile(
+      buildExportFilename("history", activeServerId),
+      JSON.stringify(messages, null, 2),
+    );
+  }, [messages, activeServerId]);
+
+  const onExportLogs = useCallback(() => {
+    if (logs.length === 0) return;
+    downloadJsonFile(
+      buildExportFilename("logs", activeServerId),
+      JSON.stringify(logs, null, 2),
+    );
+  }, [logs, activeServerId]);
 
   // Action stubs — these UI affordances exist but require additional
   // wiring (server CRUD, history pinning, app sandbox round-trip, log
@@ -916,10 +935,10 @@ function App() {
         onRefreshTasks={onRefreshTasks}
         onSetLogLevel={onSetLogLevel}
         onClearLogs={onClearLogs}
-        onExportLogs={todoNoop}
+        onExportLogs={onExportLogs}
         onCopyAllLogs={todoNoop}
         onClearHistory={onClearHistory}
-        onExportHistory={todoNoop}
+        onExportHistory={onExportHistory}
         onReplayHistory={todoNoop}
         onTogglePinHistory={todoNoop}
         onClearNetwork={onClearNetwork}

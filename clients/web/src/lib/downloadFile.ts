@@ -30,3 +30,25 @@ export function downloadJsonFile(filename: string, json: string): void {
     URL.revokeObjectURL(url);
   }
 }
+
+/**
+ * Build a sortable export filename in the shape
+ * `inspector-<kind>-<server-id>-<ISO timestamp>.json`. The timestamp uses
+ * the standard ISO-8601 form with `:` swapped for `-` so the result is
+ * safe on Windows (which disallows `:` in filenames). Server id is
+ * passed through `encodeURIComponent` for the same reason — config ids
+ * are user-supplied and may contain slashes / spaces / colons.
+ *
+ * When `serverId` is undefined the segment is omitted; the rest of the
+ * filename still uniquely identifies the export by kind + time.
+ */
+export function buildExportFilename(
+  kind: string,
+  serverId: string | undefined,
+  now: Date = new Date(),
+): string {
+  const iso = now.toISOString().replace(/:/g, "-");
+  const id = serverId ? encodeURIComponent(serverId) : undefined;
+  const segments = ["inspector", kind, ...(id ? [id] : []), iso];
+  return `${segments.join("-")}.json`;
+}
