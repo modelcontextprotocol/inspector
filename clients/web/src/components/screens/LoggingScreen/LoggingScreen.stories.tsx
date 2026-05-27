@@ -15,7 +15,6 @@ const meta: Meta<typeof LoggingScreen> = {
     onExport: fn(),
     autoScroll: true,
     onToggleAutoScroll: fn(),
-    onCopyAll: fn(),
   },
 };
 

@@ -11,7 +11,6 @@ const baseProps = {
   onExport: vi.fn(),
   autoScroll: true,
   onToggleAutoScroll: vi.fn(),
-  onCopyAll: vi.fn(),
 };
 
 describe("LoggingScreen", () => {
@@ -45,24 +44,13 @@ describe("LoggingScreen", () => {
     expect(onClear).toHaveBeenCalledTimes(1);
   });
 
-  it("invokes onCopyAll when Copy All is clicked", async () => {
-    const user = userEvent.setup();
-    const onCopyAll = vi.fn();
-    const entries = [
-      { receivedAt: new Date(), params: { level: "info" as const, data: "x" } },
-    ];
-    renderWithMantine(
-      <LoggingScreen {...baseProps} entries={entries} onCopyAll={onCopyAll} />,
-    );
-    await user.click(screen.getByRole("button", { name: "Copy All" }));
-    expect(onCopyAll).toHaveBeenCalledTimes(1);
-  });
-
-  it("disables Clear / Export / Copy All when there are no entries", () => {
+  it("disables Clear / Export when there are no entries", () => {
     renderWithMantine(<LoggingScreen {...baseProps} />);
     expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Export" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Copy All" })).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: "Copy All" }),
+    ).not.toBeInTheDocument();
   });
 
   it("toggles a single level on level button click", async () => {

@@ -45,7 +45,6 @@ const baseProps = {
   visibleLevels: allVisible,
   autoScroll: true,
   onToggleAutoScroll: vi.fn(),
-  onCopyAll: vi.fn(),
   onClear: vi.fn(),
   onExport: vi.fn(),
 };
@@ -57,8 +56,8 @@ describe("LogStreamPanel", () => {
     expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Copy All" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: "Copy All" }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders log entries when provided", () => {
@@ -148,14 +147,6 @@ describe("LogStreamPanel", () => {
     renderWithMantine(<LogStreamPanel {...baseProps} onExport={onExport} />);
     await user.click(screen.getByRole("button", { name: "Export" }));
     expect(onExport).toHaveBeenCalledTimes(1);
-  });
-
-  it("invokes onCopyAll when Copy All is clicked", async () => {
-    const user = userEvent.setup();
-    const onCopyAll = vi.fn();
-    renderWithMantine(<LogStreamPanel {...baseProps} onCopyAll={onCopyAll} />);
-    await user.click(screen.getByRole("button", { name: "Copy All" }));
-    expect(onCopyAll).toHaveBeenCalledTimes(1);
   });
 
   it("invokes onToggleAutoScroll when the auto-scroll checkbox is clicked", async () => {

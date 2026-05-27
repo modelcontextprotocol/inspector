@@ -199,7 +199,6 @@ export interface InspectorViewProps {
   onSetLogLevel: (level: LoggingLevel) => void;
   onClearLogs: () => void;
   onExportLogs: () => void;
-  onCopyAllLogs: () => void;
 
   onClearHistory: () => void;
   onExportHistory: () => void;
@@ -270,7 +269,6 @@ export function InspectorView({
   onSetLogLevel,
   onClearLogs,
   onExportLogs,
-  onCopyAllLogs,
   onClearHistory,
   onExportHistory,
   onReplayHistory,
@@ -453,7 +451,6 @@ export function InspectorView({
               onExport={onExportLogs}
               autoScroll={autoScroll}
               onToggleAutoScroll={() => setAutoScroll((prev) => !prev)}
-              onCopyAll={onCopyAllLogs}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "History"}>

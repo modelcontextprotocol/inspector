@@ -79,7 +79,6 @@ function makeProps(
     onSetLogLevel: vi.fn(),
     onClearLogs: vi.fn(),
     onExportLogs: vi.fn(),
-    onCopyAllLogs: vi.fn(),
     onClearHistory: vi.fn(),
     onExportHistory: vi.fn(),
     onReplayHistory: vi.fn(),

@@ -936,7 +936,6 @@ function App() {
         onSetLogLevel={onSetLogLevel}
         onClearLogs={onClearLogs}
         onExportLogs={onExportLogs}
-        onCopyAllLogs={todoNoop}
         onClearHistory={onClearHistory}
         onExportHistory={onExportHistory}
         onReplayHistory={todoNoop}

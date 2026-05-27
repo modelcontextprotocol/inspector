@@ -21,7 +21,6 @@ const meta: Meta<typeof LogStreamPanel> = {
     },
     autoScroll: true,
     onToggleAutoScroll: fn(),
-    onCopyAll: fn(),
     onClear: fn(),
     onExport: fn(),
   },

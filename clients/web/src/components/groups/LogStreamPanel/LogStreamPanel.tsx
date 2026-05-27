@@ -19,7 +19,6 @@ export interface LogStreamPanelProps {
   visibleLevels: Record<LoggingLevel, boolean>;
   autoScroll: boolean;
   onToggleAutoScroll: () => void;
-  onCopyAll: () => void;
   onClear: () => void;
   onExport: () => void;
 }
@@ -64,7 +63,6 @@ export function LogStreamPanel({
   visibleLevels,
   autoScroll,
   onToggleAutoScroll,
-  onCopyAll,
   onClear,
   onExport,
 }: LogStreamPanelProps) {
@@ -96,13 +94,6 @@ export function LogStreamPanel({
             disabled={entries.length === 0}
           >
             Export
-          </Button>
-          <Button
-            variant="default"
-            onClick={onCopyAll}
-            disabled={entries.length === 0}
-          >
-            Copy All
           </Button>
         </Group>
       </Group>
