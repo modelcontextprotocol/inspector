@@ -84,6 +84,16 @@ describe("NetworkStreamPanel", () => {
     expect(screen.getByText("https://example.com/mcp")).toBeInTheDocument();
   });
 
+  it("does not match across field boundaries", () => {
+    // The method "POST" ends with "ST"; the URL begins with "https". A
+    // search for "sthttps" used to match because we joined fields with
+    // spaces and ran .includes on the joined string. Should not match.
+    renderWithMantine(
+      <NetworkStreamPanel {...baseProps} filterText="sthttps" />,
+    );
+    expect(screen.getByText("No network requests")).toBeInTheDocument();
+  });
+
   it("is case-insensitive", () => {
     renderWithMantine(
       <NetworkStreamPanel {...baseProps} filterText="CONTENT-TYPE" />,
@@ -119,16 +129,7 @@ describe("NetworkStreamPanel", () => {
     renderWithMantine(<NetworkStreamPanel {...baseProps} />);
     // List starts compact -> entry should show Expand button
     expect(screen.getByRole("button", { name: "Expand" })).toBeInTheDocument();
-    // The first icon button (ListToggle) is the toggle next to Clear/Export.
-    // Identify it by being the first button that is neither Clear, Export,
-    // nor an Expand/Collapse inside an entry.
-    const buttons = screen.getAllByRole("button");
-    const toggle = buttons.find((b) => {
-      const text = b.textContent ?? "";
-      return !/Clear|Export|Expand|Collapse/.test(text);
-    });
-    expect(toggle).toBeDefined();
-    await user.click(toggle!);
+    await user.click(screen.getByRole("button", { name: "Expand all" }));
     expect(
       screen.getByRole("button", { name: "Collapse" }),
     ).toBeInTheDocument();

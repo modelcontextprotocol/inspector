@@ -1,5 +1,26 @@
 import type { FetchRequestEntryBase } from "./types.js";
 
+/**
+ * Whether a response represents an unbounded (long-lived) HTTP stream
+ * whose body cannot be cloned + read to completion. The streamable HTTP
+ * spec uses `GET` + `text/event-stream` for the long-lived server-push
+ * channel; `POST` SSE replies are bounded (server closes after the
+ * JSON-RPC response) and therefore safe to capture. Shared between the
+ * fetch tracker (where it decides whether to read the body) and the
+ * Network UI (where it decides which placeholder to show).
+ */
+export function isLongLivedStreamResponse(
+  method: string,
+  contentType: string | null | undefined,
+): boolean {
+  if (method !== "GET") return false;
+  if (!contentType) return false;
+  return (
+    contentType.includes("text/event-stream") ||
+    contentType.includes("application/x-ndjson")
+  );
+}
+
 export interface FetchTrackingCallbacks {
   trackRequest?: (entry: FetchRequestEntryBase) => void;
   /**
@@ -114,11 +135,10 @@ export function createFetchTracker(
     // the JSON-RPC reply (sometimes preceded by progress events) and
     // closes the connection, so cloning + reading is safe and gives the
     // user the raw SSE payload they were missing.
-    const contentType = response.headers.get("content-type");
-    const isLongLivedStream =
-      method === "GET" &&
-      (contentType?.includes("text/event-stream") ||
-        contentType?.includes("application/x-ndjson"));
+    const isLongLivedStream = isLongLivedStreamResponse(
+      method,
+      response.headers.get("content-type"),
+    );
 
     const duration = Date.now() - startTime;
 

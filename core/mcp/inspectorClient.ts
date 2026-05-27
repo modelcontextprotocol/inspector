@@ -309,11 +309,16 @@ export class InspectorClient extends InspectorClientEventTarget {
 
   private buildEffectiveAuthFetch(): typeof fetch {
     const base = this.fetchFn ?? fetch;
+    // Note: we deliberately do NOT wire `updateResponseBody` for the auth
+    // fetcher. OAuth token-exchange responses contain `access_token` and
+    // `refresh_token`; capturing them into FetchRequestLogState would
+    // surface live credentials in the Network tab body preview, which is
+    // easy to leak during a screen-share. Headers + status are still
+    // tracked. If a future need calls for inspecting auth bodies, add
+    // explicit secret redaction first.
     return createFetchTracker(base, {
       trackRequest: (entry) =>
         this.dispatchFetchRequest({ ...entry, category: "auth" }),
-      updateResponseBody: (id, body) =>
-        this.dispatchFetchRequestBodyUpdate(id, body),
     });
   }
 

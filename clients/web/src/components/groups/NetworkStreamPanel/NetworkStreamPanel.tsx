@@ -57,7 +57,10 @@ function matchesFilters(
     const term = filterText.toLowerCase();
     const status =
       entry.responseStatus !== undefined ? String(entry.responseStatus) : "";
-    const searchable = [
+    // Per-field match (rather than join + includes) so the search term
+    // can't span field boundaries — a search for "foo bar" where one
+    // field ends "foo" and the next begins "bar" should not match.
+    const fields: string[] = [
       entry.method,
       entry.url,
       status,
@@ -67,10 +70,8 @@ function matchesFilters(
       entry.requestBody ?? "",
       entry.responseBody ?? "",
       entry.error ?? "",
-    ]
-      .join(" ")
-      .toLowerCase();
-    if (!searchable.includes(term)) return false;
+    ];
+    if (!fields.some((f) => f.toLowerCase().includes(term))) return false;
   }
   return true;
 }

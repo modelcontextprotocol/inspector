@@ -11,6 +11,7 @@ import {
   Text,
 } from "@mantine/core";
 import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
+import { isLongLivedStreamResponse } from "@inspector/core/mcp/fetchTracking.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 
 export interface NetworkEntryProps {
@@ -50,7 +51,11 @@ const SubtleButton = Button.withProps({
   size: "xs",
 });
 
-const MAX_INLINE_BODY_BYTES = 100_000;
+// Cap is in JS string `.length` units (UTF-16 code units), not bytes — for
+// multi-byte content the wire size is larger, but the limit's purpose is
+// to keep the DOM from drowning in a single Code block so character count
+// is the right unit.
+const MAX_INLINE_BODY_CHARS = 100_000;
 
 function formatDuration(ms: number): string {
   return `${ms}ms`;
@@ -84,14 +89,9 @@ function categoryColor(category: FetchRequestEntry["category"]): string {
 }
 
 function isLongLivedStream(entry: FetchRequestEntry): boolean {
-  // Matches the fetch tracker's `isLongLivedStream` rule. Only the GET +
-  // SSE / ndjson case is unbounded; bounded POST SSE responses now have
-  // their bodies captured, so they would not reach this placeholder.
-  if (entry.method !== "GET") return false;
-  const contentType = entry.responseHeaders?.["content-type"] ?? "";
-  return (
-    contentType.includes("text/event-stream") ||
-    contentType.includes("application/x-ndjson")
+  return isLongLivedStreamResponse(
+    entry.method,
+    entry.responseHeaders?.["content-type"],
   );
 }
 
@@ -127,11 +127,11 @@ function HeadersTable({ headers }: { headers: Record<string, string> }) {
 }
 
 function BodyPreview({ body }: { body: string }) {
-  const tooLarge = body.length > MAX_INLINE_BODY_BYTES;
+  const tooLarge = body.length > MAX_INLINE_BODY_CHARS;
   if (tooLarge) {
     return (
       <Text size="xs" c="dimmed">
-        Body too large to preview ({body.length} bytes)
+        Body too large to preview ({body.length} characters)
       </Text>
     );
   }
@@ -141,6 +141,12 @@ function BodyPreview({ body }: { body: string }) {
 export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
 
+  // The list-level Expand/Collapse toggle is authoritative: each time the
+  // parent changes `isListExpanded`, every entry snaps to that state and
+  // any per-entry override is intentionally discarded. Mirrors
+  // HistoryEntry; do not change without aligning both. This re-runs on
+  // re-render when `isListExpanded` keeps its reference, but the setter
+  // is a no-op when the next value equals the current one.
   useEffect(() => {
     setIsExpanded(isListExpanded);
   }, [isListExpanded]);
