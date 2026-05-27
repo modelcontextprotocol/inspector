@@ -32,6 +32,23 @@ describe("NetworkControls", () => {
     expect(onFilterChange).toHaveBeenLastCalledWith("x");
   });
 
+  it("reflects category visibility via aria-pressed", () => {
+    renderWithMantine(
+      <NetworkControls
+        {...baseProps}
+        visibleCategories={{ auth: true, transport: false }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "auth" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "transport" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
   it("fires onToggleCategory with inverted visibility when clicked", async () => {
     const user = userEvent.setup();
     const onToggleCategory = vi.fn();

@@ -62,6 +62,7 @@ export function NetworkControls({
               w="100%"
               p="sm"
               variant="listItem"
+              aria-pressed={active}
               bg={active ? "var(--mantine-primary-color-light)" : undefined}
               onClick={() => onToggleCategory(category, !active)}
             >
