@@ -11,6 +11,7 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import type {
   ConnectionStatus,
+  FetchRequestEntry,
   InspectorResourceSubscription,
   MessageEntry,
   ServerEntry,
@@ -40,8 +41,11 @@ import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
 import { TasksScreen } from "../../screens/TasksScreen/TasksScreen";
 import type { TaskProgress } from "../../groups/TaskCard/TaskCard";
 import { HistoryScreen } from "../../screens/HistoryScreen/HistoryScreen";
+import { NetworkScreen } from "../../screens/NetworkScreen/NetworkScreen";
+import { getServerType } from "@inspector/core/mcp/config.js";
 
 const SERVERS_TAB = "Servers";
+const NETWORK_TAB = "Network";
 
 const ALL_TABS: string[] = [
   SERVERS_TAB,
@@ -52,6 +56,7 @@ const ALL_TABS: string[] = [
   "Tasks",
   "Logs",
   "History",
+  NETWORK_TAB,
 ];
 
 const SCREEN_ENTER_MS = 350;
@@ -122,6 +127,7 @@ export interface InspectorViewProps {
   tasks: Task[];
   progressByTaskId?: Record<string, TaskProgress>;
   history: MessageEntry[];
+  network: FetchRequestEntry[];
 
   // Per-screen "operation in flight" states (panel-level; optional because
   // the underlying screens accept them as optional).
@@ -200,6 +206,9 @@ export interface InspectorViewProps {
   onReplayHistory: (id: string) => void;
   onTogglePinHistory: (id: string) => void;
 
+  onClearNetwork: () => void;
+  onExportNetwork: () => void;
+
   onSelectApp: (name: string) => void;
   onOpenApp: (name: string, args: Record<string, unknown>) => void;
   onCloseApp: () => void;
@@ -222,6 +231,7 @@ export function InspectorView({
   tasks,
   progressByTaskId,
   history,
+  network,
   toolCallState,
   getPromptState,
   readResourceState,
@@ -265,6 +275,8 @@ export function InspectorView({
   onExportHistory,
   onReplayHistory,
   onTogglePinHistory,
+  onClearNetwork,
+  onExportNetwork,
   onSelectApp,
   onOpenApp,
   onCloseApp,
@@ -277,13 +289,17 @@ export function InspectorView({
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const appRendererRef = useRef<AppRendererHandle>(null);
 
-  // Only show the non-Servers tabs when actually connected. Capability-aware
+  // Only show the non-Servers tabs when actually connected. Network is
+  // additionally hidden for stdio servers — there is no HTTP traffic to
+  // surface there, so the tab would always be empty. Capability-aware
   // tab gating (hide Tools when the server doesn't advertise `tools`, etc.)
   // can layer in later once the parent passes capabilities through.
-  const availableTabs = useMemo<string[]>(
-    () => (connectionStatus === "connected" ? ALL_TABS : [SERVERS_TAB]),
-    [connectionStatus],
-  );
+  const availableTabs = useMemo<string[]>(() => {
+    if (connectionStatus !== "connected") return [SERVERS_TAB];
+    const active = serversInput.find((s) => s.id === activeServer);
+    const isStdio = active ? getServerType(active.config) === "stdio" : false;
+    return isStdio ? ALL_TABS.filter((t) => t !== NETWORK_TAB) : ALL_TABS;
+  }, [connectionStatus, serversInput, activeServer]);
 
   // Clamp the rendered tab to whatever's currently available. If the user
   // had "Tools" selected and the connection drops, `availableTabs` becomes
@@ -448,6 +464,13 @@ export function InspectorView({
               onExport={onExportHistory}
               onReplay={onReplayHistory}
               onTogglePin={onTogglePinHistory}
+            />
+          </ScreenStage>
+          <ScreenStage active={activeTab === "Network"}>
+            <NetworkScreen
+              entries={network}
+              onClear={onClearNetwork}
+              onExport={onExportNetwork}
             />
           </ScreenStage>
         </ScreenStageContainer>

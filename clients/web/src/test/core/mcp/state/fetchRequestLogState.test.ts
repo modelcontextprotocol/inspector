@@ -102,6 +102,35 @@ describe("FetchRequestLogState", () => {
     expect(dispatched).toBe(false);
   });
 
+  it("patches the matching entry's responseBody and re-emits on fetchRequestBodyUpdate", () => {
+    client.dispatchTypedEvent("fetchRequest", entry("a"));
+    client.dispatchTypedEvent("fetchRequest", entry("b"));
+    const seen: FetchRequestEntry[][] = [];
+    state.addEventListener("fetchRequestsChange", (e) => seen.push(e.detail));
+
+    client.dispatchTypedEvent("fetchRequestBodyUpdate", {
+      id: "b",
+      responseBody: "hello",
+    });
+
+    const entries = state.getFetchRequests();
+    expect(entries.map((e) => e.id)).toEqual(["a", "b"]);
+    expect(entries[0]?.responseBody).toBeUndefined();
+    expect(entries[1]?.responseBody).toBe("hello");
+    expect(seen).toHaveLength(1);
+  });
+
+  it("ignores fetchRequestBodyUpdate for unknown ids", () => {
+    client.dispatchTypedEvent("fetchRequest", entry("a"));
+    let changes = 0;
+    state.addEventListener("fetchRequestsChange", () => changes++);
+    client.dispatchTypedEvent("fetchRequestBodyUpdate", {
+      id: "nonexistent",
+      responseBody: "x",
+    });
+    expect(changes).toBe(0);
+  });
+
   it("does NOT clear on connect or disconnect", () => {
     client.dispatchTypedEvent("fetchRequest", entry("a"));
     client.dispatchTypedEvent("connect");

@@ -49,6 +49,7 @@ function makeProps(
     logs: [],
     tasks: [],
     history: [],
+    network: [],
     currentLogLevel: "info",
     sandboxPath: "about:blank",
     bridgeFactory: noopBridgeFactory,
@@ -83,6 +84,8 @@ function makeProps(
     onExportHistory: vi.fn(),
     onReplayHistory: vi.fn(),
     onTogglePinHistory: vi.fn(),
+    onClearNetwork: vi.fn(),
+    onExportNetwork: vi.fn(),
     onSelectApp: vi.fn(),
     onOpenApp: vi.fn(),
     onCloseApp: vi.fn(),
@@ -210,6 +213,52 @@ describe("InspectorView", () => {
     expect(
       screen.getByText("No servers configured. Add a server to get started."),
     ).toBeInTheDocument();
+  });
+
+  it("hides the Network tab when the active server is stdio", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+        })}
+      />,
+    );
+    // ViewHeader renders the tab radiogroup as accessible radios; check the
+    // radio list directly so the assertion isn't fooled by hidden options.
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Tools");
+    expect(labels).not.toContain("Network");
+  });
+
+  it("shows the Network tab when the active server is streamable-http", async () => {
+    const httpServer: ServerEntry = {
+      id: "beta",
+      name: "Beta",
+      config: { type: "streamable-http", url: "http://localhost:3000/mcp" },
+      connection: { status: "connected" },
+    };
+    const httpInit: InitializeResult = {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      serverInfo: { name: "Beta", version: "1.0.0" },
+    };
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [httpServer],
+          activeServer: "beta",
+          connectionStatus: "connected",
+          initializeResult: httpInit,
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Network");
   });
 
   it("filters tools to apps and auto-launches a no-fields app on the Apps tab", async () => {

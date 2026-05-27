@@ -477,6 +477,8 @@ export function createRemoteApp(
         pipeStderr: true,
         onStderr: (entry) => session.onStderr(entry),
         onFetchRequest: (entry) => session.onFetchRequest(entry),
+        onFetchResponseBody: (id, body) =>
+          session.onFetchResponseBody(id, body),
         authProvider,
         settings: body.settings,
       });

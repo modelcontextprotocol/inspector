@@ -11,5 +11,6 @@ export { ThemeInput } from "./Input";
 export { ThemePaper } from "./Paper";
 export { ThemeSelect } from "./Select";
 export { ThemeSwitch } from "./Switch";
+export { ThemeText } from "./Text";
 export { ThemeTextInput } from "./TextInput";
 export { ThemeUnstyledButton } from "./UnstyledButton";

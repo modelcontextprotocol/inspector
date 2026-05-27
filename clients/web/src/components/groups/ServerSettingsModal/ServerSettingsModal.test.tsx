@@ -246,16 +246,16 @@ describe("ServerSettingsModal", () => {
     expect(headersControl.getAttribute("aria-expanded")).toBe("true");
     expect(metadataControl.getAttribute("aria-expanded")).toBe("false");
 
-    // ListToggle is the first button in the header row; click to expand all.
-    const allButtons = screen.getAllByRole("button");
-    await user.click(allButtons[0]);
+    // Not every section is expanded → ListToggle starts in compact mode
+    // and exposes "Expand all" as its aria-label.
+    await user.click(screen.getByRole("button", { name: "Expand all" }));
 
     expect(metadataControl.getAttribute("aria-expanded")).toBe("true");
     expect(timeoutsControl.getAttribute("aria-expanded")).toBe("true");
     expect(oauthControl.getAttribute("aria-expanded")).toBe("true");
 
-    // Clicking again should collapse all.
-    await user.click(allButtons[0]);
+    // After expanding every section the toggle flips to "Collapse all".
+    await user.click(screen.getByRole("button", { name: "Collapse all" }));
     expect(headersControl.getAttribute("aria-expanded")).toBe("false");
     expect(metadataControl.getAttribute("aria-expanded")).toBe("false");
   });

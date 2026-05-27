@@ -76,6 +76,29 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
     };
     this.client.addEventListener("fetchRequest", onFetchRequest);
 
+    // Body is read asynchronously by fetchTracking and arrives via a
+    // separate event; patch the matching entry in place and re-emit so
+    // React subscribers re-render with the body filled in.
+    const onFetchRequestBodyUpdate = (
+      event: TypedEventGeneric<
+        InspectorClientEventMap,
+        "fetchRequestBodyUpdate"
+      >,
+    ): void => {
+      const { id, responseBody } = event.detail;
+      const idx = this.fetchRequests.findIndex((e) => e.id === id);
+      if (idx === -1) return;
+      this.fetchRequests[idx] = {
+        ...this.fetchRequests[idx]!,
+        responseBody,
+      };
+      this.dispatchTypedEvent("fetchRequestsChange", this.getFetchRequests());
+    };
+    this.client.addEventListener(
+      "fetchRequestBodyUpdate",
+      onFetchRequestBodyUpdate,
+    );
+
     const sessionStorage = options.sessionStorage;
     const sessionId = options.sessionId;
 
@@ -97,6 +120,10 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
       this.unsubscribe = () => {
         if (this.client) {
           this.client.removeEventListener("fetchRequest", onFetchRequest);
+          this.client.removeEventListener(
+            "fetchRequestBodyUpdate",
+            onFetchRequestBodyUpdate,
+          );
           this.client.removeEventListener("saveSession", onSaveSession);
         }
         this.client = null;
@@ -119,6 +146,10 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
       this.unsubscribe = () => {
         if (this.client) {
           this.client.removeEventListener("fetchRequest", onFetchRequest);
+          this.client.removeEventListener(
+            "fetchRequestBodyUpdate",
+            onFetchRequestBodyUpdate,
+          );
         }
         this.client = null;
       };

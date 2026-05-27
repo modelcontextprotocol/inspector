@@ -35,6 +35,9 @@ export interface RemoteTransportOptions {
   /** Callback for fetch request tracking (forwarded via remote) */
   onFetchRequest?: (entry: FetchRequestEntryBase) => void;
 
+  /** Callback for async response-body updates to a previously tracked fetch. */
+  onFetchResponseBody?: (id: string, responseBody: string) => void;
+
   /** Optional OAuth client provider for Bearer authentication */
   authProvider?: import("@modelcontextprotocol/sdk/client/auth.js").OAuthClientProvider;
 
@@ -243,6 +246,14 @@ export class RemoteClientTransport implements Transport {
                   ? new Date(entry.timestamp)
                   : entry.timestamp,
             });
+          } else if (
+            parsed.type === "fetch_request_body_update" &&
+            this.options.onFetchResponseBody
+          ) {
+            this.options.onFetchResponseBody(
+              parsed.data.id,
+              parsed.data.responseBody,
+            );
           } else if (parsed.type === "stdio_log" && this.options.onStderr) {
             this.options.onStderr({
               timestamp: new Date(parsed.data.timestamp),
