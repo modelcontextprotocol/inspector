@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { downloadJsonFile } from "../../lib/downloadFile";
+import { downloadJsonFile, buildExportFilename } from "../../lib/downloadFile";
 
 describe("downloadJsonFile", () => {
   const originalCreate = URL.createObjectURL;
@@ -90,5 +90,40 @@ describe("downloadJsonFile", () => {
     const blob = createMock.mock.calls[0]?.[0] as Blob;
     const text = await blob.text();
     expect(text).toBe('{"x":1}');
+  });
+});
+
+describe("buildExportFilename", () => {
+  const fixedNow = new Date("2026-03-17T10:00:42.123Z");
+
+  it("includes kind, server id, and ISO timestamp with `:` swapped for `-`", () => {
+    expect(buildExportFilename("history", "alpha", fixedNow)).toBe(
+      "inspector-history-alpha-2026-03-17T10-00-42.123Z.json",
+    );
+  });
+
+  it("omits the server-id segment when serverId is undefined", () => {
+    expect(buildExportFilename("logs", undefined, fixedNow)).toBe(
+      "inspector-logs-2026-03-17T10-00-42.123Z.json",
+    );
+  });
+
+  it("omits the server-id segment when serverId is an empty string", () => {
+    expect(buildExportFilename("logs", "", fixedNow)).toBe(
+      "inspector-logs-2026-03-17T10-00-42.123Z.json",
+    );
+  });
+
+  it("encodes server ids that contain filesystem-unsafe characters", () => {
+    expect(buildExportFilename("network", "my server/v2", fixedNow)).toBe(
+      "inspector-network-my%20server%2Fv2-2026-03-17T10-00-42.123Z.json",
+    );
+  });
+
+  it("defaults `now` to the current time when not provided", () => {
+    const name = buildExportFilename("history", "alpha");
+    expect(name).toMatch(
+      /^inspector-history-alpha-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z\.json$/,
+    );
   });
 });

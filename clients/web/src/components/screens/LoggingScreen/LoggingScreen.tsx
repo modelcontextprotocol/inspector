@@ -13,7 +13,6 @@ export interface LoggingScreenProps {
   onExport: () => void;
   autoScroll: boolean;
   onToggleAutoScroll: () => void;
-  onCopyAll: () => void;
 }
 
 const ALL_LEVELS_VISIBLE: Record<LoggingLevel, boolean> = {
@@ -63,7 +62,6 @@ export function LoggingScreen({
   onExport,
   autoScroll,
   onToggleAutoScroll,
-  onCopyAll,
 }: LoggingScreenProps) {
   const [filterText, setFilterText] = useState("");
   const [visibleLevels, setVisibleLevels] =
@@ -99,7 +97,6 @@ export function LoggingScreen({
         visibleLevels={visibleLevels}
         autoScroll={autoScroll}
         onToggleAutoScroll={onToggleAutoScroll}
-        onCopyAll={onCopyAll}
         onClear={onClear}
         onExport={onExport}
       />

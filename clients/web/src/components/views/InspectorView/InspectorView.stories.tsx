@@ -350,7 +350,6 @@ const meta: Meta<typeof InspectorView> = {
     onSetLogLevel: fn(),
     onClearLogs: fn(),
     onExportLogs: fn(),
-    onCopyAllLogs: fn(),
     onClearHistory: fn(),
     onExportHistory: fn(),
     onReplayHistory: fn(),
