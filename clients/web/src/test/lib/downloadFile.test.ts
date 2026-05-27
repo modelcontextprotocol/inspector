@@ -108,6 +108,12 @@ describe("buildExportFilename", () => {
     );
   });
 
+  it("omits the server-id segment when serverId is an empty string", () => {
+    expect(buildExportFilename("logs", "", fixedNow)).toBe(
+      "inspector-logs-2026-03-17T10-00-42.123Z.json",
+    );
+  });
+
   it("encodes server ids that contain filesystem-unsafe characters", () => {
     expect(buildExportFilename("network", "my server/v2", fixedNow)).toBe(
       "inspector-network-my%20server%2Fv2-2026-03-17T10-00-42.123Z.json",

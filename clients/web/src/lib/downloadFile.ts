@@ -32,6 +32,13 @@ export function downloadJsonFile(filename: string, json: string): void {
 }
 
 /**
+ * The categories of in-memory data the Inspector can export. Tightening
+ * `kind` to this union catches typos at call sites and documents the
+ * stable on-disk filename prefix.
+ */
+export type ExportKind = "history" | "logs" | "network";
+
+/**
  * Build a sortable export filename in the shape
  * `inspector-<kind>-<server-id>-<ISO timestamp>.json`. The timestamp uses
  * the standard ISO-8601 form with `:` swapped for `-` so the result is
@@ -39,11 +46,12 @@ export function downloadJsonFile(filename: string, json: string): void {
  * passed through `encodeURIComponent` for the same reason — config ids
  * are user-supplied and may contain slashes / spaces / colons.
  *
- * When `serverId` is undefined the segment is omitted; the rest of the
- * filename still uniquely identifies the export by kind + time.
+ * When `serverId` is falsy (undefined or empty) the segment is omitted;
+ * the rest of the filename still uniquely identifies the export by kind
+ * + time.
  */
 export function buildExportFilename(
-  kind: string,
+  kind: ExportKind,
   serverId: string | undefined,
   now: Date = new Date(),
 ): string {
