@@ -4,6 +4,7 @@ import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 import { LogControls } from "../../groups/LogControls/LogControls";
 import { LogStreamPanel } from "../../groups/LogStreamPanel/LogStreamPanel";
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
+import type { SortDirection } from "../../elements/SortToggle/SortToggle";
 
 export interface LoggingScreenProps {
   entries: LogEntryData[];
@@ -13,6 +14,8 @@ export interface LoggingScreenProps {
   onExport: () => void;
   autoScroll: boolean;
   onToggleAutoScroll: () => void;
+  sortDirection: SortDirection;
+  onSortChange: (next: SortDirection) => void;
 }
 
 const ALL_LEVELS_VISIBLE: Record<LoggingLevel, boolean> = {
@@ -62,6 +65,8 @@ export function LoggingScreen({
   onExport,
   autoScroll,
   onToggleAutoScroll,
+  sortDirection,
+  onSortChange,
 }: LoggingScreenProps) {
   const [filterText, setFilterText] = useState("");
   const [visibleLevels, setVisibleLevels] =
@@ -99,6 +104,8 @@ export function LoggingScreen({
         onToggleAutoScroll={onToggleAutoScroll}
         onClear={onClear}
         onExport={onExport}
+        sortDirection={sortDirection}
+        onSortChange={onSortChange}
       />
     </ScreenLayout>
   );

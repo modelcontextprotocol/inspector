@@ -66,6 +66,8 @@ const baseProps = {
   onExport: vi.fn(),
   onReplay: vi.fn(),
   onTogglePin: vi.fn(),
+  sortDirection: "newest-first" as const,
+  onSortChange: vi.fn(),
 };
 
 describe("HistoryListPanel", () => {
@@ -217,6 +219,49 @@ describe("HistoryListPanel", () => {
     expect(onReplay).toHaveBeenCalledWith("req-1");
     await user.click(screen.getByRole("button", { name: "Unpin" }));
     expect(onTogglePin).toHaveBeenCalledWith("req-1");
+  });
+
+  it("renders entries newest-first by default", () => {
+    renderWithMantine(
+      <HistoryListPanel {...baseProps} entries={sampleEntries} />,
+    );
+    const methods = screen.getAllByText(
+      /tools\/call|resources\/read|tools\/list/,
+    );
+    expect(methods[0]).toHaveTextContent("tools/list");
+    expect(methods[methods.length - 1]).toHaveTextContent("tools/call");
+  });
+
+  it("reorders entries when sortDirection is oldest-first", () => {
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        sortDirection="oldest-first"
+      />,
+    );
+    const methods = screen.getAllByText(
+      /tools\/call|resources\/read|tools\/list/,
+    );
+    expect(methods[0]).toHaveTextContent("tools/call");
+    expect(methods[methods.length - 1]).toHaveTextContent("tools/list");
+  });
+
+  it("invokes onSortChange when the user picks a new sort", async () => {
+    const user = userEvent.setup();
+    const onSortChange = vi.fn();
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        onSortChange={onSortChange}
+      />,
+    );
+    await user.click(
+      screen.getByRole("textbox", { name: "History sort direction" }),
+    );
+    await user.click(await screen.findByText("Sort: Oldest First"));
+    expect(onSortChange).toHaveBeenCalledWith("oldest-first");
   });
 
   it("toggles compact list state when ListToggle is clicked", async () => {

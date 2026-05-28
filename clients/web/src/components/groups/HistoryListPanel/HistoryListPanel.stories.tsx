@@ -13,6 +13,8 @@ const meta: Meta<typeof HistoryListPanel> = {
     onExport: fn(),
     onReplay: fn(),
     onTogglePin: fn(),
+    sortDirection: "newest-first",
+    onSortChange: fn(),
   },
 };
 

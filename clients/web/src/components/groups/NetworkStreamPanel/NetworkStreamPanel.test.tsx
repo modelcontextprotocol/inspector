@@ -27,6 +27,8 @@ const baseProps = {
   visibleCategories: { auth: true, transport: true } as const,
   onClear: vi.fn(),
   onExport: vi.fn(),
+  sortDirection: "newest-first" as const,
+  onSortChange: vi.fn(),
 };
 
 describe("NetworkStreamPanel", () => {
@@ -133,5 +135,68 @@ describe("NetworkStreamPanel", () => {
     expect(
       screen.getByRole("button", { name: "Collapse" }),
     ).toBeInTheDocument();
+  });
+
+  it("renders entries newest-first by default", () => {
+    const older: FetchRequestEntry = {
+      ...entry,
+      id: "older",
+      url: "https://example.com/older",
+      timestamp: new Date("2026-03-17T09:00:00Z"),
+    };
+    const newer: FetchRequestEntry = {
+      ...entry,
+      id: "newer",
+      url: "https://example.com/newer",
+      timestamp: new Date("2026-03-17T11:00:00Z"),
+    };
+    renderWithMantine(
+      <NetworkStreamPanel {...baseProps} entries={[older, newer]} />,
+    );
+    const urls = screen.getAllByText(/example\.com\//);
+    expect(urls[0]).toHaveTextContent("https://example.com/newer");
+    expect(urls[urls.length - 1]).toHaveTextContent(
+      "https://example.com/older",
+    );
+  });
+
+  it("reorders entries when sortDirection is oldest-first", () => {
+    const older: FetchRequestEntry = {
+      ...entry,
+      id: "older",
+      url: "https://example.com/older",
+      timestamp: new Date("2026-03-17T09:00:00Z"),
+    };
+    const newer: FetchRequestEntry = {
+      ...entry,
+      id: "newer",
+      url: "https://example.com/newer",
+      timestamp: new Date("2026-03-17T11:00:00Z"),
+    };
+    renderWithMantine(
+      <NetworkStreamPanel
+        {...baseProps}
+        entries={[newer, older]}
+        sortDirection="oldest-first"
+      />,
+    );
+    const urls = screen.getAllByText(/example\.com\//);
+    expect(urls[0]).toHaveTextContent("https://example.com/older");
+    expect(urls[urls.length - 1]).toHaveTextContent(
+      "https://example.com/newer",
+    );
+  });
+
+  it("invokes onSortChange when the user picks a new sort", async () => {
+    const user = userEvent.setup();
+    const onSortChange = vi.fn();
+    renderWithMantine(
+      <NetworkStreamPanel {...baseProps} onSortChange={onSortChange} />,
+    );
+    await user.click(
+      screen.getByRole("textbox", { name: "Network sort direction" }),
+    );
+    await user.click(await screen.findByText("Sort: Oldest First"));
+    expect(onSortChange).toHaveBeenCalledWith("oldest-first");
   });
 });

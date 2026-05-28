@@ -12,6 +12,10 @@ import {
 import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 import { LogEntry } from "../../elements/LogEntry/LogEntry";
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
+import {
+  SortToggle,
+  type SortDirection,
+} from "../../elements/SortToggle/SortToggle";
 
 export interface LogStreamPanelProps {
   entries: LogEntryData[];
@@ -21,6 +25,8 @@ export interface LogStreamPanelProps {
   onToggleAutoScroll: () => void;
   onClear: () => void;
   onExport: () => void;
+  sortDirection: SortDirection;
+  onSortChange: (next: SortDirection) => void;
 }
 
 const PanelContainer = Paper.withProps({
@@ -65,17 +71,30 @@ export function LogStreamPanel({
   onToggleAutoScroll,
   onClear,
   onExport,
+  sortDirection,
+  onSortChange,
 }: LogStreamPanelProps) {
-  const filteredEntries = useMemo(
-    () => entries.filter((e) => matchesFilters(e, filterText, visibleLevels)),
-    [entries, filterText, visibleLevels],
-  );
+  const filteredEntries = useMemo(() => {
+    const matched = entries.filter((e) =>
+      matchesFilters(e, filterText, visibleLevels),
+    );
+    const sorted = [...matched].sort(
+      (a, b) => a.receivedAt.getTime() - b.receivedAt.getTime(),
+    );
+    if (sortDirection === "newest-first") sorted.reverse();
+    return sorted;
+  }, [entries, filterText, visibleLevels, sortDirection]);
 
   return (
     <PanelContainer>
       <Group justify="space-between" mb="sm">
         <Title order={4}>Log Stream</Title>
         <Group>
+          <SortToggle
+            value={sortDirection}
+            onChange={onSortChange}
+            aria-label="Logs sort direction"
+          />
           <Checkbox
             label="Auto-scroll"
             checked={autoScroll}

@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { AppShell, Box, Stack, Transition } from "@mantine/core";
+import { useLocalStorage } from "@mantine/hooks";
 import type {
   InitializeResult,
   LoggingLevel,
@@ -42,7 +43,21 @@ import { TasksScreen } from "../../screens/TasksScreen/TasksScreen";
 import type { TaskProgress } from "../../groups/TaskCard/TaskCard";
 import { HistoryScreen } from "../../screens/HistoryScreen/HistoryScreen";
 import { NetworkScreen } from "../../screens/NetworkScreen/NetworkScreen";
+import type { SortDirection } from "../../elements/SortToggle/SortToggle";
 import { getServerType } from "@inspector/core/mcp/config.js";
+
+const SORT_DEFAULT: SortDirection = "newest-first";
+
+// Storage adapters live alongside the view. The deserializer accepts anything
+// (manual edit, schema drift, future option removed) and clamps to the default
+// so the toggle never renders an unselectable state.
+function deserializeSortDirection(raw: string | undefined): SortDirection {
+  return raw === "oldest-first" || raw === "newest-first" ? raw : SORT_DEFAULT;
+}
+
+function serializeSortDirection(value: SortDirection): string {
+  return value;
+}
 
 const SERVERS_TAB = "Servers";
 const NETWORK_TAB = "Network";
@@ -287,6 +302,29 @@ export function InspectorView({
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const appRendererRef = useRef<AppRendererHandle>(null);
 
+  // Per-screen sort direction, persisted to localStorage so the choice
+  // survives reloads and syncs across browser tabs. `inspector.<scope>.<key>`
+  // namespace; new preferences (theme defaults, compact-mode, etc.) should
+  // follow the same shape.
+  const [logsSort, setLogsSort] = useLocalStorage<SortDirection>({
+    key: "inspector.sortDirection.logs",
+    defaultValue: SORT_DEFAULT,
+    deserialize: deserializeSortDirection,
+    serialize: serializeSortDirection,
+  });
+  const [historySort, setHistorySort] = useLocalStorage<SortDirection>({
+    key: "inspector.sortDirection.history",
+    defaultValue: SORT_DEFAULT,
+    deserialize: deserializeSortDirection,
+    serialize: serializeSortDirection,
+  });
+  const [networkSort, setNetworkSort] = useLocalStorage<SortDirection>({
+    key: "inspector.sortDirection.network",
+    defaultValue: SORT_DEFAULT,
+    deserialize: deserializeSortDirection,
+    serialize: serializeSortDirection,
+  });
+
   // Only show the non-Servers tabs when actually connected. Network is
   // additionally hidden for stdio servers — there is no HTTP traffic to
   // surface there, so the tab would always be empty. Capability-aware
@@ -451,6 +489,8 @@ export function InspectorView({
               onExport={onExportLogs}
               autoScroll={autoScroll}
               onToggleAutoScroll={() => setAutoScroll((prev) => !prev)}
+              sortDirection={logsSort}
+              onSortChange={setLogsSort}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "History"}>
@@ -461,6 +501,8 @@ export function InspectorView({
               onExport={onExportHistory}
               onReplay={onReplayHistory}
               onTogglePin={onTogglePinHistory}
+              sortDirection={historySort}
+              onSortChange={setHistorySort}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Network"}>
@@ -468,6 +510,8 @@ export function InspectorView({
               entries={network}
               onClear={onClearNetwork}
               onExport={onExportNetwork}
+              sortDirection={networkSort}
+              onSortChange={setNetworkSort}
             />
           </ScreenStage>
         </ScreenStageContainer>

@@ -12,6 +12,8 @@ const meta: Meta<typeof NetworkStreamPanel> = {
     visibleCategories: { auth: true, transport: true },
     onClear: fn(),
     onExport: fn(),
+    sortDirection: "newest-first",
+    onSortChange: fn(),
   },
 };
 

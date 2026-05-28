@@ -4,6 +4,7 @@ import type { MessageEntry, MessageMethod } from "@inspector/core/mcp/types.js";
 import { HistoryControls } from "../../groups/HistoryControls/HistoryControls";
 import { HistoryListPanel } from "../../groups/HistoryListPanel/HistoryListPanel.js";
 import { extractMethod } from "../../groups/historyUtils.js";
+import type { SortDirection } from "../../elements/SortToggle/SortToggle";
 
 export interface HistoryScreenProps {
   entries: MessageEntry[];
@@ -12,6 +13,8 @@ export interface HistoryScreenProps {
   onExport: () => void;
   onReplay: (id: string) => void;
   onTogglePin: (id: string) => void;
+  sortDirection: SortDirection;
+  onSortChange: (next: SortDirection) => void;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -38,6 +41,8 @@ export function HistoryScreen({
   onExport,
   onReplay,
   onTogglePin,
+  sortDirection,
+  onSortChange,
 }: HistoryScreenProps) {
   const [searchText, setSearchText] = useState("");
   const [methodFilter, setMethodFilter] = useState<MessageMethod | undefined>();
@@ -74,6 +79,8 @@ export function HistoryScreen({
         onExport={onExport}
         onReplay={onReplay}
         onTogglePin={onTogglePin}
+        sortDirection={sortDirection}
+        onSortChange={onSortChange}
       />
     </ScreenLayout>
   );

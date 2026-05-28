@@ -47,6 +47,8 @@ const baseProps = {
   onToggleAutoScroll: vi.fn(),
   onClear: vi.fn(),
   onExport: vi.fn(),
+  sortDirection: "newest-first" as const,
+  onSortChange: vi.fn(),
 };
 
 describe("LogStreamPanel", () => {
@@ -162,5 +164,41 @@ describe("LogStreamPanel", () => {
   it("renders auto-scroll checkbox with correct checked state", () => {
     renderWithMantine(<LogStreamPanel {...baseProps} autoScroll={false} />);
     expect(screen.getByLabelText("Auto-scroll")).not.toBeChecked();
+  });
+
+  it("renders entries newest-first by default", () => {
+    renderWithMantine(<LogStreamPanel {...baseProps} />);
+    const items = screen.getAllByText(
+      /Server started|Failed to read|Loading config|deprecated/,
+    );
+    // Newest receivedAt is the warning entry; oldest is "Server started".
+    expect(items[0]).toHaveTextContent('{"code":42,"msg":"deprecated"}');
+    expect(items[items.length - 1]).toHaveTextContent("Server started");
+  });
+
+  it("reorders entries when sortDirection is oldest-first", () => {
+    renderWithMantine(
+      <LogStreamPanel {...baseProps} sortDirection="oldest-first" />,
+    );
+    const items = screen.getAllByText(
+      /Server started|Failed to read|Loading config|deprecated/,
+    );
+    expect(items[0]).toHaveTextContent("Server started");
+    expect(items[items.length - 1]).toHaveTextContent(
+      '{"code":42,"msg":"deprecated"}',
+    );
+  });
+
+  it("invokes onSortChange when the user picks a new sort", async () => {
+    const user = userEvent.setup();
+    const onSortChange = vi.fn();
+    renderWithMantine(
+      <LogStreamPanel {...baseProps} onSortChange={onSortChange} />,
+    );
+    await user.click(
+      screen.getByRole("textbox", { name: "Logs sort direction" }),
+    );
+    await user.click(await screen.findByText("Sort: Oldest First"));
+    expect(onSortChange).toHaveBeenCalledWith("oldest-first");
   });
 });

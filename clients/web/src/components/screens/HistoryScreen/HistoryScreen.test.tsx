@@ -26,6 +26,8 @@ const baseProps = {
   onExport: vi.fn(),
   onReplay: vi.fn(),
   onTogglePin: vi.fn(),
+  sortDirection: "newest-first" as const,
+  onSortChange: vi.fn(),
 };
 
 describe("HistoryScreen", () => {

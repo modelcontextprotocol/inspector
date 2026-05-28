@@ -334,6 +334,80 @@ describe("InspectorView", () => {
     expect(onSetLogLevel).toHaveBeenCalledWith("warning");
   });
 
+  it("persists Logs sort direction to localStorage and restores it on remount", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          latencyMs: 50,
+        })}
+      />,
+    );
+    const tabSelect = await screen.findByDisplayValue("Servers");
+    await user.click(tabSelect);
+    await user.click(await screen.findByText("Logs"));
+
+    const sortSelect = await screen.findByRole("textbox", {
+      name: "Logs sort direction",
+    });
+    expect(sortSelect).toHaveValue("Sort: Newest First");
+    await user.click(sortSelect);
+    await user.click(await screen.findByText("Sort: Oldest First"));
+
+    await waitFor(() =>
+      expect(window.localStorage.getItem("inspector.sortDirection.logs")).toBe(
+        "oldest-first",
+      ),
+    );
+
+    unmount();
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          latencyMs: 50,
+        })}
+      />,
+    );
+    const tabSelect2 = await screen.findByDisplayValue("Servers");
+    await user.click(tabSelect2);
+    await user.click(await screen.findByText("Logs"));
+    const sortSelect2 = await screen.findByRole("textbox", {
+      name: "Logs sort direction",
+    });
+    await waitFor(() => expect(sortSelect2).toHaveValue("Sort: Oldest First"));
+  });
+
+  it("falls back to newest-first when a corrupted sort value is stored", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem("inspector.sortDirection.history", "garbage");
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          latencyMs: 50,
+        })}
+      />,
+    );
+    const tabSelect = await screen.findByDisplayValue("Servers");
+    await user.click(tabSelect);
+    await user.click(await screen.findByText("History"));
+    const sortSelect = await screen.findByRole("textbox", {
+      name: "History sort direction",
+    });
+    await waitFor(() => expect(sortSelect).toHaveValue("Sort: Newest First"));
+  });
+
   it("toggles autoScroll locally on the Logs screen after connecting", async () => {
     const user = userEvent.setup();
     renderWithMantine(
