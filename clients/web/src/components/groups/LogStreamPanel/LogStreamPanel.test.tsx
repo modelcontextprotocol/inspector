@@ -43,8 +43,6 @@ const baseProps = {
   entries,
   filterText: "",
   visibleLevels: allVisible,
-  autoScroll: true,
-  onToggleAutoScroll: vi.fn(),
   onClear: vi.fn(),
   onExport: vi.fn(),
   sortDirection: "newest-first" as const,
@@ -149,21 +147,6 @@ describe("LogStreamPanel", () => {
     renderWithMantine(<LogStreamPanel {...baseProps} onExport={onExport} />);
     await user.click(screen.getByRole("button", { name: "Export" }));
     expect(onExport).toHaveBeenCalledTimes(1);
-  });
-
-  it("invokes onToggleAutoScroll when the auto-scroll checkbox is clicked", async () => {
-    const user = userEvent.setup();
-    const onToggleAutoScroll = vi.fn();
-    renderWithMantine(
-      <LogStreamPanel {...baseProps} onToggleAutoScroll={onToggleAutoScroll} />,
-    );
-    await user.click(screen.getByLabelText("Auto-scroll"));
-    expect(onToggleAutoScroll).toHaveBeenCalledTimes(1);
-  });
-
-  it("renders auto-scroll checkbox with correct checked state", () => {
-    renderWithMantine(<LogStreamPanel {...baseProps} autoScroll={false} />);
-    expect(screen.getByLabelText("Auto-scroll")).not.toBeChecked();
   });
 
   it("renders entries newest-first by default", () => {

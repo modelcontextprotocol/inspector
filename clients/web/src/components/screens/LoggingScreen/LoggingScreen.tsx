@@ -12,8 +12,6 @@ export interface LoggingScreenProps {
   onSetLevel: (level: LoggingLevel) => void;
   onClear: () => void;
   onExport: () => void;
-  autoScroll: boolean;
-  onToggleAutoScroll: () => void;
   sortDirection: SortDirection;
   onSortChange: (next: SortDirection) => void;
 }
@@ -63,8 +61,6 @@ export function LoggingScreen({
   onSetLevel,
   onClear,
   onExport,
-  autoScroll,
-  onToggleAutoScroll,
   sortDirection,
   onSortChange,
 }: LoggingScreenProps) {
@@ -100,8 +96,6 @@ export function LoggingScreen({
         entries={entries}
         filterText={filterText}
         visibleLevels={visibleLevels}
-        autoScroll={autoScroll}
-        onToggleAutoScroll={onToggleAutoScroll}
         onClear={onClear}
         onExport={onExport}
         sortDirection={sortDirection}

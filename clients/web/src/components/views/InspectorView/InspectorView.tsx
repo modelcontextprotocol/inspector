@@ -299,7 +299,6 @@ export function InspectorView({
   // dispatching live in the parent; this component only owns navigation
   // (which tab is visible) and a couple of view-local toggles.
   const [selectedTab, setSelectedTab] = useState<string>(SERVERS_TAB);
-  const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const appRendererRef = useRef<AppRendererHandle>(null);
 
   // Per-screen sort direction, persisted to localStorage so the choice
@@ -487,8 +486,6 @@ export function InspectorView({
               onSetLevel={onSetLogLevel}
               onClear={onClearLogs}
               onExport={onExportLogs}
-              autoScroll={autoScroll}
-              onToggleAutoScroll={() => setAutoScroll((prev) => !prev)}
               sortDirection={logsSort}
               onSortChange={setLogsSort}
             />

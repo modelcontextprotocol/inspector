@@ -19,8 +19,6 @@ const meta: Meta<typeof LogStreamPanel> = {
       alert: true,
       emergency: true,
     },
-    autoScroll: true,
-    onToggleAutoScroll: fn(),
     onClear: fn(),
     onExport: fn(),
     sortDirection: "newest-first",

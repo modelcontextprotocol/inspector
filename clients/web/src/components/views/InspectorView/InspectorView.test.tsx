@@ -407,28 +407,4 @@ describe("InspectorView", () => {
     });
     await waitFor(() => expect(sortSelect).toHaveValue("Sort: Newest First"));
   });
-
-  it("toggles autoScroll locally on the Logs screen after connecting", async () => {
-    const user = userEvent.setup();
-    renderWithMantine(
-      <InspectorView
-        {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          latencyMs: 50,
-        })}
-      />,
-    );
-    const tabSelect = await screen.findByDisplayValue("Servers");
-    await user.click(tabSelect);
-    await user.click(await screen.findByText("Logs"));
-    const autoScroll = await screen.findByRole("checkbox", {
-      name: "Auto-scroll",
-    });
-    expect(autoScroll).toBeChecked();
-    await user.click(autoScroll);
-    expect(autoScroll).not.toBeChecked();
-  });
 });

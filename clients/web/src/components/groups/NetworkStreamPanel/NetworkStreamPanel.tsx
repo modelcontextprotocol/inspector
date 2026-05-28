@@ -112,17 +112,17 @@ export function NetworkStreamPanel({
       <Group justify="space-between" mb="sm">
         <Title order={4}>{formatTitle(filteredEntries.length)}</Title>
         <Group gap="xs">
-          <SortToggle
-            value={sortDirection}
-            onChange={onSortChange}
-            aria-label="Network sort direction"
-          />
           {hasResults && (
             <ListToggle
               compact={compact}
               onToggle={() => setCompact((c) => !c)}
             />
           )}
+          <SortToggle
+            value={sortDirection}
+            onChange={onSortChange}
+            aria-label="Network sort direction"
+          />
           <Button variant="default" onClick={onClear} disabled={!hasEntries}>
             Clear
           </Button>

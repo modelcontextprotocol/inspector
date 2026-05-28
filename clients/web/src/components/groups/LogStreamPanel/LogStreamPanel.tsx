@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import {
   Button,
-  Checkbox,
   Group,
   Paper,
   ScrollArea,
@@ -21,8 +20,6 @@ export interface LogStreamPanelProps {
   entries: LogEntryData[];
   filterText: string;
   visibleLevels: Record<LoggingLevel, boolean>;
-  autoScroll: boolean;
-  onToggleAutoScroll: () => void;
   onClear: () => void;
   onExport: () => void;
   sortDirection: SortDirection;
@@ -67,8 +64,6 @@ export function LogStreamPanel({
   entries,
   filterText,
   visibleLevels,
-  autoScroll,
-  onToggleAutoScroll,
   onClear,
   onExport,
   sortDirection,
@@ -90,11 +85,6 @@ export function LogStreamPanel({
       <Group justify="space-between" mb="sm">
         <Title order={4}>Log Stream</Title>
         <Group>
-          <Checkbox
-            label="Auto-scroll"
-            checked={autoScroll}
-            onChange={onToggleAutoScroll}
-          />
           <SortToggle
             value={sortDirection}
             onChange={onSortChange}

@@ -110,17 +110,17 @@ export function HistoryListPanel({
       <Group justify="space-between" mb="sm">
         <Title order={4}>Requests</Title>
         <Group gap="xs">
-          <SortToggle
-            value={sortDirection}
-            onChange={onSortChange}
-            aria-label="History sort direction"
-          />
           {hasResults && (
             <ListToggle
               compact={compact}
               onToggle={() => setCompact((c) => !c)}
             />
           )}
+          <SortToggle
+            value={sortDirection}
+            onChange={onSortChange}
+            aria-label="History sort direction"
+          />
           <Button
             variant="default"
             onClick={onClearAll}
