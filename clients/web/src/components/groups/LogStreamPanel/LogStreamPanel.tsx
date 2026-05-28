@@ -90,15 +90,15 @@ export function LogStreamPanel({
       <Group justify="space-between" mb="sm">
         <Title order={4}>Log Stream</Title>
         <Group>
-          <SortToggle
-            value={sortDirection}
-            onChange={onSortChange}
-            aria-label="Logs sort direction"
-          />
           <Checkbox
             label="Auto-scroll"
             checked={autoScroll}
             onChange={onToggleAutoScroll}
+          />
+          <SortToggle
+            value={sortDirection}
+            onChange={onSortChange}
+            aria-label="Logs sort direction"
           />
           <Button
             variant="default"
