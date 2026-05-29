@@ -1,4 +1,12 @@
-import { Badge, Code, SimpleGrid, Stack, Text, Title } from "@mantine/core";
+import {
+  Badge,
+  Code,
+  ScrollArea,
+  SimpleGrid,
+  Stack,
+  Text,
+  Title,
+} from "@mantine/core";
 import type {
   ClientCapabilities,
   InitializeResult,
@@ -119,10 +127,15 @@ export function ConnectionInfoContent({
       {instructions && (
         <Stack gap="xs">
           <Title order={5}>Server Instructions</Title>
-          <ContentViewer
-            block={{ type: "text", text: instructions }}
-            copyable
-          />
+          {/* Cap the instructions block so a long server prompt scrolls
+              inside the section instead of pushing the OAuth section and
+              modal chrome off-screen. */}
+          <ScrollArea.Autosize mah={280}>
+            <ContentViewer
+              block={{ type: "text", text: instructions }}
+              copyable
+            />
+          </ScrollArea.Autosize>
         </Stack>
       )}
 
