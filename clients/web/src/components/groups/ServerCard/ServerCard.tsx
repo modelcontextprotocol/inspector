@@ -159,9 +159,11 @@ export function ServerCard({
                 <RemoveButton onClick={() => onRemove(id)}>Remove</RemoveButton>
               </ActionsRow>
               <ActionsRow>
-                <SubtleButton onClick={() => onServerInfo(id)}>
-                  Server Info
-                </SubtleButton>
+                {connection.status === "connected" && (
+                  <SubtleButton onClick={() => onServerInfo(id)}>
+                    Server Info
+                  </SubtleButton>
+                )}
                 <SubtleButton onClick={() => onSettings(id)}>
                   Settings
                 </SubtleButton>

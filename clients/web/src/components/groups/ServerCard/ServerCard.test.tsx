@@ -23,6 +23,7 @@ const sseConfig: MCPServerConfig = {
 
 const connected: ConnectionState = { status: "connected" };
 const disconnected: ConnectionState = { status: "disconnected" };
+const connecting: ConnectionState = { status: "connecting" };
 const errored: ConnectionState = {
   status: "error",
   retryCount: 2,
@@ -157,4 +158,31 @@ describe("ServerCard", () => {
     renderWithMantine(<ServerCard {...baseProps} info={undefined} />);
     expect(screen.queryByText("1.2.0")).not.toBeInTheDocument();
   });
+
+  it("renders Server Info button when connected", () => {
+    renderWithMantine(<ServerCard {...baseProps} connection={connected} />);
+    expect(
+      screen.getByRole("button", { name: "Server Info" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Settings" }),
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    ["disconnected", disconnected],
+    ["connecting", connecting],
+    ["error", errored],
+  ] as const)(
+    "omits Server Info button when status is %s but keeps Settings",
+    (_label, state) => {
+      renderWithMantine(<ServerCard {...baseProps} connection={state} />);
+      expect(
+        screen.queryByRole("button", { name: "Server Info" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Settings" }),
+      ).toBeInTheDocument();
+    },
+  );
 });

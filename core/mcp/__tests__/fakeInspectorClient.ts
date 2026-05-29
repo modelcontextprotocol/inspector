@@ -7,6 +7,7 @@
 
 import { vi } from "vitest";
 import type {
+  ClientCapabilities,
   Implementation,
   LoggingLevel,
   Prompt,
@@ -37,6 +38,7 @@ type ListResult<TKey extends string, TItem> = {
 export interface FakeInspectorClientOptions {
   status?: ConnectionStatus;
   capabilities?: ServerCapabilities;
+  clientCapabilities?: ClientCapabilities;
   serverInfo?: Implementation;
   instructions?: string;
 }
@@ -47,6 +49,7 @@ export class FakeInspectorClient
 {
   private status: ConnectionStatus;
   private capabilities: ServerCapabilities | undefined;
+  private clientCapabilities: ClientCapabilities;
   private serverInfo: Implementation | undefined;
   private instructions: string | undefined;
   private appRendererClient: AppRendererClient | null = null;
@@ -138,6 +141,7 @@ export class FakeInspectorClient
     super();
     this.status = options.status ?? "disconnected";
     this.capabilities = options.capabilities;
+    this.clientCapabilities = options.clientCapabilities ?? {};
     this.serverInfo = options.serverInfo;
     this.instructions = options.instructions;
   }
@@ -148,6 +152,10 @@ export class FakeInspectorClient
 
   getCapabilities(): ServerCapabilities | undefined {
     return this.capabilities;
+  }
+
+  getClientCapabilities(): ClientCapabilities {
+    return this.clientCapabilities;
   }
 
   getServerInfo(): Implementation | undefined {
@@ -187,6 +195,10 @@ export class FakeInspectorClient
   setCapabilities(capabilities: ServerCapabilities | undefined): void {
     this.capabilities = capabilities;
     this.dispatchTypedEvent("capabilitiesChange", capabilities);
+  }
+
+  setClientCapabilities(clientCapabilities: ClientCapabilities): void {
+    this.clientCapabilities = clientCapabilities;
   }
 
   setServerInfo(info: Implementation | undefined): void {

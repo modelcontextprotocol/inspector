@@ -150,6 +150,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   private capabilities?: ServerCapabilities;
   private serverInfo?: Implementation;
   private instructions?: string;
+  // The capabilities this Inspector client advertises to the server during the
+  // initialize handshake. Built once in setupClient() and snapshotted here so
+  // UI surfaces (Server Info modal) can display them without poking at the
+  // SDK Client's private state.
+  private clientCapabilities: ClientCapabilities = {};
   // Sampling requests
   private pendingSamples: SamplingCreateMessage[] = [];
   // Elicitation requests
@@ -296,6 +301,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (Object.keys(capabilities).length > 0) {
       clientOptions.capabilities = capabilities;
     }
+    this.clientCapabilities = capabilities;
 
     this.appRendererClientProxy = null;
     this.client = new Client(
@@ -1222,6 +1228,15 @@ export class InspectorClient extends InspectorClientEventTarget {
    */
   getCapabilities(): ServerCapabilities | undefined {
     return this.capabilities;
+  }
+
+  /**
+   * Get the capabilities this client advertises to the server. Snapshotted
+   * from the initialize-time build in setupClient(); does not reflect later
+   * registerCapabilities() calls on the underlying SDK Client.
+   */
+  getClientCapabilities(): ClientCapabilities {
+    return this.clientCapabilities;
   }
 
   /**

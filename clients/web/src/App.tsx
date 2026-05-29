@@ -50,6 +50,8 @@ import {
   type ServerConfigModalMode,
 } from "./components/groups/ServerConfigModal/ServerConfigModal";
 import { ServerSettingsModal } from "./components/groups/ServerSettingsModal/ServerSettingsModal";
+import { ServerInfoModal } from "./components/groups/ServerInfoModal/ServerInfoModal";
+import type { OAuthDetails } from "./components/groups/ServerInfoContent/ServerInfoContent";
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
 import { buildExportFilename, downloadJsonFile } from "./lib/downloadFile";
 import { createWebEnvironment } from "./lib/environmentFactory";
@@ -176,6 +178,7 @@ function App() {
   const [settingsModalTargetId, setSettingsModalTargetId] = useState<
     string | undefined
   >(undefined);
+  const [serverInfoModalOpen, setServerInfoModalOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<ServerEntry | null>(null);
 
   // The active connection target. `null` between sessions; set as soon as
@@ -242,6 +245,7 @@ function App() {
   const {
     status: connectionStatus,
     capabilities,
+    clientCapabilities,
     serverInfo,
     instructions,
   } = useInspectorClient(inspectorClient);
@@ -314,6 +318,9 @@ function App() {
     if (!inspectorClient) return;
     const onDisconnect = () => {
       setActiveServerId(undefined);
+      // Drop the open flag too — without this the modal would pop back the
+      // next time `initializeResult` re-becomes truthy (e.g. reconnect).
+      setServerInfoModalOpen(false);
     };
     inspectorClient.addEventListener("disconnect", onDisconnect);
     return () => {
@@ -334,6 +341,44 @@ function App() {
       ...(instructions ? { instructions } : {}),
     };
   }, [connectionStatus, capabilities, serverInfo, instructions]);
+
+  // The Server Info modal needs the active server's transport and (optional)
+  // OAuth details — both are co-located here so the modal opens against the
+  // same connection snapshot the header is reading.
+  const activeServer = useMemo<ServerEntry | undefined>(
+    () => servers.find((s) => s.id === activeServerId),
+    [servers, activeServerId],
+  );
+
+  const serverInfoTransport = useMemo(
+    () => activeServer?.config.type ?? "stdio",
+    [activeServer],
+  );
+
+  // OAuth details rendered in the Server Info modal. Read from the active
+  // InspectorClient's guided-OAuth state machine snapshot (synchronous), with
+  // configured scopes pulled from the server's persisted settings. All three
+  // fields are independently optional — if none are populated we return
+  // undefined so the modal hides the OAuth section entirely.
+  const serverInfoOAuth = useMemo<OAuthDetails | undefined>(() => {
+    if (connectionStatus !== "connected" || !inspectorClient) return undefined;
+    const oauthState = inspectorClient.getOAuthState();
+    const authUrl =
+      oauthState?.oauthMetadata?.authorization_endpoint ??
+      oauthState?.authorizationUrl?.toString();
+    const accessToken = oauthState?.oauthTokens?.access_token;
+    const scopes = activeServer?.settings?.oauthScopes
+      ?.split(/\s+/)
+      .filter(Boolean);
+    if (!authUrl && !accessToken && !(scopes && scopes.length > 0)) {
+      return undefined;
+    }
+    return {
+      ...(authUrl && { authUrl }),
+      ...(scopes && scopes.length > 0 && { scopes }),
+      ...(accessToken && { accessToken }),
+    };
+  }, [connectionStatus, inspectorClient, activeServer]);
 
   // Derive log entries from the message log. Filters for
   // `notifications/message` (the response to `logging/setLevel`).
@@ -905,7 +950,7 @@ function App() {
         onServerImportConfig={todoNoop}
         onServerImportJson={todoNoop}
         onServerExport={onServerExport}
-        onServerInfo={todoNoop}
+        onServerInfo={() => setServerInfoModalOpen(true)}
         onServerSettings={(id) => setSettingsModalTargetId(id)}
         onServerEdit={(id) => setConfigModal({ mode: "edit", targetId: id })}
         onServerClone={(id) => setConfigModal({ mode: "clone", targetId: id })}
@@ -962,6 +1007,16 @@ function App() {
         onClose={onSettingsModalClose}
         onSettingsChange={onSettingsChange}
       />
+      {initializeResult && (
+        <ServerInfoModal
+          opened={serverInfoModalOpen}
+          onClose={() => setServerInfoModalOpen(false)}
+          initializeResult={initializeResult}
+          clientCapabilities={clientCapabilities}
+          transport={serverInfoTransport}
+          oauth={serverInfoOAuth}
+        />
+      )}
       <ServerRemoveConfirmModal
         opened={removeTarget !== null}
         target={removeTarget}

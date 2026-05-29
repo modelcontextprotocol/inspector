@@ -20,6 +20,7 @@ import type {
   ToolCallInvocation,
 } from "./types.js";
 import type {
+  ClientCapabilities,
   Implementation,
   LoggingLevel,
   Prompt,
@@ -48,6 +49,7 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   // Connection state accessors
   getStatus(): ConnectionStatus;
   getCapabilities(): ServerCapabilities | undefined;
+  getClientCapabilities(): ClientCapabilities;
   getServerInfo(): Implementation | undefined;
   getInstructions(): string | undefined;
   getAppRendererClient(): AppRendererClient | null;

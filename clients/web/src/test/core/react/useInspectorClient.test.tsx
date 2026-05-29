@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import type {
+  ClientCapabilities,
   Implementation,
   ServerCapabilities,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -134,6 +135,25 @@ describe("useInspectorClient", () => {
     // The hook is unmounted; result.current still reads the last rendered
     // value ("connected") rather than the post-unmount event.
     expect(result.current.status).toBe("connected");
+  });
+
+  it("reads clientCapabilities lazily from the client and defaults to {} when null", () => {
+    const advertised: ClientCapabilities = {
+      elicitation: { form: {} },
+      tasks: { list: {}, cancel: {} },
+    };
+    const client = new FakeInspectorClient({
+      status: "connected",
+      clientCapabilities: advertised,
+    });
+    const { result, rerender } = renderHook(
+      ({ c }: { c: InspectorClientProtocol | null }) => useInspectorClient(c),
+      { initialProps: { c: client as InspectorClientProtocol | null } },
+    );
+    expect(result.current.clientCapabilities).toEqual(advertised);
+
+    rerender({ c: null });
+    expect(result.current.clientCapabilities).toEqual({});
   });
 
   it("reads appRendererClient lazily from the client on each render", () => {

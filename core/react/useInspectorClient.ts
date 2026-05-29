@@ -4,6 +4,7 @@ import type { AppRendererClient } from "../mcp/inspectorClientProtocol.js";
 import type { TypedEvent } from "../mcp/inspectorClientEventTarget.js";
 import type { ConnectionStatus } from "../mcp/types.js";
 import type {
+  ClientCapabilities,
   ServerCapabilities,
   Implementation,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -11,6 +12,7 @@ import type {
 export interface UseInspectorClientResult {
   status: ConnectionStatus;
   capabilities?: ServerCapabilities;
+  clientCapabilities: ClientCapabilities;
   serverInfo?: Implementation;
   instructions?: string;
   appRendererClient: AppRendererClient | null;
@@ -115,6 +117,12 @@ export function useInspectorClient(
   return {
     status,
     capabilities,
+    // Read lazily on every render rather than subscribed: client capabilities
+    // are built once in InspectorClient's constructor (from `sample`, `elicit`,
+    // `roots`, `receiverTasks`) and never mutate during a session, so there's
+    // no event to subscribe to. Returns `{}` when no client is attached so
+    // consumers can treat this as a stable object.
+    clientCapabilities: inspectorClient?.getClientCapabilities() ?? {},
     serverInfo,
     instructions,
     appRendererClient: inspectorClient?.getAppRendererClient() ?? null,
