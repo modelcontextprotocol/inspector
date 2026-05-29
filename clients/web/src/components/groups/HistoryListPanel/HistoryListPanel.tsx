@@ -83,12 +83,10 @@ export function HistoryListPanel({
   const [compact, setCompact] = useState(false);
 
   const filteredEntries = useMemo(() => {
-    const matched = entries.filter((e) =>
-      matchesFilters(e, searchText, methodFilter),
-    );
-    const sorted = [...matched].sort(
-      (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
-    );
+    // `.filter()` returns a fresh array, so sorting in-place is safe.
+    const sorted = entries
+      .filter((e) => matchesFilters(e, searchText, methodFilter))
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     if (sortDirection === "newest-first") sorted.reverse();
     return sorted;
   }, [entries, searchText, methodFilter, sortDirection]);

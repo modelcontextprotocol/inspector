@@ -70,12 +70,10 @@ export function LogStreamPanel({
   onSortChange,
 }: LogStreamPanelProps) {
   const filteredEntries = useMemo(() => {
-    const matched = entries.filter((e) =>
-      matchesFilters(e, filterText, visibleLevels),
-    );
-    const sorted = [...matched].sort(
-      (a, b) => a.receivedAt.getTime() - b.receivedAt.getTime(),
-    );
+    // `.filter()` returns a fresh array, so sorting in-place is safe.
+    const sorted = entries
+      .filter((e) => matchesFilters(e, filterText, visibleLevels))
+      .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime());
     if (sortDirection === "newest-first") sorted.reverse();
     return sorted;
   }, [entries, filterText, visibleLevels, sortDirection]);

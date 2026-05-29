@@ -55,6 +55,9 @@ function deserializeSortDirection(raw: string | undefined): SortDirection {
   return raw === "oldest-first" || raw === "newest-first" ? raw : SORT_DEFAULT;
 }
 
+// Overrides Mantine's default `JSON.stringify` so the stored value is the
+// raw enum literal (`"oldest-first"`), not a JSON-quoted string. Keeps the
+// localStorage value human-readable and lets tests assert on it directly.
 function serializeSortDirection(value: SortDirection): string {
   return value;
 }
@@ -304,24 +307,29 @@ export function InspectorView({
   // Per-screen sort direction, persisted to localStorage so the choice
   // survives reloads and syncs across browser tabs. `inspector.<scope>.<key>`
   // namespace; new preferences (theme defaults, compact-mode, etc.) should
-  // follow the same shape.
+  // follow the same shape. `getInitialValueInEffect: false` reads synchronously
+  // on first render — SPA only, no SSR, so this avoids a one-frame flicker
+  // where the persisted "oldest-first" briefly renders as "newest-first".
   const [logsSort, setLogsSort] = useLocalStorage<SortDirection>({
     key: "inspector.sortDirection.logs",
     defaultValue: SORT_DEFAULT,
     deserialize: deserializeSortDirection,
     serialize: serializeSortDirection,
+    getInitialValueInEffect: false,
   });
   const [historySort, setHistorySort] = useLocalStorage<SortDirection>({
     key: "inspector.sortDirection.history",
     defaultValue: SORT_DEFAULT,
     deserialize: deserializeSortDirection,
     serialize: serializeSortDirection,
+    getInitialValueInEffect: false,
   });
   const [networkSort, setNetworkSort] = useLocalStorage<SortDirection>({
     key: "inspector.sortDirection.network",
     defaultValue: SORT_DEFAULT,
     deserialize: deserializeSortDirection,
     serialize: serializeSortDirection,
+    getInitialValueInEffect: false,
   });
 
   // Only show the non-Servers tabs when actually connected. Network is

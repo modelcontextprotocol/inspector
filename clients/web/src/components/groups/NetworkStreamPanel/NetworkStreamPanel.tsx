@@ -94,12 +94,10 @@ export function NetworkStreamPanel({
   const [compact, setCompact] = useState(true);
 
   const filteredEntries = useMemo(() => {
-    const matched = entries.filter((e) =>
-      matchesFilters(e, filterText, visibleCategories),
-    );
-    const sorted = [...matched].sort(
-      (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
-    );
+    // `.filter()` returns a fresh array, so sorting in-place is safe.
+    const sorted = entries
+      .filter((e) => matchesFilters(e, filterText, visibleCategories))
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     if (sortDirection === "newest-first") sorted.reverse();
     return sorted;
   }, [entries, filterText, visibleCategories, sortDirection]);

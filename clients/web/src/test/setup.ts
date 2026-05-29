@@ -15,7 +15,7 @@ class MemoryStorage implements Storage {
     this.store.clear();
   }
   getItem(key: string): string | null {
-    return this.store.has(key) ? this.store.get(key)! : null;
+    return this.store.get(key) ?? null;
   }
   key(index: number): string | null {
     return Array.from(this.store.keys())[index] ?? null;
