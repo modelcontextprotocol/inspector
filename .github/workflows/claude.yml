@@ -160,6 +160,18 @@ jobs:
   #     (c) the GITHUB_TOKEN is scoped to pull-requests:write only;
   #     (d) the ANTHROPIC_API_KEY exists in the runner env but isn't
   #     reachable through Claude's allowed tool surface.
+  #
+  # Why diff-only (no Read/Grep/Glob, despite the worse review context): we
+  # deliberately do NOT grant the native file tools, even though the fork tree
+  # is checked out on disk. They run IN-PROCESS in the agent, outside the OS
+  # (bubblewrap) sandbox — which only isolates Bash subprocesses — so a
+  # prompt-injected `Read(/proc/self/environ)` would read the agent's own env
+  # (where ANTHROPIC_API_KEY and GITHUB_TOKEN live) and exfiltrate it via the
+  # one egress channel, the inline-comment tool. App-level permission `deny`
+  # rules are the only barrier for native tools and are an incomplete-denylist
+  # bet with no OS backstop. Safely granting them would require bumping off the
+  # SHA-pinned action (reopening the AJV-drift risk) AND an API-key proxy to
+  # keep credentials out of the agent env — not worth it; review from the diff.
   # ---------------------------------------------------------------------------
   claude-fork-review:
     if: |
