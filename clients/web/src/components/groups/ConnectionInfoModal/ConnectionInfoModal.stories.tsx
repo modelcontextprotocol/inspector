@@ -5,7 +5,10 @@ import type {
 import { AppShell } from "@mantine/core";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
-import { ConnectionInfoModal, type ConnectionInfoModalProps } from "./ConnectionInfoModal";
+import {
+  ConnectionInfoModal,
+  type ConnectionInfoModalProps,
+} from "./ConnectionInfoModal";
 
 const initializeResult: InitializeResult = {
   protocolVersion: "2025-06-18",
