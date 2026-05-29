@@ -1,12 +1,4 @@
-import {
-  Badge,
-  Blockquote,
-  Code,
-  SimpleGrid,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Badge, Code, SimpleGrid, Stack, Text, Title } from "@mantine/core";
 import type {
   ClientCapabilities,
   InitializeResult,
@@ -16,6 +8,7 @@ import {
   CapabilityItem,
   type CapabilityKey,
 } from "../../elements/CapabilityItem/CapabilityItem";
+import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 
 export interface OAuthDetails {
   authUrl?: string;
@@ -83,8 +76,6 @@ export function ServerInfoContent({
 
   return (
     <Stack gap="md">
-      <Title order={3}>Server Information</Title>
-
       <SimpleGrid cols={2}>
         <Text size="sm">Name</Text>
         <ValueText>{serverInfo.name}</ValueText>
@@ -125,7 +116,10 @@ export function ServerInfoContent({
       {instructions && (
         <Stack gap="xs">
           <Title order={5}>Server Instructions</Title>
-          <Blockquote>{instructions}</Blockquote>
+          <ContentViewer
+            block={{ type: "text", text: instructions }}
+            copyable
+          />
         </Stack>
       )}
 

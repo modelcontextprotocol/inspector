@@ -33,7 +33,7 @@ describe("ServerInfoModal", () => {
         transport="stdio"
       />,
     );
-    expect(screen.queryByText("Server Info")).not.toBeInTheDocument();
+    expect(screen.queryByText("Server Information")).not.toBeInTheDocument();
   });
 
   it("renders the modal title and ServerInfoContent when opened", () => {
@@ -46,7 +46,6 @@ describe("ServerInfoModal", () => {
         transport="stdio"
       />,
     );
-    expect(screen.getByText("Server Info")).toBeInTheDocument();
     expect(screen.getByText("Server Information")).toBeInTheDocument();
     expect(screen.getByText("Test Server")).toBeInTheDocument();
     expect(screen.getByText("0.1.0")).toBeInTheDocument();

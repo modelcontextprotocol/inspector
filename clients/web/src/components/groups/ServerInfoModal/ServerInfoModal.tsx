@@ -37,7 +37,7 @@ export function ServerInfoModal({
       <Stack gap="md">
         <Group justify="space-between" wrap="nowrap">
           <Title order={4} flex={1}>
-            Server Info
+            Server Information
           </Title>
           <CloseButton onClick={onClose} />
         </Group>

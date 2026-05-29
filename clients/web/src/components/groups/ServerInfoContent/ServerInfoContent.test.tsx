@@ -35,7 +35,6 @@ describe("ServerInfoContent", () => {
         transport="stdio"
       />,
     );
-    expect(screen.getByText("Server Information")).toBeInTheDocument();
     expect(screen.getByText("Everything Server")).toBeInTheDocument();
     expect(screen.getByText("2.1.0")).toBeInTheDocument();
     expect(screen.getByText("2025-03-26")).toBeInTheDocument();
