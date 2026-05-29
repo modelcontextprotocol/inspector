@@ -207,9 +207,8 @@ describe("NetworkStreamPanel", () => {
       <NetworkStreamPanel {...baseProps} onSortChange={onSortChange} />,
     );
     await user.click(
-      screen.getByRole("textbox", { name: "Network sort direction" }),
+      screen.getByRole("button", { name: "Network sort direction" }),
     );
-    await user.click(await screen.findByText("Sort: Oldest First"));
     expect(onSortChange).toHaveBeenCalledWith("oldest-first");
   });
 });

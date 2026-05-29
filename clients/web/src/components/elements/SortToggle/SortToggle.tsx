@@ -1,39 +1,48 @@
-import { Select } from "@mantine/core";
+import { ActionIcon, Button } from "@mantine/core";
+import { TbSortAscending2, TbSortDescending2 } from "react-icons/tb";
 
 export type SortDirection = "oldest-first" | "newest-first";
 
 export interface SortToggleProps {
   value: SortDirection;
   onChange: (next: SortDirection) => void;
+  variant?: "default" | "subtle";
   "aria-label"?: string;
-}
-
-const OPTIONS: { value: SortDirection; label: string }[] = [
-  { value: "newest-first", label: "Sort: Newest First" },
-  { value: "oldest-first", label: "Sort: Oldest First" },
-];
-
-function isSortDirection(value: string | null): value is SortDirection {
-  return value === "oldest-first" || value === "newest-first";
 }
 
 export function SortToggle({
   value,
   onChange,
+  variant = "default",
   "aria-label": ariaLabel = "Sort direction",
 }: SortToggleProps) {
+  const Icon =
+    value === "newest-first" ? TbSortDescending2 : TbSortAscending2;
+  const handleClick = () =>
+    onChange(value === "newest-first" ? "oldest-first" : "newest-first");
+
+  if (variant === "subtle") {
+    return (
+      <ActionIcon
+        variant="subtle"
+        color="gray"
+        size="md"
+        aria-label={ariaLabel}
+        onClick={handleClick}
+      >
+        <Icon size={16} />
+      </ActionIcon>
+    );
+  }
+
   return (
-    <Select
+    <Button
       size="sm"
-      w={190}
-      data={OPTIONS}
-      value={value}
-      onChange={(next) => {
-        if (isSortDirection(next)) onChange(next);
-      }}
-      allowDeselect={false}
-      withCheckIcon={false}
+      variant="subtle"
       aria-label={ariaLabel}
-    />
+      onClick={handleClick}
+    >
+      <Icon size={20} />
+    </Button>
   );
 }
