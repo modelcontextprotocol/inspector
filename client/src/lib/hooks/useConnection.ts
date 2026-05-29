@@ -667,7 +667,11 @@ export function useConnection({
                 ) =>
                   fetch(url, {
                     ...init,
-                    headers: { ...headers, ...proxyHeaders },
+                    headers: {
+                      ...headers,
+                      ...proxyHeaders,
+                      ...(init?.headers || {}),
+                    },
                   }),
               },
               requestInit: {
@@ -698,7 +702,11 @@ export function useConnection({
                 ) =>
                   fetch(url, {
                     ...init,
-                    headers: { ...headers, ...proxyHeaders },
+                    headers: {
+                      ...headers,
+                      ...proxyHeaders,
+                      ...(init?.headers || {}),
+                    },
                   }),
               },
               requestInit: {
@@ -708,9 +716,19 @@ export function useConnection({
             break;
           }
 
-          case "streamable-http":
+          case "streamable-http": {
             mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
             mcpProxyServerUrl.searchParams.append("url", sseUrl);
+            // Mirror the direct-mode pre-seed at L573-576: the SDK captures
+            // Mcp-Session-Id from the init response and includes it on
+            // subsequent requests via `init.headers`. Belt-and-braces seeding
+            // the React-state-tracked session id into requestInit.headers
+            // guards client-to-proxy session continuity across re-renders.
+            // See MCP spec `docs/specification/2025-11-25/basic/transports.mdx`.
+            const proxyRequestHeaders = { ...headers, ...proxyHeaders };
+            if (mcpSessionId) {
+              proxyRequestHeaders["mcp-session-id"] = mcpSessionId;
+            }
             transportOptions = {
               authProvider: serverAuthProvider,
               eventSourceInit: {
@@ -720,11 +738,14 @@ export function useConnection({
                 ) =>
                   fetch(url, {
                     ...init,
-                    headers: { ...headers, ...proxyHeaders },
+                    headers: {
+                      ...proxyRequestHeaders,
+                      ...(init?.headers || {}),
+                    },
                   }),
               },
               requestInit: {
-                headers: { ...headers, ...proxyHeaders },
+                headers: proxyRequestHeaders,
               },
               // TODO these should be configurable...
               reconnectionOptions: {
@@ -735,6 +756,7 @@ export function useConnection({
               },
             };
             break;
+          }
         }
         serverUrl = mcpProxyServerUrl as URL;
         serverUrl.searchParams.append("transportType", transportType);
