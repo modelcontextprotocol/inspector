@@ -4,10 +4,20 @@ import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { SortToggle } from "./SortToggle";
 
 describe("SortToggle", () => {
-  it("renders a button with the default aria-label", () => {
+  it("renders the current value as the selected option", () => {
+    renderWithMantine(<SortToggle value="newest-first" onChange={() => {}} />);
+    expect(screen.getByDisplayValue("Newest First")).toBeInTheDocument();
+  });
+
+  it("renders 'Oldest First' when value is oldest-first", () => {
+    renderWithMantine(<SortToggle value="oldest-first" onChange={() => {}} />);
+    expect(screen.getByDisplayValue("Oldest First")).toBeInTheDocument();
+  });
+
+  it("uses the default aria-label", () => {
     renderWithMantine(<SortToggle value="newest-first" onChange={() => {}} />);
     expect(
-      screen.getByRole("button", { name: "Sort direction" }),
+      screen.getByRole("textbox", { name: "Sort direction" }),
     ).toBeInTheDocument();
   });
 
@@ -19,37 +29,17 @@ describe("SortToggle", () => {
         aria-label="Logs sort"
       />,
     );
-    expect(screen.getByRole("button", { name: "Logs sort" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: "Logs sort" }),
+    ).toBeInTheDocument();
   });
 
-  it("flips to oldest-first when clicked while newest-first", async () => {
+  it("invokes onChange with the new direction when the user picks another option", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     renderWithMantine(<SortToggle value="newest-first" onChange={onChange} />);
-    await user.click(screen.getByRole("button", { name: "Sort direction" }));
-    expect(onChange).toHaveBeenCalledWith("oldest-first");
-  });
-
-  it("flips to newest-first when clicked while oldest-first", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    renderWithMantine(<SortToggle value="oldest-first" onChange={onChange} />);
-    await user.click(screen.getByRole("button", { name: "Sort direction" }));
-    expect(onChange).toHaveBeenCalledWith("newest-first");
-  });
-
-  it("renders the subtle variant as an ActionIcon (still a button)", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    renderWithMantine(
-      <SortToggle
-        value="newest-first"
-        variant="subtle"
-        onChange={onChange}
-      />,
-    );
-    const btn = screen.getByRole("button", { name: "Sort direction" });
-    await user.click(btn);
+    await user.click(screen.getByRole("textbox", { name: "Sort direction" }));
+    await user.click(await screen.findByText("Oldest First"));
     expect(onChange).toHaveBeenCalledWith("oldest-first");
   });
 });

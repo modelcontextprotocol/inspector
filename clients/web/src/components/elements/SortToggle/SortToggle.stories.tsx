@@ -25,22 +25,17 @@ export const OldestFirst: Story = {
   },
 };
 
-export const Subtle: Story = {
-  args: {
-    value: "newest-first",
-    variant: "subtle",
-  },
-};
-
 export const FlipsDirection: Story = {
   args: {
     value: "newest-first",
   },
   play: async ({ canvasElement, args }) => {
     const body = within(canvasElement.ownerDocument.body);
-    await userEvent.click(
-      await body.findByRole("button", { name: "Sort direction" }),
-    );
+    const select = await body.findByRole("textbox", {
+      name: "Sort direction",
+    });
+    await userEvent.click(select);
+    await userEvent.click(await body.findByText("Oldest First"));
     await expect(args.onChange).toHaveBeenCalledWith("oldest-first");
   },
 };

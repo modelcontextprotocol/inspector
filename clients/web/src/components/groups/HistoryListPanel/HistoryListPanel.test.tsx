@@ -260,8 +260,9 @@ describe("HistoryListPanel", () => {
       />,
     );
     await user.click(
-      screen.getByRole("button", { name: "History sort direction" }),
+      screen.getByRole("textbox", { name: "History sort direction" }),
     );
+    await user.click(await screen.findByText("Oldest First"));
     expect(onSortChange).toHaveBeenCalledWith("oldest-first");
   });
 

@@ -351,10 +351,13 @@ describe("InspectorView", () => {
     await user.click(tabSelect);
     await user.click(await screen.findByText("Logs"));
 
-    // Default is newest-first; clicking the toggle flips to oldest-first.
-    await user.click(
-      await screen.findByRole("button", { name: "Logs sort direction" }),
-    );
+    const sortSelect = await screen.findByRole("textbox", {
+      name: "Logs sort direction",
+    });
+    expect(sortSelect).toHaveValue("Newest First");
+    await user.click(sortSelect);
+    await user.click(await screen.findByText("Oldest First"));
+
     await waitFor(() =>
       expect(window.localStorage.getItem("inspector.sortDirection.logs")).toBe(
         "oldest-first",
@@ -376,16 +379,10 @@ describe("InspectorView", () => {
     const tabSelect2 = await screen.findByDisplayValue("Servers");
     await user.click(tabSelect2);
     await user.click(await screen.findByText("Logs"));
-    // The restored value is oldest-first; one more click flips back to
-    // newest-first — proves the previous oldest-first value was hydrated.
-    await user.click(
-      await screen.findByRole("button", { name: "Logs sort direction" }),
-    );
-    await waitFor(() =>
-      expect(window.localStorage.getItem("inspector.sortDirection.logs")).toBe(
-        "newest-first",
-      ),
-    );
+    const sortSelect2 = await screen.findByRole("textbox", {
+      name: "Logs sort direction",
+    });
+    await waitFor(() => expect(sortSelect2).toHaveValue("Oldest First"));
   });
 
   it("falls back to newest-first when a corrupted sort value is stored", async () => {
@@ -405,17 +402,10 @@ describe("InspectorView", () => {
     const tabSelect = await screen.findByDisplayValue("Servers");
     await user.click(tabSelect);
     await user.click(await screen.findByText("History"));
-    // Garbage gets clamped to newest-first; clicking flips to oldest-first
-    // and writes that out — proves the initial in-memory value was the
-    // default, not "garbage".
-    await user.click(
-      await screen.findByRole("button", { name: "History sort direction" }),
-    );
-    await waitFor(() =>
-      expect(
-        window.localStorage.getItem("inspector.sortDirection.history"),
-      ).toBe("oldest-first"),
-    );
+    const sortSelect = await screen.findByRole("textbox", {
+      name: "History sort direction",
+    });
+    await waitFor(() => expect(sortSelect).toHaveValue("Newest First"));
   });
 
   it("persists History list compact state to localStorage and restores it on remount", async () => {

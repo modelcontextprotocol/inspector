@@ -172,15 +172,16 @@ describe("LogStreamPanel", () => {
     );
   });
 
-  it("invokes onSortChange with the flipped direction when the toggle is clicked", async () => {
+  it("invokes onSortChange when the user picks a new sort", async () => {
     const user = userEvent.setup();
     const onSortChange = vi.fn();
     renderWithMantine(
       <LogStreamPanel {...baseProps} onSortChange={onSortChange} />,
     );
     await user.click(
-      screen.getByRole("button", { name: "Logs sort direction" }),
+      screen.getByRole("textbox", { name: "Logs sort direction" }),
     );
+    await user.click(await screen.findByText("Oldest First"));
     expect(onSortChange).toHaveBeenCalledWith("oldest-first");
   });
 });
