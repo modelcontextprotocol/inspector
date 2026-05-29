@@ -12,6 +12,8 @@ const meta: Meta<typeof NetworkScreen> = {
     onExport: fn(),
     sortDirection: "newest-first",
     onSortChange: fn(),
+    compact: true,
+    onToggleCompact: fn(),
   },
 };
 

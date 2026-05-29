@@ -14,6 +14,8 @@ const meta: Meta<typeof NetworkStreamPanel> = {
     onExport: fn(),
     sortDirection: "newest-first",
     onSortChange: fn(),
+    compact: true,
+    onToggleCompact: fn(),
   },
 };
 

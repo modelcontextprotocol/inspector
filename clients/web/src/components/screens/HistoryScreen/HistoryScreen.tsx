@@ -15,6 +15,8 @@ export interface HistoryScreenProps {
   onTogglePin: (id: string) => void;
   sortDirection: SortDirection;
   onSortChange: (next: SortDirection) => void;
+  compact: boolean;
+  onToggleCompact: () => void;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -43,6 +45,8 @@ export function HistoryScreen({
   onTogglePin,
   sortDirection,
   onSortChange,
+  compact,
+  onToggleCompact,
 }: HistoryScreenProps) {
   const [searchText, setSearchText] = useState("");
   const [methodFilter, setMethodFilter] = useState<MessageMethod | undefined>();
@@ -81,6 +85,8 @@ export function HistoryScreen({
         onTogglePin={onTogglePin}
         sortDirection={sortDirection}
         onSortChange={onSortChange}
+        compact={compact}
+        onToggleCompact={onToggleCompact}
       />
     </ScreenLayout>
   );

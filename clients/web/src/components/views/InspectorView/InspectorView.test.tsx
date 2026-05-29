@@ -407,4 +407,95 @@ describe("InspectorView", () => {
     });
     await waitFor(() => expect(sortSelect).toHaveValue("Sort: Newest First"));
   });
+
+  it("persists History list compact state to localStorage and restores it on remount", async () => {
+    const user = userEvent.setup();
+    const historyEntry = {
+      id: "req-1",
+      timestamp: new Date("2026-03-17T10:00:00Z"),
+      direction: "request" as const,
+      message: {
+        jsonrpc: "2.0" as const,
+        id: 1,
+        method: "tools/list",
+      },
+    };
+    const { unmount } = renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          latencyMs: 50,
+          history: [historyEntry],
+        })}
+      />,
+    );
+    const tabSelect = await screen.findByDisplayValue("Servers");
+    await user.click(tabSelect);
+    await user.click(await screen.findByText("History"));
+    // Default is collapsed — ListToggle reads "Expand all".
+    await user.click(await screen.findByRole("button", { name: "Expand all" }));
+
+    await waitFor(() =>
+      expect(window.localStorage.getItem("inspector.listCompact.history")).toBe(
+        "false",
+      ),
+    );
+
+    unmount();
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          latencyMs: 50,
+          history: [historyEntry],
+        })}
+      />,
+    );
+    const tabSelect2 = await screen.findByDisplayValue("Servers");
+    await user.click(tabSelect2);
+    await user.click(await screen.findByText("History"));
+    // After restore the list is expanded, so the ListToggle reads "Collapse all".
+    expect(
+      await screen.findByRole("button", { name: "Collapse all" }),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to collapsed when a corrupted compact value is stored", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem("inspector.listCompact.history", "garbage");
+    const historyEntry = {
+      id: "req-1",
+      timestamp: new Date("2026-03-17T10:00:00Z"),
+      direction: "request" as const,
+      message: {
+        jsonrpc: "2.0" as const,
+        id: 1,
+        method: "tools/list",
+      },
+    };
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          latencyMs: 50,
+          history: [historyEntry],
+        })}
+      />,
+    );
+    const tabSelect = await screen.findByDisplayValue("Servers");
+    await user.click(tabSelect);
+    await user.click(await screen.findByText("History"));
+    expect(
+      await screen.findByRole("button", { name: "Expand all" }),
+    ).toBeInTheDocument();
+  });
 });

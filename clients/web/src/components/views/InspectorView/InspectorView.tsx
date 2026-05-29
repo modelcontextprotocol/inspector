@@ -62,6 +62,21 @@ function serializeSortDirection(value: SortDirection): string {
   return value;
 }
 
+const LIST_COMPACT_DEFAULT = true;
+
+// Same shape as the sort adapters: store the boolean as `"true"` / `"false"`
+// so the localStorage value stays human-readable, and clamp any other value
+// back to the default rather than coercing it to `false`.
+function deserializeListCompact(raw: string | undefined): boolean {
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return LIST_COMPACT_DEFAULT;
+}
+
+function serializeListCompact(value: boolean): string {
+  return value ? "true" : "false";
+}
+
 const SERVERS_TAB = "Servers";
 const NETWORK_TAB = "Network";
 
@@ -332,6 +347,24 @@ export function InspectorView({
     getInitialValueInEffect: false,
   });
 
+  // Per-screen list-row compact (collapsed) preference. Same persistence
+  // shape as the sort hooks — synchronous read on first render to avoid a
+  // one-frame flip from default → stored value.
+  const [historyCompact, setHistoryCompact] = useLocalStorage<boolean>({
+    key: "inspector.listCompact.history",
+    defaultValue: LIST_COMPACT_DEFAULT,
+    deserialize: deserializeListCompact,
+    serialize: serializeListCompact,
+    getInitialValueInEffect: false,
+  });
+  const [networkCompact, setNetworkCompact] = useLocalStorage<boolean>({
+    key: "inspector.listCompact.network",
+    defaultValue: LIST_COMPACT_DEFAULT,
+    deserialize: deserializeListCompact,
+    serialize: serializeListCompact,
+    getInitialValueInEffect: false,
+  });
+
   // Only show the non-Servers tabs when actually connected. Network is
   // additionally hidden for stdio servers — there is no HTTP traffic to
   // surface there, so the tab would always be empty. Capability-aware
@@ -508,6 +541,8 @@ export function InspectorView({
               onTogglePin={onTogglePinHistory}
               sortDirection={historySort}
               onSortChange={setHistorySort}
+              compact={historyCompact}
+              onToggleCompact={() => setHistoryCompact((c) => !c)}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Network"}>
@@ -517,6 +552,8 @@ export function InspectorView({
               onExport={onExportNetwork}
               sortDirection={networkSort}
               onSortChange={setNetworkSort}
+              compact={networkCompact}
+              onToggleCompact={() => setNetworkCompact((c) => !c)}
             />
           </ScreenStage>
         </ScreenStageContainer>

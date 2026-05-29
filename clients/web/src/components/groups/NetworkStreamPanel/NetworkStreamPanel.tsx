@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   Button,
   Group,
@@ -27,6 +27,8 @@ export interface NetworkStreamPanelProps {
   onExport: () => void;
   sortDirection: SortDirection;
   onSortChange: (next: SortDirection) => void;
+  compact: boolean;
+  onToggleCompact: () => void;
 }
 
 const PanelContainer = Paper.withProps({
@@ -90,9 +92,9 @@ export function NetworkStreamPanel({
   onExport,
   sortDirection,
   onSortChange,
+  compact,
+  onToggleCompact,
 }: NetworkStreamPanelProps) {
-  const [compact, setCompact] = useState(true);
-
   const filteredEntries = useMemo(() => {
     // `.filter()` returns a fresh array, so sorting in-place is safe.
     const sorted = entries
@@ -111,10 +113,7 @@ export function NetworkStreamPanel({
         <Title order={4}>{formatTitle(filteredEntries.length)}</Title>
         <Group gap="xs">
           {hasResults && (
-            <ListToggle
-              compact={compact}
-              onToggle={() => setCompact((c) => !c)}
-            />
+            <ListToggle compact={compact} onToggle={onToggleCompact} />
           )}
           <SortToggle
             value={sortDirection}

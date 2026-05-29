@@ -29,6 +29,8 @@ const baseProps = {
   onExport: vi.fn(),
   sortDirection: "newest-first" as const,
   onSortChange: vi.fn(),
+  compact: true,
+  onToggleCompact: vi.fn(),
 };
 
 describe("NetworkStreamPanel", () => {
@@ -126,15 +128,26 @@ describe("NetworkStreamPanel", () => {
     expect(screen.getByRole("button", { name: "Export" })).toBeDisabled();
   });
 
-  it("toggles between compact and expanded list views", async () => {
-    const user = userEvent.setup();
-    renderWithMantine(<NetworkStreamPanel {...baseProps} />);
-    // List starts compact -> entry should show Expand button
+  it("renders entries collapsed when compact is true", () => {
+    renderWithMantine(<NetworkStreamPanel {...baseProps} compact />);
     expect(screen.getByRole("button", { name: "Expand" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Expand all" }));
+  });
+
+  it("renders entries expanded when compact is false", () => {
+    renderWithMantine(<NetworkStreamPanel {...baseProps} compact={false} />);
     expect(
       screen.getByRole("button", { name: "Collapse" }),
     ).toBeInTheDocument();
+  });
+
+  it("invokes onToggleCompact when the ListToggle is clicked", async () => {
+    const user = userEvent.setup();
+    const onToggleCompact = vi.fn();
+    renderWithMantine(
+      <NetworkStreamPanel {...baseProps} onToggleCompact={onToggleCompact} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(onToggleCompact).toHaveBeenCalledTimes(1);
   });
 
   it("renders entries newest-first by default", () => {

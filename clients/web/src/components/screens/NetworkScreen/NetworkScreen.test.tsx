@@ -45,6 +45,8 @@ const baseProps = {
   onExport: vi.fn(),
   sortDirection: "newest-first" as const,
   onSortChange: vi.fn(),
+  compact: true,
+  onToggleCompact: vi.fn(),
 };
 
 describe("NetworkScreen", () => {

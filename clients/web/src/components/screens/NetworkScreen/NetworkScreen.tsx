@@ -14,6 +14,8 @@ export interface NetworkScreenProps {
   onExport: () => void;
   sortDirection: SortDirection;
   onSortChange: (next: SortDirection) => void;
+  compact: boolean;
+  onToggleCompact: () => void;
 }
 
 const ALL_CATEGORIES_VISIBLE: Record<FetchRequestCategory, boolean> = {
@@ -49,6 +51,8 @@ export function NetworkScreen({
   onExport,
   sortDirection,
   onSortChange,
+  compact,
+  onToggleCompact,
 }: NetworkScreenProps) {
   const [filterText, setFilterText] = useState("");
   const [visibleCategories, setVisibleCategories] = useState<
@@ -90,6 +94,8 @@ export function NetworkScreen({
         onExport={onExport}
         sortDirection={sortDirection}
         onSortChange={onSortChange}
+        compact={compact}
+        onToggleCompact={onToggleCompact}
       />
     </ScreenLayout>
   );

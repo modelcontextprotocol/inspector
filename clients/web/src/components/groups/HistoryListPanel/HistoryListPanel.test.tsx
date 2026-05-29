@@ -68,6 +68,8 @@ const baseProps = {
   onTogglePin: vi.fn(),
   sortDirection: "newest-first" as const,
   onSortChange: vi.fn(),
+  compact: true,
+  onToggleCompact: vi.fn(),
 };
 
 describe("HistoryListPanel", () => {
@@ -264,22 +266,39 @@ describe("HistoryListPanel", () => {
     expect(onSortChange).toHaveBeenCalledWith("oldest-first");
   });
 
-  it("toggles compact list state when ListToggle is clicked", async () => {
-    const user = userEvent.setup();
+  it("renders entries collapsed when compact is true (default parity with Network)", () => {
     renderWithMantine(
-      <HistoryListPanel {...baseProps} entries={sampleEntries} />,
+      <HistoryListPanel {...baseProps} entries={sampleEntries} compact />,
     );
-    // Initially collapsed (parity with Network) — entries show Expand and
-    // the ListToggle exposes its aria-label as "Expand all".
     expect(
       screen.getAllByRole("button", { name: "Expand" }).length,
     ).toBeGreaterThan(0);
+  });
 
-    await user.click(screen.getByRole("button", { name: "Expand all" }));
-
-    // After toggle, entries expanded — they show Collapse.
+  it("renders entries expanded when compact is false", () => {
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        compact={false}
+      />,
+    );
     expect(
       screen.getAllByRole("button", { name: "Collapse" }).length,
     ).toBeGreaterThan(0);
+  });
+
+  it("invokes onToggleCompact when the ListToggle is clicked", async () => {
+    const user = userEvent.setup();
+    const onToggleCompact = vi.fn();
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        onToggleCompact={onToggleCompact}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(onToggleCompact).toHaveBeenCalledTimes(1);
   });
 });

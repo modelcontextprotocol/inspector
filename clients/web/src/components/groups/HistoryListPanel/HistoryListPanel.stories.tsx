@@ -15,6 +15,8 @@ const meta: Meta<typeof HistoryListPanel> = {
     onTogglePin: fn(),
     sortDirection: "newest-first",
     onSortChange: fn(),
+    compact: true,
+    onToggleCompact: fn(),
   },
 };
 
