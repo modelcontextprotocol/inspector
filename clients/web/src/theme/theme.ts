@@ -15,6 +15,7 @@ import {
   ThemeSwitch,
   ThemeText,
   ThemeTextInput,
+  ThemeTitle,
   ThemeUnstyledButton,
 } from "./index";
 
@@ -69,6 +70,7 @@ export const theme = createTheme({
     Switch: ThemeSwitch,
     Text: ThemeText,
     TextInput: ThemeTextInput,
+    Title: ThemeTitle,
     UnstyledButton: ThemeUnstyledButton,
   },
 });

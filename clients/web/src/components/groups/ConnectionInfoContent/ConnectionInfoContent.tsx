@@ -36,6 +36,11 @@ const ValueText = Text.withProps({
   fw: 600,
 });
 
+const SectionHeading = Title.withProps({
+  order: 5,
+  variant: "section",
+});
+
 function formatScopes(scopes: string[]): string {
   return scopes.join(", ");
 }
@@ -85,7 +90,7 @@ export function ConnectionInfoContent({
   return (
     <Stack gap="md">
       <Stack gap="xs">
-        <Title order={5}>Server Implementation</Title>
+        <SectionHeading>Server Implementation</SectionHeading>
         <SimpleGrid cols={2}>
           <Text size="sm">Name</Text>
           <ValueText>{serverInfo.name}</ValueText>
@@ -103,7 +108,7 @@ export function ConnectionInfoContent({
 
       <SimpleGrid cols={2}>
         <Stack gap="xs">
-          <Title order={5}>Server Capabilities</Title>
+          <SectionHeading>Server Capabilities</SectionHeading>
           {serverCaps.map((cap) => (
             <CapabilityItem
               key={cap.capability}
@@ -113,7 +118,7 @@ export function ConnectionInfoContent({
           ))}
         </Stack>
         <Stack gap="xs">
-          <Title order={5}>Client Capabilities</Title>
+          <SectionHeading>Client Capabilities</SectionHeading>
           {clientCaps.map((cap) => (
             <CapabilityItem
               key={cap.capability}
@@ -126,7 +131,7 @@ export function ConnectionInfoContent({
 
       {instructions && (
         <Stack gap="xs">
-          <Title order={5}>Server Instructions</Title>
+          <SectionHeading>Server Instructions</SectionHeading>
           {/* Cap the instructions block so a long server prompt scrolls
               inside the section instead of pushing the OAuth section and
               modal chrome off-screen. */}
@@ -141,7 +146,7 @@ export function ConnectionInfoContent({
 
       {oauth && (
         <Stack gap="xs">
-          <Title order={5}>OAuth Details</Title>
+          <SectionHeading>OAuth Details</SectionHeading>
           <Stack gap="xs">
             {oauth.authUrl && (
               <SimpleGrid cols={2}>
