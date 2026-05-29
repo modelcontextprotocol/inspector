@@ -149,6 +149,7 @@ export function ServerCard({
                   data: connection.error.details,
                 }}
                 retryCount={connection.retryCount}
+                autoDismissMs={5000}
               />
             )}
 
