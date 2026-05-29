@@ -80,7 +80,7 @@ export function HistoryListPanel({
   sortDirection,
   onSortChange,
 }: HistoryListPanelProps) {
-  const [compact, setCompact] = useState(false);
+  const [compact, setCompact] = useState(true);
 
   const filteredEntries = useMemo(() => {
     // `.filter()` returns a fresh array, so sorting in-place is safe.

@@ -269,17 +269,17 @@ describe("HistoryListPanel", () => {
     renderWithMantine(
       <HistoryListPanel {...baseProps} entries={sampleEntries} />,
     );
-    // Initially expanded — Collapse buttons exist on each entry, and the
-    // ListToggle exposes its aria-label as "Collapse all".
-    expect(
-      screen.getAllByRole("button", { name: "Collapse" }).length,
-    ).toBeGreaterThan(0);
-
-    await user.click(screen.getByRole("button", { name: "Collapse all" }));
-
-    // After toggle, entries collapsed — they show Expand
+    // Initially collapsed (parity with Network) — entries show Expand and
+    // the ListToggle exposes its aria-label as "Expand all".
     expect(
       screen.getAllByRole("button", { name: "Expand" }).length,
+    ).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Expand all" }));
+
+    // After toggle, entries expanded — they show Collapse.
+    expect(
+      screen.getAllByRole("button", { name: "Collapse" }).length,
     ).toBeGreaterThan(0);
   });
 });
