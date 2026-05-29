@@ -364,6 +364,23 @@ export function InspectorView({
     serialize: serializeListCompact,
     getInitialValueInEffect: false,
   });
+  const [serversCompact, setServersCompact] = useLocalStorage<boolean>({
+    key: "inspector.listCompact.servers",
+    defaultValue: false,
+    deserialize: deserializeListCompact,
+    serialize: serializeListCompact,
+    getInitialValueInEffect: false,
+  });
+  // Resources defaults to expanded so new users see the sidebar's content
+  // sections opened (mirrors the pre-persistence behavior of showing
+  // sections that had entries).
+  const [resourcesCompact, setResourcesCompact] = useLocalStorage<boolean>({
+    key: "inspector.listCompact.resources",
+    defaultValue: false,
+    deserialize: deserializeListCompact,
+    serialize: serializeListCompact,
+    getInitialValueInEffect: false,
+  });
 
   // Only show the non-Servers tabs when actually connected. Network is
   // additionally hidden for stdio servers — there is no HTTP traffic to
@@ -458,6 +475,8 @@ export function InspectorView({
               onEdit={onServerEdit}
               onClone={onServerClone}
               onRemove={onServerRemove}
+              compact={serversCompact}
+              onToggleCompact={() => setServersCompact((c) => !c)}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Tools"}>
@@ -509,6 +528,8 @@ export function InspectorView({
               onSubscribeResource={onSubscribeResource}
               onUnsubscribeResource={onUnsubscribeResource}
               onCompleteArgument={onCompleteArgument}
+              compact={resourcesCompact}
+              onCompactChange={setResourcesCompact}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Tasks"}>

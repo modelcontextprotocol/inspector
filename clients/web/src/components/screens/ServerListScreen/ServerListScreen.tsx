@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { ScrollArea, SimpleGrid, Stack, Text } from "@mantine/core";
 import type { ServerEntry } from "@inspector/core/mcp/types.js";
 import { ServerCard } from "../../groups/ServerCard/ServerCard";
@@ -19,6 +18,8 @@ export interface ServerListScreenProps {
   onEdit: (id: string) => void;
   onClone: (id: string) => void;
   onRemove: (id: string) => void;
+  compact: boolean;
+  onToggleCompact: () => void;
 }
 
 const PageContainer = Stack.withProps({
@@ -44,19 +45,15 @@ export function ServerListScreen({
   onEdit,
   onClone,
   onRemove,
+  compact,
+  onToggleCompact,
 }: ServerListScreenProps) {
-  const [compact, setCompact] = useState<boolean>(false);
-
-  function handleToggleList() {
-    setCompact((prev) => !prev);
-  }
-
   return (
     <PageContainer>
       <ServerListControls
         serverCount={servers.length}
         compact={compact}
-        onToggleList={handleToggleList}
+        onToggleList={onToggleCompact}
         onAddManually={onAddManually}
         onImportConfig={onImportConfig}
         onImportServerJson={onImportServerJson}

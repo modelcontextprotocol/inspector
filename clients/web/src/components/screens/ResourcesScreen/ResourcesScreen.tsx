@@ -47,6 +47,8 @@ export interface ResourcesScreenProps {
     argumentValue: string,
     context: Record<string, string>,
   ) => Promise<string[]>;
+  compact: boolean;
+  onCompactChange: (next: boolean) => void;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -112,6 +114,8 @@ export function ResourcesScreen({
   onSubscribeResource,
   onUnsubscribeResource,
   onCompleteArgument,
+  compact,
+  onCompactChange,
 }: ResourcesScreenProps) {
   const [selectedResourceUri, setSelectedResourceUri] = useState<
     string | undefined
@@ -252,6 +256,8 @@ export function ResourcesScreen({
             onSelectUri={handleSelectResource}
             onSelectTemplate={handleSelectTemplate}
             onUnsubscribeResource={onUnsubscribeResource}
+            compact={compact}
+            onCompactChange={onCompactChange}
           />
         </SidebarCard>
       </Sidebar>

@@ -26,6 +26,8 @@ const baseProps = {
   onReadResource: vi.fn(),
   onSubscribeResource: vi.fn(),
   onUnsubscribeResource: vi.fn(),
+  compact: false,
+  onCompactChange: vi.fn(),
 };
 
 const okResult: ReadResourceResult = {

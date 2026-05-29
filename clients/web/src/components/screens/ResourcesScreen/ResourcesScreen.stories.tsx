@@ -20,6 +20,8 @@ const meta: Meta<typeof ResourcesScreen> = {
     listChanged: false,
     subscriptions: [],
     templates: [],
+    compact: false,
+    onCompactChange: fn(),
   },
 };
 
