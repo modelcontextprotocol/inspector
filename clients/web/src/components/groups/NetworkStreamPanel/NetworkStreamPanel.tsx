@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   Button,
   Group,
@@ -14,6 +14,10 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import { NetworkEntry } from "../NetworkEntry/NetworkEntry";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
+import {
+  SortToggle,
+  type SortDirection,
+} from "../../elements/SortToggle/SortToggle";
 
 export interface NetworkStreamPanelProps {
   entries: FetchRequestEntry[];
@@ -21,6 +25,10 @@ export interface NetworkStreamPanelProps {
   visibleCategories: Record<FetchRequestCategory, boolean>;
   onClear: () => void;
   onExport: () => void;
+  sortDirection: SortDirection;
+  onSortChange: (next: SortDirection) => void;
+  compact: boolean;
+  onToggleCompact: () => void;
 }
 
 const PanelContainer = Paper.withProps({
@@ -82,14 +90,19 @@ export function NetworkStreamPanel({
   visibleCategories,
   onClear,
   onExport,
+  sortDirection,
+  onSortChange,
+  compact,
+  onToggleCompact,
 }: NetworkStreamPanelProps) {
-  const [compact, setCompact] = useState(true);
-
-  const filteredEntries = useMemo(
-    () =>
-      entries.filter((e) => matchesFilters(e, filterText, visibleCategories)),
-    [entries, filterText, visibleCategories],
-  );
+  const filteredEntries = useMemo(() => {
+    // `.filter()` returns a fresh array, so sorting in-place is safe.
+    const sorted = entries
+      .filter((e) => matchesFilters(e, filterText, visibleCategories))
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    if (sortDirection === "newest-first") sorted.reverse();
+    return sorted;
+  }, [entries, filterText, visibleCategories, sortDirection]);
 
   const hasEntries = entries.length > 0;
   const hasResults = filteredEntries.length > 0;
@@ -100,11 +113,13 @@ export function NetworkStreamPanel({
         <Title order={4}>{formatTitle(filteredEntries.length)}</Title>
         <Group gap="xs">
           {hasResults && (
-            <ListToggle
-              compact={compact}
-              onToggle={() => setCompact((c) => !c)}
-            />
+            <ListToggle compact={compact} onToggle={onToggleCompact} />
           )}
+          <SortToggle
+            value={sortDirection}
+            onChange={onSortChange}
+            aria-label="Network sort direction"
+          />
           <Button variant="default" onClick={onClear} disabled={!hasEntries}>
             Clear
           </Button>

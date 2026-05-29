@@ -43,6 +43,10 @@ const baseProps = {
   entries: [transportEntry, authEntry, errorEntry],
   onClear: vi.fn(),
   onExport: vi.fn(),
+  sortDirection: "newest-first" as const,
+  onSortChange: vi.fn(),
+  compact: true,
+  onToggleCompact: vi.fn(),
 };
 
 describe("NetworkScreen", () => {

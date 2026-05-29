@@ -6,11 +6,16 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import { NetworkControls } from "../../groups/NetworkControls/NetworkControls";
 import { NetworkStreamPanel } from "../../groups/NetworkStreamPanel/NetworkStreamPanel";
+import type { SortDirection } from "../../elements/SortToggle/SortToggle";
 
 export interface NetworkScreenProps {
   entries: FetchRequestEntry[];
   onClear: () => void;
   onExport: () => void;
+  sortDirection: SortDirection;
+  onSortChange: (next: SortDirection) => void;
+  compact: boolean;
+  onToggleCompact: () => void;
 }
 
 const ALL_CATEGORIES_VISIBLE: Record<FetchRequestCategory, boolean> = {
@@ -44,6 +49,10 @@ export function NetworkScreen({
   entries,
   onClear,
   onExport,
+  sortDirection,
+  onSortChange,
+  compact,
+  onToggleCompact,
 }: NetworkScreenProps) {
   const [filterText, setFilterText] = useState("");
   const [visibleCategories, setVisibleCategories] = useState<
@@ -83,6 +92,10 @@ export function NetworkScreen({
         visibleCategories={visibleCategories}
         onClear={onClear}
         onExport={onExport}
+        sortDirection={sortDirection}
+        onSortChange={onSortChange}
+        compact={compact}
+        onToggleCompact={onToggleCompact}
       />
     </ScreenLayout>
   );

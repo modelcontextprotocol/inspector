@@ -16,6 +16,8 @@ const meta: Meta<typeof ResourceControls> = {
     onSelectTemplate: fn(),
     onUnsubscribeResource: fn(),
     listChanged: false,
+    compact: false,
+    onCompactChange: fn(),
   },
 };
 

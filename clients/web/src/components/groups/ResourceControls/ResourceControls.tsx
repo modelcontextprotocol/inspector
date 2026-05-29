@@ -28,6 +28,13 @@ export interface ResourceControlsProps {
   onSelectUri: (uri: string) => void;
   onSelectTemplate: (uriTemplate: string) => void;
   onUnsubscribeResource: (uri: string) => void;
+  /**
+   * Persisted preference for the ListToggle. Seeds initial accordion state
+   * on mount; the user can still toggle individual sections during a session
+   * without affecting this value. Only an explicit ListToggle click updates it.
+   */
+  compact: boolean;
+  onCompactChange: (next: boolean) => void;
 }
 
 function panelMaxHeight(openCount: number): string {
@@ -52,6 +59,8 @@ export function ResourceControls({
   onSelectUri,
   onSelectTemplate,
   onUnsubscribeResource,
+  compact: initialCompact,
+  onCompactChange,
 }: ResourceControlsProps) {
   const [searchText, setSearchText] = useState("");
   const query = searchText.toLowerCase();
@@ -74,16 +83,26 @@ export function ResourceControls({
       s.resource.uri.toLowerCase().includes(query),
   );
 
-  const defaultOpen = [
-    ...(filteredResources.length > 0 ? ["resources"] : []),
-    ...(filteredTemplates.length > 0 ? ["templates"] : []),
-    ...(filteredSubscriptions.length > 0 ? ["subscriptions"] : []),
-  ];
-
   const allSections = ["resources", "templates", "subscriptions"];
-  const [openSections, setOpenSections] = useState<string[]>(defaultOpen);
+  // Seed the accordion from the persisted preference: empty when the user
+  // last left the panel compact, all three open when they explicitly
+  // expanded. Per-section accordion clicks during a session update the
+  // local list but don't change the persisted preference.
+  const [openSections, setOpenSections] = useState<string[]>(
+    initialCompact ? [] : [...allSections],
+  );
   const allExpanded = openSections.length === allSections.length;
   const maxHeight = panelMaxHeight(openSections.length);
+
+  function handleToggleList() {
+    // Compute the next compact value from what the click will produce so a
+    // half-open accordion (user toggled a single section) still persists the
+    // right preference: clicking "expand all" should record `compact=false`
+    // even if the visible state was already partially expanded.
+    const nextCompact = allExpanded;
+    setOpenSections(nextCompact ? [] : [...allSections]);
+    onCompactChange(nextCompact);
+  }
 
   return (
     <Stack gap="sm">
@@ -98,10 +117,7 @@ export function ResourceControls({
           value={searchText}
           onChange={(e) => setSearchText(e.currentTarget.value)}
         />
-        <ListToggle
-          compact={!allExpanded}
-          onToggle={() => setOpenSections(allExpanded ? [] : [...allSections])}
-        />
+        <ListToggle compact={!allExpanded} onToggle={handleToggleList} />
       </Group>
       <Accordion multiple value={openSections} onChange={setOpenSections}>
         <Accordion.Item value="resources">

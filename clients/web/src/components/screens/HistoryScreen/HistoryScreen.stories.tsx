@@ -13,6 +13,10 @@ const meta: Meta<typeof HistoryScreen> = {
     onExport: fn(),
     onReplay: fn(),
     onTogglePin: fn(),
+    sortDirection: "newest-first",
+    onSortChange: fn(),
+    compact: true,
+    onToggleCompact: fn(),
   },
 };
 

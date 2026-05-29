@@ -27,6 +27,10 @@ const baseProps = {
   visibleCategories: { auth: true, transport: true } as const,
   onClear: vi.fn(),
   onExport: vi.fn(),
+  sortDirection: "newest-first" as const,
+  onSortChange: vi.fn(),
+  compact: true,
+  onToggleCompact: vi.fn(),
 };
 
 describe("NetworkStreamPanel", () => {
@@ -124,14 +128,88 @@ describe("NetworkStreamPanel", () => {
     expect(screen.getByRole("button", { name: "Export" })).toBeDisabled();
   });
 
-  it("toggles between compact and expanded list views", async () => {
-    const user = userEvent.setup();
-    renderWithMantine(<NetworkStreamPanel {...baseProps} />);
-    // List starts compact -> entry should show Expand button
+  it("renders entries collapsed when compact is true", () => {
+    renderWithMantine(<NetworkStreamPanel {...baseProps} compact />);
     expect(screen.getByRole("button", { name: "Expand" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Expand all" }));
+  });
+
+  it("renders entries expanded when compact is false", () => {
+    renderWithMantine(<NetworkStreamPanel {...baseProps} compact={false} />);
     expect(
       screen.getByRole("button", { name: "Collapse" }),
     ).toBeInTheDocument();
+  });
+
+  it("invokes onToggleCompact when the ListToggle is clicked", async () => {
+    const user = userEvent.setup();
+    const onToggleCompact = vi.fn();
+    renderWithMantine(
+      <NetworkStreamPanel {...baseProps} onToggleCompact={onToggleCompact} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(onToggleCompact).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders entries newest-first by default", () => {
+    const older: FetchRequestEntry = {
+      ...entry,
+      id: "older",
+      url: "https://example.com/older",
+      timestamp: new Date("2026-03-17T09:00:00Z"),
+    };
+    const newer: FetchRequestEntry = {
+      ...entry,
+      id: "newer",
+      url: "https://example.com/newer",
+      timestamp: new Date("2026-03-17T11:00:00Z"),
+    };
+    renderWithMantine(
+      <NetworkStreamPanel {...baseProps} entries={[older, newer]} />,
+    );
+    const urls = screen.getAllByText(/example\.com\//);
+    expect(urls[0]).toHaveTextContent("https://example.com/newer");
+    expect(urls[urls.length - 1]).toHaveTextContent(
+      "https://example.com/older",
+    );
+  });
+
+  it("reorders entries when sortDirection is oldest-first", () => {
+    const older: FetchRequestEntry = {
+      ...entry,
+      id: "older",
+      url: "https://example.com/older",
+      timestamp: new Date("2026-03-17T09:00:00Z"),
+    };
+    const newer: FetchRequestEntry = {
+      ...entry,
+      id: "newer",
+      url: "https://example.com/newer",
+      timestamp: new Date("2026-03-17T11:00:00Z"),
+    };
+    renderWithMantine(
+      <NetworkStreamPanel
+        {...baseProps}
+        entries={[newer, older]}
+        sortDirection="oldest-first"
+      />,
+    );
+    const urls = screen.getAllByText(/example\.com\//);
+    expect(urls[0]).toHaveTextContent("https://example.com/older");
+    expect(urls[urls.length - 1]).toHaveTextContent(
+      "https://example.com/newer",
+    );
+  });
+
+  it("invokes onSortChange when the user picks a new sort", async () => {
+    const user = userEvent.setup();
+    const onSortChange = vi.fn();
+    renderWithMantine(
+      <NetworkStreamPanel {...baseProps} onSortChange={onSortChange} />,
+    );
+    await user.click(
+      screen.getByRole("textbox", { name: "Network sort direction" }),
+    );
+    await user.click(await screen.findByText("Oldest First"));
+    expect(onSortChange).toHaveBeenCalledWith("oldest-first");
   });
 });

@@ -13,8 +13,8 @@ const meta: Meta<typeof LoggingScreen> = {
     onSetLevel: fn(),
     onClear: fn(),
     onExport: fn(),
-    autoScroll: true,
-    onToggleAutoScroll: fn(),
+    sortDirection: "newest-first",
+    onSortChange: fn(),
   },
 };
 

@@ -9,8 +9,8 @@ const baseProps = {
   onSetLevel: vi.fn(),
   onClear: vi.fn(),
   onExport: vi.fn(),
-  autoScroll: true,
-  onToggleAutoScroll: vi.fn(),
+  sortDirection: "newest-first" as const,
+  onSortChange: vi.fn(),
 };
 
 describe("LoggingScreen", () => {

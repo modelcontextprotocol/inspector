@@ -33,6 +33,8 @@ const baseProps = {
   onSelectUri: vi.fn(),
   onSelectTemplate: vi.fn(),
   onUnsubscribeResource: vi.fn(),
+  compact: false,
+  onCompactChange: vi.fn(),
 };
 
 describe("ResourceControls", () => {
@@ -150,23 +152,40 @@ describe("ResourceControls", () => {
     expect(screen.getByText("Subscriptions (0)")).toBeInTheDocument();
   });
 
-  it("toggles all sections via the ListToggle button", async () => {
+  it("seeds the accordion to all-open when compact is false", () => {
+    renderWithMantine(<ResourceControls {...baseProps} compact={false} />);
+    // All three sections open → ListToggle reads "Collapse all".
+    expect(
+      screen.getByRole("button", { name: "Collapse all" }),
+    ).toBeInTheDocument();
+  });
+
+  it("seeds the accordion to all-closed when compact is true", () => {
+    renderWithMantine(<ResourceControls {...baseProps} compact />);
+    // All three sections closed → ListToggle reads "Expand all".
+    expect(
+      screen.getByRole("button", { name: "Expand all" }),
+    ).toBeInTheDocument();
+  });
+
+  it("invokes onCompactChange with the new preference when the ListToggle is clicked", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<ResourceControls {...baseProps} />);
-    const toggleButtons = screen.getAllByRole("button");
-    // The list toggle is the last in the search row; just exercise it.
-    // Since all three sections start open, clicking it should collapse them.
-    const toggle = toggleButtons.find(
-      (btn) => btn.querySelector("svg") && btn !== toggleButtons[0],
+    const onCompactChange = vi.fn();
+    renderWithMantine(
+      <ResourceControls
+        {...baseProps}
+        compact={false}
+        onCompactChange={onCompactChange}
+      />,
     );
-    if (toggle) {
-      await user.click(toggle);
-    }
-    // After collapse, click again to re-expand.
-    if (toggle) {
-      await user.click(toggle);
-    }
-    expect(screen.getByText("URIs (2)")).toBeInTheDocument();
+    // All sections start open → ListToggle reads "Collapse all"; clicking
+    // it collapses everything and records compact=true.
+    await user.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(onCompactChange).toHaveBeenCalledWith(true);
+    // Now collapsed → ListToggle reads "Expand all"; clicking re-expands
+    // and records compact=false.
+    await user.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(onCompactChange).toHaveBeenLastCalledWith(false);
   });
 
   it("filters by resource title when title is set", async () => {

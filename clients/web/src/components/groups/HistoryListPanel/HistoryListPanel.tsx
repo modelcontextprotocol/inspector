@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   Button,
   Group,
@@ -11,6 +11,10 @@ import {
 import type { MessageEntry, MessageMethod } from "@inspector/core/mcp/types.js";
 import { HistoryEntry } from "../HistoryEntry/HistoryEntry";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
+import {
+  SortToggle,
+  type SortDirection,
+} from "../../elements/SortToggle/SortToggle";
 import { extractMethod } from "../historyUtils.js";
 
 export interface HistoryListPanelProps {
@@ -22,6 +26,10 @@ export interface HistoryListPanelProps {
   onExport: () => void;
   onReplay: (id: string) => void;
   onTogglePin: (id: string) => void;
+  sortDirection: SortDirection;
+  onSortChange: (next: SortDirection) => void;
+  compact: boolean;
+  onToggleCompact: () => void;
 }
 
 const PanelContainer = Paper.withProps({
@@ -71,13 +79,19 @@ export function HistoryListPanel({
   onExport,
   onReplay,
   onTogglePin,
+  sortDirection,
+  onSortChange,
+  compact,
+  onToggleCompact,
 }: HistoryListPanelProps) {
-  const [compact, setCompact] = useState(false);
-
-  const filteredEntries = useMemo(
-    () => entries.filter((e) => matchesFilters(e, searchText, methodFilter)),
-    [entries, searchText, methodFilter],
-  );
+  const filteredEntries = useMemo(() => {
+    // `.filter()` returns a fresh array, so sorting in-place is safe.
+    const sorted = entries
+      .filter((e) => matchesFilters(e, searchText, methodFilter))
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    if (sortDirection === "newest-first") sorted.reverse();
+    return sorted;
+  }, [entries, searchText, methodFilter, sortDirection]);
 
   const pinnedEntries = useMemo(
     () => filteredEntries.filter((e) => pinnedIds.has(e.id)),
@@ -97,11 +111,13 @@ export function HistoryListPanel({
         <Title order={4}>Requests</Title>
         <Group gap="xs">
           {hasResults && (
-            <ListToggle
-              compact={compact}
-              onToggle={() => setCompact((c) => !c)}
-            />
+            <ListToggle compact={compact} onToggle={onToggleCompact} />
           )}
+          <SortToggle
+            value={sortDirection}
+            onChange={onSortChange}
+            aria-label="History sort direction"
+          />
           <Button
             variant="default"
             onClick={onClearAll}

@@ -18,6 +18,8 @@ const meta: Meta<typeof ServerListScreen> = {
     onEdit: fn(),
     onClone: fn(),
     onRemove: fn(),
+    compact: false,
+    onToggleCompact: fn(),
   },
 };
 

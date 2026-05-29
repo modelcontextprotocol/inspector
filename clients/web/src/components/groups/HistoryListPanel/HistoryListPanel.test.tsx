@@ -66,6 +66,10 @@ const baseProps = {
   onExport: vi.fn(),
   onReplay: vi.fn(),
   onTogglePin: vi.fn(),
+  sortDirection: "newest-first" as const,
+  onSortChange: vi.fn(),
+  compact: true,
+  onToggleCompact: vi.fn(),
 };
 
 describe("HistoryListPanel", () => {
@@ -219,22 +223,82 @@ describe("HistoryListPanel", () => {
     expect(onTogglePin).toHaveBeenCalledWith("req-1");
   });
 
-  it("toggles compact list state when ListToggle is clicked", async () => {
-    const user = userEvent.setup();
+  it("renders entries newest-first by default", () => {
     renderWithMantine(
       <HistoryListPanel {...baseProps} entries={sampleEntries} />,
     );
-    // Initially expanded — Collapse buttons exist on each entry, and the
-    // ListToggle exposes its aria-label as "Collapse all".
-    expect(
-      screen.getAllByRole("button", { name: "Collapse" }).length,
-    ).toBeGreaterThan(0);
+    const methods = screen.getAllByText(
+      /tools\/call|resources\/read|tools\/list/,
+    );
+    expect(methods[0]).toHaveTextContent("tools/list");
+    expect(methods[methods.length - 1]).toHaveTextContent("tools/call");
+  });
 
-    await user.click(screen.getByRole("button", { name: "Collapse all" }));
+  it("reorders entries when sortDirection is oldest-first", () => {
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        sortDirection="oldest-first"
+      />,
+    );
+    const methods = screen.getAllByText(
+      /tools\/call|resources\/read|tools\/list/,
+    );
+    expect(methods[0]).toHaveTextContent("tools/call");
+    expect(methods[methods.length - 1]).toHaveTextContent("tools/list");
+  });
 
-    // After toggle, entries collapsed — they show Expand
+  it("invokes onSortChange when the user picks a new sort", async () => {
+    const user = userEvent.setup();
+    const onSortChange = vi.fn();
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        onSortChange={onSortChange}
+      />,
+    );
+    await user.click(
+      screen.getByRole("textbox", { name: "History sort direction" }),
+    );
+    await user.click(await screen.findByText("Oldest First"));
+    expect(onSortChange).toHaveBeenCalledWith("oldest-first");
+  });
+
+  it("renders entries collapsed when compact is true (default parity with Network)", () => {
+    renderWithMantine(
+      <HistoryListPanel {...baseProps} entries={sampleEntries} compact />,
+    );
     expect(
       screen.getAllByRole("button", { name: "Expand" }).length,
     ).toBeGreaterThan(0);
+  });
+
+  it("renders entries expanded when compact is false", () => {
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        compact={false}
+      />,
+    );
+    expect(
+      screen.getAllByRole("button", { name: "Collapse" }).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("invokes onToggleCompact when the ListToggle is clicked", async () => {
+    const user = userEvent.setup();
+    const onToggleCompact = vi.fn();
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        onToggleCompact={onToggleCompact}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(onToggleCompact).toHaveBeenCalledTimes(1);
   });
 });

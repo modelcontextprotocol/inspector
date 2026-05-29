@@ -10,6 +10,10 @@ const meta: Meta<typeof NetworkScreen> = {
   args: {
     onClear: fn(),
     onExport: fn(),
+    sortDirection: "newest-first",
+    onSortChange: fn(),
+    compact: true,
+    onToggleCompact: fn(),
   },
 };
 

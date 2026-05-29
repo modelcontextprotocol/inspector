@@ -25,6 +25,8 @@ const baseProps = {
   onEdit: vi.fn(),
   onClone: vi.fn(),
   onRemove: vi.fn(),
+  compact: false,
+  onToggleCompact: vi.fn(),
 };
 
 describe("ServerListScreen", () => {
