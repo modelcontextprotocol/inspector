@@ -23,8 +23,7 @@ export function SortToggle({
   onChange,
   "aria-label": ariaLabel = "Sort direction",
 }: SortToggleProps) {
-  const Icon =
-    value === "newest-first" ? TbSortDescending2 : TbSortAscending2;
+  const Icon = value === "newest-first" ? TbSortDescending2 : TbSortAscending2;
   return (
     <Select
       size="sm"
