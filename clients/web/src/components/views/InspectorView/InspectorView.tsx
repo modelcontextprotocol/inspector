@@ -77,6 +77,34 @@ function serializeListCompact(value: boolean): string {
   return value ? "true" : "false";
 }
 
+// One useLocalStorage call per scope, all with the same persistence shape.
+// `getInitialValueInEffect: false` reads synchronously on first render —
+// SPA only, no SSR — so the persisted value lands without a one-frame
+// flicker through the default. The `inspector.<kind>.<scope>` namespace
+// keeps related preferences grouped and easy to clear in bulk.
+function useSortDirection(scope: "logs" | "history" | "network") {
+  return useLocalStorage<SortDirection>({
+    key: `inspector.sortDirection.${scope}`,
+    defaultValue: SORT_DEFAULT,
+    deserialize: deserializeSortDirection,
+    serialize: serializeSortDirection,
+    getInitialValueInEffect: false,
+  });
+}
+
+function useListCompact(
+  scope: "history" | "network" | "servers" | "resources",
+  defaultValue: boolean,
+) {
+  return useLocalStorage<boolean>({
+    key: `inspector.listCompact.${scope}`,
+    defaultValue,
+    deserialize: deserializeListCompact,
+    serialize: serializeListCompact,
+    getInitialValueInEffect: false,
+  });
+}
+
 const SERVERS_TAB = "Servers";
 const NETWORK_TAB = "Network";
 
@@ -319,68 +347,27 @@ export function InspectorView({
   const [selectedTab, setSelectedTab] = useState<string>(SERVERS_TAB);
   const appRendererRef = useRef<AppRendererHandle>(null);
 
-  // Per-screen sort direction, persisted to localStorage so the choice
-  // survives reloads and syncs across browser tabs. `inspector.<scope>.<key>`
-  // namespace; new preferences (theme defaults, compact-mode, etc.) should
-  // follow the same shape. `getInitialValueInEffect: false` reads synchronously
-  // on first render — SPA only, no SSR, so this avoids a one-frame flicker
-  // where the persisted "oldest-first" briefly renders as "newest-first".
-  const [logsSort, setLogsSort] = useLocalStorage<SortDirection>({
-    key: "inspector.sortDirection.logs",
-    defaultValue: SORT_DEFAULT,
-    deserialize: deserializeSortDirection,
-    serialize: serializeSortDirection,
-    getInitialValueInEffect: false,
-  });
-  const [historySort, setHistorySort] = useLocalStorage<SortDirection>({
-    key: "inspector.sortDirection.history",
-    defaultValue: SORT_DEFAULT,
-    deserialize: deserializeSortDirection,
-    serialize: serializeSortDirection,
-    getInitialValueInEffect: false,
-  });
-  const [networkSort, setNetworkSort] = useLocalStorage<SortDirection>({
-    key: "inspector.sortDirection.network",
-    defaultValue: SORT_DEFAULT,
-    deserialize: deserializeSortDirection,
-    serialize: serializeSortDirection,
-    getInitialValueInEffect: false,
-  });
+  const [logsSort, setLogsSort] = useSortDirection("logs");
+  const [historySort, setHistorySort] = useSortDirection("history");
+  const [networkSort, setNetworkSort] = useSortDirection("network");
 
-  // Per-screen list-row compact (collapsed) preference. Same persistence
-  // shape as the sort hooks — synchronous read on first render to avoid a
-  // one-frame flip from default → stored value.
-  const [historyCompact, setHistoryCompact] = useLocalStorage<boolean>({
-    key: "inspector.listCompact.history",
-    defaultValue: LIST_COMPACT_DEFAULT,
-    deserialize: deserializeListCompact,
-    serialize: serializeListCompact,
-    getInitialValueInEffect: false,
-  });
-  const [networkCompact, setNetworkCompact] = useLocalStorage<boolean>({
-    key: "inspector.listCompact.network",
-    defaultValue: LIST_COMPACT_DEFAULT,
-    deserialize: deserializeListCompact,
-    serialize: serializeListCompact,
-    getInitialValueInEffect: false,
-  });
-  const [serversCompact, setServersCompact] = useLocalStorage<boolean>({
-    key: "inspector.listCompact.servers",
-    defaultValue: false,
-    deserialize: deserializeListCompact,
-    serialize: serializeListCompact,
-    getInitialValueInEffect: false,
-  });
-  // Resources defaults to expanded so new users see the sidebar's content
-  // sections opened (mirrors the pre-persistence behavior of showing
-  // sections that had entries).
-  const [resourcesCompact, setResourcesCompact] = useLocalStorage<boolean>({
-    key: "inspector.listCompact.resources",
-    defaultValue: false,
-    deserialize: deserializeListCompact,
-    serialize: serializeListCompact,
-    getInitialValueInEffect: false,
-  });
+  // Servers and Resources default to expanded (collapsed=false) so new
+  // users see content on first paint; History/Network default to
+  // collapsed (the lists are long enough that compact is the better
+  // first-paint state).
+  const [historyCompact, setHistoryCompact] = useListCompact(
+    "history",
+    LIST_COMPACT_DEFAULT,
+  );
+  const [networkCompact, setNetworkCompact] = useListCompact(
+    "network",
+    LIST_COMPACT_DEFAULT,
+  );
+  const [serversCompact, setServersCompact] = useListCompact("servers", false);
+  const [resourcesCompact, setResourcesCompact] = useListCompact(
+    "resources",
+    false,
+  );
 
   // Only show the non-Servers tabs when actually connected. Network is
   // additionally hidden for stdio servers — there is no HTTP traffic to
