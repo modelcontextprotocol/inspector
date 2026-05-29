@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { act } from "react";
 import userEvent from "@testing-library/user-event";
 import type {
   ConnectionState,
@@ -185,4 +186,55 @@ describe("ServerCard", () => {
       ).toBeInTheDocument();
     },
   );
+
+  describe("InlineError auto-dismiss", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("keeps the error visible until the 5s timer fires", () => {
+      renderWithMantine(<ServerCard {...baseProps} connection={errored} />);
+      expect(screen.getByText("Connection refused")).toBeInTheDocument();
+      act(() => {
+        vi.advanceTimersByTime(4999);
+      });
+      expect(screen.getByText("Connection refused")).toBeInTheDocument();
+    });
+
+    it("auto-dismisses the error after 5 seconds", () => {
+      renderWithMantine(<ServerCard {...baseProps} connection={errored} />);
+      // First act: fire the dismiss timer; React queues the resulting
+      // re-render but the Transition's exit-completion setTimeout has
+      // not been scheduled yet. Second act: advance past the
+      // Transition's duration so the Alert is fully removed from the
+      // DOM, not just visually animating out.
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(screen.queryByText("Connection refused")).not.toBeInTheDocument();
+    });
+
+    it("animates out when the parent clears connection.error before the timer fires", () => {
+      const { rerender } = renderWithMantine(
+        <ServerCard {...baseProps} connection={errored} />,
+      );
+      expect(screen.getByText("Connection refused")).toBeInTheDocument();
+      // Parent drops the error (e.g. successful reconnect) before the
+      // timer would have fired.
+      rerender(<ServerCard {...baseProps} connection={connected} />);
+      // Last-known error message is kept around so the Transition can
+      // paint it during the exit animation. Advance past the exit
+      // duration to confirm the alert is gone afterwards.
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(screen.queryByText("Connection refused")).not.toBeInTheDocument();
+    });
+  });
 });

@@ -7,7 +7,7 @@ import {
   Text,
   Transition,
 } from "@mantine/core";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 export interface InlineErrorProps {
   error: { message: string; data?: unknown };
@@ -15,11 +15,16 @@ export interface InlineErrorProps {
   maxRetries?: number;
   docLink?: string;
   /**
-   * When set, the alert slides up + fades out after this many ms.
-   * Resets whenever `error.message` changes so a fresh error always
-   * starts a new countdown.
+   * Controlled visibility. When false, the Transition runs its slide-up
+   * exit animation before the alert is hidden. Defaults to true so
+   * callers that don't manage visibility get the existing behavior.
+   *
+   * Visibility (and any auto-dismiss timer) is owned by the caller, not
+   * this component — that way the same slide-up animation fires whether
+   * the parent removes the error (e.g. successful reconnect) or a timer
+   * dismisses it.
    */
-  autoDismissMs?: number;
+  mounted?: boolean;
 }
 
 const HeaderRow = Group.withProps({
@@ -72,31 +77,12 @@ export function InlineError({
   retryCount,
   maxRetries,
   docLink,
-  autoDismissMs,
+  mounted = true,
 }: InlineErrorProps) {
   const [expanded, setExpanded] = useState(false);
-  // Derive visibility from "which message has been dismissed". A new
-  // error message makes `dismissedMessage` stale and the alert renders;
-  // when the timer fires we mark this message dismissed and the
-  // Transition runs its exit animation. Doing it this way (vs. a
-  // mounted boolean + setMounted(true) on message change) avoids the
-  // forbidden setState-in-effect pattern.
-  const [dismissedMessage, setDismissedMessage] = useState<string | undefined>(
-    undefined,
-  );
-  const mounted = error.message !== dismissedMessage;
   const details =
     error.data !== undefined ? formatDetails(error.data) : undefined;
   const hasExpandable = details !== undefined || docLink !== undefined;
-
-  useEffect(() => {
-    if (!autoDismissMs) return;
-    const timer = setTimeout(
-      () => setDismissedMessage(error.message),
-      autoDismissMs,
-    );
-    return () => clearTimeout(timer);
-  }, [autoDismissMs, error.message]);
 
   return (
     <Transition
