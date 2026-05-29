@@ -5,7 +5,7 @@ import type {
   InitializeResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { ServerInfoModal } from "./ServerInfoModal";
+import { ConnectionInfoModal } from "./ConnectionInfoModal";
 
 const initializeResult: InitializeResult = {
   protocolVersion: "2025-06-18",
@@ -22,10 +22,10 @@ const clientCapabilities: ClientCapabilities = {
   tasks: { list: {}, cancel: {} },
 };
 
-describe("ServerInfoModal", () => {
+describe("ConnectionInfoModal", () => {
   it("does not render content when opened is false", () => {
     renderWithMantine(
-      <ServerInfoModal
+      <ConnectionInfoModal
         opened={false}
         onClose={vi.fn()}
         initializeResult={initializeResult}
@@ -33,12 +33,12 @@ describe("ServerInfoModal", () => {
         transport="stdio"
       />,
     );
-    expect(screen.queryByText("Server Information")).not.toBeInTheDocument();
+    expect(screen.queryByText("Connection Info")).not.toBeInTheDocument();
   });
 
-  it("renders the modal title and ServerInfoContent when opened", () => {
+  it("renders the modal title and ConnectionInfoContent when opened", () => {
     renderWithMantine(
-      <ServerInfoModal
+      <ConnectionInfoModal
         opened
         onClose={vi.fn()}
         initializeResult={initializeResult}
@@ -46,7 +46,7 @@ describe("ServerInfoModal", () => {
         transport="stdio"
       />,
     );
-    expect(screen.getByText("Server Information")).toBeInTheDocument();
+    expect(screen.getByText("Connection Info")).toBeInTheDocument();
     expect(screen.getByText("Test Server")).toBeInTheDocument();
     expect(screen.getByText("0.1.0")).toBeInTheDocument();
     expect(screen.getByText("2025-06-18")).toBeInTheDocument();
@@ -54,9 +54,9 @@ describe("ServerInfoModal", () => {
     expect(screen.getByText("Be excellent to each other.")).toBeInTheDocument();
   });
 
-  it("forwards oauth details to ServerInfoContent", () => {
+  it("forwards oauth details to ConnectionInfoContent", () => {
     renderWithMantine(
-      <ServerInfoModal
+      <ConnectionInfoModal
         opened
         onClose={vi.fn()}
         initializeResult={initializeResult}
@@ -81,7 +81,7 @@ describe("ServerInfoModal", () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     renderWithMantine(
-      <ServerInfoModal
+      <ConnectionInfoModal
         opened
         onClose={onClose}
         initializeResult={initializeResult}
@@ -101,7 +101,7 @@ describe("ServerInfoModal", () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     renderWithMantine(
-      <ServerInfoModal
+      <ConnectionInfoModal
         opened
         onClose={onClose}
         initializeResult={initializeResult}

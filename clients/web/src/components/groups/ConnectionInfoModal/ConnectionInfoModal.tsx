@@ -5,11 +5,11 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { ServerType } from "@inspector/core/mcp/types.js";
 import {
-  ServerInfoContent,
+  ConnectionInfoContent,
   type OAuthDetails,
-} from "../ServerInfoContent/ServerInfoContent";
+} from "../ConnectionInfoContent/ConnectionInfoContent";
 
-export interface ServerInfoModalProps {
+export interface ConnectionInfoModalProps {
   opened: boolean;
   onClose: () => void;
   initializeResult: InitializeResult;
@@ -18,14 +18,14 @@ export interface ServerInfoModalProps {
   oauth?: OAuthDetails;
 }
 
-export function ServerInfoModal({
+export function ConnectionInfoModal({
   opened,
   onClose,
   initializeResult,
   clientCapabilities,
   transport,
   oauth,
-}: ServerInfoModalProps) {
+}: ConnectionInfoModalProps) {
   return (
     <Modal
       opened={opened}
@@ -37,11 +37,11 @@ export function ServerInfoModal({
       <Stack gap="md">
         <Group justify="space-between" wrap="nowrap">
           <Title order={4} flex={1}>
-            Server Information
+            Connection Info
           </Title>
           <CloseButton onClick={onClose} />
         </Group>
-        <ServerInfoContent
+        <ConnectionInfoContent
           initializeResult={initializeResult}
           clientCapabilities={clientCapabilities}
           transport={transport}

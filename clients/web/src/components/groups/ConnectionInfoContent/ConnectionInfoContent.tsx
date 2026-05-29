@@ -16,7 +16,7 @@ export interface OAuthDetails {
   accessToken?: string;
 }
 
-export interface ServerInfoContentProps {
+export interface ConnectionInfoContentProps {
   initializeResult: InitializeResult;
   clientCapabilities: ClientCapabilities;
   transport: ServerType;
@@ -59,12 +59,12 @@ function getCapabilityEntries(
   }));
 }
 
-export function ServerInfoContent({
+export function ConnectionInfoContent({
   initializeResult,
   clientCapabilities,
   transport,
   oauth,
-}: ServerInfoContentProps) {
+}: ConnectionInfoContentProps) {
   const { serverInfo, protocolVersion, capabilities, instructions } =
     initializeResult;
 
@@ -76,19 +76,22 @@ export function ServerInfoContent({
 
   return (
     <Stack gap="md">
-      <SimpleGrid cols={2}>
-        <Text size="sm">Name</Text>
-        <ValueText>{serverInfo.name}</ValueText>
+      <Stack gap="xs">
+        <Title order={5}>Server Implementation</Title>
+        <SimpleGrid cols={2}>
+          <Text size="sm">Name</Text>
+          <ValueText>{serverInfo.name}</ValueText>
 
-        <Text size="sm">Version</Text>
-        <ValueText>{serverInfo.version ?? "—"}</ValueText>
+          <Text size="sm">Version</Text>
+          <ValueText>{serverInfo.version ?? "—"}</ValueText>
 
-        <Text size="sm">Protocol</Text>
-        <ValueText>{protocolVersion}</ValueText>
+          <Text size="sm">Protocol</Text>
+          <ValueText>{protocolVersion}</ValueText>
 
-        <Text size="sm">Transport</Text>
-        <Badge variant="outline">{transport}</Badge>
-      </SimpleGrid>
+          <Text size="sm">Transport</Text>
+          <Badge variant="outline">{transport}</Badge>
+        </SimpleGrid>
+      </Stack>
 
       <SimpleGrid cols={2}>
         <Stack gap="xs">

@@ -50,8 +50,8 @@ import {
   type ServerConfigModalMode,
 } from "./components/groups/ServerConfigModal/ServerConfigModal";
 import { ServerSettingsModal } from "./components/groups/ServerSettingsModal/ServerSettingsModal";
-import { ServerInfoModal } from "./components/groups/ServerInfoModal/ServerInfoModal";
-import type { OAuthDetails } from "./components/groups/ServerInfoContent/ServerInfoContent";
+import { ConnectionInfoModal } from "./components/groups/ConnectionInfoModal/ConnectionInfoModal";
+import type { OAuthDetails } from "./components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
 import { buildExportFilename, downloadJsonFile } from "./lib/downloadFile";
 import { createWebEnvironment } from "./lib/environmentFactory";
@@ -178,7 +178,7 @@ function App() {
   const [settingsModalTargetId, setSettingsModalTargetId] = useState<
     string | undefined
   >(undefined);
-  const [serverInfoModalOpen, setServerInfoModalOpen] = useState(false);
+  const [connectionInfoModalOpen, setConnectionInfoModalOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<ServerEntry | null>(null);
 
   // The active connection target. `null` between sessions; set as soon as
@@ -320,7 +320,7 @@ function App() {
       setActiveServerId(undefined);
       // Drop the open flag too — without this the modal would pop back the
       // next time `initializeResult` re-becomes truthy (e.g. reconnect).
-      setServerInfoModalOpen(false);
+      setConnectionInfoModalOpen(false);
     };
     inspectorClient.addEventListener("disconnect", onDisconnect);
     return () => {
@@ -350,7 +350,7 @@ function App() {
     [servers, activeServerId],
   );
 
-  const serverInfoTransport = useMemo(
+  const connectionInfoTransport = useMemo(
     () => activeServer?.config.type ?? "stdio",
     [activeServer],
   );
@@ -360,7 +360,7 @@ function App() {
   // configured scopes pulled from the server's persisted settings. All three
   // fields are independently optional — if none are populated we return
   // undefined so the modal hides the OAuth section entirely.
-  const serverInfoOAuth = useMemo<OAuthDetails | undefined>(() => {
+  const connectionInfoOAuth = useMemo<OAuthDetails | undefined>(() => {
     if (connectionStatus !== "connected" || !inspectorClient) return undefined;
     const oauthState = inspectorClient.getOAuthState();
     const authUrl =
@@ -950,7 +950,7 @@ function App() {
         onServerImportConfig={todoNoop}
         onServerImportJson={todoNoop}
         onServerExport={onServerExport}
-        onServerInfo={() => setServerInfoModalOpen(true)}
+        onConnectionInfo={() => setConnectionInfoModalOpen(true)}
         onServerSettings={(id) => setSettingsModalTargetId(id)}
         onServerEdit={(id) => setConfigModal({ mode: "edit", targetId: id })}
         onServerClone={(id) => setConfigModal({ mode: "clone", targetId: id })}
@@ -1008,13 +1008,13 @@ function App() {
         onSettingsChange={onSettingsChange}
       />
       {initializeResult && (
-        <ServerInfoModal
-          opened={serverInfoModalOpen}
-          onClose={() => setServerInfoModalOpen(false)}
+        <ConnectionInfoModal
+          opened={connectionInfoModalOpen}
+          onClose={() => setConnectionInfoModalOpen(false)}
           initializeResult={initializeResult}
           clientCapabilities={clientCapabilities}
-          transport={serverInfoTransport}
-          oauth={serverInfoOAuth}
+          transport={connectionInfoTransport}
+          oauth={connectionInfoOAuth}
         />
       )}
       <ServerRemoveConfirmModal

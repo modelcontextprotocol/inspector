@@ -13,7 +13,7 @@ export interface ServerListScreenProps {
   /** Download the current server list as a canonical `mcp.json` file. */
   onExport: () => void;
   onToggleConnection: (id: string) => void;
-  onServerInfo: (id: string) => void;
+  onConnectionInfo: (id: string) => void;
   onSettings: (id: string) => void;
   onEdit: (id: string) => void;
   onClone: (id: string) => void;
@@ -40,7 +40,7 @@ export function ServerListScreen({
   onImportServerJson,
   onExport,
   onToggleConnection,
-  onServerInfo,
+  onConnectionInfo,
   onSettings,
   onEdit,
   onClone,
@@ -77,7 +77,7 @@ export function ServerListScreen({
                 compact={compact}
                 activeServer={activeServer}
                 onToggleConnection={onToggleConnection}
-                onServerInfo={onServerInfo}
+                onConnectionInfo={onConnectionInfo}
                 onSettings={onSettings}
                 onEdit={onEdit}
                 onClone={onClone}

@@ -13,7 +13,7 @@ import { InlineError } from "../../elements/InlineError/InlineError";
 export interface ServerCardProps extends ServerEntry {
   activeServer?: string;
   onToggleConnection: (id: string) => void;
-  onServerInfo: (id: string) => void;
+  onConnectionInfo: (id: string) => void;
   onSettings: (id: string) => void;
   onEdit: (id: string) => void;
   onClone: (id: string) => void;
@@ -92,7 +92,7 @@ export function ServerCard({
   connection,
   activeServer,
   onToggleConnection,
-  onServerInfo,
+  onConnectionInfo,
   onSettings,
   onEdit,
   onClone,
@@ -160,8 +160,8 @@ export function ServerCard({
               </ActionsRow>
               <ActionsRow>
                 {connection.status === "connected" && (
-                  <SubtleButton onClick={() => onServerInfo(id)}>
-                    Server Info
+                  <SubtleButton onClick={() => onConnectionInfo(id)}>
+                    Connection Info
                   </SubtleButton>
                 )}
                 <SubtleButton onClick={() => onSettings(id)}>

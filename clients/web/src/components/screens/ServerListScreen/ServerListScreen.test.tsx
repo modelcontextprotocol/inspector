@@ -20,7 +20,7 @@ const baseProps = {
   onImportServerJson: vi.fn(),
   onExport: vi.fn(),
   onToggleConnection: vi.fn(),
-  onServerInfo: vi.fn(),
+  onConnectionInfo: vi.fn(),
   onSettings: vi.fn(),
   onEdit: vi.fn(),
   onClone: vi.fn(),

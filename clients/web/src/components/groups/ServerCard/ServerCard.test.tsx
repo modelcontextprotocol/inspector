@@ -32,7 +32,7 @@ const errored: ConnectionState = {
 
 const handlers = {
   onToggleConnection: vi.fn(),
-  onServerInfo: vi.fn(),
+  onConnectionInfo: vi.fn(),
   onSettings: vi.fn(),
   onEdit: vi.fn(),
   onClone: vi.fn(),
@@ -101,7 +101,7 @@ describe("ServerCard", () => {
     const onClone = vi.fn();
     const onEdit = vi.fn();
     const onRemove = vi.fn();
-    const onServerInfo = vi.fn();
+    const onConnectionInfo = vi.fn();
     const onSettings = vi.fn();
     renderWithMantine(
       <ServerCard
@@ -109,19 +109,19 @@ describe("ServerCard", () => {
         onClone={onClone}
         onEdit={onEdit}
         onRemove={onRemove}
-        onServerInfo={onServerInfo}
+        onConnectionInfo={onConnectionInfo}
         onSettings={onSettings}
       />,
     );
     await user.click(screen.getByRole("button", { name: "Clone" }));
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.click(screen.getByRole("button", { name: "Remove" }));
-    await user.click(screen.getByRole("button", { name: "Server Info" }));
+    await user.click(screen.getByRole("button", { name: "Connection Info" }));
     await user.click(screen.getByRole("button", { name: "Settings" }));
     expect(onClone).toHaveBeenCalledWith("srv-1");
     expect(onEdit).toHaveBeenCalledWith("srv-1");
     expect(onRemove).toHaveBeenCalledWith("srv-1");
-    expect(onServerInfo).toHaveBeenCalledWith("srv-1");
+    expect(onConnectionInfo).toHaveBeenCalledWith("srv-1");
     expect(onSettings).toHaveBeenCalledWith("srv-1");
   });
 
@@ -162,7 +162,7 @@ describe("ServerCard", () => {
   it("renders Server Info button when connected", () => {
     renderWithMantine(<ServerCard {...baseProps} connection={connected} />);
     expect(
-      screen.getByRole("button", { name: "Server Info" }),
+      screen.getByRole("button", { name: "Connection Info" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Settings" }),
@@ -178,7 +178,7 @@ describe("ServerCard", () => {
     (_label, state) => {
       renderWithMantine(<ServerCard {...baseProps} connection={state} />);
       expect(
-        screen.queryByRole("button", { name: "Server Info" }),
+        screen.queryByRole("button", { name: "Connection Info" }),
       ).not.toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: "Settings" }),

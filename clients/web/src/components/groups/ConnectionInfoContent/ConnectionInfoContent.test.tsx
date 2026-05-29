@@ -4,7 +4,7 @@ import type {
   InitializeResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { ServerInfoContent } from "./ServerInfoContent";
+import { ConnectionInfoContent } from "./ConnectionInfoContent";
 
 const fullResult: InitializeResult = {
   protocolVersion: "2025-03-26",
@@ -26,15 +26,16 @@ const fullClientCaps: ClientCapabilities = {
   experimental: {},
 };
 
-describe("ServerInfoContent", () => {
-  it("renders server info fields", () => {
+describe("ConnectionInfoContent", () => {
+  it("renders server implementation fields under the heading", () => {
     renderWithMantine(
-      <ServerInfoContent
+      <ConnectionInfoContent
         initializeResult={fullResult}
         clientCapabilities={fullClientCaps}
         transport="stdio"
       />,
     );
+    expect(screen.getByText("Server Implementation")).toBeInTheDocument();
     expect(screen.getByText("Everything Server")).toBeInTheDocument();
     expect(screen.getByText("2.1.0")).toBeInTheDocument();
     expect(screen.getByText("2025-03-26")).toBeInTheDocument();
@@ -43,7 +44,7 @@ describe("ServerInfoContent", () => {
 
   it("renders an em-dash when server version is missing", () => {
     renderWithMantine(
-      <ServerInfoContent
+      <ConnectionInfoContent
         initializeResult={{
           ...fullResult,
           serverInfo: { name: "No Version Server" } as never,
@@ -57,7 +58,7 @@ describe("ServerInfoContent", () => {
 
   it("renders server and client capability sections", () => {
     renderWithMantine(
-      <ServerInfoContent
+      <ConnectionInfoContent
         initializeResult={fullResult}
         clientCapabilities={fullClientCaps}
         transport="stdio"
@@ -73,7 +74,7 @@ describe("ServerInfoContent", () => {
 
   it("renders instructions when present", () => {
     renderWithMantine(
-      <ServerInfoContent
+      <ConnectionInfoContent
         initializeResult={fullResult}
         clientCapabilities={fullClientCaps}
         transport="stdio"
@@ -85,7 +86,7 @@ describe("ServerInfoContent", () => {
 
   it("omits the instructions section when not present", () => {
     renderWithMantine(
-      <ServerInfoContent
+      <ConnectionInfoContent
         initializeResult={{ ...fullResult, instructions: undefined }}
         clientCapabilities={fullClientCaps}
         transport="stdio"
@@ -96,7 +97,7 @@ describe("ServerInfoContent", () => {
 
   it("renders OAuth details when provided", () => {
     renderWithMantine(
-      <ServerInfoContent
+      <ConnectionInfoContent
         initializeResult={fullResult}
         clientCapabilities={fullClientCaps}
         transport="streamable-http"
@@ -118,7 +119,7 @@ describe("ServerInfoContent", () => {
 
   it("hides OAuth fields that are not provided", () => {
     renderWithMantine(
-      <ServerInfoContent
+      <ConnectionInfoContent
         initializeResult={fullResult}
         clientCapabilities={fullClientCaps}
         transport="stdio"
@@ -133,7 +134,7 @@ describe("ServerInfoContent", () => {
 
   it("does not render OAuth section when oauth prop is omitted", () => {
     renderWithMantine(
-      <ServerInfoContent
+      <ConnectionInfoContent
         initializeResult={fullResult}
         clientCapabilities={fullClientCaps}
         transport="stdio"

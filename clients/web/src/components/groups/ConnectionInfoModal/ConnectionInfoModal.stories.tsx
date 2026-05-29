@@ -5,7 +5,7 @@ import type {
 import { AppShell } from "@mantine/core";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
-import { ServerInfoModal, type ServerInfoModalProps } from "./ServerInfoModal";
+import { ConnectionInfoModal, type ConnectionInfoModalProps } from "./ConnectionInfoModal";
 
 const initializeResult: InitializeResult = {
   protocolVersion: "2025-06-18",
@@ -33,19 +33,19 @@ const clientCapabilities: ClientCapabilities = {
   },
 };
 
-function InteractiveRender(args: ServerInfoModalProps) {
+function InteractiveRender(args: ConnectionInfoModalProps) {
   return (
     <AppShell>
       <AppShell.Main>
-        <ServerInfoModal {...args} />
+        <ConnectionInfoModal {...args} />
       </AppShell.Main>
     </AppShell>
   );
 }
 
-const meta: Meta<typeof ServerInfoModal> = {
-  title: "Groups/ServerInfoModal",
-  component: ServerInfoModal,
+const meta: Meta<typeof ConnectionInfoModal> = {
+  title: "Groups/ConnectionInfoModal",
+  component: ConnectionInfoModal,
   parameters: { layout: "fullscreen" },
   render: InteractiveRender,
   args: {
@@ -55,7 +55,7 @@ const meta: Meta<typeof ServerInfoModal> = {
 };
 
 export default meta;
-type Story = StoryObj<typeof ServerInfoModal>;
+type Story = StoryObj<typeof ConnectionInfoModal>;
 
 export const StdioConnected: Story = {
   args: {

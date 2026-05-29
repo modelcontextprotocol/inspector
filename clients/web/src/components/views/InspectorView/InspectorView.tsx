@@ -223,7 +223,7 @@ export interface InspectorViewProps {
   onServerImportJson: () => void;
   /** Download the current server list as a canonical `mcp.json` file. */
   onServerExport: () => void;
-  onServerInfo: (id: string) => void;
+  onConnectionInfo: (id: string) => void;
   onServerSettings: (id: string) => void;
   onServerEdit: (id: string) => void;
   onServerClone: (id: string) => void;
@@ -306,7 +306,7 @@ export function InspectorView({
   onServerImportConfig,
   onServerImportJson,
   onServerExport,
-  onServerInfo,
+  onConnectionInfo,
   onServerSettings,
   onServerEdit,
   onServerClone,
@@ -457,7 +457,7 @@ export function InspectorView({
               onImportServerJson={onServerImportJson}
               onExport={onServerExport}
               onToggleConnection={onToggleConnection}
-              onServerInfo={onServerInfo}
+              onConnectionInfo={onConnectionInfo}
               onSettings={onServerSettings}
               onEdit={onServerEdit}
               onClone={onServerClone}
