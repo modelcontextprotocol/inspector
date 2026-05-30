@@ -13,6 +13,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { createRemoteApp } from "../../../core/mcp/remote/node/server.ts";
 import { createSandboxController } from "./sandbox-controller.js";
+import { injectAuthToken } from "./inject-auth-token.js";
 import type { WebServerConfig } from "./web-server-config.js";
 import {
   webServerConfigToInitialPayload,
@@ -64,7 +65,11 @@ export async function startHonoServer(
     try {
       const indexPath = join(rootPath, "index.html");
       const html = readFileSync(indexPath, "utf-8");
-      return c.html(html);
+      // Embed the API token so a reload at the bare URL (no
+      // `?MCP_INSPECTOR_API_TOKEN=…`) still authenticates against /api/*.
+      // No-op when auth is dangerously omitted (empty token). The dev Vite
+      // plugin applies the same injection via `transformIndexHtml`.
+      return c.html(injectAuthToken(html, resolvedAuthToken));
     } catch (error) {
       console.error("Error serving index.html:", error);
       return c.notFound();

@@ -17,7 +17,10 @@ import type {
   ServerEntry,
   ServerType,
 } from "@inspector/core/mcp/types.js";
-import { API_SERVER_ENV_VARS } from "@inspector/core/mcp/remote/constants.js";
+import {
+  API_SERVER_ENV_VARS,
+  INSPECTOR_API_TOKEN_GLOBAL,
+} from "@inspector/core/mcp/remote/constants.js";
 import { ManagedToolsState } from "@inspector/core/mcp/state/managedToolsState.js";
 import { ManagedPromptsState } from "@inspector/core/mcp/state/managedPromptsState.js";
 import { ManagedResourcesState } from "@inspector/core/mcp/state/managedResourcesState.js";
@@ -65,15 +68,28 @@ const redirectUrlProvider: RedirectUrlProvider = {
   getRedirectUrl: () => `${window.location.origin}/oauth/callback`,
 };
 
-// Pull the dev-backend's auth token off the URL the launcher banner prints.
-// `npm run dev` opens `http://localhost:6274?MCP_INSPECTOR_API_TOKEN=…`;
-// every browser request to /api/* needs the same token in the
-// `x-mcp-remote-auth: Bearer …` header or the Hono backend returns 401.
-// Persist to sessionStorage so SPA navigations / OAuth round-trips don't
-// drop the token from the URL bar.
+// Recover the backend's auth token. Every browser request to /api/* needs it
+// in the `x-mcp-remote-auth: Bearer …` header or the Hono backend returns 401.
+// Three sources, in priority order:
+//   1. `window.__INSPECTOR_API_TOKEN__` — injected into index.html by the
+//      backend on every page load (dev Vite plugin + prod Hono server). This
+//      is the robust path: it survives a bare-URL reload, a bookmark, or a
+//      cleared sessionStorage, none of which carry the query string.
+//   2. `?MCP_INSPECTOR_API_TOKEN=…` — the URL the launcher banner prints. Kept
+//      as a fallback for pasted full URLs and older integrations.
+//   3. sessionStorage — backstop for SPA navigations / OAuth round-trips that
+//      land without either of the above.
+// The URL value is persisted to sessionStorage so a later navigation that
+// drops it from the bar still authenticates.
 function getAuthToken(): string | undefined {
   if (typeof window === "undefined") return undefined;
   const STORAGE_KEY = API_SERVER_ENV_VARS.AUTH_TOKEN;
+  const fromGlobal = (window as unknown as Record<string, unknown>)[
+    INSPECTOR_API_TOKEN_GLOBAL
+  ];
+  if (typeof fromGlobal === "string" && fromGlobal) {
+    return fromGlobal;
+  }
   const params = new URLSearchParams(window.location.search);
   const fromUrl = params.get(API_SERVER_ENV_VARS.AUTH_TOKEN);
   if (fromUrl) {

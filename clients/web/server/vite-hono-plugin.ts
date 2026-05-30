@@ -17,6 +17,7 @@ import open from "open";
 // spurious "could not resolve" warnings during build.
 import { createRemoteApp } from "../../../core/mcp/remote/node/server.ts";
 import { createSandboxController } from "./sandbox-controller.js";
+import { injectAuthToken } from "./inject-auth-token.js";
 import type { WebServerConfig } from "./web-server-config.js";
 import {
   webServerConfigToInitialPayload,
@@ -24,8 +25,20 @@ import {
 } from "./web-server-config.js";
 
 export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
+  // Resolved once `configureServer` runs (createRemoteApp generates a token
+  // when none is supplied). Captured here so the `transformIndexHtml` hook —
+  // which fires per index.html request, after `configureServer` — can embed it
+  // into the served page. Stays "" when auth is dangerously omitted or under
+  // Vitest (where `configureServer` returns early), making injection a no-op.
+  let resolvedAuthToken = "";
   return {
     name: "hono-api-middleware",
+    // Embed the API token into the dev-served index.html so a reload at the
+    // bare URL (no `?MCP_INSPECTOR_API_TOKEN=…`) still authenticates. The
+    // prod server applies the same injection in `server.ts`.
+    transformIndexHtml(html) {
+      return injectAuthToken(html, resolvedAuthToken);
+    },
     // `apply: 'serve'` keeps the plugin out of `vite build`, but Vitest still
     // instantiates a Vite server in middleware mode (no HTTP server) for
     // transforms and invokes `configureServer` regardless. Returning early
@@ -66,6 +79,10 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
         logger: config.logger,
         initialConfig: webServerConfigToInitialPayload(config),
       });
+
+      // Expose the resolved token to `transformIndexHtml`. Left empty when
+      // auth is dangerously omitted so the page carries no token global.
+      resolvedAuthToken = config.dangerouslyOmitAuth ? "" : resolvedToken;
 
       // Chain the API close (mcp.json watcher) and the sandbox into the
       // Vite server's close so dev-server restarts release both resources.
