@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect, userEvent, within } from "storybook/test";
 import type { FetchRequestEntry } from "../../../../../../core/mcp/types.js";
 import { NetworkEntry } from "./NetworkEntry";
 
@@ -38,7 +39,13 @@ const authEntry: FetchRequestEntry = {
   responseStatus: 200,
   responseStatusText: "OK",
   responseHeaders: { "content-type": "application/json" },
-  responseBody: '{"access_token":"x","token_type":"bearer"}',
+  responseBody: JSON.stringify({
+    access_token: "eyJhbGciOiJSUzI1NiwidHlwIjoiSldUIn0.payload.sig",
+    token_type: "Bearer",
+    expires_in: 3600,
+    refresh_token: "rt_9f8e7d6c5b4a",
+    scope: "mcp:tools",
+  }),
   duration: 120,
   category: "auth",
 };
@@ -99,6 +106,20 @@ export const TransportSuccessExpanded: Story = {
 
 export const AuthSuccess: Story = {
   args: { entry: authEntry, isListExpanded: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // Token-response secrets are masked by default — the raw token must not be
+    // visible until the user explicitly reveals it.
+    await expect(canvas.getByText("Secrets hidden")).toBeInTheDocument();
+    await expect(canvasElement.textContent).not.toContain("eyJhbGciOiJSUzI1");
+    await expect(canvasElement.textContent).toContain("••••••••");
+    // Non-secret fields stay visible.
+    await expect(canvasElement.textContent).toContain("Bearer");
+
+    await userEvent.click(canvas.getByRole("button", { name: "Reveal" }));
+    await expect(canvas.getByText("Secrets revealed")).toBeInTheDocument();
+    await expect(canvasElement.textContent).toContain("eyJhbGciOiJSUzI1");
+  },
 };
 
 export const HttpError: Story = {

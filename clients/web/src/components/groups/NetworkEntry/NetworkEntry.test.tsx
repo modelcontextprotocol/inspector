@@ -196,4 +196,44 @@ describe("NetworkEntry", () => {
     await user.click(screen.getByRole("button", { name: "Expand" }));
     expect(screen.getByText(/Body too large to preview/)).toBeInTheDocument();
   });
+
+  it("masks token-response secrets until revealed, then shows the raw value", async () => {
+    const user = userEvent.setup();
+    const authEntry: FetchRequestEntry = {
+      ...baseEntry,
+      category: "auth",
+      url: "http://localhost:3001/token",
+      requestBody: undefined,
+      responseBody: JSON.stringify({
+        access_token: "super-secret-token",
+        token_type: "Bearer",
+      }),
+    };
+    const { container } = renderWithMantine(
+      <NetworkEntry entry={authEntry} isListExpanded={true} />,
+    );
+    // Masked by default: the reveal affordance is present and the raw secret
+    // is nowhere in the DOM, but non-secret fields still render.
+    expect(screen.getByText("Secrets hidden")).toBeInTheDocument();
+    expect(container.textContent).not.toContain("super-secret-token");
+    expect(container.textContent).toContain("••••••••");
+    expect(container.textContent).toContain("Bearer");
+
+    await user.click(screen.getByRole("button", { name: "Reveal" }));
+
+    expect(screen.getByText("Secrets revealed")).toBeInTheDocument();
+    expect(container.textContent).toContain("super-secret-token");
+
+    // Toggling back re-masks.
+    await user.click(screen.getByRole("button", { name: "Hide" }));
+    expect(container.textContent).not.toContain("super-secret-token");
+  });
+
+  it("does not add a reveal toggle for non-secret bodies", () => {
+    renderWithMantine(<NetworkEntry entry={baseEntry} isListExpanded={true} />);
+    expect(screen.queryByText("Secrets hidden")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Reveal" }),
+    ).not.toBeInTheDocument();
+  });
 });

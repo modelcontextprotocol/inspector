@@ -13,6 +13,7 @@ import {
 import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
 import { isLongLivedStreamResponse } from "@inspector/core/mcp/fetchTracking.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { maskSecretsInBody } from "../../../utils/maskSecrets";
 
 export interface NetworkEntryProps {
   entry: FetchRequestEntry;
@@ -126,7 +127,16 @@ function HeadersTable({ headers }: { headers: Record<string, string> }) {
   );
 }
 
+const RevealButton = Button.withProps({
+  variant: "subtle",
+  size: "compact-xs",
+});
+
 function BodyPreview({ body }: { body: string }) {
+  // Reveal state for masked secrets. Hooks run before any early return so the
+  // order stays stable across the too-large / has-secrets branches.
+  const [revealed, setRevealed] = useState(false);
+
   const tooLarge = body.length > MAX_INLINE_BODY_CHARS;
   if (tooLarge) {
     return (
@@ -135,7 +145,30 @@ function BodyPreview({ body }: { body: string }) {
       </Text>
     );
   }
-  return <ContentViewer block={{ type: "text", text: body }} copyable />;
+
+  // OAuth responses (token exchange, DCR) carry bearer-grade secrets. Mask
+  // them by default and gate the raw values behind an explicit reveal so they
+  // aren't exposed at a glance during a screen-share. Bodies without secrets
+  // render as-is with no toggle.
+  const { masked, hasSecrets } = maskSecretsInBody(body);
+  if (!hasSecrets) {
+    return <ContentViewer block={{ type: "text", text: body }} copyable />;
+  }
+
+  const shown = revealed ? body : masked;
+  return (
+    <Stack gap="xs">
+      <Group gap="xs">
+        <Text size="xs" c="dimmed">
+          {revealed ? "Secrets revealed" : "Secrets hidden"}
+        </Text>
+        <RevealButton onClick={() => setRevealed((v) => !v)}>
+          {revealed ? "Hide" : "Reveal"}
+        </RevealButton>
+      </Group>
+      <ContentViewer block={{ type: "text", text: shown }} copyable />
+    </Stack>
+  );
 }
 
 export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
