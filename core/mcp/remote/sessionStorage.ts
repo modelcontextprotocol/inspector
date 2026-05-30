@@ -31,7 +31,12 @@ export class RemoteInspectorClientStorage implements InspectorClientStorage {
   constructor(options: RemoteInspectorClientStorageOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
     this.authToken = options.authToken;
-    this.fetchFn = options.fetchFn ?? globalThis.fetch;
+    // Default to a wrapper rather than `globalThis.fetch` directly: invoking
+    // the bare reference as `this.fetchFn(...)` re-binds `this` to this
+    // instance, which native `fetch` rejects with "Illegal invocation". The
+    // wrapper preserves the global receiver. (Same gotcha handled in
+    // `environmentFactory.ts` for the transport/auth fetchers.)
+    this.fetchFn = options.fetchFn ?? ((...args) => globalThis.fetch(...args));
   }
 
   private getStoreId(sessionId: string): string {
@@ -69,6 +74,15 @@ export class RemoteInspectorClientStorage implements InspectorClientStorage {
       method: "POST",
       headers,
       body: JSON.stringify(serializedState),
+      // `saveSession` is only invoked right before the OAuth full-page
+      // redirect (via the client's `saveSession` event in
+      // `onBeforeOAuthRedirect`). Navigation is already scheduled by that
+      // point, so a normal fetch would be cancelled mid-flight and the
+      // pre-redirect network log (discovery + DCR) would never reach disk.
+      // `keepalive` lets the request outlive the unloading document. The
+      // payload is the pre-redirect log only (a few small auth entries, no
+      // captured bodies), comfortably under keepalive's 64KB cap.
+      keepalive: true,
     });
 
     if (!res.ok) {

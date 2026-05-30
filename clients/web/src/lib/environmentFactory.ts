@@ -30,10 +30,16 @@ export interface WebEnvironmentResult {
  * `authToken` is read from a higher level (currently unused in this app since
  * v2 has no auth-token UI yet, but kept in the signature so the wiring is
  * ready when token plumbing lands).
+ *
+ * `onBeforeOAuthRedirect` runs synchronously immediately before the OAuth
+ * full-page redirect (see `BrowserNavigation`). The app uses it to flush the
+ * pre-redirect Network log to backend storage so the auth handshake's first
+ * half (discovery + Dynamic Client Registration) survives the navigation.
  */
 export function createWebEnvironment(
   authToken: string | undefined,
   redirectUrlProvider: RedirectUrlProvider,
+  onBeforeOAuthRedirect?: (authorizationUrl: URL) => void,
 ): WebEnvironmentResult {
   const baseUrl = `${window.location.protocol}//${window.location.host}`;
 
@@ -62,7 +68,7 @@ export function createWebEnvironment(
     logger,
     oauth: {
       storage: new BrowserOAuthStorage(),
-      navigation: new BrowserNavigation(),
+      navigation: new BrowserNavigation(undefined, onBeforeOAuthRedirect),
       redirectUrlProvider,
     },
   };

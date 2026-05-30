@@ -156,12 +156,22 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
     }
   }
 
+  // Restore persisted entries (e.g. the pre-redirect OAuth Network log loaded
+  // on the `/oauth/callback` page). Merges rather than replaces: the async
+  // load races against entries appended live by the resuming connect
+  // (`completeOAuthFlow` + transport handshake), so we must not clobber
+  // whichever arrived first. Restored entries are older, so they go in front;
+  // duplicates (by id) already present from a live append are skipped.
   private hydrateFetchRequests(entries: FetchRequestEntry[]): void {
-    const trimmed =
+    if (entries.length === 0) return;
+    const existingIds = new Set(this.fetchRequests.map((e) => e.id));
+    const restored = entries.filter((e) => !existingIds.has(e.id));
+    if (restored.length === 0) return;
+    const merged = [...restored, ...this.fetchRequests];
+    this.fetchRequests =
       this.maxFetchRequests > 0
-        ? entries.slice(-this.maxFetchRequests)
-        : entries;
-    this.fetchRequests = trimmed;
+        ? merged.slice(-this.maxFetchRequests)
+        : merged;
     this.dispatchTypedEvent("fetchRequestsChange", this.getFetchRequests());
   }
 

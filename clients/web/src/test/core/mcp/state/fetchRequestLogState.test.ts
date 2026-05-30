@@ -202,6 +202,73 @@ describe("FetchRequestLogState", () => {
     expect(hydrated.getFetchRequests().map((e) => e.id)).toEqual(["r2", "r3"]);
   });
 
+  it("merges restored entries ahead of live ones, deduping by id, when load resolves after a live append", async () => {
+    // Mirrors the `/oauth/callback` race: the resuming connect appends live
+    // entries while the persisted pre-redirect log is still loading. The
+    // restored (older) entries must land in front without clobbering the live
+    // ones, and an id present in both must not duplicate.
+    let resolveLoad:
+      | ((s: InspectorClientSessionState | undefined) => void)
+      | undefined;
+    const storage: InspectorClientStorage = {
+      async saveSession() {},
+      loadSession: () =>
+        new Promise((resolve) => {
+          resolveLoad = resolve;
+        }),
+      async deleteSession() {},
+    };
+    const hydrated = new FetchRequestLogState(client, {
+      sessionStorage: storage,
+      sessionId: "sess-merge",
+    });
+    // Live entries arrive before the load resolves.
+    client.dispatchTypedEvent("fetchRequest", entry("token"));
+    client.dispatchTypedEvent("fetchRequest", entry("transport"));
+    // Restored set includes the two pre-redirect entries plus a duplicate of
+    // a live one ("token").
+    resolveLoad?.({
+      fetchRequests: [entry("discovery"), entry("register"), entry("token")],
+      createdAt: 0,
+      updatedAt: 0,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(hydrated.getFetchRequests().map((e) => e.id)).toEqual([
+      "discovery",
+      "register",
+      "token",
+      "transport",
+    ]);
+    hydrated.destroy();
+  });
+
+  it("hydrate is a no-op when restored entries are all already present", async () => {
+    const storage = makeStorage({
+      "sess-dup": {
+        fetchRequests: [entry("a")],
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    });
+    const hydrated = new FetchRequestLogState(client, {
+      sessionStorage: storage,
+      sessionId: "sess-dup",
+    });
+    const changes: FetchRequestEntry[][] = [];
+    hydrated.addEventListener("fetchRequestsChange", (e) =>
+      changes.push(e.detail),
+    );
+    client.dispatchTypedEvent("fetchRequest", entry("a"));
+    changes.length = 0; // ignore the live-append dispatch
+    await Promise.resolve();
+    await Promise.resolve();
+    // The only restored entry ("a") is already present → no merge, no event.
+    expect(hydrated.getFetchRequests().map((e) => e.id)).toEqual(["a"]);
+    expect(changes).toEqual([]);
+    hydrated.destroy();
+  });
+
   it("ignores hydration when destroy() happens first", async () => {
     let resolveLoad:
       | ((s: InspectorClientSessionState | undefined) => void)
