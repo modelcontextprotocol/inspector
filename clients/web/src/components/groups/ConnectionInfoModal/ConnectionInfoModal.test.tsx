@@ -89,11 +89,7 @@ describe("ConnectionInfoModal", () => {
         transport="stdio"
       />,
     );
-    const closeBtn = document.querySelector(
-      "button.mantine-CloseButton-root",
-    ) as HTMLButtonElement | null;
-    expect(closeBtn).not.toBeNull();
-    await user.click(closeBtn!);
+    await user.click(screen.getByRole("button", { name: /close/i }));
     expect(onClose).toHaveBeenCalled();
   });
 

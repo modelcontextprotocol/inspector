@@ -15,6 +15,7 @@ import type {
   MCPServerConfig,
   MessageEntry,
   ServerEntry,
+  ServerType,
 } from "@inspector/core/mcp/types.js";
 import { API_SERVER_ENV_VARS } from "@inspector/core/mcp/remote/constants.js";
 import { ManagedToolsState } from "@inspector/core/mcp/state/managedToolsState.js";
@@ -347,16 +348,41 @@ function App() {
     [servers, activeServerId],
   );
 
-  const connectionInfoTransport = useMemo(
-    () => activeServer?.config.type ?? "stdio",
-    [activeServer],
-  );
+  // `config.type` is optional in the schema (a bare `command: ...`
+  // entry implies stdio), so we materialize the default here rather
+  // than at the render site — the modal's `transport` prop is a
+  // required `ServerType`, and we only render the modal once we know
+  // there's an active server (see the `{initializeResult && activeServer && …}`
+  // guard below).
+  const connectionInfoTransport: ServerType =
+    activeServer?.config.type ?? "stdio";
 
-  // OAuth details rendered in the Server Info modal. Read from the active
-  // InspectorClient's guided-OAuth state machine snapshot (synchronous), with
-  // configured scopes pulled from the server's persisted settings. All three
-  // fields are independently optional — if none are populated we return
-  // undefined so the modal hides the OAuth section entirely.
+  // OAuth details rendered in the Connection Info modal — read from the
+  // active InspectorClient's guided-OAuth state machine snapshot
+  // (synchronous), with configured scopes pulled from the server's
+  // persisted settings. All three fields are independently optional; if
+  // none are populated we return undefined so the modal hides the OAuth
+  // section entirely.
+  //
+  // Snapshot-at-open semantics: the memo deps don't include
+  // `oauthStepChange` / `oauthComplete`, so a token refresh that happens
+  // while the modal is open will not update the rendered token. That
+  // matches the modal's overall framing ("info about the connection at
+  // this moment") and avoids subscribing to a third event source from a
+  // dialog whose primary job is read-only. If we ever surface live token
+  // refresh state, switch to subscribing on those events.
+  //
+  // For `authUrl` we prefer the authorization-server-advertised
+  // `authorization_endpoint` over the full `authorizationUrl`. The
+  // latter is the per-flight URL the user was redirected to (with
+  // `state`, `code_challenge`, etc.) — informative for a debugger,
+  // noisy for a connection summary; the endpoint is the stable
+  // identifier of "which AS is in use here."
+  //
+  // Scope splitter: OAuth 2.1 §3.3 specifies space-separated scopes;
+  // the persisted value is config-controlled (user-typed into the
+  // server settings form), so the literal `" "` split is sufficient
+  // and matches the spec.
   const connectionInfoOAuth = useMemo<OAuthDetails | undefined>(() => {
     if (connectionStatus !== "connected" || !inspectorClient) return undefined;
     const oauthState = inspectorClient.getOAuthState();
@@ -365,7 +391,7 @@ function App() {
       oauthState?.authorizationUrl?.toString();
     const accessToken = oauthState?.oauthTokens?.access_token;
     const scopes = activeServer?.settings?.oauthScopes
-      ?.split(/\s+/)
+      ?.split(" ")
       .filter(Boolean);
     if (!authUrl && !accessToken && !(scopes && scopes.length > 0)) {
       return undefined;
@@ -1008,7 +1034,7 @@ function App() {
         onClose={onSettingsModalClose}
         onSettingsChange={onSettingsChange}
       />
-      {initializeResult && (
+      {initializeResult && activeServer && (
         <ConnectionInfoModal
           opened={connectionInfoModalOpen}
           onClose={() => setConnectionInfoModalOpen(false)}

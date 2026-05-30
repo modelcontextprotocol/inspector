@@ -39,7 +39,7 @@ export function ConnectionInfoModal({
           <Title order={4} flex={1}>
             Connection Info
           </Title>
-          <CloseButton onClick={onClose} />
+          <CloseButton aria-label="Close" onClick={onClose} />
         </Group>
         <ConnectionInfoContent
           initializeResult={initializeResult}

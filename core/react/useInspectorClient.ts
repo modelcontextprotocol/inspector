@@ -9,6 +9,12 @@ import type {
   Implementation,
 } from "@modelcontextprotocol/sdk/types.js";
 
+// Module-scope frozen object so the `?? EMPTY_CLIENT_CAPABILITIES`
+// fallback below doesn't return a fresh literal on every render —
+// downstream `useMemo`/`useEffect` deps that key on `clientCapabilities`
+// would otherwise invalidate every tick when no client is attached.
+const EMPTY_CLIENT_CAPABILITIES: ClientCapabilities = Object.freeze({});
+
 export interface UseInspectorClientResult {
   status: ConnectionStatus;
   capabilities?: ServerCapabilities;
@@ -120,9 +126,10 @@ export function useInspectorClient(
     // Read lazily on every render rather than subscribed: client capabilities
     // are built once in InspectorClient's constructor (from `sample`, `elicit`,
     // `roots`, `receiverTasks`) and never mutate during a session, so there's
-    // no event to subscribe to. Returns `{}` when no client is attached so
-    // consumers can treat this as a stable object.
-    clientCapabilities: inspectorClient?.getClientCapabilities() ?? {},
+    // no event to subscribe to. The module-scope frozen empty object is the
+    // stable fallback when no client is attached.
+    clientCapabilities:
+      inspectorClient?.getClientCapabilities() ?? EMPTY_CLIENT_CAPABILITIES,
     serverInfo,
     instructions,
     appRendererClient: inspectorClient?.getAppRendererClient() ?? null,
