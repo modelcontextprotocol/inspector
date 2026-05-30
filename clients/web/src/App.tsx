@@ -364,13 +364,17 @@ function App() {
   // none are populated we return undefined so the modal hides the OAuth
   // section entirely.
   //
-  // Snapshot-at-open semantics: the memo deps don't include
-  // `oauthStepChange` / `oauthComplete`, so a token refresh that happens
-  // while the modal is open will not update the rendered token. That
-  // matches the modal's overall framing ("info about the connection at
-  // this moment") and avoids subscribing to a third event source from a
-  // dialog whose primary job is read-only. If we ever surface live token
-  // refresh state, switch to subscribing on those events.
+  // Snapshot-at-last-derivation semantics: the memo deps
+  // (`connectionStatus`, `inspectorClient`, `activeServer`) don't
+  // include `oauthStepChange` / `oauthComplete`, so a token refresh
+  // that happens while none of those change won't update the rendered
+  // token. The memo will still re-run on the natural triggers — server
+  // switch, reconnect, or a settings edit that re-references
+  // `activeServer` — which matches the modal's overall framing
+  // ("info about the connection at this moment") and avoids
+  // subscribing to a third event source from a dialog whose primary
+  // job is read-only. If we ever surface live token refresh state,
+  // switch to subscribing on those events.
   //
   // For `authUrl` we prefer the authorization-server-advertised
   // `authorization_endpoint` over the full `authorizationUrl`. The
