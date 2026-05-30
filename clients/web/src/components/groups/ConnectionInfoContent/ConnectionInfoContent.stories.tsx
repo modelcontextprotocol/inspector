@@ -3,7 +3,7 @@ import type {
   InitializeResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ServerInfoContent } from "./ServerInfoContent";
+import { ConnectionInfoContent } from "./ConnectionInfoContent";
 
 const fullResult: InitializeResult = {
   protocolVersion: "2025-03-26",
@@ -26,13 +26,13 @@ const fullClientCaps: ClientCapabilities = {
   experimental: {},
 };
 
-const meta: Meta<typeof ServerInfoContent> = {
-  title: "Groups/ServerInfoContent",
-  component: ServerInfoContent,
+const meta: Meta<typeof ConnectionInfoContent> = {
+  title: "Groups/ConnectionInfoContent",
+  component: ConnectionInfoContent,
 };
 
 export default meta;
-type Story = StoryObj<typeof ServerInfoContent>;
+type Story = StoryObj<typeof ConnectionInfoContent>;
 
 export const FullCapabilities: Story = {
   args: {

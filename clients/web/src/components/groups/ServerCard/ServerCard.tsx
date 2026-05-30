@@ -8,12 +8,11 @@ import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/Serv
 import { TransportBadge } from "../../elements/TransportBadge/TransportBadge";
 import { ConnectionToggle } from "../../elements/ConnectionToggle/ConnectionToggle";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
-import { InlineError } from "../../elements/InlineError/InlineError";
 
 export interface ServerCardProps extends ServerEntry {
   activeServer?: string;
   onToggleConnection: (id: string) => void;
-  onServerInfo: (id: string) => void;
+  onConnectionInfo: (id: string) => void;
   onSettings: (id: string) => void;
   onEdit: (id: string) => void;
   onClone: (id: string) => void;
@@ -92,7 +91,7 @@ export function ServerCard({
   connection,
   activeServer,
   onToggleConnection,
-  onServerInfo,
+  onConnectionInfo,
   onSettings,
   onEdit,
   onClone,
@@ -142,16 +141,6 @@ export function ServerCard({
               copyable
             />
 
-            {connection.error && (
-              <InlineError
-                error={{
-                  message: connection.error.message,
-                  data: connection.error.details,
-                }}
-                retryCount={connection.retryCount}
-              />
-            )}
-
             <Group justify="space-between">
               <ActionsRow>
                 <SubtleButton onClick={() => onClone(id)}>Clone</SubtleButton>
@@ -159,9 +148,11 @@ export function ServerCard({
                 <RemoveButton onClick={() => onRemove(id)}>Remove</RemoveButton>
               </ActionsRow>
               <ActionsRow>
-                <SubtleButton onClick={() => onServerInfo(id)}>
-                  Server Info
-                </SubtleButton>
+                {connection.status === "connected" && (
+                  <SubtleButton onClick={() => onConnectionInfo(id)}>
+                    Connection Info
+                  </SubtleButton>
+                )}
                 <SubtleButton onClick={() => onSettings(id)}>
                   Settings
                 </SubtleButton>

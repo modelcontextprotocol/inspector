@@ -23,6 +23,7 @@ const sseConfig: MCPServerConfig = {
 
 const connected: ConnectionState = { status: "connected" };
 const disconnected: ConnectionState = { status: "disconnected" };
+const connecting: ConnectionState = { status: "connecting" };
 const errored: ConnectionState = {
   status: "error",
   retryCount: 2,
@@ -31,7 +32,7 @@ const errored: ConnectionState = {
 
 const handlers = {
   onToggleConnection: vi.fn(),
-  onServerInfo: vi.fn(),
+  onConnectionInfo: vi.fn(),
   onSettings: vi.fn(),
   onEdit: vi.fn(),
   onClone: vi.fn(),
@@ -80,11 +81,6 @@ describe("ServerCard", () => {
     expect(screen.getByText("https://api.example.com/sse")).toBeInTheDocument();
   });
 
-  it("renders the InlineError when connection has an error", () => {
-    renderWithMantine(<ServerCard {...baseProps} connection={errored} />);
-    expect(screen.getByText("Connection refused")).toBeInTheDocument();
-  });
-
   it("hides body content in compact mode", () => {
     renderWithMantine(
       <ServerCard {...baseProps} connection={disconnected} compact />,
@@ -100,7 +96,7 @@ describe("ServerCard", () => {
     const onClone = vi.fn();
     const onEdit = vi.fn();
     const onRemove = vi.fn();
-    const onServerInfo = vi.fn();
+    const onConnectionInfo = vi.fn();
     const onSettings = vi.fn();
     renderWithMantine(
       <ServerCard
@@ -108,19 +104,19 @@ describe("ServerCard", () => {
         onClone={onClone}
         onEdit={onEdit}
         onRemove={onRemove}
-        onServerInfo={onServerInfo}
+        onConnectionInfo={onConnectionInfo}
         onSettings={onSettings}
       />,
     );
     await user.click(screen.getByRole("button", { name: "Clone" }));
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.click(screen.getByRole("button", { name: "Remove" }));
-    await user.click(screen.getByRole("button", { name: "Server Info" }));
+    await user.click(screen.getByRole("button", { name: "Connection Info" }));
     await user.click(screen.getByRole("button", { name: "Settings" }));
     expect(onClone).toHaveBeenCalledWith("srv-1");
     expect(onEdit).toHaveBeenCalledWith("srv-1");
     expect(onRemove).toHaveBeenCalledWith("srv-1");
-    expect(onServerInfo).toHaveBeenCalledWith("srv-1");
+    expect(onConnectionInfo).toHaveBeenCalledWith("srv-1");
     expect(onSettings).toHaveBeenCalledWith("srv-1");
   });
 
@@ -156,5 +152,40 @@ describe("ServerCard", () => {
   it("omits the version badge when info is missing", () => {
     renderWithMantine(<ServerCard {...baseProps} info={undefined} />);
     expect(screen.queryByText("1.2.0")).not.toBeInTheDocument();
+  });
+
+  it("renders Server Info button when connected", () => {
+    renderWithMantine(<ServerCard {...baseProps} connection={connected} />);
+    expect(
+      screen.getByRole("button", { name: "Connection Info" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Settings" }),
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    ["disconnected", disconnected],
+    ["connecting", connecting],
+    ["error", errored],
+  ] as const)(
+    "omits Server Info button when status is %s but keeps Settings",
+    (_label, state) => {
+      renderWithMantine(<ServerCard {...baseProps} connection={state} />);
+      expect(
+        screen.queryByRole("button", { name: "Connection Info" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Settings" }),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it("does not render an InlineError when the connection has an error", () => {
+    // Handshake errors are surfaced via a toast at the App level
+    // (notifications.show); the card itself stays focused on the
+    // ConnectionToggle status indicator.
+    renderWithMantine(<ServerCard {...baseProps} connection={errored} />);
+    expect(screen.queryByText("Connection refused")).not.toBeInTheDocument();
   });
 });

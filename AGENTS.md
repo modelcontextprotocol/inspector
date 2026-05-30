@@ -109,6 +109,7 @@ All work should be driven by items on the project board.
   - after making the changes, respond to each review comment with what was done (or why it was ignored)
 
 ### Lint-fixed, Formatted code
+- ALWAYS do `npm run format` before committing — it auto-fixes any Prettier issues. `validate` runs `format:check` (the non-fixing variant) and will fail in CI on any unformatted file, so always run the auto-fixer first rather than letting `format:check` catch it.
 - ALWAYS do `npm run validate` before pushing any changes, this runs the various lint, build, format checks, etc.
 - Also run `npm run test:storybook` before pushing — it executes every story's `play` function in headless Chromium via `@vitest/browser-playwright` (~10s). CI runs this as a separate step after the unit/lint/build checks; failures block merge. It is kept out of `validate` because it needs the Playwright browser binary and is much slower than the unit suite.
 

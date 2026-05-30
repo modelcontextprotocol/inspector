@@ -1,7 +1,7 @@
 import {
   Badge,
-  Blockquote,
   Code,
+  ScrollArea,
   SimpleGrid,
   Stack,
   Text,
@@ -16,6 +16,7 @@ import {
   CapabilityItem,
   type CapabilityKey,
 } from "../../elements/CapabilityItem/CapabilityItem";
+import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 
 export interface OAuthDetails {
   authUrl?: string;
@@ -23,7 +24,7 @@ export interface OAuthDetails {
   accessToken?: string;
 }
 
-export interface ServerInfoContentProps {
+export interface ConnectionInfoContentProps {
   initializeResult: InitializeResult;
   clientCapabilities: ClientCapabilities;
   transport: ServerType;
@@ -33,6 +34,11 @@ export interface ServerInfoContentProps {
 const ValueText = Text.withProps({
   size: "sm",
   fw: 600,
+});
+
+const SectionHeading = Title.withProps({
+  order: 5,
+  variant: "section",
 });
 
 function formatScopes(scopes: string[]): string {
@@ -66,12 +72,12 @@ function getCapabilityEntries(
   }));
 }
 
-export function ServerInfoContent({
+export function ConnectionInfoContent({
   initializeResult,
   clientCapabilities,
   transport,
   oauth,
-}: ServerInfoContentProps) {
+}: ConnectionInfoContentProps) {
   const { serverInfo, protocolVersion, capabilities, instructions } =
     initializeResult;
 
@@ -83,25 +89,26 @@ export function ServerInfoContent({
 
   return (
     <Stack gap="md">
-      <Title order={3}>Server Information</Title>
+      <Stack gap="xs">
+        <SectionHeading>Server Implementation</SectionHeading>
+        <SimpleGrid cols={2}>
+          <Text size="sm">Name</Text>
+          <ValueText>{serverInfo.name}</ValueText>
 
-      <SimpleGrid cols={2}>
-        <Text size="sm">Name</Text>
-        <ValueText>{serverInfo.name}</ValueText>
+          <Text size="sm">Version</Text>
+          <ValueText>{serverInfo.version ?? "—"}</ValueText>
 
-        <Text size="sm">Version</Text>
-        <ValueText>{serverInfo.version ?? "—"}</ValueText>
+          <Text size="sm">Protocol</Text>
+          <ValueText>{protocolVersion}</ValueText>
 
-        <Text size="sm">Protocol</Text>
-        <ValueText>{protocolVersion}</ValueText>
-
-        <Text size="sm">Transport</Text>
-        <Badge variant="outline">{transport}</Badge>
-      </SimpleGrid>
+          <Text size="sm">Transport</Text>
+          <Badge variant="outline">{transport}</Badge>
+        </SimpleGrid>
+      </Stack>
 
       <SimpleGrid cols={2}>
         <Stack gap="xs">
-          <Title order={5}>Server Capabilities</Title>
+          <SectionHeading>Server Capabilities</SectionHeading>
           {serverCaps.map((cap) => (
             <CapabilityItem
               key={cap.capability}
@@ -111,7 +118,7 @@ export function ServerInfoContent({
           ))}
         </Stack>
         <Stack gap="xs">
-          <Title order={5}>Client Capabilities</Title>
+          <SectionHeading>Client Capabilities</SectionHeading>
           {clientCaps.map((cap) => (
             <CapabilityItem
               key={cap.capability}
@@ -124,14 +131,22 @@ export function ServerInfoContent({
 
       {instructions && (
         <Stack gap="xs">
-          <Title order={5}>Server Instructions</Title>
-          <Blockquote>{instructions}</Blockquote>
+          <SectionHeading>Server Instructions</SectionHeading>
+          {/* Cap the instructions block so a long server prompt scrolls
+              inside the section instead of pushing the OAuth section and
+              modal chrome off-screen. */}
+          <ScrollArea.Autosize mah={280}>
+            <ContentViewer
+              block={{ type: "text", text: instructions }}
+              copyable
+            />
+          </ScrollArea.Autosize>
         </Stack>
       )}
 
       {oauth && (
         <Stack gap="xs">
-          <Title order={5}>OAuth Details</Title>
+          <SectionHeading>OAuth Details</SectionHeading>
           <Stack gap="xs">
             {oauth.authUrl && (
               <SimpleGrid cols={2}>

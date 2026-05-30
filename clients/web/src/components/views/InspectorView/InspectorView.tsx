@@ -175,7 +175,6 @@ export interface InspectorViewProps {
   connectionStatus: ConnectionStatus;
   initializeResult?: InitializeResult;
   latencyMs?: number;
-  errorMessage?: string;
 
   // Primitive lists, log streams, task state — all sourced from the
   // per-primitive `useManaged*` / `useMessageLog` hooks in the parent.
@@ -223,7 +222,7 @@ export interface InspectorViewProps {
   onServerImportJson: () => void;
   /** Download the current server list as a canonical `mcp.json` file. */
   onServerExport: () => void;
-  onServerInfo: (id: string) => void;
+  onConnectionInfo: (id: string) => void;
   onServerSettings: (id: string) => void;
   onServerEdit: (id: string) => void;
   onServerClone: (id: string) => void;
@@ -281,7 +280,6 @@ export function InspectorView({
   connectionStatus,
   initializeResult,
   latencyMs,
-  errorMessage,
   tools,
   prompts,
   resources,
@@ -306,7 +304,7 @@ export function InspectorView({
   onServerImportConfig,
   onServerImportJson,
   onServerExport,
-  onServerInfo,
+  onConnectionInfo,
   onServerSettings,
   onServerEdit,
   onServerClone,
@@ -406,25 +404,18 @@ export function InspectorView({
 
   // Merge the parent's `serversInput` (static config) with the runtime
   // connection state owned by the parent — only the active server reflects
-  // the live status; the rest render as `disconnected`.
+  // the live status; the rest render as `disconnected`. Handshake errors
+  // are surfaced via a toast at the App level (see App.tsx); the card
+  // itself stays focused on the live status indicator.
   const servers = useMemo<ServerEntry[]>(
     () =>
       serversInput.map((s) => {
         if (s.id !== activeServer) {
           return { ...s, connection: { status: "disconnected" } };
         }
-        if (connectionStatus === "error" && errorMessage) {
-          return {
-            ...s,
-            connection: {
-              status: "error",
-              error: { message: errorMessage },
-            },
-          };
-        }
         return { ...s, connection: { status: connectionStatus } };
       }),
-    [serversInput, activeServer, connectionStatus, errorMessage],
+    [serversInput, activeServer, connectionStatus],
   );
 
   return (
@@ -457,7 +448,7 @@ export function InspectorView({
               onImportServerJson={onServerImportJson}
               onExport={onServerExport}
               onToggleConnection={onToggleConnection}
-              onServerInfo={onServerInfo}
+              onConnectionInfo={onConnectionInfo}
               onSettings={onServerSettings}
               onEdit={onServerEdit}
               onClone={onServerClone}

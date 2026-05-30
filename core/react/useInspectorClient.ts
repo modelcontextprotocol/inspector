@@ -4,13 +4,21 @@ import type { AppRendererClient } from "../mcp/inspectorClientProtocol.js";
 import type { TypedEvent } from "../mcp/inspectorClientEventTarget.js";
 import type { ConnectionStatus } from "../mcp/types.js";
 import type {
+  ClientCapabilities,
   ServerCapabilities,
   Implementation,
 } from "@modelcontextprotocol/sdk/types.js";
 
+// Module-scope frozen object so the `?? EMPTY_CLIENT_CAPABILITIES`
+// fallback below doesn't return a fresh literal on every render —
+// downstream `useMemo`/`useEffect` deps that key on `clientCapabilities`
+// would otherwise invalidate every tick when no client is attached.
+const EMPTY_CLIENT_CAPABILITIES: ClientCapabilities = Object.freeze({});
+
 export interface UseInspectorClientResult {
   status: ConnectionStatus;
   capabilities?: ServerCapabilities;
+  clientCapabilities: ClientCapabilities;
   serverInfo?: Implementation;
   instructions?: string;
   appRendererClient: AppRendererClient | null;
@@ -115,6 +123,13 @@ export function useInspectorClient(
   return {
     status,
     capabilities,
+    // Read lazily on every render rather than subscribed: client capabilities
+    // are built once in InspectorClient's constructor (from `sample`, `elicit`,
+    // `roots`, `receiverTasks`) and never mutate during a session, so there's
+    // no event to subscribe to. The module-scope frozen empty object is the
+    // stable fallback when no client is attached.
+    clientCapabilities:
+      inspectorClient?.getClientCapabilities() ?? EMPTY_CLIENT_CAPABILITIES,
     serverInfo,
     instructions,
     appRendererClient: inspectorClient?.getAppRendererClient() ?? null,

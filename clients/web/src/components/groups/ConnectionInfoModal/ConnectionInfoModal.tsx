@@ -1,0 +1,53 @@
+import { CloseButton, Group, Modal, Stack, Title } from "@mantine/core";
+import type {
+  ClientCapabilities,
+  InitializeResult,
+} from "@modelcontextprotocol/sdk/types.js";
+import type { ServerType } from "@inspector/core/mcp/types.js";
+import {
+  ConnectionInfoContent,
+  type OAuthDetails,
+} from "../ConnectionInfoContent/ConnectionInfoContent";
+
+export interface ConnectionInfoModalProps {
+  opened: boolean;
+  onClose: () => void;
+  initializeResult: InitializeResult;
+  clientCapabilities: ClientCapabilities;
+  transport: ServerType;
+  oauth?: OAuthDetails;
+}
+
+export function ConnectionInfoModal({
+  opened,
+  onClose,
+  initializeResult,
+  clientCapabilities,
+  transport,
+  oauth,
+}: ConnectionInfoModalProps) {
+  return (
+    <Modal
+      opened={opened}
+      onClose={onClose}
+      withCloseButton={false}
+      size="lg"
+      centered
+    >
+      <Stack gap="md">
+        <Group justify="space-between" wrap="nowrap">
+          <Title order={4} flex={1}>
+            Connection Info
+          </Title>
+          <CloseButton aria-label="Close" onClick={onClose} />
+        </Group>
+        <ConnectionInfoContent
+          initializeResult={initializeResult}
+          clientCapabilities={clientCapabilities}
+          transport={transport}
+          oauth={oauth}
+        />
+      </Stack>
+    </Modal>
+  );
+}

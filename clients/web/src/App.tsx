@@ -15,6 +15,7 @@ import type {
   MCPServerConfig,
   MessageEntry,
   ServerEntry,
+  ServerType,
 } from "@inspector/core/mcp/types.js";
 import { API_SERVER_ENV_VARS } from "@inspector/core/mcp/remote/constants.js";
 import { ManagedToolsState } from "@inspector/core/mcp/state/managedToolsState.js";
@@ -50,6 +51,8 @@ import {
   type ServerConfigModalMode,
 } from "./components/groups/ServerConfigModal/ServerConfigModal";
 import { ServerSettingsModal } from "./components/groups/ServerSettingsModal/ServerSettingsModal";
+import { ConnectionInfoModal } from "./components/groups/ConnectionInfoModal/ConnectionInfoModal";
+import type { OAuthDetails } from "./components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
 import { buildExportFilename, downloadJsonFile } from "./lib/downloadFile";
 import { createWebEnvironment } from "./lib/environmentFactory";
@@ -176,6 +179,7 @@ function App() {
   const [settingsModalTargetId, setSettingsModalTargetId] = useState<
     string | undefined
   >(undefined);
+  const [connectionInfoModalOpen, setConnectionInfoModalOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<ServerEntry | null>(null);
 
   // The active connection target. `null` between sessions; set as soon as
@@ -232,9 +236,6 @@ function App() {
   // intervening rerenders don't reset it.
   const connectStartRef = useRef<number | undefined>(undefined);
   const [latencyMs, setLatencyMs] = useState<number | undefined>(undefined);
-  const [errorMessage, setErrorMessage] = useState<string | undefined>(
-    undefined,
-  );
 
   // Hook layer. Each hook subscribes to its respective event source and
   // re-renders the App on change. When `inspectorClient` / state managers
@@ -242,6 +243,7 @@ function App() {
   const {
     status: connectionStatus,
     capabilities,
+    clientCapabilities,
     serverInfo,
     instructions,
   } = useInspectorClient(inspectorClient);
@@ -314,6 +316,9 @@ function App() {
     if (!inspectorClient) return;
     const onDisconnect = () => {
       setActiveServerId(undefined);
+      // Drop the open flag too — without this the modal would pop back the
+      // next time `initializeResult` re-becomes truthy (e.g. reconnect).
+      setConnectionInfoModalOpen(false);
     };
     inspectorClient.addEventListener("disconnect", onDisconnect);
     return () => {
@@ -334,6 +339,73 @@ function App() {
       ...(instructions ? { instructions } : {}),
     };
   }, [connectionStatus, capabilities, serverInfo, instructions]);
+
+  // The Server Info modal needs the active server's transport and (optional)
+  // OAuth details — both are co-located here so the modal opens against the
+  // same connection snapshot the header is reading.
+  const activeServer = useMemo<ServerEntry | undefined>(
+    () => servers.find((s) => s.id === activeServerId),
+    [servers, activeServerId],
+  );
+
+  // `config.type` is optional in the schema (a bare `command: ...`
+  // entry implies stdio), so we materialize the default here rather
+  // than at the render site — the modal's `transport` prop is a
+  // required `ServerType`, and we only render the modal once we know
+  // there's an active server (see the `{initializeResult && activeServer && …}`
+  // guard below).
+  const connectionInfoTransport: ServerType =
+    activeServer?.config.type ?? "stdio";
+
+  // OAuth details rendered in the Connection Info modal — read from the
+  // active InspectorClient's guided-OAuth state machine snapshot
+  // (synchronous), with configured scopes pulled from the server's
+  // persisted settings. All three fields are independently optional; if
+  // none are populated we return undefined so the modal hides the OAuth
+  // section entirely.
+  //
+  // Snapshot-at-last-derivation semantics: the memo deps
+  // (`connectionStatus`, `inspectorClient`, `activeServer`) don't
+  // include `oauthStepChange` / `oauthComplete`, so a token refresh
+  // that happens while none of those change won't update the rendered
+  // token. The memo will still re-run on the natural triggers — server
+  // switch, reconnect, or a settings edit that re-references
+  // `activeServer` — which matches the modal's overall framing
+  // ("info about the connection at this moment") and avoids
+  // subscribing to a third event source from a dialog whose primary
+  // job is read-only. If we ever surface live token refresh state,
+  // switch to subscribing on those events.
+  //
+  // For `authUrl` we prefer the authorization-server-advertised
+  // `authorization_endpoint` over the full `authorizationUrl`. The
+  // latter is the per-flight URL the user was redirected to (with
+  // `state`, `code_challenge`, etc.) — informative for a debugger,
+  // noisy for a connection summary; the endpoint is the stable
+  // identifier of "which AS is in use here."
+  //
+  // Scope splitter: OAuth 2.1 §3.3 specifies space-separated scopes;
+  // the persisted value is config-controlled (user-typed into the
+  // server settings form), so the literal `" "` split is sufficient
+  // and matches the spec.
+  const connectionInfoOAuth = useMemo<OAuthDetails | undefined>(() => {
+    if (connectionStatus !== "connected" || !inspectorClient) return undefined;
+    const oauthState = inspectorClient.getOAuthState();
+    const authUrl =
+      oauthState?.oauthMetadata?.authorization_endpoint ??
+      oauthState?.authorizationUrl?.toString();
+    const accessToken = oauthState?.oauthTokens?.access_token;
+    const scopes = activeServer?.settings?.oauthScopes
+      ?.split(" ")
+      .filter(Boolean);
+    if (!authUrl && !accessToken && !(scopes && scopes.length > 0)) {
+      return undefined;
+    }
+    return {
+      ...(authUrl && { authUrl }),
+      ...(scopes && scopes.length > 0 && { scopes }),
+      ...(accessToken && { accessToken }),
+    };
+  }, [connectionStatus, inspectorClient, activeServer]);
 
   // Derive log entries from the message log. Filters for
   // `notifications/message` (the response to `logging/setLevel`).
@@ -473,7 +545,6 @@ function App() {
         setActiveServerId(id);
       }
 
-      setErrorMessage(undefined);
       connectStartRef.current = Date.now();
       try {
         // `settings.connectionTimeout` is consumed inside InspectorClient.connect
@@ -482,13 +553,19 @@ function App() {
         // same behavior by reading from `serverSettings` on the client.
         await client.connect();
       } catch (err) {
-        // Handshake-only. A mid-session transport failure transitions the
-        // client status to "error" without rejecting any pending promise,
-        // and `errorMessage` stays stale. TODO(#1323): consume an `error`
-        // event from `InspectorClientEventMap` once it exists.
+        // Handshake-only. A mid-session transport failure does not throw,
+        // so a future error event from InspectorClient is the right hook
+        // for surfacing those (TODO(#1323)). For now: toast on the
+        // handshake error so the user actually sees what went wrong
+        // instead of the ConnectionToggle silently reverting to
+        // "disconnected".
         connectStartRef.current = undefined;
         const message = err instanceof Error ? err.message : String(err);
-        setErrorMessage(message);
+        notifications.show({
+          title: `Failed to connect to "${target.name}"`,
+          message,
+          color: "red",
+        });
       }
     },
     [
@@ -878,7 +955,6 @@ function App() {
         connectionStatus={connectionStatus}
         initializeResult={initializeResult}
         latencyMs={latencyMs}
-        errorMessage={errorMessage}
         tools={tools}
         prompts={prompts}
         resources={resources}
@@ -905,7 +981,7 @@ function App() {
         onServerImportConfig={todoNoop}
         onServerImportJson={todoNoop}
         onServerExport={onServerExport}
-        onServerInfo={todoNoop}
+        onConnectionInfo={() => setConnectionInfoModalOpen(true)}
         onServerSettings={(id) => setSettingsModalTargetId(id)}
         onServerEdit={(id) => setConfigModal({ mode: "edit", targetId: id })}
         onServerClone={(id) => setConfigModal({ mode: "clone", targetId: id })}
@@ -962,6 +1038,16 @@ function App() {
         onClose={onSettingsModalClose}
         onSettingsChange={onSettingsChange}
       />
+      {initializeResult && activeServer && (
+        <ConnectionInfoModal
+          opened={connectionInfoModalOpen}
+          onClose={() => setConnectionInfoModalOpen(false)}
+          initializeResult={initializeResult}
+          clientCapabilities={clientCapabilities}
+          transport={connectionInfoTransport}
+          oauth={connectionInfoOAuth}
+        />
+      )}
       <ServerRemoveConfirmModal
         opened={removeTarget !== null}
         target={removeTarget}

@@ -33,7 +33,7 @@ const meta: Meta<typeof ServerCard> = {
   component: ServerCard,
   args: {
     onToggleConnection: fn(),
-    onServerInfo: fn(),
+    onConnectionInfo: fn(),
     onSettings: fn(),
     onEdit: fn(),
     onClone: fn(),
