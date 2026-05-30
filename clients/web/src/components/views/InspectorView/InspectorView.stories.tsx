@@ -314,7 +314,6 @@ const meta: Meta<typeof InspectorView> = {
     connectionStatus: "disconnected",
     initializeResult: undefined,
     latencyMs: undefined,
-    errorMessage: undefined,
 
     // Misc state
     currentLogLevel: "info",
@@ -391,6 +390,5 @@ export const ConnectionError: Story = {
   args: {
     activeServer: demoServers[0]!.id,
     connectionStatus: "error",
-    errorMessage: "Handshake timeout",
   },
 };

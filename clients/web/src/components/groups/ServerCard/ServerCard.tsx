@@ -1,5 +1,4 @@
 import { Badge, Button, Card, Group, Stack, Text } from "@mantine/core";
-import { useEffect, useState } from "react";
 import type {
   MCPServerConfig,
   ServerEntry,
@@ -9,9 +8,6 @@ import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/Serv
 import { TransportBadge } from "../../elements/TransportBadge/TransportBadge";
 import { ConnectionToggle } from "../../elements/ConnectionToggle/ConnectionToggle";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
-import { InlineError } from "../../elements/InlineError/InlineError";
-
-const ERROR_AUTO_DISMISS_MS = 5000;
 
 export interface ServerCardProps extends ServerEntry {
   activeServer?: string;
@@ -107,40 +103,6 @@ export function ServerCard({
   const commandOrUrl = getCommandOrUrl(config);
   const version = info?.version;
 
-  // Visibility for the InlineError alert. Owned here (not InlineError)
-  // so the slide-up exit animation runs whether the timer fires OR the
-  // parent removes `connection.error` (e.g. a successful reconnect).
-  // `lastError` keeps the message painted during the exit animation —
-  // without it, swapping connection.error to undefined would blank the
-  // alert content the moment the Transition starts running. The setState
-  // in render is the React-blessed pattern for "remember the previous
-  // value of a prop"; gated on message inequality so we never schedule
-  // an infinite update.
-  const errorMessage = connection.error?.message;
-  const [dismissedMessage, setDismissedMessage] = useState<string | undefined>(
-    undefined,
-  );
-  const [lastError, setLastError] = useState<
-    { message: string; data?: unknown } | undefined
-  >(undefined);
-  if (connection.error && connection.error.message !== lastError?.message) {
-    setLastError({
-      message: connection.error.message,
-      data: connection.error.details,
-    });
-  }
-  const errorMounted =
-    errorMessage !== undefined && errorMessage !== dismissedMessage;
-
-  useEffect(() => {
-    if (!errorMessage) return;
-    const timer = setTimeout(
-      () => setDismissedMessage(errorMessage),
-      ERROR_AUTO_DISMISS_MS,
-    );
-    return () => clearTimeout(timer);
-  }, [errorMessage]);
-
   return (
     <Card
       withBorder
@@ -178,14 +140,6 @@ export function ServerCard({
               block={{ type: "text", text: commandOrUrl }}
               copyable
             />
-
-            {lastError && (
-              <InlineError
-                error={lastError}
-                retryCount={connection.retryCount}
-                mounted={errorMounted}
-              />
-            )}
 
             <Group justify="space-between">
               <ActionsRow>

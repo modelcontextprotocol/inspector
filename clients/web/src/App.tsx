@@ -234,17 +234,7 @@ function App() {
   // and consumed at the "connected" edge — a ref (not state) so the
   // intervening rerenders don't reset it.
   const connectStartRef = useRef<number | undefined>(undefined);
-  // True while a `client.connect()` call is in flight. The transport's
-  // close handler fires during a failing handshake and dispatches the
-  // `disconnect` event we listen for below; without this guard the
-  // listener clears `activeServerId` mid-flight, which makes
-  // InspectorView map the card to plain "disconnected" and swallows
-  // the error the catch block is about to set in `errorMessage`.
-  const connectInFlightRef = useRef(false);
   const [latencyMs, setLatencyMs] = useState<number | undefined>(undefined);
-  const [errorMessage, setErrorMessage] = useState<string | undefined>(
-    undefined,
-  );
 
   // Hook layer. Each hook subscribes to its respective event source and
   // re-renders the App on change. When `inspectorClient` / state managers
@@ -324,12 +314,6 @@ function App() {
   useEffect(() => {
     if (!inspectorClient) return;
     const onDisconnect = () => {
-      // Skip while a handshake is mid-flight — the transport closes when
-      // connect() fails and dispatches this event before the catch block
-      // runs. Clearing activeServerId here would force InspectorView to
-      // map the card to plain "disconnected" instead of the error variant
-      // that surfaces the InlineError.
-      if (connectInFlightRef.current) return;
       setActiveServerId(undefined);
       // Drop the open flag too — without this the modal would pop back the
       // next time `initializeResult` re-becomes truthy (e.g. reconnect).
@@ -531,9 +515,7 @@ function App() {
         setActiveServerId(id);
       }
 
-      setErrorMessage(undefined);
       connectStartRef.current = Date.now();
-      connectInFlightRef.current = true;
       try {
         // `settings.connectionTimeout` is consumed inside InspectorClient.connect
         // (Promise.race + transport teardown live there now), so this branch
@@ -541,15 +523,19 @@ function App() {
         // same behavior by reading from `serverSettings` on the client.
         await client.connect();
       } catch (err) {
-        // Handshake-only. A mid-session transport failure transitions the
-        // client status to "error" without rejecting any pending promise,
-        // and `errorMessage` stays stale. TODO(#1323): consume an `error`
-        // event from `InspectorClientEventMap` once it exists.
+        // Handshake-only. A mid-session transport failure does not throw,
+        // so a future error event from InspectorClient is the right hook
+        // for surfacing those (TODO(#1323)). For now: toast on the
+        // handshake error so the user actually sees what went wrong
+        // instead of the ConnectionToggle silently reverting to
+        // "disconnected".
         connectStartRef.current = undefined;
         const message = err instanceof Error ? err.message : String(err);
-        setErrorMessage(message);
-      } finally {
-        connectInFlightRef.current = false;
+        notifications.show({
+          title: `Failed to connect to "${target.name}"`,
+          message,
+          color: "red",
+        });
       }
     },
     [
@@ -939,7 +925,6 @@ function App() {
         connectionStatus={connectionStatus}
         initializeResult={initializeResult}
         latencyMs={latencyMs}
-        errorMessage={errorMessage}
         tools={tools}
         prompts={prompts}
         resources={resources}

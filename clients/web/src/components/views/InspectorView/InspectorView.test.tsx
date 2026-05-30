@@ -40,7 +40,6 @@ function makeProps(
     connectionStatus: "disconnected",
     initializeResult: undefined,
     latencyMs: undefined,
-    errorMessage: undefined,
     tools: [],
     prompts: [],
     resources: [],
@@ -150,20 +149,6 @@ describe("InspectorView", () => {
     // both. The connected toggle being on confirms the connected mode.
     expect(screen.getAllByText("Alpha").length).toBeGreaterThan(0);
     expect(screen.getByRole("switch")).toBeChecked();
-  });
-
-  it("renders the error banner when connectionStatus is 'error' with an errorMessage", () => {
-    renderWithMantine(
-      <InspectorView
-        {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "error",
-          errorMessage: "Handshake timeout",
-        })}
-      />,
-    );
-    expect(screen.getByText("Handshake timeout")).toBeInTheDocument();
   });
 
   it("snaps activeTab back to Servers when connection drops", async () => {
