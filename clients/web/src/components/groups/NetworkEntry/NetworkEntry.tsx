@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Badge,
   Button,
@@ -13,6 +13,7 @@ import {
 import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
 import { isLongLivedStreamResponse } from "@inspector/core/mcp/fetchTracking.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { maskSecretsInBody } from "../../../utils/maskSecrets";
 
 export interface NetworkEntryProps {
   entry: FetchRequestEntry;
@@ -126,8 +127,47 @@ function HeadersTable({ headers }: { headers: Record<string, string> }) {
   );
 }
 
-function BodyPreview({ body }: { body: string }) {
+const RevealButton = Button.withProps({
+  variant: "subtle",
+  size: "compact-xs",
+});
+
+function BodyPreview({
+  body,
+  contentType,
+}: {
+  body: string;
+  contentType?: string;
+}) {
+  // Reveal state for masked secrets. Hooks run before any early return so the
+  // order stays stable across the too-large / has-secrets branches. The reveal
+  // state resets when the body or its content-type changes because callers key
+  // `<BodyPreview>` by both (remounting on swap), so a previously-revealed view
+  // never persists across a content (or masking) change.
+  const [revealed, setRevealed] = useState(false);
+
   const tooLarge = body.length > MAX_INLINE_BODY_CHARS;
+
+  // OAuth responses (token exchange, DCR) and the token request carry
+  // bearer-grade secrets. Mask them by default and gate the raw values behind
+  // an explicit reveal so they aren't exposed at a glance during a
+  // screen-share. The entry's content-type scopes which parser runs (so a
+  // plaintext/HTML error body is never guessed at). Bodies without secrets
+  // render as-is with no toggle.
+  //
+  // Memoized so a Reveal/Hide click (a re-render) doesn't re-parse and re-walk
+  // the body; the cost is paid once per mount, and the `key={…}` remount on
+  // body/content-type change re-runs it. Skipped for too-large bodies so we
+  // never parse something we won't display (the hook must run unconditionally,
+  // hence the in-memo guard rather than an early return above it).
+  const { masked, hasSecrets } = useMemo(
+    () =>
+      tooLarge
+        ? { masked: body, hasSecrets: false }
+        : maskSecretsInBody(body, contentType),
+    [tooLarge, body, contentType],
+  );
+
   if (tooLarge) {
     return (
       <Text size="xs" c="dimmed">
@@ -135,7 +175,30 @@ function BodyPreview({ body }: { body: string }) {
       </Text>
     );
   }
-  return <ContentViewer block={{ type: "text", text: body }} copyable />;
+
+  if (!hasSecrets) {
+    return <ContentViewer block={{ type: "text", text: body }} copyable />;
+  }
+
+  const shown = revealed ? body : masked;
+  return (
+    <Stack gap="xs">
+      <Group gap="xs">
+        <Text size="xs" c="dimmed" aria-live="polite">
+          {revealed ? "Secrets revealed" : "Secrets hidden"}
+        </Text>
+        <RevealButton
+          onClick={() => setRevealed((v) => !v)}
+          aria-label={
+            revealed ? "Hide secrets in body" : "Reveal secrets in body"
+          }
+        >
+          {revealed ? "Hide" : "Reveal"}
+        </RevealButton>
+      </Group>
+      <ContentViewer block={{ type: "text", text: shown }} copyable />
+    </Stack>
+  );
 }
 
 export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
@@ -192,7 +255,11 @@ export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
                 <Text size="sm" fw={500}>
                   Request Body
                 </Text>
-                <BodyPreview body={entry.requestBody} />
+                <BodyPreview
+                  key={`${entry.requestHeaders["content-type"] ?? ""}|${entry.requestBody}`}
+                  body={entry.requestBody}
+                  contentType={entry.requestHeaders["content-type"]}
+                />
               </Stack>
             )}
             {entry.responseHeaders && (
@@ -209,7 +276,11 @@ export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
                   Response Body
                 </Text>
                 {entry.responseBody ? (
-                  <BodyPreview body={entry.responseBody} />
+                  <BodyPreview
+                    key={`${entry.responseHeaders?.["content-type"] ?? ""}|${entry.responseBody}`}
+                    body={entry.responseBody}
+                    contentType={entry.responseHeaders?.["content-type"]}
+                  />
                 ) : (
                   <Text size="xs" c="dimmed">
                     {isLongLivedStream(entry)

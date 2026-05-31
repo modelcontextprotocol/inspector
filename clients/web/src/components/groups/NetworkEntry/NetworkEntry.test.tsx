@@ -196,4 +196,79 @@ describe("NetworkEntry", () => {
     await user.click(screen.getByRole("button", { name: "Expand" }));
     expect(screen.getByText(/Body too large to preview/)).toBeInTheDocument();
   });
+
+  it("masks token-response secrets until revealed, then shows the raw value", async () => {
+    const user = userEvent.setup();
+    const authEntry: FetchRequestEntry = {
+      ...baseEntry,
+      category: "auth",
+      url: "http://localhost:3001/token",
+      requestBody: undefined,
+      responseBody: JSON.stringify({
+        access_token: "super-secret-token",
+        token_type: "Bearer",
+      }),
+    };
+    const { container } = renderWithMantine(
+      <NetworkEntry entry={authEntry} isListExpanded={true} />,
+    );
+    // Masked by default: the reveal affordance is present and the raw secret
+    // is nowhere in the DOM, but non-secret fields still render.
+    expect(screen.getByText("Secrets hidden")).toBeInTheDocument();
+    expect(container.textContent).not.toContain("super-secret-token");
+    expect(container.textContent).toContain("••••••••");
+    expect(container.textContent).toContain("Bearer");
+
+    await user.click(
+      screen.getByRole("button", { name: "Reveal secrets in body" }),
+    );
+
+    expect(screen.getByText("Secrets revealed")).toBeInTheDocument();
+    expect(container.textContent).toContain("super-secret-token");
+
+    // Toggling back re-masks.
+    await user.click(
+      screen.getByRole("button", { name: "Hide secrets in body" }),
+    );
+    expect(container.textContent).not.toContain("super-secret-token");
+  });
+
+  it("masks a form-encoded request body (code/verifier) until revealed", async () => {
+    const user = userEvent.setup();
+    const authEntry: FetchRequestEntry = {
+      ...baseEntry,
+      category: "auth",
+      url: "http://localhost:3001/token",
+      requestHeaders: { "content-type": "application/x-www-form-urlencoded" },
+      requestBody:
+        "grant_type=authorization_code&code=SECRETCODE&code_verifier=SECRETVERIFIER",
+      responseStatus: undefined,
+      responseStatusText: undefined,
+      responseHeaders: undefined,
+      responseBody: undefined,
+    };
+    const { container } = renderWithMantine(
+      <NetworkEntry entry={authEntry} isListExpanded={true} />,
+    );
+    expect(screen.getByText("Secrets hidden")).toBeInTheDocument();
+    expect(container.textContent).not.toContain("SECRETCODE");
+    expect(container.textContent).not.toContain("SECRETVERIFIER");
+    expect(container.textContent).toContain("••••••••");
+    // Non-secret param stays visible.
+    expect(container.textContent).toContain("grant_type=authorization_code");
+
+    await user.click(
+      screen.getByRole("button", { name: "Reveal secrets in body" }),
+    );
+    expect(container.textContent).toContain("SECRETCODE");
+    expect(container.textContent).toContain("SECRETVERIFIER");
+  });
+
+  it("does not add a reveal toggle for non-secret bodies", () => {
+    renderWithMantine(<NetworkEntry entry={baseEntry} isListExpanded={true} />);
+    expect(screen.queryByText("Secrets hidden")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Reveal secrets in body" }),
+    ).not.toBeInTheDocument();
+  });
 });

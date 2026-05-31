@@ -92,6 +92,11 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
         ...this.fetchRequests[idx]!,
         responseBody,
       };
+      // Body fill-in re-emits the list event only, not the per-entry
+      // `fetchRequest` event (that one fires once, on append). Consumers read
+      // the full list (`useFetchRequests`), so they pick up the body on the
+      // next list re-render. A future per-entry subscriber wanting incremental
+      // body updates would need its own event here.
       this.dispatchTypedEvent("fetchRequestsChange", this.getFetchRequests());
     };
     this.client.addEventListener(
@@ -112,6 +117,15 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
       // non-redirect `saveSession` caller (e.g. a future token-refresh save
       // point) and is harmless when it duplicates the primary flush —
       // last-writer-wins on an identical payload under the same id.
+      //
+      // SECURITY TRIPWIRE: captured `auth`-category response bodies in this log
+      // are stored UNMASKED (masking is a Network-UI display concern only).
+      // Today the only `saveSession` trigger is the pre-redirect flush, which
+      // runs before the `/token` exchange — so no bearer token is ever
+      // persisted. Any NEW `saveSession` trigger added after token exchange
+      // (e.g. a periodic snapshot) would write `access_token` /
+      // `refresh_token` to disk. Redact response bodies here before persisting
+      // if that ever changes.
       const onSaveSession = (
         event: TypedEventGeneric<InspectorClientEventMap, "saveSession">,
       ): void => {
