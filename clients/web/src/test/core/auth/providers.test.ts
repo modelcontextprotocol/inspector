@@ -79,6 +79,39 @@ describe("OAuthNavigation", () => {
         "BrowserNavigation requires browser environment",
       );
     });
+
+    it("runs beforeNavigate synchronously BEFORE assigning location.href", () => {
+      // The pre-redirect persistence relies on this ordering: the hook must
+      // observe the still-current document (location.href not yet reassigned)
+      // so a keepalive request it fires outlives the navigation.
+      const order: string[] = [];
+      const authUrl = new URL("http://example.com/authorize?state=normal:abc");
+      const navigation = new BrowserNavigation(undefined, (url) => {
+        order.push("before");
+        // At hook time the redirect has not happened yet.
+        expect((global as GlobalWithWindow).window!.location.href).toBe(
+          "http://localhost:5173",
+        );
+        expect(url.toString()).toBe(authUrl.toString());
+      });
+
+      navigation.navigateToAuthorization(authUrl);
+      order.push("after");
+
+      expect(order).toEqual(["before", "after"]);
+      expect((global as GlobalWithWindow).window!.location.href).toBe(
+        authUrl.toString(),
+      );
+    });
+
+    it("still navigates when no beforeNavigate hook is provided", () => {
+      const navigation = new BrowserNavigation();
+      const authUrl = new URL("http://example.com/authorize");
+      navigation.navigateToAuthorization(authUrl);
+      expect((global as GlobalWithWindow).window!.location.href).toBe(
+        authUrl.toString(),
+      );
+    });
   });
 
   describe("BrowserOAuthClientProvider", () => {

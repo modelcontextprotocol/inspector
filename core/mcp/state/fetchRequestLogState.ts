@@ -103,6 +103,15 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
     const sessionId = options.sessionId;
 
     if (sessionStorage) {
+      // Backstop persistence on the client's `saveSession` event. For the
+      // OAuth full-page-redirect case the web client's `BrowserNavigation`
+      // `beforeNavigate` hook is the *primary* flush (it runs synchronously
+      // before navigation, so a keepalive request survives the unload); this
+      // listener fires from the same event but can lose the race with an
+      // already-scheduled navigation. It remains the save path for any
+      // non-redirect `saveSession` caller (e.g. a future token-refresh save
+      // point) and is harmless when it duplicates the primary flush —
+      // last-writer-wins on an identical payload under the same id.
       const onSaveSession = (
         event: TypedEventGeneric<InspectorClientEventMap, "saveSession">,
       ): void => {
@@ -156,12 +165,22 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
     }
   }
 
+  // Restore persisted entries (e.g. the pre-redirect OAuth Network log loaded
+  // on the `/oauth/callback` page). Merges rather than replaces: the async
+  // load races against entries appended live by the resuming connect
+  // (`completeOAuthFlow` + transport handshake), so we must not clobber
+  // whichever arrived first. Restored entries are older, so they go in front;
+  // duplicates (by id) already present from a live append are skipped.
   private hydrateFetchRequests(entries: FetchRequestEntry[]): void {
-    const trimmed =
+    if (entries.length === 0) return;
+    const existingIds = new Set(this.fetchRequests.map((e) => e.id));
+    const restored = entries.filter((e) => !existingIds.has(e.id));
+    if (restored.length === 0) return;
+    const merged = [...restored, ...this.fetchRequests];
+    this.fetchRequests =
       this.maxFetchRequests > 0
-        ? entries.slice(-this.maxFetchRequests)
-        : entries;
-    this.fetchRequests = trimmed;
+        ? merged.slice(-this.maxFetchRequests)
+        : merged;
     this.dispatchTypedEvent("fetchRequestsChange", this.getFetchRequests());
   }
 

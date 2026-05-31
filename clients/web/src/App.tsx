@@ -34,8 +34,10 @@ import { StderrLogState } from "@inspector/core/mcp/state/stderrLogState.js";
 import type { RedirectUrlProvider } from "@inspector/core/auth/index.js";
 import {
   parseOAuthCallbackParams,
+  parseOAuthState,
   generateOAuthErrorDescription,
 } from "@inspector/core/auth/index.js";
+import { RemoteInspectorClientStorage } from "@inspector/core/mcp/remote/index.js";
 import { useInspectorClient } from "@inspector/core/react/useInspectorClient.js";
 import { useServers } from "@inspector/core/react/useServers.js";
 import { useSettingsDraft } from "@inspector/core/react/useSettingsDraft.js";
@@ -450,11 +452,68 @@ function App() {
     [messages],
   );
 
+  // Backend-backed session storage used to carry the fetch (Network) log
+  // across the OAuth full-page redirect. The auth handshake's first half —
+  // protected-resource + auth-server discovery and Dynamic Client
+  // Registration — happens on the pre-redirect page; without persisting it
+  // those `auth` entries would vanish when the browser navigates to the
+  // authorization server. `FetchRequestLogState` saves to this on the
+  // client's `saveSession` event (fired in `onBeforeOAuthRedirect`) keyed by
+  // the OAuth authId, and restores from it when rebuilt on `/oauth/callback`.
+  // Created once; `getAuthToken()` is stable for the page's lifetime.
+  const sessionStorageAdapter = useMemo(
+    () =>
+      new RemoteInspectorClientStorage({
+        baseUrl:
+          typeof window !== "undefined"
+            ? window.location.origin
+            : "http://localhost",
+        authToken: getAuthToken(),
+      }),
+    [],
+  );
+
+  // Always points at the live `FetchRequestLogState` so the synchronous
+  // pre-redirect hook below can read the current Network log without being
+  // rebound every time the active server (and its log state) changes.
+  const fetchLogRef = useRef<FetchRequestLogState | null>(null);
+
+  // Flush the pre-redirect Network log to backend storage, keyed by the OAuth
+  // authId carried in the authorization URL's `state`. Runs synchronously from
+  // `BrowserNavigation` right before `window.location.href`, so the keepalive
+  // POST it kicks off outlives the unloading page. The `/oauth/callback`
+  // rebuild restores these entries via `FetchRequestLogState`'s `sessionId`.
+  // Stable identity: it reads mutable refs, so it never needs to be rebuilt.
+  const onBeforeOAuthRedirect = useCallback(
+    (authorizationUrl: URL) => {
+      const stateParam = authorizationUrl.searchParams.get("state");
+      const authId = stateParam
+        ? (parseOAuthState(stateParam)?.authId ?? undefined)
+        : undefined;
+      if (!authId) return;
+      const fetchRequests = fetchLogRef.current?.getFetchRequests() ?? [];
+      if (fetchRequests.length === 0) return;
+      const now = Date.now();
+      // Fire-and-forget: the keepalive request inside `saveSession` is
+      // dispatched synchronously here, before navigation commits.
+      void sessionStorageAdapter
+        .saveSession(authId, {
+          fetchRequests,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .catch(() => {
+          // Best-effort; losing the pre-redirect log is non-fatal.
+        });
+    },
+    [sessionStorageAdapter],
+  );
+
   // Wire up + tear down per active server. Called by `onToggleConnection`
   // when the user switches targets. Returns the new client so the toggle
   // can call `connect()` against it before React re-renders.
   const setupClientForServer = useCallback(
-    (server: ServerEntry): InspectorClient => {
+    (server: ServerEntry, sessionId?: string): InspectorClient => {
       // Tear down the previous session's managers — each destroy()
       // unsubscribes from the old client's events. Skipped on the first
       // call (initial values are null).
@@ -471,6 +530,7 @@ function App() {
       const { environment } = createWebEnvironment(
         getAuthToken(),
         redirectUrlProvider,
+        onBeforeOAuthRedirect,
       );
       // The settings node persisted in mcp.json for this server — distinct
       // from the InspectorClient options we're about to derive from it.
@@ -519,6 +579,10 @@ function App() {
           }),
         ...(oauth && { oauth }),
         ...(savedSettings && { serverSettings: savedSettings }),
+        // Set on the `/oauth/callback` rebuild so the client's `saveSession`
+        // events (and any later persistence) key off the same OAuth authId
+        // the pre-redirect page saved under.
+        ...(sessionId && { sessionId }),
       });
 
       setInspectorClient(client);
@@ -538,7 +602,18 @@ function App() {
         new ResourceSubscriptionsState(client, nextResourcesState),
       );
       setMessageLogState(new MessageLogState(client));
-      setFetchRequestLogState(new FetchRequestLogState(client));
+      // Wire session storage so the fetch log survives the OAuth redirect.
+      // When `sessionId` is supplied (the `/oauth/callback` rebuild) the prior
+      // page's `auth` entries are restored on construction; the actual save is
+      // driven synchronously from `onBeforeOAuthRedirect` above (keyed by the
+      // same authId). Keep `fetchLogRef` pointed at this instance so that hook
+      // reads the current log.
+      const nextFetchLog = new FetchRequestLogState(client, {
+        sessionStorage: sessionStorageAdapter,
+        ...(sessionId && { sessionId }),
+      });
+      fetchLogRef.current = nextFetchLog;
+      setFetchRequestLogState(nextFetchLog);
       setStderrLogState(new StderrLogState(client));
 
       return client;
@@ -553,6 +628,8 @@ function App() {
       messageLogState,
       fetchRequestLogState,
       stderrLogState,
+      sessionStorageAdapter,
+      onBeforeOAuthRedirect,
     ],
   );
 
@@ -574,6 +651,14 @@ function App() {
     oauthCallbackHandledRef.current = true;
 
     const params = parseOAuthCallbackParams(window.location.search);
+    // The OAuth `state` round-trips `{mode}:{authId}`; the authId is the
+    // session key the pre-redirect page saved the fetch log under, so the
+    // rebuilt client can restore those `auth` entries. Read it before the
+    // URL is cleared below.
+    const stateParam = new URLSearchParams(window.location.search).get("state");
+    const sessionId = stateParam
+      ? (parseOAuthState(stateParam)?.authId ?? undefined)
+      : undefined;
     const pendingId =
       window.sessionStorage.getItem(OAUTH_PENDING_SERVER_KEY) ?? undefined;
     window.sessionStorage.removeItem(OAUTH_PENDING_SERVER_KEY);
@@ -609,7 +694,7 @@ function App() {
     }
 
     void (async () => {
-      const client = setupClientForServer(server);
+      const client = setupClientForServer(server, sessionId);
       setActiveServerId(server.id);
       // Two distinct failure modes get distinct toasts. A token-exchange
       // failure means OAuth did NOT complete — and since the single-use code
