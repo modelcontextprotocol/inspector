@@ -1,5 +1,6 @@
-import { discoverScopes } from "../auth";
+import { discoverScopes, InspectorOAuthClientProvider } from "../auth";
 import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
+import { getServerSpecificKey, SESSION_KEYS } from "../constants";
 
 jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
   discoverAuthorizationServerMetadata: jest.fn(),
@@ -155,4 +156,26 @@ describe("discoverScopes", () => {
       expect(result).toBeUndefined();
     },
   );
+});
+
+describe("InspectorOAuthClientProvider", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
+
+  it("clears the server-specific resource metadata URL", () => {
+    const serverUrl = "https://example.com/mcp";
+    const resourceMetadataKey = getServerSpecificKey(
+      SESSION_KEYS.RESOURCE_METADATA_URL,
+      serverUrl,
+    );
+    sessionStorage.setItem(
+      resourceMetadataKey,
+      "https://example.com/.well-known/oauth-protected-resource/mcp",
+    );
+
+    new InspectorOAuthClientProvider(serverUrl).clear();
+
+    expect(sessionStorage.getItem(resourceMetadataKey)).toBeNull();
+  });
 });

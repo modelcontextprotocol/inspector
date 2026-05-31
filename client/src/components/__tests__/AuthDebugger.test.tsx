@@ -44,6 +44,7 @@ jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
   exchangeAuthorization: jest.fn(),
   discoverOAuthProtectedResourceMetadata: jest.fn(),
   selectResourceURL: jest.fn(),
+  extractWWWAuthenticateParams: jest.fn(() => ({})),
 }));
 
 // Import the functions to get their types
@@ -64,10 +65,17 @@ jest.mock("../../lib/auth", () => ({
     tokens: jest.fn().mockImplementation(() => Promise.resolve(undefined)),
     clear: jest.fn().mockImplementation(() => {
       // Mock the real clear() behavior which removes items from sessionStorage
-      sessionStorage.removeItem("[https://example.com/mcp] mcp_tokens");
-      sessionStorage.removeItem("[https://example.com/mcp] mcp_client_info");
       sessionStorage.removeItem(
-        "[https://example.com/mcp] mcp_server_metadata",
+        `[https://example.com/mcp] ${SESSION_KEYS.CLIENT_INFORMATION}`,
+      );
+      sessionStorage.removeItem(
+        `[https://example.com/mcp] ${SESSION_KEYS.TOKENS}`,
+      );
+      sessionStorage.removeItem(
+        `[https://example.com/mcp] ${SESSION_KEYS.CODE_VERIFIER}`,
+      );
+      sessionStorage.removeItem(
+        `[https://example.com/mcp] ${SESSION_KEYS.RESOURCE_METADATA_URL}`,
       );
     }),
     redirectUrl: "http://localhost:3000/oauth/callback/debug",
@@ -155,6 +163,11 @@ describe("AuthDebugger", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     sessionStorageMock.getItem.mockReturnValue(null);
+    global.fetch = jest.fn().mockResolvedValue(
+      new Response("", {
+        status: 404,
+      }),
+    );
 
     // Suppress console errors in tests to avoid JSDOM navigation noise
     jest.spyOn(console, "error").mockImplementation(() => {});
@@ -403,6 +416,9 @@ describe("AuthDebugger", () => {
 
       // Verify session storage was cleared
       expect(sessionStorageMock.removeItem).toHaveBeenCalled();
+      expect(sessionStorageMock.removeItem).toHaveBeenCalledWith(
+        `[https://example.com/mcp] ${SESSION_KEYS.RESOURCE_METADATA_URL}`,
+      );
     });
   });
 

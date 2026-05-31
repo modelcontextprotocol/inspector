@@ -15,6 +15,8 @@ import {
   DEFAULT_INSPECTOR_CONFIG,
   CLIENT_IDENTITY,
   MCP_PROXY_TRANSPORT_ERROR_CODE,
+  SESSION_KEYS,
+  getServerSpecificKey,
 } from "../../constants";
 import {
   SSEClientTransportOptions,
@@ -24,7 +26,10 @@ import {
   ElicitResult,
   ElicitRequest,
 } from "@modelcontextprotocol/sdk/types.js";
-import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import {
+  auth,
+  extractWWWAuthenticateParams,
+} from "@modelcontextprotocol/sdk/client/auth.js";
 import { discoverScopes } from "../../auth";
 import { CustomHeaders } from "../../types/customHeaders";
 
@@ -66,7 +71,9 @@ const mockSSETransport: {
 const mockStreamableHTTPTransport: {
   start: jest.Mock;
   url: URL | undefined;
-  options: SSEClientTransportOptions | undefined;
+  options:
+    | import("@modelcontextprotocol/sdk/client/streamableHttp.js").StreamableHTTPClientTransportOptions
+    | undefined;
 } = {
   start: jest.fn(),
   url: undefined,
@@ -129,6 +136,8 @@ jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => {
   return {
     UnauthorizedError,
     auth: jest.fn().mockResolvedValue("AUTHORIZED"),
+    discoverOAuthProtectedResourceMetadata: jest.fn(),
+    extractWWWAuthenticateParams: jest.fn(),
   };
 });
 
@@ -154,6 +163,10 @@ jest.mock("../../auth", () => ({
 }));
 
 const mockAuth = auth as jest.MockedFunction<typeof auth>;
+const mockExtractWWWAuthenticateParams =
+  extractWWWAuthenticateParams as jest.MockedFunction<
+    typeof extractWWWAuthenticateParams
+  >;
 const mockDiscoverScopes = discoverScopes as jest.MockedFunction<
   typeof discoverScopes
 >;
@@ -1216,6 +1229,66 @@ describe("useConnection", () => {
         mockStreamableHTTPTransport.options?.requestInit?.headers,
       ).toHaveProperty("X-MCP-Proxy-Auth", "Bearer test-proxy-token");
     });
+
+    test("preserves streamable-http per-request headers when adding proxy auth", async () => {
+      const fetchMock = global.fetch as jest.Mock;
+      fetchMock.mockClear();
+
+      const propsWithStreamableHttp = {
+        ...defaultProps,
+        transportType: "streamable-http" as const,
+        config: {
+          ...DEFAULT_INSPECTOR_CONFIG,
+          MCP_PROXY_AUTH_TOKEN: {
+            ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
+            value: "test-proxy-token",
+          },
+        },
+        customHeaders: [
+          {
+            name: "X-Tenant-ID",
+            value: "acme",
+            enabled: true,
+          },
+        ],
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsWithStreamableHttp),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      await mockStreamableHTTPTransport.options?.fetch?.(
+        "http://localhost:6277/mcp",
+        {
+          method: "POST",
+          headers: new Headers({
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+            "mcp-session-id": "session-123",
+          }),
+          body: "{}",
+        },
+      );
+
+      const proxiedCall = fetchMock.mock.calls.find(
+        (call) => call[0] === "http://localhost:6277/mcp",
+      );
+      expect(proxiedCall).toBeDefined();
+      const forwardedHeaders = new Headers(proxiedCall[1].headers);
+      expect(forwardedHeaders.get("accept")).toBe(
+        "application/json, text/event-stream",
+      );
+      expect(forwardedHeaders.get("content-type")).toBe("application/json");
+      expect(forwardedHeaders.get("mcp-session-id")).toBe("session-123");
+      expect(forwardedHeaders.get("X-MCP-Proxy-Auth")).toBe(
+        "Bearer test-proxy-token",
+      );
+      expect(forwardedHeaders.get("X-Tenant-ID")).toBe("acme");
+    });
   });
 
   describe("Custom Headers", () => {
@@ -1384,6 +1457,338 @@ describe("useConnection", () => {
 
       const headers = mockSSETransport.options?.requestInit?.headers;
       expect(headers).toHaveProperty("Authorization", "Bearer custom-token");
+    });
+  });
+
+  describe("OAuth resource metadata persistence", () => {
+    const serverUrl = "http://localhost:8080/jenkins/mcp-server/mcp";
+    const resourceMetadataUrl = new URL(
+      "http://localhost:8080/jenkins/.well-known/oauth-protected-resource/mcp-server/mcp",
+    );
+    const resourceMetadataKey = getServerSpecificKey(
+      SESSION_KEYS.RESOURCE_METADATA_URL,
+      serverUrl,
+    );
+    const healthyProxyResponse = () => ({
+      json: () => Promise.resolve({ status: "ok" }),
+      headers: {
+        get: jest.fn().mockReturnValue(null),
+      },
+    });
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      sessionStorage.clear();
+      (global.fetch as jest.Mock)
+        .mockReset()
+        .mockResolvedValue(healthyProxyResponse());
+      mockClient.connect.mockResolvedValue(undefined);
+      mockAuth.mockResolvedValue("AUTHORIZED");
+      mockDiscoverScopes.mockResolvedValue(undefined);
+      mockExtractWWWAuthenticateParams.mockReturnValue({});
+      mockSSETransport.url = undefined;
+      mockSSETransport.options = undefined;
+      mockStreamableHTTPTransport.url = undefined;
+      mockStreamableHTTPTransport.options = undefined;
+    });
+
+    it("persists resource_metadata from direct transport responses", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce(
+        new Response("{}", {
+          status: 401,
+          headers: {
+            "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl.href}"`,
+          },
+        }),
+      );
+      mockExtractWWWAuthenticateParams.mockReturnValueOnce({
+        resourceMetadataUrl,
+      });
+
+      const { result } = renderHook(() =>
+        useConnection({
+          ...defaultProps,
+          connectionType: "direct",
+          sseUrl: serverUrl,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+      await mockSSETransport.options?.fetch?.(serverUrl);
+
+      expect(sessionStorage.getItem(resourceMetadataKey)).toBe(
+        resourceMetadataUrl.href,
+      );
+    });
+
+    it("persists resource_metadata from direct streamable HTTP responses", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce(
+        new Response("{}", {
+          status: 401,
+          headers: {
+            "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl.href}"`,
+          },
+        }),
+      );
+      mockExtractWWWAuthenticateParams.mockReturnValueOnce({
+        resourceMetadataUrl,
+      });
+
+      const { result } = renderHook(() =>
+        useConnection({
+          ...defaultProps,
+          connectionType: "direct",
+          transportType: "streamable-http",
+          sseUrl: serverUrl,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+      await mockStreamableHTTPTransport.options?.fetch?.(serverUrl);
+
+      expect(sessionStorage.getItem(resourceMetadataKey)).toBe(
+        resourceMetadataUrl.href,
+      );
+    });
+
+    it("persists resource_metadata from proxy transport responses", async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce(healthyProxyResponse())
+        .mockResolvedValueOnce(
+          new Response("{}", {
+            status: 401,
+            headers: {
+              "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl.href}"`,
+            },
+          }),
+        );
+      mockExtractWWWAuthenticateParams.mockReturnValueOnce({
+        resourceMetadataUrl,
+      });
+
+      const { result } = renderHook(() =>
+        useConnection({
+          ...defaultProps,
+          sseUrl: serverUrl,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+      await mockSSETransport.options?.eventSourceInit?.fetch?.(
+        "http://localhost:6277/sse",
+      );
+
+      expect(sessionStorage.getItem(resourceMetadataKey)).toBe(
+        resourceMetadataUrl.href,
+      );
+    });
+
+    it("does not delegate proxy SSE OAuth recovery to the SDK transport URL", async () => {
+      const { result } = renderHook(() =>
+        useConnection({
+          ...defaultProps,
+          sseUrl: serverUrl,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      expect(mockSSETransport.options?.authProvider).toBeUndefined();
+    });
+
+    it("persists resource_metadata from proxy streamable HTTP responses", async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce(healthyProxyResponse())
+        .mockResolvedValueOnce(
+          new Response("{}", {
+            status: 401,
+            headers: {
+              "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl.href}"`,
+            },
+          }),
+        );
+      mockExtractWWWAuthenticateParams.mockReturnValueOnce({
+        resourceMetadataUrl,
+      });
+
+      const { result } = renderHook(() =>
+        useConnection({
+          ...defaultProps,
+          transportType: "streamable-http",
+          sseUrl: serverUrl,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+      await mockStreamableHTTPTransport.options?.fetch?.(
+        "http://localhost:6277/mcp",
+      );
+
+      expect(sessionStorage.getItem(resourceMetadataKey)).toBe(
+        resourceMetadataUrl.href,
+      );
+    });
+
+    it("does not delegate proxy streamable HTTP OAuth recovery to the SDK transport URL", async () => {
+      const { result } = renderHook(() =>
+        useConnection({
+          ...defaultProps,
+          transportType: "streamable-http",
+          sseUrl: serverUrl,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      expect(mockStreamableHTTPTransport.options?.authProvider).toBeUndefined();
+    });
+
+    it("ignores resource_metadata from successful transport responses", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce(
+        new Response("{}", {
+          status: 200,
+          headers: {
+            "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl.href}"`,
+          },
+        }),
+      );
+      mockExtractWWWAuthenticateParams.mockReturnValueOnce({
+        resourceMetadataUrl,
+      });
+
+      const { result } = renderHook(() =>
+        useConnection({
+          ...defaultProps,
+          connectionType: "direct",
+          sseUrl: serverUrl,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+      await mockSSETransport.options?.fetch?.(serverUrl);
+
+      expect(sessionStorage.getItem(resourceMetadataKey)).toBeNull();
+    });
+
+    it("passes resource_metadata from proxy upstream401 to auth", async () => {
+      mockClient.connect.mockRejectedValueOnce(
+        new McpError(MCP_PROXY_TRANSPORT_ERROR_CODE, "proxy transport", {
+          upstream401: {
+            wwwAuthenticate: `Bearer resource_metadata="${resourceMetadataUrl.href}"`,
+            body: "{}",
+            contentType: "application/json",
+          },
+        }),
+      );
+      mockExtractWWWAuthenticateParams.mockReturnValueOnce({
+        resourceMetadataUrl,
+      });
+
+      const { result } = renderHook(() =>
+        useConnection({
+          ...defaultProps,
+          sseUrl: serverUrl,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      expect(mockAuth).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ resourceMetadataUrl }),
+      );
+    });
+
+    it("passes resource_metadata captured from a proxy transport response to auth recovery", async () => {
+      (global.fetch as jest.Mock).mockImplementation((url) => {
+        if (String(url).includes("/health")) {
+          return Promise.resolve(healthyProxyResponse());
+        }
+        return Promise.resolve(
+          new Response("{}", {
+            status: 401,
+            headers: {
+              "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl.href}"`,
+            },
+          }),
+        );
+      });
+      mockExtractWWWAuthenticateParams.mockReturnValueOnce({
+        resourceMetadataUrl,
+      });
+      mockClient.connect.mockImplementationOnce(async () => {
+        await mockSSETransport.options?.eventSourceInit?.fetch?.(
+          "http://localhost:6277/sse",
+        );
+        throw new SseError(
+          401,
+          "Unauthorized",
+          new ErrorEvent("error", { message: "Unauthorized" }),
+        );
+      });
+
+      const { result } = renderHook(() =>
+        useConnection({
+          ...defaultProps,
+          sseUrl: serverUrl,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      expect(mockAuth).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ resourceMetadataUrl }),
+      );
+    });
+
+    it("clears stale resource_metadata before a fresh connect attempt", async () => {
+      sessionStorage.setItem(
+        resourceMetadataKey,
+        "http://localhost:8080/stale/.well-known/oauth-protected-resource",
+      );
+      mockClient.connect.mockRejectedValueOnce(
+        new McpError(MCP_PROXY_TRANSPORT_ERROR_CODE, "proxy transport", {
+          upstream401: { body: "{}", contentType: "application/json" },
+        }),
+      );
+
+      const { result } = renderHook(() =>
+        useConnection({
+          ...defaultProps,
+          sseUrl: serverUrl,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      expect(sessionStorage.getItem(resourceMetadataKey)).toBeNull();
+      expect(mockAuth).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.not.objectContaining({
+          resourceMetadataUrl: expect.anything(),
+        }),
+      );
     });
   });
 

@@ -13,6 +13,11 @@ import {
   OAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { generateOAuthState } from "@/utils/oauthUtils";
+import {
+  clearResourceMetadataUrlFromSessionStorage,
+  discoverResourceMetadataUrlFromServer,
+  saveResourceMetadataUrlToSessionStorage,
+} from "./oauth-resource-metadata";
 
 export interface StateMachineContext {
   state: AuthDebuggerState;
@@ -36,10 +41,16 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       let authServerUrl = new URL("/", context.serverUrl);
       let resourceMetadata: OAuthProtectedResourceMetadata | null = null;
       let resourceMetadataError: Error | null = null;
+      clearResourceMetadataUrlFromSessionStorage(context.serverUrl);
+      const resourceMetadataUrl =
+        (await discoverResourceMetadataUrlFromServer(
+          context.serverUrl,
+          context.fetchFn,
+        )) ?? null;
       try {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(
           context.serverUrl,
-          {},
+          resourceMetadataUrl ? { resourceMetadataUrl } : {},
           context.fetchFn,
         );
         if (resourceMetadata?.authorization_servers?.length) {
@@ -69,6 +80,12 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
       }
       const parsedMetadata = await OAuthMetadataSchema.parseAsync(metadata);
       context.provider.saveServerMetadata(parsedMetadata);
+      if (resourceMetadataUrl) {
+        saveResourceMetadataUrlToSessionStorage(
+          context.serverUrl,
+          resourceMetadataUrl,
+        );
+      }
       context.updateState({
         resourceMetadata,
         resource,

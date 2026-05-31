@@ -7,6 +7,7 @@ import {
   generateOAuthErrorDescription,
   parseOAuthCallbackParams,
 } from "@/utils/oauthUtils.ts";
+import { getResourceMetadataUrlFromSessionStorage } from "@/lib/oauth-resource-metadata";
 
 interface OAuthCallbackProps {
   onConnect: (serverUrl: string) => void;
@@ -49,6 +50,8 @@ const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
         result = await auth(serverAuthProvider, {
           serverUrl,
           authorizationCode: params.code,
+          resourceMetadataUrl:
+            getResourceMetadataUrlFromSessionStorage(serverUrl),
         });
       } catch (error) {
         console.error("OAuth callback error:", error);

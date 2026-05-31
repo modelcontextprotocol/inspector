@@ -12,6 +12,7 @@ import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/c
 import { SESSION_KEYS, getServerSpecificKey } from "./constants";
 import { generateOAuthState } from "@/utils/oauthUtils";
 import { validateRedirectUrl } from "@/utils/urlValidation";
+import { clearResourceMetadataUrlFromSessionStorage } from "./oauth-resource-metadata";
 
 /**
  * Discovers OAuth scopes from server metadata, with preference for resource metadata scopes
@@ -262,6 +263,7 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
     sessionStorage.removeItem(
       getServerSpecificKey(SESSION_KEYS.CODE_VERIFIER, this.serverUrl),
     );
+    clearResourceMetadataUrlFromSessionStorage(this.serverUrl);
   }
 }
 

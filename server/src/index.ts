@@ -427,6 +427,7 @@ const createCustomFetch = (headerHolder: ProxyHeaderHolder) => {
 
 const createTransport = async (
   req: express.Request,
+  onHeaderHolder?: (headerHolder: ProxyHeaderHolder) => void,
 ): Promise<{
   transport: Transport;
   headerHolder?: ProxyHeaderHolder;
@@ -474,6 +475,7 @@ const createTransport = async (
         headers: headerHolder.headers,
       },
     });
+    onHeaderHolder?.(headerHolder);
     await transport.start();
     return { transport, headerHolder };
   } else if (transportType === "streamable-http") {
@@ -488,6 +490,7 @@ const createTransport = async (
         fetch: createCustomFetch(headerHolder),
       },
     );
+    onHeaderHolder?.(headerHolder);
     await transport.start();
     return { transport, headerHolder };
   } else {
@@ -567,8 +570,9 @@ app.post(
       let streamableHeaderHolder: ProxyHeaderHolder | undefined;
       try {
         const { transport: serverTransport, headerHolder } =
-          await createTransport(req);
-        streamableHeaderHolder = headerHolder;
+          await createTransport(req, (holder) => {
+            streamableHeaderHolder = holder;
+          });
 
         const webAppTransport = new StreamableHTTPServerTransport({
           sessionIdGenerator: randomUUID,
@@ -767,8 +771,9 @@ app.get(
         "New SSE connection request. NOTE: The SSE transport is deprecated and has been replaced by StreamableHttp",
       );
       const { transport: serverTransport, headerHolder } =
-        await createTransport(req);
-      sseHeaderHolder = headerHolder;
+        await createTransport(req, (holder) => {
+          sseHeaderHolder = holder;
+        });
 
       const proxyFullAddress = (req.query.proxyFullAddress as string) || "";
       const prefix = proxyFullAddress || "";

@@ -1,5 +1,5 @@
 /**
- * Tests for the proxy server's POST /fetch endpoint.
+ * Tests for the proxy server's HTTP endpoints.
  * Spawns the server and hits it like any other HTTP client would.
  */
 import { spawn, type ChildProcess } from "child_process";
@@ -61,7 +61,7 @@ async function withLocalUpstream(
   }
 }
 
-describe("POST /fetch endpoint", () => {
+describe("Inspector proxy endpoints", () => {
   let server: ChildProcess;
   const baseUrl = `http://localhost:${TEST_PORT}`;
 
@@ -321,6 +321,42 @@ describe("POST /fetch endpoint", () => {
         const body = (await res.json()) as { status: number; body: string };
         expect(body.status).toBe(200);
         expect(body.body).toBe(payload);
+      },
+    );
+  });
+
+  it("forwards upstream SSE 401 challenge details to the browser", async () => {
+    const challenge =
+      'Bearer resource_metadata="http://127.0.0.1/.well-known/oauth-protected-resource/mcp"';
+    const upstreamPayload = JSON.stringify({
+      error: "unauthorized",
+      error_description: "Authentication required",
+    });
+
+    await withLocalUpstream(
+      (req, res) => {
+        res.writeHead(401, {
+          "Content-Type": "application/json",
+          "WWW-Authenticate": challenge,
+        });
+        res.end(upstreamPayload);
+      },
+      async (origin) => {
+        const proxyUrl = new URL(`${baseUrl}/sse`);
+        proxyUrl.searchParams.set("transportType", "sse");
+        proxyUrl.searchParams.set("url", `${origin}/events`);
+
+        const res = await fetch(proxyUrl, {
+          headers: {
+            "X-MCP-Proxy-Auth": `Bearer ${TEST_TOKEN}`,
+          },
+        });
+
+        const body = await res.text();
+        expect(res.status).toBe(401);
+        expect(res.headers.get("www-authenticate")).toBe(challenge);
+        expect(res.headers.get("content-type")).toMatch(/application\/json/i);
+        expect(body).toBe(upstreamPayload);
       },
     );
   });
