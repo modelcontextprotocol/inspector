@@ -88,27 +88,33 @@ const redirectUrlProvider: RedirectUrlProvider = {
 //      as a fallback for pasted full URLs and older integrations.
 //   3. sessionStorage — backstop for SPA navigations / OAuth round-trips that
 //      land without either of the above.
-// The URL value is persisted to sessionStorage so a later navigation that
-// drops it from the bar still authenticates.
+// Both the injected global and the URL value are persisted to sessionStorage
+// so a later navigation that drops them (e.g. a deep-link load that wasn't
+// injected, or an iframe) still authenticates from the backstop.
 function getAuthToken(): string | undefined {
   if (typeof window === "undefined") return undefined;
   const STORAGE_KEY = API_SERVER_ENV_VARS.AUTH_TOKEN;
+  // Best-effort persistence — sessionStorage may be unavailable (privacy
+  // mode, iframe sandboxing, etc.); the resolved value still works for the
+  // current page load regardless.
+  const persist = (token: string): void => {
+    try {
+      window.sessionStorage.setItem(STORAGE_KEY, token);
+    } catch {
+      // ignore — see note above
+    }
+  };
   const fromGlobal = (window as unknown as Record<string, unknown>)[
     INSPECTOR_API_TOKEN_GLOBAL
   ];
   if (typeof fromGlobal === "string" && fromGlobal) {
+    persist(fromGlobal);
     return fromGlobal;
   }
   const params = new URLSearchParams(window.location.search);
   const fromUrl = params.get(API_SERVER_ENV_VARS.AUTH_TOKEN);
   if (fromUrl) {
-    try {
-      window.sessionStorage.setItem(STORAGE_KEY, fromUrl);
-    } catch {
-      // Best-effort persistence — sessionStorage may be unavailable
-      // (privacy mode, iframe sandboxing, etc.); the URL value still
-      // works for the current page load.
-    }
+    persist(fromUrl);
     return fromUrl;
   }
   try {

@@ -11,6 +11,7 @@ import open from "open";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { createRemoteApp } from "../../../core/mcp/remote/node/server.ts";
 import { createSandboxController } from "./sandbox-controller.js";
 import { injectAuthToken } from "./inject-auth-token.js";
@@ -61,33 +62,47 @@ export async function startHonoServer(
     return apiApp.fetch(c.req.raw);
   });
 
+  // Serve index.html with the API token injected so a reload at any bare URL
+  // (no `?MCP_INSPECTOR_API_TOKEN=…`) still authenticates against /api/*.
+  // No-op when auth is dangerously omitted (empty token). The dev Vite plugin
+  // applies the same injection via `transformIndexHtml`. `Cache-Control:
+  // no-store` keeps a browser/proxy from serving a page that carries a stale
+  // token after a server restart regenerates it (randomBytes per start).
+  const serveIndexHtml = (c: Context) => {
+    const indexPath = join(rootPath, "index.html");
+    const html = readFileSync(indexPath, "utf-8");
+    c.header("Cache-Control", "no-store");
+    return c.html(injectAuthToken(html, resolvedAuthToken));
+  };
+
   app.get("/", async (c) => {
     try {
-      const indexPath = join(rootPath, "index.html");
-      const html = readFileSync(indexPath, "utf-8");
-      // Embed the API token so a reload at the bare URL (no
-      // `?MCP_INSPECTOR_API_TOKEN=…`) still authenticates against /api/*.
-      // No-op when auth is dangerously omitted (empty token). The dev Vite
-      // plugin applies the same injection via `transformIndexHtml`.
-      return c.html(injectAuthToken(html, resolvedAuthToken));
+      return serveIndexHtml(c);
     } catch (error) {
       console.error("Error serving index.html:", error);
       return c.notFound();
     }
   });
 
-  app.use(
-    "/*",
-    serveStatic({
-      root: rootPath,
-      rewriteRequestPath: (path) => {
-        if (!path.includes(".") && !path.startsWith("/api")) {
-          return "/index.html";
-        }
-        return path;
-      },
-    }),
-  );
+  // Real static assets (paths with a file extension). Missing files fall
+  // through to the SPA fallback below via `next()`.
+  app.use("/*", serveStatic({ root: rootPath }));
+
+  // SPA deep-link fallback: any non-/api route that didn't resolve to a static
+  // asset (e.g. `/oauth/callback`, the OAuth landing URL) serves the *injected*
+  // index.html — not the raw file — so bookmarks and hand-typed reloads at
+  // those paths get the token global too, matching the `/` route.
+  app.get("*", async (c) => {
+    if (c.req.path.startsWith("/api")) {
+      return c.notFound();
+    }
+    try {
+      return serveIndexHtml(c);
+    } catch (error) {
+      console.error("Error serving index.html:", error);
+      return c.notFound();
+    }
+  });
 
   const httpServer = serve(
     {

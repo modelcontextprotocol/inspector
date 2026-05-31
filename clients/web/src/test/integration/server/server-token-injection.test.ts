@@ -44,6 +44,8 @@ const INDEX_HTML =
   "<!doctype html><html><head><title>Inspector</title></head>" +
   '<body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>';
 
+const ASSET_JS = 'console.log("static asset");\n';
+
 describe("startHonoServer index.html token injection (/ -> /api/*)", () => {
   let handle: WebServerHandle;
   let baseUrl: string;
@@ -52,6 +54,9 @@ describe("startHonoServer index.html token injection (/ -> /api/*)", () => {
   beforeAll(async () => {
     staticRoot = await mkdtemp(join(tmpdir(), "inspector-inject-"));
     await writeFile(join(staticRoot, "index.html"), INDEX_HTML, "utf-8");
+    // A real static asset (path has a file extension) to prove serveStatic
+    // still serves files verbatim rather than routing them through injection.
+    await writeFile(join(staticRoot, "asset.js"), ASSET_JS, "utf-8");
 
     const port = await findFreePort();
     baseUrl = `http://127.0.0.1:${port}`;
@@ -99,5 +104,41 @@ describe("startHonoServer index.html token injection (/ -> /api/*)", () => {
   it("rejects an /api/* request that omits the token (proving injection is what unblocks the flow)", async () => {
     const apiRes = await fetch(`${baseUrl}/api/config`);
     expect(apiRes.status).toBe(401);
+  });
+
+  it("injects the token into the SPA deep-link fallback (e.g. /oauth/callback)", async () => {
+    // A non-/api path with no file extension resolves to the SPA fallback,
+    // which must serve the *injected* index.html — not a raw file — so a
+    // bookmark or reload at the OAuth callback URL still authenticates.
+    const res = await fetch(`${baseUrl}/oauth/callback?code=abc&state=xyz`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(tokenFromHtml(html)).toBe(TOKEN);
+  });
+
+  it("sets Cache-Control: no-store on injected HTML so a restart's new token isn't served stale", async () => {
+    const root = await fetch(`${baseUrl}/`);
+    expect(root.headers.get("cache-control")).toBe("no-store");
+    const fallback = await fetch(`${baseUrl}/oauth/callback`);
+    expect(fallback.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("serves real static assets verbatim (no token injection)", async () => {
+    const res = await fetch(`${baseUrl}/asset.js`);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toBe(ASSET_JS);
+    expect(body).not.toContain(INSPECTOR_API_TOKEN_GLOBAL);
+  });
+
+  it("does not route /api paths through the SPA fallback", async () => {
+    // An unknown /api route must 404 as JSON-less notFound, never the HTML
+    // shell (which would mask real API errors behind a 200 page).
+    const res = await fetch(`${baseUrl}/api/does-not-exist`, {
+      headers: { "x-mcp-remote-auth": `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(404);
+    const body = await res.text();
+    expect(body).not.toContain(INSPECTOR_API_TOKEN_GLOBAL);
   });
 });
