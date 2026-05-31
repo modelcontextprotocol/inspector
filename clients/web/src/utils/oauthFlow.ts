@@ -25,10 +25,13 @@ export const OAUTH_PENDING_SERVER_KEY = "mcp-inspector:oauth-pending-server-id";
 /**
  * True when a thrown connect error represents an upstream 401. The remote
  * transport preserves the status on the error object
- * (`remoteClientTransport` sets `error.status`); we also fall back to the
- * formatted message (`"… (401) …"`) in case the status is lost crossing an SDK
- * boundary. A 401 on connect to an HTTP/SSE server is the signal to start the
- * OAuth authorization flow.
+ * (`remoteClientTransport` sets `error.status`); this structured check is the
+ * primary path. As a fallback for cases where the status is lost crossing an
+ * SDK boundary, we match the transport's own formatted wording —
+ * `"Remote (connect|send|events stream) failed (401): …"` — anchored on
+ * `failed …(401)` rather than a bare `(401)`, so an unrelated `(401)` spliced
+ * into an error message (e.g. from a tool result) can't trip the OAuth flow.
+ * A 401 on connect to an HTTP/SSE server is the signal to start OAuth.
  */
 export function isUnauthorizedError(err: unknown): boolean {
   if (typeof err === "object" && err !== null) {
@@ -37,5 +40,5 @@ export function isUnauthorizedError(err: unknown): boolean {
     if (status === 401 || code === 401) return true;
   }
   const message = err instanceof Error ? err.message : String(err);
-  return /\(401\)/.test(message);
+  return /\bfailed\b[^\n]*\(401\)/i.test(message);
 }

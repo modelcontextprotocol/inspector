@@ -591,6 +591,10 @@ function App() {
       return;
     }
 
+    // By design, the pending id and URL are cleared above before this lookup:
+    // if the server was deleted/renamed (e.g. in another tab) mid-flow, there's
+    // nothing to resume against, so we surface the error and require a fresh
+    // Connect rather than leaving stale callback state lying around.
     const server = pendingId
       ? servers.find((s) => s.id === pendingId)
       : undefined;
@@ -607,15 +611,33 @@ function App() {
     void (async () => {
       const client = setupClientForServer(server);
       setActiveServerId(server.id);
+      // Two distinct failure modes get distinct toasts. A token-exchange
+      // failure means OAuth did NOT complete — and since the single-use code
+      // is spent and the URL was already cleared, a reload can't retry, so we
+      // tell the user to start over. A failure in the subsequent connect()
+      // means OAuth DID complete (tokens are persisted): it's a transport
+      // problem, and re-clicking Connect reuses the saved tokens (no second
+      // authorization). Conflating them would mislead the user into
+      // re-authorizing when they don't need to.
       try {
         await client.completeOAuthFlow(params.code);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        notifications.show({
+          title: `OAuth token exchange failed for "${server.name}"`,
+          message: `${message}\n\nPlease try connecting again.`,
+          color: "red",
+        });
+        return;
+      }
+      try {
         connectStartRef.current = Date.now();
         await client.connect();
       } catch (err) {
         connectStartRef.current = undefined;
         const message = err instanceof Error ? err.message : String(err);
         notifications.show({
-          title: `Failed to complete OAuth for "${server.name}"`,
+          title: `Failed to connect to "${server.name}"`,
           message,
           color: "red",
         });
