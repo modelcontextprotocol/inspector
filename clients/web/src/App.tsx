@@ -350,6 +350,15 @@ function App() {
   // failure / process exit) and avoids the first-render-clobbers-new-id
   // trap that watching connectionStatus has (status starts as
   // "disconnected" for the new client before connect() runs).
+  //
+  // This is also where session-scoped UI state that lives in App.tsx
+  // (rather than inside the per-server state managers) gets reset, so the
+  // next server's screens don't show server A's last result. The per-call
+  // panels (`toolCallState` / `getPromptState` / `readResourceState`) and
+  // the optimistic `currentLogLevel` all survive a disconnect/reconnect
+  // cycle otherwise — see #1368. `latencyMs` resets via the
+  // `connectionStatus` effect above instead because it has its own
+  // connecting-edge ref to coordinate with.
   useEffect(() => {
     if (!inspectorClient) return;
     const onDisconnect = () => {
@@ -357,6 +366,12 @@ function App() {
       // Drop the open flag too — without this the modal would pop back the
       // next time `initializeResult` re-becomes truthy (e.g. reconnect).
       setConnectionInfoModalOpen(false);
+      // Clear the per-call result panels so the next session starts empty.
+      setToolCallState(undefined);
+      setGetPromptState(undefined);
+      setReadResourceState(undefined);
+      // Back to the default level the next session begins at.
+      setCurrentLogLevel("info");
     };
     inspectorClient.addEventListener("disconnect", onDisconnect);
     return () => {
