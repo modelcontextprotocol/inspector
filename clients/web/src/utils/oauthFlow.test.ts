@@ -53,6 +53,13 @@ describe("isUnauthorizedError", () => {
     expect(isUnauthorizedError(err)).toBe(false);
   });
 
+  it("does not match a stray '(401)' that isn't the transport's 'failed' wording", () => {
+    // A tool result or unrelated message embedding `(401)` without the
+    // transport's `failed …(401)` shape must not trip the OAuth flow.
+    const err = new Error("tool output: response code (401) seen upstream");
+    expect(isUnauthorizedError(err)).toBe(false);
+  });
+
   it("returns false for null / undefined / non-401 primitives", () => {
     expect(isUnauthorizedError(null)).toBe(false);
     expect(isUnauthorizedError(undefined)).toBe(false);
