@@ -32,6 +32,10 @@ import { MessageLogState } from "@inspector/core/mcp/state/messageLogState.js";
 import { FetchRequestLogState } from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import { StderrLogState } from "@inspector/core/mcp/state/stderrLogState.js";
 import type { RedirectUrlProvider } from "@inspector/core/auth/index.js";
+import {
+  parseOAuthCallbackParams,
+  generateOAuthErrorDescription,
+} from "@inspector/core/auth/index.js";
 import { useInspectorClient } from "@inspector/core/react/useInspectorClient.js";
 import { useServers } from "@inspector/core/react/useServers.js";
 import { useSettingsDraft } from "@inspector/core/react/useSettingsDraft.js";
@@ -59,13 +63,18 @@ import type { OAuthDetails } from "./components/groups/ConnectionInfoContent/Con
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
 import { buildExportFilename, downloadJsonFile } from "./lib/downloadFile";
 import { createWebEnvironment } from "./lib/environmentFactory";
+import {
+  OAUTH_CALLBACK_PATH,
+  OAUTH_PENDING_SERVER_KEY,
+  isUnauthorizedError,
+} from "./utils/oauthFlow";
 
 // OAuth redirect URL provider — points at the dev backend's `/oauth/callback`
 // handler. The InspectorClient only consults this when the active server
 // requires OAuth; for stdio MCP servers it's never used. Created once and
 // reused so `BrowserOAuthClientProvider` doesn't re-instantiate per render.
 const redirectUrlProvider: RedirectUrlProvider = {
-  getRedirectUrl: () => `${window.location.origin}/oauth/callback`,
+  getRedirectUrl: () => `${window.location.origin}${OAUTH_CALLBACK_PATH}`,
 };
 
 // Recover the backend's auth token. Every browser request to /api/* needs it
@@ -258,6 +267,11 @@ function App() {
   // intervening rerenders don't reset it.
   const connectStartRef = useRef<number | undefined>(undefined);
   const [latencyMs, setLatencyMs] = useState<number | undefined>(undefined);
+
+  // One-shot guard for the `/oauth/callback` handler below. The effect waits
+  // for the async `servers` list to hydrate, so it can run on more than one
+  // render; this ref ensures the token exchange fires exactly once per load.
+  const oauthCallbackHandledRef = useRef(false);
 
   // Hook layer. Each hook subscribes to its respective event source and
   // re-renders the App on change. When `inspectorClient` / state managers
@@ -542,6 +556,95 @@ function App() {
     ],
   );
 
+  // Finish the OAuth authorization-code flow when the auth server redirects
+  // back to `/oauth/callback`. This runs on a fresh page load (the redirect in
+  // `onToggleConnection` unloaded the previous one), so all React state is
+  // reset and we recover the initiating server from sessionStorage. We wait for
+  // `servers` to hydrate before acting; the ref guard keeps the exchange to a
+  // single run. The persisted PKCE verifier + DCR client info live in
+  // `BrowserOAuthStorage` and survive the redirect, so `completeOAuthFlow`
+  // exchanges the code without needing the original in-memory state machine.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.location.pathname !== OAUTH_CALLBACK_PATH) return;
+    if (oauthCallbackHandledRef.current) return;
+    // `useServers` returns [] until the first fetch resolves; defer until the
+    // list is populated so `find` can resolve the pending server.
+    if (servers.length === 0) return;
+    oauthCallbackHandledRef.current = true;
+
+    const params = parseOAuthCallbackParams(window.location.search);
+    const pendingId =
+      window.sessionStorage.getItem(OAUTH_PENDING_SERVER_KEY) ?? undefined;
+    window.sessionStorage.removeItem(OAUTH_PENDING_SERVER_KEY);
+
+    // Strip the code/state off the URL immediately so a reload can't replay
+    // the (now single-use) authorization code through the exchange again.
+    window.history.replaceState({}, "", "/");
+
+    if (!params.successful) {
+      notifications.show({
+        title: "OAuth authorization failed",
+        message: generateOAuthErrorDescription(params),
+        color: "red",
+      });
+      return;
+    }
+
+    // By design, the pending id and URL are cleared above before this lookup:
+    // if the server was deleted/renamed (e.g. in another tab) mid-flow, there's
+    // nothing to resume against, so we surface the error and require a fresh
+    // Connect rather than leaving stale callback state lying around.
+    const server = pendingId
+      ? servers.find((s) => s.id === pendingId)
+      : undefined;
+    if (!server) {
+      notifications.show({
+        title: "OAuth callback could not be matched",
+        message:
+          "Could not determine which server started the OAuth flow. Please try connecting again.",
+        color: "red",
+      });
+      return;
+    }
+
+    void (async () => {
+      const client = setupClientForServer(server);
+      setActiveServerId(server.id);
+      // Two distinct failure modes get distinct toasts. A token-exchange
+      // failure means OAuth did NOT complete — and since the single-use code
+      // is spent and the URL was already cleared, a reload can't retry, so we
+      // tell the user to start over. A failure in the subsequent connect()
+      // means OAuth DID complete (tokens are persisted): it's a transport
+      // problem, and re-clicking Connect reuses the saved tokens (no second
+      // authorization). Conflating them would mislead the user into
+      // re-authorizing when they don't need to.
+      try {
+        await client.completeOAuthFlow(params.code);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        notifications.show({
+          title: `OAuth token exchange failed for "${server.name}"`,
+          message: `${message}\n\nPlease try connecting again.`,
+          color: "red",
+        });
+        return;
+      }
+      try {
+        connectStartRef.current = Date.now();
+        await client.connect();
+      } catch (err) {
+        connectStartRef.current = undefined;
+        const message = err instanceof Error ? err.message : String(err);
+        notifications.show({
+          title: `Failed to connect to "${server.name}"`,
+          message,
+          color: "red",
+        });
+      }
+    })();
+  }, [servers, setupClientForServer]);
+
   const onToggleConnection = useCallback(
     async (id: string) => {
       // Same server, already connected → disconnect.
@@ -577,11 +680,37 @@ function App() {
       } catch (err) {
         // Handshake-only. A mid-session transport failure does not throw,
         // so a future error event from InspectorClient is the right hook
-        // for surfacing those (TODO(#1323)). For now: toast on the
-        // handshake error so the user actually sees what went wrong
+        // for surfacing those (TODO(#1323)).
+        connectStartRef.current = undefined;
+
+        // A 401 from an OAuth-protected server means we have no (valid) token
+        // yet. Kick off the authorization-code flow: `authenticate()` runs
+        // discovery + DCR (proxied through the backend), then redirects the
+        // whole page to the auth server via `BrowserNavigation`. Persist the
+        // initiating server id first so the `/oauth/callback` load can resume
+        // against the right client. The redirect unloads this page, so there's
+        // nothing to do after the await on the success path.
+        if (isUnauthorizedError(err)) {
+          try {
+            window.sessionStorage.setItem(OAUTH_PENDING_SERVER_KEY, id);
+            await client.authenticate();
+            return;
+          } catch (authErr) {
+            window.sessionStorage.removeItem(OAUTH_PENDING_SERVER_KEY);
+            const message =
+              authErr instanceof Error ? authErr.message : String(authErr);
+            notifications.show({
+              title: `OAuth authorization failed for "${target.name}"`,
+              message,
+              color: "red",
+            });
+            return;
+          }
+        }
+
+        // Non-auth handshake error: toast so the user sees what went wrong
         // instead of the ConnectionToggle silently reverting to
         // "disconnected".
-        connectStartRef.current = undefined;
         const message = err instanceof Error ? err.message : String(err);
         notifications.show({
           title: `Failed to connect to "${target.name}"`,
