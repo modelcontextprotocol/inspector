@@ -584,6 +584,23 @@ const App = () => {
     saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, config);
   }, [config]);
 
+  useEffect(() => {
+    if (connectionStatus === "disconnected" || connectionStatus === "error") {
+      setToolResult(null);
+      setPromptContent("");
+      setResourceContent("");
+      setResourceContentMap({});
+      setLogLevel("info");
+      setTools([]);
+      setSelectedTool(null);
+      setPrompts([]);
+      setSelectedPrompt(null);
+      setResources([]);
+      setResourceTemplates([]);
+      setSelectedResource(null);
+    }
+  }, [connectionStatus]);
+
   const onOAuthConnect = useCallback(
     (serverUrl: string) => {
       setSseUrl(serverUrl);
