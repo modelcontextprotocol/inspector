@@ -132,7 +132,13 @@ const RevealButton = Button.withProps({
   size: "compact-xs",
 });
 
-function BodyPreview({ body }: { body: string }) {
+function BodyPreview({
+  body,
+  contentType,
+}: {
+  body: string;
+  contentType?: string;
+}) {
   // Reveal state for masked secrets. Hooks run before any early return so the
   // order stays stable across the too-large / has-secrets branches. The reveal
   // state resets when the body content changes because callers key
@@ -152,8 +158,10 @@ function BodyPreview({ body }: { body: string }) {
   // OAuth responses (token exchange, DCR) and the token request carry
   // bearer-grade secrets. Mask them by default and gate the raw values behind
   // an explicit reveal so they aren't exposed at a glance during a
-  // screen-share. Bodies without secrets render as-is with no toggle.
-  const { masked, hasSecrets } = maskSecretsInBody(body);
+  // screen-share. The entry's content-type scopes which parser runs (so a
+  // plaintext/HTML error body is never guessed at). Bodies without secrets
+  // render as-is with no toggle.
+  const { masked, hasSecrets } = maskSecretsInBody(body, contentType);
   if (!hasSecrets) {
     return <ContentViewer block={{ type: "text", text: body }} copyable />;
   }
@@ -233,7 +241,11 @@ export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
                 <Text size="sm" fw={500}>
                   Request Body
                 </Text>
-                <BodyPreview key={entry.requestBody} body={entry.requestBody} />
+                <BodyPreview
+                  key={entry.requestBody}
+                  body={entry.requestBody}
+                  contentType={entry.requestHeaders["content-type"]}
+                />
               </Stack>
             )}
             {entry.responseHeaders && (
@@ -253,6 +265,7 @@ export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
                   <BodyPreview
                     key={entry.responseBody}
                     body={entry.responseBody}
+                    contentType={entry.responseHeaders?.["content-type"]}
                   />
                 ) : (
                   <Text size="xs" c="dimmed">

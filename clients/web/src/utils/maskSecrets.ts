@@ -7,8 +7,10 @@
  * by default so they aren't exposed at a glance during a screen-share. The raw
  * body is preserved by the caller and shown only when the user reveals it.
  *
- * Both JSON and form-encoded bodies are handled; anything else (or a body with
- * no sensitive keys) passes through unchanged with `hasSecrets: false`.
+ * Content-type selects the parser: `*json*` → JSON masking, form-urlencoded →
+ * form masking, any other known type → no masking. When the content-type is
+ * absent/unknown the body is sniffed (parse as JSON first, else treat as
+ * form). See `maskSecretsInBody`.
  */
 
 // Keys masked in JSON bodies — bearer-grade secrets only. `code` is
@@ -35,15 +37,29 @@ const FORM_SENSITIVE_KEYS = new Set([
 // shape recognizable as "a value was here" without hinting at its length.
 export const MASK_PLACEHOLDER = "••••••••";
 
+function isSensitiveKey(set: ReadonlySet<string>, key: string): boolean {
+  return set.has(key.toLowerCase());
+}
+
+// Whether a value under a sensitive key should be masked. Strings are masked
+// when non-empty (an empty `access_token` carries nothing); any non-string,
+// non-null value (a non-standard object/array/number wrapper) is masked
+// wholesale so it can't leak through the recursion under a sensitive key.
+function isMaskableValue(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.length > 0;
+  return true;
+}
+
 interface MaskedNode {
   node: unknown;
   masked: boolean;
 }
 
-// Recursively mask sensitive string values in a parsed JSON node, tracking
-// whether anything was masked (so the caller never has to infer it by
-// comparing serializations — reformatting alone can't trip the flag, and it's
-// robust if this function ever grows non-identity transforms).
+// Recursively mask sensitive values in a parsed JSON node, tracking whether
+// anything was masked (so the caller never has to infer it by comparing
+// serializations — reformatting alone can't trip the flag, and it's robust if
+// this function ever grows non-identity transforms).
 function maskNode(node: unknown): MaskedNode {
   if (Array.isArray(node)) {
     let masked = false;
@@ -60,11 +76,7 @@ function maskNode(node: unknown): MaskedNode {
     for (const [key, value] of Object.entries(
       node as Record<string, unknown>,
     )) {
-      if (
-        JSON_SENSITIVE_KEYS.has(key.toLowerCase()) &&
-        typeof value === "string" &&
-        value.length > 0
-      ) {
+      if (isSensitiveKey(JSON_SENSITIVE_KEYS, key) && isMaskableValue(value)) {
         out[key] = MASK_PLACEHOLDER;
         masked = true;
       } else {
@@ -76,6 +88,24 @@ function maskNode(node: unknown): MaskedNode {
     return { node: out, masked };
   }
   return { node, masked: false };
+}
+
+export interface MaskResult {
+  /** The body with sensitive values replaced; pretty-printed for JSON, otherwise the original shape with values substituted. */
+  masked: string;
+  /** True when at least one sensitive value was masked. */
+  hasSecrets: boolean;
+}
+
+function maskJsonBody(body: string): MaskResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return { masked: body, hasSecrets: false };
+  }
+  const { node, masked } = maskNode(parsed);
+  return { masked: JSON.stringify(node, null, 2), hasSecrets: masked };
 }
 
 // Mask sensitive params in a form-urlencoded body, preserving the original
@@ -97,7 +127,7 @@ function maskFormBody(body: string): MaskResult {
       } catch {
         key = rawKey;
       }
-      if (FORM_SENSITIVE_KEYS.has(key.toLowerCase()) && value.length > 0) {
+      if (isSensitiveKey(FORM_SENSITIVE_KEYS, key) && value.length > 0) {
         hasSecrets = true;
         return `${rawKey}=${MASK_PLACEHOLDER}`;
       }
@@ -107,27 +137,35 @@ function maskFormBody(body: string): MaskResult {
   return { masked: hasSecrets ? masked : body, hasSecrets };
 }
 
-export interface MaskResult {
-  /** The body with sensitive values replaced; pretty-printed when JSON. */
-  masked: string;
-  /** True when at least one sensitive value was masked. */
-  hasSecrets: boolean;
-}
-
 /**
- * Mask sensitive fields in an HTTP body for display. JSON bodies are masked
- * structurally (and re-serialized pretty-printed); non-JSON bodies are treated
- * as form-encoded. Bodies with no sensitive keys return unchanged with
- * `hasSecrets: false` so callers can skip the reveal affordance. The caller
- * keeps the original string for the revealed view.
+ * Mask sensitive fields in an HTTP body for display.
+ *
+ * `contentType` (the body's `content-type` header, if known) picks the parser:
+ *   - `*json*`                       → JSON masking (re-serialized pretty)
+ *   - `application/x-www-form-urlencoded` → form masking (shape preserved)
+ *   - any other known type (HTML, plaintext, XML, …) → no masking
+ *   - absent/unknown                 → sniff: parse as JSON, else treat as form
+ *
+ * Bodies with no sensitive keys return unchanged with `hasSecrets: false` so
+ * callers can skip the reveal affordance. The caller keeps the original string
+ * for the revealed view.
  */
-export function maskSecretsInBody(body: string): MaskResult {
-  let parsed: unknown;
+export function maskSecretsInBody(
+  body: string,
+  contentType?: string,
+): MaskResult {
+  const ct = (contentType ?? "").toLowerCase();
+  if (ct) {
+    if (ct.includes("json")) return maskJsonBody(body);
+    if (ct.includes("x-www-form-urlencoded")) return maskFormBody(body);
+    // Known, non-JSON/non-form content type → don't guess; leave it alone.
+    return { masked: body, hasSecrets: false };
+  }
+  // No content-type hint: sniff. Valid JSON → JSON masking; otherwise form.
   try {
-    parsed = JSON.parse(body);
+    JSON.parse(body);
   } catch {
     return maskFormBody(body);
   }
-  const { node, masked } = maskNode(parsed);
-  return { masked: JSON.stringify(node, null, 2), hasSecrets: masked };
+  return maskJsonBody(body);
 }

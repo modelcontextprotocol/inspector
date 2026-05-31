@@ -50,6 +50,19 @@ describe("maskSecretsInBody", () => {
     );
   });
 
+  it("masks a non-string value under a sensitive key wholesale (no leak via recursion)", () => {
+    // A non-standard server wrapping the token in an object: the value must be
+    // replaced wholesale rather than recursed into (where the inner `value`
+    // key isn't sensitive and would otherwise leak).
+    const body = JSON.stringify({
+      access_token: { value: "leaky-secret", expires_in: 3600 },
+    });
+    const { masked, hasSecrets } = maskSecretsInBody(body);
+    expect(hasSecrets).toBe(true);
+    expect(masked).not.toContain("leaky-secret");
+    expect(JSON.parse(masked).access_token).toBe(MASK_PLACEHOLDER);
+  });
+
   it("reports no secrets (and leaves content intact) for discovery metadata", () => {
     const body = JSON.stringify({
       issuer: "http://localhost:3001/",
@@ -122,5 +135,47 @@ describe("maskSecretsInBody", () => {
       expect(hasSecrets).toBe(false);
       expect(JSON.parse(masked)).toEqual(JSON.parse(raw));
     }
+  });
+
+  it("masks every occurrence of a repeated sensitive form param", () => {
+    const { masked, hasSecrets } = maskSecretsInBody("code=AAA&code=BBB");
+    expect(hasSecrets).toBe(true);
+    expect(masked).toBe(`code=${MASK_PLACEHOLDER}&code=${MASK_PLACEHOLDER}`);
+  });
+
+  it("does not flag an empty form param value", () => {
+    const { masked, hasSecrets } = maskSecretsInBody(
+      "grant_type=refresh_token&client_secret=",
+    );
+    expect(hasSecrets).toBe(false);
+    expect(masked).toBe("grant_type=refresh_token&client_secret=");
+  });
+
+  it("honors an explicit content-type: form params under a JSON type are not form-masked", () => {
+    // `code` is form-only sensitive; with a JSON content-type the body goes
+    // through the JSON parser (fails to parse → untouched), not form masking.
+    const { hasSecrets } = maskSecretsInBody(
+      "code=AAA&code_verifier=BBB",
+      "application/json",
+    );
+    expect(hasSecrets).toBe(false);
+  });
+
+  it("skips masking for a known non-JSON, non-form content-type", () => {
+    // A plaintext/HTML error body that happens to contain `access_token=…`
+    // must not be guessed at as form-encoded when the content-type says text.
+    const body = "Error: access_token=leaked has expired";
+    const { masked, hasSecrets } = maskSecretsInBody(body, "text/plain");
+    expect(hasSecrets).toBe(false);
+    expect(masked).toBe(body);
+  });
+
+  it("uses the form parser for an explicit form content-type", () => {
+    const { masked, hasSecrets } = maskSecretsInBody(
+      "refresh_token=RT",
+      "application/x-www-form-urlencoded",
+    );
+    expect(hasSecrets).toBe(true);
+    expect(masked).toBe(`refresh_token=${MASK_PLACEHOLDER}`);
   });
 });
