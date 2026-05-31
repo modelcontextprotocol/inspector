@@ -74,14 +74,16 @@ export class RemoteInspectorClientStorage implements InspectorClientStorage {
       method: "POST",
       headers,
       body: JSON.stringify(serializedState),
-      // `saveSession` is only invoked right before the OAuth full-page
-      // redirect (via the client's `saveSession` event in
-      // `onBeforeOAuthRedirect`). Navigation is already scheduled by that
-      // point, so a normal fetch would be cancelled mid-flight and the
+      // `saveSession` runs as the OAuth full-page redirect is being
+      // scheduled, so a normal fetch would be cancelled mid-flight and the
       // pre-redirect network log (discovery + DCR) would never reach disk.
-      // `keepalive` lets the request outlive the unloading document. The
-      // payload is the pre-redirect log only (a few small auth entries, no
-      // captured bodies), comfortably under keepalive's 64KB cap.
+      // `keepalive` lets the request outlive the unloading document.
+      // Caveat: keepalive caps the body at 64KB. The pre-redirect-log payload
+      // is small, but this method is also reachable from
+      // `FetchRequestLogState`'s `saveSession` listener with the full session
+      // log — a long session could exceed the cap and be dropped silently.
+      // Acceptable here: the persisted log is a best-effort convenience, not
+      // load-bearing state.
       keepalive: true,
     });
 

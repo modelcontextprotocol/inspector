@@ -160,4 +160,28 @@ describe("RemoteInspectorClientStorage", () => {
       ],
     ).toBeUndefined();
   });
+
+  it("defaults to a wrapper around globalThis.fetch (not the bare reference)", async () => {
+    // Regression guard: the default must call `globalThis.fetch` with the
+    // global as receiver. Assigning the bare reference and invoking it as
+    // `this.fetchFn(...)` throws "Illegal invocation" — which callers swallow
+    // via `.catch(() => {})`, so it would silently break all save/load.
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    try {
+      const storage = new RemoteInspectorClientStorage({
+        baseUrl: "http://remote.example/",
+      });
+      await expect(
+        storage.saveSession("sid", sampleState()),
+      ).resolves.toBeUndefined();
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0]?.[0]).toBe(
+        "http://remote.example/api/storage/inspector-session-sid",
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
