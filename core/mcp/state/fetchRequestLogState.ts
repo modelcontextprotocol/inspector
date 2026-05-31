@@ -103,6 +103,15 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
     const sessionId = options.sessionId;
 
     if (sessionStorage) {
+      // Backstop persistence on the client's `saveSession` event. For the
+      // OAuth full-page-redirect case the web client's `BrowserNavigation`
+      // `beforeNavigate` hook is the *primary* flush (it runs synchronously
+      // before navigation, so a keepalive request survives the unload); this
+      // listener fires from the same event but can lose the race with an
+      // already-scheduled navigation. It remains the save path for any
+      // non-redirect `saveSession` caller (e.g. a future token-refresh save
+      // point) and is harmless when it duplicates the primary flush —
+      // last-writer-wins on an identical payload under the same id.
       const onSaveSession = (
         event: TypedEventGeneric<InspectorClientEventMap, "saveSession">,
       ): void => {
