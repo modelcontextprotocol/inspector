@@ -70,16 +70,57 @@ describe("maskSecretsInBody", () => {
     expect(hasSecrets).toBe(false);
   });
 
-  it("returns non-JSON bodies unchanged with no secrets", () => {
-    const body = "code=abc&code_verifier=xyz"; // form-encoded, not JSON
+  it("returns a form body with no sensitive params unchanged", () => {
+    const body = "grant_type=authorization_code&redirect_uri=http://x/cb";
     const { masked, hasSecrets } = maskSecretsInBody(body);
     expect(hasSecrets).toBe(false);
     expect(masked).toBe(body);
+  });
+
+  it("masks sensitive params in a form-encoded token request, preserving other params", () => {
+    const body =
+      "grant_type=authorization_code&code=AUTHCODE&code_verifier=VERIFIER&client_id=public-1&redirect_uri=http://x/cb";
+    const { masked, hasSecrets } = maskSecretsInBody(body);
+    expect(hasSecrets).toBe(true);
+    expect(masked).toContain(`code=${MASK_PLACEHOLDER}`);
+    expect(masked).toContain(`code_verifier=${MASK_PLACEHOLDER}`);
+    expect(masked).not.toContain("AUTHCODE");
+    expect(masked).not.toContain("VERIFIER");
+    // Non-secret params are untouched (and formatting preserved).
+    expect(masked).toContain("grant_type=authorization_code");
+    expect(masked).toContain("client_id=public-1");
+    expect(masked).toContain("redirect_uri=http://x/cb");
+  });
+
+  it("masks refresh_token and client_secret in a form-encoded refresh request", () => {
+    const body =
+      "grant_type=refresh_token&refresh_token=RTVAL&client_secret=CSVAL";
+    const { masked, hasSecrets } = maskSecretsInBody(body);
+    expect(hasSecrets).toBe(true);
+    expect(masked).not.toContain("RTVAL");
+    expect(masked).not.toContain("CSVAL");
+  });
+
+  it("does NOT mask a JSON `code` field (e.g. a JSON-RPC error code)", () => {
+    // `code` is form-only sensitive; in JSON it's usually an error/status code.
+    const { masked, hasSecrets } = maskSecretsInBody(
+      JSON.stringify({ code: "some-string-code", message: "boom" }),
+    );
+    expect(hasSecrets).toBe(false);
+    expect(JSON.parse(masked).code).toBe("some-string-code");
   });
 
   it("does not treat pure reformatting as masking", () => {
     // Minified JSON with no secret keys → reserialized but hasSecrets false.
     const { hasSecrets } = maskSecretsInBody('{"a":1,"b":[2,3]}');
     expect(hasSecrets).toBe(false);
+  });
+
+  it("passes through valid-but-non-object JSON (string / number / null) untouched", () => {
+    for (const raw of ['"abc"', "42", "null", "true"]) {
+      const { masked, hasSecrets } = maskSecretsInBody(raw);
+      expect(hasSecrets).toBe(false);
+      expect(JSON.parse(masked)).toEqual(JSON.parse(raw));
+    }
   });
 });

@@ -108,16 +108,26 @@ export const AuthSuccess: Story = {
   args: { entry: authEntry, isListExpanded: true },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    // Token-response secrets are masked by default — the raw token must not be
-    // visible until the user explicitly reveals it.
-    await expect(canvas.getByText("Secrets hidden")).toBeInTheDocument();
+    // Both bodies carry secrets: the form request (`code=…`) and the JSON
+    // response (`access_token`). Both are masked by default — the raw values
+    // must not be visible until explicitly revealed.
+    const hidden = canvas.getAllByText("Secrets hidden");
+    await expect(hidden.length).toBeGreaterThanOrEqual(2);
     await expect(canvasElement.textContent).not.toContain("eyJhbGciOiJSUzI1");
     await expect(canvasElement.textContent).toContain("••••••••");
     // Non-secret fields stay visible.
     await expect(canvasElement.textContent).toContain("Bearer");
 
-    await userEvent.click(canvas.getByRole("button", { name: "Reveal" }));
-    await expect(canvas.getByText("Secrets revealed")).toBeInTheDocument();
+    // Reveal every masked body and confirm the raw response token appears.
+    const revealButtons = canvas.getAllByRole("button", {
+      name: "Reveal secrets in body",
+    });
+    for (const button of revealButtons) {
+      await userEvent.click(button);
+    }
+    await expect(canvas.getAllByText("Secrets revealed").length).toBe(
+      revealButtons.length,
+    );
     await expect(canvasElement.textContent).toContain("eyJhbGciOiJSUzI1");
   },
 };

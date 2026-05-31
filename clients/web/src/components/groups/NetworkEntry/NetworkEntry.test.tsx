@@ -219,13 +219,17 @@ describe("NetworkEntry", () => {
     expect(container.textContent).toContain("••••••••");
     expect(container.textContent).toContain("Bearer");
 
-    await user.click(screen.getByRole("button", { name: "Reveal" }));
+    await user.click(
+      screen.getByRole("button", { name: "Reveal secrets in body" }),
+    );
 
     expect(screen.getByText("Secrets revealed")).toBeInTheDocument();
     expect(container.textContent).toContain("super-secret-token");
 
     // Toggling back re-masks.
-    await user.click(screen.getByRole("button", { name: "Hide" }));
+    await user.click(
+      screen.getByRole("button", { name: "Hide secrets in body" }),
+    );
     expect(container.textContent).not.toContain("super-secret-token");
   });
 
@@ -233,7 +237,7 @@ describe("NetworkEntry", () => {
     renderWithMantine(<NetworkEntry entry={baseEntry} isListExpanded={true} />);
     expect(screen.queryByText("Secrets hidden")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Reveal" }),
+      screen.queryByRole("button", { name: "Reveal secrets in body" }),
     ).not.toBeInTheDocument();
   });
 });

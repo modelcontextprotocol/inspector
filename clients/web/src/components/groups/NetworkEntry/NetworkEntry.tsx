@@ -134,7 +134,10 @@ const RevealButton = Button.withProps({
 
 function BodyPreview({ body }: { body: string }) {
   // Reveal state for masked secrets. Hooks run before any early return so the
-  // order stays stable across the too-large / has-secrets branches.
+  // order stays stable across the too-large / has-secrets branches. The reveal
+  // state resets when the body content changes because callers key
+  // `<BodyPreview>` by `body` (remounting on swap), so a previously-revealed
+  // view never persists across a content change.
   const [revealed, setRevealed] = useState(false);
 
   const tooLarge = body.length > MAX_INLINE_BODY_CHARS;
@@ -146,10 +149,10 @@ function BodyPreview({ body }: { body: string }) {
     );
   }
 
-  // OAuth responses (token exchange, DCR) carry bearer-grade secrets. Mask
-  // them by default and gate the raw values behind an explicit reveal so they
-  // aren't exposed at a glance during a screen-share. Bodies without secrets
-  // render as-is with no toggle.
+  // OAuth responses (token exchange, DCR) and the token request carry
+  // bearer-grade secrets. Mask them by default and gate the raw values behind
+  // an explicit reveal so they aren't exposed at a glance during a
+  // screen-share. Bodies without secrets render as-is with no toggle.
   const { masked, hasSecrets } = maskSecretsInBody(body);
   if (!hasSecrets) {
     return <ContentViewer block={{ type: "text", text: body }} copyable />;
@@ -159,10 +162,15 @@ function BodyPreview({ body }: { body: string }) {
   return (
     <Stack gap="xs">
       <Group gap="xs">
-        <Text size="xs" c="dimmed">
+        <Text size="xs" c="dimmed" aria-live="polite">
           {revealed ? "Secrets revealed" : "Secrets hidden"}
         </Text>
-        <RevealButton onClick={() => setRevealed((v) => !v)}>
+        <RevealButton
+          onClick={() => setRevealed((v) => !v)}
+          aria-label={
+            revealed ? "Hide secrets in body" : "Reveal secrets in body"
+          }
+        >
           {revealed ? "Hide" : "Reveal"}
         </RevealButton>
       </Group>
@@ -225,7 +233,7 @@ export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
                 <Text size="sm" fw={500}>
                   Request Body
                 </Text>
-                <BodyPreview body={entry.requestBody} />
+                <BodyPreview key={entry.requestBody} body={entry.requestBody} />
               </Stack>
             )}
             {entry.responseHeaders && (
@@ -242,7 +250,10 @@ export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
                   Response Body
                 </Text>
                 {entry.responseBody ? (
-                  <BodyPreview body={entry.responseBody} />
+                  <BodyPreview
+                    key={entry.responseBody}
+                    body={entry.responseBody}
+                  />
                 ) : (
                   <Text size="xs" c="dimmed">
                     {isLongLivedStream(entry)

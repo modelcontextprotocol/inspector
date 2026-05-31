@@ -112,6 +112,15 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
       // non-redirect `saveSession` caller (e.g. a future token-refresh save
       // point) and is harmless when it duplicates the primary flush —
       // last-writer-wins on an identical payload under the same id.
+      //
+      // SECURITY TRIPWIRE: captured `auth`-category response bodies in this log
+      // are stored UNMASKED (masking is a Network-UI display concern only).
+      // Today the only `saveSession` trigger is the pre-redirect flush, which
+      // runs before the `/token` exchange — so no bearer token is ever
+      // persisted. Any NEW `saveSession` trigger added after token exchange
+      // (e.g. a periodic snapshot) would write `access_token` /
+      // `refresh_token` to disk. Redact response bodies here before persisting
+      // if that ever changes.
       const onSaveSession = (
         event: TypedEventGeneric<InspectorClientEventMap, "saveSession">,
       ): void => {
