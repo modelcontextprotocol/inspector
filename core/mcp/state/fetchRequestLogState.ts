@@ -92,6 +92,11 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
         ...this.fetchRequests[idx]!,
         responseBody,
       };
+      // Body fill-in re-emits the list event only, not the per-entry
+      // `fetchRequest` event (that one fires once, on append). Consumers read
+      // the full list (`useFetchRequests`), so they pick up the body on the
+      // next list re-render. A future per-entry subscriber wanting incremental
+      // body updates would need its own event here.
       this.dispatchTypedEvent("fetchRequestsChange", this.getFetchRequests());
     };
     this.client.addEventListener(
