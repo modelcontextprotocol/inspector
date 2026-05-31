@@ -15,6 +15,7 @@ inspector/
 │   │   │                               #   start-vite-dev-server.ts (in-process Vite starter for the launcher),
 │   │   │                               #   web-server-config.ts (env parsing + initial-config payload + banner),
 │   │   │                               #   sandbox-controller.ts (MCP Apps sandbox HTTP server),
+│   │   │                               #   inject-auth-token.ts (embeds the API token into served index.html),
 │   │   │                               #   vite-base-config.ts (shared optimizeDeps exclusions)
 │   │   └── static/                     # sandbox_proxy.html (served by sandbox-controller for MCP Apps tab)
 │   ├── cli/                            # CLI client
@@ -65,6 +66,16 @@ inspector/
 * The v2/main branch currently contains the new version of the web Inspector, composed of "dumb" components which accept data and callbacks as props and contain only display logic. 
 
 * The InspectorClient from v1.5/main will be merged into v2/main, and wired up to the new web Inspector. The TUI and CLI will follow. Eventually when everything works on v2/main we will replace main with v2/main, eliminating the legacy implementations.
+
+## Web backend auth token
+
+The dev/prod web backend protects every `/api/*` route with `x-mcp-remote-auth: Bearer <MCP_INSPECTOR_API_TOKEN>`. The browser recovers that token from three sources, in priority order (see `App.tsx` `getAuthToken()`):
+
+1. `window.__INSPECTOR_API_TOKEN__` — injected into `index.html` on every page load by the backend (the dev Vite plugin via `transformIndexHtml`, the prod Hono server on the `/` route), both routed through `clients/web/server/inject-auth-token.ts`. This is what makes a bare-URL reload, a bookmark, or a cleared `sessionStorage` keep working.
+2. `?MCP_INSPECTOR_API_TOKEN=…` query string — the URL the launcher banner prints; kept as a fallback for pasted full URLs.
+3. `sessionStorage` — backstop for navigations that land without either of the above.
+
+Injection is a no-op when auth is disabled (`DANGEROUSLY_OMIT_AUTH`), and the global name is the shared `INSPECTOR_API_TOKEN_GLOBAL` constant in `core/mcp/remote/constants.ts`.
 
 ## Maintenance Rules
 
