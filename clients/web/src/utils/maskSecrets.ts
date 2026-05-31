@@ -16,11 +16,14 @@
 // Keys masked in JSON bodies — bearer-grade secrets only. `code` is
 // deliberately NOT here: a JSON body's `code` is usually something else (e.g.
 // a JSON-RPC error `code`), and we don't want to mask those.
+// `registration_access_token` is the DCR management credential (RFC 7592),
+// same bearer class as `access_token`.
 const JSON_SENSITIVE_KEYS = new Set([
   "access_token",
   "refresh_token",
   "id_token",
   "client_secret",
+  "registration_access_token",
 ]);
 
 // Keys masked in form-encoded bodies — the JSON set plus the single-use OAuth
@@ -41,10 +44,11 @@ function isSensitiveKey(set: ReadonlySet<string>, key: string): boolean {
   return set.has(key.toLowerCase());
 }
 
-// Whether a value under a sensitive key should be masked. Strings are masked
-// when non-empty (an empty `access_token` carries nothing); any non-string,
-// non-null value (a non-standard object/array/number wrapper) is masked
-// wholesale so it can't leak through the recursion under a sensitive key.
+// Whether a value under a sensitive key should be masked. The contract is
+// "any non-null, non-empty-string value": strings are masked when non-empty
+// (an empty `access_token` carries nothing), and any non-string value
+// (object/array/number/boolean wrapper — pathological for OAuth, but a safe
+// default) is masked wholesale so it can't leak through the recursion.
 function isMaskableValue(value: unknown): boolean {
   if (value === null || value === undefined) return false;
   if (typeof value === "string") return value.length > 0;

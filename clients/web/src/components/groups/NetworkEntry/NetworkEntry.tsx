@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Badge,
   Button,
@@ -147,6 +147,27 @@ function BodyPreview({
   const [revealed, setRevealed] = useState(false);
 
   const tooLarge = body.length > MAX_INLINE_BODY_CHARS;
+
+  // OAuth responses (token exchange, DCR) and the token request carry
+  // bearer-grade secrets. Mask them by default and gate the raw values behind
+  // an explicit reveal so they aren't exposed at a glance during a
+  // screen-share. The entry's content-type scopes which parser runs (so a
+  // plaintext/HTML error body is never guessed at). Bodies without secrets
+  // render as-is with no toggle.
+  //
+  // Memoized so a Reveal/Hide click (a re-render) doesn't re-parse and re-walk
+  // the body; the cost is paid once per mount, and the `key={…}` remount on
+  // body/content-type change re-runs it. Skipped for too-large bodies so we
+  // never parse something we won't display (the hook must run unconditionally,
+  // hence the in-memo guard rather than an early return above it).
+  const { masked, hasSecrets } = useMemo(
+    () =>
+      tooLarge
+        ? { masked: body, hasSecrets: false }
+        : maskSecretsInBody(body, contentType),
+    [tooLarge, body, contentType],
+  );
+
   if (tooLarge) {
     return (
       <Text size="xs" c="dimmed">
@@ -155,13 +176,6 @@ function BodyPreview({
     );
   }
 
-  // OAuth responses (token exchange, DCR) and the token request carry
-  // bearer-grade secrets. Mask them by default and gate the raw values behind
-  // an explicit reveal so they aren't exposed at a glance during a
-  // screen-share. The entry's content-type scopes which parser runs (so a
-  // plaintext/HTML error body is never guessed at). Bodies without secrets
-  // render as-is with no toggle.
-  const { masked, hasSecrets } = maskSecretsInBody(body, contentType);
   if (!hasSecrets) {
     return <ContentViewer block={{ type: "text", text: body }} copyable />;
   }

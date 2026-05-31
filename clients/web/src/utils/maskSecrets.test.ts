@@ -63,6 +63,30 @@ describe("maskSecretsInBody", () => {
     expect(JSON.parse(masked).access_token).toBe(MASK_PLACEHOLDER);
   });
 
+  it("masks a confidential-client DCR (/register) response", () => {
+    // RFC 7591/7592 happy path: client_secret and the registration management
+    // token are bearer-grade and masked; client_id and metadata stay visible.
+    const body = JSON.stringify({
+      client_id: "dyn-123",
+      client_secret: "REG-SECRET",
+      registration_access_token: "REG-RAT",
+      registration_client_uri: "http://localhost:3001/register/dyn-123",
+      client_id_issued_at: 1735689600,
+    });
+    const { masked, hasSecrets } = maskSecretsInBody(body);
+    expect(hasSecrets).toBe(true);
+    const parsed = JSON.parse(masked);
+    expect(parsed.client_secret).toBe(MASK_PLACEHOLDER);
+    expect(parsed.registration_access_token).toBe(MASK_PLACEHOLDER);
+    expect(masked).not.toContain("REG-SECRET");
+    expect(masked).not.toContain("REG-RAT");
+    // Non-secret fields untouched.
+    expect(parsed.client_id).toBe("dyn-123");
+    expect(parsed.registration_client_uri).toBe(
+      "http://localhost:3001/register/dyn-123",
+    );
+  });
+
   it("reports no secrets (and leaves content intact) for discovery metadata", () => {
     const body = JSON.stringify({
       issuer: "http://localhost:3001/",
