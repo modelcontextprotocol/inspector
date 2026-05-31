@@ -26,6 +26,10 @@ vi.mock("@inspector/core/mcp/index.js", () => {
     callTool = vi
       .fn()
       .mockResolvedValue({ success: true, result: { acts: [] } });
+    getPrompt = vi.fn().mockResolvedValue({ result: { messages: [] } });
+    readResource = vi
+      .fn()
+      .mockResolvedValue({ result: { contents: [] }, timestamp: 1 });
     setLoggingLevel = vi.fn().mockResolvedValue(undefined);
     getOAuthState = vi.fn().mockReturnValue(undefined);
   }
@@ -165,23 +169,38 @@ vi.mock("@inspector/core/react/useSettingsDraft.js", () => ({
 }));
 
 // --- InspectorView double ---------------------------------------------------
-// Surfaces the two pieces of state under test and exposes buttons that invoke
-// the App's connect / call-tool / set-log-level handlers.
+// Surfaces each piece of session-scoped state under test and exposes buttons
+// that invoke the App's connect / call-tool / get-prompt / read-resource /
+// set-log-level handlers.
 vi.mock("./components/views/InspectorView/InspectorView", () => ({
   InspectorView: (props: {
     toolCallState?: { status?: string };
+    getPromptState?: { status?: string };
+    readResourceState?: { status?: string };
     currentLogLevel?: string;
     onToggleConnection: (id: string) => void;
     onCallTool: (name: string, args: Record<string, unknown>) => void;
+    onGetPrompt: (name: string, args: Record<string, string>) => void;
+    onReadResource: (uri: string) => void;
     onSetLogLevel: (level: string) => void;
   }) => (
     <div>
       <span data-testid="tool-status">
         {props.toolCallState?.status ?? "none"}
       </span>
+      <span data-testid="prompt-status">
+        {props.getPromptState?.status ?? "none"}
+      </span>
+      <span data-testid="resource-status">
+        {props.readResourceState?.status ?? "none"}
+      </span>
       <span data-testid="log-level">{props.currentLogLevel}</span>
       <button onClick={() => props.onToggleConnection("A")}>connect</button>
       <button onClick={() => props.onCallTool("get_acts", {})}>call</button>
+      <button onClick={() => props.onGetPrompt("greet", {})}>get-prompt</button>
+      <button onClick={() => props.onReadResource("res://x")}>
+        read-resource
+      </button>
       <button onClick={() => props.onSetLogLevel("debug")}>set-level</button>
     </div>
   ),
@@ -199,7 +218,7 @@ describe("App session-scoped state reset on disconnect", () => {
     clientInstances.length = 0;
   });
 
-  it("clears the tool-call result panel and resets the log level when the client disconnects", async () => {
+  it("clears the per-call panels and resets the log level on client disconnect", async () => {
     const user = userEvent.setup();
     renderWithMantine(<App />);
 
@@ -207,11 +226,15 @@ describe("App session-scoped state reset on disconnect", () => {
     await user.click(screen.getByText("connect"));
     await waitFor(() => expect(clientInstances).toHaveLength(1));
 
-    // Run a tool — the panel fills with the (resolved) result.
+    // Fill all three per-call panels with their (resolved) results.
     await user.click(screen.getByText("call"));
-    await waitFor(() =>
-      expect(screen.getByTestId("tool-status")).toHaveTextContent("ok"),
-    );
+    await user.click(screen.getByText("get-prompt"));
+    await user.click(screen.getByText("read-resource"));
+    await waitFor(() => {
+      expect(screen.getByTestId("tool-status")).toHaveTextContent("ok");
+      expect(screen.getByTestId("prompt-status")).toHaveTextContent("ok");
+      expect(screen.getByTestId("resource-status")).toHaveTextContent("ok");
+    });
 
     // Bump the optimistic log level off its "info" default.
     await user.click(screen.getByText("set-level"));
@@ -219,14 +242,16 @@ describe("App session-scoped state reset on disconnect", () => {
       expect(screen.getByTestId("log-level")).toHaveTextContent("debug"),
     );
 
-    // Disconnect: the panel empties and the level returns to "info".
+    // Disconnect: every panel empties and the level returns to "info".
     act(() => {
       clientInstances[0].dispatchEvent(new Event("disconnect"));
     });
 
-    await waitFor(() =>
-      expect(screen.getByTestId("tool-status")).toHaveTextContent("none"),
-    );
+    await waitFor(() => {
+      expect(screen.getByTestId("tool-status")).toHaveTextContent("none");
+      expect(screen.getByTestId("prompt-status")).toHaveTextContent("none");
+      expect(screen.getByTestId("resource-status")).toHaveTextContent("none");
+    });
     expect(screen.getByTestId("log-level")).toHaveTextContent("info");
   });
 });
