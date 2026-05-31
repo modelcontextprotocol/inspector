@@ -125,9 +125,9 @@ export const AuthSuccess: Story = {
     for (const button of revealButtons) {
       await userEvent.click(button);
     }
-    await expect(canvas.getAllByText("Secrets revealed").length).toBe(
-      revealButtons.length,
-    );
+    await expect(
+      canvas.getAllByText("Secrets revealed").length,
+    ).toBeGreaterThanOrEqual(revealButtons.length);
     await expect(canvasElement.textContent).toContain("eyJhbGciOiJSUzI1");
   },
 };

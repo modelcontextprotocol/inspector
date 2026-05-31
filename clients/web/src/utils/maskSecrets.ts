@@ -149,6 +149,12 @@ function maskFormBody(body: string): MaskResult {
  * Bodies with no sensitive keys return unchanged with `hasSecrets: false` so
  * callers can skip the reveal affordance. The caller keeps the original string
  * for the revealed view.
+ *
+ * `contentType` is matched by substring (`*json*`, `*x-www-form-urlencoded*`)
+ * and we trust the wire's own label — a body mislabeled by the server (e.g.
+ * JSON sent as `text/html`) takes the "no masking" branch and renders raw.
+ * That's acceptable: the threat model is a screen-share viewer, not an
+ * adversary who controls the response's content-type.
  */
 export function maskSecretsInBody(
   body: string,

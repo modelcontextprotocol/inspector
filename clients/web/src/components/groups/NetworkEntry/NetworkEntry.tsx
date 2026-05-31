@@ -141,9 +141,9 @@ function BodyPreview({
 }) {
   // Reveal state for masked secrets. Hooks run before any early return so the
   // order stays stable across the too-large / has-secrets branches. The reveal
-  // state resets when the body content changes because callers key
-  // `<BodyPreview>` by `body` (remounting on swap), so a previously-revealed
-  // view never persists across a content change.
+  // state resets when the body or its content-type changes because callers key
+  // `<BodyPreview>` by both (remounting on swap), so a previously-revealed view
+  // never persists across a content (or masking) change.
   const [revealed, setRevealed] = useState(false);
 
   const tooLarge = body.length > MAX_INLINE_BODY_CHARS;
@@ -242,7 +242,7 @@ export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
                   Request Body
                 </Text>
                 <BodyPreview
-                  key={entry.requestBody}
+                  key={`${entry.requestHeaders["content-type"] ?? ""}|${entry.requestBody}`}
                   body={entry.requestBody}
                   contentType={entry.requestHeaders["content-type"]}
                 />
@@ -263,7 +263,7 @@ export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
                 </Text>
                 {entry.responseBody ? (
                   <BodyPreview
-                    key={entry.responseBody}
+                    key={`${entry.responseHeaders?.["content-type"] ?? ""}|${entry.responseBody}`}
                     body={entry.responseBody}
                     contentType={entry.responseHeaders?.["content-type"]}
                   />
