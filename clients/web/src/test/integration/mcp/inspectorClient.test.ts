@@ -827,6 +827,43 @@ describe("InspectorClient", () => {
       });
     });
 
+    it("throws on output-schema validation when structuredContent has extra properties (get_temp_extra)", async () => {
+      // get_temp_extra returns an undeclared `extra` property. The SDK client
+      // validates structuredContent against the strict output schema and
+      // throws, so the default path delivers no result to the caller.
+      const tool = await getTool(client!, "get_temp_extra");
+      await expect(
+        client!.callTool(tool, { city: "Oslo", units: "C" }),
+      ).rejects.toThrow(/output schema|additional propert/i);
+    });
+
+    it("delivers the raw result when skipOutputValidation is set (get_temp_extra)", async () => {
+      // The MCP Apps passthrough path bypasses host-side output validation so a
+      // schema-violating-but-real result still reaches the app.
+      const tool = await getTool(client!, "get_temp_extra");
+      const result = await client!.callTool(
+        tool,
+        { city: "Oslo", units: "C" },
+        undefined,
+        undefined,
+        undefined,
+        { skipOutputValidation: true },
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.result).toBeDefined();
+      const structured = result.result!.structuredContent as Record<
+        string,
+        unknown
+      >;
+      expect(structured).toMatchObject({
+        temperature: 25,
+        unit: "C",
+        city: "Oslo",
+        extra: "undeclared",
+      });
+    });
+
     it("should handle tool not found", async () => {
       const result = await client!.callTool(
         minimalTool("nonexistent-tool"),

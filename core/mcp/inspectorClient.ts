@@ -1313,6 +1313,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     generalMetadata?: Record<string, string>,
     toolSpecificMetadata?: Record<string, string>,
     taskOptions?: { ttl?: number },
+    options?: { skipOutputValidation?: boolean },
   ): Promise<ToolCallInvocation> {
     if (!this.client) {
       throw new Error("Client is not connected");
@@ -1362,11 +1363,21 @@ export class InspectorClient extends InspectorClientEventTarget {
         callParams.task = { ttl: taskOptions.ttl };
       }
 
-      const result = await this.client.callTool(
-        callParams,
-        undefined,
-        this.getRequestOptions(metadata?.progressToken),
-      );
+      // MCP Apps forward the server's CallToolResult straight to the running
+      // view, which is the real consumer. The SDK's callTool() validates
+      // structuredContent against the tool's outputSchema and THROWS on a
+      // mismatch — which would deny the app a result the server actually
+      // returned (and that legacy hosts render fine). For those passthrough
+      // calls go through request() directly, which skips that host-side
+      // validation. Regular Tools-screen calls keep validating.
+      const requestOptions = this.getRequestOptions(metadata?.progressToken);
+      const result = options?.skipOutputValidation
+        ? await this.client.request(
+            { method: "tools/call", params: callParams },
+            CallToolResultSchema,
+            requestOptions,
+          )
+        : await this.client.callTool(callParams, undefined, requestOptions);
 
       const invocation: ToolCallInvocation = {
         toolName: tool.name,

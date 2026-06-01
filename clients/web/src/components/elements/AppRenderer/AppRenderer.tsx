@@ -67,6 +67,16 @@ export function AppRenderer({
   const pendingInputRef = useRef<Record<string, unknown> | null>(null);
   const pendingResultRef = useRef<CallToolResult | null>(null);
   const teardownStartedRef = useRef(false);
+  // Bridge-lifecycle bookkeeping for the deferred-dispose / reuse dance that
+  // keeps a single bridge alive across React StrictMode's dev-only
+  // setup→cleanup→setup double-invoke (see the build effect below).
+  const buildIdRef = useRef(0);
+  const disposeScheduledRef = useRef(false);
+  const lastDepsRef = useRef<{
+    bridgeFactory: BridgeFactory;
+    sandboxPath: string;
+    tool: Tool;
+  } | null>(null);
   const onErrorRef = useRef(onError);
   useEffect(() => {
     onErrorRef.current = onError;
@@ -93,11 +103,63 @@ export function AppRenderer({
     }
   }, []);
 
+  // Dispose the live bridge, but deferred to a microtask. React StrictMode runs
+  // effects setup→cleanup→setup synchronously in dev; deferring lets the
+  // re-setup cancel the disposal and keep the SAME bridge, instead of tearing
+  // it down and rebuilding. A rebuild here spins up a second transport that
+  // re-posts sandbox-resource-ready (the sandbox loads the app twice) and
+  // races the app's ui/initialize handshake — which is what left apps stuck on
+  // an empty shell ("handshake timed out") in dev.
+  const scheduleDispose = useCallback(() => {
+    disposeScheduledRef.current = true;
+    queueMicrotask(() => {
+      if (!disposeScheduledRef.current) return; // cancelled by a re-setup
+      disposeScheduledRef.current = false;
+      // Invalidate any in-flight factory so a late-resolving bridge disposes
+      // itself instead of attaching to a torn-down component.
+      buildIdRef.current++;
+      const bridge = bridgeRef.current;
+      bridgeRef.current = null;
+      initializedRef.current = false;
+      lastDepsRef.current = null;
+      if (bridge) void disposeBridge(bridge);
+    });
+  }, []);
+
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
 
-    let cancelled = false;
+    const prev = lastDepsRef.current;
+    const sameInputs =
+      prev !== null &&
+      prev.bridgeFactory === bridgeFactory &&
+      prev.sandboxPath === sandboxPath &&
+      prev.tool === tool;
+
+    // A disposal scheduled by the immediately-preceding cleanup means we are in
+    // a synchronous re-setup. If the inputs are identical (StrictMode's
+    // double-invoke, or a transient re-render) keep the live bridge: cancel the
+    // disposal and re-deliver any buffered input/result to it.
+    if (disposeScheduledRef.current && sameInputs) {
+      disposeScheduledRef.current = false;
+      flushPending();
+      return scheduleDispose;
+    }
+
+    // Otherwise this is a real (re)build. If a disposal was pending (inputs
+    // changed), run it synchronously before building the replacement.
+    if (disposeScheduledRef.current) {
+      disposeScheduledRef.current = false;
+      buildIdRef.current++;
+      const old = bridgeRef.current;
+      bridgeRef.current = null;
+      initializedRef.current = false;
+      if (old) void disposeBridge(old);
+    }
+
+    lastDepsRef.current = { bridgeFactory, sandboxPath, tool };
+    const buildId = ++buildIdRef.current;
     teardownStartedRef.current = false;
     initializedRef.current = false;
 
@@ -106,14 +168,12 @@ export function AppRenderer({
       pending = Promise.resolve(bridgeFactory(iframe, tool));
     } catch (err) {
       onErrorRef.current?.(toError(err));
-      return () => {
-        cancelled = true;
-      };
+      return scheduleDispose;
     }
 
     pending
       .then((bridge) => {
-        if (cancelled) {
+        if (buildIdRef.current !== buildId) {
           void disposeBridge(bridge);
           return;
         }
@@ -128,19 +188,11 @@ export function AppRenderer({
         flushPending();
       })
       .catch((err) => {
-        if (!cancelled) onErrorRef.current?.(toError(err));
+        if (buildIdRef.current === buildId) onErrorRef.current?.(toError(err));
       });
 
-    return () => {
-      cancelled = true;
-      const bridge = bridgeRef.current;
-      bridgeRef.current = null;
-      initializedRef.current = false;
-      pendingInputRef.current = null;
-      pendingResultRef.current = null;
-      if (bridge) void disposeBridge(bridge);
-    };
-  }, [bridgeFactory, sandboxPath, tool, flushPending]);
+    return scheduleDispose;
+  }, [bridgeFactory, sandboxPath, tool, flushPending, scheduleDispose]);
 
   useImperativeHandle(
     ref,
@@ -165,7 +217,13 @@ export function AppRenderer({
         if (!bridge || teardownStartedRef.current) return;
         teardownStartedRef.current = true;
         // Null the ref synchronously so a concurrent unmount cleanup cannot
-        // see a still-live bridge and dispose it a second time.
+        // see a still-live bridge and dispose it a second time. Bumping the
+        // build id makes any in-flight factory self-dispose, and clearing the
+        // pending-dispose flag/cached deps prevents the deferred dispose from
+        // acting on an already torn-down bridge.
+        buildIdRef.current++;
+        disposeScheduledRef.current = false;
+        lastDepsRef.current = null;
         bridgeRef.current = null;
         initializedRef.current = false;
         pendingInputRef.current = null;

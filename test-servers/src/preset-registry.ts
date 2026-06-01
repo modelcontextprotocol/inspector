@@ -23,6 +23,7 @@ import {
   createSendNotificationTool,
   createGetAnnotatedMessageTool,
   createGetTempTool,
+  createGetTempExtraTool,
   createAddResourceTool,
   createRemoveResourceTool,
   createAddToolTool,
@@ -99,6 +100,8 @@ function resolveToolPreset(
       return createGetAnnotatedMessageTool();
     case "get_temp":
       return createGetTempTool();
+    case "get_temp_extra":
+      return createGetTempExtraTool();
     case "add_resource":
       return createAddResourceTool();
     case "remove_resource":

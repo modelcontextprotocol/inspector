@@ -908,9 +908,17 @@ function App() {
       await Promise.resolve();
       void appRendererRef.current?.sendToolInput(args);
       try {
+        // skipOutputValidation: the result is forwarded verbatim to the running
+        // app (the real consumer), so the host must not reject it on its own
+        // outputSchema validation — that would deny the app a result the server
+        // actually returned and legacy hosts render fine.
         const invocation = await inspectorClient.callTool(
           tool,
           args as Record<string, JsonValue>,
+          undefined,
+          undefined,
+          undefined,
+          { skipOutputValidation: true },
         );
         if (invocation.success && invocation.result) {
           void appRendererRef.current?.sendToolResult(invocation.result);
