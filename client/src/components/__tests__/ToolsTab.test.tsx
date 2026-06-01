@@ -423,6 +423,26 @@ describe("ToolsTab", () => {
     expect(submitButton.getAttribute("disabled")).toBeNull();
   });
 
+  it("should show cancel polling button while polling a task", () => {
+    const cancelPolling = jest.fn();
+
+    renderToolsTab({
+      selectedTool: mockTools[0],
+      isPollingTask: true,
+      cancelPolling,
+    });
+
+    const cancelButton = screen.getByRole("button", {
+      name: /cancel polling/i,
+    });
+    fireEvent.click(cancelButton);
+
+    expect(cancelPolling).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("button", { name: /polling task/i }),
+    ).toBeDisabled();
+  });
+
   describe("Output Schema Display", () => {
     const toolWithOutputSchema: Tool = {
       name: "weatherTool",
