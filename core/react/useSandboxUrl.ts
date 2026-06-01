@@ -7,10 +7,11 @@
  * the trusted outer iframe of the double-iframe sandbox; without it MCP Apps
  * cannot run, so the screen renders an unavailable state instead.
  *
- * Fetches once on mount. `sandboxUrl` is `undefined` until the fetch resolves
- * and stays `undefined` if the backend omits it (legacy backend, or a build
- * without the sandbox controller) — callers should treat that as "Apps
- * unavailable" rather than falling back to a blank iframe.
+ * Fetches on mount, and re-fetches if `baseUrl` or `authToken` changes (rare —
+ * effectively a full reload; the GET is idempotent). `sandboxUrl` is `undefined`
+ * until the fetch resolves and stays `undefined` if the backend omits it (legacy
+ * backend, or a build without the sandbox controller) — callers should treat
+ * that as "Apps unavailable" rather than falling back to a blank iframe.
  */
 
 import { useCallback, useEffect, useState } from "react";

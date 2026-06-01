@@ -53,6 +53,11 @@ export interface AppBridgeFactoryDeps {
  * every theme flip. The theme is read once per bridge build (the value at open
  * time); pushing live theme updates to an already-open app would need an
  * AppBridge.setHostContext follow-up.
+ *
+ * The attribute is only ever `"light"` or `"dark"` — Mantine resolves
+ * `defaultColorScheme="auto"` to the system value before paint and never writes
+ * `"auto"` here, so no `auto` branch is needed. The matchMedia fallback only
+ * covers the attribute being absent (e.g. a hydration race).
  */
 function currentTheme(): "light" | "dark" {
   if (typeof document !== "undefined") {
