@@ -923,6 +923,17 @@ function App() {
         if (invocation.success && invocation.result) {
           void appRendererRef.current?.sendToolResult(invocation.result);
         }
+        // Leniency above keeps the app rendering, but surface the schema
+        // mismatch so a server developer knows strict MCP clients may refuse
+        // to render this app.
+        if (invocation.outputValidationError) {
+          notifications.show({
+            title: "App output doesn't match its schema",
+            message: `"${tool.name}" returned structured content that violates its declared outputSchema. The inspector renders it anyway, but strict MCP clients may not. ${invocation.outputValidationError}`,
+            color: "yellow",
+            autoClose: 10000,
+          });
+        }
       } catch {
         // Transport-level failure — the app already received its input; there
         // is no per-app error surface yet, so swallow to avoid an unhandled

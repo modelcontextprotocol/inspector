@@ -862,6 +862,25 @@ describe("InspectorClient", () => {
         city: "Oslo",
         extra: "undeclared",
       });
+      // Non-fatal advisory: the result was delivered, but the mismatch is
+      // reported so callers can warn that strict clients would reject it.
+      expect(result.outputValidationError ?? "").toMatch(
+        /additional propert|output schema|schema/i,
+      );
+    });
+
+    it("does not set outputValidationError when the result matches the schema (get_temp)", async () => {
+      const tool = await getTool(client!, "get_temp");
+      const result = await client!.callTool(
+        tool,
+        { city: "Oslo", units: "C" },
+        undefined,
+        undefined,
+        undefined,
+        { skipOutputValidation: true },
+      );
+      expect(result.success).toBe(true);
+      expect(result.outputValidationError).toBeUndefined();
     });
 
     it("should handle tool not found", async () => {

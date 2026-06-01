@@ -95,6 +95,8 @@ import {
   TaskStatusNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { ClientResult } from "@modelcontextprotocol/sdk/types.js";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
+import type { JsonSchemaType } from "@modelcontextprotocol/sdk/validation";
 import { TasksListChangedNotificationSchema } from "./taskNotificationSchemas.js";
 import {
   type JsonValue,
@@ -134,6 +136,9 @@ interface ReceiverTaskRecord {
 export class InspectorClient extends InspectorClientEventTarget {
   private client: Client | null = null;
   private appRendererClientProxy: AppRendererClient | null = null;
+  // Lazily-built validator used only on the skipOutputValidation path to detect
+  // (non-fatally) when a delivered result violates the tool's outputSchema.
+  private outputValidator: AjvJsonSchemaValidator | null = null;
   private transport: Transport | MessageTrackingTransport | null = null;
   private baseTransport: Transport | null = null;
   private pipeStderr: boolean;
@@ -1379,6 +1384,14 @@ export class InspectorClient extends InspectorClientEventTarget {
           )
         : await this.client.callTool(callParams, undefined, requestOptions);
 
+      // On the bypass path the result was delivered without the SDK's strict
+      // output validation. Run that check ourselves, non-fatally, so callers can
+      // warn that strict clients would reject this payload (the app still
+      // renders, but it may not in other hosts).
+      const outputValidationError = options?.skipOutputValidation
+        ? this.validateToolOutput(tool, result as CallToolResult)
+        : undefined;
+
       const invocation: ToolCallInvocation = {
         toolName: tool.name,
         params: args,
@@ -1386,6 +1399,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         timestamp,
         success: true,
         metadata,
+        outputValidationError,
       };
 
       this.dispatchTypedEvent("toolCallResultChange", {
@@ -1395,6 +1409,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         timestamp,
         success: true,
         metadata,
+        outputValidationError,
       });
 
       return invocation;
@@ -1429,6 +1444,40 @@ export class InspectorClient extends InspectorClientEventTarget {
       });
 
       throw error;
+    }
+  }
+
+  /**
+   * Validate a delivered tool result's structuredContent against the tool's
+   * declared outputSchema, mirroring the SDK client's strict check but WITHOUT
+   * throwing. Returns an error message when the payload would be rejected by a
+   * strict client, or undefined when it's valid (or there's nothing to check).
+   * Used by the skipOutputValidation path to surface a non-fatal advisory.
+   */
+  private validateToolOutput(
+    tool: Tool,
+    result: CallToolResult,
+  ): string | undefined {
+    if (!tool.outputSchema) return undefined;
+    const structured = result.structuredContent;
+    if (structured == null) {
+      // Strict clients reject "has outputSchema but no structuredContent"
+      // unless the result is an error.
+      return result.isError
+        ? undefined
+        : `Tool "${tool.name}" declares an output schema but returned no structured content`;
+    }
+    try {
+      this.outputValidator ??= new AjvJsonSchemaValidator();
+      const validate = this.outputValidator.getValidator(
+        tool.outputSchema as unknown as JsonSchemaType,
+      );
+      const validation = validate(structured);
+      return validation.valid ? undefined : validation.errorMessage;
+    } catch {
+      // A malformed schema (validator compilation failure) shouldn't block the
+      // call or produce a misleading warning.
+      return undefined;
     }
   }
 
