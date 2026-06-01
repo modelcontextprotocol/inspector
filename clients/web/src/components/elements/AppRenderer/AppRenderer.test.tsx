@@ -1,4 +1,4 @@
-import { createRef } from "react";
+import { createRef, StrictMode } from "react";
 import { act } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
@@ -22,15 +22,33 @@ interface MockBridge {
   sendToolCancelled: ReturnType<typeof vi.fn>;
   teardownResource: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
+  addEventListener: ReturnType<typeof vi.fn>;
+  removeEventListener: ReturnType<typeof vi.fn>;
+  /** Test helper: dispatch a bridge event (e.g. "initialized") to listeners. */
+  emit: (event: string, payload?: unknown) => void;
 }
 
 function createMockBridge(): MockBridge {
+  const listeners: Record<string, ((payload: unknown) => void)[]> = {};
   return {
     sendToolInput: vi.fn().mockResolvedValue(undefined),
     sendToolResult: vi.fn().mockResolvedValue(undefined),
     sendToolCancelled: vi.fn().mockResolvedValue(undefined),
     teardownResource: vi.fn().mockResolvedValue({}),
     close: vi.fn().mockResolvedValue(undefined),
+    addEventListener: vi.fn((event: string, handler: (p: unknown) => void) => {
+      (listeners[event] ??= []).push(handler);
+    }),
+    removeEventListener: vi.fn(
+      (event: string, handler: (p: unknown) => void) => {
+        listeners[event] = (listeners[event] ?? []).filter(
+          (h) => h !== handler,
+        );
+      },
+    ),
+    emit: (event: string, payload?: unknown) => {
+      (listeners[event] ?? []).forEach((h) => h(payload));
+    },
   };
 }
 
@@ -90,9 +108,10 @@ describe("AppRenderer", () => {
     await flushAsync();
     expect(factory).toHaveBeenCalledTimes(1);
     expect(factory.mock.calls[0]?.[0]).toBeInstanceOf(HTMLIFrameElement);
+    expect(factory.mock.calls[0]?.[1]).toBe(tool);
   });
 
-  it("forwards sendToolInput through the bridge", async () => {
+  it("forwards sendToolInput through the bridge once initialized", async () => {
     const bridge = createMockBridge();
     const ref = createRef<AppRendererHandle>();
     renderWithMantine(
@@ -106,13 +125,14 @@ describe("AppRenderer", () => {
     await flushAsync();
     await act(async () => {
       await ref.current?.sendToolInput({ city: "NYC" });
+      bridge.emit("initialized");
     });
     expect(bridge.sendToolInput).toHaveBeenCalledWith({
       arguments: { city: "NYC" },
     });
   });
 
-  it("forwards sendToolResult through the bridge", async () => {
+  it("forwards sendToolResult through the bridge once initialized", async () => {
     const bridge = createMockBridge();
     const ref = createRef<AppRendererHandle>();
     const result: CallToolResult = {
@@ -129,8 +149,65 @@ describe("AppRenderer", () => {
     await flushAsync();
     await act(async () => {
       await ref.current?.sendToolResult(result);
+      bridge.emit("initialized");
     });
     expect(bridge.sendToolResult).toHaveBeenCalledWith(result);
+  });
+
+  it("buffers tool input until the view is initialized, then flushes input before result", async () => {
+    const bridge = createMockBridge();
+    const ref = createRef<AppRendererHandle>();
+    const result: CallToolResult = { content: [{ type: "text", text: "ok" }] };
+    renderWithMantine(
+      <AppRenderer
+        ref={ref}
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+      />,
+    );
+    await flushAsync();
+
+    // Pushed before `initialized` — must not reach the bridge yet.
+    await act(async () => {
+      await ref.current?.sendToolInput({ city: "NYC" });
+      await ref.current?.sendToolResult(result);
+    });
+    expect(bridge.sendToolInput).not.toHaveBeenCalled();
+    expect(bridge.sendToolResult).not.toHaveBeenCalled();
+
+    // Initialization releases both, input first.
+    await act(async () => {
+      bridge.emit("initialized");
+    });
+    expect(bridge.sendToolInput).toHaveBeenCalledTimes(1);
+    expect(bridge.sendToolResult).toHaveBeenCalledTimes(1);
+    expect(bridge.sendToolInput.mock.invocationCallOrder[0]).toBeLessThan(
+      bridge.sendToolResult.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("keeps only the latest buffered input (latest-wins)", async () => {
+    const bridge = createMockBridge();
+    const ref = createRef<AppRendererHandle>();
+    renderWithMantine(
+      <AppRenderer
+        ref={ref}
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+      />,
+    );
+    await flushAsync();
+    await act(async () => {
+      await ref.current?.sendToolInput({ city: "NYC" });
+      await ref.current?.sendToolInput({ city: "LA" });
+      bridge.emit("initialized");
+    });
+    expect(bridge.sendToolInput).toHaveBeenCalledTimes(1);
+    expect(bridge.sendToolInput).toHaveBeenCalledWith({
+      arguments: { city: "LA" },
+    });
   });
 
   it("forwards sendToolCancelled through the bridge", async () => {
@@ -150,6 +227,42 @@ describe("AppRenderer", () => {
     });
     expect(bridge.sendToolCancelled).toHaveBeenCalledWith({
       reason: "user-aborted",
+    });
+  });
+
+  it("builds a single bridge and does not dispose it under StrictMode double-invoke", async () => {
+    // React StrictMode runs effects setup→cleanup→setup in dev. The bridge
+    // (a stateful handshake) must survive that as ONE instance — rebuilding it
+    // spins up a second transport that double-loads the sandbox and races the
+    // app's ui/initialize handshake.
+    const bridge = createMockBridge();
+    const factory = vi.fn<BridgeFactory>(() => asBridge(bridge));
+    const ref = createRef<AppRendererHandle>();
+    renderWithMantine(
+      <StrictMode>
+        <AppRenderer
+          ref={ref}
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={factory}
+        />
+      </StrictMode>,
+    );
+    await flushAsync();
+
+    // One build, and the bridge is NOT torn down by the synthetic remount.
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(bridge.teardownResource).not.toHaveBeenCalled();
+    expect(bridge.close).not.toHaveBeenCalled();
+
+    // The reused bridge still delivers buffered input once initialized.
+    await act(async () => {
+      await ref.current?.sendToolInput({ city: "NYC" });
+      bridge.emit("initialized");
+    });
+    expect(bridge.sendToolInput).toHaveBeenCalledTimes(1);
+    expect(bridge.sendToolInput).toHaveBeenCalledWith({
+      arguments: { city: "NYC" },
     });
   });
 

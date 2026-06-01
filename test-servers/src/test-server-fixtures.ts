@@ -683,6 +683,43 @@ export function createGetTempTool(): ToolDefinition {
 }
 
 /**
+ * Create a "get_temp_extra" tool that declares the same output schema as
+ * get_temp but returns an EXTRA, undeclared property in structuredContent.
+ *
+ * The SDK server validates output via zod safeParse (which strips unknown keys
+ * and passes), then sends the ORIGINAL structuredContent — so the extra key
+ * reaches the wire. The SDK *client* validates that payload against the strict
+ * JSON schema derived from the output schema and rejects it
+ * ("must NOT have additional properties"). This mirrors real-world servers
+ * (e.g. MCP App tools) whose results legacy hosts render but whose strict
+ * client validation otherwise denies. Used to exercise
+ * InspectorClient.callTool's `skipOutputValidation` option.
+ */
+export function createGetTempExtraTool(): ToolDefinition {
+  return {
+    name: "get_temp_extra",
+    description:
+      "Like get_temp, but returns an extra structuredContent property that violates the output schema (for validation-bypass testing)",
+    inputSchema: {
+      city: z.string().describe("City name"),
+      units: z.enum(["C", "F"]).describe("Temperature units"),
+    },
+    outputSchema: GetTempOutputSchema,
+    handler: async (params: Record<string, unknown>) => {
+      const city = (params.city as string) || "Unknown";
+      const unit = (params.units as "C" | "F") || "C";
+      const temperature = 25;
+      const text = `The temperature in ${city} is ${temperature} degrees ${unit}`;
+      return {
+        content: [{ type: "text" as const, text }],
+        // `extra` is not in GetTempOutputSchema → strict client validation fails.
+        structuredContent: { temperature, unit, city, extra: "undeclared" },
+      };
+    },
+  };
+}
+
+/**
  * Create a "simple_prompt" prompt definition
  */
 export function createSimplePrompt(): PromptDefinition {
@@ -1843,6 +1880,7 @@ export function getDefaultServerConfig(): ServerConfig {
       createGetSumTool(),
       createGetAnnotatedMessageTool(),
       createGetTempTool(),
+      createGetTempExtraTool(),
       createSendNotificationTool(),
       createWriteToStderrTool(),
     ],

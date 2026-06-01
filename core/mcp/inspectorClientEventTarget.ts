@@ -71,6 +71,8 @@ export interface InspectorClientEventMap {
     success: boolean;
     error?: string;
     metadata?: Record<string, string>;
+    /** Non-fatal outputSchema mismatch detected on the skipOutputValidation path. */
+    outputValidationError?: string;
   };
   resourceContentChange: {
     uri: string;

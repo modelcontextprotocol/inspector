@@ -1,8 +1,9 @@
-import { useRef } from "react";
+import { useCallback, useRef, useState } from "react";
+import { Stack, Text } from "@mantine/core";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
-import { fn, userEvent, within } from "storybook/test";
+import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { AppsScreen, type AppsScreenProps } from "./AppsScreen";
 import type {
   AppRendererHandle,
@@ -10,7 +11,18 @@ import type {
 } from "../../elements/AppRenderer/AppRenderer";
 import { SUN_ICON_SVG } from "../../../test/fixtures/storyIcons";
 
-const PLACEHOLDER_SANDBOX = "data:text/html,<title>Mock%20Sandbox</title>";
+// A self-contained, themed sandbox page so the running-state stories show
+// visible content in both light and dark mode (Canvas / CanvasText are CSS
+// system colors that follow `color-scheme`), instead of a blank/white frame.
+const PLACEHOLDER_SANDBOX =
+  "data:text/html," +
+  encodeURIComponent(
+    `<!doctype html><html><head><meta name="color-scheme" content="light dark">` +
+      `<style>html,body{height:100%;margin:0}` +
+      `body{display:flex;align-items:center;justify-content:center;` +
+      `font-family:system-ui,sans-serif;color:CanvasText;background:Canvas}</style>` +
+      `</head><body><div>Mock app — running in sandbox</div></body></html>`,
+  );
 
 function createMockBridge(): AppBridge {
   return {
@@ -19,6 +31,8 @@ function createMockBridge(): AppBridge {
     sendToolCancelled: async () => {},
     teardownResource: async () => ({}),
     close: async () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
   } as unknown as AppBridge;
 }
 
@@ -148,4 +162,96 @@ export const WithListChanged: Story = {
 
 export const Empty: Story = {
   args: { tools: [] },
+};
+
+// Drives the real running-state interaction with a fake bridge that echoes
+// tool input straight back as a tool result. Because the mock sandbox page
+// never completes the real handshake, the factory synthesizes the view's
+// `initialized` signal so AppRenderer flushes the buffered input. The echoed
+// result is surfaced in a status line so the round-trip is observable in
+// `npm run test:storybook`.
+export const EchoRunning: Story = {
+  args: { tools: [weatherApp] },
+  render: function EchoRender(args: AppsScreenProps) {
+    const ref = useRef<AppRendererHandle>(null);
+    const [echo, setEcho] = useState<string | null>(null);
+
+    const bridgeFactory: BridgeFactory = useCallback(() => {
+      let onInitialized: (() => void) | undefined;
+      const bridge = {
+        addEventListener: (event: string, handler: () => void) => {
+          if (event === "initialized") onInitialized = handler;
+        },
+        removeEventListener: () => {},
+        sendToolInput: async (params: {
+          arguments?: Record<string, unknown>;
+        }) => {
+          // Echo the input back as a result.
+          await bridge.sendToolResult({
+            content: [
+              {
+                type: "text",
+                text: `echo: ${JSON.stringify(params.arguments)}`,
+              },
+            ],
+          });
+        },
+        sendToolResult: async (result: CallToolResult) => {
+          const first = result.content[0];
+          setEcho(first?.type === "text" ? first.text : "");
+        },
+        sendToolCancelled: async () => {},
+        teardownResource: async () => ({}),
+        close: async () => {},
+      };
+      // Simulate the view finishing initialization shortly after AppRenderer
+      // registers its `initialized` listener; sendToolInput then flushes.
+      setTimeout(() => onInitialized?.(), 20);
+      return bridge as unknown as AppBridge;
+    }, []);
+
+    const onOpenApp = useCallback(
+      (_name: string, formArgs: Record<string, unknown>) => {
+        // Mirror App.tsx: defer one microtask so the renderer's imperative
+        // handle (set during the commit's layout phase) is wired before
+        // pushing input. The renderer buffers it until the view initializes.
+        void Promise.resolve().then(() => ref.current?.sendToolInput(formArgs));
+      },
+      [],
+    );
+
+    return (
+      <Stack gap={0}>
+        <Text data-testid="echo-status" p="xs">
+          {echo ?? "no echo yet"}
+        </Text>
+        <AppsScreen
+          {...args}
+          rendererRef={ref}
+          bridgeFactory={bridgeFactory}
+          onOpenApp={onOpenApp}
+        />
+      </Stack>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    await selectByLabel(canvasElement, "Weather Widget");
+    const canvas = within(canvasElement);
+    const cityField = await canvas.findByRole("textbox", { name: /city/i });
+    await userEvent.type(cityField, "Oslo");
+    await clickByName(canvasElement, /open app/i);
+    await waitFor(() =>
+      expect(canvas.getByTestId("echo-status")).toHaveTextContent(/echo:/),
+    );
+  },
+};
+
+// No sandbox URL available — the screen renders an unavailable state rather
+// than a blank iframe.
+export const Unavailable: Story = {
+  args: { tools: sampleApps, sandboxPath: undefined },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByText(/MCP Apps are unavailable/i);
+  },
 };

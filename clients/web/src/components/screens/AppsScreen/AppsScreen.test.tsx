@@ -85,6 +85,36 @@ describe("AppsScreen", () => {
     expect(screen.getByText("MCP Apps (0)")).toBeInTheDocument();
   });
 
+  it("renders the unavailable state when no sandbox path is provided", () => {
+    renderWithMantine(
+      <AppsScreen {...buildProps({ sandboxPath: undefined })} />,
+    );
+    expect(screen.getByText(/MCP Apps are unavailable/i)).toBeInTheDocument();
+    // The sidebar / app list is not rendered in the unavailable state.
+    expect(screen.queryByText("MCP Apps (3)")).not.toBeInTheDocument();
+  });
+
+  it("surfaces a bridge factory failure via onError", async () => {
+    const user = userEvent.setup();
+    const onError = vi.fn();
+    const throwingFactory: BridgeFactory = () => {
+      throw new Error("no connected MCP client");
+    };
+    renderWithMantine(
+      <AppsScreen
+        {...buildProps({ bridgeFactory: throwingFactory, onError })}
+      />,
+    );
+    // The no-fields app auto-launches on selection, mounting the renderer,
+    // whose effect invokes the factory (which throws → routes to onError).
+    await user.click(screen.getByText("Ops Dashboard"));
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+    expect(onError.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect((onError.mock.calls[0][0] as Error).message).toContain(
+      "no connected MCP client",
+    );
+  });
+
   it("filters the list via the search input", async () => {
     const user = userEvent.setup();
     renderWithMantine(<AppsScreen {...buildProps()} />);

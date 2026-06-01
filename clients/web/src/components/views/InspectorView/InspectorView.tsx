@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode, type Ref } from "react";
 import { AppShell, Box, Stack, Transition } from "@mantine/core";
 import { useLocalStorage } from "@mantine/hooks";
 import type {
@@ -199,10 +199,13 @@ export interface InspectorViewProps {
   // notification, so the parent keeps the optimistic current value.
   currentLogLevel: LoggingLevel;
 
-  // MCP Apps sandbox. The parent's web environment provides both the
-  // sandbox iframe URL and the per-app bridge factory.
-  sandboxPath: string;
+  // MCP Apps sandbox. The parent's web environment provides the sandbox iframe
+  // URL (undefined when the sandbox controller is unavailable), the per-app
+  // bridge factory, and the renderer handle the parent uses to push tool
+  // input/result into the running app and tear it down.
+  sandboxPath?: string;
   bridgeFactory: BridgeFactory;
+  appRendererRef: Ref<AppRendererHandle>;
 
   // History pinning. Optional because pin state isn't persisted yet (#1244
   // is single-PR; persistence is a separate concern).
@@ -271,6 +274,7 @@ export interface InspectorViewProps {
   onSelectApp: (name: string) => void;
   onOpenApp: (name: string, args: Record<string, unknown>) => void;
   onCloseApp: () => void;
+  onAppError: (err: Error) => void;
   onRefreshApps: () => void;
 }
 
@@ -296,6 +300,7 @@ export function InspectorView({
   currentLogLevel,
   sandboxPath,
   bridgeFactory,
+  appRendererRef,
   pinnedHistoryIds,
   onToggleTheme,
   onToggleConnection,
@@ -337,13 +342,13 @@ export function InspectorView({
   onSelectApp,
   onOpenApp,
   onCloseApp,
+  onAppError,
   onRefreshApps,
 }: InspectorViewProps) {
   // UI-only state. Connection state, primitive lists, and all action
   // dispatching live in the parent; this component only owns navigation
   // (which tab is visible) and a couple of view-local toggles.
   const [selectedTab, setSelectedTab] = useState<string>(SERVERS_TAB);
-  const appRendererRef = useRef<AppRendererHandle>(null);
 
   const [logsSort, setLogsSort] = useSortDirection("logs");
   const [historySort, setHistorySort] = useSortDirection("history");
@@ -479,6 +484,7 @@ export function InspectorView({
               onSelectApp={onSelectApp}
               onOpenApp={onOpenApp}
               onCloseApp={onCloseApp}
+              onError={onAppError}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Prompts"}>

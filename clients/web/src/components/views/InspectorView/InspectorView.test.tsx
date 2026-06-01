@@ -52,6 +52,7 @@ function makeProps(
     currentLogLevel: "info",
     sandboxPath: "about:blank",
     bridgeFactory: noopBridgeFactory,
+    appRendererRef: { current: null },
     onToggleTheme: vi.fn(),
     onToggleConnection: vi.fn(),
     onDisconnect: vi.fn(),
@@ -87,6 +88,7 @@ function makeProps(
     onSelectApp: vi.fn(),
     onOpenApp: vi.fn(),
     onCloseApp: vi.fn(),
+    onAppError: vi.fn(),
     onRefreshApps: vi.fn(),
     ...overrides,
   };

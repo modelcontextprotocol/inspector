@@ -261,6 +261,14 @@ export interface ToolCallInvocation {
   success: boolean;
   error?: string;
   metadata?: Record<string, string>;
+  /**
+   * Set only on the `skipOutputValidation` path: present when the (delivered)
+   * result's structuredContent does NOT match the tool's declared outputSchema.
+   * The call still succeeds and the result is returned — this is a non-fatal
+   * advisory so callers can warn that strict MCP clients would reject the
+   * payload (and the app may not render in them).
+   */
+  outputValidationError?: string;
 }
 
 // v2-only wrapper types (no v1.5 equivalent)

@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useComputedColorScheme, useMantineColorScheme } from "@mantine/core";
+import {
+  Anchor,
+  Stack,
+  Text,
+  useComputedColorScheme,
+  useMantineColorScheme,
+} from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import type {
   InitializeResult,
@@ -7,7 +13,6 @@ import type {
   LoggingMessageNotification,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
 import type {
@@ -49,11 +54,13 @@ import { useManagedRequestorTasks } from "@inspector/core/react/useManagedReques
 import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubscriptions.js";
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js";
+import { useSandboxUrl } from "@inspector/core/react/useSandboxUrl.js";
 import { InspectorView } from "./components/views/InspectorView/InspectorView";
 import type { ToolCallState } from "./components/screens/ToolsScreen/ToolsScreen";
 import type { GetPromptState } from "./components/screens/PromptsScreen/PromptsScreen";
 import type { ReadResourceState } from "./components/screens/ResourcesScreen/ResourcesScreen";
-import type { BridgeFactory } from "./components/elements/AppRenderer/AppRenderer";
+import type { AppRendererHandle } from "./components/elements/AppRenderer/AppRenderer";
+import { createAppBridgeFactory } from "./components/elements/AppRenderer/createAppBridgeFactory";
 import type { LogEntryData } from "./components/elements/LogEntry/LogEntry";
 import {
   ServerConfigModal,
@@ -61,6 +68,7 @@ import {
 } from "./components/groups/ServerConfigModal/ServerConfigModal";
 import { ServerSettingsModal } from "./components/groups/ServerSettingsModal/ServerSettingsModal";
 import { ConnectionInfoModal } from "./components/groups/ConnectionInfoModal/ConnectionInfoModal";
+import { OutputValidationModal } from "./components/groups/OutputValidationModal/OutputValidationModal";
 import type { OAuthDetails } from "./components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
 import { buildExportFilename, downloadJsonFile } from "./lib/downloadFile";
@@ -126,23 +134,6 @@ function getAuthToken(): string | undefined {
   }
 }
 
-// MCP Apps sandbox — the iframe URL the parent should embed, plus the
-// per-tool bridge factory. The dev backend serves `sandbox_proxy.html` on
-// the sandbox controller port; the factory will eventually wrap the SDK
-// client. For now neither is wired (the Apps tab uses these props but does
-// not yet round-trip tool input through a live bridge — that's a follow-up
-// alongside the AppRenderer integration). Keep these as stable references
-// so InspectorView's effect deps don't churn.
-const STUB_SANDBOX_PATH = "about:blank";
-const stubBridgeFactory: BridgeFactory = () =>
-  ({
-    sendToolInput: async () => {},
-    sendToolResult: async () => {},
-    sendToolCancelled: async () => {},
-    teardownResource: async () => ({}),
-    close: async () => {},
-  }) as unknown as AppBridge;
-
 // Derive `LogEntryData[]` from the MessageLog by filtering for the
 // `notifications/message` notifications the server emits in response to
 // `logging/setLevel`. The Logs screen renders these; we transform here
@@ -176,6 +167,26 @@ const EMPTY_SETTINGS: InspectorServerSettings = {
   connectionTimeout: 0,
   requestTimeout: 0,
 };
+
+// Body of the output-schema-mismatch warning toast: a one-line summary plus a
+// link that opens the full validation details in a modal (the raw error is far
+// too long for a toast).
+const OutputValidationToastMessage = ({
+  onViewDetails,
+}: {
+  onViewDetails: () => void;
+}) => (
+  <Stack gap={4}>
+    <Text size="sm">
+      The tool result&apos;s structuredContent doesn&apos;t match the
+      tool&apos;s outputSchema. The inspector renders it anyway, but strict MCP
+      clients may not.
+    </Text>
+    <Anchor component="button" type="button" size="sm" onClick={onViewDetails}>
+      View validation details
+    </Anchor>
+  </Stack>
+);
 
 function App() {
   // Theme toggle plumbing (preserved from the pre-wire placeholder).
@@ -214,6 +225,11 @@ function App() {
   >(undefined);
   const [connectionInfoModalOpen, setConnectionInfoModalOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<ServerEntry | null>(null);
+  // Details for the output-schema-mismatch modal opened from the warning toast.
+  const [outputValidationDetails, setOutputValidationDetails] = useState<{
+    toolName: string;
+    message: string;
+  } | null>(null);
 
   // The active connection target. `null` between sessions; set as soon as
   // the user toggles a server card on. Drives state-manager lifetime.
@@ -226,6 +242,33 @@ function App() {
   // next switch happens (or when the component unmounts).
   const [inspectorClient, setInspectorClient] =
     useState<InspectorClient | null>(null);
+
+  // MCP Apps runtime wiring. `sandboxUrl` is the inspector's sandbox-proxy page
+  // (the trusted outer iframe); `appRendererRef` lets the app handlers push tool
+  // input/result into the running app and tear it down. The bridge factory wraps
+  // the active client's underlying SDK client so the running view can call the
+  // server, and reads the tool's UI resource into the sandbox on handshake.
+  const appRendererRef = useRef<AppRendererHandle>(null);
+  const { sandboxUrl } = useSandboxUrl({
+    baseUrl:
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "http://localhost",
+    authToken: getAuthToken(),
+  });
+  const sandboxBridgeFactory = useMemo(
+    () =>
+      createAppBridgeFactory({
+        getClient: () => inspectorClient?.getAppRendererClient() ?? null,
+        readResource: async (uri) => {
+          if (!inspectorClient) throw new Error("No MCP client connected.");
+          const invocation = await inspectorClient.readResource(uri);
+          return invocation.result;
+        },
+      }),
+    [inspectorClient],
+  );
+
   const [managedToolsState, setManagedToolsState] =
     useState<ManagedToolsState | null>(null);
   const [managedPromptsState, setManagedPromptsState] =
@@ -875,6 +918,88 @@ function App() {
     setToolCallState(undefined);
   }, []);
 
+  // --- MCP Apps handlers. Unlike onCallTool (which feeds the Tools panel),
+  // these route the tool input/result into the running app via the renderer's
+  // imperative handle. ---
+
+  // Surfaces bridge/runtime failures (factory throw — e.g. no client after a
+  // disconnect — late bridge rejection, or a failed tools/call) that would
+  // otherwise leave a silently blank app iframe.
+  const onAppError = useCallback((err: Error) => {
+    notifications.show({
+      title: "MCP App error",
+      message: err.message,
+      color: "red",
+    });
+  }, []);
+
+  // Selection is owned by AppsScreen's local state; App.tsx has nothing to do
+  // on select, but the prop is required so the screen stays prop-driven.
+  const onSelectApp = useCallback(() => {}, []);
+
+  const onOpenApp = useCallback(
+    async (name: string, args: Record<string, unknown>) => {
+      if (!inspectorClient) return;
+      const tool = tools.find((t: Tool) => t.name === name);
+      if (!tool) return;
+      // AppsScreen flips `running` -> mounts AppRenderer in the same tick it
+      // calls this, so the renderer handle isn't wired yet. Yield one microtask
+      // (after React commits the mount) before pushing input; the renderer then
+      // buffers it until the view's `initialized` event, releasing input before
+      // result.
+      await Promise.resolve();
+      void appRendererRef.current?.sendToolInput(args);
+      try {
+        // skipOutputValidation: the result is forwarded verbatim to the running
+        // app (the real consumer), so the host must not reject it on its own
+        // outputSchema validation — that would deny the app a result the server
+        // actually returned and legacy hosts render fine.
+        const invocation = await inspectorClient.callTool(
+          tool,
+          args as Record<string, JsonValue>,
+          undefined,
+          undefined,
+          undefined,
+          { skipOutputValidation: true },
+        );
+        if (invocation.success && invocation.result) {
+          void appRendererRef.current?.sendToolResult(invocation.result);
+        }
+        // Leniency above keeps the app rendering, but surface the schema
+        // mismatch so a server developer knows strict MCP clients may refuse
+        // to render this app. The full validation error is too long for a
+        // toast, so summarize and link to a modal with the details.
+        if (invocation.outputValidationError) {
+          const details = {
+            toolName: tool.name,
+            message: invocation.outputValidationError,
+          };
+          notifications.show({
+            // Don't auto-dismiss: the message is advisory and the details modal
+            // is one click away — let the user close it when they've read it.
+            autoClose: false,
+            title: "App output doesn't match its schema",
+            color: "yellow",
+            message: (
+              <OutputValidationToastMessage
+                onViewDetails={() => setOutputValidationDetails(details)}
+              />
+            ),
+          });
+        }
+      } catch (err) {
+        // Transport-level failure (the call never returned a result). Surface it
+        // so the user isn't left staring at a blank/partial app frame.
+        onAppError(err instanceof Error ? err : new Error(String(err)));
+      }
+    },
+    [inspectorClient, tools, onAppError],
+  );
+
+  const onCloseApp = useCallback(() => {
+    void appRendererRef.current?.teardown();
+  }, []);
+
   const onGetPrompt = useCallback(
     async (name: string, args: Record<string, string>) => {
       if (!inspectorClient) return;
@@ -1224,8 +1349,9 @@ function App() {
         getPromptState={getPromptState}
         readResourceState={effectiveReadResourceState}
         currentLogLevel={currentLogLevel}
-        sandboxPath={STUB_SANDBOX_PATH}
-        bridgeFactory={stubBridgeFactory}
+        sandboxPath={sandboxUrl}
+        bridgeFactory={sandboxBridgeFactory}
+        appRendererRef={appRendererRef}
         onToggleTheme={onToggleTheme}
         onToggleConnection={(id) => {
           void onToggleConnection(id);
@@ -1274,9 +1400,12 @@ function App() {
         onTogglePinHistory={todoNoop}
         onClearNetwork={onClearNetwork}
         onExportNetwork={onExportNetwork}
-        onSelectApp={todoNoop}
-        onOpenApp={todoNoop}
-        onCloseApp={todoNoop}
+        onSelectApp={onSelectApp}
+        onOpenApp={(name, args) => {
+          void onOpenApp(name, args);
+        }}
+        onCloseApp={onCloseApp}
+        onAppError={onAppError}
         onRefreshApps={onRefreshTools}
       />
       <ServerConfigModal
@@ -1309,6 +1438,12 @@ function App() {
         target={removeTarget}
         onCancel={() => setRemoveTarget(null)}
         onConfirm={onConfirmRemove}
+      />
+      <OutputValidationModal
+        opened={outputValidationDetails !== null}
+        toolName={outputValidationDetails?.toolName}
+        message={outputValidationDetails?.message}
+        onClose={() => setOutputValidationDetails(null)}
       />
     </>
   );

@@ -95,6 +95,8 @@ import {
   TaskStatusNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { ClientResult } from "@modelcontextprotocol/sdk/types.js";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
+import { validateToolOutput } from "./toolOutputValidation.js";
 import { TasksListChangedNotificationSchema } from "./taskNotificationSchemas.js";
 import {
   type JsonValue,
@@ -134,6 +136,9 @@ interface ReceiverTaskRecord {
 export class InspectorClient extends InspectorClientEventTarget {
   private client: Client | null = null;
   private appRendererClientProxy: AppRendererClient | null = null;
+  // Lazily-built validator used only on the skipOutputValidation path to detect
+  // (non-fatally) when a delivered result violates the tool's outputSchema.
+  private outputValidator: AjvJsonSchemaValidator | null = null;
   private transport: Transport | MessageTrackingTransport | null = null;
   private baseTransport: Transport | null = null;
   private pipeStderr: boolean;
@@ -1313,6 +1318,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     generalMetadata?: Record<string, string>,
     toolSpecificMetadata?: Record<string, string>,
     taskOptions?: { ttl?: number },
+    options?: { skipOutputValidation?: boolean },
   ): Promise<ToolCallInvocation> {
     if (!this.client) {
       throw new Error("Client is not connected");
@@ -1362,11 +1368,32 @@ export class InspectorClient extends InspectorClientEventTarget {
         callParams.task = { ttl: taskOptions.ttl };
       }
 
-      const result = await this.client.callTool(
-        callParams,
-        undefined,
-        this.getRequestOptions(metadata?.progressToken),
-      );
+      // MCP Apps forward the server's CallToolResult straight to the running
+      // view, which is the real consumer. The SDK's callTool() validates
+      // structuredContent against the tool's outputSchema and THROWS on a
+      // mismatch — which would deny the app a result the server actually
+      // returned (and that legacy hosts render fine). For those passthrough
+      // calls go through request() directly, which skips that host-side
+      // validation. Regular Tools-screen calls keep validating.
+      const requestOptions = this.getRequestOptions(metadata?.progressToken);
+      // Both branches yield a CallToolResult: request() parsed it with
+      // CallToolResultSchema above, callTool() returns the same shape — so the
+      // `as CallToolResult` casts below are safe.
+      const result = options?.skipOutputValidation
+        ? await this.client.request(
+            { method: "tools/call", params: callParams },
+            CallToolResultSchema,
+            requestOptions,
+          )
+        : await this.client.callTool(callParams, undefined, requestOptions);
+
+      // On the bypass path the result was delivered without the SDK's strict
+      // output validation. Run that check ourselves, non-fatally, so callers can
+      // warn that strict clients would reject this payload (the app still
+      // renders, but it may not in other hosts).
+      const outputValidationError = options?.skipOutputValidation
+        ? this.validateToolOutput(tool, result as CallToolResult)
+        : undefined;
 
       const invocation: ToolCallInvocation = {
         toolName: tool.name,
@@ -1375,6 +1402,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         timestamp,
         success: true,
         metadata,
+        outputValidationError,
       };
 
       this.dispatchTypedEvent("toolCallResultChange", {
@@ -1384,6 +1412,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         timestamp,
         success: true,
         metadata,
+        outputValidationError,
       });
 
       return invocation;
@@ -1419,6 +1448,20 @@ export class InspectorClient extends InspectorClientEventTarget {
 
       throw error;
     }
+  }
+
+  /**
+   * Non-fatally validate a delivered tool result against the tool's outputSchema
+   * (used by the skipOutputValidation path). Delegates to the pure
+   * {@link validateToolOutput} helper with this client's lazily-built Ajv
+   * validator. Returns an advisory message, or undefined when valid.
+   */
+  private validateToolOutput(
+    tool: Tool,
+    result: CallToolResult,
+  ): string | undefined {
+    this.outputValidator ??= new AjvJsonSchemaValidator();
+    return validateToolOutput(this.outputValidator, tool, result);
   }
 
   /**
