@@ -29,7 +29,13 @@ import { hasInputFields, resolveDisplayLabel } from "../../../utils/toolUtils";
 export interface AppsScreenProps {
   tools: Tool[];
   listChanged: boolean;
-  sandboxPath: string;
+  /**
+   * URL of the inspector's sandbox proxy page (the trusted outer iframe). When
+   * undefined, MCP Apps cannot run (legacy backend, or a build without the
+   * sandbox controller) and the screen renders an unavailable state instead of
+   * a silently blank iframe.
+   */
+  sandboxPath?: string;
   bridgeFactory: BridgeFactory;
   rendererRef: Ref<AppRendererHandle>;
   onRefreshList: () => void;
@@ -170,6 +176,21 @@ export function AppsScreen({
   function handleBackToInput() {
     setRunning(false);
     setMaximized(false);
+  }
+
+  // No sandbox proxy URL means the host can't embed the trusted outer iframe
+  // the double-iframe sandbox depends on — surface that plainly instead of
+  // mounting an iframe that would render blank.
+  if (!sandboxPath) {
+    return (
+      <ScreenLayout>
+        <ContentCard flex={1} h="100%">
+          <EmptyState>
+            MCP Apps are unavailable — the sandbox could not be reached.
+          </EmptyState>
+        </ContentCard>
+      </ScreenLayout>
+    );
   }
 
   return (

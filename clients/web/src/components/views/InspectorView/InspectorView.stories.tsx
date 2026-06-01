@@ -319,6 +319,7 @@ const meta: Meta<typeof InspectorView> = {
     currentLogLevel: "info",
     sandboxPath: "about:blank",
     bridgeFactory: noopBridgeFactory,
+    appRendererRef: { current: null },
 
     // Callbacks — all wired to storybook spies so play functions can assert
     // on dispatch. Real wiring routes these to InspectorClient methods (the

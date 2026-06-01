@@ -7,7 +7,6 @@ import type {
   LoggingMessageNotification,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
 import type {
@@ -49,11 +48,13 @@ import { useManagedRequestorTasks } from "@inspector/core/react/useManagedReques
 import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubscriptions.js";
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js";
+import { useSandboxUrl } from "@inspector/core/react/useSandboxUrl.js";
 import { InspectorView } from "./components/views/InspectorView/InspectorView";
 import type { ToolCallState } from "./components/screens/ToolsScreen/ToolsScreen";
 import type { GetPromptState } from "./components/screens/PromptsScreen/PromptsScreen";
 import type { ReadResourceState } from "./components/screens/ResourcesScreen/ResourcesScreen";
-import type { BridgeFactory } from "./components/elements/AppRenderer/AppRenderer";
+import type { AppRendererHandle } from "./components/elements/AppRenderer/AppRenderer";
+import { createAppBridgeFactory } from "./components/elements/AppRenderer/createAppBridgeFactory";
 import type { LogEntryData } from "./components/elements/LogEntry/LogEntry";
 import {
   ServerConfigModal,
@@ -125,23 +126,6 @@ function getAuthToken(): string | undefined {
     return undefined;
   }
 }
-
-// MCP Apps sandbox — the iframe URL the parent should embed, plus the
-// per-tool bridge factory. The dev backend serves `sandbox_proxy.html` on
-// the sandbox controller port; the factory will eventually wrap the SDK
-// client. For now neither is wired (the Apps tab uses these props but does
-// not yet round-trip tool input through a live bridge — that's a follow-up
-// alongside the AppRenderer integration). Keep these as stable references
-// so InspectorView's effect deps don't churn.
-const STUB_SANDBOX_PATH = "about:blank";
-const stubBridgeFactory: BridgeFactory = () =>
-  ({
-    sendToolInput: async () => {},
-    sendToolResult: async () => {},
-    sendToolCancelled: async () => {},
-    teardownResource: async () => ({}),
-    close: async () => {},
-  }) as unknown as AppBridge;
 
 // Derive `LogEntryData[]` from the MessageLog by filtering for the
 // `notifications/message` notifications the server emits in response to
@@ -226,6 +210,34 @@ function App() {
   // next switch happens (or when the component unmounts).
   const [inspectorClient, setInspectorClient] =
     useState<InspectorClient | null>(null);
+
+  // MCP Apps runtime wiring. `sandboxUrl` is the inspector's sandbox-proxy page
+  // (the trusted outer iframe); `appRendererRef` lets the app handlers push tool
+  // input/result into the running app and tear it down. The bridge factory wraps
+  // the active client's underlying SDK client so the running view can call the
+  // server, and reads the tool's UI resource into the sandbox on handshake.
+  const appRendererRef = useRef<AppRendererHandle>(null);
+  const { sandboxUrl } = useSandboxUrl({
+    baseUrl:
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "http://localhost",
+    authToken: getAuthToken(),
+  });
+  const sandboxBridgeFactory = useMemo(
+    () =>
+      createAppBridgeFactory({
+        getClient: () => inspectorClient?.getAppRendererClient() ?? null,
+        readResource: async (uri) => {
+          if (!inspectorClient) throw new Error("No MCP client connected.");
+          const invocation = await inspectorClient.readResource(uri);
+          return invocation.result;
+        },
+        theme: isDark ? "dark" : "light",
+      }),
+    [inspectorClient, isDark],
+  );
+
   const [managedToolsState, setManagedToolsState] =
     useState<ManagedToolsState | null>(null);
   const [managedPromptsState, setManagedPromptsState] =
@@ -875,6 +887,47 @@ function App() {
     setToolCallState(undefined);
   }, []);
 
+  // --- MCP Apps handlers. Unlike onCallTool (which feeds the Tools panel),
+  // these route the tool input/result into the running app via the renderer's
+  // imperative handle. ---
+
+  // Selection is owned by AppsScreen's local state; App.tsx has nothing to do
+  // on select, but the prop is required so the screen stays prop-driven.
+  const onSelectApp = useCallback(() => {}, []);
+
+  const onOpenApp = useCallback(
+    async (name: string, args: Record<string, unknown>) => {
+      if (!inspectorClient) return;
+      const tool = tools.find((t: Tool) => t.name === name);
+      if (!tool) return;
+      // AppsScreen flips `running` -> mounts AppRenderer in the same tick it
+      // calls this, so the renderer handle isn't wired yet. Yield one microtask
+      // (after React commits the mount) before pushing input; the renderer then
+      // buffers it until the view's `initialized` event, releasing input before
+      // result.
+      await Promise.resolve();
+      void appRendererRef.current?.sendToolInput(args);
+      try {
+        const invocation = await inspectorClient.callTool(
+          tool,
+          args as Record<string, JsonValue>,
+        );
+        if (invocation.success && invocation.result) {
+          void appRendererRef.current?.sendToolResult(invocation.result);
+        }
+      } catch {
+        // Transport-level failure — the app already received its input; there
+        // is no per-app error surface yet, so swallow to avoid an unhandled
+        // rejection from the `void onOpenApp(...)` call site.
+      }
+    },
+    [inspectorClient, tools],
+  );
+
+  const onCloseApp = useCallback(() => {
+    void appRendererRef.current?.teardown();
+  }, []);
+
   const onGetPrompt = useCallback(
     async (name: string, args: Record<string, string>) => {
       if (!inspectorClient) return;
@@ -1224,8 +1277,9 @@ function App() {
         getPromptState={getPromptState}
         readResourceState={effectiveReadResourceState}
         currentLogLevel={currentLogLevel}
-        sandboxPath={STUB_SANDBOX_PATH}
-        bridgeFactory={stubBridgeFactory}
+        sandboxPath={sandboxUrl}
+        bridgeFactory={sandboxBridgeFactory}
+        appRendererRef={appRendererRef}
         onToggleTheme={onToggleTheme}
         onToggleConnection={(id) => {
           void onToggleConnection(id);
@@ -1274,9 +1328,11 @@ function App() {
         onTogglePinHistory={todoNoop}
         onClearNetwork={onClearNetwork}
         onExportNetwork={onExportNetwork}
-        onSelectApp={todoNoop}
-        onOpenApp={todoNoop}
-        onCloseApp={todoNoop}
+        onSelectApp={onSelectApp}
+        onOpenApp={(name, args) => {
+          void onOpenApp(name, args);
+        }}
+        onCloseApp={onCloseApp}
         onRefreshApps={onRefreshTools}
       />
       <ServerConfigModal

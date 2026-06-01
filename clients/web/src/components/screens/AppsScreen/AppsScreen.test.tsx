@@ -85,6 +85,15 @@ describe("AppsScreen", () => {
     expect(screen.getByText("MCP Apps (0)")).toBeInTheDocument();
   });
 
+  it("renders the unavailable state when no sandbox path is provided", () => {
+    renderWithMantine(
+      <AppsScreen {...buildProps({ sandboxPath: undefined })} />,
+    );
+    expect(screen.getByText(/MCP Apps are unavailable/i)).toBeInTheDocument();
+    // The sidebar / app list is not rendered in the unavailable state.
+    expect(screen.queryByText("MCP Apps (3)")).not.toBeInTheDocument();
+  });
+
   it("filters the list via the search input", async () => {
     const user = userEvent.setup();
     renderWithMantine(<AppsScreen {...buildProps()} />);
