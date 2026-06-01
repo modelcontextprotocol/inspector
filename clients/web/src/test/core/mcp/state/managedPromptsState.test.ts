@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 import { ManagedPromptsState } from "@inspector/core/mcp/state/managedPromptsState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
@@ -65,10 +65,9 @@ describe("ManagedPromptsState", () => {
     const promptlessState = new ManagedPromptsState(promptless);
 
     promptless.dispatchTypedEvent("connect");
-    // Yield so the async refresh chained off connect runs.
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(promptless.listPrompts).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(promptless.listPrompts).not.toHaveBeenCalled();
+    });
     expect(promptlessState.getPrompts()).toEqual([]);
   });
 

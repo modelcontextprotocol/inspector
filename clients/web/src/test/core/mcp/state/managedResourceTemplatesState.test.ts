@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { ResourceTemplate } from "@modelcontextprotocol/sdk/types.js";
 import { ManagedResourceTemplatesState } from "@inspector/core/mcp/state/managedResourceTemplatesState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
@@ -73,10 +73,9 @@ describe("ManagedResourceTemplatesState", () => {
     const resourcelessState = new ManagedResourceTemplatesState(resourceless);
 
     resourceless.dispatchTypedEvent("connect");
-    // Yield so the async refresh chained off connect runs.
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(resourceless.listResourceTemplates).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(resourceless.listResourceTemplates).not.toHaveBeenCalled();
+    });
     expect(resourcelessState.getResourceTemplates()).toEqual([]);
   });
 

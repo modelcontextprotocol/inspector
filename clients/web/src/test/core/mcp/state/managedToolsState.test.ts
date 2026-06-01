@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ManagedToolsState } from "@inspector/core/mcp/state/managedToolsState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
@@ -65,10 +65,9 @@ describe("ManagedToolsState", () => {
     const toollessState = new ManagedToolsState(toolless);
 
     toolless.dispatchTypedEvent("connect");
-    // Yield so the async refresh chained off connect runs.
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(toolless.listTools).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(toolless.listTools).not.toHaveBeenCalled();
+    });
     expect(toollessState.getTools()).toEqual([]);
   });
 
