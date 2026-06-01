@@ -16,7 +16,9 @@ inspector/
 │   │   │                               #   web-server-config.ts (env parsing + initial-config payload + banner),
 │   │   │                               #   sandbox-controller.ts (MCP Apps sandbox HTTP server),
 │   │   │                               #   inject-auth-token.ts (embeds the API token into served index.html),
-│   │   │                               #   vite-base-config.ts (shared optimizeDeps exclusions)
+│   │   │                               #   vite-base-config.ts (shared optimizeDeps exclusions),
+│   │   │                               #   quiet-config-warnings.mjs (--import hook for `npm run dev`: drops benign
+│   │   │                               #     node-only UNRESOLVED_IMPORT warnings Rolldown prints at config load)
 │   │   └── static/                     # sandbox_proxy.html (served by sandbox-controller for MCP Apps tab)
 │   ├── cli/                            # CLI client
 │   ├── tui/                            # TUI client
