@@ -342,6 +342,23 @@ function App() {
     };
   }, [inspectorClient]);
 
+  // Reset the session-scoped UI state that lives in App.tsx (rather than
+  // inside the per-server state managers), so the next server's screens don't
+  // show server A's last result. The per-call panels (`toolCallState` /
+  // `getPromptState` / `readResourceState`) and the optimistic
+  // `currentLogLevel` all survive a disconnect/reconnect cycle otherwise —
+  // see #1368. `latencyMs` is intentionally excluded: it resets via the
+  // `connectionStatus` effect above, which has its own connecting-edge ref to
+  // coordinate with. Colocated with the setters it touches so this is the
+  // single place to extend as App.tsx accrues more per-session state (#1394).
+  // Setters are stable, so the callback identity never changes.
+  const resetSessionScopedUiState = useCallback(() => {
+    setToolCallState(undefined);
+    setGetPromptState(undefined);
+    setReadResourceState(undefined);
+    setCurrentLogLevel("info");
+  }, []);
+
   // Reset activeServerId whenever the live session ends. Without this the
   // other ServerCards stay `inert` after disconnect — ServerCard dims any
   // card whose id differs from `activeServer`. Subscribing to
@@ -349,16 +366,9 @@ function App() {
   // (explicit toggle, header Disconnect button, mid-session transport
   // failure / process exit) and avoids the first-render-clobbers-new-id
   // trap that watching connectionStatus has (status starts as
-  // "disconnected" for the new client before connect() runs).
-  //
-  // This is also where session-scoped UI state that lives in App.tsx
-  // (rather than inside the per-server state managers) gets reset, so the
-  // next server's screens don't show server A's last result. The per-call
-  // panels (`toolCallState` / `getPromptState` / `readResourceState`) and
-  // the optimistic `currentLogLevel` all survive a disconnect/reconnect
-  // cycle otherwise — see #1368. `latencyMs` resets via the
-  // `connectionStatus` effect above instead because it has its own
-  // connecting-edge ref to coordinate with.
+  // "disconnected" for the new client before connect() runs). The
+  // session-scoped panel/level reset rides along here too via
+  // `resetSessionScopedUiState`.
   useEffect(() => {
     if (!inspectorClient) return;
     const onDisconnect = () => {
@@ -366,18 +376,13 @@ function App() {
       // Drop the open flag too — without this the modal would pop back the
       // next time `initializeResult` re-becomes truthy (e.g. reconnect).
       setConnectionInfoModalOpen(false);
-      // Clear the per-call result panels so the next session starts empty.
-      setToolCallState(undefined);
-      setGetPromptState(undefined);
-      setReadResourceState(undefined);
-      // Back to the default level the next session begins at.
-      setCurrentLogLevel("info");
+      resetSessionScopedUiState();
     };
     inspectorClient.addEventListener("disconnect", onDisconnect);
     return () => {
       inspectorClient.removeEventListener("disconnect", onDisconnect);
     };
-  }, [inspectorClient]);
+  }, [inspectorClient, resetSessionScopedUiState]);
 
   // Build the InitializeResult the connected ViewHeader expects from the
   // hook's split fields. `protocolVersion` is hard-coded for now — the
