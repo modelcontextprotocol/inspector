@@ -14,15 +14,24 @@
  * so we drop any write whose text carries the unresolved-import signature for
  * one of these known-benign (package, source-file) pairs. Installed via
  * `node --import` ahead of the Vite CLI; only affects the dev script.
+ *
+ * This matcher is tied to Rolldown's current warning format (the `'pkg'` quote
+ * style and the repo-relative source path it prints). If these warnings ever
+ * reappear, check whether Rolldown changed its message format. The failure mode
+ * is safe: a format change just makes the filter a no-op (the warnings return),
+ * it never drops anything else.
  */
 
-const BENIGN_PAIRS = [
-  ["'chokidar'", "server.ts"],
-  ["'atomically'", "store-io.ts"],
-  ["'@napi-rs/keyring'", "secret-store.ts"],
+// (package, source-file) pairs. The file is a repo-relative path fragment — not
+// just a basename — so an unrelated future warning that happens to mention the
+// same dep and a same-named file isn't silently dropped.
+export const BENIGN_PAIRS = [
+  ["'chokidar'", "core/mcp/remote/node/server.ts"],
+  ["'atomically'", "core/storage/store-io.ts"],
+  ["'@napi-rs/keyring'", "core/auth/node/secret-store.ts"],
 ];
 
-function isBenignWarning(text) {
+export function isBenignWarning(text) {
   if (!text.includes("UNRESOLVED_IMPORT")) return false;
   return BENIGN_PAIRS.some(
     ([dep, file]) => text.includes(dep) && text.includes(file),
@@ -48,5 +57,10 @@ function patch(stream) {
   };
 }
 
-patch(process.stdout);
-patch(process.stderr);
+// Guard so importing this module (e.g. from a unit test for isBenignWarning)
+// doesn't monkey-patch the test runner's streams. Under `npm run dev` VITEST is
+// unset, so the patch installs as intended.
+if (!process.env.VITEST) {
+  patch(process.stdout);
+  patch(process.stderr);
+}
