@@ -54,6 +54,26 @@ async function disposeBridge(bridge: AppBridge): Promise<void> {
   }
 }
 
+/**
+ * Bridge lifecycle (the interlocking refs below):
+ *
+ *   mount ─▶ build (buildId++) ─▶ factory(iframe,tool) ─async─▶ bridgeRef set
+ *                                                              │ on "initialized"
+ *                                                              ▼ → flushPending
+ *   cleanup ─▶ scheduleDispose() ──microtask──▶ dispose (unless cancelled)
+ *                     ▲                                  │
+ *                     └── re-setup with SAME inputs ─────┘  cancel + REUSE bridge
+ *
+ * - `buildId` (monotonic): a bridge resolved from an older build self-disposes.
+ * - `disposeScheduled`: a dispose is queued (microtask); a synchronous re-setup
+ *   (StrictMode double-invoke, or a transient re-render) cancels it and reuses
+ *   the live bridge instead of rebuilding (rebuild double-loads the sandbox and
+ *   races the app handshake). A re-setup with CHANGED inputs disposes + rebuilds.
+ * - `lastDeps`: distinguishes "same inputs → reuse" from "changed → rebuild".
+ * - `initialized`: gates flushing buffered input/result until the view is ready.
+ * - `pendingInput`/`pendingResult`: latest-wins buffer for host-initiated open.
+ * - `teardownStarted`: makes the imperative teardown() idempotent vs unmount.
+ */
 export function AppRenderer({
   sandboxPath,
   tool,

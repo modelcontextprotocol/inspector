@@ -359,6 +359,7 @@ const meta: Meta<typeof InspectorView> = {
     onSelectApp: fn(),
     onOpenApp: fn(),
     onCloseApp: fn(),
+    onAppError: fn(),
     onRefreshApps: fn(),
   },
 };

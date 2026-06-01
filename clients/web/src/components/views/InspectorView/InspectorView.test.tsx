@@ -88,6 +88,7 @@ function makeProps(
     onSelectApp: vi.fn(),
     onOpenApp: vi.fn(),
     onCloseApp: vi.fn(),
+    onAppError: vi.fn(),
     onRefreshApps: vi.fn(),
     ...overrides,
   };

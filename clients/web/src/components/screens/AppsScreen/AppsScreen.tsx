@@ -42,6 +42,8 @@ export interface AppsScreenProps {
   onSelectApp: (name: string) => void;
   onOpenApp: (name: string, args: Record<string, unknown>) => void;
   onCloseApp: () => void;
+  /** Surfaces bridge/runtime failures from the renderer (e.g. no client). */
+  onError?: (err: Error) => void;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -128,6 +130,7 @@ export function AppsScreen({
   onSelectApp,
   onOpenApp,
   onCloseApp,
+  onError,
 }: AppsScreenProps) {
   const [selectedAppName, setSelectedAppName] = useState<string | undefined>(
     undefined,
@@ -268,6 +271,7 @@ export function AppsScreen({
                   sandboxPath={sandboxPath}
                   tool={selectedTool}
                   bridgeFactory={bridgeFactory}
+                  onError={onError}
                   ref={rendererRef}
                 />
               </RendererFrame>

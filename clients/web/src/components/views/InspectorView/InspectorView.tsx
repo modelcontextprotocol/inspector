@@ -274,6 +274,7 @@ export interface InspectorViewProps {
   onSelectApp: (name: string) => void;
   onOpenApp: (name: string, args: Record<string, unknown>) => void;
   onCloseApp: () => void;
+  onAppError: (err: Error) => void;
   onRefreshApps: () => void;
 }
 
@@ -341,6 +342,7 @@ export function InspectorView({
   onSelectApp,
   onOpenApp,
   onCloseApp,
+  onAppError,
   onRefreshApps,
 }: InspectorViewProps) {
   // UI-only state. Connection state, primitive lists, and all action
@@ -482,6 +484,7 @@ export function InspectorView({
               onSelectApp={onSelectApp}
               onOpenApp={onOpenApp}
               onCloseApp={onCloseApp}
+              onError={onAppError}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Prompts"}>

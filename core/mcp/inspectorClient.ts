@@ -96,7 +96,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { ClientResult } from "@modelcontextprotocol/sdk/types.js";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
-import type { JsonSchemaType } from "@modelcontextprotocol/sdk/validation";
+import { validateToolOutput } from "./toolOutputValidation.js";
 import { TasksListChangedNotificationSchema } from "./taskNotificationSchemas.js";
 import {
   type JsonValue,
@@ -1376,6 +1376,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       // calls go through request() directly, which skips that host-side
       // validation. Regular Tools-screen calls keep validating.
       const requestOptions = this.getRequestOptions(metadata?.progressToken);
+      // Both branches yield a CallToolResult: request() parsed it with
+      // CallToolResultSchema above, callTool() returns the same shape — so the
+      // `as CallToolResult` casts below are safe.
       const result = options?.skipOutputValidation
         ? await this.client.request(
             { method: "tools/call", params: callParams },
@@ -1448,37 +1451,17 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Validate a delivered tool result's structuredContent against the tool's
-   * declared outputSchema, mirroring the SDK client's strict check but WITHOUT
-   * throwing. Returns an error message when the payload would be rejected by a
-   * strict client, or undefined when it's valid (or there's nothing to check).
-   * Used by the skipOutputValidation path to surface a non-fatal advisory.
+   * Non-fatally validate a delivered tool result against the tool's outputSchema
+   * (used by the skipOutputValidation path). Delegates to the pure
+   * {@link validateToolOutput} helper with this client's lazily-built Ajv
+   * validator. Returns an advisory message, or undefined when valid.
    */
   private validateToolOutput(
     tool: Tool,
     result: CallToolResult,
   ): string | undefined {
-    if (!tool.outputSchema) return undefined;
-    const structured = result.structuredContent;
-    if (structured == null) {
-      // Strict clients reject "has outputSchema but no structuredContent"
-      // unless the result is an error.
-      return result.isError
-        ? undefined
-        : `Tool "${tool.name}" declares an output schema but returned no structured content`;
-    }
-    try {
-      this.outputValidator ??= new AjvJsonSchemaValidator();
-      const validate = this.outputValidator.getValidator(
-        tool.outputSchema as unknown as JsonSchemaType,
-      );
-      const validation = validate(structured);
-      return validation.valid ? undefined : validation.errorMessage;
-    } catch {
-      // A malformed schema (validator compilation failure) shouldn't block the
-      // call or produce a misleading warning.
-      return undefined;
-    }
+    this.outputValidator ??= new AjvJsonSchemaValidator();
+    return validateToolOutput(this.outputValidator, tool, result);
   }
 
   /**

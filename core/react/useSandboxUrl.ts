@@ -44,33 +44,43 @@ export function useSandboxUrl(opts: UseSandboxUrlOptions): UseSandboxUrlResult {
   const [sandboxUrl, setSandboxUrl] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState<boolean>(true);
 
-  const load = useCallback(async (): Promise<void> => {
-    const headers: Record<string, string> = {};
-    if (authToken) headers["x-mcp-remote-auth"] = `Bearer ${authToken}`;
-    try {
-      const res = await doFetch(`${base}/api/config`, {
-        method: "GET",
-        headers,
-      });
-      if (!res.ok) return;
-      const body = (await res.json()) as ConfigPayload;
-      // Tolerate a missing/non-string field — anything but a usable URL means
-      // "unavailable", which the Apps screen surfaces as its own empty state.
-      setSandboxUrl(
-        typeof body.sandboxUrl === "string" && body.sandboxUrl
-          ? body.sandboxUrl
-          : undefined,
-      );
-    } catch {
-      // Network error / aborted fetch: leave sandboxUrl undefined. The Apps
-      // screen degrades to its unavailable state rather than a blank iframe.
-    } finally {
-      setLoading(false);
-    }
-  }, [base, authToken, doFetch]);
+  // `isCancelled` lets the effect drop a response that resolves after unmount,
+  // avoiding a setState on a dead component (React 18 warns, doesn't throw).
+  const load = useCallback(
+    async (isCancelled: () => boolean): Promise<void> => {
+      const headers: Record<string, string> = {};
+      if (authToken) headers["x-mcp-remote-auth"] = `Bearer ${authToken}`;
+      try {
+        const res = await doFetch(`${base}/api/config`, {
+          method: "GET",
+          headers,
+        });
+        if (isCancelled() || !res.ok) return;
+        const body = (await res.json()) as ConfigPayload;
+        if (isCancelled()) return;
+        // Tolerate a missing/non-string field — anything but a usable URL means
+        // "unavailable", which the Apps screen surfaces as its own empty state.
+        setSandboxUrl(
+          typeof body.sandboxUrl === "string" && body.sandboxUrl
+            ? body.sandboxUrl
+            : undefined,
+        );
+      } catch {
+        // Network error / aborted fetch: leave sandboxUrl undefined. The Apps
+        // screen degrades to its unavailable state rather than a blank iframe.
+      } finally {
+        if (!isCancelled()) setLoading(false);
+      }
+    },
+    [base, authToken, doFetch],
+  );
 
   useEffect(() => {
-    void load();
+    let cancelled = false;
+    void load(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
   }, [load]);
 
   return { sandboxUrl, loading };

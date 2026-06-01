@@ -265,9 +265,8 @@ function App() {
           const invocation = await inspectorClient.readResource(uri);
           return invocation.result;
         },
-        theme: isDark ? "dark" : "light",
       }),
-    [inspectorClient, isDark],
+    [inspectorClient],
   );
 
   const [managedToolsState, setManagedToolsState] =
@@ -923,6 +922,17 @@ function App() {
   // these route the tool input/result into the running app via the renderer's
   // imperative handle. ---
 
+  // Surfaces bridge/runtime failures (factory throw — e.g. no client after a
+  // disconnect — late bridge rejection, or a failed tools/call) that would
+  // otherwise leave a silently blank app iframe.
+  const onAppError = useCallback((err: Error) => {
+    notifications.show({
+      title: "MCP App error",
+      message: err.message,
+      color: "red",
+    });
+  }, []);
+
   // Selection is owned by AppsScreen's local state; App.tsx has nothing to do
   // on select, but the prop is required so the screen stays prop-driven.
   const onSelectApp = useCallback(() => {}, []);
@@ -965,9 +975,11 @@ function App() {
             message: invocation.outputValidationError,
           };
           notifications.show({
+            // Don't auto-dismiss: the message is advisory and the details modal
+            // is one click away — let the user close it when they've read it.
+            autoClose: false,
             title: "App output doesn't match its schema",
             color: "yellow",
-            autoClose: 12000,
             message: (
               <OutputValidationToastMessage
                 onViewDetails={() => setOutputValidationDetails(details)}
@@ -975,13 +987,13 @@ function App() {
             ),
           });
         }
-      } catch {
-        // Transport-level failure — the app already received its input; there
-        // is no per-app error surface yet, so swallow to avoid an unhandled
-        // rejection from the `void onOpenApp(...)` call site.
+      } catch (err) {
+        // Transport-level failure (the call never returned a result). Surface it
+        // so the user isn't left staring at a blank/partial app frame.
+        onAppError(err instanceof Error ? err : new Error(String(err)));
       }
     },
-    [inspectorClient, tools],
+    [inspectorClient, tools, onAppError],
   );
 
   const onCloseApp = useCallback(() => {
@@ -1393,6 +1405,7 @@ function App() {
           void onOpenApp(name, args);
         }}
         onCloseApp={onCloseApp}
+        onAppError={onAppError}
         onRefreshApps={onRefreshTools}
       />
       <ServerConfigModal

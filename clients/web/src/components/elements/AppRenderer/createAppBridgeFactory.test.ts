@@ -106,7 +106,6 @@ describe("createAppBridgeFactory", () => {
     const factory = createAppBridgeFactory({
       getClient: () => null,
       readResource: vi.fn(),
-      theme: "dark",
     });
     await expect(factory(makeIframe(), tool)).rejects.toThrow(
       /no connected MCP client/,
@@ -117,25 +116,29 @@ describe("createAppBridgeFactory", () => {
     const factory = createAppBridgeFactory({
       getClient: () => fakeClient,
       readResource: vi.fn(),
-      theme: "light",
     });
     await expect(factory(makeIframe(false), tool)).rejects.toThrow(/no window/);
   });
 
   it("constructs the bridge with the client, host info, capabilities and theme, then connects", async () => {
-    const factory = createAppBridgeFactory({
-      getClient: () => fakeClient,
-      readResource: vi.fn().mockResolvedValue(uiResource("<h1>hi</h1>")),
-      theme: "dark",
-    });
-    await factory(makeIframe(), tool);
-    expect(bridgeInstances).toHaveLength(1);
-    const bridge = bridgeInstances[0];
-    expect(bridge.ctorArgs[0]).toBe(fakeClient);
-    expect(bridge.ctorArgs[1]).toMatchObject({ name: "MCP Inspector" });
-    expect(bridge.ctorArgs[2]).toMatchObject({ serverTools: {} });
-    expect(bridge.ctorArgs[3]).toEqual({ hostContext: { theme: "dark" } });
-    expect(bridge.connect).toHaveBeenCalledTimes(1);
+    // Theme is read from the DOM (Mantine's resolved color-scheme attribute).
+    document.documentElement.setAttribute("data-mantine-color-scheme", "dark");
+    try {
+      const factory = createAppBridgeFactory({
+        getClient: () => fakeClient,
+        readResource: vi.fn().mockResolvedValue(uiResource("<h1>hi</h1>")),
+      });
+      await factory(makeIframe(), tool);
+      expect(bridgeInstances).toHaveLength(1);
+      const bridge = bridgeInstances[0];
+      expect(bridge.ctorArgs[0]).toBe(fakeClient);
+      expect(bridge.ctorArgs[1]).toMatchObject({ name: "MCP Inspector" });
+      expect(bridge.ctorArgs[2]).toMatchObject({ serverTools: {} });
+      expect(bridge.ctorArgs[3]).toEqual({ hostContext: { theme: "dark" } });
+      expect(bridge.connect).toHaveBeenCalledTimes(1);
+    } finally {
+      document.documentElement.removeAttribute("data-mantine-color-scheme");
+    }
   });
 
   it("on sandboxready, reads the UI resource and pushes html + meta to the sandbox", async () => {
@@ -148,7 +151,6 @@ describe("createAppBridgeFactory", () => {
     const factory = createAppBridgeFactory({
       getClient: () => fakeClient,
       readResource,
-      theme: "light",
     });
     await factory(makeIframe(), tool);
     const bridge = bridgeInstances[0];
@@ -169,7 +171,6 @@ describe("createAppBridgeFactory", () => {
     const factory = createAppBridgeFactory({
       getClient: () => fakeClient,
       readResource,
-      theme: "light",
     });
     await factory(makeIframe(), {
       name: "plain",
@@ -186,7 +187,6 @@ describe("createAppBridgeFactory", () => {
     const factory = createAppBridgeFactory({
       getClient: () => fakeClient,
       readResource,
-      theme: "light",
     });
     await factory(makeIframe(), tool);
     const bridge = bridgeInstances[0];
@@ -200,7 +200,6 @@ describe("createAppBridgeFactory", () => {
     const factory = createAppBridgeFactory({
       getClient: () => fakeClient,
       readResource,
-      theme: "light",
     });
     await factory(makeIframe(), tool);
     const bridge = bridgeInstances[0];
@@ -216,7 +215,6 @@ describe("createAppBridgeFactory", () => {
     const factory = createAppBridgeFactory({
       getClient: () => fakeClient,
       readResource: vi.fn().mockResolvedValue(uiResource("<h1>x</h1>")),
-      theme: "light",
     });
     await factory(makeIframe(), tool);
     const bridge = bridgeInstances[0];

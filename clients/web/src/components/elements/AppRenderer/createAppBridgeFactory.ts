@@ -42,8 +42,32 @@ export interface AppBridgeFactoryDeps {
   getClient: () => Client | null;
   /** Reads a UI resource (resources/read) and returns the SDK result. */
   readResource: (uri: string) => Promise<ReadResourceResult>;
-  /** Initial host theme passed to the app via hostContext. */
-  theme: "light" | "dark";
+}
+
+/**
+ * Resolve the host theme from the DOM at bridge-build time. Mantine writes the
+ * resolved color scheme to `<html data-mantine-color-scheme>`. Reading it here
+ * (rather than capturing React state in the factory deps) keeps the factory's
+ * identity stable across theme toggles — the AppRenderer treats a new factory
+ * identity as "rebuild the bridge", which would reload a running app's iframe on
+ * every theme flip. The theme is read once per bridge build (the value at open
+ * time); pushing live theme updates to an already-open app would need an
+ * AppBridge.setHostContext follow-up.
+ */
+function currentTheme(): "light" | "dark" {
+  if (typeof document !== "undefined") {
+    const attr = document.documentElement.getAttribute(
+      "data-mantine-color-scheme",
+    );
+    if (attr === "dark" || attr === "light") return attr;
+  }
+  if (
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-color-scheme: dark)").matches
+  ) {
+    return "dark";
+  }
+  return "light";
 }
 
 /** First text content block of a UI resource, plus its `_meta` (sandbox hints). */
@@ -95,7 +119,7 @@ export function createAppBridgeFactory(
     }
 
     const bridge = new AppBridge(client, HOST_INFO, HOST_CAPABILITIES, {
-      hostContext: { theme: deps.theme },
+      hostContext: { theme: currentTheme() },
     });
 
     // The double-iframe proxy posts `sandboxready` once it can receive content.
