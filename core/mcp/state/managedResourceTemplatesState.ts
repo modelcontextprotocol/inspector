@@ -76,6 +76,21 @@ export class ManagedResourceTemplatesState extends TypedEventTarget<ManagedResou
     if (!client || client.getStatus() !== "connected") {
       return this.getResourceTemplates();
     }
+    // Gate on the server's `resources` capability — the MCP spec doesn't define
+    // a separate `resourceTemplates` capability; resources/templates/list is
+    // part of the resources surface. Calling it against a server that doesn't
+    // advertise resources returns -32601 "Method not found", which then
+    // surfaces in the console for every connect against a resources-less
+    // server. Empty list is the right semantics for "this server doesn't
+    // support resources."
+    if (!client.getCapabilities()?.resources) {
+      this.resourceTemplates = [];
+      this.dispatchTypedEvent(
+        "resourceTemplatesChange",
+        this.resourceTemplates,
+      );
+      return this.getResourceTemplates();
+    }
     const effectiveMetadata = metadata ?? this._metadata;
     this.resourceTemplates = [];
     let cursor: string | undefined;

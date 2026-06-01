@@ -67,6 +67,16 @@ export class ManagedToolsState extends TypedEventTarget<ManagedToolsStateEventMa
     if (!client || client.getStatus() !== "connected") {
       return this.getTools();
     }
+    // Gate on the server's `tools` capability — calling tools/list against a
+    // server that doesn't advertise it returns -32601 "Method not found",
+    // which then surfaces in the console for every connect against a
+    // tools-less server. Empty list is the right semantics for "this server
+    // doesn't support tools."
+    if (!client.getCapabilities()?.tools) {
+      this.tools = [];
+      this.dispatchTypedEvent("toolsChange", this.tools);
+      return this.getTools();
+    }
     const effectiveMetadata = metadata ?? this._metadata;
     this.tools = [];
     let cursor: string | undefined;

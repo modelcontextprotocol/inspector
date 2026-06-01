@@ -22,7 +22,10 @@ describe("ManagedResourcesState", () => {
   let state: ManagedResourcesState;
 
   beforeEach(() => {
-    client = new FakeInspectorClient();
+    // Default to a server that advertises `resources` so the existing flow
+    // tests exercise the live `listResources` path; capability-absent tests
+    // below override this.
+    client = new FakeInspectorClient({ capabilities: { resources: {} } });
     state = new ManagedResourcesState(client);
   });
 
@@ -40,6 +43,38 @@ describe("ManagedResourcesState", () => {
     const result = await state.refresh();
     expect(result).toEqual([]);
     expect(client.listResources).not.toHaveBeenCalled();
+  });
+
+  it("refresh skips listResources when the server doesn't advertise resources capability", async () => {
+    // Regression (#1350): a resources-less server replied to resources/list
+    // with -32601 "Method not found", surfacing in the console on every
+    // connect.
+    const resourceless = new FakeInspectorClient({
+      capabilities: { tools: {}, prompts: {} },
+    });
+    resourceless.setStatus("connected");
+    const resourcelessState = new ManagedResourcesState(resourceless);
+
+    const result = await resourcelessState.refresh();
+    expect(result).toEqual([]);
+    expect(resourceless.listResources).not.toHaveBeenCalled();
+  });
+
+  it("connect against a resources-less server doesn't fire listResources", async () => {
+    // The connect event runs refresh; the capability gate must also catch it
+    // there, not only the publicly-callable refresh().
+    const resourceless = new FakeInspectorClient({
+      capabilities: { tools: {} },
+    });
+    resourceless.setStatus("connected");
+    const resourcelessState = new ManagedResourcesState(resourceless);
+
+    resourceless.dispatchTypedEvent("connect");
+    // Yield so the async refresh chained off connect runs.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(resourceless.listResources).not.toHaveBeenCalled();
+    expect(resourcelessState.getResources()).toEqual([]);
   });
 
   it("refresh fetches a single page and dispatches resourcesChange", async () => {

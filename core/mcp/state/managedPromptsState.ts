@@ -70,6 +70,16 @@ export class ManagedPromptsState extends TypedEventTarget<ManagedPromptsStateEve
     if (!client || client.getStatus() !== "connected") {
       return this.getPrompts();
     }
+    // Gate on the server's `prompts` capability — calling prompts/list against
+    // a server that doesn't advertise it returns -32601 "Method not found",
+    // which then surfaces in the console for every connect against a
+    // prompts-less server. Empty list is the right semantics for "this server
+    // doesn't support prompts."
+    if (!client.getCapabilities()?.prompts) {
+      this.prompts = [];
+      this.dispatchTypedEvent("promptsChange", this.prompts);
+      return this.getPrompts();
+    }
     const effectiveMetadata = metadata ?? this._metadata;
     this.prompts = [];
     let cursor: string | undefined;

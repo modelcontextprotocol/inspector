@@ -24,7 +24,11 @@ describe("ManagedResourceTemplatesState", () => {
   let state: ManagedResourceTemplatesState;
 
   beforeEach(() => {
-    client = new FakeInspectorClient();
+    // Default to a server that advertises `resources` so the existing flow
+    // tests exercise the live `listResourceTemplates` path; capability-absent
+    // tests below override this. (Templates are gated on the `resources`
+    // capability — the spec defines no separate `resourceTemplates` one.)
+    client = new FakeInspectorClient({ capabilities: { resources: {} } });
     state = new ManagedResourceTemplatesState(client);
   });
 
@@ -42,6 +46,38 @@ describe("ManagedResourceTemplatesState", () => {
     const result = await state.refresh();
     expect(result).toEqual([]);
     expect(client.listResourceTemplates).not.toHaveBeenCalled();
+  });
+
+  it("refresh skips listResourceTemplates when the server doesn't advertise resources capability", async () => {
+    // Regression (#1350): templates are part of the resources surface, so a
+    // resources-less server replied to resources/templates/list with -32601
+    // "Method not found", surfacing in the console on every connect.
+    const resourceless = new FakeInspectorClient({
+      capabilities: { tools: {}, prompts: {} },
+    });
+    resourceless.setStatus("connected");
+    const resourcelessState = new ManagedResourceTemplatesState(resourceless);
+
+    const result = await resourcelessState.refresh();
+    expect(result).toEqual([]);
+    expect(resourceless.listResourceTemplates).not.toHaveBeenCalled();
+  });
+
+  it("connect against a resources-less server doesn't fire listResourceTemplates", async () => {
+    // The connect event runs refresh; the capability gate must also catch it
+    // there, not only the publicly-callable refresh().
+    const resourceless = new FakeInspectorClient({
+      capabilities: { tools: {} },
+    });
+    resourceless.setStatus("connected");
+    const resourcelessState = new ManagedResourceTemplatesState(resourceless);
+
+    resourceless.dispatchTypedEvent("connect");
+    // Yield so the async refresh chained off connect runs.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(resourceless.listResourceTemplates).not.toHaveBeenCalled();
+    expect(resourcelessState.getResourceTemplates()).toEqual([]);
   });
 
   it("refresh fetches a single page and dispatches resourceTemplatesChange", async () => {
