@@ -10,6 +10,7 @@ import {
   PagedPromptsState,
   ManagedResourcesState,
   ManagedPromptsState,
+  ManagedToolsState,
 } from "@inspector/core/mcp/state/index.js";
 import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
 import { SamplingCreateMessage } from "@inspector/core/mcp/samplingCreateMessage.js";
@@ -686,6 +687,42 @@ describe("InspectorClient", () => {
 
       // Client no longer stores tools; listTools() still returns server tools when called
       expect((await client.listTools()).tools.length).toBeGreaterThan(0);
+    });
+
+    it("managed list states populate on connect (regression: capability gate must see capabilities before the connect event)", async () => {
+      // Regression for #1395 + connect-ordering: the managed list-state managers
+      // refresh on the "connect" event and gate their list RPC on
+      // getCapabilities(). If "connect" is dispatched before fetchServerInfo()
+      // populates capabilities, the synchronous gate reads undefined and wipes
+      // the list to empty — tools/prompts/resources all vanish on every connect.
+      // The single fix is shared by all the managed states, so we cover tools
+      // and resources (two distinct capabilities) to guard against a future
+      // change gating only one primitive differently.
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        { environment: { transport: createTransportNode } },
+      );
+      const toolsState = new ManagedToolsState(client);
+      const resourcesState = new ManagedResourcesState(client);
+
+      // Await the change events the connect-triggered refresh() emits rather than
+      // a fixed sleep — refresh() is async past its synchronous capability gate.
+      const toolsChanged = waitForEvent(toolsState, "toolsChange");
+      const resourcesChanged = waitForEvent(resourcesState, "resourcesChange");
+      await client.connect();
+      await Promise.all([toolsChanged, resourcesChanged]);
+
+      expect(client.getCapabilities()?.tools).toBeDefined();
+      expect(toolsState.getTools().length).toBeGreaterThan(0);
+      expect(client.getCapabilities()?.resources).toBeDefined();
+      expect(resourcesState.getResources().length).toBeGreaterThan(0);
+
+      toolsState.destroy();
+      resourcesState.destroy();
     });
   });
 
