@@ -14,7 +14,10 @@ describe("useManagedTools", () => {
   let state: ManagedToolsState;
 
   beforeEach(() => {
-    client = new FakeInspectorClient({ status: "connected" });
+    client = new FakeInspectorClient({
+      status: "connected",
+      capabilities: { tools: {} },
+    });
     state = new ManagedToolsState(client);
   });
 

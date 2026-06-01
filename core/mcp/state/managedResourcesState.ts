@@ -73,6 +73,16 @@ export class ManagedResourcesState extends TypedEventTarget<ManagedResourcesStat
     if (!client || client.getStatus() !== "connected") {
       return this.getResources();
     }
+    // Gate on the server's `resources` capability — calling resources/list
+    // against a server that doesn't advertise it returns -32601 "Method not
+    // found", which then surfaces in the console for every connect against a
+    // resources-less server. Empty list is the right semantics for "this
+    // server doesn't support resources."
+    if (!client.getCapabilities()?.resources) {
+      this.resources = [];
+      this.dispatchTypedEvent("resourcesChange", this.resources);
+      return this.getResources();
+    }
     const effectiveMetadata = metadata ?? this._metadata;
     this.resources = [];
     let cursor: string | undefined;

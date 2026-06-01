@@ -14,7 +14,10 @@ describe("useManagedPrompts", () => {
   let state: ManagedPromptsState;
 
   beforeEach(() => {
-    client = new FakeInspectorClient({ status: "connected" });
+    client = new FakeInspectorClient({
+      status: "connected",
+      capabilities: { prompts: {} },
+    });
     state = new ManagedPromptsState(client);
   });
 

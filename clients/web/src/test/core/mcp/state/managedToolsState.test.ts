@@ -20,7 +20,10 @@ describe("ManagedToolsState", () => {
   let state: ManagedToolsState;
 
   beforeEach(() => {
-    client = new FakeInspectorClient();
+    // Default to a server that advertises `tools` so the existing flow tests
+    // exercise the live `listTools` path; capability-absent tests below
+    // override this.
+    client = new FakeInspectorClient({ capabilities: { tools: {} } });
     state = new ManagedToolsState(client);
   });
 
@@ -38,6 +41,35 @@ describe("ManagedToolsState", () => {
     const result = await state.refresh();
     expect(result).toEqual([]);
     expect(client.listTools).not.toHaveBeenCalled();
+  });
+
+  it("refresh skips listTools when the server doesn't advertise tools capability", async () => {
+    // Regression (#1350): a tools-less server replied to tools/list with
+    // -32601 "Method not found", surfacing in the console on every connect.
+    const toolless = new FakeInspectorClient({
+      capabilities: { prompts: {}, resources: {} },
+    });
+    toolless.setStatus("connected");
+    const toollessState = new ManagedToolsState(toolless);
+
+    const result = await toollessState.refresh();
+    expect(result).toEqual([]);
+    expect(toolless.listTools).not.toHaveBeenCalled();
+  });
+
+  it("connect against a tools-less server doesn't fire listTools", async () => {
+    // The connect event runs refresh; the capability gate must also catch it
+    // there, not only the publicly-callable refresh().
+    const toolless = new FakeInspectorClient({ capabilities: { prompts: {} } });
+    toolless.setStatus("connected");
+    const toollessState = new ManagedToolsState(toolless);
+
+    toolless.dispatchTypedEvent("connect");
+    // Yield so the async refresh chained off connect runs.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(toolless.listTools).not.toHaveBeenCalled();
+    expect(toollessState.getTools()).toEqual([]);
   });
 
   it("refresh fetches a single page and dispatches toolsChange", async () => {

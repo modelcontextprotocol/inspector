@@ -20,7 +20,10 @@ describe("ManagedPromptsState", () => {
   let state: ManagedPromptsState;
 
   beforeEach(() => {
-    client = new FakeInspectorClient();
+    // Default to a server that advertises `prompts` so the existing flow tests
+    // exercise the live `listPrompts` path; capability-absent tests below
+    // override this.
+    client = new FakeInspectorClient({ capabilities: { prompts: {} } });
     state = new ManagedPromptsState(client);
   });
 
@@ -38,6 +41,35 @@ describe("ManagedPromptsState", () => {
     const result = await state.refresh();
     expect(result).toEqual([]);
     expect(client.listPrompts).not.toHaveBeenCalled();
+  });
+
+  it("refresh skips listPrompts when the server doesn't advertise prompts capability", async () => {
+    // Regression (#1350): a prompts-less server replied to prompts/list with
+    // -32601 "Method not found", surfacing in the console on every connect.
+    const promptless = new FakeInspectorClient({
+      capabilities: { tools: {}, resources: {} },
+    });
+    promptless.setStatus("connected");
+    const promptlessState = new ManagedPromptsState(promptless);
+
+    const result = await promptlessState.refresh();
+    expect(result).toEqual([]);
+    expect(promptless.listPrompts).not.toHaveBeenCalled();
+  });
+
+  it("connect against a prompts-less server doesn't fire listPrompts", async () => {
+    // The connect event runs refresh; the capability gate must also catch it
+    // there, not only the publicly-callable refresh().
+    const promptless = new FakeInspectorClient({ capabilities: { tools: {} } });
+    promptless.setStatus("connected");
+    const promptlessState = new ManagedPromptsState(promptless);
+
+    promptless.dispatchTypedEvent("connect");
+    // Yield so the async refresh chained off connect runs.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(promptless.listPrompts).not.toHaveBeenCalled();
+    expect(promptlessState.getPrompts()).toEqual([]);
   });
 
   it("refresh fetches a single page and dispatches promptsChange", async () => {

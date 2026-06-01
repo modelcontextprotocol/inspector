@@ -25,7 +25,12 @@ describe("ResourceSubscriptionsState", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-19T10:00:00Z"));
-    client = new FakeInspectorClient({ status: "connected" });
+    // `resources` capability so the ManagedResourcesState refresh used by the
+    // reference-resolution test exercises the live `listResources` path.
+    client = new FakeInspectorClient({
+      status: "connected",
+      capabilities: { resources: {} },
+    });
   });
 
   afterEach(() => {

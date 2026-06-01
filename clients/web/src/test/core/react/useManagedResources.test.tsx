@@ -14,7 +14,10 @@ describe("useManagedResources", () => {
   let state: ManagedResourcesState;
 
   beforeEach(() => {
-    client = new FakeInspectorClient({ status: "connected" });
+    client = new FakeInspectorClient({
+      status: "connected",
+      capabilities: { resources: {} },
+    });
     state = new ManagedResourcesState(client);
   });
 
