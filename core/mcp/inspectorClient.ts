@@ -656,10 +656,15 @@ export class InspectorClient extends InspectorClientEventTarget {
       }
       this.status = "connected";
       this.dispatchTypedEvent("statusChange", this.status);
-      this.dispatchTypedEvent("connect");
 
-      // Always fetch server info (capabilities, serverInfo, instructions) - this is just cached data from initialize
+      // Always fetch server info (capabilities, serverInfo, instructions) - this is just cached data from initialize.
+      // Must run BEFORE the "connect" event: the managed list-state managers
+      // refresh on "connect" and gate their list RPC on getCapabilities() (see
+      // #1395). If "connect" fired first, that gate would read undefined
+      // capabilities and wipe tools/prompts/resources to empty on every connect.
       await this.fetchServerInfo();
+
+      this.dispatchTypedEvent("connect");
 
       // Set initial logging level if configured and server supports it
       if (this.initialLoggingLevel && this.capabilities?.logging) {
