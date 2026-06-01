@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useComputedColorScheme, useMantineColorScheme } from "@mantine/core";
+import {
+  Anchor,
+  Stack,
+  Text,
+  useComputedColorScheme,
+  useMantineColorScheme,
+} from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import type {
   InitializeResult,
@@ -62,6 +68,7 @@ import {
 } from "./components/groups/ServerConfigModal/ServerConfigModal";
 import { ServerSettingsModal } from "./components/groups/ServerSettingsModal/ServerSettingsModal";
 import { ConnectionInfoModal } from "./components/groups/ConnectionInfoModal/ConnectionInfoModal";
+import { OutputValidationModal } from "./components/groups/OutputValidationModal/OutputValidationModal";
 import type { OAuthDetails } from "./components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
 import { buildExportFilename, downloadJsonFile } from "./lib/downloadFile";
@@ -161,6 +168,26 @@ const EMPTY_SETTINGS: InspectorServerSettings = {
   requestTimeout: 0,
 };
 
+// Body of the output-schema-mismatch warning toast: a one-line summary plus a
+// link that opens the full validation details in a modal (the raw error is far
+// too long for a toast).
+const OutputValidationToastMessage = ({
+  onViewDetails,
+}: {
+  onViewDetails: () => void;
+}) => (
+  <Stack gap={4}>
+    <Text size="sm">
+      The tool result&apos;s structuredContent doesn&apos;t match the
+      tool&apos;s outputSchema. The inspector renders it anyway, but strict MCP
+      clients may not.
+    </Text>
+    <Anchor component="button" type="button" size="sm" onClick={onViewDetails}>
+      View validation details
+    </Anchor>
+  </Stack>
+);
+
 function App() {
   // Theme toggle plumbing (preserved from the pre-wire placeholder).
   const { setColorScheme } = useMantineColorScheme();
@@ -198,6 +225,11 @@ function App() {
   >(undefined);
   const [connectionInfoModalOpen, setConnectionInfoModalOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<ServerEntry | null>(null);
+  // Details for the output-schema-mismatch modal opened from the warning toast.
+  const [outputValidationDetails, setOutputValidationDetails] = useState<{
+    toolName: string;
+    message: string;
+  } | null>(null);
 
   // The active connection target. `null` between sessions; set as soon as
   // the user toggles a server card on. Drives state-manager lifetime.
@@ -925,13 +957,22 @@ function App() {
         }
         // Leniency above keeps the app rendering, but surface the schema
         // mismatch so a server developer knows strict MCP clients may refuse
-        // to render this app.
+        // to render this app. The full validation error is too long for a
+        // toast, so summarize and link to a modal with the details.
         if (invocation.outputValidationError) {
+          const details = {
+            toolName: tool.name,
+            message: invocation.outputValidationError,
+          };
           notifications.show({
             title: "App output doesn't match its schema",
-            message: `"${tool.name}" returned structured content that violates its declared outputSchema. The inspector renders it anyway, but strict MCP clients may not. ${invocation.outputValidationError}`,
             color: "yellow",
-            autoClose: 10000,
+            autoClose: 12000,
+            message: (
+              <OutputValidationToastMessage
+                onViewDetails={() => setOutputValidationDetails(details)}
+              />
+            ),
           });
         }
       } catch {
@@ -1384,6 +1425,12 @@ function App() {
         target={removeTarget}
         onCancel={() => setRemoveTarget(null)}
         onConfirm={onConfirmRemove}
+      />
+      <OutputValidationModal
+        opened={outputValidationDetails !== null}
+        toolName={outputValidationDetails?.toolName}
+        message={outputValidationDetails?.message}
+        onClose={() => setOutputValidationDetails(null)}
       />
     </>
   );
