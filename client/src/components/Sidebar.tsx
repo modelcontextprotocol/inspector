@@ -135,6 +135,29 @@ const Sidebar = ({
     [toast],
   );
 
+  // Fallback clipboard copy for non-secure contexts (HTTP, not HTTPS/localhost)
+  // navigator.clipboard.writeText() requires a secure context
+  const copyToClipboard = useCallback(async (text: string) => {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    // Fallback: use a temporary textarea element
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+      document.execCommand("copy");
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  }, []);
+
   // Shared utility function to generate server config
   const generateServerConfig = useCallback(() => {
     if (transportType === "stdio") {
@@ -183,8 +206,7 @@ const Sidebar = ({
   const handleCopyServerEntry = useCallback(() => {
     try {
       const configJson = generateMCPServerEntry();
-      navigator.clipboard
-        .writeText(configJson)
+      copyToClipboard(configJson)
         .then(() => {
           setCopiedServerEntry(true);
 
@@ -213,8 +235,7 @@ const Sidebar = ({
   const handleCopyServerFile = useCallback(() => {
     try {
       const configJson = generateMCPServerFile();
-      navigator.clipboard
-        .writeText(configJson)
+      copyToClipboard(configJson)
         .then(() => {
           setCopiedServerFile(true);
 
