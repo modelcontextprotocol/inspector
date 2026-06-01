@@ -10,6 +10,7 @@ import {
   PagedPromptsState,
   ManagedResourcesState,
   ManagedPromptsState,
+  ManagedToolsState,
 } from "@inspector/core/mcp/state/index.js";
 import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
 import { SamplingCreateMessage } from "@inspector/core/mcp/samplingCreateMessage.js";
@@ -686,6 +687,32 @@ describe("InspectorClient", () => {
 
       // Client no longer stores tools; listTools() still returns server tools when called
       expect((await client.listTools()).tools.length).toBeGreaterThan(0);
+    });
+
+    it("ManagedToolsState populates on connect (regression: capability gate must see capabilities before the connect event)", async () => {
+      // Regression for #1395 + connect-ordering: the managed list-state managers
+      // refresh on the "connect" event and gate their list RPC on
+      // getCapabilities(). If "connect" is dispatched before fetchServerInfo()
+      // populates capabilities, the synchronous gate reads undefined and wipes
+      // the list to empty — tools/prompts/resources all vanish on every connect.
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        { environment: { transport: createTransportNode } },
+      );
+      const toolsState = new ManagedToolsState(client);
+
+      await client.connect();
+      // Settle: the connect-triggered refresh() is async past its capability gate.
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(client.getCapabilities()?.tools).toBeDefined();
+      expect(toolsState.getTools().length).toBeGreaterThan(0);
+
+      toolsState.destroy();
     });
   });
 
