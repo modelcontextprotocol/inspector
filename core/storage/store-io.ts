@@ -58,19 +58,65 @@ export async function readStoreFile(filePath: string): Promise<string | null> {
 }
 
 /**
+ * In-flight writeStoreFile() promises, keyed by resolved path. Lets callers
+ * await persistence completion via flushStoreFileWrites() instead of polling
+ * the file — Zustand's persist middleware invokes writeStoreFile() fire-and-
+ * forget, so the in-memory store updates synchronously while the file write
+ * lags. Entries are removed once their write settles.
+ *
+ * Load-bearing: pendingWrites.set() below runs synchronously before the first
+ * await in writeStoreFile(), so a flushStoreFileWrites() called right after a
+ * persist sees the in-flight entry. Callers (e.g. the storage adapter's
+ * setItem) must not introduce an await before writeStoreFile() — doing so would
+ * let a flush run before registration and return early.
+ */
+const pendingWrites = new Map<string, Promise<void>>();
+
+/**
  * Write store file atomically (temp file + rename). Ensures parent directory exists.
  * Uses mode 0o600 for the file.
+ *
+ * The returned promise is also tracked per path so flushStoreFileWrites() can
+ * await it. Writes to the same path are chained so a flush awaits every queued
+ * write (and a later write's completion implies all earlier ones settled).
  */
 export async function writeStoreFile(
   filePath: string,
   data: string,
 ): Promise<void> {
-  const dir = path.dirname(filePath);
-  await fs.mkdir(dir, { recursive: true });
-  await writeFile(filePath, data, {
-    encoding: "utf-8",
-    mode: 0o600,
-  });
+  const key = path.resolve(filePath);
+  const run = async (): Promise<void> => {
+    const dir = path.dirname(filePath);
+    await fs.mkdir(dir, { recursive: true });
+    await writeFile(filePath, data, {
+      encoding: "utf-8",
+      mode: 0o600,
+    });
+  };
+  const prior = pendingWrites.get(key);
+  const tracked = (prior ?? Promise.resolve()).catch(() => {}).then(run);
+  pendingWrites.set(key, tracked);
+  try {
+    await tracked;
+  } finally {
+    if (pendingWrites.get(key) === tracked) {
+      pendingWrites.delete(key);
+    }
+  }
+}
+
+/**
+ * Await pending writeStoreFile() writes — those for `filePath` if given, else
+ * all of them. Use in tests after triggering persistence (Zustand persist
+ * writes fire-and-forget) instead of polling the file, and for graceful
+ * shutdown. Resolves immediately when nothing is in flight.
+ */
+export async function flushStoreFileWrites(filePath?: string): Promise<void> {
+  if (filePath !== undefined) {
+    await pendingWrites.get(path.resolve(filePath));
+    return;
+  }
+  await Promise.all(pendingWrites.values());
 }
 
 /**

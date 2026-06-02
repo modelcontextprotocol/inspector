@@ -13,6 +13,10 @@ import { createFileStorageAdapter } from "@inspector/core/storage/adapters/file-
 import { createRemoteStorageAdapter } from "@inspector/core/storage/adapters/remote-storage.js";
 import { createOAuthStore } from "@inspector/core/auth/store.js";
 import { createRemoteApp } from "@inspector/core/mcp/remote/node/server.js";
+import {
+  writeStoreFile,
+  flushStoreFileWrites,
+} from "@inspector/core/storage/store-io.js";
 
 interface StartRemoteServerOptions {
   storageDir?: string;
@@ -147,13 +151,8 @@ describe("Storage adapters", () => {
         tokens: { access_token: "test-token", token_type: "Bearer" },
       });
 
-      // Wait for persistence (Zustand persist is async; poll for file so we don't race with cleanup)
-      await vi.waitFor(
-        () => {
-          expect(existsSync(filePath)).toBe(true);
-        },
-        { timeout: 2000, interval: 20 },
-      );
+      // Persistence is fire-and-forget; await the write rather than polling.
+      await flushStoreFileWrites(filePath);
       const fileContent = readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(fileContent);
       expect(parsed.state.servers["https://example.com"].tokens).toEqual({
@@ -172,12 +171,7 @@ describe("Storage adapters", () => {
       store1.getState().setServerState("https://example.com", {
         tokens: { access_token: "initial-token", token_type: "Bearer" },
       });
-      await vi.waitFor(
-        () => {
-          expect(existsSync(filePath)).toBe(true);
-        },
-        { timeout: 2000, interval: 20 },
-      );
+      await flushStoreFileWrites(filePath);
 
       // Create new store instance (should load persisted state)
       const storage2 = createFileStorageAdapter({ filePath });
@@ -201,7 +195,7 @@ describe("Storage adapters", () => {
       store.getState().setServerState("https://example.com", {
         tokens: { access_token: "test-token", token_type: "Bearer" },
       });
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await flushStoreFileWrites(filePath);
       expect(existsSync(filePath)).toBe(true);
 
       // Clear all servers (this will persist empty state)
@@ -210,7 +204,7 @@ describe("Storage adapters", () => {
       for (const url of urls) {
         state.clearServerState(url);
       }
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await flushStoreFileWrites(filePath);
 
       // Verify file still exists but with empty servers
       expect(existsSync(filePath)).toBe(true);
@@ -229,12 +223,72 @@ describe("Storage adapters", () => {
       store.getState().setServerState("https://example.com", {
         tokens: { access_token: "t", token_type: "Bearer" },
       });
-      await vi.waitFor(() => expect(existsSync(filePath)).toBe(true), {
-        timeout: 2000,
-        interval: 20,
-      });
+      await flushStoreFileWrites(filePath);
+      expect(existsSync(filePath)).toBe(true);
       await storage!.removeItem("inspector-oauth-store");
       expect(existsSync(filePath)).toBe(false);
+    });
+  });
+
+  describe("flushStoreFileWrites", () => {
+    let tempDir: string | null = null;
+
+    afterEach(() => {
+      if (tempDir) {
+        try {
+          rmSync(tempDir, { recursive: true });
+        } catch {
+          // Ignore cleanup errors
+        }
+        tempDir = null;
+      }
+    });
+
+    it("resolves immediately when nothing is in flight", async () => {
+      await expect(flushStoreFileWrites()).resolves.toBeUndefined();
+      await expect(
+        flushStoreFileWrites("/no/such/path.json"),
+      ).resolves.toBeUndefined();
+    });
+
+    it("awaits the pending write for a specific path", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-flush-test-"));
+      const filePath = join(tempDir, "store.json");
+
+      // Kick off the write without awaiting it, then flush.
+      const write = writeStoreFile(filePath, '{"hello":"world"}');
+      await flushStoreFileWrites(filePath);
+      expect(existsSync(filePath)).toBe(true);
+      expect(JSON.parse(readFileSync(filePath, "utf-8"))).toEqual({
+        hello: "world",
+      });
+      await write;
+    });
+
+    it("awaits all pending writes when no path is given", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-flush-test-"));
+      const a = join(tempDir, "a.json");
+      const b = join(tempDir, "b.json");
+
+      const writes = Promise.all([
+        writeStoreFile(a, '{"n":1}'),
+        writeStoreFile(b, '{"n":2}'),
+      ]);
+      await flushStoreFileWrites();
+      expect(existsSync(a)).toBe(true);
+      expect(existsSync(b)).toBe(true);
+      await writes;
+    });
+
+    it("serializes overlapping writes to the same path (last write wins)", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-flush-test-"));
+      const filePath = join(tempDir, "store.json");
+
+      const first = writeStoreFile(filePath, '{"v":1}');
+      const second = writeStoreFile(filePath, '{"v":2}');
+      await Promise.all([first, second]);
+      await flushStoreFileWrites(filePath);
+      expect(JSON.parse(readFileSync(filePath, "utf-8"))).toEqual({ v: 2 });
     });
   });
 
