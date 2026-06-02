@@ -21,7 +21,6 @@ import { FetchRequestLogState } from "@inspector/core/mcp/state/index.js";
 import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
 import {
   TestServerHttp,
-  waitForStateFile,
   waitForOAuthWellKnown,
   getDefaultServerConfig,
   createOAuthTestServerConfig,
@@ -29,6 +28,7 @@ import {
   getDCRRequests,
   invalidateAccessToken,
 } from "@modelcontextprotocol/inspector-test-server";
+import { flushStoreFileWrites } from "@inspector/core/storage/store-io.js";
 import {
   createOAuthClientConfig,
   completeOAuthAuthorization,
@@ -1752,21 +1752,16 @@ describe("InspectorClient OAuth E2E", () => {
             servers?: Record<string, { tokens?: { access_token?: string } }>;
           };
         };
-        const parsed = await waitForStateFile<StateShape>(
-          customPath,
-          (p) => {
-            const servers = (p as StateShape)?.state?.servers ?? {};
-            return Object.values(servers).some(
-              (s) =>
-                !!(s as { tokens?: { access_token?: string } })?.tokens
-                  ?.access_token,
-            );
-          },
-          { timeout: 2000, interval: 50 },
-        );
-        expect(Object.keys(parsed.state?.servers ?? {}).length).toBeGreaterThan(
-          0,
-        );
+        // Persistence is fire-and-forget; await the write rather than polling.
+        await flushStoreFileWrites(customPath);
+        const parsed = JSON.parse(
+          await fs.readFile(customPath, "utf-8"),
+        ) as StateShape;
+        const servers = parsed.state?.servers ?? {};
+        expect(Object.keys(servers).length).toBeGreaterThan(0);
+        expect(
+          Object.values(servers).some((s) => !!s?.tokens?.access_token),
+        ).toBe(true);
       } finally {
         try {
           await fs.unlink(customPath);

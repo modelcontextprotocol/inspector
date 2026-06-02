@@ -12,7 +12,7 @@ import type {
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import { waitForStateFile } from "@modelcontextprotocol/inspector-test-server";
+import { flushStoreFileWrites } from "@inspector/core/storage/store-io.js";
 
 // Unique path per process so parallel test files don't share the same state file
 const testStatePath = path.join(
@@ -478,14 +478,11 @@ describe("OAuth Store (Zustand)", () => {
           >;
         };
       };
-      const parsed = await waitForStateFile<StateShape>(
-        persistTestPath,
-        (p) => {
-          const s = (p as StateShape)?.state?.servers?.[serverUrl];
-          return !!s?.clientInformation;
-        },
-        { timeout: 2000, interval: 50 },
-      );
+      // Persistence is fire-and-forget; await the write rather than polling.
+      await flushStoreFileWrites(persistTestPath);
+      const parsed = JSON.parse(
+        await fs.readFile(persistTestPath, "utf-8"),
+      ) as StateShape;
       expect(parsed.state.servers[serverUrl]?.clientInformation).toEqual(
         clientInfo,
       );
@@ -522,14 +519,11 @@ describe("NodeOAuthStorage with custom storagePath", () => {
           servers: Record<string, { tokens?: { access_token?: string } }>;
         };
       };
-      const parsed = await waitForStateFile<StateShape>(
-        customPath,
-        (p) => {
-          const t = (p as StateShape)?.state?.servers?.[testServerUrl]?.tokens;
-          return t?.access_token === tokens.access_token;
-        },
-        { timeout: 2000, interval: 50 },
-      );
+      // Persistence is fire-and-forget; await the write rather than polling.
+      await flushStoreFileWrites(customPath);
+      const parsed = JSON.parse(
+        await fs.readFile(customPath, "utf-8"),
+      ) as StateShape;
 
       expect(parsed.state.servers[testServerUrl]?.tokens?.access_token).toBe(
         tokens.access_token,
