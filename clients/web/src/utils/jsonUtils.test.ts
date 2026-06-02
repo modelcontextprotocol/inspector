@@ -4,7 +4,9 @@ import {
   tryParseJson,
   updateValueAtPath,
   getValueAtPath,
+  collectSchemaDefaults,
 } from "./jsonUtils";
+import type { JsonSchemaType } from "./jsonUtils";
 
 describe("getDataType", () => {
   it("returns 'array' for arrays", () => {
@@ -164,5 +166,58 @@ describe("updateValueAtPath edge case suppression", () => {
   it("logs when array index is invalid", () => {
     updateValueAtPath([1], ["x"], 9);
     expect(console.error).toHaveBeenCalled();
+  });
+});
+
+describe("collectSchemaDefaults", () => {
+  it("collects defaults across field types and omits fields without one", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      properties: {
+        firstLine: {
+          type: "string",
+          default: "It was a dark and stormy night.",
+        },
+        integer: { type: "integer", default: 42 },
+        number: { type: "number", default: 3.14 },
+        choice: { type: "string", enum: ["a", "b"], default: "a" },
+        picks: { type: "array", items: { enum: ["x", "y"] }, default: ["x"] },
+        // No default — must be absent from the result, not undefined.
+        name: { type: "string", title: "Name" },
+      },
+    };
+    expect(collectSchemaDefaults(schema)).toEqual({
+      firstLine: "It was a dark and stormy night.",
+      integer: 42,
+      number: 3.14,
+      choice: "a",
+      picks: ["x"],
+    });
+  });
+
+  it("recurses into nested object schemas and skips empty ones", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      properties: {
+        db: {
+          type: "object",
+          properties: {
+            host: { type: "string", default: "localhost" },
+            port: { type: "integer" },
+          },
+        },
+        empty: {
+          type: "object",
+          properties: { note: { type: "string" } },
+        },
+      },
+    };
+    expect(collectSchemaDefaults(schema)).toEqual({
+      db: { host: "localhost" },
+    });
+  });
+
+  it("returns an empty object when the schema has no properties", () => {
+    expect(collectSchemaDefaults({ type: "object" })).toEqual({});
   });
 });

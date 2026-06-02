@@ -140,6 +140,42 @@ describe("PendingClientRequestModal", () => {
     });
   });
 
+  it("includes untouched schema defaults in the submitted content", async () => {
+    const user = userEvent.setup();
+    const formWithDefaults: PendingClientRequestContent = {
+      kind: "elicitation-form",
+      id: "elicitation-defaults",
+      request: {
+        message: "Confirm your preferences.",
+        requestedSchema: {
+          type: "object",
+          properties: {
+            firstLine: {
+              type: "string",
+              title: "First line",
+              default: "It was a dark and stormy night.",
+            },
+            integer: { type: "integer", title: "Integer", default: 42 },
+            name: { type: "string", title: "Name" },
+          },
+        },
+      },
+    };
+    renderWithMantine(
+      <PendingClientRequestModal {...baseProps} request={formWithDefaults} />,
+    );
+    // Submit without touching any field: the default-only fields must still be
+    // sent (the v1-parity bug this guards against dropped them).
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+    expect(baseProps.onElicitationRespond).toHaveBeenCalledWith({
+      action: "accept",
+      content: {
+        firstLine: "It was a dark and stormy night.",
+        integer: 42,
+      },
+    });
+  });
+
   it("declines a form elicitation", async () => {
     const user = userEvent.setup();
     renderWithMantine(

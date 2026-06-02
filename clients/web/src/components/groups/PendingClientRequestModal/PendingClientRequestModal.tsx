@@ -9,6 +9,10 @@ import type {
 import { SamplingRequestPanel } from "../SamplingRequestPanel/SamplingRequestPanel";
 import { ElicitationFormPanel } from "../ElicitationFormPanel/ElicitationFormPanel";
 import { ElicitationUrlPanel } from "../ElicitationUrlPanel/ElicitationUrlPanel";
+import {
+  collectSchemaDefaults,
+  type JsonSchemaType,
+} from "../../../utils/jsonUtils";
 
 /**
  * The server-initiated request currently shown in the modal. `id` is the
@@ -107,7 +111,13 @@ function ElicitationFormModalBody({
   serverName: string;
   onRespond: (result: ElicitResult) => void;
 }) {
-  const [values, setValues] = useState<Record<string, unknown>>({});
+  // Seed with the schema's defaults so default-only fields the user never
+  // touches are still included on submit (the form shows them via
+  // resolveValue, but onChange only writes edited fields). The modal body is
+  // keyed by request id, so this lazy initializer re-runs per request.
+  const [values, setValues] = useState<Record<string, unknown>>(() =>
+    collectSchemaDefaults(request.requestedSchema as JsonSchemaType),
+  );
   return (
     <ElicitationFormPanel
       request={request}
