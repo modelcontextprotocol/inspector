@@ -24,6 +24,11 @@ export interface SamplingRequestPanelProps {
   onAutoRespond: () => void;
   onSend: () => void;
   onReject: () => void;
+  /**
+   * A response has been dispatched; lock the actions so a second click can't
+   * resolve the request twice (the underlying handler throws if called again).
+   */
+  busy?: boolean;
 }
 
 function formatPriority(value: number): string {
@@ -62,6 +67,7 @@ export function SamplingRequestPanel({
   onAutoRespond,
   onSend,
   onReject,
+  busy = false,
 }: SamplingRequestPanelProps) {
   const {
     messages,
@@ -173,11 +179,15 @@ export function SamplingRequestPanel({
         />
       </Group>
       <Group justify="flex-end">
-        <Button variant="light" onClick={onAutoRespond}>
+        <Button variant="light" onClick={onAutoRespond} disabled={busy}>
           Auto-respond
         </Button>
-        <RejectButton onClick={onReject}>Reject</RejectButton>
-        <Button onClick={onSend}>Send Response</Button>
+        <RejectButton onClick={onReject} disabled={busy}>
+          Reject
+        </RejectButton>
+        <Button onClick={onSend} disabled={busy}>
+          Send Response
+        </Button>
       </Group>
     </Stack>
   );

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Group, Modal, Text } from "@mantine/core";
 import type {
   CreateMessageRequestParams,
@@ -78,6 +78,29 @@ function titleFor(content: PendingClientRequestContent): string {
 // on an accidental dismissal.
 function ignoreClose(): void {}
 
+/**
+ * Returns a `responded` flag and a `once()` wrapper. The first invocation of
+ * any wrapped callback flips `responded` (to lock the panel's actions) and
+ * runs it; later invocations no-op. The ref makes the guard synchronous so a
+ * fast double-click can't resolve the request twice before the modal unmounts
+ * — respond()/reject() throw if called again. Reset per request via the body's
+ * `key`.
+ */
+function useRespondOnce(): {
+  responded: boolean;
+  once: (fn: () => void) => () => void;
+} {
+  const [responded, setResponded] = useState(false);
+  const respondedRef = useRef(false);
+  const once = (fn: () => void) => () => {
+    if (respondedRef.current) return;
+    respondedRef.current = true;
+    setResponded(true);
+    fn();
+  };
+  return { responded, once };
+}
+
 function SamplingModalBody({
   request,
   onRespond,
@@ -90,14 +113,16 @@ function SamplingModalBody({
   const [draftResult, setDraftResult] = useState<CreateMessageResult>(
     createDefaultSamplingResult,
   );
+  const { responded, once } = useRespondOnce();
   return (
     <SamplingRequestPanel
       request={request}
       draftResult={draftResult}
       onResultChange={setDraftResult}
-      onAutoRespond={() => onRespond(createDefaultSamplingResult())}
-      onSend={() => onRespond(draftResult)}
-      onReject={onReject}
+      onAutoRespond={once(() => onRespond(createDefaultSamplingResult()))}
+      onSend={once(() => onRespond(draftResult))}
+      onReject={once(onReject)}
+      busy={responded}
     />
   );
 }
@@ -118,20 +143,22 @@ function ElicitationFormModalBody({
   const [values, setValues] = useState<Record<string, unknown>>(() =>
     collectSchemaDefaults(request.requestedSchema as JsonSchemaType),
   );
+  const { responded, once } = useRespondOnce();
   return (
     <ElicitationFormPanel
       request={request}
       serverName={serverName}
       values={values}
       onChange={setValues}
-      onSubmit={() =>
+      onSubmit={once(() =>
         onRespond({
           action: "accept",
           content: values as ElicitResult["content"],
-        })
-      }
-      onDecline={() => onRespond({ action: "decline" })}
-      onCancel={() => onRespond({ action: "cancel" })}
+        }),
+      )}
+      onDecline={once(() => onRespond({ action: "decline" }))}
+      onCancel={once(() => onRespond({ action: "cancel" }))}
+      busy={responded}
     />
   );
 }
@@ -147,6 +174,7 @@ function ElicitationUrlModalBody({
   url: string;
   onRespond: (result: ElicitResult) => void;
 }) {
+  const { responded, once } = useRespondOnce();
   return (
     <ElicitationUrlPanel
       message={message}
@@ -156,7 +184,7 @@ function ElicitationUrlModalBody({
       onCopyUrl={() => {
         void navigator.clipboard?.writeText(url);
       }}
-      onOpenInBrowser={() => {
+      onOpenInBrowser={once(() => {
         window.open(url, "_blank", "noopener,noreferrer");
         // Accept-on-open: the inspector can't observe completion of an external
         // flow, so opening the URL is treated as acceptance. This is optimistic
@@ -164,8 +192,9 @@ function ElicitationUrlModalBody({
         // "open, then confirm completion" flow (using ElicitationUrlPanel's
         // isWaiting state) is tracked as a follow-up; see #1415.
         onRespond({ action: "accept" });
-      }}
-      onCancel={() => onRespond({ action: "cancel" })}
+      })}
+      onCancel={once(() => onRespond({ action: "cancel" }))}
+      busy={responded}
     />
   );
 }

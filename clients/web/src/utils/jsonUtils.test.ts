@@ -5,6 +5,7 @@ import {
   updateValueAtPath,
   getValueAtPath,
   collectSchemaDefaults,
+  hasMissingRequiredFields,
 } from "./jsonUtils";
 import type { JsonSchemaType } from "./jsonUtils";
 
@@ -219,5 +220,31 @@ describe("collectSchemaDefaults", () => {
 
   it("returns an empty object when the schema has no properties", () => {
     expect(collectSchemaDefaults({ type: "object" })).toEqual({});
+  });
+});
+
+describe("hasMissingRequiredFields", () => {
+  const schema: JsonSchemaType = {
+    type: "object",
+    properties: { name: { type: "string" }, age: { type: "integer" } },
+    required: ["name"],
+  };
+
+  it("is false when no fields are required", () => {
+    expect(hasMissingRequiredFields({ type: "object" }, {})).toBe(false);
+  });
+
+  it("is true when a required field is absent, null, or empty", () => {
+    expect(hasMissingRequiredFields(schema, {})).toBe(true);
+    expect(hasMissingRequiredFields(schema, { name: null })).toBe(true);
+    expect(hasMissingRequiredFields(schema, { name: "" })).toBe(true);
+  });
+
+  it("is false when every required field has a value", () => {
+    expect(hasMissingRequiredFields(schema, { name: "Ada" })).toBe(false);
+    // A non-required field being empty does not matter.
+    expect(hasMissingRequiredFields(schema, { name: "Ada", age: "" })).toBe(
+      false,
+    );
   });
 });

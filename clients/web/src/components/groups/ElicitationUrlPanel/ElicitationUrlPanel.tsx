@@ -17,6 +17,12 @@ export interface ElicitationUrlPanelProps {
   onCopyUrl: () => void;
   onOpenInBrowser: () => void;
   onCancel: () => void;
+  /**
+   * A response has been dispatched; lock the responding actions so a second
+   * click can't resolve the request twice (the handler throws if called
+   * again). Copy URL stays enabled — it doesn't resolve the request.
+   */
+  busy?: boolean;
 }
 
 const ItalicMessage = Text.withProps({
@@ -51,6 +57,7 @@ export function ElicitationUrlPanel({
   onCopyUrl,
   onOpenInBrowser,
   onCancel,
+  busy = false,
 }: ElicitationUrlPanelProps) {
   return (
     <Stack gap="md">
@@ -62,7 +69,7 @@ export function ElicitationUrlPanel({
         <Button variant="light" onClick={onCopyUrl}>
           Copy URL
         </Button>
-        <Button variant="light" onClick={onOpenInBrowser}>
+        <Button variant="light" onClick={onOpenInBrowser} disabled={busy}>
           Open in Browser
         </Button>
       </Group>
@@ -78,7 +85,7 @@ export function ElicitationUrlPanel({
         This will open an external URL. Verify the domain before proceeding.
       </Alert>
       <Group justify="flex-end">
-        <Button variant="light" onClick={onCancel}>
+        <Button variant="light" onClick={onCancel} disabled={busy}>
           Cancel
         </Button>
       </Group>

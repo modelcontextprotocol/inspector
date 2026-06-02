@@ -3,6 +3,7 @@ import { MdPlayArrow } from "react-icons/md";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
 import { hasInputFields } from "../../../utils/toolUtils";
+import { hasMissingRequiredFields } from "../../../utils/jsonUtils";
 
 export interface AppDetailPanelProps {
   tool: Tool;
@@ -16,17 +17,6 @@ const DescriptionText = Text.withProps({
   size: "sm",
   c: "dimmed",
 });
-
-function hasMissingRequiredFields(
-  schema: Tool["inputSchema"],
-  values: Record<string, unknown>,
-): boolean {
-  const required = schema.required ?? [];
-  return required.some((field) => {
-    const value = values[field];
-    return value === undefined || value === null || value === "";
-  });
-}
 
 export function AppDetailPanel({
   tool,

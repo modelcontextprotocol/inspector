@@ -108,6 +108,22 @@ export function collectSchemaDefaults(
 }
 
 /**
+ * Whether any of the schema's required top-level fields is missing a value in
+ * `values` (absent, null, or empty string). Used to gate a form's submit
+ * action until required fields are supplied.
+ */
+export function hasMissingRequiredFields(
+  schema: JsonSchemaType,
+  values: Record<string, unknown>,
+): boolean {
+  const required = schema.required ?? [];
+  return required.some((field) => {
+    const value = values[field];
+    return value === undefined || value === null || value === "";
+  });
+}
+
+/**
  * Attempts to parse a string as JSON, only for objects and arrays
  * @param str The string to parse
  * @returns Object with success boolean and either parsed data or original string

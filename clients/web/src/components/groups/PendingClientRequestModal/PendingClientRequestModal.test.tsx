@@ -119,6 +119,22 @@ describe("PendingClientRequestModal", () => {
     expect(baseProps.onSamplingReject).toHaveBeenCalledTimes(1);
   });
 
+  it("resolves a request only once when the action is double-clicked", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <PendingClientRequestModal {...baseProps} request={samplingContent} />,
+    );
+    const autoRespond = screen.getByRole("button", { name: "Auto-respond" });
+    await user.click(autoRespond);
+    // After the first dispatch the actions lock (busy); a second click no-ops.
+    await user.click(autoRespond);
+    expect(baseProps.onSamplingRespond).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("button", { name: "Send Response" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeDisabled();
+  });
+
   it("renders the elicitation form with the server name warning", () => {
     renderWithMantine(
       <PendingClientRequestModal {...baseProps} request={formContent} />,
