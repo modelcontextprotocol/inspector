@@ -507,7 +507,7 @@ describe("Output Schema Validation", () => {
       });
 
       expect(result.isValid).toBe(false);
-      expect(result.error).toContain("should be number");
+      expect(result.error).toContain("must be number");
     });
 
     test("rejects missing required fields", () => {
