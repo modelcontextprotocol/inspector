@@ -7,6 +7,13 @@ import { ToolsScreen } from "./ToolsScreen";
 const tools: Tool[] = [
   { name: "alpha", inputSchema: { type: "object" } },
   { name: "beta", inputSchema: { type: "object" } },
+  {
+    name: "gamma",
+    inputSchema: {
+      type: "object",
+      properties: { mode: { type: "string", default: "fast" } },
+    },
+  },
 ];
 
 const baseProps = {
@@ -54,6 +61,16 @@ describe("ToolsScreen", () => {
     await user.click(screen.getByText("alpha"));
     await user.click(screen.getByRole("button", { name: /Execute/ }));
     expect(onCallTool).toHaveBeenCalledWith("alpha", {});
+  });
+
+  it("seeds schema defaults so untouched fields are sent on Execute", async () => {
+    const user = userEvent.setup();
+    const onCallTool = vi.fn();
+    renderWithMantine(<ToolsScreen {...baseProps} onCallTool={onCallTool} />);
+    await user.click(screen.getByText("gamma"));
+    // Execute without editing the form: the default must still be sent.
+    await user.click(screen.getByRole("button", { name: /Execute/ }));
+    expect(onCallTool).toHaveBeenCalledWith("gamma", { mode: "fast" });
   });
 
   it("invokes onClearResult when Clear is clicked on the result panel", async () => {

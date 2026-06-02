@@ -25,6 +25,7 @@ import {
 import { AppDetailPanel } from "../../groups/AppDetailPanel/AppDetailPanel";
 import { AppControls } from "../../groups/AppControls/AppControls";
 import { hasInputFields, resolveDisplayLabel } from "../../../utils/toolUtils";
+import { collectSchemaDefaults } from "../../../utils/jsonUtils";
 
 export interface AppsScreenProps {
   tools: Tool[];
@@ -149,7 +150,9 @@ export function AppsScreen({
     const next = tools.find((t) => t.name === name);
     if (!next) return;
     setSelectedAppName(name);
-    setFormValues({});
+    // Seed schema defaults so default-only fields are sent on Open App (parity
+    // with the form's resolveValue display, which onChange doesn't capture).
+    setFormValues(collectSchemaDefaults(next.inputSchema));
     setMaximized(false);
     onSelectApp(name);
     // No-input apps auto-launch on selection so the user lands directly in

@@ -7,6 +7,7 @@ import {
   type ToolProgress,
 } from "../../groups/ToolDetailPanel/ToolDetailPanel";
 import { ToolResultPanel } from "../../groups/ToolResultPanel/ToolResultPanel";
+import { collectSchemaDefaults } from "../../../utils/jsonUtils";
 
 export interface ToolCallState {
   status: "idle" | "pending" | "ok" | "error";
@@ -98,7 +99,14 @@ export function ToolsScreen({
             listChanged={listChanged}
             onRefreshList={onRefreshList}
             onSelectTool={(name) => {
-              setFormValues({});
+              // Seed the form with the tool's schema defaults so default-only
+              // fields the user never edits are still sent on execute (the
+              // form shows defaults via resolveValue, but onChange only writes
+              // edited fields).
+              const tool = tools.find((t) => t.name === name);
+              setFormValues(
+                tool ? collectSchemaDefaults(tool.inputSchema) : {},
+              );
               setSelectedToolName(name);
             }}
           />
