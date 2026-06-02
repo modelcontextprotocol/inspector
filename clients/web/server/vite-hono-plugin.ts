@@ -175,39 +175,64 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
           if (response.body) {
             res.flushHeaders?.();
             const reader = response.body.getReader();
-            const pump = async () => {
+
+            // The browser can drop a streaming response mid-flight — an SSE
+            // connection closing, a navigation, or an HMR reload. Once it does,
+            // `res` is destroyed and further writes fail with
+            // ERR_STREAM_DESTROYED / EPIPE / ECONNRESET. Treat those as a
+            // normal end: cancel the upstream reader and stop quietly rather
+            // than logging a spurious error. (Cancelling resolves the awaiting
+            // `reader.read()`, so the pump loop exits on its own.)
+            const isDisconnect = (code?: string): boolean =>
+              code === "ERR_STREAM_DESTROYED" ||
+              code === "EPIPE" ||
+              code === "ECONNRESET";
+
+            let clientGone = false;
+            const onClose = (): void => {
+              clientGone = true;
+              reader.cancel().catch(() => {});
+            };
+            // Without an `error` listener a failed write becomes an uncaught
+            // exception; absorb benign disconnects and log anything else.
+            const onError = (err: Error): void => {
+              clientGone = true;
+              reader.cancel().catch(() => {});
+              if (!isDisconnect((err as NodeJS.ErrnoException).code)) {
+                console.error("[Hono Middleware] Response error:", err);
+              }
+            };
+            res.on("close", onClose);
+            res.on("error", onError);
+
+            const pump = async (): Promise<void> => {
               try {
-                const { done, value } = await reader.read();
-                if (done) {
-                  res.end();
-                } else {
-                  res.write(Buffer.from(value), (err) => {
-                    if (err) {
-                      console.error("[Hono Middleware] Write error:", err);
-                      reader.cancel().catch(() => {});
-                      res.end();
-                    }
-                  });
-                  pump().catch((err) => {
-                    console.error("[Hono Middleware] Pump error:", err);
-                    reader.cancel().catch(() => {});
-                    res.end();
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done || clientGone || res.destroyed) break;
+                  // Await each write so a slow client applies backpressure
+                  // instead of the proxy buffering the entire stream.
+                  await new Promise<void>((resolve, reject) => {
+                    res.write(Buffer.from(value), (err) =>
+                      err ? reject(err) : resolve(),
+                    );
                   });
                 }
               } catch (err) {
-                console.error("[Hono Middleware] Read error:", err);
-                reader.cancel().catch(() => {});
-                res.end();
+                const code = (err as NodeJS.ErrnoException | null)?.code;
+                if (!clientGone && !res.destroyed && !isDisconnect(code)) {
+                  console.error("[Hono Middleware] Stream error:", err);
+                }
+              } finally {
+                res.off("close", onClose);
+                res.off("error", onError);
+                await reader.cancel().catch(() => {});
+                if (!res.writableEnded && !res.destroyed) {
+                  res.end();
+                }
               }
             };
-            // The recursive pump() awaits internally, but a sync throw before
-            // the first `await reader.read()` (e.g. a broken reader) would
-            // surface as an unhandled rejection without this kickoff catch.
-            pump().catch((err) => {
-              console.error("[Hono Middleware] Initial pump error:", err);
-              reader.cancel().catch(() => {});
-              res.end();
-            });
+            void pump();
           } else {
             res.end();
           }
