@@ -73,6 +73,23 @@ describe("ToolsScreen", () => {
     expect(onClearResult).toHaveBeenCalledTimes(1);
   });
 
+  it("clears the persisted result when the screen unmounts", () => {
+    const onClearResult = vi.fn();
+    const { unmount } = renderWithMantine(
+      <ToolsScreen
+        {...baseProps}
+        onClearResult={onClearResult}
+        callState={{
+          status: "ok",
+          result: { content: [{ type: "text", text: "ok" }] },
+        }}
+      />,
+    );
+    expect(onClearResult).not.toHaveBeenCalled();
+    unmount();
+    expect(onClearResult).toHaveBeenCalledTimes(1);
+  });
+
   it("treats pending callState as executing", async () => {
     const user = userEvent.setup();
     renderWithMantine(

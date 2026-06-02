@@ -1,0 +1,210 @@
+import { useState } from "react";
+import { Group, Modal, Text } from "@mantine/core";
+import type {
+  CreateMessageRequestParams,
+  CreateMessageResult,
+  ElicitRequestFormParams,
+  ElicitResult,
+} from "@modelcontextprotocol/sdk/types.js";
+import { SamplingRequestPanel } from "../SamplingRequestPanel/SamplingRequestPanel";
+import { ElicitationFormPanel } from "../ElicitationFormPanel/ElicitationFormPanel";
+import { ElicitationUrlPanel } from "../ElicitationUrlPanel/ElicitationUrlPanel";
+
+/**
+ * The server-initiated request currently shown in the modal. `id` is the
+ * client-side request id; it keys the modal body so per-request draft state
+ * resets when the active request changes.
+ */
+export type PendingClientRequestContent =
+  | { kind: "sampling"; id: string; request: CreateMessageRequestParams }
+  | { kind: "elicitation-form"; id: string; request: ElicitRequestFormParams }
+  | { kind: "elicitation-url"; id: string; message: string; url: string };
+
+export interface PendingClientRequestModalProps {
+  /** The active request to display, or null when nothing is pending. */
+  request: PendingClientRequestContent | null;
+  /** Display name of the connected server (shown in elicitation warnings). */
+  serverName: string;
+  /** Queue position label, e.g. "1 of 3". */
+  queuePosition: string;
+  /** Resolve a sampling request with the given (drafted or auto) result. */
+  onSamplingRespond: (result: CreateMessageResult) => void;
+  /** Reject the active sampling request. */
+  onSamplingReject: () => void;
+  /** Resolve an elicitation request (accept/decline/cancel). */
+  onElicitationRespond: (result: ElicitResult) => void;
+}
+
+const TitleRow = Group.withProps({
+  justify: "space-between",
+  gap: "md",
+  w: "100%",
+  wrap: "nowrap",
+});
+
+const TitleText = Text.withProps({ fw: 600 });
+
+const QueueLabel = Text.withProps({ size: "xs", c: "dimmed" });
+
+/**
+ * The stub result pre-filled into a sampling draft. "Auto-respond" sends this
+ * as-is; "Send Response" sends whatever the user edited it into.
+ */
+function createDefaultSamplingResult(): CreateMessageResult {
+  return {
+    model: "stub-model",
+    stopReason: "endTurn",
+    role: "assistant",
+    content: { type: "text", text: "" },
+  };
+}
+
+function titleFor(content: PendingClientRequestContent): string {
+  return content.kind === "sampling"
+    ? "Sampling Request"
+    : "Elicitation Request";
+}
+
+// Empty handler — the modal is intentionally non-dismissable; the request is
+// only resolved via an explicit action button so the blocked call never hangs
+// on an accidental dismissal.
+function ignoreClose(): void {}
+
+function SamplingModalBody({
+  request,
+  onRespond,
+  onReject,
+}: {
+  request: CreateMessageRequestParams;
+  onRespond: (result: CreateMessageResult) => void;
+  onReject: () => void;
+}) {
+  const [draftResult, setDraftResult] = useState<CreateMessageResult>(
+    createDefaultSamplingResult,
+  );
+  return (
+    <SamplingRequestPanel
+      request={request}
+      draftResult={draftResult}
+      onResultChange={setDraftResult}
+      onAutoRespond={() => onRespond(createDefaultSamplingResult())}
+      onSend={() => onRespond(draftResult)}
+      onReject={onReject}
+    />
+  );
+}
+
+function ElicitationFormModalBody({
+  request,
+  serverName,
+  onRespond,
+}: {
+  request: ElicitRequestFormParams;
+  serverName: string;
+  onRespond: (result: ElicitResult) => void;
+}) {
+  const [values, setValues] = useState<Record<string, unknown>>({});
+  return (
+    <ElicitationFormPanel
+      request={request}
+      serverName={serverName}
+      values={values}
+      onChange={setValues}
+      onSubmit={() =>
+        onRespond({
+          action: "accept",
+          content: values as ElicitResult["content"],
+        })
+      }
+      onCancel={() => onRespond({ action: "cancel" })}
+    />
+  );
+}
+
+function ElicitationUrlModalBody({
+  id,
+  message,
+  url,
+  onRespond,
+}: {
+  id: string;
+  message: string;
+  url: string;
+  onRespond: (result: ElicitResult) => void;
+}) {
+  return (
+    <ElicitationUrlPanel
+      message={message}
+      url={url}
+      requestId={id}
+      isWaiting={false}
+      onCopyUrl={() => {
+        void navigator.clipboard?.writeText(url);
+      }}
+      onOpenInBrowser={() => {
+        window.open(url, "_blank", "noopener,noreferrer");
+        onRespond({ action: "accept" });
+      }}
+      onCancel={() => onRespond({ action: "cancel" })}
+    />
+  );
+}
+
+/**
+ * App-level modal that surfaces a server-initiated sampling/elicitation request
+ * while a call (e.g. a tool execution) is in flight. Responding resolves the
+ * client's handler Promise, which unblocks the originating call.
+ */
+export function PendingClientRequestModal({
+  request,
+  serverName,
+  queuePosition,
+  onSamplingRespond,
+  onSamplingReject,
+  onElicitationRespond,
+}: PendingClientRequestModalProps) {
+  return (
+    <Modal
+      opened={request !== null}
+      onClose={ignoreClose}
+      withCloseButton={false}
+      closeOnClickOutside={false}
+      closeOnEscape={false}
+      size="lg"
+      title={
+        request && (
+          <TitleRow>
+            <TitleText>{titleFor(request)}</TitleText>
+            <QueueLabel>{queuePosition}</QueueLabel>
+          </TitleRow>
+        )
+      }
+    >
+      {request?.kind === "sampling" && (
+        <SamplingModalBody
+          key={request.id}
+          request={request.request}
+          onRespond={onSamplingRespond}
+          onReject={onSamplingReject}
+        />
+      )}
+      {request?.kind === "elicitation-form" && (
+        <ElicitationFormModalBody
+          key={request.id}
+          request={request.request}
+          serverName={serverName}
+          onRespond={onElicitationRespond}
+        />
+      )}
+      {request?.kind === "elicitation-url" && (
+        <ElicitationUrlModalBody
+          key={request.id}
+          id={request.id}
+          message={request.message}
+          url={request.url}
+          onRespond={onElicitationRespond}
+        />
+      )}
+    </Modal>
+  );
+}

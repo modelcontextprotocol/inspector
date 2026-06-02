@@ -155,6 +155,31 @@ export function SchemaForm({
       );
     }
 
+    // array of enum values (multi-select)
+    if (fieldSchema.type === "array" && fieldSchema.items?.enum) {
+      const itemEnum = fieldSchema.items.enum;
+      const itemEnumNames = fieldSchema.items.enumNames;
+      const data =
+        itemEnumNames && itemEnumNames.length === itemEnum.length
+          ? itemEnum.map((value, index) => ({
+              value,
+              label: itemEnumNames[index],
+            }))
+          : itemEnum;
+      return (
+        <MultiSelect
+          key={fieldName}
+          label={label}
+          description={description}
+          withAsterisk={isRequired}
+          disabled={disabled}
+          data={data}
+          value={(rawValue as string[]) ?? []}
+          onChange={(val) => handleFieldChange(fieldName, val)}
+        />
+      );
+    }
+
     // array with items having anyOf
     if (fieldSchema.type === "array" && fieldSchema.items?.anyOf) {
       const data = fieldSchema.items.anyOf.map((item) => ({

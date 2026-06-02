@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, Flex, Stack, Text } from "@mantine/core";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ToolControls } from "../../groups/ToolControls/ToolControls";
@@ -71,6 +71,22 @@ export function ToolsScreen({
     ? tools.find((t) => t.name === selectedToolName)
     : undefined;
   const isExecuting = callState?.status === "pending";
+
+  // The result lives in App so it survives pending → ok/error without
+  // remounting the screen. But the screen's selection is local and resets when
+  // the screen unmounts on tab switch — leaving the Results panel showing a
+  // result with no selected tool. Clear the result on unmount so returning to
+  // the screen starts from a clean slate. A ref keeps the latest handler so the
+  // effect can stay mount/unmount-only without re-running mid-session.
+  const onClearResultRef = useRef(onClearResult);
+  useEffect(() => {
+    onClearResultRef.current = onClearResult;
+  }, [onClearResult]);
+  useEffect(() => {
+    return () => {
+      onClearResultRef.current?.();
+    };
+  }, []);
 
   return (
     <ScreenLayout>

@@ -8,6 +8,8 @@ import {
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import type {
+  CreateMessageResult,
+  ElicitResult,
   InitializeResult,
   LoggingLevel,
   LoggingMessageNotification,
@@ -55,6 +57,7 @@ import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubsc
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js";
 import { useSandboxUrl } from "@inspector/core/react/useSandboxUrl.js";
+import { usePendingClientRequests } from "@inspector/core/react/usePendingClientRequests.js";
 import { InspectorView } from "./components/views/InspectorView/InspectorView";
 import type { ToolCallState } from "./components/screens/ToolsScreen/ToolsScreen";
 import type { GetPromptState } from "./components/screens/PromptsScreen/PromptsScreen";
@@ -71,6 +74,10 @@ import { ConnectionInfoModal } from "./components/groups/ConnectionInfoModal/Con
 import { OutputValidationModal } from "./components/groups/OutputValidationModal/OutputValidationModal";
 import type { OAuthDetails } from "./components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
+import {
+  PendingClientRequestModal,
+  type PendingClientRequestContent,
+} from "./components/groups/PendingClientRequestModal/PendingClientRequestModal";
 import { buildExportFilename, downloadJsonFile } from "./lib/downloadFile";
 import { createWebEnvironment } from "./lib/environmentFactory";
 import {
@@ -353,6 +360,10 @@ function App() {
   );
   const { messages } = useMessageLog(messageLogState);
   const { fetchRequests } = useFetchRequestLog(fetchRequestLogState);
+  // Server-initiated sampling / elicitation requests. These arrive while a call
+  // (e.g. a tool execution) is in flight and block it until the user responds.
+  const { pendingSamples, pendingElicitations } =
+    usePendingClientRequests(inspectorClient);
 
   // Capture observed handshake latency at the connecting → connected edge.
   // Reset when the status leaves "connected" so the next connect starts
@@ -1328,6 +1339,62 @@ function App() {
     return { ...readResourceState, isSubscribed };
   }, [readResourceState, subscriptions]);
 
+  // Surface one pending server-initiated request at a time in the modal,
+  // sampling-first. Responding (below) removes it from the client's queue,
+  // which re-renders this with the next request or closes the modal.
+  const activeSample = pendingSamples[0];
+  const activeElicitation = activeSample ? undefined : pendingElicitations[0];
+  const totalPendingRequests =
+    pendingSamples.length + pendingElicitations.length;
+
+  const pendingRequestContent =
+    useMemo<PendingClientRequestContent | null>(() => {
+      if (activeSample) {
+        return {
+          kind: "sampling",
+          id: activeSample.id,
+          request: activeSample.request.params,
+        };
+      }
+      if (activeElicitation) {
+        const params = activeElicitation.request.params;
+        if ("url" in params) {
+          return {
+            kind: "elicitation-url",
+            id: activeElicitation.id,
+            message: params.message,
+            url: params.url,
+          };
+        }
+        return {
+          kind: "elicitation-form",
+          id: activeElicitation.id,
+          request: params,
+        };
+      }
+      return null;
+    }, [activeSample, activeElicitation]);
+
+  const onSamplingRespond = useCallback(
+    (result: CreateMessageResult) => {
+      void pendingSamples[0]?.respond(result);
+    },
+    [pendingSamples],
+  );
+
+  const onSamplingReject = useCallback(() => {
+    void pendingSamples[0]?.reject(
+      new Error("Sampling request rejected by user."),
+    );
+  }, [pendingSamples]);
+
+  const onElicitationRespond = useCallback(
+    (result: ElicitResult) => {
+      void pendingElicitations[0]?.respond(result);
+    },
+    [pendingElicitations],
+  );
+
   return (
     <>
       <InspectorView
@@ -1444,6 +1511,14 @@ function App() {
         toolName={outputValidationDetails?.toolName}
         message={outputValidationDetails?.message}
         onClose={() => setOutputValidationDetails(null)}
+      />
+      <PendingClientRequestModal
+        request={pendingRequestContent}
+        serverName={activeServer?.name ?? "this server"}
+        queuePosition={`1 of ${totalPendingRequests}`}
+        onSamplingRespond={onSamplingRespond}
+        onSamplingReject={onSamplingReject}
+        onElicitationRespond={onElicitationRespond}
       />
     </>
   );

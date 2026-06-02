@@ -22,6 +22,8 @@ import type {
   AppRendererClient,
   InspectorClientProtocol,
 } from "../inspectorClientProtocol.js";
+import type { SamplingCreateMessage } from "../samplingCreateMessage.js";
+import type { ElicitationCreateMessage } from "../elicitationCreateMessage.js";
 import type {
   ConnectionStatus,
   PromptGetInvocation,
@@ -54,6 +56,8 @@ export class FakeInspectorClient
   private instructions: string | undefined;
   private appRendererClient: AppRendererClient | null = null;
   private sessionId: string | undefined;
+  private pendingSamples: SamplingCreateMessage[] = [];
+  private pendingElicitations: ElicitationCreateMessage[] = [];
 
   // Each paginated method pulls from a queue of pre-canned pages. Tests push
   // pages with `queueToolPages(...)` etc. so they can assert pagination
@@ -72,8 +76,7 @@ export class FakeInspectorClient
     async () => this.resourcePages.shift() ?? { resources: [] },
   );
   listResourceTemplates = vi.fn(
-    async () =>
-      this.resourceTemplatePages.shift() ?? { resourceTemplates: [] },
+    async () => this.resourceTemplatePages.shift() ?? { resourceTemplates: [] },
   );
   listRequestorTasks = vi.fn(
     async () => this.taskPages.shift() ?? { tasks: [] },
@@ -185,7 +188,28 @@ export class FakeInspectorClient
     return this.sessionId;
   }
 
+  getPendingSamples(): SamplingCreateMessage[] {
+    return [...this.pendingSamples];
+  }
+
+  getPendingElicitations(): ElicitationCreateMessage[] {
+    return [...this.pendingElicitations];
+  }
+
   // ---- test helpers ----
+
+  setPendingSamples(samples: SamplingCreateMessage[]): void {
+    this.pendingSamples = [...samples];
+    this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
+  }
+
+  setPendingElicitations(elicitations: ElicitationCreateMessage[]): void {
+    this.pendingElicitations = [...elicitations];
+    this.dispatchTypedEvent(
+      "pendingElicitationsChange",
+      this.pendingElicitations,
+    );
+  }
 
   setStatus(status: ConnectionStatus): void {
     this.status = status;
@@ -227,9 +251,7 @@ export class FakeInspectorClient
     this.promptPages.push(...pages);
   }
 
-  queueResourcePages(
-    ...pages: Array<ListResult<"resources", Resource>>
-  ): void {
+  queueResourcePages(...pages: Array<ListResult<"resources", Resource>>): void {
     this.resourcePages.push(...pages);
   }
 

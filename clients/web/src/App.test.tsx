@@ -32,6 +32,8 @@ vi.mock("@inspector/core/mcp/index.js", () => {
       .mockResolvedValue({ result: { contents: [] }, timestamp: 1 });
     setLoggingLevel = vi.fn().mockResolvedValue(undefined);
     getOAuthState = vi.fn().mockReturnValue(undefined);
+    getPendingSamples = vi.fn().mockReturnValue([]);
+    getPendingElicitations = vi.fn().mockReturnValue([]);
   }
   const instances: FakeInspectorClient[] = [];
   return {
