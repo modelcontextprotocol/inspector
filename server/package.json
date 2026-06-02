@@ -38,6 +38,7 @@
     "@modelcontextprotocol/sdk": "^1.25.2",
     "cors": "^2.8.5",
     "express": "^5.1.0",
+    "socks-proxy-agent": "^10.0.0",
     "shell-quote": "^1.8.3",
     "shx": "^0.3.4",
     "spawn-rx": "^5.1.2",

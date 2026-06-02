@@ -42,6 +42,11 @@ export type InspectorConfig = {
   MCP_PROXY_AUTH_TOKEN: ConfigItem;
 
   /**
+   * Optional SOCKS5 proxy URL used by the Inspector proxy server when connecting to upstream SSE or Streamable HTTP MCP servers.
+   */
+  MCP_UPSTREAM_SOCKS5_PROXY: ConfigItem;
+
+  /**
    * Default Time-to-Live (TTL) in milliseconds for newly created tasks.
    */
   MCP_TASK_TTL: ConfigItem;

@@ -4,6 +4,7 @@ import cors from "cors";
 import { parseArgs } from "node:util";
 import { parse as shellParseArgs } from "shell-quote";
 import nodeFetch, { Headers as NodeHeaders } from "node-fetch";
+import { SocksProxyAgent } from "socks-proxy-agent";
 
 // Type-compatible wrappers for node-fetch to work with browser-style types
 const fetch = nodeFetch;
@@ -53,6 +54,7 @@ const { values } = parseArgs({
     command: { type: "string", default: "" },
     transport: { type: "string", default: "" },
     "server-url": { type: "string", default: "" },
+    socks5: { type: "string", default: "" },
   },
 });
 
@@ -208,6 +210,31 @@ const updateHeadersInPlace = (
   }
 };
 
+const createSocksProxyAgent = (
+  proxyUrl?: string,
+): SocksProxyAgent | undefined => {
+  if (!proxyUrl) {
+    return undefined;
+  }
+
+  let parsedProxyUrl: URL;
+  try {
+    parsedProxyUrl = new URL(proxyUrl);
+  } catch (error) {
+    throw new Error(
+      `Invalid SOCKS5 proxy URL: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (!["socks5:", "socks5h:"].includes(parsedProxyUrl.protocol)) {
+    throw new Error(
+      `Invalid SOCKS5 proxy protocol: ${parsedProxyUrl.protocol}. Use socks5:// or socks5h://.`,
+    );
+  }
+
+  return new SocksProxyAgent(parsedProxyUrl);
+};
+
 const app = express();
 app.use(cors());
 app.use((req, res, next) => {
@@ -342,7 +369,12 @@ const createWebReadableStream = (nodeStream: any): ReadableStream => {
  * `Content-Type` are preserved. For SSE requests, it also converts Node.js
  * streams to web-compatible streams.
  */
-const createCustomFetch = (headerHolder: ProxyHeaderHolder) => {
+const createCustomFetch = (
+  headerHolder: ProxyHeaderHolder,
+  socks5ProxyUrl?: string,
+) => {
+  const agent = createSocksProxyAgent(socks5ProxyUrl);
+
   return async (
     input: RequestInfo | URL,
     init?: RequestInit,
@@ -370,7 +402,7 @@ const createCustomFetch = (headerHolder: ProxyHeaderHolder) => {
     // Get the response from node-fetch (cast input and init to handle type differences)
     const response = await fetch(
       input as any,
-      { ...init, headers: headersObject } as any,
+      { ...init, headers: headersObject, agent } as any,
     );
 
     if (response.status === 401) {
@@ -433,6 +465,11 @@ const createTransport = async (
   console.log("Query parameters:", JSON.stringify(query));
 
   const transportType = query.transportType as string;
+  const socks5ProxyUrl =
+    (query.socks5 as string | undefined) ||
+    values.socks5 ||
+    process.env.MCP_UPSTREAM_SOCKS5_PROXY ||
+    undefined;
 
   if (transportType === "stdio") {
     const command = (query.command as string).trim();
@@ -466,7 +503,7 @@ const createTransport = async (
 
     const transport = new SSEClientTransport(new URL(url), {
       eventSourceInit: {
-        fetch: createCustomFetch(headerHolder),
+        fetch: createCustomFetch(headerHolder, socks5ProxyUrl),
       },
       requestInit: {
         headers: headerHolder.headers,
@@ -483,7 +520,7 @@ const createTransport = async (
       new URL(query.url as string),
       {
         // Pass a custom fetch to inject the latest headers on each request
-        fetch: createCustomFetch(headerHolder),
+        fetch: createCustomFetch(headerHolder, socks5ProxyUrl),
       },
     );
     await transport.start();
@@ -922,6 +959,8 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
       defaultArgs: values.args,
       defaultTransport: values.transport,
       defaultServerUrl: values["server-url"],
+      defaultUpstreamSocks5Proxy:
+        values.socks5 || process.env.MCP_UPSTREAM_SOCKS5_PROXY || "",
     });
   } catch (error) {
     console.error("Error in /config route:", error);

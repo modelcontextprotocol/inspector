@@ -60,7 +60,9 @@
     "node-fetch": "^3.3.2",
     "open": "^10.2.0",
     "shell-quote": "^1.8.3",
+    "socks-proxy-agent": "^10.0.0",
     "spawn-rx": "^5.1.2",
+    "tailwind-merge": "^3.6.0",
     "ts-node": "^10.9.2",
     "zod": "^3.25.76"
   },

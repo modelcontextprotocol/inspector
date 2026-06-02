@@ -724,6 +724,21 @@ const App = () => {
         if (data.defaultServerUrl) {
           setSseUrl(data.defaultServerUrl);
         }
+        if (data.defaultUpstreamSocks5Proxy) {
+          setConfig((prev) => {
+            if (prev.MCP_UPSTREAM_SOCKS5_PROXY.value) {
+              return prev;
+            }
+
+            return {
+              ...prev,
+              MCP_UPSTREAM_SOCKS5_PROXY: {
+                ...prev.MCP_UPSTREAM_SOCKS5_PROXY,
+                value: data.defaultUpstreamSocks5Proxy,
+              },
+            };
+          });
+        }
       })
       .catch((error) =>
         console.error("Error fetching default environment:", error),
