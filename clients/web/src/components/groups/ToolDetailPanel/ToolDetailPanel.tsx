@@ -1,4 +1,12 @@
-import { Button, Divider, Group, Image, Stack, Text } from "@mantine/core";
+import {
+  Button,
+  Divider,
+  Group,
+  Image,
+  ScrollArea,
+  Stack,
+  Text,
+} from "@mantine/core";
 import type {
   ProgressNotification,
   Tool,
@@ -23,6 +31,40 @@ export interface ToolDetailPanelProps {
   onExecute: () => void;
   onCancel: () => void;
 }
+
+// Outer column: title/annotations pin at top, the Execute footer pins at the
+// bottom, and the middle (description + form + progress) scrolls when the
+// enclosing card hits its `mah`. `mih: 0` lets the flex children shrink.
+const PanelStack = Stack.withProps({
+  gap: "md",
+  miw: 0,
+  mih: 0,
+});
+
+const PinnedHeader = Stack.withProps({
+  gap: "md",
+  flex: "0 0 auto",
+});
+
+// `0 1 auto` + `mih: 0`: shrinks to the available space and scrolls; a short
+// form doesn't reserve extra height, keeping Execute snug below it.
+const BodyScroll = ScrollArea.withProps({
+  flex: "0 1 auto",
+  miw: 0,
+  mih: 0,
+  type: "auto",
+  scrollbars: "y",
+  offsetScrollbars: true,
+});
+
+const BodyStack = Stack.withProps({
+  gap: "md",
+});
+
+const FooterRow = Group.withProps({
+  justify: "flex-end",
+  flex: "0 0 auto",
+});
 
 const TitleRow = Group.withProps({
   gap: "sm",
@@ -76,42 +118,48 @@ export function ToolDetailPanel({
   const iconSrc = icons?.[0]?.src;
 
   return (
-    <Stack gap="md" miw={0}>
-      <TitleRow>
-        {iconSrc && <ToolIcon src={iconSrc} alt="" />}
-        <ToolTitle>{resolveDisplayLabel(name, title)}</ToolTitle>
-      </TitleRow>
-      {hasAnyAnnotation(annotations) && annotations && (
-        <Group gap="xs">
-          {annotations.readOnlyHint && (
-            <AnnotationBadge facet="readOnlyHint" value={true} />
-          )}
-          {annotations.destructiveHint && (
-            <AnnotationBadge facet="destructiveHint" value={true} />
-          )}
-          {annotations.idempotentHint && (
-            <AnnotationBadge facet="idempotentHint" value={true} />
-          )}
-          {annotations.openWorldHint && (
-            <AnnotationBadge facet="openWorldHint" value={true} />
-          )}
-        </Group>
-      )}
+    <PanelStack>
+      <PinnedHeader>
+        <TitleRow>
+          {iconSrc && <ToolIcon src={iconSrc} alt="" />}
+          <ToolTitle>{resolveDisplayLabel(name, title)}</ToolTitle>
+        </TitleRow>
+        {hasAnyAnnotation(annotations) && annotations && (
+          <Group gap="xs">
+            {annotations.readOnlyHint && (
+              <AnnotationBadge facet="readOnlyHint" value={true} />
+            )}
+            {annotations.destructiveHint && (
+              <AnnotationBadge facet="destructiveHint" value={true} />
+            )}
+            {annotations.idempotentHint && (
+              <AnnotationBadge facet="idempotentHint" value={true} />
+            )}
+            {annotations.openWorldHint && (
+              <AnnotationBadge facet="openWorldHint" value={true} />
+            )}
+          </Group>
+        )}
+      </PinnedHeader>
 
-      {description && <DescriptionText>{description}</DescriptionText>}
+      <BodyScroll>
+        <BodyStack>
+          {description && <DescriptionText>{description}</DescriptionText>}
 
-      <Divider />
+          <Divider />
 
-      <SchemaForm
-        schema={inputSchema}
-        values={formValues}
-        onChange={onFormChange}
-        disabled={isExecuting}
-      />
+          <SchemaForm
+            schema={inputSchema}
+            values={formValues}
+            onChange={onFormChange}
+            disabled={isExecuting}
+          />
 
-      {progress && <ProgressDisplay params={progress} />}
+          {progress && <ProgressDisplay params={progress} />}
+        </BodyStack>
+      </BodyScroll>
 
-      <Group justify="flex-end">
+      <FooterRow>
         {isExecuting && <CancelButton onClick={onCancel}>Cancel</CancelButton>}
         <Button
           size="md"
@@ -121,7 +169,7 @@ export function ToolDetailPanel({
         >
           Execute Tool
         </Button>
-      </Group>
-    </Stack>
+      </FooterRow>
+    </PanelStack>
   );
 }

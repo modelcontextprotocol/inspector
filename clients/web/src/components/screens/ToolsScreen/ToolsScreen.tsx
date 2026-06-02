@@ -26,12 +26,21 @@ export interface ToolsScreenProps {
   onClearResult?: () => void;
 }
 
+// Caps the detail/result columns at the screen's available height: full
+// viewport minus the app-shell header and the screen's top+bottom xl padding,
+// leaving the bottom margin the overflow used to eat.
+const SCROLL_MAX_HEIGHT =
+  "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)";
+
+// No `align` override: children stretch to the row's full height, giving each
+// column pane a definite height. That definite height is what lets a column's
+// inner ScrollArea know how much it can shrink into (a bare `mah` doesn't —
+// see the Prompts/Resources preview panes this mirrors).
 const ScreenLayout = Flex.withProps({
   variant: "screen",
   h: "calc(100vh - var(--app-shell-header-height, 0px))",
   gap: "md",
   p: "xl",
-  align: "flex-start",
 });
 
 const Sidebar = Stack.withProps({
@@ -44,9 +53,22 @@ const SidebarCard = Card.withProps({
   padding: "lg",
 });
 
+// Column wrapper: stretches to the screen's available height (capped by the
+// consumer-set `mah`) so the card inside has a definite height to shrink into.
+const ContentPane = Flex.withProps({
+  flex: 1,
+  miw: 0,
+  direction: "column",
+  align: "stretch",
+});
+
+// Detail/result column card: `variant="preview"` (overflow: hidden) lets the
+// panel's inner ScrollArea take over scrolling instead of the card bleeding
+// past the viewport. Sizes to content when short, caps at the pane when tall.
 const ContentCard = Card.withProps({
   withBorder: true,
   padding: "lg",
+  variant: "preview",
 });
 
 const EmptyState = Text.withProps({
@@ -113,32 +135,36 @@ export function ToolsScreen({
         </SidebarCard>
       </Sidebar>
 
-      <ContentCard flex={1}>
-        {selectedTool ? (
-          <ToolDetailPanel
-            tool={selectedTool}
-            formValues={formValues}
-            isExecuting={isExecuting}
-            progress={callState?.progress}
-            onFormChange={setFormValues}
-            onExecute={() => onCallTool(selectedTool.name, formValues)}
-            onCancel={() => onCancelCall?.()}
-          />
-        ) : (
-          <EmptyState>Select a tool to view details</EmptyState>
-        )}
-      </ContentCard>
+      <ContentPane mah={SCROLL_MAX_HEIGHT}>
+        <ContentCard>
+          {selectedTool ? (
+            <ToolDetailPanel
+              tool={selectedTool}
+              formValues={formValues}
+              isExecuting={isExecuting}
+              progress={callState?.progress}
+              onFormChange={setFormValues}
+              onExecute={() => onCallTool(selectedTool.name, formValues)}
+              onCancel={() => onCancelCall?.()}
+            />
+          ) : (
+            <EmptyState>Select a tool to view details</EmptyState>
+          )}
+        </ContentCard>
+      </ContentPane>
 
-      <ContentCard flex={1}>
-        {callState?.result ? (
-          <ToolResultPanel
-            result={callState.result}
-            onClear={() => onClearResult?.()}
-          />
-        ) : (
-          <EmptyState>Results will appear here</EmptyState>
-        )}
-      </ContentCard>
+      <ContentPane mah={SCROLL_MAX_HEIGHT}>
+        <ContentCard>
+          {callState?.result ? (
+            <ToolResultPanel
+              result={callState.result}
+              onClear={() => onClearResult?.()}
+            />
+          ) : (
+            <EmptyState>Results will appear here</EmptyState>
+          )}
+        </ContentCard>
+      </ContentPane>
     </ScreenLayout>
   );
 }

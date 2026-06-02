@@ -65,9 +65,13 @@ const SidebarCard = Card.withProps({
   padding: "lg",
 });
 
+// `variant="preview"` (overflow: hidden) keeps the full-height card from
+// bleeding past the viewport: the running app's iframe fills it, and the
+// app-input form scrolls internally (see AppDetailPanel's PanelScroll).
 const ContentCard = Card.withProps({
   withBorder: true,
   padding: "lg",
+  variant: "preview",
 });
 
 const EmptyState = Text.withProps({
