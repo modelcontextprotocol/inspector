@@ -20,6 +20,11 @@ export function createFileStorageAdapter(
 ): ReturnType<typeof createJSONStorage> {
   return createJSONStorage(() => ({
     getItem: async () => readStoreFile(options.filePath),
+    // Do not introduce an `await` before writeStoreFile() here: it registers
+    // the write in pendingWrites synchronously, which is load-bearing for
+    // flushStoreFileWrites() (a microtask hop before registration would make a
+    // flush called right after setItem find an empty map and return early,
+    // silently regressing tests to non-deterministic).
     setItem: async (_name: string, value: string) =>
       writeStoreFile(options.filePath, value),
     removeItem: async () => deleteStoreFile(options.filePath),

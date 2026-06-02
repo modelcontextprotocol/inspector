@@ -63,6 +63,12 @@ export async function readStoreFile(filePath: string): Promise<string | null> {
  * the file — Zustand's persist middleware invokes writeStoreFile() fire-and-
  * forget, so the in-memory store updates synchronously while the file write
  * lags. Entries are removed once their write settles.
+ *
+ * Load-bearing: pendingWrites.set() below runs synchronously before the first
+ * await in writeStoreFile(), so a flushStoreFileWrites() called right after a
+ * persist sees the in-flight entry. Callers (e.g. the storage adapter's
+ * setItem) must not introduce an await before writeStoreFile() — doing so would
+ * let a flush run before registration and return early.
  */
 const pendingWrites = new Map<string, Promise<void>>();
 

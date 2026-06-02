@@ -457,7 +457,7 @@ describe("OAuth Store (Zustand)", () => {
       `mcp-inspector-oauth-persist-${Date.now()}-${Math.random().toString(36).slice(2)}.json`,
     );
     try {
-      if (process.env.DEBUG_WAIT_FOR_STATE_FILE === "1") {
+      if (process.env.DEBUG_PERSIST_PATH === "1") {
         console.error("[storage-node.test] state file path:", persistTestPath);
       }
       const store = getOAuthStore(persistTestPath);
