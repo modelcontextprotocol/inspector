@@ -21,6 +21,7 @@ const baseProps = {
   values: {},
   onChange: vi.fn(),
   onSubmit: vi.fn(),
+  onDecline: vi.fn(),
   onCancel: vi.fn(),
 };
 
@@ -44,9 +45,10 @@ describe("ElicitationFormPanel", () => {
     expect(screen.getByLabelText("Port")).toBeInTheDocument();
   });
 
-  it("renders Submit and Cancel buttons", () => {
+  it("renders Submit, Decline, and Cancel buttons", () => {
     renderWithMantine(<ElicitationFormPanel {...baseProps} />);
     expect(screen.getByRole("button", { name: "Submit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Decline" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
@@ -58,6 +60,16 @@ describe("ElicitationFormPanel", () => {
     );
     await user.click(screen.getByRole("button", { name: "Submit" }));
     expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("invokes onDecline when Decline is clicked", async () => {
+    const user = userEvent.setup();
+    const onDecline = vi.fn();
+    renderWithMantine(
+      <ElicitationFormPanel {...baseProps} onDecline={onDecline} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Decline" }));
+    expect(onDecline).toHaveBeenCalledTimes(1);
   });
 
   it("invokes onCancel when Cancel is clicked", async () => {

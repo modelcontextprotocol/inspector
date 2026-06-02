@@ -1342,13 +1342,15 @@ function App() {
   // Surface one pending server-initiated request at a time in the modal,
   // sampling-first. Responding (below) removes it from the client's queue,
   // which re-renders this with the next request or closes the modal.
-  const activeSample = pendingSamples[0];
-  const activeElicitation = activeSample ? undefined : pendingElicitations[0];
   const totalPendingRequests =
     pendingSamples.length + pendingElicitations.length;
 
+  // Derive the head request inside the memo (depending on the source arrays)
+  // so the memo actually caches — an inline `activeElicitation` would have a
+  // fresh identity every render and defeat it.
   const pendingRequestContent =
     useMemo<PendingClientRequestContent | null>(() => {
+      const activeSample = pendingSamples[0];
       if (activeSample) {
         return {
           kind: "sampling",
@@ -1356,6 +1358,7 @@ function App() {
           request: activeSample.request.params,
         };
       }
+      const activeElicitation = pendingElicitations[0];
       if (activeElicitation) {
         const params = activeElicitation.request.params;
         if ("url" in params) {
@@ -1373,7 +1376,13 @@ function App() {
         };
       }
       return null;
-    }, [activeSample, activeElicitation]);
+    }, [pendingSamples, pendingElicitations]);
+
+  // A remaining-count hint shown only when more than the displayed head is
+  // queued. The modal always shows the head, so a "1 of N" position would be
+  // misleading — the leading "1" never changes.
+  const queueLabel =
+    totalPendingRequests > 1 ? `${totalPendingRequests} pending` : "";
 
   const onSamplingRespond = useCallback(
     (result: CreateMessageResult) => {
@@ -1515,7 +1524,7 @@ function App() {
       <PendingClientRequestModal
         request={pendingRequestContent}
         serverName={activeServer?.name ?? "this server"}
-        queuePosition={`1 of ${totalPendingRequests}`}
+        queuePosition={queueLabel}
         onSamplingRespond={onSamplingRespond}
         onSamplingReject={onSamplingReject}
         onElicitationRespond={onElicitationRespond}

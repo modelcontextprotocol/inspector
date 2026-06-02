@@ -248,6 +248,7 @@ export const WithElicitationModal: Story = {
           values={{}}
           onChange={fn()}
           onSubmit={fn()}
+          onDecline={fn()}
           onCancel={fn()}
         />
       </Modal>

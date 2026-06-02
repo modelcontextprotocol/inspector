@@ -9,6 +9,7 @@ const meta: Meta<typeof ElicitationFormPanel> = {
   args: {
     onChange: fn(),
     onSubmit: fn(),
+    onDecline: fn(),
     onCancel: fn(),
     serverName: "postgres-server",
     values: {},

@@ -25,7 +25,11 @@ export interface PendingClientRequestModalProps {
   request: PendingClientRequestContent | null;
   /** Display name of the connected server (shown in elicitation warnings). */
   serverName: string;
-  /** Queue position label, e.g. "1 of 3". */
+  /**
+   * Count label for the still-pending requests, e.g. "3 pending". The modal
+   * always shows the head of the queue, so this is a remaining-count hint, not
+   * a navigable position. Empty string hides the label (nothing else queued).
+   */
   queuePosition: string;
   /** Resolve a sampling request with the given (drafted or auto) result. */
   onSamplingRespond: (result: CreateMessageResult) => void;
@@ -116,6 +120,7 @@ function ElicitationFormModalBody({
           content: values as ElicitResult["content"],
         })
       }
+      onDecline={() => onRespond({ action: "decline" })}
       onCancel={() => onRespond({ action: "cancel" })}
     />
   );
@@ -143,6 +148,11 @@ function ElicitationUrlModalBody({
       }}
       onOpenInBrowser={() => {
         window.open(url, "_blank", "noopener,noreferrer");
+        // Accept-on-open: the inspector can't observe completion of an external
+        // flow, so opening the URL is treated as acceptance. This is optimistic
+        // — the user could close the tab without finishing. A proper two-step
+        // "open, then confirm completion" flow (using ElicitationUrlPanel's
+        // isWaiting state) is tracked as a follow-up; see #1415.
         onRespond({ action: "accept" });
       }}
       onCancel={() => onRespond({ action: "cancel" })}
@@ -175,7 +185,7 @@ export function PendingClientRequestModal({
         request && (
           <TitleRow>
             <TitleText>{titleFor(request)}</TitleText>
-            <QueueLabel>{queuePosition}</QueueLabel>
+            {queuePosition && <QueueLabel>{queuePosition}</QueueLabel>}
           </TitleRow>
         )
       }

@@ -140,6 +140,17 @@ describe("PendingClientRequestModal", () => {
     });
   });
 
+  it("declines a form elicitation", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <PendingClientRequestModal {...baseProps} request={formContent} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Decline" }));
+    expect(baseProps.onElicitationRespond).toHaveBeenCalledWith({
+      action: "decline",
+    });
+  });
+
   it("cancels a form elicitation", async () => {
     const user = userEvent.setup();
     renderWithMantine(

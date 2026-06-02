@@ -9,6 +9,9 @@ export interface ElicitationFormPanelProps {
   values: Record<string, unknown>;
   onChange: (values: Record<string, unknown>) => void;
   onSubmit: () => void;
+  /** Explicit refusal to provide the data (maps to the spec's `decline`). */
+  onDecline: () => void;
+  /** Dismissal without an explicit choice (maps to the spec's `cancel`). */
   onCancel: () => void;
 }
 
@@ -31,6 +34,7 @@ export function ElicitationFormPanel({
   values,
   onChange,
   onSubmit,
+  onDecline,
   onCancel,
 }: ElicitationFormPanelProps) {
   return (
@@ -48,6 +52,9 @@ export function ElicitationFormPanel({
       <Group justify="flex-end">
         <Button variant="light" onClick={onCancel}>
           Cancel
+        </Button>
+        <Button variant="light" color="red" onClick={onDecline}>
+          Decline
         </Button>
         <Button onClick={onSubmit}>Submit</Button>
       </Group>
