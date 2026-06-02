@@ -336,6 +336,8 @@ const meta: Meta<typeof InspectorView> = {
     onServerEdit: fn(),
     onServerClone: fn(),
     onServerRemove: fn(),
+    onSelectTool: fn(),
+    onToolFormChange: fn(),
     onCallTool: fn(),
     onRefreshTools: fn(),
     onGetPrompt: fn(),

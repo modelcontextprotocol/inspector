@@ -65,6 +65,8 @@ function makeProps(
     onServerEdit: vi.fn(),
     onServerClone: vi.fn(),
     onServerRemove: vi.fn(),
+    onSelectTool: vi.fn(),
+    onToolFormChange: vi.fn(),
     onCallTool: vi.fn(),
     onRefreshTools: vi.fn(),
     onGetPrompt: vi.fn(),

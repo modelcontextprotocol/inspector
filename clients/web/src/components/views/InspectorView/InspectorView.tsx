@@ -192,6 +192,10 @@ export interface InspectorViewProps {
   // Per-screen "operation in flight" states (panel-level; optional because
   // the underlying screens accept them as optional).
   toolCallState?: ToolCallState;
+  // Selected tool + its form values. Owned by the parent so they persist across
+  // tab navigation (the screen unmounts on tab switch) — see #1414.
+  selectedToolName?: string;
+  toolFormValues?: Record<string, unknown>;
   getPromptState?: GetPromptState;
   readResourceState?: ReadResourceState;
 
@@ -232,6 +236,8 @@ export interface InspectorViewProps {
   onServerRemove: (id: string) => void;
 
   // Per-primitive actions (route to `inspectorClient` methods / hook refresh).
+  onSelectTool: (name: string) => void;
+  onToolFormChange: (values: Record<string, unknown>) => void;
   onCallTool: (name: string, args: Record<string, unknown>) => void;
   onCancelToolCall?: () => void;
   onClearToolResult?: () => void;
@@ -295,6 +301,8 @@ export function InspectorView({
   history,
   network,
   toolCallState,
+  selectedToolName,
+  toolFormValues,
   getPromptState,
   readResourceState,
   currentLogLevel,
@@ -314,6 +322,8 @@ export function InspectorView({
   onServerEdit,
   onServerClone,
   onServerRemove,
+  onSelectTool,
+  onToolFormChange,
   onCallTool,
   onCancelToolCall,
   onClearToolResult,
@@ -466,7 +476,11 @@ export function InspectorView({
             <ToolsScreen
               tools={tools}
               callState={toolCallState}
+              selectedToolName={selectedToolName}
+              formValues={toolFormValues}
               listChanged={false}
+              onSelectTool={onSelectTool}
+              onFormChange={onToolFormChange}
               onRefreshList={onRefreshTools}
               onCallTool={onCallTool}
               onCancelCall={onCancelToolCall}
