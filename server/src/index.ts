@@ -668,11 +668,41 @@ app.get(
 
       await webAppTransport.start();
 
+      let transportsClosed = false;
+      const closeStdioTransports = () => {
+        if (transportsClosed) {
+          return;
+        }
+        transportsClosed = true;
+
+        webAppTransports.delete(webAppTransport.sessionId);
+        serverTransports.delete(webAppTransport.sessionId);
+        sessionHeaderHolders.delete(webAppTransport.sessionId);
+
+        webAppTransport.close().catch((error: unknown) => {
+          console.error("Error closing inspector client transport:", error);
+        });
+        serverTransport.close().catch((error: unknown) => {
+          console.error("Error closing stdio server transport:", error);
+        });
+      };
+
+      const sendStdioNotification = async (
+        message: Parameters<typeof webAppTransport.send>[0],
+      ) => {
+        try {
+          await webAppTransport.send(message);
+        } catch (error) {
+          console.error("Error sending stdio notification:", error);
+          closeStdioTransports();
+        }
+      };
+
       (serverTransport as StdioClientTransport).stderr!.on("data", (chunk) => {
         if (chunk.toString().includes("MODULE_NOT_FOUND")) {
           // Server command not found, remove transports
           const message = "Command not found, transports removed";
-          webAppTransport.send({
+          void sendStdioNotification({
             jsonrpc: "2.0",
             method: "notifications/message",
             params: {
@@ -682,12 +712,7 @@ app.get(
                 message,
               },
             },
-          });
-          webAppTransport.close();
-          serverTransport.close();
-          webAppTransports.delete(webAppTransport.sessionId);
-          serverTransports.delete(webAppTransport.sessionId);
-          sessionHeaderHolders.delete(webAppTransport.sessionId);
+          }).finally(closeStdioTransports);
           console.error(message);
         } else {
           // Inspect message and attempt to assign a RFC 5424 Syslog Protocol level
@@ -722,7 +747,7 @@ app.get(
           } else {
             level = "info";
           }
-          webAppTransport.send({
+          void sendStdioNotification({
             jsonrpc: "2.0",
             method: "notifications/message",
             params: {
