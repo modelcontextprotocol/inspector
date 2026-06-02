@@ -32,6 +32,8 @@ vi.mock("@inspector/core/mcp/index.js", () => {
       .mockResolvedValue({ result: { contents: [] }, timestamp: 1 });
     setLoggingLevel = vi.fn().mockResolvedValue(undefined);
     getOAuthState = vi.fn().mockReturnValue(undefined);
+    getPendingSamples = vi.fn().mockReturnValue([]);
+    getPendingElicitations = vi.fn().mockReturnValue([]);
   }
   const instances: FakeInspectorClient[] = [];
   return {
@@ -253,5 +255,60 @@ describe("App session-scoped state reset on disconnect", () => {
       expect(screen.getByTestId("resource-status")).toHaveTextContent("none");
     });
     expect(screen.getByTestId("log-level")).toHaveTextContent("info");
+  });
+});
+
+describe("App pending server-initiated request modal", () => {
+  beforeEach(() => {
+    clientInstances.length = 0;
+  });
+
+  it("opens the modal on a pending sample, resolves it, and closes", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    // The usePendingClientRequests hook subscribes to the live client's
+    // `pendingSamplesChange` event; firing it drives the App-owned modal that
+    // InspectorView does not render. Mirrors how the client enqueues a
+    // server-initiated sampling request mid tool-call.
+    const respond = vi.fn().mockResolvedValue(undefined);
+    const sample = {
+      id: "sample-1",
+      request: {
+        params: {
+          messages: [{ role: "user", content: { type: "text", text: "Hi" } }],
+          maxTokens: 256,
+        },
+      },
+      respond,
+      reject: vi.fn(),
+    };
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("pendingSamplesChange", { detail: [sample] }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText("Sampling Request")).toBeInTheDocument(),
+    );
+
+    // Resolving via the modal calls the queued request's respond() — this is
+    // what unblocks the originating call (the "spinner clears" criterion).
+    await user.click(screen.getByRole("button", { name: "Auto-respond" }));
+    expect(respond).toHaveBeenCalledTimes(1);
+
+    // The client clearing its queue (empty event) closes the modal.
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("pendingSamplesChange", { detail: [] }),
+      );
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("Sampling Request")).not.toBeInTheDocument(),
+    );
   });
 });

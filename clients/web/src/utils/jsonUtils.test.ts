@@ -4,7 +4,10 @@ import {
   tryParseJson,
   updateValueAtPath,
   getValueAtPath,
+  collectSchemaDefaults,
+  hasMissingRequiredFields,
 } from "./jsonUtils";
+import type { JsonSchemaType } from "./jsonUtils";
 
 describe("getDataType", () => {
   it("returns 'array' for arrays", () => {
@@ -164,5 +167,84 @@ describe("updateValueAtPath edge case suppression", () => {
   it("logs when array index is invalid", () => {
     updateValueAtPath([1], ["x"], 9);
     expect(console.error).toHaveBeenCalled();
+  });
+});
+
+describe("collectSchemaDefaults", () => {
+  it("collects defaults across field types and omits fields without one", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      properties: {
+        firstLine: {
+          type: "string",
+          default: "It was a dark and stormy night.",
+        },
+        integer: { type: "integer", default: 42 },
+        number: { type: "number", default: 3.14 },
+        choice: { type: "string", enum: ["a", "b"], default: "a" },
+        picks: { type: "array", items: { enum: ["x", "y"] }, default: ["x"] },
+        // No default — must be absent from the result, not undefined.
+        name: { type: "string", title: "Name" },
+      },
+    };
+    expect(collectSchemaDefaults(schema)).toEqual({
+      firstLine: "It was a dark and stormy night.",
+      integer: 42,
+      number: 3.14,
+      choice: "a",
+      picks: ["x"],
+    });
+  });
+
+  it("recurses into nested object schemas and skips empty ones", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      properties: {
+        db: {
+          type: "object",
+          properties: {
+            host: { type: "string", default: "localhost" },
+            port: { type: "integer" },
+          },
+        },
+        empty: {
+          type: "object",
+          properties: { note: { type: "string" } },
+        },
+      },
+    };
+    expect(collectSchemaDefaults(schema)).toEqual({
+      db: { host: "localhost" },
+    });
+  });
+
+  it("returns an empty object when the schema has no properties", () => {
+    expect(collectSchemaDefaults({ type: "object" })).toEqual({});
+  });
+});
+
+describe("hasMissingRequiredFields", () => {
+  const schema: JsonSchemaType = {
+    type: "object",
+    properties: { name: { type: "string" }, age: { type: "integer" } },
+    required: ["name"],
+  };
+
+  it("is false when no fields are required", () => {
+    expect(hasMissingRequiredFields({ type: "object" }, {})).toBe(false);
+  });
+
+  it("is true when a required field is absent, null, or empty", () => {
+    expect(hasMissingRequiredFields(schema, {})).toBe(true);
+    expect(hasMissingRequiredFields(schema, { name: null })).toBe(true);
+    expect(hasMissingRequiredFields(schema, { name: "" })).toBe(true);
+  });
+
+  it("is false when every required field has a value", () => {
+    expect(hasMissingRequiredFields(schema, { name: "Ada" })).toBe(false);
+    // A non-required field being empty does not matter.
+    expect(hasMissingRequiredFields(schema, { name: "Ada", age: "" })).toBe(
+      false,
+    );
   });
 });

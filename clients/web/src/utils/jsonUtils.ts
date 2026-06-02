@@ -82,6 +82,48 @@ export function getDataType(value: JsonValue): DataType {
 }
 
 /**
+ * Collect a schema's default field values into a values object. A schema form
+ * displays defaults but only writes a field into its `values` once the user
+ * edits it, so an untouched default would otherwise be absent from a
+ * submission. Seeding form state with this keeps default-only fields in the
+ * submitted result (parity with v1). Recurses into nested object schemas and
+ * omits fields that have no default.
+ */
+export function collectSchemaDefaults(
+  schema: JsonSchemaType,
+): Record<string, unknown> {
+  const properties = schema.properties ?? {};
+  const result: Record<string, unknown> = {};
+  for (const [fieldName, fieldSchema] of Object.entries(properties)) {
+    if (fieldSchema.default !== undefined) {
+      result[fieldName] = fieldSchema.default;
+    } else if (fieldSchema.type === "object" && fieldSchema.properties) {
+      const nested = collectSchemaDefaults(fieldSchema);
+      if (Object.keys(nested).length > 0) {
+        result[fieldName] = nested;
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Whether any of the schema's required top-level fields is missing a value in
+ * `values` (absent, null, or empty string). Used to gate a form's submit
+ * action until required fields are supplied.
+ */
+export function hasMissingRequiredFields(
+  schema: JsonSchemaType,
+  values: Record<string, unknown>,
+): boolean {
+  const required = schema.required ?? [];
+  return required.some((field) => {
+    const value = values[field];
+    return value === undefined || value === null || value === "";
+  });
+}
+
+/**
  * Attempts to parse a string as JSON, only for objects and arrays
  * @param str The string to parse
  * @returns Object with success boolean and either parsed data or original string

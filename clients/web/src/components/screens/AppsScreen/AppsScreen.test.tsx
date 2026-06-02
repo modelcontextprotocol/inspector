@@ -40,7 +40,7 @@ const cohortApp: Tool = {
   description: "Cohort retention",
   inputSchema: {
     type: "object",
-    properties: { metric: { type: "string" } },
+    properties: { metric: { type: "string", default: "retention" } },
   },
   _meta: { ui: { resourceUri: "ui://apps/cohorts" } },
 };
@@ -168,6 +168,16 @@ describe("AppsScreen", () => {
     await user.click(screen.getByRole("button", { name: /Open App/ }));
     expect(onOpenApp).toHaveBeenCalledWith("weather", { city: "Reykjavik" });
     expect(screen.getByTitle("Weather Widget")).toBeInTheDocument();
+  });
+
+  it("seeds schema defaults so untouched fields are sent on Open App", async () => {
+    const user = userEvent.setup();
+    const onOpenApp = vi.fn();
+    renderWithMantine(<AppsScreen {...buildProps({ onOpenApp })} />);
+    await user.click(screen.getByText("Cohort Data"));
+    // Open without editing the metric field: its default must still be sent.
+    await user.click(screen.getByRole("button", { name: /Open App/ }));
+    expect(onOpenApp).toHaveBeenCalledWith("cohorts", { metric: "retention" });
   });
 
   it("returns to the input form when 'Back to Input' is clicked", async () => {

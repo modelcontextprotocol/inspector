@@ -15,12 +15,22 @@ const dbRequest: ElicitRequestFormParams = {
   },
 };
 
+const requiredRequest: ElicitRequestFormParams = {
+  message: "Please provide your name.",
+  requestedSchema: {
+    type: "object" as const,
+    properties: { name: { type: "string" as const, title: "Name" } },
+    required: ["name"],
+  },
+};
+
 const baseProps = {
   request: dbRequest,
   serverName: "postgres-server",
   values: {},
   onChange: vi.fn(),
   onSubmit: vi.fn(),
+  onDecline: vi.fn(),
   onCancel: vi.fn(),
 };
 
@@ -44,9 +54,10 @@ describe("ElicitationFormPanel", () => {
     expect(screen.getByLabelText("Port")).toBeInTheDocument();
   });
 
-  it("renders Submit and Cancel buttons", () => {
+  it("renders Submit, Decline, and Cancel buttons", () => {
     renderWithMantine(<ElicitationFormPanel {...baseProps} />);
     expect(screen.getByRole("button", { name: "Submit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Decline" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
@@ -60,6 +71,16 @@ describe("ElicitationFormPanel", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
+  it("invokes onDecline when Decline is clicked", async () => {
+    const user = userEvent.setup();
+    const onDecline = vi.fn();
+    renderWithMantine(
+      <ElicitationFormPanel {...baseProps} onDecline={onDecline} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Decline" }));
+    expect(onDecline).toHaveBeenCalledTimes(1);
+  });
+
   it("invokes onCancel when Cancel is clicked", async () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();
@@ -68,6 +89,32 @@ describe("ElicitationFormPanel", () => {
     );
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables Submit until required fields are filled", () => {
+    const { rerender } = renderWithMantine(
+      <ElicitationFormPanel
+        {...baseProps}
+        request={requiredRequest}
+        values={{}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Submit" })).toBeDisabled();
+    rerender(
+      <ElicitationFormPanel
+        {...baseProps}
+        request={requiredRequest}
+        values={{ name: "Ada" }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Submit" })).toBeEnabled();
+  });
+
+  it("locks all actions when busy", () => {
+    renderWithMantine(<ElicitationFormPanel {...baseProps} busy />);
+    expect(screen.getByRole("button", { name: "Submit" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Decline" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
   });
 
   it("invokes onChange when a schema field is updated", async () => {

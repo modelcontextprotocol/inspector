@@ -1,6 +1,9 @@
 import { Alert, Button, Divider, Group, Stack, Text } from "@mantine/core";
 import type { ElicitRequestFormParams } from "@modelcontextprotocol/sdk/types.js";
-import type { JsonSchemaType } from "../../../utils/jsonUtils";
+import {
+  hasMissingRequiredFields,
+  type JsonSchemaType,
+} from "../../../utils/jsonUtils";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
 
 export interface ElicitationFormPanelProps {
@@ -9,7 +12,15 @@ export interface ElicitationFormPanelProps {
   values: Record<string, unknown>;
   onChange: (values: Record<string, unknown>) => void;
   onSubmit: () => void;
+  /** Explicit refusal to provide the data (maps to the spec's `decline`). */
+  onDecline: () => void;
+  /** Dismissal without an explicit choice (maps to the spec's `cancel`). */
   onCancel: () => void;
+  /**
+   * A response has been dispatched; lock the actions so a second click can't
+   * resolve the request twice (the underlying handler throws if called again).
+   */
+  busy?: boolean;
 }
 
 const QuotedMessage = Text.withProps({
@@ -31,25 +42,36 @@ export function ElicitationFormPanel({
   values,
   onChange,
   onSubmit,
+  onDecline,
   onCancel,
+  busy = false,
 }: ElicitationFormPanelProps) {
+  const requestedSchema = request.requestedSchema as JsonSchemaType;
+  const submitDisabled =
+    busy || hasMissingRequiredFields(requestedSchema, values);
   return (
     <Stack gap="md">
       <QuotedMessage>{formatQuoted(request.message)}</QuotedMessage>
       <Divider />
       <SchemaForm
-        schema={request.requestedSchema as JsonSchemaType}
+        schema={requestedSchema}
         values={values}
         onChange={onChange}
+        disabled={busy}
       />
       <Alert color="yellow" title="Warning">
         {formatWarning(serverName)}
       </Alert>
       <Group justify="flex-end">
-        <Button variant="light" onClick={onCancel}>
+        <Button variant="light" onClick={onCancel} disabled={busy}>
           Cancel
         </Button>
-        <Button onClick={onSubmit}>Submit</Button>
+        <Button variant="light" color="red" onClick={onDecline} disabled={busy}>
+          Decline
+        </Button>
+        <Button onClick={onSubmit} disabled={submitDisabled}>
+          Submit
+        </Button>
       </Group>
     </Stack>
   );

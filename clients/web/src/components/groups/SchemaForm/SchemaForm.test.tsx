@@ -190,6 +190,66 @@ describe("SchemaForm", () => {
     expect(onChange).toHaveBeenCalledWith({ tags: ["a"] });
   });
 
+  it("renders a MultiSelect for an array of enum items and invokes onChange when an option is selected", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const schema: JsonSchemaType = {
+      type: "object",
+      properties: {
+        instruments: {
+          type: "array",
+          description: "Choose your favorite instruments",
+          items: {
+            type: "string",
+            enum: ["Guitar", "Piano", "Drums"],
+          },
+        },
+      },
+    };
+    renderWithMantine(
+      <SchemaForm schema={schema} values={{}} onChange={onChange} />,
+    );
+    // Falls back to the field name as label when no title is supplied.
+    await user.click(screen.getByRole("textbox", { name: "instruments" }));
+    const option = await screen.findByRole("option", {
+      name: "Guitar",
+      hidden: true,
+    });
+    await user.click(option);
+    expect(onChange).toHaveBeenCalledWith({ instruments: ["Guitar"] });
+  });
+
+  it("uses enumNames for enum-array option labels and the raw value on change", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const schema: JsonSchemaType = {
+      type: "object",
+      properties: {
+        sizes: {
+          type: "array",
+          title: "Sizes",
+          items: {
+            type: "string",
+            enum: ["s", "m", "l"],
+            enumNames: ["Small", "Medium", "Large"],
+          },
+        },
+      },
+    };
+    renderWithMantine(
+      <SchemaForm schema={schema} values={{}} onChange={onChange} />,
+    );
+    await user.click(screen.getByRole("textbox", { name: "Sizes" }));
+    // The option shows the enumNames label...
+    const option = await screen.findByRole("option", {
+      name: "Medium",
+      hidden: true,
+    });
+    await user.click(option);
+    // ...but the value persisted is the raw enum value.
+    expect(onChange).toHaveBeenCalledWith({ sizes: ["m"] });
+  });
+
   it("renders nested object fields recursively", () => {
     const onChange = vi.fn();
     const schema: JsonSchemaType = {

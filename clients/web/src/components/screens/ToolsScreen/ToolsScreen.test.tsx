@@ -7,6 +7,13 @@ import { ToolsScreen } from "./ToolsScreen";
 const tools: Tool[] = [
   { name: "alpha", inputSchema: { type: "object" } },
   { name: "beta", inputSchema: { type: "object" } },
+  {
+    name: "gamma",
+    inputSchema: {
+      type: "object",
+      properties: { mode: { type: "string", default: "fast" } },
+    },
+  },
 ];
 
 const baseProps = {
@@ -56,6 +63,16 @@ describe("ToolsScreen", () => {
     expect(onCallTool).toHaveBeenCalledWith("alpha", {});
   });
 
+  it("seeds schema defaults so untouched fields are sent on Execute", async () => {
+    const user = userEvent.setup();
+    const onCallTool = vi.fn();
+    renderWithMantine(<ToolsScreen {...baseProps} onCallTool={onCallTool} />);
+    await user.click(screen.getByText("gamma"));
+    // Execute without editing the form: the default must still be sent.
+    await user.click(screen.getByRole("button", { name: /Execute/ }));
+    expect(onCallTool).toHaveBeenCalledWith("gamma", { mode: "fast" });
+  });
+
   it("invokes onClearResult when Clear is clicked on the result panel", async () => {
     const user = userEvent.setup();
     const onClearResult = vi.fn();
@@ -70,6 +87,23 @@ describe("ToolsScreen", () => {
       />,
     );
     await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(onClearResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the persisted result when the screen unmounts", () => {
+    const onClearResult = vi.fn();
+    const { unmount } = renderWithMantine(
+      <ToolsScreen
+        {...baseProps}
+        onClearResult={onClearResult}
+        callState={{
+          status: "ok",
+          result: { content: [{ type: "text", text: "ok" }] },
+        }}
+      />,
+    );
+    expect(onClearResult).not.toHaveBeenCalled();
+    unmount();
     expect(onClearResult).toHaveBeenCalledTimes(1);
   });
 

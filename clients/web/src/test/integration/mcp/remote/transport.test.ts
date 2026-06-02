@@ -650,9 +650,16 @@ describe("Remote transport e2e", () => {
     it("writes InspectorClient logs to file via createRemoteLogger over remote transport", async () => {
       tempDir = mkdtempSync(join(tmpdir(), "inspector-log-test-"));
       const logPath = join(tempDir!, "remote.log");
+      // sync: true so writes land before the afterEach rmSync, avoiding a
+      // background sonic-boom flush into a removed temp dir (uncaught ENOENT).
       const fileLogger = pino(
         { level: "info" },
-        pino.destination({ dest: logPath, append: true, mkdir: true }),
+        pino.destination({
+          dest: logPath,
+          append: true,
+          mkdir: true,
+          sync: true,
+        }),
       );
 
       mcpHttpServer = createTestServerHttp({
@@ -1401,7 +1408,14 @@ describe("Remote transport e2e", () => {
       const tmp = mkdtempSync(join(tmpdir(), "inspector-log-unknown-level-"));
       const logFile = join(tmp, "app.log");
       try {
-        const logger = pino({ level: "info" }, pino.destination(logFile));
+        // sync: true so the file write completes during the request rather
+        // than on a background sonic-boom flush — otherwise the flush can fire
+        // after this test's `finally` rmSync removes the dir, throwing an
+        // uncaught ENOENT that fails an unrelated later test.
+        const logger = pino(
+          { level: "info" },
+          pino.destination({ dest: logFile, sync: true }),
+        );
         const { baseUrl, server, authToken } = await startRemoteServer(0, {
           logger,
         });
@@ -1427,7 +1441,14 @@ describe("Remote transport e2e", () => {
       const tmp = mkdtempSync(join(tmpdir(), "inspector-log-no-messages-"));
       const logFile = join(tmp, "app.log");
       try {
-        const logger = pino({ level: "info" }, pino.destination(logFile));
+        // sync: true so the file write completes during the request rather
+        // than on a background sonic-boom flush — otherwise the flush can fire
+        // after this test's `finally` rmSync removes the dir, throwing an
+        // uncaught ENOENT that fails an unrelated later test.
+        const logger = pino(
+          { level: "info" },
+          pino.destination({ dest: logFile, sync: true }),
+        );
         const { baseUrl, server, authToken } = await startRemoteServer(0, {
           logger,
         });
@@ -1458,7 +1479,14 @@ describe("Remote transport e2e", () => {
       const tmp = mkdtempSync(join(tmpdir(), "inspector-log-string-first-"));
       const logFile = join(tmp, "app.log");
       try {
-        const logger = pino({ level: "info" }, pino.destination(logFile));
+        // sync: true so the file write completes during the request rather
+        // than on a background sonic-boom flush — otherwise the flush can fire
+        // after this test's `finally` rmSync removes the dir, throwing an
+        // uncaught ENOENT that fails an unrelated later test.
+        const logger = pino(
+          { level: "info" },
+          pino.destination({ dest: logFile, sync: true }),
+        );
         const { baseUrl, server, authToken } = await startRemoteServer(0, {
           logger,
         });

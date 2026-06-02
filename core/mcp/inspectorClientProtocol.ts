@@ -32,6 +32,8 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { JsonValue } from "../json/jsonUtils.js";
 import type { InspectorClientEventTarget } from "./inspectorClientEventTarget.js";
+import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
+import type { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
 
 /**
  * Opaque type representing the AppRendererClient surface used by @mcp-ui.
@@ -104,6 +106,13 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   // Misc surface required by hooks/state
   setLoggingLevel(level: LoggingLevel): Promise<void>;
   getSessionId(): string | undefined;
+
+  // Server-initiated request queues. Each entry exposes `respond()` / `reject()`
+  // (and `remove()`), which resolve the handler Promise that left the originating
+  // call (e.g. a tool execution) in flight. The `pendingSamplesChange` /
+  // `pendingElicitationsChange` events fire whenever these arrays mutate.
+  getPendingSamples(): SamplingCreateMessage[];
+  getPendingElicitations(): ElicitationCreateMessage[];
 
   // Completions (resource templates / prompt arguments)
   getCompletions(
