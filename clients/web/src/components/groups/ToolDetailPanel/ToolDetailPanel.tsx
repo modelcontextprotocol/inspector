@@ -151,8 +151,14 @@ export function ToolDetailPanel({
   const taskSupport = getTaskSupport(tool);
   const showRunAsTask =
     serverSupportsTaskToolCalls && taskSupport !== "forbidden";
+  // Gate the effective decision on `showRunAsTask` (which includes
+  // `serverSupportsTaskToolCalls`): a stale `runAsTask`/`required` value must
+  // not route through callToolStream when the toggle is hidden because the
+  // server doesn't advertise task tool calls. Per spec, a tool's taskSupport is
+  // only considered when the server advertises `tasks.requests.tools.call`.
   const effectiveRunAsTask =
-    taskSupport === "required" || (taskSupport === "optional" && runAsTask);
+    showRunAsTask &&
+    (taskSupport === "required" || (taskSupport === "optional" && runAsTask));
 
   return (
     <PanelStack>

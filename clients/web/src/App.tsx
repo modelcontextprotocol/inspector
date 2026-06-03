@@ -1212,10 +1212,18 @@ function App() {
       const tool = tools.find((t: Tool) => t.name === name);
       if (!tool) return;
       // Route through the task pipeline when the caller asked to (or the tool
-      // requires it — `callTool` throws for those). The created task shows up on
-      // the Tasks screen via the `requestorTaskUpdated` events callToolStream
-      // dispatches, and its live status/progress surface as toasts + progress bar.
-      const asTask = runAsTask || tool.execution?.taskSupport === "required";
+      // requires it) — but only if the server advertises task tool calls. Per
+      // spec a tool's `taskSupport` is considered only when the server declares
+      // `tasks.requests.tools.call`, so without it we never task-augment (even a
+      // "required" tool, which then surfaces callTool's "requires task support"
+      // error). The created task shows up on the Tasks screen via the
+      // `requestorTaskUpdated` events callToolStream dispatches, and its live
+      // status/progress surface as toasts + progress bar.
+      const serverSupportsTaskToolCalls =
+        !!capabilities?.tasks?.requests?.tools?.call;
+      const asTask =
+        serverSupportsTaskToolCalls &&
+        (runAsTask || tool.execution?.taskSupport === "required");
       setToolCallState({ status: "pending" });
       try {
         // ToolsScreen types the args as `Record<string, unknown>` (it accepts
@@ -1247,7 +1255,7 @@ function App() {
         });
       }
     },
-    [inspectorClient, tools, activeServer],
+    [inspectorClient, tools, activeServer, capabilities],
   );
 
   const onClearToolResult = useCallback(() => {

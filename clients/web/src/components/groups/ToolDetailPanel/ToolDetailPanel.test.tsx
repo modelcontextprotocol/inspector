@@ -327,5 +327,24 @@ describe("ToolDetailPanel", () => {
       await user.click(screen.getByRole("button", { name: "Execute Tool" }));
       expect(onExecute).toHaveBeenCalledWith(true);
     });
+
+    it("gates onExecute to false when the server lacks task-tool-call support, even with a stale runAsTask", async () => {
+      const user = userEvent.setup();
+      const onExecute = vi.fn();
+      // The toggle is hidden (server doesn't support it), but a leftover
+      // runAsTask=true must not leak into the effective decision.
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={toolWithSupport("optional")}
+          serverSupportsTaskToolCalls={false}
+          runAsTask={true}
+          onExecute={onExecute}
+        />,
+      );
+      expect(screen.queryByLabelText("Run as task")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Execute Tool" }));
+      expect(onExecute).toHaveBeenCalledWith(false);
+    });
   });
 });

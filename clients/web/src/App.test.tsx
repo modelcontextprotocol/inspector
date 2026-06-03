@@ -346,6 +346,20 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
 import App from "./App";
 import * as McpIndex from "@inspector/core/mcp/index.js";
 import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
+import { useInspectorClient } from "@inspector/core/react/useInspectorClient.js";
+
+// Default useInspectorClient return — capabilities empty (no task tool calls).
+// Individual tests override via vi.mocked(...).mockReturnValue(...).
+const DEFAULT_USE_INSPECTOR_CLIENT: ReturnType<typeof useInspectorClient> = {
+  status: "connected",
+  capabilities: {},
+  clientCapabilities: {},
+  serverInfo: undefined,
+  instructions: undefined,
+  appRendererClient: null,
+  connect: vi.fn().mockResolvedValue(undefined),
+  disconnect: vi.fn().mockResolvedValue(undefined),
+};
 
 const clientInstances = (
   McpIndex as unknown as { __clientInstances: EventTarget[] }
@@ -628,9 +642,16 @@ describe("App task wiring", () => {
       refresh: vi.fn().mockResolvedValue([]),
       clearCompleted: vi.fn(),
     });
+    // Restore the default capabilities (no task tool calls) between tests.
+    vi.mocked(useInspectorClient).mockReturnValue(DEFAULT_USE_INSPECTOR_CLIENT);
   });
 
   it("routes a Run-as-task call through callToolStream with the server's TTL", async () => {
+    // onCallTool only task-augments when the server advertises task tool calls.
+    vi.mocked(useInspectorClient).mockReturnValue({
+      ...DEFAULT_USE_INSPECTOR_CLIENT,
+      capabilities: { tasks: { requests: { tools: { call: {} } } } },
+    });
     const user = userEvent.setup();
     renderWithMantine(<App />);
     await user.click(screen.getByText("connect"));
@@ -647,6 +668,24 @@ describe("App task wiring", () => {
     // 5th arg is the task options; TTL falls back to the 60000 default since
     // SERVER_A has no `settings.taskTtl`.
     expect(client.callToolStream.mock.calls[0][4]).toEqual({ ttl: 60000 });
+  });
+
+  it("does NOT task-augment when the server lacks task-tool-call support", async () => {
+    // Default capabilities (no tasks.requests.tools.call). A stale run-as-task
+    // request must fall back to the normal callTool path, never callToolStream.
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("call-as-task"));
+
+    const client = clientInstances[0] as unknown as {
+      callToolStream: ReturnType<typeof vi.fn>;
+      callTool: ReturnType<typeof vi.fn>;
+    };
+    await waitFor(() => expect(client.callTool).toHaveBeenCalledTimes(1));
+    expect(client.callToolStream).not.toHaveBeenCalled();
   });
 
   it("surfaces a cancel failure as a red toast", async () => {

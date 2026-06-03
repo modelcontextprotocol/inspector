@@ -22,9 +22,11 @@ export interface ToolsUiState {
   selectedToolName?: string;
   formValues: Record<string, unknown>;
   search: string;
-  // "Run as task" preference for the selected tool. Persists across tab
-  // navigation like the rest of the UI state; only honored for tools whose
-  // `execution.taskSupport` is "optional" (see ToolDetailPanel).
+  // Screen-level "Run as task" toggle, shared across tools (not per-tool):
+  // selecting a different tool keeps the current value. Persists across tab
+  // navigation like the rest of the UI state, and is only honored for the
+  // selected tool when its `execution.taskSupport` is "optional" (a "required"
+  // tool is always run as a task, "forbidden" never) — see ToolDetailPanel.
   runAsTask: boolean;
 }
 

@@ -196,6 +196,7 @@ export function ServerSettingsForm({
             <NumberInput
               label="Task TTL"
               suffix=" ms"
+              min={1}
               value={settings.taskTtl}
               onChange={handleTimeoutChange("taskTtl")}
             />
