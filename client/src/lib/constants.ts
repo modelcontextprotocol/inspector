@@ -38,6 +38,15 @@ export type ConnectionStatus =
 export const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
 
 /**
+ * JSON-RPC error code when the inspector proxy cannot complete a forward to the upstream MCP server.
+ * **-32099** — high end of JSON-RPC’s -32000..-32099 server-error band to avoid MCP-assigned codes
+ * (see comment on `server/src/mcpProxy.ts` `MCP_PROXY_TRANSPORT_ERROR_CODE`). Duplicated like
+ * `DEFAULT_MCP_PROXY_LISTEN_PORT`. Keep in sync with the server value;
+ * `src/lib/__tests__/mcpProxyTransportErrorCode.test.ts` fails if they drift.
+ */
+export const MCP_PROXY_TRANSPORT_ERROR_CODE = -32099;
+
+/**
  * Default configuration for the MCP Inspector, Currently persisted in local_storage in the Browser.
  * Future plans: Provide json config file + Browser local_storage to override default values
  **/

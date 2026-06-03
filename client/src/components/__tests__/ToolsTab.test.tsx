@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, it, jest, beforeEach } from "@jest/globals";
-import ToolsTab from "../ToolsTab";
+import ToolsTab, { ExtendedTool } from "../ToolsTab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Tabs } from "../ui/tabs";
 import { cacheToolOutputSchemas } from "../../utils/schemaUtils";
@@ -73,6 +73,7 @@ describe("ToolsTab", () => {
     error: null,
     resourceContent: {},
     onReadResource: jest.fn(),
+    serverSupportsTaskRequests: true,
   };
 
   const renderToolsTab = (props = {}) => {
@@ -105,6 +106,86 @@ describe("ToolsTab", () => {
     // Verify input is reset
     const newInput = screen.getByRole("spinbutton") as HTMLInputElement;
     expect(newInput.value).toBe("");
+  });
+
+  it("should show/hide/disable run-as-task checkbox based on taskSupport", async () => {
+    const forbiddenTool: ExtendedTool = {
+      ...mockTools[0],
+      name: "forbiddenTool",
+      execution: { taskSupport: "forbidden" },
+    };
+    const requiredTool: ExtendedTool = {
+      ...mockTools[0],
+      name: "requiredTool",
+      execution: { taskSupport: "required" },
+    };
+    const optionalTool: ExtendedTool = {
+      ...mockTools[0],
+      name: "optionalTool",
+      execution: { taskSupport: "optional" },
+    };
+
+    const { rerender } = renderToolsTab({
+      selectedTool: forbiddenTool,
+    });
+
+    expect(screen.queryByLabelText(/run as task/i)).not.toBeInTheDocument();
+
+    rerender(
+      <Tabs defaultValue="tools">
+        <ToolsTab {...defaultProps} selectedTool={optionalTool} />
+      </Tabs>,
+    );
+    const optionalCheckbox = screen.getByLabelText(
+      /run as task/i,
+    ) as HTMLInputElement;
+    expect(optionalCheckbox).toBeInTheDocument();
+    expect(optionalCheckbox.getAttribute("aria-checked")).toBe("false");
+    expect(optionalCheckbox).not.toBeDisabled();
+
+    rerender(
+      <Tabs defaultValue="tools">
+        <ToolsTab {...defaultProps} selectedTool={requiredTool} />
+      </Tabs>,
+    );
+    const requiredCheckbox = screen.getByLabelText(
+      /run as task/i,
+    ) as HTMLInputElement;
+    expect(requiredCheckbox).toBeInTheDocument();
+    expect(requiredCheckbox.getAttribute("aria-checked")).toBe("true");
+    expect(requiredCheckbox).toBeDisabled();
+  });
+
+  it("should hide run-as-task checkbox when serverSupportsTaskRequests is false even for required/optional tools", async () => {
+    const requiredTool: ExtendedTool = {
+      ...mockTools[0],
+      name: "requiredTool",
+      execution: { taskSupport: "required" },
+    };
+    const optionalTool: ExtendedTool = {
+      ...mockTools[0],
+      name: "optionalTool",
+      execution: { taskSupport: "optional" },
+    };
+
+    const { rerender } = renderToolsTab({
+      selectedTool: requiredTool,
+      serverSupportsTaskRequests: false,
+    });
+
+    expect(screen.queryByLabelText(/run as task/i)).not.toBeInTheDocument();
+
+    rerender(
+      <Tabs defaultValue="tools">
+        <ToolsTab
+          {...defaultProps}
+          selectedTool={optionalTool}
+          serverSupportsTaskRequests={false}
+        />
+      </Tabs>,
+    );
+
+    expect(screen.queryByLabelText(/run as task/i)).not.toBeInTheDocument();
   });
 
   it("should handle integer type inputs", async () => {

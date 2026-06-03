@@ -51,7 +51,7 @@ jobs:
         run: npm run test:e2e
 
       - name: Upload Playwright Report and Screenshots
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: steps.playwright-tests.conclusion != 'skipped'
         with:
           name: playwright-report

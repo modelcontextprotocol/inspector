@@ -33,6 +33,7 @@ import {
 import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "./lib/auth-types";
 import { OAuthStateMachine } from "./lib/oauth-state-machine";
+import { createProxyFetch } from "./lib/proxyFetch";
 import { cacheToolOutputSchemas } from "./utils/schemaUtils";
 import { cleanParams } from "./utils/paramUtils";
 import type { JsonSchemaType } from "./utils/jsonUtils";
@@ -634,9 +635,17 @@ const App = () => {
         };
 
         try {
-          const stateMachine = new OAuthStateMachine(sseUrl, (updates) => {
-            currentState = { ...currentState, ...updates };
-          });
+          const fetchFn =
+            connectionType === "proxy" && config
+              ? createProxyFetch(config)
+              : undefined;
+          const stateMachine = new OAuthStateMachine(
+            sseUrl,
+            (updates) => {
+              currentState = { ...currentState, ...updates };
+            },
+            fetchFn,
+          );
 
           while (
             currentState.oauthStep !== "complete" &&
@@ -674,7 +683,7 @@ const App = () => {
         });
       }
     },
-    [sseUrl],
+    [sseUrl, connectionType, config],
   );
 
   useEffect(() => {
@@ -1276,6 +1285,8 @@ const App = () => {
         onBack={() => setIsAuthDebuggerVisible(false)}
         authState={authState}
         updateAuthState={updateAuthState}
+        config={config}
+        connectionType={connectionType}
       />
     </TabsContent>
   );
@@ -1538,6 +1549,9 @@ const App = () => {
                       error={errors.prompts}
                     />
                     <ToolsTab
+                      serverSupportsTaskRequests={
+                        !!serverCapabilities?.tasks?.requests?.tools?.call
+                      }
                       tools={tools}
                       listTools={() => {
                         clearError("tools");

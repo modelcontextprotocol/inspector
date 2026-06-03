@@ -53,9 +53,38 @@ import {
   isReservedMetaKey,
 } from "@/utils/metaUtils";
 
+/**
+ * Extended Tool type that includes optional fields used by the inspector.
+ */
+export interface ExtendedTool extends Tool, WithIcons {
+  _meta?: Record<string, unknown>;
+  execution?: {
+    taskSupport?: "forbidden" | "required" | "optional";
+  };
+}
+
 // Type guard to safely detect the optional _meta field without using `any`
-const hasMeta = (tool: Tool): tool is Tool & { _meta: unknown } =>
-  typeof (tool as { _meta?: unknown })._meta !== "undefined";
+const hasMeta = (
+  tool: Tool,
+): tool is ExtendedTool & { _meta: Record<string, unknown> } =>
+  typeof (tool as ExtendedTool)._meta !== "undefined";
+
+// Returns the execution.taskSupport value for a tool, defaulting to "forbidden" per MCP spec
+const getTaskSupport = (
+  tool: Tool | null,
+): "forbidden" | "required" | "optional" => {
+  if (!tool) return "forbidden";
+  const extendedTool = tool as ExtendedTool;
+  const taskSupport = extendedTool.execution?.taskSupport;
+  if (
+    taskSupport === "forbidden" ||
+    taskSupport === "required" ||
+    taskSupport === "optional"
+  ) {
+    return taskSupport;
+  }
+  return "forbidden";
+};
 
 // Type guard to safely detect the optional annotations field
 const hasAnnotations = (
@@ -148,6 +177,7 @@ const ToolsTab = ({
   error,
   resourceContent,
   onReadResource,
+  serverSupportsTaskRequests,
 }: {
   tools: Tool[];
   listTools: () => void;
@@ -166,6 +196,7 @@ const ToolsTab = ({
   error: string | null;
   resourceContent: Record<string, string>;
   onReadResource?: (uri: string) => void;
+  serverSupportsTaskRequests: boolean;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [runAsTask, setRunAsTask] = useState(false);
@@ -210,14 +241,17 @@ const ToolsTab = ({
       ];
     });
     setParams(Object.fromEntries(params));
-    setRunAsTask(false);
+    const toolTaskSupport = serverSupportsTaskRequests
+      ? getTaskSupport(selectedTool)
+      : "forbidden";
+    setRunAsTask(toolTaskSupport === "required");
 
     // Reset validation errors when switching tools
     setHasValidationErrors(false);
 
     // Clear form refs for the previous tool
     formRefs.current = {};
-  }, [selectedTool]);
+  }, [selectedTool, serverSupportsTaskRequests]);
 
   const hasReservedMetadataEntry = metadataEntries.some(({ key }) => {
     const trimmedKey = key.trim();
@@ -234,6 +268,10 @@ const ToolsTab = ({
     return trimmedKey !== "" && !hasValidMetaName(trimmedKey);
   });
 
+  const taskSupport = serverSupportsTaskRequests
+    ? getTaskSupport(selectedTool)
+    : "forbidden";
+
   return (
     <TabsContent value="tools">
       <div className="grid grid-cols-2 gap-4">
@@ -249,7 +287,7 @@ const ToolsTab = ({
           renderItem={(tool) => (
             <div className="flex items-start w-full gap-2">
               <div className="flex-shrink-0 mt-1">
-                <IconDisplay icons={(tool as WithIcons).icons} size="sm" />
+                <IconDisplay icons={(tool as ExtendedTool).icons} size="sm" />
               </div>
               <div className="flex flex-col flex-1 min-w-0">
                 <span className="truncate">{tool.title || tool.name}</span>
@@ -270,7 +308,7 @@ const ToolsTab = ({
             <div className="flex items-center gap-2">
               {selectedTool && (
                 <IconDisplay
-                  icons={(selectedTool as WithIcons).icons}
+                  icons={(selectedTool as ExtendedTool).icons}
                   size="md"
                 />
               )}
@@ -747,21 +785,24 @@ const ToolsTab = ({
                       </div>
                     </div>
                   )}
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="run-as-task"
-                    checked={runAsTask}
-                    onCheckedChange={(checked: boolean) =>
-                      setRunAsTask(checked)
-                    }
-                  />
-                  <Label
-                    htmlFor="run-as-task"
-                    className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
-                  >
-                    Run as task
-                  </Label>
-                </div>
+                {taskSupport !== "forbidden" && (
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="run-as-task"
+                      checked={runAsTask}
+                      onCheckedChange={(checked: boolean) =>
+                        setRunAsTask(checked)
+                      }
+                      disabled={taskSupport === "required"}
+                    />
+                    <Label
+                      htmlFor="run-as-task"
+                      className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
+                    >
+                      Run as task
+                    </Label>
+                  </div>
+                )}
                 <Button
                   onClick={async () => {
                     // Validate JSON inputs before calling tool
