@@ -556,8 +556,13 @@ function App() {
     inspectorClient.addEventListener("progressNotification", onProgress);
     return () => {
       inspectorClient.removeEventListener("progressNotification", onProgress);
-      // Drop stream bookkeeping when the client is swapped out; the next
-      // session starts with no live progress toasts tracked.
+      // Dismiss any still-visible progress toasts when the client is swapped
+      // out, then drop the stream bookkeeping. Hiding them (rather than letting
+      // them auto-close up to PROGRESS_TOAST_AUTOCLOSE_MS later) keeps a stale
+      // "Tool progress" toast from lingering into the next session, and avoids
+      // a race where the lingering toast's `onClose` would later delete an id
+      // from the *new* session's set and trigger a duplicate-id re-show.
+      liveToastIds.forEach((id) => notifications.hide(id));
       liveToastIds.clear();
     };
   }, [inspectorClient]);

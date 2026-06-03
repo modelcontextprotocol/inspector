@@ -394,6 +394,7 @@ describe("App tool progress toasts", () => {
     clientInstances.length = 0;
     notificationsMock.show.mockClear();
     notificationsMock.update.mockClear();
+    notificationsMock.hide.mockClear();
   });
 
   it("shows a toast on the first progress tick and updates it on later ticks", async () => {
@@ -447,6 +448,29 @@ describe("App tool progress toasts", () => {
       );
     });
     expect(notificationsMock.show.mock.calls[0][0].message).toBe("7");
+  });
+
+  it("dismisses still-visible progress toasts when the client is torn down", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderWithMantine(<App />);
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("progressNotification", {
+          detail: { progress: 1, total: 4 },
+        }),
+      );
+    });
+    const id = notificationsMock.show.mock.calls[0][0].id;
+
+    // Tearing down the client (here via unmount; same path as a server swap)
+    // hides the live toast so it can't linger into — or race with — the next
+    // session, rather than waiting out its auto-close window.
+    unmount();
+    expect(notificationsMock.hide).toHaveBeenCalledWith(id);
   });
 });
 
