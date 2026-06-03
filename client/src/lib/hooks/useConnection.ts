@@ -753,6 +753,11 @@ export function useConnection({
           ToolListChangedNotificationSchema,
           PromptListChangedNotificationSchema,
           TaskStatusNotificationSchema,
+          // SEP-1036: elicitation/complete is surfaced in the notification panel
+          // so the user can observe out-of-band completion. The Inspector does
+          // not auto-correlate the notification's elicitationId back to its
+          // pending request (a spec MAY); the user resolves the request manually
+          // via the Accept button (the spec SHOULD).
           ElicitationCompleteNotificationSchema,
         ].forEach((notificationSchema) => {
           client.setNotificationHandler(notificationSchema, onNotification);

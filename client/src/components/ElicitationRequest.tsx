@@ -45,8 +45,25 @@ const ElicitationRequest = ({
   }, [isUrlMode, requestData]);
 
   if (isUrlMode) {
+    // Per MCP SEP-1036 security requirements, only HTTPS URLs may be opened.
+    // Validate the server-supplied URL before exposing the "Open URL" affordance
+    // so non-https schemes (http:, file:, javascript:, data:) and malformed URLs
+    // are refused rather than handed to window.open.
+    let parsedUrl: URL | null = null;
+    let urlError: string | null = null;
+    try {
+      parsedUrl = new URL(requestData.url);
+      if (parsedUrl.protocol !== "https:") {
+        urlError = `Refusing to open this URL: only https: URLs are permitted for URL elicitation (received scheme "${parsedUrl.protocol}").`;
+        parsedUrl = null;
+      }
+    } catch {
+      urlError = `The server provided a malformed URL: ${requestData.url}`;
+    }
+
     const handleConfirmOpen = () => {
-      window.open(requestData.url, "_blank", "noopener,noreferrer");
+      if (!parsedUrl) return;
+      window.open(parsedUrl.href, "_blank", "noopener,noreferrer");
       setShowUrlConfirm(false);
     };
 
@@ -61,8 +78,20 @@ const ElicitationRequest = ({
             <p className="text-sm">{requestData.message}</p>
           </div>
         </div>
+        {urlError && (
+          <div
+            data-testid="url-error"
+            className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md text-sm text-red-600 dark:text-red-400"
+          >
+            <strong>Invalid URL:</strong> {urlError}
+          </div>
+        )}
         <div className="flex space-x-2">
-          <Button type="button" onClick={() => setShowUrlConfirm(true)}>
+          <Button
+            type="button"
+            disabled={!!urlError}
+            onClick={() => setShowUrlConfirm(true)}
+          >
             Open URL
           </Button>
           <Button
@@ -95,6 +124,17 @@ const ElicitationRequest = ({
                 The server is requesting you visit the following URL:
               </DialogDescription>
             </DialogHeader>
+            {parsedUrl && (
+              <p className="text-sm">
+                Destination host:{" "}
+                <span
+                  data-testid="url-confirm-host"
+                  className="font-mono font-semibold break-all"
+                >
+                  {parsedUrl.host}
+                </span>
+              </p>
+            )}
             <p
               data-testid="url-confirm-text"
               className="text-sm font-mono bg-gray-100 dark:bg-gray-800 p-3 rounded break-all select-all"

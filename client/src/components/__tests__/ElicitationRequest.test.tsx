@@ -333,5 +333,64 @@ describe("ElicitationRequest", () => {
 
       expect(mockOnResolve).toHaveBeenCalledWith(2, { action: "cancel" });
     });
+
+    it("should display the destination host in the consent dialog", async () => {
+      renderElicitationRequest(createUrlRequest());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /open url/i }));
+      });
+
+      expect(screen.getByTestId("url-confirm-host")).toHaveTextContent(
+        "example.com",
+      );
+    });
+
+    it.each([
+      ["http://example.com/auth", "http: (non-HTTPS)"],
+      ["javascript:alert(1)", "javascript:"],
+      ["file:///etc/passwd", "file:"],
+      ["data:text/html,<script>alert(1)</script>", "data:"],
+    ])(
+      "should refuse to open non-HTTPS URL %s and disable Open URL",
+      async (url) => {
+        const windowOpenSpy = jest
+          .spyOn(window, "open")
+          .mockImplementation(() => null);
+        renderElicitationRequest({
+          id: 2,
+          request: {
+            id: 2,
+            mode: "url",
+            message: "Please complete authentication",
+            url,
+            elicitationId: "elicit-123",
+          },
+        });
+
+        expect(screen.getByTestId("url-error")).toBeInTheDocument();
+        expect(
+          screen.getByRole("button", { name: /open url/i }),
+        ).toBeDisabled();
+        expect(windowOpenSpy).not.toHaveBeenCalled();
+        windowOpenSpy.mockRestore();
+      },
+    );
+
+    it("should show an error and disable Open URL for a malformed URL", () => {
+      renderElicitationRequest({
+        id: 2,
+        request: {
+          id: 2,
+          mode: "url",
+          message: "Please complete authentication",
+          url: "not a url",
+          elicitationId: "elicit-123",
+        },
+      });
+
+      expect(screen.getByTestId("url-error")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /open url/i })).toBeDisabled();
+    });
   });
 });
