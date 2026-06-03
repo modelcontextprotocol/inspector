@@ -3647,6 +3647,36 @@ describe("InspectorClient", () => {
       expect(progressEvents.some((e) => e.progress.total === 5)).toBe(true);
     });
 
+    it("does not emit requestorTaskProgress when progress is globally disabled", async () => {
+      // The callToolStream onprogress wrapper is gated on `this.progress`, so a
+      // client with progress disabled neither requests a progress token nor
+      // emits requestorTaskProgress — task calls respect the same toggle as
+      // every other call path. The task still completes.
+      const noProgressClient = new InspectorClient(
+        { type: "sse", url: server!.url },
+        { environment: { transport: createTransportNode }, progress: false },
+      );
+      await noProgressClient.connect();
+      try {
+        const progressEvents: Array<{ taskId: string; progress: Progress }> =
+          [];
+        noProgressClient.addEventListener(
+          "requestorTaskProgress",
+          (event: TypedEvent<"requestorTaskProgress">) => {
+            progressEvents.push(event.detail);
+          },
+        );
+        const progressTool = await getTool(noProgressClient, "progress_task");
+        const result = await noProgressClient.callToolStream(progressTool, {
+          message: "no progress",
+        });
+        expect(result.success).toBe(true);
+        expect(progressEvents).toHaveLength(0);
+      } finally {
+        await noProgressClient.disconnect();
+      }
+    });
+
     it("should get task by taskId", async () => {
       // First create a task
       const simpleTaskByIdTool = await getTool(client!, "simple_task");

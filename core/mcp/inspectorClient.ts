@@ -1528,17 +1528,25 @@ export class InspectorClient extends InspectorClientEventTarget {
       // created also dispatches requestorTaskProgress tagged with the taskId
       // this stream owns — the only place that mapping is known. Ticks before
       // taskCreated (rare) just fall through to the generic event.
+      //
+      // Gate on `this.progress`, mirroring getRequestOptions: when progress is
+      // globally disabled there's no inner handler to wrap, and we must not
+      // attach one here either — doing so would request a progress token (and
+      // emit requestorTaskProgress) for task calls only, bypassing the toggle
+      // that governs every other call path.
       const requestOptions = this.getRequestOptions(metadata?.progressToken);
-      const innerOnProgress = requestOptions.onprogress;
-      requestOptions.onprogress = (progress: Progress) => {
-        innerOnProgress?.(progress);
-        if (taskId) {
-          this.dispatchTypedEvent("requestorTaskProgress", {
-            taskId,
-            progress,
-          });
-        }
-      };
+      if (this.progress) {
+        const innerOnProgress = requestOptions.onprogress;
+        requestOptions.onprogress = (progress: Progress) => {
+          innerOnProgress?.(progress);
+          if (taskId) {
+            this.dispatchTypedEvent("requestorTaskProgress", {
+              taskId,
+              progress,
+            });
+          }
+        };
+      }
 
       const stream = this.client.experimental.tasks.callToolStream(
         streamParams as CallToolRequest["params"],
