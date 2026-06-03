@@ -22,6 +22,8 @@ const sampleEntries: MessageEntry[] = [
 const baseProps = {
   entries: sampleEntries,
   pinnedIds: new Set<string>(),
+  onSearchChange: vi.fn(),
+  onMethodFilterChange: vi.fn(),
   onClearAll: vi.fn(),
   onExport: vi.fn(),
   onReplay: vi.fn(),

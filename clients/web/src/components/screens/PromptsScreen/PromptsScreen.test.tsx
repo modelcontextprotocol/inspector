@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { PromptsScreen } from "./PromptsScreen";
+import { PromptsScreen, type PromptsScreenProps } from "./PromptsScreen";
 
 const promptsWithArgs: Prompt[] = [
   {
@@ -27,7 +28,58 @@ const baseProps = {
   listChanged: false,
   onRefreshList: vi.fn(),
   onGetPrompt: vi.fn(),
+  onSelectedPromptNameChange: vi.fn(),
+  onArgumentValuesChange: vi.fn(),
+  onSubmittedForChange: vi.fn(),
+  onSearchChange: vi.fn(),
 };
+
+// PromptsScreen is controlled: selection, argument values, the submitted
+// marker, and the sidebar search live in the parent (App) so they persist
+// across tab navigation (#1417). This host holds that state so clicking a
+// prompt, typing arguments, submitting, and closing drive the panel exactly
+// as App owns it. Props passed in override defaults; the stateful wiring is
+// applied last so callers can still observe activity via the spied callbacks.
+function ControlledPromptsScreen(props: Partial<PromptsScreenProps>) {
+  const [selectedPromptName, setSelectedPromptName] = useState<
+    string | undefined
+  >(props.selectedPromptName);
+  const [argumentValues, setArgumentValues] = useState<Record<string, string>>(
+    props.argumentValues ?? {},
+  );
+  const [submittedFor, setSubmittedFor] = useState<string | undefined>(
+    props.submittedFor,
+  );
+  const [searchText, setSearchText] = useState<string | undefined>(
+    props.searchText,
+  );
+  return (
+    <PromptsScreen
+      {...baseProps}
+      {...props}
+      selectedPromptName={selectedPromptName}
+      argumentValues={argumentValues}
+      submittedFor={submittedFor}
+      searchText={searchText}
+      onSelectedPromptNameChange={(value) => {
+        setSelectedPromptName(value);
+        props.onSelectedPromptNameChange?.(value);
+      }}
+      onArgumentValuesChange={(value) => {
+        setArgumentValues(value);
+        props.onArgumentValuesChange?.(value);
+      }}
+      onSubmittedForChange={(value) => {
+        setSubmittedFor(value);
+        props.onSubmittedForChange?.(value);
+      }}
+      onSearchChange={(value) => {
+        setSearchText(value);
+        props.onSearchChange?.(value);
+      }}
+    />
+  );
+}
 
 describe("PromptsScreen", () => {
   it("renders the empty state when no prompt is selected", () => {
@@ -39,7 +91,7 @@ describe("PromptsScreen", () => {
 
   it("shows the argument form when a prompt with arguments is selected", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<PromptsScreen {...baseProps} />);
+    renderWithMantine(<ControlledPromptsScreen />);
     await user.click(screen.getByText("summarize"));
     expect(
       screen.getByRole("button", { name: "Get Prompt" }),
@@ -50,8 +102,7 @@ describe("PromptsScreen", () => {
     const user = userEvent.setup();
     const onGetPrompt = vi.fn();
     renderWithMantine(
-      <PromptsScreen
-        {...baseProps}
+      <ControlledPromptsScreen
         prompts={noArgPrompts}
         onGetPrompt={onGetPrompt}
       />,
@@ -68,8 +119,7 @@ describe("PromptsScreen", () => {
     const user = userEvent.setup();
     const onGetPrompt = vi.fn();
     const { rerender } = renderWithMantine(
-      <PromptsScreen
-        {...baseProps}
+      <ControlledPromptsScreen
         prompts={noArgPrompts}
         onGetPrompt={onGetPrompt}
       />,
@@ -79,8 +129,7 @@ describe("PromptsScreen", () => {
     // Parent re-renders with a fresh pending state — the fetch must not
     // re-fire just because props changed.
     rerender(
-      <PromptsScreen
-        {...baseProps}
+      <ControlledPromptsScreen
         prompts={noArgPrompts}
         onGetPrompt={onGetPrompt}
         getPromptState={{ status: "pending", promptName: "ping" }}
@@ -93,8 +142,7 @@ describe("PromptsScreen", () => {
     const user = userEvent.setup();
     const onGetPrompt = vi.fn();
     renderWithMantine(
-      <PromptsScreen
-        {...baseProps}
+      <ControlledPromptsScreen
         onGetPrompt={onGetPrompt}
         getPromptState={{
           status: "ok",
@@ -119,8 +167,7 @@ describe("PromptsScreen", () => {
   it("shows pending state once the user has submitted", async () => {
     const user = userEvent.setup();
     renderWithMantine(
-      <PromptsScreen
-        {...baseProps}
+      <ControlledPromptsScreen
         getPromptState={{ status: "pending", promptName: "summarize" }}
       />,
     );
@@ -133,8 +180,7 @@ describe("PromptsScreen", () => {
   it("shows error state once the user has submitted", async () => {
     const user = userEvent.setup();
     renderWithMantine(
-      <PromptsScreen
-        {...baseProps}
+      <ControlledPromptsScreen
         getPromptState={{
           status: "error",
           promptName: "summarize",
@@ -152,8 +198,7 @@ describe("PromptsScreen", () => {
   it("falls back to a default error message when none is provided", async () => {
     const user = userEvent.setup();
     renderWithMantine(
-      <PromptsScreen
-        {...baseProps}
+      <ControlledPromptsScreen
         getPromptState={{ status: "error", promptName: "summarize" }}
       />,
     );
@@ -166,8 +211,7 @@ describe("PromptsScreen", () => {
   it("ignores a stale getPromptState whose name does not match the selection", async () => {
     const user = userEvent.setup();
     renderWithMantine(
-      <PromptsScreen
-        {...baseProps}
+      <ControlledPromptsScreen
         // Stale result for a prompt the user is no longer viewing.
         getPromptState={{
           status: "ok",
@@ -190,8 +234,7 @@ describe("PromptsScreen", () => {
     const user = userEvent.setup();
     const onGetPrompt = vi.fn();
     renderWithMantine(
-      <PromptsScreen
-        {...baseProps}
+      <ControlledPromptsScreen
         prompts={noArgPrompts}
         onGetPrompt={onGetPrompt}
       />,
@@ -210,9 +253,7 @@ describe("PromptsScreen", () => {
       { name: "alpha", arguments: [{ name: "x" }] },
       { name: "beta", arguments: [{ name: "y" }] },
     ];
-    renderWithMantine(
-      <PromptsScreen {...baseProps} prompts={arglessTwoStep} />,
-    );
+    renderWithMantine(<ControlledPromptsScreen prompts={arglessTwoStep} />);
     await user.click(screen.getByText("alpha"));
     await user.type(screen.getByPlaceholderText("Enter x..."), "value");
     await user.click(screen.getByText("beta"));
@@ -222,8 +263,7 @@ describe("PromptsScreen", () => {
   it("closing the preview from the error state brings the form back", async () => {
     const user = userEvent.setup();
     renderWithMantine(
-      <PromptsScreen
-        {...baseProps}
+      <ControlledPromptsScreen
         getPromptState={{
           status: "error",
           promptName: "summarize",
@@ -244,8 +284,7 @@ describe("PromptsScreen", () => {
   it("closing the preview for an arg-bearing prompt brings the form back", async () => {
     const user = userEvent.setup();
     renderWithMantine(
-      <PromptsScreen
-        {...baseProps}
+      <ControlledPromptsScreen
         getPromptState={{
           status: "ok",
           promptName: "summarize",
@@ -270,8 +309,7 @@ describe("PromptsScreen", () => {
   it("closing the preview for a no-arg prompt drops the selection", async () => {
     const user = userEvent.setup();
     renderWithMantine(
-      <PromptsScreen
-        {...baseProps}
+      <ControlledPromptsScreen
         prompts={noArgPrompts}
         getPromptState={{
           status: "ok",
@@ -305,8 +343,7 @@ describe("PromptsScreen", () => {
       >()
       .mockResolvedValue([]);
     renderWithMantine(
-      <PromptsScreen
-        {...baseProps}
+      <ControlledPromptsScreen
         completionsSupported
         onCompleteArgument={onCompleteArgument}
       />,

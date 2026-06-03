@@ -1,3 +1,5 @@
+import { useState } from "react";
+import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type {
   Resource,
@@ -8,6 +10,39 @@ import { fn, userEvent, within } from "storybook/test";
 import { ResourcesScreen } from "./ResourcesScreen";
 import type { ReadResourceState } from "./ResourcesScreen";
 
+// ResourcesScreen is controlled (resource/template selection, the originating
+// template, search text, and open accordion sections live in the parent — see
+// #1417). This wrapper holds that state so the play-driven clicks still drive
+// the detail/preview panels, mirroring how App owns the state in the real app.
+function StatefulResourcesScreen(args: ComponentProps<typeof ResourcesScreen>) {
+  const [selectedResourceUri, setSelectedResourceUri] = useState(
+    args.selectedResourceUri,
+  );
+  const [selectedTemplateUri, setSelectedTemplateUri] = useState(
+    args.selectedTemplateUri,
+  );
+  const [originatingTemplateUri, setOriginatingTemplateUri] = useState(
+    args.originatingTemplateUri,
+  );
+  const [searchText, setSearchText] = useState(args.searchText ?? "");
+  const [openSections, setOpenSections] = useState(args.openSections);
+  return (
+    <ResourcesScreen
+      {...args}
+      selectedResourceUri={selectedResourceUri}
+      selectedTemplateUri={selectedTemplateUri}
+      originatingTemplateUri={originatingTemplateUri}
+      searchText={searchText}
+      openSections={openSections}
+      onSelectedResourceUriChange={setSelectedResourceUri}
+      onSelectedTemplateUriChange={setSelectedTemplateUri}
+      onOriginatingTemplateUriChange={setOriginatingTemplateUri}
+      onSearchChange={setSearchText}
+      onOpenSectionsChange={setOpenSections}
+    />
+  );
+}
+
 const meta: Meta<typeof ResourcesScreen> = {
   title: "Screens/ResourcesScreen",
   component: ResourcesScreen,
@@ -17,12 +52,18 @@ const meta: Meta<typeof ResourcesScreen> = {
     onReadResource: fn(),
     onSubscribeResource: fn(),
     onUnsubscribeResource: fn(),
+    onSelectedResourceUriChange: fn(),
+    onSelectedTemplateUriChange: fn(),
+    onOriginatingTemplateUriChange: fn(),
+    onSearchChange: fn(),
+    onOpenSectionsChange: fn(),
     listChanged: false,
     subscriptions: [],
     templates: [],
     compact: false,
     onCompactChange: fn(),
   },
+  render: (args) => <StatefulResourcesScreen {...args} />,
 };
 
 export default meta;

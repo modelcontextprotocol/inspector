@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
@@ -7,8 +6,12 @@ import { ToolListItem } from "../ToolListItem/ToolListItem";
 export interface ToolControlsProps {
   tools: Tool[];
   selectedName?: string;
+  // Search text is controlled by the parent (App, via ToolsScreen) so it
+  // persists across tab navigation within a live session — see #1417.
+  searchText?: string;
   listChanged: boolean;
   onRefreshList: () => void;
+  onSearchChange: (value: string) => void;
   onSelectTool: (name: string) => void;
 }
 
@@ -18,11 +21,12 @@ const LIST_MAX_HEIGHT =
 export function ToolControls({
   tools,
   selectedName,
+  searchText = "",
   listChanged,
   onRefreshList,
+  onSearchChange,
   onSelectTool,
 }: ToolControlsProps) {
-  const [searchText, setSearchText] = useState("");
   const query = searchText.toLowerCase();
   const filteredTools = searchText
     ? tools.filter(
@@ -41,7 +45,7 @@ export function ToolControls({
       <TextInput
         placeholder="Search tools..."
         value={searchText}
-        onChange={(e) => setSearchText(e.currentTarget.value)}
+        onChange={(e) => onSearchChange(e.currentTarget.value)}
       />
       <ScrollArea.Autosize mah={LIST_MAX_HEIGHT}>
         <Stack gap="xs">

@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Alert,
   Card,
@@ -33,8 +32,22 @@ export interface ResourcesScreenProps {
   templates: ResourceTemplate[];
   subscriptions: InspectorResourceSubscription[];
   readState?: ReadResourceState;
+  // Selection (resource URI, template URI, the originating-template marker),
+  // the sidebar search, and accordion open-sections are controlled by the
+  // parent (App) so they persist across tab navigation within a live
+  // session — see #1417.
+  selectedResourceUri?: string;
+  selectedTemplateUri?: string;
+  originatingTemplateUri?: string;
+  searchText?: string;
+  openSections?: string[];
   listChanged: boolean;
   completionsSupported?: boolean;
+  onSelectedResourceUriChange: (value: string | undefined) => void;
+  onSelectedTemplateUriChange: (value: string | undefined) => void;
+  onOriginatingTemplateUriChange: (value: string | undefined) => void;
+  onSearchChange: (value: string) => void;
+  onOpenSectionsChange: (value: string[]) => void;
   onRefreshList: () => void;
   onReadResource: (uri: string) => void;
   onSubscribeResource: (uri: string) => void;
@@ -107,8 +120,18 @@ export function ResourcesScreen({
   templates,
   subscriptions,
   readState,
+  selectedResourceUri,
+  selectedTemplateUri,
+  originatingTemplateUri,
+  searchText = "",
+  openSections,
   listChanged,
   completionsSupported,
+  onSelectedResourceUriChange,
+  onSelectedTemplateUriChange,
+  onOriginatingTemplateUriChange,
+  onSearchChange,
+  onOpenSectionsChange,
   onRefreshList,
   onReadResource,
   onSubscribeResource,
@@ -117,20 +140,6 @@ export function ResourcesScreen({
   compact,
   onCompactChange,
 }: ResourcesScreenProps) {
-  const [selectedResourceUri, setSelectedResourceUri] = useState<
-    string | undefined
-  >(undefined);
-  const [selectedTemplateUri, setSelectedTemplateUri] = useState<
-    string | undefined
-  >(undefined);
-  // Tracks which template (if any) produced the current preview so that
-  // closing the preview can restore the template form. Cleared when the
-  // user navigates to a non-template resource or picks a different
-  // template directly from the sidebar.
-  const [originatingTemplateUri, setOriginatingTemplateUri] = useState<
-    string | undefined
-  >(undefined);
-
   const selectedResource = selectedResourceUri
     ? resources.find((r) => r.uri === selectedResourceUri)
     : undefined;
@@ -147,16 +156,16 @@ export function ResourcesScreen({
       : undefined);
 
   function handleSelectResource(uri: string) {
-    setSelectedTemplateUri(undefined);
-    setSelectedResourceUri(uri);
-    setOriginatingTemplateUri(undefined);
+    onSelectedTemplateUriChange(undefined);
+    onSelectedResourceUriChange(uri);
+    onOriginatingTemplateUriChange(undefined);
     onReadResource(uri);
   }
 
   function handleSelectTemplate(uriTemplate: string) {
-    setSelectedResourceUri(undefined);
-    setSelectedTemplateUri(uriTemplate);
-    setOriginatingTemplateUri(undefined);
+    onSelectedResourceUriChange(undefined);
+    onSelectedTemplateUriChange(uriTemplate);
+    onOriginatingTemplateUriChange(undefined);
   }
 
   function handleReadResource(uri: string) {
@@ -166,18 +175,18 @@ export function ResourcesScreen({
     // the rendered resource is shown. We remember the template URI so
     // closing the preview can restore the form.
     if (selectedTemplateUri) {
-      setOriginatingTemplateUri(selectedTemplateUri);
+      onOriginatingTemplateUriChange(selectedTemplateUri);
     }
-    setSelectedTemplateUri(undefined);
-    setSelectedResourceUri(uri);
+    onSelectedTemplateUriChange(undefined);
+    onSelectedResourceUriChange(uri);
     onReadResource(uri);
   }
 
   function handleClosePreview() {
-    setSelectedResourceUri(undefined);
+    onSelectedResourceUriChange(undefined);
     if (originatingTemplateUri) {
-      setSelectedTemplateUri(originatingTemplateUri);
-      setOriginatingTemplateUri(undefined);
+      onSelectedTemplateUriChange(originatingTemplateUri);
+      onOriginatingTemplateUriChange(undefined);
     }
   }
 
@@ -251,8 +260,12 @@ export function ResourcesScreen({
             subscriptions={subscriptions}
             selectedUri={selectedResourceUri}
             selectedTemplateUri={selectedTemplateUri}
+            searchText={searchText}
+            openSections={openSections}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
+            onSearchChange={onSearchChange}
+            onOpenSectionsChange={onOpenSectionsChange}
             onSelectUri={handleSelectResource}
             onSelectTemplate={handleSelectTemplate}
             onUnsubscribeResource={onUnsubscribeResource}

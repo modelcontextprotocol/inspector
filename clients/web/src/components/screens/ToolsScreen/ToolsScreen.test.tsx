@@ -22,6 +22,7 @@ const baseProps = {
   listChanged: false,
   onSelectTool: vi.fn(),
   onFormChange: vi.fn(),
+  onSearchChange: vi.fn(),
   onRefreshList: vi.fn(),
   onCallTool: vi.fn(),
 };
@@ -38,12 +39,20 @@ function ControlledToolsScreen(props: Partial<ToolsScreenProps>) {
   const [formValues, setFormValues] = useState<Record<string, unknown>>(
     props.formValues ?? {},
   );
+  const [searchText, setSearchText] = useState<string | undefined>(
+    props.searchText,
+  );
   return (
     <ToolsScreen
       {...baseProps}
       {...props}
       selectedToolName={selectedToolName}
       formValues={formValues}
+      searchText={searchText}
+      onSearchChange={(value) => {
+        setSearchText(value);
+        props.onSearchChange?.(value);
+      }}
       onSelectTool={(name) => {
         setSelectedToolName(name);
         props.onSelectTool?.(name);

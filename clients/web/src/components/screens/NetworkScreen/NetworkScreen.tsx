@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Card, Flex, Stack } from "@mantine/core";
 import type {
   FetchRequestCategory,
@@ -7,9 +6,21 @@ import type {
 import { NetworkControls } from "../../groups/NetworkControls/NetworkControls";
 import { NetworkStreamPanel } from "../../groups/NetworkStreamPanel/NetworkStreamPanel";
 import type { SortDirection } from "../../elements/SortToggle/SortToggle";
+import {
+  ALL_CATEGORIES_VISIBLE,
+  NO_CATEGORIES_VISIBLE,
+} from "./fetchCategories";
 
 export interface NetworkScreenProps {
   entries: FetchRequestEntry[];
+  // Filter text + visible-category set are controlled by the parent (App) so
+  // they persist across tab navigation within a live session — see #1417.
+  filterText?: string;
+  visibleCategories?: Record<FetchRequestCategory, boolean>;
+  onFilterChange: (value: string) => void;
+  onVisibleCategoriesChange: (
+    value: Record<FetchRequestCategory, boolean>,
+  ) => void;
   onClear: () => void;
   onExport: () => void;
   sortDirection: SortDirection;
@@ -17,16 +28,6 @@ export interface NetworkScreenProps {
   compact: boolean;
   onToggleCompact: () => void;
 }
-
-const ALL_CATEGORIES_VISIBLE: Record<FetchRequestCategory, boolean> = {
-  auth: true,
-  transport: true,
-};
-
-const NO_CATEGORIES_VISIBLE: Record<FetchRequestCategory, boolean> = {
-  auth: false,
-  transport: false,
-};
 
 const ScreenLayout = Flex.withProps({
   variant: "screen",
@@ -47,6 +48,10 @@ const SidebarCard = Card.withProps({
 
 export function NetworkScreen({
   entries,
+  filterText = "",
+  visibleCategories = ALL_CATEGORIES_VISIBLE,
+  onFilterChange,
+  onVisibleCategoriesChange,
   onClear,
   onExport,
   sortDirection,
@@ -54,21 +59,16 @@ export function NetworkScreen({
   compact,
   onToggleCompact,
 }: NetworkScreenProps) {
-  const [filterText, setFilterText] = useState("");
-  const [visibleCategories, setVisibleCategories] = useState<
-    Record<FetchRequestCategory, boolean>
-  >(ALL_CATEGORIES_VISIBLE);
-
   function handleToggleCategory(
     category: FetchRequestCategory,
     visible: boolean,
   ) {
-    setVisibleCategories((prev) => ({ ...prev, [category]: visible }));
+    onVisibleCategoriesChange({ ...visibleCategories, [category]: visible });
   }
 
   function handleToggleAllCategories() {
     const allSelected = Object.values(visibleCategories).every(Boolean);
-    setVisibleCategories(
+    onVisibleCategoriesChange(
       allSelected ? NO_CATEGORIES_VISIBLE : ALL_CATEGORIES_VISIBLE,
     );
   }
@@ -80,7 +80,7 @@ export function NetworkScreen({
           <NetworkControls
             filterText={filterText}
             visibleCategories={visibleCategories}
-            onFilterChange={setFilterText}
+            onFilterChange={onFilterChange}
             onToggleCategory={handleToggleCategory}
             onToggleAllCategories={handleToggleAllCategories}
           />

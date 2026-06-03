@@ -8,13 +8,16 @@ import type {
   Resource,
   ResourceTemplate,
   Task,
+  TaskStatus,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import type {
   ConnectionStatus,
+  FetchRequestCategory,
   FetchRequestEntry,
   InspectorResourceSubscription,
   MessageEntry,
+  MessageMethod,
   ServerEntry,
 } from "@inspector/core/mcp/types.js";
 import { isAppTool } from "@inspector/core/mcp/apps.js";
@@ -192,12 +195,43 @@ export interface InspectorViewProps {
   // Per-screen "operation in flight" states (panel-level; optional because
   // the underlying screens accept them as optional).
   toolCallState?: ToolCallState;
-  // Selected tool + its form values. Owned by the parent so they persist across
-  // tab navigation (the screen unmounts on tab switch) — see #1414.
-  selectedToolName?: string;
-  toolFormValues?: Record<string, unknown>;
   getPromptState?: GetPromptState;
   readResourceState?: ReadResourceState;
+
+  // Per-screen selection / search / filter state. Owned by the parent (App) so
+  // it persists across tab navigation within a live session — the screens
+  // unmount on tab switch, so screen-local state would be lost (#1417).
+  // Tools:
+  selectedToolName?: string;
+  toolFormValues?: Record<string, unknown>;
+  toolSearch?: string;
+  // Prompts:
+  selectedPromptName?: string;
+  promptArgumentValues?: Record<string, string>;
+  promptSubmittedFor?: string;
+  promptSearch?: string;
+  // Resources:
+  selectedResourceUri?: string;
+  selectedTemplateUri?: string;
+  originatingTemplateUri?: string;
+  resourceSearch?: string;
+  resourceOpenSections?: string[];
+  // Apps:
+  selectedAppName?: string;
+  appFormValues?: Record<string, unknown>;
+  appSearch?: string;
+  // Tasks:
+  taskSearch?: string;
+  taskStatusFilter?: TaskStatus;
+  // Logs:
+  logFilterText?: string;
+  logVisibleLevels?: Record<LoggingLevel, boolean>;
+  // History:
+  historySearch?: string;
+  historyMethodFilter?: MessageMethod;
+  // Network:
+  networkFilterText?: string;
+  networkVisibleCategories?: Record<FetchRequestCategory, boolean>;
 
   // Logging level. The MCP `logging/setLevel` request has no echo
   // notification, so the parent keeps the optimistic current value.
@@ -236,17 +270,28 @@ export interface InspectorViewProps {
   onServerRemove: (id: string) => void;
 
   // Per-primitive actions (route to `inspectorClient` methods / hook refresh).
+  // The `on*Change` callbacks below persist the lifted per-screen state (#1417).
   onSelectTool: (name: string) => void;
   onToolFormChange: (values: Record<string, unknown>) => void;
+  onToolSearchChange: (value: string) => void;
   onCallTool: (name: string, args: Record<string, unknown>) => void;
   onCancelToolCall?: () => void;
   onClearToolResult?: () => void;
   onRefreshTools: () => void;
 
+  onSelectedPromptNameChange: (value: string | undefined) => void;
+  onPromptArgumentValuesChange: (value: Record<string, string>) => void;
+  onPromptSubmittedForChange: (value: string | undefined) => void;
+  onPromptSearchChange: (value: string) => void;
   onGetPrompt: (name: string, args: Record<string, string>) => void;
   onCopyPromptMessages?: () => void;
   onRefreshPrompts: () => void;
 
+  onSelectedResourceUriChange: (value: string | undefined) => void;
+  onSelectedTemplateUriChange: (value: string | undefined) => void;
+  onOriginatingTemplateUriChange: (value: string | undefined) => void;
+  onResourceSearchChange: (value: string) => void;
+  onResourceOpenSectionsChange: (value: string[]) => void;
   onReadResource: (uri: string) => void;
   onSubscribeResource: (uri: string) => void;
   onUnsubscribeResource: (uri: string) => void;
@@ -261,22 +306,35 @@ export interface InspectorViewProps {
   ) => Promise<string[]>;
   completionsSupported?: boolean;
 
+  onTaskSearchChange: (value: string) => void;
+  onTaskStatusFilterChange: (value: TaskStatus | undefined) => void;
   onCancelTask: (taskId: string) => void;
   onClearCompletedTasks: () => void;
   onRefreshTasks: () => void;
 
   onSetLogLevel: (level: LoggingLevel) => void;
+  onLogFilterChange: (value: string) => void;
+  onLogVisibleLevelsChange: (value: Record<LoggingLevel, boolean>) => void;
   onClearLogs: () => void;
   onExportLogs: () => void;
 
+  onHistorySearchChange: (value: string) => void;
+  onHistoryMethodFilterChange: (value: MessageMethod | undefined) => void;
   onClearHistory: () => void;
   onExportHistory: () => void;
   onReplayHistory: (id: string) => void;
   onTogglePinHistory: (id: string) => void;
 
+  onNetworkFilterChange: (value: string) => void;
+  onNetworkVisibleCategoriesChange: (
+    value: Record<FetchRequestCategory, boolean>,
+  ) => void;
   onClearNetwork: () => void;
   onExportNetwork: () => void;
 
+  onSelectedAppNameChange: (value: string | undefined) => void;
+  onAppFormValuesChange: (values: Record<string, unknown>) => void;
+  onAppSearchChange: (value: string) => void;
   onSelectApp: (name: string) => void;
   onOpenApp: (name: string, args: Record<string, unknown>) => void;
   onCloseApp: () => void;
@@ -301,10 +359,31 @@ export function InspectorView({
   history,
   network,
   toolCallState,
-  selectedToolName,
-  toolFormValues,
   getPromptState,
   readResourceState,
+  selectedToolName,
+  toolFormValues,
+  toolSearch,
+  selectedPromptName,
+  promptArgumentValues,
+  promptSubmittedFor,
+  promptSearch,
+  selectedResourceUri,
+  selectedTemplateUri,
+  originatingTemplateUri,
+  resourceSearch,
+  resourceOpenSections,
+  selectedAppName,
+  appFormValues,
+  appSearch,
+  taskSearch,
+  taskStatusFilter,
+  logFilterText,
+  logVisibleLevels,
+  historySearch,
+  historyMethodFilter,
+  networkFilterText,
+  networkVisibleCategories,
   currentLogLevel,
   sandboxPath,
   bridgeFactory,
@@ -324,31 +403,52 @@ export function InspectorView({
   onServerRemove,
   onSelectTool,
   onToolFormChange,
+  onToolSearchChange,
   onCallTool,
   onCancelToolCall,
   onClearToolResult,
   onRefreshTools,
+  onSelectedPromptNameChange,
+  onPromptArgumentValuesChange,
+  onPromptSubmittedForChange,
+  onPromptSearchChange,
   onGetPrompt,
   onCopyPromptMessages,
   onRefreshPrompts,
+  onSelectedResourceUriChange,
+  onSelectedTemplateUriChange,
+  onOriginatingTemplateUriChange,
+  onResourceSearchChange,
+  onResourceOpenSectionsChange,
   onReadResource,
   onSubscribeResource,
   onUnsubscribeResource,
   onRefreshResources,
   onCompleteArgument,
   completionsSupported,
+  onTaskSearchChange,
+  onTaskStatusFilterChange,
   onCancelTask,
   onClearCompletedTasks,
   onRefreshTasks,
   onSetLogLevel,
+  onLogFilterChange,
+  onLogVisibleLevelsChange,
   onClearLogs,
   onExportLogs,
+  onHistorySearchChange,
+  onHistoryMethodFilterChange,
   onClearHistory,
   onExportHistory,
   onReplayHistory,
   onTogglePinHistory,
+  onNetworkFilterChange,
+  onNetworkVisibleCategoriesChange,
   onClearNetwork,
   onExportNetwork,
+  onSelectedAppNameChange,
+  onAppFormValuesChange,
+  onAppSearchChange,
   onSelectApp,
   onOpenApp,
   onCloseApp,
@@ -478,9 +578,11 @@ export function InspectorView({
               callState={toolCallState}
               selectedToolName={selectedToolName}
               formValues={toolFormValues}
+              searchText={toolSearch}
               listChanged={false}
               onSelectTool={onSelectTool}
               onFormChange={onToolFormChange}
+              onSearchChange={onToolSearchChange}
               onRefreshList={onRefreshTools}
               onCallTool={onCallTool}
               onCancelCall={onCancelToolCall}
@@ -494,6 +596,12 @@ export function InspectorView({
               sandboxPath={sandboxPath}
               bridgeFactory={bridgeFactory}
               rendererRef={appRendererRef}
+              selectedAppName={selectedAppName}
+              formValues={appFormValues}
+              searchText={appSearch}
+              onSelectedAppNameChange={onSelectedAppNameChange}
+              onFormValuesChange={onAppFormValuesChange}
+              onSearchChange={onAppSearchChange}
               onRefreshList={onRefreshApps}
               onSelectApp={onSelectApp}
               onOpenApp={onOpenApp}
@@ -505,8 +613,16 @@ export function InspectorView({
             <PromptsScreen
               prompts={prompts}
               getPromptState={getPromptState}
+              selectedPromptName={selectedPromptName}
+              argumentValues={promptArgumentValues}
+              submittedFor={promptSubmittedFor}
+              searchText={promptSearch}
               listChanged={false}
               completionsSupported={completionsSupported}
+              onSelectedPromptNameChange={onSelectedPromptNameChange}
+              onArgumentValuesChange={onPromptArgumentValuesChange}
+              onSubmittedForChange={onPromptSubmittedForChange}
+              onSearchChange={onPromptSearchChange}
               onRefreshList={onRefreshPrompts}
               onGetPrompt={onGetPrompt}
               onCopyMessages={onCopyPromptMessages}
@@ -519,8 +635,18 @@ export function InspectorView({
               templates={resourceTemplates}
               subscriptions={subscriptions}
               readState={readResourceState}
+              selectedResourceUri={selectedResourceUri}
+              selectedTemplateUri={selectedTemplateUri}
+              originatingTemplateUri={originatingTemplateUri}
+              searchText={resourceSearch}
+              openSections={resourceOpenSections}
               listChanged={false}
               completionsSupported={completionsSupported}
+              onSelectedResourceUriChange={onSelectedResourceUriChange}
+              onSelectedTemplateUriChange={onSelectedTemplateUriChange}
+              onOriginatingTemplateUriChange={onOriginatingTemplateUriChange}
+              onSearchChange={onResourceSearchChange}
+              onOpenSectionsChange={onResourceOpenSectionsChange}
               onRefreshList={onRefreshResources}
               onReadResource={onReadResource}
               onSubscribeResource={onSubscribeResource}
@@ -534,6 +660,10 @@ export function InspectorView({
             <TasksScreen
               tasks={tasks}
               progressByTaskId={progressByTaskId}
+              searchText={taskSearch}
+              statusFilter={taskStatusFilter}
+              onSearchChange={onTaskSearchChange}
+              onStatusFilterChange={onTaskStatusFilterChange}
               onRefresh={onRefreshTasks}
               onClearCompleted={onClearCompletedTasks}
               onCancel={onCancelTask}
@@ -543,6 +673,10 @@ export function InspectorView({
             <LoggingScreen
               entries={logs}
               currentLevel={currentLogLevel}
+              filterText={logFilterText}
+              visibleLevels={logVisibleLevels}
+              onFilterChange={onLogFilterChange}
+              onVisibleLevelsChange={onLogVisibleLevelsChange}
               onSetLevel={onSetLogLevel}
               onClear={onClearLogs}
               onExport={onExportLogs}
@@ -554,6 +688,10 @@ export function InspectorView({
             <HistoryScreen
               entries={history}
               pinnedIds={pinnedHistoryIds ?? new Set()}
+              searchText={historySearch}
+              methodFilter={historyMethodFilter}
+              onSearchChange={onHistorySearchChange}
+              onMethodFilterChange={onHistoryMethodFilterChange}
               onClearAll={onClearHistory}
               onExport={onExportHistory}
               onReplay={onReplayHistory}
@@ -567,6 +705,10 @@ export function InspectorView({
           <ScreenStage active={activeTab === "Network"}>
             <NetworkScreen
               entries={network}
+              filterText={networkFilterText}
+              visibleCategories={networkVisibleCategories}
+              onFilterChange={onNetworkFilterChange}
+              onVisibleCategoriesChange={onNetworkVisibleCategoriesChange}
               onClear={onClearNetwork}
               onExport={onExportNetwork}
               sortDirection={networkSort}

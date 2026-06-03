@@ -11,6 +11,8 @@ const meta: Meta<typeof TasksScreen> = {
     onRefresh: fn(),
     onClearCompleted: fn(),
     onCancel: fn(),
+    onSearchChange: fn(),
+    onStatusFilterChange: fn(),
   },
 };
 

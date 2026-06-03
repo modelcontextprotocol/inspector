@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type {
@@ -6,7 +7,7 @@ import type {
   ReadResourceResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { ResourcesScreen } from "./ResourcesScreen";
+import { ResourcesScreen, type ResourcesScreenProps } from "./ResourcesScreen";
 
 const resources: Resource[] = [
   { uri: "file:///x", name: "x.txt" },
@@ -26,6 +27,11 @@ const baseProps = {
   onReadResource: vi.fn(),
   onSubscribeResource: vi.fn(),
   onUnsubscribeResource: vi.fn(),
+  onSelectedResourceUriChange: vi.fn(),
+  onSelectedTemplateUriChange: vi.fn(),
+  onOriginatingTemplateUriChange: vi.fn(),
+  onSearchChange: vi.fn(),
+  onOpenSectionsChange: vi.fn(),
   compact: false,
   onCompactChange: vi.fn(),
 };
@@ -33,6 +39,62 @@ const baseProps = {
 const okResult: ReadResourceResult = {
   contents: [{ uri: "file:///x", text: "embedded contents" }],
 };
+
+// ResourcesScreen is controlled: the selected resource/template URIs, the
+// originating-template marker, the sidebar search, and the accordion's open
+// sections live in the parent (App) so they persist across tab navigation
+// (#1417). This host holds that state so clicking a resource/template, typing
+// into the template form, reading, and closing drive the panel exactly as App
+// owns it. Props passed in override defaults; the stateful wiring is applied
+// last so callers can still observe activity via the spied callbacks.
+function ControlledResourcesScreen(props: Partial<ResourcesScreenProps>) {
+  const [selectedResourceUri, setSelectedResourceUri] = useState<
+    string | undefined
+  >(props.selectedResourceUri);
+  const [selectedTemplateUri, setSelectedTemplateUri] = useState<
+    string | undefined
+  >(props.selectedTemplateUri);
+  const [originatingTemplateUri, setOriginatingTemplateUri] = useState<
+    string | undefined
+  >(props.originatingTemplateUri);
+  const [searchText, setSearchText] = useState<string | undefined>(
+    props.searchText,
+  );
+  const [openSections, setOpenSections] = useState<string[] | undefined>(
+    props.openSections,
+  );
+  return (
+    <ResourcesScreen
+      {...baseProps}
+      {...props}
+      selectedResourceUri={selectedResourceUri}
+      selectedTemplateUri={selectedTemplateUri}
+      originatingTemplateUri={originatingTemplateUri}
+      searchText={searchText}
+      openSections={openSections}
+      onSelectedResourceUriChange={(value) => {
+        setSelectedResourceUri(value);
+        props.onSelectedResourceUriChange?.(value);
+      }}
+      onSelectedTemplateUriChange={(value) => {
+        setSelectedTemplateUri(value);
+        props.onSelectedTemplateUriChange?.(value);
+      }}
+      onOriginatingTemplateUriChange={(value) => {
+        setOriginatingTemplateUri(value);
+        props.onOriginatingTemplateUriChange?.(value);
+      }}
+      onSearchChange={(value) => {
+        setSearchText(value);
+        props.onSearchChange?.(value);
+      }}
+      onOpenSectionsChange={(value) => {
+        setOpenSections(value);
+        props.onOpenSectionsChange?.(value);
+      }}
+    />
+  );
+}
 
 describe("ResourcesScreen", () => {
   it("renders empty preview state when nothing is selected", () => {
@@ -45,8 +107,7 @@ describe("ResourcesScreen", () => {
   it("shows the read error alert when error and a resource is selected", async () => {
     const user = userEvent.setup();
     renderWithMantine(
-      <ResourcesScreen
-        {...baseProps}
+      <ControlledResourcesScreen
         readState={{ status: "error", error: "boom" }}
       />,
     );
@@ -58,7 +119,7 @@ describe("ResourcesScreen", () => {
   it("falls back to default error when error message is missing", async () => {
     const user = userEvent.setup();
     renderWithMantine(
-      <ResourcesScreen {...baseProps} readState={{ status: "error" }} />,
+      <ControlledResourcesScreen readState={{ status: "error" }} />,
     );
     await user.click(screen.getByText("x.txt"));
     expect(screen.getByText("Failed to read resource")).toBeInTheDocument();
@@ -67,7 +128,7 @@ describe("ResourcesScreen", () => {
   it("shows the loading state when reading", async () => {
     const user = userEvent.setup();
     renderWithMantine(
-      <ResourcesScreen {...baseProps} readState={{ status: "pending" }} />,
+      <ControlledResourcesScreen readState={{ status: "pending" }} />,
     );
     await user.click(screen.getByText("x.txt"));
     expect(screen.getByText("Reading resource...")).toBeInTheDocument();
@@ -76,8 +137,7 @@ describe("ResourcesScreen", () => {
   it("renders the preview panel when readState has a result", async () => {
     const user = userEvent.setup();
     renderWithMantine(
-      <ResourcesScreen
-        {...baseProps}
+      <ControlledResourcesScreen
         readState={{
           status: "ok",
           uri: "file:///x",
@@ -108,7 +168,7 @@ describe("ResourcesScreen", () => {
 
   it("renders the template panel when a template is selected", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<ResourcesScreen {...baseProps} />);
+    renderWithMantine(<ControlledResourcesScreen />);
     await user.click(screen.getByText("Templates (1)"));
     await user.click(screen.getByText("files"));
     expect(
@@ -120,7 +180,7 @@ describe("ResourcesScreen", () => {
     const user = userEvent.setup();
     const onReadResource = vi.fn();
     renderWithMantine(
-      <ResourcesScreen {...baseProps} onReadResource={onReadResource} />,
+      <ControlledResourcesScreen onReadResource={onReadResource} />,
     );
     await user.click(screen.getByText("Templates (1)"));
     await user.click(screen.getByText("files"));
@@ -137,7 +197,7 @@ describe("ResourcesScreen", () => {
     const user = userEvent.setup();
     const onReadResource = vi.fn();
     renderWithMantine(
-      <ResourcesScreen {...baseProps} onReadResource={onReadResource} />,
+      <ControlledResourcesScreen onReadResource={onReadResource} />,
     );
     await user.click(screen.getByText("x.txt"));
     expect(onReadResource).toHaveBeenCalledWith("file:///x");
@@ -148,8 +208,7 @@ describe("ResourcesScreen", () => {
     const onReadResource = vi.fn();
     const onSubscribeResource = vi.fn();
     renderWithMantine(
-      <ResourcesScreen
-        {...baseProps}
+      <ControlledResourcesScreen
         onReadResource={onReadResource}
         onSubscribeResource={onSubscribeResource}
         readState={{
@@ -174,8 +233,7 @@ describe("ResourcesScreen", () => {
       { uriTemplate: "file:///{path}", name: "files" },
     ];
     const { rerender } = renderWithMantine(
-      <ResourcesScreen
-        {...baseProps}
+      <ControlledResourcesScreen
         templates={templates}
         onReadResource={onReadResource}
       />,
@@ -191,8 +249,7 @@ describe("ResourcesScreen", () => {
 
     // Parent re-renders with the read result; the preview appears.
     rerender(
-      <ResourcesScreen
-        {...baseProps}
+      <ControlledResourcesScreen
         templates={templates}
         onReadResource={onReadResource}
         readState={{
@@ -218,7 +275,7 @@ describe("ResourcesScreen", () => {
       { uriTemplate: "demo://resource/dynamic/text/{id}", name: "Dynamic" },
     ];
     const { rerender } = renderWithMantine(
-      <ResourcesScreen {...baseProps} templates={templates} />,
+      <ControlledResourcesScreen templates={templates} />,
     );
     await user.click(screen.getByText("Templates (1)"));
     await user.click(screen.getByText("Dynamic"));
@@ -227,8 +284,7 @@ describe("ResourcesScreen", () => {
 
     // Server rejects the URI.
     rerender(
-      <ResourcesScreen
-        {...baseProps}
+      <ControlledResourcesScreen
         templates={templates}
         readState={{
           status: "error",
@@ -248,8 +304,7 @@ describe("ResourcesScreen", () => {
   it("closing the preview for a plain resource returns to the empty state", async () => {
     const user = userEvent.setup();
     renderWithMantine(
-      <ResourcesScreen
-        {...baseProps}
+      <ControlledResourcesScreen
         readState={{
           status: "ok",
           uri: "file:///x",
@@ -268,8 +323,7 @@ describe("ResourcesScreen", () => {
     const user = userEvent.setup();
     const onUnsubscribeResource = vi.fn();
     renderWithMantine(
-      <ResourcesScreen
-        {...baseProps}
+      <ControlledResourcesScreen
         onUnsubscribeResource={onUnsubscribeResource}
         readState={{
           status: "ok",

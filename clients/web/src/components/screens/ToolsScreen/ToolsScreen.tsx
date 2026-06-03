@@ -23,9 +23,11 @@ export interface ToolsScreenProps {
   // switch, so local state would be lost (#1414).
   selectedToolName?: string;
   formValues?: Record<string, unknown>;
+  searchText?: string;
   listChanged: boolean;
   onSelectTool: (name: string) => void;
   onFormChange: (values: Record<string, unknown>) => void;
+  onSearchChange: (value: string) => void;
   onRefreshList: () => void;
   onCallTool: (name: string, args: Record<string, unknown>) => void;
   onCancelCall?: () => void;
@@ -88,9 +90,11 @@ export function ToolsScreen({
   callState,
   selectedToolName,
   formValues,
+  searchText = "",
   listChanged,
   onSelectTool,
   onFormChange,
+  onSearchChange,
   onRefreshList,
   onCallTool,
   onCancelCall,
@@ -111,8 +115,10 @@ export function ToolsScreen({
           <ToolControls
             tools={tools}
             selectedName={selectedToolName}
+            searchText={searchText}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
+            onSearchChange={onSearchChange}
             onSelectTool={(name) => {
               // Seed the form with the tool's schema defaults so default-only
               // fields the user never edits are still sent on execute (the

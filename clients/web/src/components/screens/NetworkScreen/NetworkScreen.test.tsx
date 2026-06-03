@@ -1,8 +1,13 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
+import type {
+  FetchRequestCategory,
+  FetchRequestEntry,
+} from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { NetworkScreen } from "./NetworkScreen";
+import { NetworkScreen, type NetworkScreenProps } from "./NetworkScreen";
+import { ALL_CATEGORIES_VISIBLE } from "./fetchCategories";
 
 const transportEntry: FetchRequestEntry = {
   id: "t-1",
@@ -41,6 +46,8 @@ const errorEntry: FetchRequestEntry = {
 
 const baseProps = {
   entries: [transportEntry, authEntry, errorEntry],
+  onFilterChange: vi.fn(),
+  onVisibleCategoriesChange: vi.fn(),
   onClear: vi.fn(),
   onExport: vi.fn(),
   sortDirection: "newest-first" as const,
@@ -48,6 +55,34 @@ const baseProps = {
   compact: true,
   onToggleCompact: vi.fn(),
 };
+
+// NetworkScreen is controlled: filter text + visible-category set live in the
+// parent (App) so they persist across tab navigation (#1417). This host holds
+// that state so typing/toggling drives the rendered list, mirroring how App
+// owns it. Props passed in override defaults; the stateful filter wiring is
+// applied last so callers can still observe changes via the spied callbacks.
+function ControlledNetworkScreen(props: Partial<NetworkScreenProps>) {
+  const [filterText, setFilterText] = useState(props.filterText ?? "");
+  const [visibleCategories, setVisibleCategories] = useState<
+    Record<FetchRequestCategory, boolean>
+  >(props.visibleCategories ?? ALL_CATEGORIES_VISIBLE);
+  return (
+    <NetworkScreen
+      {...baseProps}
+      {...props}
+      filterText={filterText}
+      visibleCategories={visibleCategories}
+      onFilterChange={(value) => {
+        setFilterText(value);
+        props.onFilterChange?.(value);
+      }}
+      onVisibleCategoriesChange={(value) => {
+        setVisibleCategories(value);
+        props.onVisibleCategoriesChange?.(value);
+      }}
+    />
+  );
+}
 
 describe("NetworkScreen", () => {
   it("renders the network controls and panel", () => {
@@ -77,7 +112,7 @@ describe("NetworkScreen", () => {
 
   it("filters by category when a category is toggled off", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<NetworkScreen {...baseProps} />);
+    renderWithMantine(<ControlledNetworkScreen />);
     expect(
       screen.getByText("https://example.com/oauth/token"),
     ).toBeInTheDocument();
@@ -89,7 +124,7 @@ describe("NetworkScreen", () => {
 
   it("Deselect All hides every entry; Select All restores them", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<NetworkScreen {...baseProps} />);
+    renderWithMantine(<ControlledNetworkScreen />);
     await user.click(screen.getByRole("button", { name: "Deselect All" }));
     expect(screen.getByText("No network requests")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Select All" }));
@@ -100,7 +135,7 @@ describe("NetworkScreen", () => {
 
   it("filters by search text across URL, method, status, and headers", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<NetworkScreen {...baseProps} />);
+    renderWithMantine(<ControlledNetworkScreen />);
     await user.type(screen.getByPlaceholderText("Search..."), "oauth");
     expect(
       screen.getByText("https://example.com/oauth/token"),

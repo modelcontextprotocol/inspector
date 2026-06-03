@@ -17,6 +17,8 @@ const tasks: Task[] = [
 
 const baseProps = {
   tasks,
+  onSearchChange: vi.fn(),
+  onStatusFilterChange: vi.fn(),
   onRefresh: vi.fn(),
   onClearCompleted: vi.fn(),
   onCancel: vi.fn(),

@@ -1,7 +1,31 @@
+import { useState } from "react";
+import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, fn, userEvent, within } from "storybook/test";
-import type { FetchRequestEntry } from "../../../../../../core/mcp/types.js";
+import type {
+  FetchRequestCategory,
+  FetchRequestEntry,
+} from "../../../../../../core/mcp/types.js";
 import { NetworkScreen } from "./NetworkScreen";
+
+// NetworkScreen is controlled (filter text + visible categories live in the
+// parent — see #1417). This wrapper holds that state so the play-driven category
+// toggle actually hides entries, mirroring how App owns the state.
+function StatefulNetworkScreen(args: ComponentProps<typeof NetworkScreen>) {
+  const [filterText, setFilterText] = useState(args.filterText ?? "");
+  const [visibleCategories, setVisibleCategories] = useState<
+    Record<FetchRequestCategory, boolean> | undefined
+  >(args.visibleCategories);
+  return (
+    <NetworkScreen
+      {...args}
+      filterText={filterText}
+      visibleCategories={visibleCategories}
+      onFilterChange={setFilterText}
+      onVisibleCategoriesChange={setVisibleCategories}
+    />
+  );
+}
 
 const meta: Meta<typeof NetworkScreen> = {
   title: "Screens/NetworkScreen",
@@ -10,11 +34,14 @@ const meta: Meta<typeof NetworkScreen> = {
   args: {
     onClear: fn(),
     onExport: fn(),
+    onFilterChange: fn(),
+    onVisibleCategoriesChange: fn(),
     sortDirection: "newest-first",
     onSortChange: fn(),
     compact: true,
     onToggleCompact: fn(),
   },
+  render: (args) => <StatefulNetworkScreen {...args} />,
 };
 
 export default meta;

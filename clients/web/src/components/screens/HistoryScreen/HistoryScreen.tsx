@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { Card, Flex, Stack } from "@mantine/core";
 import type { MessageEntry, MessageMethod } from "@inspector/core/mcp/types.js";
 import { HistoryControls } from "../../groups/HistoryControls/HistoryControls";
@@ -9,6 +9,12 @@ import type { SortDirection } from "../../elements/SortToggle/SortToggle";
 export interface HistoryScreenProps {
   entries: MessageEntry[];
   pinnedIds: Set<string>;
+  // Search text + method filter are controlled by the parent (App) so they
+  // persist across tab navigation within a live session — see #1417.
+  searchText?: string;
+  methodFilter?: MessageMethod;
+  onSearchChange: (value: string) => void;
+  onMethodFilterChange: (value: MessageMethod | undefined) => void;
   onClearAll: () => void;
   onExport: () => void;
   onReplay: (id: string) => void;
@@ -39,6 +45,10 @@ const SidebarCard = Card.withProps({
 export function HistoryScreen({
   entries,
   pinnedIds,
+  searchText = "",
+  methodFilter,
+  onSearchChange,
+  onMethodFilterChange,
   onClearAll,
   onExport,
   onReplay,
@@ -48,18 +58,15 @@ export function HistoryScreen({
   compact,
   onToggleCompact,
 }: HistoryScreenProps) {
-  const [searchText, setSearchText] = useState("");
-  const [methodFilter, setMethodFilter] = useState<MessageMethod | undefined>();
-
   const availableMethods = useMemo(
     () => Array.from(new Set(entries.map(extractMethod))).sort(),
     [entries],
   );
 
   const handleClearAll = useCallback(() => {
-    setMethodFilter(undefined);
+    onMethodFilterChange(undefined);
     onClearAll();
-  }, [onClearAll]);
+  }, [onMethodFilterChange, onClearAll]);
 
   return (
     <ScreenLayout>
@@ -69,8 +76,8 @@ export function HistoryScreen({
             searchText={searchText}
             methodFilter={methodFilter}
             availableMethods={availableMethods}
-            onSearchChange={setSearchText}
-            onMethodFilterChange={setMethodFilter}
+            onSearchChange={onSearchChange}
+            onMethodFilterChange={onMethodFilterChange}
           />
         </SidebarCard>
       </Sidebar>

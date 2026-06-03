@@ -15,6 +15,7 @@ import type {
   LoggingMessageNotification,
   Progress,
   ProgressToken,
+  TaskStatus,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
@@ -24,9 +25,11 @@ import type {
 } from "@inspector/core/mcp/index.js";
 import type { TypedEventGeneric } from "@inspector/core/mcp/typedEventTarget.js";
 import type {
+  FetchRequestCategory,
   InspectorServerSettings,
   MCPServerConfig,
   MessageEntry,
+  MessageMethod,
   ServerEntry,
   ServerType,
 } from "@inspector/core/mcp/types.js";
@@ -68,6 +71,8 @@ import { InspectorView } from "./components/views/InspectorView/InspectorView";
 import type { ToolCallState } from "./components/screens/ToolsScreen/ToolsScreen";
 import type { GetPromptState } from "./components/screens/PromptsScreen/PromptsScreen";
 import type { ReadResourceState } from "./components/screens/ResourcesScreen/ResourcesScreen";
+import { ALL_LEVELS_VISIBLE } from "./components/screens/LoggingScreen/logLevels";
+import { ALL_CATEGORIES_VISIBLE } from "./components/screens/NetworkScreen/fetchCategories";
 import type { AppRendererHandle } from "./components/elements/AppRenderer/AppRenderer";
 import { createAppBridgeFactory } from "./components/elements/AppRenderer/createAppBridgeFactory";
 import type { LogEntryData } from "./components/elements/LogEntry/LogEntry";
@@ -360,6 +365,66 @@ function App() {
     ReadResourceState | undefined
   >(undefined);
 
+  // Per-screen selection / search / filter state. Lifted here (out of the
+  // individual screens) so it persists across tab navigation within a live
+  // session — the screens unmount on tab switch, so screen-local state would be
+  // lost. Cleared only on disconnect (via `resetSessionScopedUiState`) or an
+  // explicit user action, never on plain navigation (#1417). Grouped by screen.
+  // Tools (selection/form live above with `toolCallState`):
+  const [toolSearch, setToolSearch] = useState("");
+  // Prompts:
+  const [selectedPromptName, setSelectedPromptName] = useState<
+    string | undefined
+  >(undefined);
+  const [promptArgumentValues, setPromptArgumentValues] = useState<
+    Record<string, string>
+  >({});
+  const [promptSubmittedFor, setPromptSubmittedFor] = useState<
+    string | undefined
+  >(undefined);
+  const [promptSearch, setPromptSearch] = useState("");
+  // Resources (`openSections` undefined → screen falls back to compact pref):
+  const [selectedResourceUri, setSelectedResourceUri] = useState<
+    string | undefined
+  >(undefined);
+  const [selectedTemplateUri, setSelectedTemplateUri] = useState<
+    string | undefined
+  >(undefined);
+  const [originatingTemplateUri, setOriginatingTemplateUri] = useState<
+    string | undefined
+  >(undefined);
+  const [resourceSearch, setResourceSearch] = useState("");
+  const [resourceOpenSections, setResourceOpenSections] = useState<
+    string[] | undefined
+  >(undefined);
+  // Apps (selected app + form values; running/maximized stay screen-local):
+  const [selectedAppName, setSelectedAppName] = useState<string | undefined>(
+    undefined,
+  );
+  const [appFormValues, setAppFormValues] = useState<Record<string, unknown>>(
+    {},
+  );
+  const [appSearch, setAppSearch] = useState("");
+  // Tasks:
+  const [taskSearch, setTaskSearch] = useState("");
+  const [taskStatusFilter, setTaskStatusFilter] = useState<
+    TaskStatus | undefined
+  >(undefined);
+  // Logs:
+  const [logFilterText, setLogFilterText] = useState("");
+  const [logVisibleLevels, setLogVisibleLevels] =
+    useState<Record<LoggingLevel, boolean>>(ALL_LEVELS_VISIBLE);
+  // History:
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyMethodFilter, setHistoryMethodFilter] = useState<
+    MessageMethod | undefined
+  >(undefined);
+  // Network:
+  const [networkFilterText, setNetworkFilterText] = useState("");
+  const [networkVisibleCategories, setNetworkVisibleCategories] = useState<
+    Record<FetchRequestCategory, boolean>
+  >(ALL_CATEGORIES_VISIBLE);
+
   // Handshake telemetry. `connectStartRef` is set at the "connecting" edge
   // and consumed at the "connected" edge — a ref (not state) so the
   // intervening rerenders don't reset it.
@@ -462,8 +527,29 @@ function App() {
     setToolCallState(undefined);
     setSelectedToolName(undefined);
     setToolFormValues({});
+    setToolSearch("");
     setGetPromptState(undefined);
+    setSelectedPromptName(undefined);
+    setPromptArgumentValues({});
+    setPromptSubmittedFor(undefined);
+    setPromptSearch("");
     setReadResourceState(undefined);
+    setSelectedResourceUri(undefined);
+    setSelectedTemplateUri(undefined);
+    setOriginatingTemplateUri(undefined);
+    setResourceSearch("");
+    setResourceOpenSections(undefined);
+    setSelectedAppName(undefined);
+    setAppFormValues({});
+    setAppSearch("");
+    setTaskSearch("");
+    setTaskStatusFilter(undefined);
+    setLogFilterText("");
+    setLogVisibleLevels(ALL_LEVELS_VISIBLE);
+    setHistorySearch("");
+    setHistoryMethodFilter(undefined);
+    setNetworkFilterText("");
+    setNetworkVisibleCategories(ALL_CATEGORIES_VISIBLE);
     setCurrentLogLevel("info");
   }, []);
 
@@ -1523,8 +1609,29 @@ function App() {
         toolCallState={toolCallState}
         selectedToolName={selectedToolName}
         toolFormValues={toolFormValues}
+        toolSearch={toolSearch}
         getPromptState={getPromptState}
+        selectedPromptName={selectedPromptName}
+        promptArgumentValues={promptArgumentValues}
+        promptSubmittedFor={promptSubmittedFor}
+        promptSearch={promptSearch}
         readResourceState={effectiveReadResourceState}
+        selectedResourceUri={selectedResourceUri}
+        selectedTemplateUri={selectedTemplateUri}
+        originatingTemplateUri={originatingTemplateUri}
+        resourceSearch={resourceSearch}
+        resourceOpenSections={resourceOpenSections}
+        selectedAppName={selectedAppName}
+        appFormValues={appFormValues}
+        appSearch={appSearch}
+        taskSearch={taskSearch}
+        taskStatusFilter={taskStatusFilter}
+        logFilterText={logFilterText}
+        logVisibleLevels={logVisibleLevels}
+        historySearch={historySearch}
+        historyMethodFilter={historyMethodFilter}
+        networkFilterText={networkFilterText}
+        networkVisibleCategories={networkVisibleCategories}
         currentLogLevel={currentLogLevel}
         sandboxPath={sandboxUrl}
         bridgeFactory={sandboxBridgeFactory}
@@ -1550,15 +1657,25 @@ function App() {
         }}
         onSelectTool={setSelectedToolName}
         onToolFormChange={setToolFormValues}
+        onToolSearchChange={setToolSearch}
         onCallTool={(name, args) => {
           void onCallTool(name, args);
         }}
         onClearToolResult={onClearToolResult}
         onRefreshTools={onRefreshTools}
+        onSelectedPromptNameChange={setSelectedPromptName}
+        onPromptArgumentValuesChange={setPromptArgumentValues}
+        onPromptSubmittedForChange={setPromptSubmittedFor}
+        onPromptSearchChange={setPromptSearch}
         onGetPrompt={(name, args) => {
           void onGetPrompt(name, args);
         }}
         onRefreshPrompts={onRefreshPrompts}
+        onSelectedResourceUriChange={setSelectedResourceUri}
+        onSelectedTemplateUriChange={setSelectedTemplateUri}
+        onOriginatingTemplateUriChange={setOriginatingTemplateUri}
+        onResourceSearchChange={setResourceSearch}
+        onResourceOpenSectionsChange={setResourceOpenSections}
         onReadResource={(uri) => {
           void onReadResource(uri);
         }}
@@ -1567,18 +1684,29 @@ function App() {
         onRefreshResources={onRefreshResources}
         onCompleteArgument={onCompleteArgument}
         completionsSupported={capabilities?.completions !== undefined}
+        onTaskSearchChange={setTaskSearch}
+        onTaskStatusFilterChange={setTaskStatusFilter}
         onCancelTask={onCancelTask}
         onClearCompletedTasks={todoNoop}
         onRefreshTasks={onRefreshTasks}
         onSetLogLevel={onSetLogLevel}
+        onLogFilterChange={setLogFilterText}
+        onLogVisibleLevelsChange={setLogVisibleLevels}
         onClearLogs={onClearLogs}
         onExportLogs={onExportLogs}
+        onHistorySearchChange={setHistorySearch}
+        onHistoryMethodFilterChange={setHistoryMethodFilter}
         onClearHistory={onClearHistory}
         onExportHistory={onExportHistory}
         onReplayHistory={todoNoop}
         onTogglePinHistory={todoNoop}
+        onNetworkFilterChange={setNetworkFilterText}
+        onNetworkVisibleCategoriesChange={setNetworkVisibleCategories}
         onClearNetwork={onClearNetwork}
         onExportNetwork={onExportNetwork}
+        onSelectedAppNameChange={setSelectedAppName}
+        onAppFormValuesChange={setAppFormValues}
+        onAppSearchChange={setAppSearch}
         onSelectApp={onSelectApp}
         onOpenApp={(name, args) => {
           void onOpenApp(name, args);

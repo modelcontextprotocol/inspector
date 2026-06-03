@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { AppControls } from "./AppControls";
+import { AppControls, type AppControlsProps } from "./AppControls";
 
 const sampleApps: Tool[] = [
   {
@@ -29,7 +30,26 @@ const baseProps = {
   listChanged: false,
   onRefreshList: vi.fn(),
   onSelectApp: vi.fn(),
+  onSearchChange: vi.fn(),
 };
+
+// The search box is controlled: typing fires onSearchChange but does not
+// update the component's own state. This host holds the searchText state so
+// interaction tests that filter by typing behave like the real parent.
+function ControlledAppControls(props: Partial<AppControlsProps>) {
+  const [searchText, setSearchText] = useState(props.searchText ?? "");
+  return (
+    <AppControls
+      {...baseProps}
+      {...props}
+      searchText={searchText}
+      onSearchChange={(value) => {
+        setSearchText(value);
+        props.onSearchChange?.(value);
+      }}
+    />
+  );
+}
 
 describe("AppControls", () => {
   it("renders the title with the app count and a search input", () => {
@@ -47,7 +67,7 @@ describe("AppControls", () => {
 
   it("filters apps by name when typing in the search input", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<AppControls {...baseProps} />);
+    renderWithMantine(<ControlledAppControls />);
     await user.type(screen.getByPlaceholderText("Search apps..."), "git");
     expect(screen.getByText("git_status")).toBeInTheDocument();
     expect(screen.queryByText("Weather Widget")).not.toBeInTheDocument();
@@ -55,7 +75,7 @@ describe("AppControls", () => {
 
   it("filters apps by title when typing in the search input", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<AppControls {...baseProps} />);
+    renderWithMantine(<ControlledAppControls />);
     await user.type(
       screen.getByPlaceholderText("Search apps..."),
       "weather widget",
@@ -72,7 +92,7 @@ describe("AppControls", () => {
 
   it("shows 'No matching apps' when search yields no results", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<AppControls {...baseProps} />);
+    renderWithMantine(<ControlledAppControls />);
     await user.type(screen.getByPlaceholderText("Search apps..."), "zzz");
     expect(screen.getByText("No matching apps")).toBeInTheDocument();
   });

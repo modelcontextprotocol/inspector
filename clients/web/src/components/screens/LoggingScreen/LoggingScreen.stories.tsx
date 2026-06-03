@@ -13,6 +13,8 @@ const meta: Meta<typeof LoggingScreen> = {
     onSetLevel: fn(),
     onClear: fn(),
     onExport: fn(),
+    onFilterChange: fn(),
+    onVisibleLevelsChange: fn(),
     sortDirection: "newest-first",
     onSortChange: fn(),
   },

@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Card, Flex, Stack } from "@mantine/core";
 import type { Task, TaskStatus } from "@modelcontextprotocol/sdk/types.js";
 import { TaskControls } from "../../groups/TaskControls/TaskControls";
@@ -8,6 +7,12 @@ import type { TaskProgress } from "../../groups/TaskCard/TaskCard";
 export interface TasksScreenProps {
   tasks: Task[];
   progressByTaskId?: Record<string, TaskProgress>;
+  // Search + status filter are controlled by the parent (App) so they persist
+  // across tab navigation within a live session — see #1417.
+  searchText?: string;
+  statusFilter?: TaskStatus;
+  onSearchChange: (value: string) => void;
+  onStatusFilterChange: (value: TaskStatus | undefined) => void;
   onRefresh: () => void;
   onClearCompleted: () => void;
   onCancel: (taskId: string) => void;
@@ -33,13 +38,14 @@ const SidebarCard = Card.withProps({
 export function TasksScreen({
   tasks,
   progressByTaskId,
+  searchText = "",
+  statusFilter,
+  onSearchChange,
+  onStatusFilterChange,
   onRefresh,
   onClearCompleted,
   onCancel,
 }: TasksScreenProps) {
-  const [searchText, setSearchText] = useState("");
-  const [statusFilter, setStatusFilter] = useState<TaskStatus | undefined>();
-
   return (
     <ScreenLayout>
       <Sidebar>
@@ -47,8 +53,8 @@ export function TasksScreen({
           <TaskControls
             searchText={searchText}
             statusFilter={statusFilter}
-            onSearchChange={setSearchText}
-            onStatusFilterChange={setStatusFilter}
+            onSearchChange={onSearchChange}
+            onStatusFilterChange={onStatusFilterChange}
             onRefresh={onRefresh}
           />
         </SidebarCard>

@@ -1,4 +1,4 @@
-import { createRef } from "react";
+import { createRef, useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -8,7 +8,7 @@ import {
   screen,
   within,
 } from "../../../test/renderWithMantine";
-import { AppsScreen } from "./AppsScreen";
+import { AppsScreen, type AppsScreenProps } from "./AppsScreen";
 import type {
   AppRendererHandle,
   BridgeFactory,
@@ -54,7 +54,7 @@ const okBridgeFactory: BridgeFactory = () =>
     close: async () => {},
   }) as unknown as AppBridge;
 
-function buildProps(overrides: Partial<Parameters<typeof AppsScreen>[0]> = {}) {
+function buildProps(overrides: Partial<AppsScreenProps> = {}): AppsScreenProps {
   return {
     tools: [fieldedApp, noFieldsApp, cohortApp] as Tool[],
     listChanged: false,
@@ -68,8 +68,52 @@ function buildProps(overrides: Partial<Parameters<typeof AppsScreen>[0]> = {}) {
     onSelectApp: vi.fn(),
     onOpenApp: vi.fn(),
     onCloseApp: vi.fn(),
+    onSelectedAppNameChange: vi.fn(),
+    onFormValuesChange: vi.fn(),
+    onSearchChange: vi.fn(),
     ...overrides,
   };
+}
+
+// AppsScreen lifts selection, form values, and the sidebar search to the
+// parent (App) so they persist across tab navigation (#1417), while
+// `running`/`maximized` stay local to the screen. This host holds the lifted
+// state so clicking an app, typing into its form/search, and closing drive the
+// panel exactly as App owns it. The internal running/maximized state handles
+// auto-launch, open, maximize, and back-to-input on its own. Props passed in
+// override defaults; the stateful wiring is applied last so callers can still
+// observe activity via the spied callbacks.
+function ControlledAppsScreen(overrides: Partial<AppsScreenProps> = {}) {
+  const props = buildProps(overrides);
+  const [selectedAppName, setSelectedAppName] = useState<string | undefined>(
+    props.selectedAppName,
+  );
+  const [formValues, setFormValues] = useState<Record<string, unknown>>(
+    props.formValues ?? {},
+  );
+  const [searchText, setSearchText] = useState<string | undefined>(
+    props.searchText,
+  );
+  return (
+    <AppsScreen
+      {...props}
+      selectedAppName={selectedAppName}
+      formValues={formValues}
+      searchText={searchText}
+      onSelectedAppNameChange={(value) => {
+        setSelectedAppName(value);
+        props.onSelectedAppNameChange(value);
+      }}
+      onFormValuesChange={(values) => {
+        setFormValues(values);
+        props.onFormValuesChange(values);
+      }}
+      onSearchChange={(value) => {
+        setSearchText(value);
+        props.onSearchChange(value);
+      }}
+    />
+  );
 }
 
 describe("AppsScreen", () => {
@@ -101,8 +145,9 @@ describe("AppsScreen", () => {
       throw new Error("no connected MCP client");
     };
     renderWithMantine(
-      <AppsScreen
-        {...buildProps({ bridgeFactory: throwingFactory, onError })}
+      <ControlledAppsScreen
+        bridgeFactory={throwingFactory}
+        onError={onError}
       />,
     );
     // The no-fields app auto-launches on selection, mounting the renderer,
@@ -117,7 +162,7 @@ describe("AppsScreen", () => {
 
   it("filters the list via the search input", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<AppsScreen {...buildProps()} />);
+    renderWithMantine(<ControlledAppsScreen />);
     await user.type(screen.getByPlaceholderText("Search apps..."), "weather");
     expect(screen.getByText("Weather Widget")).toBeInTheDocument();
     expect(screen.queryByText("Ops Dashboard")).not.toBeInTheDocument();
@@ -125,7 +170,7 @@ describe("AppsScreen", () => {
 
   it("shows 'No matching apps' when search yields no results", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<AppsScreen {...buildProps()} />);
+    renderWithMantine(<ControlledAppsScreen />);
     await user.type(screen.getByPlaceholderText("Search apps..."), "zzz");
     expect(screen.getByText("No matching apps")).toBeInTheDocument();
   });
@@ -135,7 +180,7 @@ describe("AppsScreen", () => {
     const onSelectApp = vi.fn();
     const onOpenApp = vi.fn();
     renderWithMantine(
-      <AppsScreen {...buildProps({ onSelectApp, onOpenApp })} />,
+      <ControlledAppsScreen onSelectApp={onSelectApp} onOpenApp={onOpenApp} />,
     );
     await user.click(screen.getByText("Weather Widget"));
     expect(onSelectApp).toHaveBeenCalledWith("weather");
@@ -148,7 +193,7 @@ describe("AppsScreen", () => {
   it("auto-launches a no-fields app on selection", async () => {
     const user = userEvent.setup();
     const onOpenApp = vi.fn();
-    renderWithMantine(<AppsScreen {...buildProps({ onOpenApp })} />);
+    renderWithMantine(<ControlledAppsScreen onOpenApp={onOpenApp} />);
     await user.click(screen.getByText("Ops Dashboard"));
     expect(onOpenApp).toHaveBeenCalledWith("ops", {});
     // Renderer iframe replaces the form; Open App button is gone.
@@ -161,7 +206,7 @@ describe("AppsScreen", () => {
   it("invokes onOpenApp with form values when Open App is clicked", async () => {
     const user = userEvent.setup();
     const onOpenApp = vi.fn();
-    renderWithMantine(<AppsScreen {...buildProps({ onOpenApp })} />);
+    renderWithMantine(<ControlledAppsScreen onOpenApp={onOpenApp} />);
     await user.click(screen.getByText("Weather Widget"));
     const cityField = screen.getByRole("textbox", { name: /city/i });
     await user.type(cityField, "Reykjavik");
@@ -173,7 +218,7 @@ describe("AppsScreen", () => {
   it("seeds schema defaults so untouched fields are sent on Open App", async () => {
     const user = userEvent.setup();
     const onOpenApp = vi.fn();
-    renderWithMantine(<AppsScreen {...buildProps({ onOpenApp })} />);
+    renderWithMantine(<ControlledAppsScreen onOpenApp={onOpenApp} />);
     await user.click(screen.getByText("Cohort Data"));
     // Open without editing the metric field: its default must still be sent.
     await user.click(screen.getByRole("button", { name: /Open App/ }));
@@ -182,7 +227,7 @@ describe("AppsScreen", () => {
 
   it("returns to the input form when 'Back to Input' is clicked", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<AppsScreen {...buildProps()} />);
+    renderWithMantine(<ControlledAppsScreen />);
     await user.click(screen.getByText("Weather Widget"));
     await user.type(
       screen.getByRole("textbox", { name: /city/i }),
@@ -197,7 +242,7 @@ describe("AppsScreen", () => {
 
   it("does not show 'Back to Input' for a no-fields app", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<AppsScreen {...buildProps()} />);
+    renderWithMantine(<ControlledAppsScreen />);
     await user.click(screen.getByText("Ops Dashboard"));
     expect(
       screen.queryByRole("button", { name: /Back to Input/ }),
@@ -206,7 +251,7 @@ describe("AppsScreen", () => {
 
   it("toggles maximize, hiding the sidebar", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<AppsScreen {...buildProps()} />);
+    renderWithMantine(<ControlledAppsScreen />);
     await user.click(screen.getByText("Ops Dashboard"));
     expect(screen.getByText("MCP Apps (3)")).toBeInTheDocument();
     await user.click(screen.getByLabelText("Maximize"));
@@ -218,7 +263,7 @@ describe("AppsScreen", () => {
   it("calls onCloseApp and clears selection on Close", async () => {
     const user = userEvent.setup();
     const onCloseApp = vi.fn();
-    renderWithMantine(<AppsScreen {...buildProps({ onCloseApp })} />);
+    renderWithMantine(<ControlledAppsScreen onCloseApp={onCloseApp} />);
     await user.click(screen.getByText("Ops Dashboard"));
     await user.click(screen.getByLabelText("Close"));
     expect(onCloseApp).toHaveBeenCalledTimes(1);
@@ -228,7 +273,7 @@ describe("AppsScreen", () => {
   it("ignores re-clicking the same app (no duplicate onSelectApp)", async () => {
     const user = userEvent.setup();
     const onSelectApp = vi.fn();
-    renderWithMantine(<AppsScreen {...buildProps({ onSelectApp })} />);
+    renderWithMantine(<ControlledAppsScreen onSelectApp={onSelectApp} />);
     // After the first click "Weather Widget" appears both in the sidebar
     // list item and the right-pane header, so target the sidebar entry
     // explicitly via the list-item button role.
@@ -240,7 +285,7 @@ describe("AppsScreen", () => {
 
   it("resets form state when switching to a different app", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<AppsScreen {...buildProps()} />);
+    renderWithMantine(<ControlledAppsScreen />);
     await user.click(screen.getByText("Weather Widget"));
     await user.type(
       screen.getByRole("textbox", { name: /city/i }),
@@ -287,7 +332,7 @@ describe("AppsScreen", () => {
       inputSchema: { type: "object" },
       _meta: { ui: { resourceUri: "ui://apps/weather-iconed" } },
     };
-    renderWithMantine(<AppsScreen {...buildProps({ tools: [iconedApp] })} />);
+    renderWithMantine(<ControlledAppsScreen tools={[iconedApp]} />);
     await user.click(screen.getByText("Weather (Iconed)"));
     const headerImg = screen
       .getAllByRole("presentation")
@@ -299,15 +344,16 @@ describe("AppsScreen", () => {
     const user = userEvent.setup();
     const onSelectApp = vi.fn();
     const { rerender } = renderWithMantine(
-      <AppsScreen {...buildProps({ onSelectApp })} />,
+      <ControlledAppsScreen onSelectApp={onSelectApp} />,
     );
     // Click an item, then re-render with a tools list that no longer
     // contains it: the selection state stays put, but a follow-up click
     // on the same name no-ops because the lookup fails.
     await user.click(screen.getByText("Weather Widget"));
     rerender(
-      <AppsScreen
-        {...buildProps({ onSelectApp, tools: [noFieldsApp, cohortApp] })}
+      <ControlledAppsScreen
+        onSelectApp={onSelectApp}
+        tools={[noFieldsApp, cohortApp]}
       />,
     );
     // Sidebar no longer shows Weather Widget; the right pane falls back

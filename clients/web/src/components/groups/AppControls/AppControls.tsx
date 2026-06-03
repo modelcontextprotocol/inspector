@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Button,
   Group,
@@ -15,8 +14,12 @@ import { AppListItem } from "../AppListItem/AppListItem";
 export interface AppControlsProps {
   tools: Tool[];
   selectedName?: string;
+  // Search text is controlled by the parent (App, via AppsScreen) so it
+  // persists across tab navigation within a live session — see #1417.
+  searchText?: string;
   listChanged: boolean;
   onRefreshList: () => void;
+  onSearchChange: (value: string) => void;
   onSelectApp: (name: string) => void;
 }
 
@@ -37,11 +40,12 @@ const EmptyState = Text.withProps({
 export function AppControls({
   tools,
   selectedName,
+  searchText = "",
   listChanged,
   onRefreshList,
+  onSearchChange,
   onSelectApp,
 }: AppControlsProps) {
-  const [searchText, setSearchText] = useState("");
   const query = searchText.toLowerCase();
   const filteredTools = searchText
     ? tools.filter(
@@ -61,7 +65,7 @@ export function AppControls({
       <TextInput
         placeholder="Search apps..."
         value={searchText}
-        onChange={(e) => setSearchText(e.currentTarget.value)}
+        onChange={(e) => onSearchChange(e.currentTarget.value)}
       />
       <ScrollArea.Autosize mah={LIST_MAX_HEIGHT}>
         <Stack gap="xs">

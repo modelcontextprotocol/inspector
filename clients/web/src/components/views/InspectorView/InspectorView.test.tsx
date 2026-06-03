@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type {
@@ -67,26 +68,47 @@ function makeProps(
     onServerRemove: vi.fn(),
     onSelectTool: vi.fn(),
     onToolFormChange: vi.fn(),
+    onToolSearchChange: vi.fn(),
     onCallTool: vi.fn(),
     onRefreshTools: vi.fn(),
+    onSelectedPromptNameChange: vi.fn(),
+    onPromptArgumentValuesChange: vi.fn(),
+    onPromptSubmittedForChange: vi.fn(),
+    onPromptSearchChange: vi.fn(),
     onGetPrompt: vi.fn(),
     onRefreshPrompts: vi.fn(),
+    onSelectedResourceUriChange: vi.fn(),
+    onSelectedTemplateUriChange: vi.fn(),
+    onOriginatingTemplateUriChange: vi.fn(),
+    onResourceSearchChange: vi.fn(),
+    onResourceOpenSectionsChange: vi.fn(),
     onReadResource: vi.fn(),
     onSubscribeResource: vi.fn(),
     onUnsubscribeResource: vi.fn(),
     onRefreshResources: vi.fn(),
+    onTaskSearchChange: vi.fn(),
+    onTaskStatusFilterChange: vi.fn(),
     onCancelTask: vi.fn(),
     onClearCompletedTasks: vi.fn(),
     onRefreshTasks: vi.fn(),
     onSetLogLevel: vi.fn(),
+    onLogFilterChange: vi.fn(),
+    onLogVisibleLevelsChange: vi.fn(),
     onClearLogs: vi.fn(),
     onExportLogs: vi.fn(),
+    onHistorySearchChange: vi.fn(),
+    onHistoryMethodFilterChange: vi.fn(),
     onClearHistory: vi.fn(),
     onExportHistory: vi.fn(),
     onReplayHistory: vi.fn(),
     onTogglePinHistory: vi.fn(),
+    onNetworkFilterChange: vi.fn(),
+    onNetworkVisibleCategoriesChange: vi.fn(),
     onClearNetwork: vi.fn(),
     onExportNetwork: vi.fn(),
+    onSelectedAppNameChange: vi.fn(),
+    onAppFormValuesChange: vi.fn(),
+    onAppSearchChange: vi.fn(),
     onSelectApp: vi.fn(),
     onOpenApp: vi.fn(),
     onCloseApp: vi.fn(),
@@ -94,6 +116,27 @@ function makeProps(
     onRefreshApps: vi.fn(),
     ...overrides,
   };
+}
+
+// Most tests render the view fully prop-driven (every callback is a spy). A few
+// interactions — selecting an App and watching it auto-launch — depend on the
+// parent-owned selection state actually updating, since the view is controlled
+// (#1417). This host holds the App-tab selection/form state and threads it back
+// in as controlled props, mirroring how App.tsx owns it in the real wiring.
+function StatefulInspectorView({ props }: { props: InspectorViewProps }) {
+  const [selectedAppName, setSelectedAppName] = useState(props.selectedAppName);
+  const [appFormValues, setAppFormValues] = useState<Record<string, unknown>>(
+    props.appFormValues ?? {},
+  );
+  return (
+    <InspectorView
+      {...props}
+      selectedAppName={selectedAppName}
+      appFormValues={appFormValues}
+      onSelectedAppNameChange={setSelectedAppName}
+      onAppFormValuesChange={setAppFormValues}
+    />
+  );
 }
 
 const sampleServer: ServerEntry = {
@@ -272,8 +315,8 @@ describe("InspectorView", () => {
       _meta: { ui: { resourceUri: "not-a-ui-uri" } },
     };
     renderWithMantine(
-      <InspectorView
-        {...makeProps({
+      <StatefulInspectorView
+        props={makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
           connectionStatus: "connected",

@@ -80,6 +80,26 @@ const dashboardApp: Tool = {
 
 const sampleApps: Tool[] = [cohortApp, weatherApp, dashboardApp];
 
+// AppsScreen is controlled (app selection, form values, and search text live in
+// the parent — running/maximized stay internal; see #1417). This hook holds the
+// lifted state so the play-driven select/type/open interactions still drive the
+// detail panel, mirroring how App owns the state in the real app.
+function useLiftedAppState(args: AppsScreenProps) {
+  const [selectedAppName, setSelectedAppName] = useState(args.selectedAppName);
+  const [formValues, setFormValues] = useState<Record<string, unknown>>(
+    args.formValues ?? {},
+  );
+  const [searchText, setSearchText] = useState(args.searchText ?? "");
+  return {
+    selectedAppName,
+    formValues,
+    searchText,
+    onSelectedAppNameChange: setSelectedAppName,
+    onFormValuesChange: setFormValues,
+    onSearchChange: setSearchText,
+  };
+}
+
 const meta: Meta<typeof AppsScreen> = {
   title: "Screens/AppsScreen",
   component: AppsScreen,
@@ -92,13 +112,17 @@ const meta: Meta<typeof AppsScreen> = {
     onSelectApp: fn(),
     onOpenApp: fn(),
     onCloseApp: fn(),
+    onSelectedAppNameChange: fn(),
+    onFormValuesChange: fn(),
+    onSearchChange: fn(),
   },
   // Each story uses its own ref so AppRenderer's imperative handle gets a
   // fresh slot per render (Storybook may keep the canvas mounted across
   // arg edits, but the ref itself is owned by the wrapping component).
   render: function StoryRender(args: AppsScreenProps) {
     const ref = useRef<AppRendererHandle>(null);
-    return <AppsScreen {...args} rendererRef={ref} />;
+    const lifted = useLiftedAppState(args);
+    return <AppsScreen {...args} {...lifted} rendererRef={ref} />;
   },
 };
 
@@ -175,6 +199,7 @@ export const EchoRunning: Story = {
   render: function EchoRender(args: AppsScreenProps) {
     const ref = useRef<AppRendererHandle>(null);
     const [echo, setEcho] = useState<string | null>(null);
+    const lifted = useLiftedAppState(args);
 
     const bridgeFactory: BridgeFactory = useCallback(() => {
       let onInitialized: (() => void) | undefined;
@@ -227,6 +252,7 @@ export const EchoRunning: Story = {
         </Text>
         <AppsScreen
           {...args}
+          {...lifted}
           rendererRef={ref}
           bridgeFactory={bridgeFactory}
           onOpenApp={onOpenApp}
