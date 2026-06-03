@@ -1,8 +1,24 @@
+import { useState } from "react";
+import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fn, userEvent, within } from "storybook/test";
 import { AppControls } from "./AppControls";
 import { SUN_ICON_SVG } from "../../../test/fixtures/storyIcons";
+
+// AppControls' search text is controlled by the parent (App, via AppsScreen —
+// see #1417). This wrapper holds that state so the play-driven typing updates
+// the controlled input.
+function StatefulAppControls(args: ComponentProps<typeof AppControls>) {
+  const [searchText, setSearchText] = useState(args.searchText ?? "");
+  return (
+    <AppControls
+      {...args}
+      searchText={searchText}
+      onSearchChange={setSearchText}
+    />
+  );
+}
 
 const sampleApps: Tool[] = [
   {
@@ -41,8 +57,10 @@ const meta: Meta<typeof AppControls> = {
   args: {
     onRefreshList: fn(),
     onSelectApp: fn(),
+    onSearchChange: fn(),
     listChanged: false,
   },
+  render: (args) => <StatefulAppControls {...args} />,
 };
 
 export default meta;

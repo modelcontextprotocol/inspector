@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { PromptControls } from "./PromptControls";
+import { PromptControls, type PromptControlsProps } from "./PromptControls";
 
 const samplePrompts: Prompt[] = [
   {
@@ -23,7 +24,26 @@ const baseProps = {
   listChanged: false,
   onRefreshList: vi.fn(),
   onSelectPrompt: vi.fn(),
+  onSearchChange: vi.fn(),
 };
+
+// The search box is controlled: typing fires onSearchChange but does not
+// update the component's own state. This host holds the searchText state so
+// interaction tests that filter by typing behave like the real parent.
+function ControlledPromptControls(props: Partial<PromptControlsProps>) {
+  const [searchText, setSearchText] = useState(props.searchText ?? "");
+  return (
+    <PromptControls
+      {...baseProps}
+      {...props}
+      searchText={searchText}
+      onSearchChange={(value) => {
+        setSearchText(value);
+        props.onSearchChange?.(value);
+      }}
+    />
+  );
+}
 
 describe("PromptControls", () => {
   it("renders the title and search input", () => {
@@ -45,7 +65,7 @@ describe("PromptControls", () => {
 
   it("filters prompts by name when typing in the search input", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<PromptControls {...baseProps} />);
+    renderWithMantine(<ControlledPromptControls />);
     await user.type(screen.getByPlaceholderText("Search prompts..."), "trans");
     expect(screen.getByText("translate")).toBeInTheDocument();
     expect(screen.queryByText("summarize")).not.toBeInTheDocument();
@@ -54,7 +74,7 @@ describe("PromptControls", () => {
 
   it("filters prompts by description when typing in the search input", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<PromptControls {...baseProps} />);
+    renderWithMantine(<ControlledPromptControls />);
     await user.type(
       screen.getByPlaceholderText("Search prompts..."),
       "sentiment",
@@ -69,9 +89,7 @@ describe("PromptControls", () => {
       { name: "p1", title: "Alpha Title" },
       { name: "p2", title: "Beta Title" },
     ];
-    renderWithMantine(
-      <PromptControls {...baseProps} prompts={promptsWithTitle} />,
-    );
+    renderWithMantine(<ControlledPromptControls prompts={promptsWithTitle} />);
     await user.type(screen.getByPlaceholderText("Search prompts..."), "alpha");
     expect(screen.getByText("Alpha Title")).toBeInTheDocument();
     expect(screen.queryByText("Beta Title")).not.toBeInTheDocument();

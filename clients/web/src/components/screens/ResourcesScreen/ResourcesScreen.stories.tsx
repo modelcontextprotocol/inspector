@@ -1,3 +1,5 @@
+import { useState } from "react";
+import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type {
   Resource,
@@ -6,13 +8,26 @@ import type {
 import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
 import { fn, userEvent, within } from "storybook/test";
 import { ResourcesScreen } from "./ResourcesScreen";
-import type { ReadResourceState } from "./ResourcesScreen";
+import type { ReadResourceState, ResourcesUiState } from "./ResourcesScreen";
+import { EMPTY_RESOURCES_UI } from "../screenUiState";
+
+// ResourcesScreen is controlled (resource/template selection, the originating
+// template, search text, and open accordion sections live in the parent as one
+// `ui` object — see #1417). This wrapper holds that state so the play-driven
+// clicks still drive the detail/preview panels, mirroring how App owns the state
+// in the real app.
+function StatefulResourcesScreen(args: ComponentProps<typeof ResourcesScreen>) {
+  const [ui, setUi] = useState<ResourcesUiState>(args.ui ?? EMPTY_RESOURCES_UI);
+  return <ResourcesScreen {...args} ui={ui} onUiChange={setUi} />;
+}
 
 const meta: Meta<typeof ResourcesScreen> = {
   title: "Screens/ResourcesScreen",
   component: ResourcesScreen,
   parameters: { layout: "fullscreen" },
   args: {
+    ui: EMPTY_RESOURCES_UI,
+    onUiChange: fn(),
     onRefreshList: fn(),
     onReadResource: fn(),
     onSubscribeResource: fn(),
@@ -23,6 +38,7 @@ const meta: Meta<typeof ResourcesScreen> = {
     compact: false,
     onCompactChange: fn(),
   },
+  render: (args) => <StatefulResourcesScreen {...args} />,
 };
 
 export default meta;

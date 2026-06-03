@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Accordion,
   Group,
@@ -23,15 +22,24 @@ export interface ResourceControlsProps {
   subscriptions: InspectorResourceSubscription[];
   selectedUri?: string;
   selectedTemplateUri?: string;
+  // Search text + accordion open-sections are controlled by the parent (App,
+  // via ResourcesScreen) so they persist across tab navigation within a live
+  // session — see #1417. `openSections` is optional: when undefined the
+  // accordion falls back to the `compact`-derived default below.
+  searchText?: string;
+  openSections?: string[];
   listChanged: boolean;
   onRefreshList: () => void;
+  onSearchChange: (value: string) => void;
+  onOpenSectionsChange: (value: string[]) => void;
   onSelectUri: (uri: string) => void;
   onSelectTemplate: (uriTemplate: string) => void;
   onUnsubscribeResource: (uri: string) => void;
   /**
    * Persisted preference for the ListToggle. Seeds initial accordion state
-   * on mount; the user can still toggle individual sections during a session
-   * without affecting this value. Only an explicit ListToggle click updates it.
+   * (when `openSections` is undefined); the user can still toggle individual
+   * sections during a session without affecting this value. Only an explicit
+   * ListToggle click updates it.
    */
   compact: boolean;
   onCompactChange: (next: boolean) => void;
@@ -54,15 +62,18 @@ export function ResourceControls({
   subscriptions,
   selectedUri,
   selectedTemplateUri,
+  searchText = "",
+  openSections: controlledOpenSections,
   listChanged,
   onRefreshList,
+  onSearchChange,
+  onOpenSectionsChange,
   onSelectUri,
   onSelectTemplate,
   onUnsubscribeResource,
   compact: initialCompact,
   onCompactChange,
 }: ResourceControlsProps) {
-  const [searchText, setSearchText] = useState("");
   const query = searchText.toLowerCase();
   const filteredResources = resources.filter(
     (r) =>
@@ -84,13 +95,13 @@ export function ResourceControls({
   );
 
   const allSections = ["resources", "templates", "subscriptions"];
-  // Seed the accordion from the persisted preference: empty when the user
-  // last left the panel compact, all three open when they explicitly
-  // expanded. Per-section accordion clicks during a session update the
-  // local list but don't change the persisted preference.
-  const [openSections, setOpenSections] = useState<string[]>(
-    initialCompact ? [] : [...allSections],
-  );
+  // Open-sections is parent-controlled (persists across navigation). When the
+  // parent hasn't set it yet (undefined), fall back to the persisted `compact`
+  // preference: empty when last left compact, all three open when expanded.
+  // Per-section accordion clicks update the lifted value but don't change the
+  // persisted preference.
+  const openSections =
+    controlledOpenSections ?? (initialCompact ? [] : [...allSections]);
   const allExpanded = openSections.length === allSections.length;
   const maxHeight = panelMaxHeight(openSections.length);
 
@@ -100,7 +111,7 @@ export function ResourceControls({
     // right preference: clicking "expand all" should record `compact=false`
     // even if the visible state was already partially expanded.
     const nextCompact = allExpanded;
-    setOpenSections(nextCompact ? [] : [...allSections]);
+    onOpenSectionsChange(nextCompact ? [] : [...allSections]);
     onCompactChange(nextCompact);
   }
 
@@ -115,11 +126,11 @@ export function ResourceControls({
           flex={1}
           placeholder="Search..."
           value={searchText}
-          onChange={(e) => setSearchText(e.currentTarget.value)}
+          onChange={(e) => onSearchChange(e.currentTarget.value)}
         />
         <ListToggle compact={!allExpanded} onToggle={handleToggleList} />
       </Group>
-      <Accordion multiple value={openSections} onChange={setOpenSections}>
+      <Accordion multiple value={openSections} onChange={onOpenSectionsChange}>
         <Accordion.Item value="resources">
           <Accordion.Control disabled={filteredResources.length === 0}>
             {formatSectionCount("URIs", filteredResources.length)}

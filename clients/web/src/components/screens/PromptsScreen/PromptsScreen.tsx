@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Alert,
   Card,
@@ -31,8 +30,10 @@ export interface GetPromptState {
 export interface PromptsScreenProps {
   prompts: Prompt[];
   getPromptState?: GetPromptState;
+  ui: PromptsUiState;
   listChanged: boolean;
   completionsSupported?: boolean;
+  onUiChange: (next: PromptsUiState) => void;
   onRefreshList: () => void;
   onGetPrompt: (name: string, args: Record<string, string>) => void;
   onCopyMessages?: () => void;
@@ -44,6 +45,16 @@ export interface PromptsScreenProps {
     argumentValue: string,
     context: Record<string, string>,
   ) => Promise<string[]>;
+}
+
+// Selection, argument values, the "submitted" marker, and the sidebar search —
+// controlled by the parent (App) as one object so they persist across tab
+// navigation within a live session (#1417).
+export interface PromptsUiState {
+  selectedPromptName?: string;
+  argumentValues: Record<string, string>;
+  submittedFor?: string;
+  search: string;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -102,26 +113,16 @@ function hasArguments(prompt: Prompt): boolean {
 export function PromptsScreen({
   prompts,
   getPromptState,
+  ui,
   listChanged,
   completionsSupported,
+  onUiChange,
   onRefreshList,
   onGetPrompt,
   onCopyMessages,
   onCompleteArgument,
 }: PromptsScreenProps) {
-  const [selectedPromptName, setSelectedPromptName] = useState<
-    string | undefined
-  >(undefined);
-  const [argumentValues, setArgumentValues] = useState<Record<string, string>>(
-    {},
-  );
-  // Track which prompt the user has already submitted in this session so
-  // the form pane disappears once the user clicks Get Prompt. Cleared on
-  // sidebar switch so the form re-appears for a freshly-selected prompt.
-  const [submittedFor, setSubmittedFor] = useState<string | undefined>(
-    undefined,
-  );
-
+  const { selectedPromptName, argumentValues, submittedFor, search } = ui;
   const selectedPrompt = selectedPromptName
     ? prompts.find((p) => p.name === selectedPromptName)
     : undefined;
@@ -132,23 +133,23 @@ export function PromptsScreen({
     // for navigation, ✕ is for dismiss. Closing-then-reselecting is
     // its own thing (the close handler clears submittedFor).
     if (name === selectedPromptName) return;
-    setArgumentValues({});
-    setSelectedPromptName(name);
     // Auto-fetch no-argument prompts the moment they're selected — the
     // form pane would otherwise just render a bare Get Prompt button
     // with nothing to fill in. Prompts with arguments wait for submit.
     const target = prompts.find((p) => p.name === name);
-    if (target && !hasArguments(target)) {
-      setSubmittedFor(name);
-      onGetPrompt(name, {});
-    } else {
-      setSubmittedFor(undefined);
-    }
+    const autoFetch = !!target && !hasArguments(target);
+    onUiChange({
+      ...ui,
+      argumentValues: {},
+      selectedPromptName: name,
+      submittedFor: autoFetch ? name : undefined,
+    });
+    if (autoFetch) onGetPrompt(name, {});
   }
 
   function handleSubmit() {
     if (!selectedPrompt) return;
-    setSubmittedFor(selectedPrompt.name);
+    onUiChange({ ...ui, submittedFor: selectedPrompt.name });
     onGetPrompt(selectedPrompt.name, argumentValues);
   }
 
@@ -158,10 +159,13 @@ export function PromptsScreen({
     // prompts there's no form to return to, so drop the selection and
     // fall back to the empty state.
     if (selectedPrompt && hasArguments(selectedPrompt)) {
-      setSubmittedFor(undefined);
+      onUiChange({ ...ui, submittedFor: undefined });
     } else {
-      setSelectedPromptName(undefined);
-      setSubmittedFor(undefined);
+      onUiChange({
+        ...ui,
+        selectedPromptName: undefined,
+        submittedFor: undefined,
+      });
     }
   }
 
@@ -235,8 +239,10 @@ export function PromptsScreen({
           <PromptControls
             prompts={prompts}
             selectedName={selectedPromptName}
+            searchText={search}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
+            onSearchChange={(value) => onUiChange({ ...ui, search: value })}
             onSelectPrompt={handleSelectPrompt}
           />
         </SidebarCard>
@@ -256,7 +262,10 @@ export function PromptsScreen({
               prompt={selectedPrompt}
               argumentValues={argumentValues}
               onArgumentChange={(argName, value) =>
-                setArgumentValues((prev) => ({ ...prev, [argName]: value }))
+                onUiChange({
+                  ...ui,
+                  argumentValues: { ...argumentValues, [argName]: value },
+                })
               }
               onGetPrompt={handleSubmit}
               completionsSupported={completionsSupported}

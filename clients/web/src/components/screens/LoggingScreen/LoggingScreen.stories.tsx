@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import { LoggingScreen } from "./LoggingScreen";
+import { EMPTY_LOGS_UI } from "../screenUiState";
 import { mixedEntries } from "./LoggingScreen.fixtures";
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
 
@@ -13,6 +14,8 @@ const meta: Meta<typeof LoggingScreen> = {
     onSetLevel: fn(),
     onClear: fn(),
     onExport: fn(),
+    ui: EMPTY_LOGS_UI,
+    onUiChange: fn(),
     sortDirection: "newest-first",
     onSortChange: fn(),
   },

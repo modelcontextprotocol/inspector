@@ -1,14 +1,26 @@
+import { useState } from "react";
+import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ElicitRequest, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Modal } from "@mantine/core";
 import { fn, userEvent, within } from "storybook/test";
 import { ToolsScreen } from "./ToolsScreen";
-import type { ToolCallState } from "./ToolsScreen";
+import type { ToolCallState, ToolsUiState } from "./ToolsScreen";
+import { EMPTY_TOOLS_UI } from "../screenUiState";
 import { SamplingRequestPanel } from "../../groups/SamplingRequestPanel/SamplingRequestPanel";
 import { ElicitationFormPanel } from "../../groups/ElicitationFormPanel/ElicitationFormPanel";
 import { PendingClientRequests } from "../../groups/PendingClientRequests/PendingClientRequests";
 import { InlineSamplingRequest } from "../../groups/InlineSamplingRequest/InlineSamplingRequest";
 import { InlineElicitationRequest } from "../../groups/InlineElicitationRequest/InlineElicitationRequest";
+
+// ToolsScreen is controlled (selection + form values live in the parent as one
+// `ui` object — see #1414). This wrapper holds that state so the play-driven
+// tool clicks still drive the detail panel, mirroring how App owns the state in
+// the real app.
+function StatefulToolsScreen(args: ComponentProps<typeof ToolsScreen>) {
+  const [ui, setUi] = useState<ToolsUiState>(args.ui ?? EMPTY_TOOLS_UI);
+  return <ToolsScreen {...args} ui={ui} onUiChange={setUi} />;
+}
 
 const meta: Meta<typeof ToolsScreen> = {
   title: "Screens/ToolsScreen",
@@ -16,11 +28,15 @@ const meta: Meta<typeof ToolsScreen> = {
   parameters: { layout: "fullscreen" },
   args: {
     listChanged: false,
+    ui: EMPTY_TOOLS_UI,
+    onUiChange: fn(),
     onRefreshList: fn(),
     onCallTool: fn(),
     onCancelCall: fn(),
     onClearResult: fn(),
   },
+  // Wrap in a stateful host so selection/form (now parent-owned) update on click.
+  render: (args) => <StatefulToolsScreen {...args} />,
 };
 
 export default meta;
@@ -197,7 +213,7 @@ export const WithSamplingModal: Story = {
   },
   render: (args) => (
     <>
-      <ToolsScreen {...args} />
+      <StatefulToolsScreen {...args} />
       <Modal opened={true} onClose={fn()} title="Sampling Request" size="lg">
         <SamplingRequestPanel
           request={{
@@ -240,7 +256,7 @@ export const WithElicitationModal: Story = {
   },
   render: (args) => (
     <>
-      <ToolsScreen {...args} />
+      <StatefulToolsScreen {...args} />
       <Modal opened={true} onClose={fn()} title="Elicitation Request" size="lg">
         <ElicitationFormPanel
           request={elicitFormRequest}
@@ -266,7 +282,7 @@ export const WithPendingRequests: Story = {
   },
   render: (args) => (
     <>
-      <ToolsScreen {...args} />
+      <StatefulToolsScreen {...args} />
       <Modal
         opened={true}
         onClose={fn()}

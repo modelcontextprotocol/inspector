@@ -1,14 +1,16 @@
-import { useState } from "react";
 import { Card, Flex, Stack } from "@mantine/core";
 import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 import { LogControls } from "../../groups/LogControls/LogControls";
 import { LogStreamPanel } from "../../groups/LogStreamPanel/LogStreamPanel";
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
 import type { SortDirection } from "../../elements/SortToggle/SortToggle";
+import { ALL_LEVELS_VISIBLE, NO_LEVELS_VISIBLE } from "./logLevels";
 
 export interface LoggingScreenProps {
   entries: LogEntryData[];
   currentLevel: LoggingLevel;
+  ui: LogsUiState;
+  onUiChange: (next: LogsUiState) => void;
   onSetLevel: (level: LoggingLevel) => void;
   onClear: () => void;
   onExport: () => void;
@@ -16,27 +18,12 @@ export interface LoggingScreenProps {
   onSortChange: (next: SortDirection) => void;
 }
 
-const ALL_LEVELS_VISIBLE: Record<LoggingLevel, boolean> = {
-  debug: true,
-  info: true,
-  notice: true,
-  warning: true,
-  error: true,
-  critical: true,
-  alert: true,
-  emergency: true,
-};
-
-const NO_LEVELS_VISIBLE: Record<LoggingLevel, boolean> = {
-  debug: false,
-  info: false,
-  notice: false,
-  warning: false,
-  error: false,
-  critical: false,
-  alert: false,
-  emergency: false,
-};
+// Filter text + visible-level set — controlled by the parent (App) as one
+// object so they persist across tab navigation within a live session (#1417).
+export interface LogsUiState {
+  filterText: string;
+  visibleLevels: Record<LoggingLevel, boolean>;
+}
 
 const ScreenLayout = Flex.withProps({
   variant: "screen",
@@ -58,23 +45,29 @@ const SidebarCard = Card.withProps({
 export function LoggingScreen({
   entries,
   currentLevel,
+  ui,
+  onUiChange,
   onSetLevel,
   onClear,
   onExport,
   sortDirection,
   onSortChange,
 }: LoggingScreenProps) {
-  const [filterText, setFilterText] = useState("");
-  const [visibleLevels, setVisibleLevels] =
-    useState<Record<LoggingLevel, boolean>>(ALL_LEVELS_VISIBLE);
+  const { filterText, visibleLevels } = ui;
 
   function handleToggleLevel(level: LoggingLevel, visible: boolean) {
-    setVisibleLevels((prev) => ({ ...prev, [level]: visible }));
+    onUiChange({
+      ...ui,
+      visibleLevels: { ...visibleLevels, [level]: visible },
+    });
   }
 
   function handleToggleAllLevels() {
     const allSelected = Object.values(visibleLevels).every(Boolean);
-    setVisibleLevels(allSelected ? NO_LEVELS_VISIBLE : ALL_LEVELS_VISIBLE);
+    onUiChange({
+      ...ui,
+      visibleLevels: allSelected ? NO_LEVELS_VISIBLE : ALL_LEVELS_VISIBLE,
+    });
   }
 
   return (
@@ -86,7 +79,7 @@ export function LoggingScreen({
             filterText={filterText}
             visibleLevels={visibleLevels}
             onSetLevel={onSetLevel}
-            onFilterChange={setFilterText}
+            onFilterChange={(value) => onUiChange({ ...ui, filterText: value })}
             onToggleLevel={handleToggleLevel}
             onToggleAllLevels={handleToggleAllLevels}
           />

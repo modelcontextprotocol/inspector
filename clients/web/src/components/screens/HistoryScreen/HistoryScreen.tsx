@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { Card, Flex, Stack } from "@mantine/core";
 import type { MessageEntry, MessageMethod } from "@inspector/core/mcp/types.js";
 import { HistoryControls } from "../../groups/HistoryControls/HistoryControls";
@@ -9,6 +9,8 @@ import type { SortDirection } from "../../elements/SortToggle/SortToggle";
 export interface HistoryScreenProps {
   entries: MessageEntry[];
   pinnedIds: Set<string>;
+  ui: HistoryUiState;
+  onUiChange: (next: HistoryUiState) => void;
   onClearAll: () => void;
   onExport: () => void;
   onReplay: (id: string) => void;
@@ -17,6 +19,13 @@ export interface HistoryScreenProps {
   onSortChange: (next: SortDirection) => void;
   compact: boolean;
   onToggleCompact: () => void;
+}
+
+// Search text + method filter — controlled by the parent (App) as one object so
+// they persist across tab navigation within a live session (#1417).
+export interface HistoryUiState {
+  search: string;
+  methodFilter?: MessageMethod;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -39,6 +48,8 @@ const SidebarCard = Card.withProps({
 export function HistoryScreen({
   entries,
   pinnedIds,
+  ui,
+  onUiChange,
   onClearAll,
   onExport,
   onReplay,
@@ -48,8 +59,7 @@ export function HistoryScreen({
   compact,
   onToggleCompact,
 }: HistoryScreenProps) {
-  const [searchText, setSearchText] = useState("");
-  const [methodFilter, setMethodFilter] = useState<MessageMethod | undefined>();
+  const { search, methodFilter } = ui;
 
   const availableMethods = useMemo(
     () => Array.from(new Set(entries.map(extractMethod))).sort(),
@@ -57,27 +67,29 @@ export function HistoryScreen({
   );
 
   const handleClearAll = useCallback(() => {
-    setMethodFilter(undefined);
+    onUiChange({ ...ui, methodFilter: undefined });
     onClearAll();
-  }, [onClearAll]);
+  }, [ui, onUiChange, onClearAll]);
 
   return (
     <ScreenLayout>
       <Sidebar>
         <SidebarCard>
           <HistoryControls
-            searchText={searchText}
+            searchText={search}
             methodFilter={methodFilter}
             availableMethods={availableMethods}
-            onSearchChange={setSearchText}
-            onMethodFilterChange={setMethodFilter}
+            onSearchChange={(value) => onUiChange({ ...ui, search: value })}
+            onMethodFilterChange={(value) =>
+              onUiChange({ ...ui, methodFilter: value })
+            }
           />
         </SidebarCard>
       </Sidebar>
       <HistoryListPanel
         entries={entries}
         pinnedIds={pinnedIds}
-        searchText={searchText}
+        searchText={search}
         methodFilter={methodFilter}
         onClearAll={handleClearAll}
         onExport={onExport}

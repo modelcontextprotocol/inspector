@@ -13,10 +13,16 @@ import type {
   InitializeResult,
   LoggingLevel,
   LoggingMessageNotification,
+  Progress,
+  ProgressToken,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
-import type { JsonValue } from "@inspector/core/mcp/index.js";
+import type {
+  InspectorClientEventMap,
+  JsonValue,
+} from "@inspector/core/mcp/index.js";
+import type { TypedEventGeneric } from "@inspector/core/mcp/typedEventTarget.js";
 import type {
   InspectorServerSettings,
   MCPServerConfig,
@@ -59,9 +65,23 @@ import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js"
 import { useSandboxUrl } from "@inspector/core/react/useSandboxUrl.js";
 import { usePendingClientRequests } from "@inspector/core/react/usePendingClientRequests.js";
 import { InspectorView } from "./components/views/InspectorView/InspectorView";
-import type { ToolCallState } from "./components/screens/ToolsScreen/ToolsScreen";
+import type {
+  ToolCallState,
+  ToolsUiState,
+} from "./components/screens/ToolsScreen/ToolsScreen";
 import type { GetPromptState } from "./components/screens/PromptsScreen/PromptsScreen";
 import type { ReadResourceState } from "./components/screens/ResourcesScreen/ResourcesScreen";
+import {
+  EMPTY_TOOLS_UI,
+  EMPTY_PROMPTS_UI,
+  EMPTY_RESOURCES_UI,
+  EMPTY_APPS_UI,
+  EMPTY_TASKS_UI,
+  EMPTY_LOGS_UI,
+  EMPTY_HISTORY_UI,
+  EMPTY_NETWORK_UI,
+} from "./components/screens/screenUiState";
+import { clearScrollMemory } from "./hooks/useScrollMemory";
 import type { AppRendererHandle } from "./components/elements/AppRenderer/AppRenderer";
 import { createAppBridgeFactory } from "./components/elements/AppRenderer/createAppBridgeFactory";
 import type { LogEntryData } from "./components/elements/LogEntry/LogEntry";
@@ -195,6 +215,34 @@ const OutputValidationToastMessage = ({
   </Stack>
 );
 
+// How long a progress toast lingers after its last tick. Each new tick on the
+// same progress stream resets this window (via `notifications.update`), so a
+// steady stream keeps one toast alive; the toast clears a few seconds after
+// progress stops (i.e. the call finished or went quiet).
+const PROGRESS_TOAST_AUTOCLOSE_MS = 5000;
+
+// Stable toast id for a progress stream. Notifications keyed by this id are
+// replaced (not stacked) so a chatty server updates one toast per stream
+// rather than flooding the corner. The injected `progressToken` correlates a
+// stream with the request that triggered it; when absent (the common case —
+// the inspector doesn't expose a caller token), all ticks share one toast.
+function progressToastId(token: ProgressToken | undefined): string {
+  return `progress-${String(token ?? "default")}`;
+}
+
+// One-line toast body: "<message> — <progress> / <total> (NN%)". The fraction
+// and percentage are omitted when the server sends no `total`.
+function formatProgressToastMessage(
+  detail: Progress & { progressToken?: ProgressToken },
+): string {
+  const { progress, total, message } = detail;
+  const ratio =
+    total !== undefined && total > 0
+      ? `${progress} / ${total} (${Math.round((progress / total) * 100)}%)`
+      : `${progress}`;
+  return message ? `${message} — ${ratio}` : ratio;
+}
+
 function App() {
   // Theme toggle plumbing (preserved from the pre-wire placeholder).
   const { setColorScheme } = useMantineColorScheme();
@@ -314,6 +362,23 @@ function App() {
     ReadResourceState | undefined
   >(undefined);
 
+  // Per-screen selection / search / filter state, one object per screen. Lifted
+  // here (out of the individual screens) so it persists across tab navigation
+  // within a live session — the screens unmount on tab switch, so screen-local
+  // state would be lost. Cleared only on disconnect (via
+  // `resetSessionScopedUiState`) or an explicit user action, never on plain
+  // navigation (#1414/#1417). The in-flight result panels (`toolCallState` /
+  // `getPromptState` / `readResourceState`) stay separate — they're written by
+  // the async action handlers below, not by the screens.
+  const [toolsUi, setToolsUi] = useState(EMPTY_TOOLS_UI);
+  const [promptsUi, setPromptsUi] = useState(EMPTY_PROMPTS_UI);
+  const [resourcesUi, setResourcesUi] = useState(EMPTY_RESOURCES_UI);
+  const [appsUi, setAppsUi] = useState(EMPTY_APPS_UI);
+  const [tasksUi, setTasksUi] = useState(EMPTY_TASKS_UI);
+  const [logsUi, setLogsUi] = useState(EMPTY_LOGS_UI);
+  const [historyUi, setHistoryUi] = useState(EMPTY_HISTORY_UI);
+  const [networkUi, setNetworkUi] = useState(EMPTY_NETWORK_UI);
+
   // Handshake telemetry. `connectStartRef` is set at the "connecting" edge
   // and consumed at the "connected" edge — a ref (not state) so the
   // intervening rerenders don't reset it.
@@ -324,6 +389,12 @@ function App() {
   // for the async `servers` list to hydrate, so it can run on more than one
   // render; this ref ensures the token exchange fires exactly once per load.
   const oauthCallbackHandledRef = useRef(false);
+
+  // Tracks which progress streams currently have a live toast, so each new tick
+  // updates the existing toast instead of stacking a fresh one. Entries are
+  // removed when their toast closes (auto-dismiss or user). A ref (not state)
+  // because it's incidental bookkeeping that must not trigger re-renders.
+  const progressToastIdsRef = useRef<Set<string>>(new Set());
 
   // Hook layer. Each hook subscribes to its respective event source and
   // re-renders the App on change. When `inspectorClient` / state managers
@@ -410,7 +481,18 @@ function App() {
     setToolCallState(undefined);
     setGetPromptState(undefined);
     setReadResourceState(undefined);
+    setToolsUi(EMPTY_TOOLS_UI);
+    setPromptsUi(EMPTY_PROMPTS_UI);
+    setResourcesUi(EMPTY_RESOURCES_UI);
+    setAppsUi(EMPTY_APPS_UI);
+    setTasksUi(EMPTY_TASKS_UI);
+    setLogsUi(EMPTY_LOGS_UI);
+    setHistoryUi(EMPTY_HISTORY_UI);
+    setNetworkUi(EMPTY_NETWORK_UI);
     setCurrentLogLevel("info");
+    // Remembered scroll offsets are session-scoped too — drop them so the next
+    // session's screens start at the top (#1417).
+    clearScrollMemory();
   }, []);
 
   // Reset activeServerId whenever the live session ends. Without this the
@@ -437,6 +519,56 @@ function App() {
       inspectorClient.removeEventListener("disconnect", onDisconnect);
     };
   }, [inspectorClient, resetSessionScopedUiState]);
+
+  // Surface incoming `notifications/progress` as toasts so the user can watch a
+  // long-running tool's progress while staying on the tool view — the v2
+  // replacement for v1's always-visible "Server Notifications" shelf (#1414).
+  // The full notification history still lives in the History tab; these toasts
+  // are the at-a-glance, in-context signal. Toasts are keyed by progress stream
+  // (see `progressToastId`) and replaced per tick so a chatty server updates one
+  // toast rather than stacking one per tick.
+  useEffect(() => {
+    if (!inspectorClient) return;
+    const liveToastIds = progressToastIdsRef.current;
+    const onProgress = (
+      event: TypedEventGeneric<InspectorClientEventMap, "progressNotification">,
+    ) => {
+      const detail = event.detail;
+      const id = progressToastId(detail.progressToken);
+      const message = formatProgressToastMessage(detail);
+      if (liveToastIds.has(id)) {
+        notifications.update({
+          id,
+          title: "Tool progress",
+          message,
+          color: "blue",
+          autoClose: PROGRESS_TOAST_AUTOCLOSE_MS,
+        });
+        return;
+      }
+      liveToastIds.add(id);
+      notifications.show({
+        id,
+        title: "Tool progress",
+        message,
+        color: "blue",
+        autoClose: PROGRESS_TOAST_AUTOCLOSE_MS,
+        onClose: () => liveToastIds.delete(id),
+      });
+    };
+    inspectorClient.addEventListener("progressNotification", onProgress);
+    return () => {
+      inspectorClient.removeEventListener("progressNotification", onProgress);
+      // Dismiss any still-visible progress toasts when the client is swapped
+      // out, then drop the stream bookkeeping. Hiding them (rather than letting
+      // them auto-close up to PROGRESS_TOAST_AUTOCLOSE_MS later) keeps a stale
+      // "Tool progress" toast from lingering into the next session, and avoids
+      // a race where the lingering toast's `onClose` would later delete an id
+      // from the *new* session's set and trigger a duplicate-id re-show.
+      liveToastIds.forEach((id) => notifications.hide(id));
+      liveToastIds.clear();
+    };
+  }, [inspectorClient]);
 
   // Build the InitializeResult the connected ViewHeader expects from the
   // hook's split fields. `protocolVersion` is hard-coded for now — the
@@ -928,6 +1060,23 @@ function App() {
   const onClearToolResult = useCallback(() => {
     setToolCallState(undefined);
   }, []);
+
+  // Tools UI changes flow through here so selecting a *different* tool also
+  // drops the previous tool's result — the result panel renders `toolCallState`
+  // regardless of selection, so without this a stale result would linger under
+  // the newly-selected tool (which has no result of its own yet). Search and
+  // form edits keep `selectedToolName` unchanged, so they leave the result be.
+  // Depends on `selectedToolName` only (not the whole `toolsUi`), so a search
+  // keystroke doesn't churn the callback identity.
+  const onToolsUiChange = useCallback(
+    (next: ToolsUiState) => {
+      if (next.selectedToolName !== toolsUi.selectedToolName) {
+        setToolCallState(undefined);
+      }
+      setToolsUi(next);
+    },
+    [toolsUi.selectedToolName],
+  );
 
   // --- MCP Apps handlers. Unlike onCallTool (which feeds the Tools panel),
   // these route the tool input/result into the running app via the renderer's
@@ -1424,6 +1573,14 @@ function App() {
         toolCallState={toolCallState}
         getPromptState={getPromptState}
         readResourceState={effectiveReadResourceState}
+        toolsUi={toolsUi}
+        promptsUi={promptsUi}
+        resourcesUi={resourcesUi}
+        appsUi={appsUi}
+        tasksUi={tasksUi}
+        logsUi={logsUi}
+        historyUi={historyUi}
+        networkUi={networkUi}
         currentLogLevel={currentLogLevel}
         sandboxPath={sandboxUrl}
         bridgeFactory={sandboxBridgeFactory}
@@ -1447,15 +1604,18 @@ function App() {
           const target = servers.find((s) => s.id === id);
           if (target) setRemoveTarget(target);
         }}
+        onToolsUiChange={onToolsUiChange}
         onCallTool={(name, args) => {
           void onCallTool(name, args);
         }}
         onClearToolResult={onClearToolResult}
         onRefreshTools={onRefreshTools}
+        onPromptsUiChange={setPromptsUi}
         onGetPrompt={(name, args) => {
           void onGetPrompt(name, args);
         }}
         onRefreshPrompts={onRefreshPrompts}
+        onResourcesUiChange={setResourcesUi}
         onReadResource={(uri) => {
           void onReadResource(uri);
         }}
@@ -1464,18 +1624,23 @@ function App() {
         onRefreshResources={onRefreshResources}
         onCompleteArgument={onCompleteArgument}
         completionsSupported={capabilities?.completions !== undefined}
+        onTasksUiChange={setTasksUi}
         onCancelTask={onCancelTask}
         onClearCompletedTasks={todoNoop}
         onRefreshTasks={onRefreshTasks}
         onSetLogLevel={onSetLogLevel}
+        onLogsUiChange={setLogsUi}
         onClearLogs={onClearLogs}
         onExportLogs={onExportLogs}
+        onHistoryUiChange={setHistoryUi}
         onClearHistory={onClearHistory}
         onExportHistory={onExportHistory}
         onReplayHistory={todoNoop}
         onTogglePinHistory={todoNoop}
+        onNetworkUiChange={setNetworkUi}
         onClearNetwork={onClearNetwork}
         onExportNetwork={onExportNetwork}
+        onAppsUiChange={setAppsUi}
         onSelectApp={onSelectApp}
         onOpenApp={(name, args) => {
           void onOpenApp(name, args);

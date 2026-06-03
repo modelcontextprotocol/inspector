@@ -15,6 +15,8 @@ const meta: Meta<typeof ResourceControls> = {
     onSelectUri: fn(),
     onSelectTemplate: fn(),
     onUnsubscribeResource: fn(),
+    onSearchChange: fn(),
+    onOpenSectionsChange: fn(),
     listChanged: false,
     compact: false,
     onCompactChange: fn(),

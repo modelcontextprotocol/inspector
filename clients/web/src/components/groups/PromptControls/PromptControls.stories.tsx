@@ -9,6 +9,7 @@ const meta: Meta<typeof PromptControls> = {
   args: {
     onRefreshList: fn(),
     onSelectPrompt: fn(),
+    onSearchChange: fn(),
     listChanged: false,
   },
 };

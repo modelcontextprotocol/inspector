@@ -23,8 +23,12 @@ import { ServerListScreen } from "../../screens/ServerListScreen/ServerListScree
 import {
   ToolsScreen,
   type ToolCallState,
+  type ToolsUiState,
 } from "../../screens/ToolsScreen/ToolsScreen";
-import { AppsScreen } from "../../screens/AppsScreen/AppsScreen";
+import {
+  AppsScreen,
+  type AppsUiState,
+} from "../../screens/AppsScreen/AppsScreen";
 import type {
   AppRendererHandle,
   BridgeFactory,
@@ -32,17 +36,31 @@ import type {
 import {
   PromptsScreen,
   type GetPromptState,
+  type PromptsUiState,
 } from "../../screens/PromptsScreen/PromptsScreen";
 import {
   ResourcesScreen,
   type ReadResourceState,
+  type ResourcesUiState,
 } from "../../screens/ResourcesScreen/ResourcesScreen";
-import { LoggingScreen } from "../../screens/LoggingScreen/LoggingScreen";
+import {
+  LoggingScreen,
+  type LogsUiState,
+} from "../../screens/LoggingScreen/LoggingScreen";
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
-import { TasksScreen } from "../../screens/TasksScreen/TasksScreen";
+import {
+  TasksScreen,
+  type TasksUiState,
+} from "../../screens/TasksScreen/TasksScreen";
 import type { TaskProgress } from "../../groups/TaskCard/TaskCard";
-import { HistoryScreen } from "../../screens/HistoryScreen/HistoryScreen";
-import { NetworkScreen } from "../../screens/NetworkScreen/NetworkScreen";
+import {
+  HistoryScreen,
+  type HistoryUiState,
+} from "../../screens/HistoryScreen/HistoryScreen";
+import {
+  NetworkScreen,
+  type NetworkUiState,
+} from "../../screens/NetworkScreen/NetworkScreen";
 import type { SortDirection } from "../../elements/SortToggle/SortToggle";
 import { getServerType } from "@inspector/core/mcp/config.js";
 
@@ -195,6 +213,19 @@ export interface InspectorViewProps {
   getPromptState?: GetPromptState;
   readResourceState?: ReadResourceState;
 
+  // Per-screen selection / search / filter state, one object per screen. Owned
+  // by the parent (App) so it persists across tab navigation within a live
+  // session — the screens unmount on tab switch, so screen-local state would be
+  // lost (#1417). Each is paired with an `on{Screen}UiChange` setter below.
+  toolsUi: ToolsUiState;
+  promptsUi: PromptsUiState;
+  resourcesUi: ResourcesUiState;
+  appsUi: AppsUiState;
+  tasksUi: TasksUiState;
+  logsUi: LogsUiState;
+  historyUi: HistoryUiState;
+  networkUi: NetworkUiState;
+
   // Logging level. The MCP `logging/setLevel` request has no echo
   // notification, so the parent keeps the optimistic current value.
   currentLogLevel: LoggingLevel;
@@ -232,15 +263,19 @@ export interface InspectorViewProps {
   onServerRemove: (id: string) => void;
 
   // Per-primitive actions (route to `inspectorClient` methods / hook refresh).
+  // Each `on{Screen}UiChange` persists that screen's lifted UI state (#1417).
+  onToolsUiChange: (next: ToolsUiState) => void;
   onCallTool: (name: string, args: Record<string, unknown>) => void;
   onCancelToolCall?: () => void;
   onClearToolResult?: () => void;
   onRefreshTools: () => void;
 
+  onPromptsUiChange: (next: PromptsUiState) => void;
   onGetPrompt: (name: string, args: Record<string, string>) => void;
   onCopyPromptMessages?: () => void;
   onRefreshPrompts: () => void;
 
+  onResourcesUiChange: (next: ResourcesUiState) => void;
   onReadResource: (uri: string) => void;
   onSubscribeResource: (uri: string) => void;
   onUnsubscribeResource: (uri: string) => void;
@@ -255,22 +290,27 @@ export interface InspectorViewProps {
   ) => Promise<string[]>;
   completionsSupported?: boolean;
 
+  onTasksUiChange: (next: TasksUiState) => void;
   onCancelTask: (taskId: string) => void;
   onClearCompletedTasks: () => void;
   onRefreshTasks: () => void;
 
   onSetLogLevel: (level: LoggingLevel) => void;
+  onLogsUiChange: (next: LogsUiState) => void;
   onClearLogs: () => void;
   onExportLogs: () => void;
 
+  onHistoryUiChange: (next: HistoryUiState) => void;
   onClearHistory: () => void;
   onExportHistory: () => void;
   onReplayHistory: (id: string) => void;
   onTogglePinHistory: (id: string) => void;
 
+  onNetworkUiChange: (next: NetworkUiState) => void;
   onClearNetwork: () => void;
   onExportNetwork: () => void;
 
+  onAppsUiChange: (next: AppsUiState) => void;
   onSelectApp: (name: string) => void;
   onOpenApp: (name: string, args: Record<string, unknown>) => void;
   onCloseApp: () => void;
@@ -297,6 +337,14 @@ export function InspectorView({
   toolCallState,
   getPromptState,
   readResourceState,
+  toolsUi,
+  promptsUi,
+  resourcesUi,
+  appsUi,
+  tasksUi,
+  logsUi,
+  historyUi,
+  networkUi,
   currentLogLevel,
   sandboxPath,
   bridgeFactory,
@@ -314,31 +362,39 @@ export function InspectorView({
   onServerEdit,
   onServerClone,
   onServerRemove,
+  onToolsUiChange,
   onCallTool,
   onCancelToolCall,
   onClearToolResult,
   onRefreshTools,
+  onPromptsUiChange,
   onGetPrompt,
   onCopyPromptMessages,
   onRefreshPrompts,
+  onResourcesUiChange,
   onReadResource,
   onSubscribeResource,
   onUnsubscribeResource,
   onRefreshResources,
   onCompleteArgument,
   completionsSupported,
+  onTasksUiChange,
   onCancelTask,
   onClearCompletedTasks,
   onRefreshTasks,
   onSetLogLevel,
+  onLogsUiChange,
   onClearLogs,
   onExportLogs,
+  onHistoryUiChange,
   onClearHistory,
   onExportHistory,
   onReplayHistory,
   onTogglePinHistory,
+  onNetworkUiChange,
   onClearNetwork,
   onExportNetwork,
+  onAppsUiChange,
   onSelectApp,
   onOpenApp,
   onCloseApp,
@@ -466,7 +522,9 @@ export function InspectorView({
             <ToolsScreen
               tools={tools}
               callState={toolCallState}
+              ui={toolsUi}
               listChanged={false}
+              onUiChange={onToolsUiChange}
               onRefreshList={onRefreshTools}
               onCallTool={onCallTool}
               onCancelCall={onCancelToolCall}
@@ -480,6 +538,8 @@ export function InspectorView({
               sandboxPath={sandboxPath}
               bridgeFactory={bridgeFactory}
               rendererRef={appRendererRef}
+              ui={appsUi}
+              onUiChange={onAppsUiChange}
               onRefreshList={onRefreshApps}
               onSelectApp={onSelectApp}
               onOpenApp={onOpenApp}
@@ -491,8 +551,10 @@ export function InspectorView({
             <PromptsScreen
               prompts={prompts}
               getPromptState={getPromptState}
+              ui={promptsUi}
               listChanged={false}
               completionsSupported={completionsSupported}
+              onUiChange={onPromptsUiChange}
               onRefreshList={onRefreshPrompts}
               onGetPrompt={onGetPrompt}
               onCopyMessages={onCopyPromptMessages}
@@ -505,8 +567,10 @@ export function InspectorView({
               templates={resourceTemplates}
               subscriptions={subscriptions}
               readState={readResourceState}
+              ui={resourcesUi}
               listChanged={false}
               completionsSupported={completionsSupported}
+              onUiChange={onResourcesUiChange}
               onRefreshList={onRefreshResources}
               onReadResource={onReadResource}
               onSubscribeResource={onSubscribeResource}
@@ -520,6 +584,8 @@ export function InspectorView({
             <TasksScreen
               tasks={tasks}
               progressByTaskId={progressByTaskId}
+              ui={tasksUi}
+              onUiChange={onTasksUiChange}
               onRefresh={onRefreshTasks}
               onClearCompleted={onClearCompletedTasks}
               onCancel={onCancelTask}
@@ -529,6 +595,8 @@ export function InspectorView({
             <LoggingScreen
               entries={logs}
               currentLevel={currentLogLevel}
+              ui={logsUi}
+              onUiChange={onLogsUiChange}
               onSetLevel={onSetLogLevel}
               onClear={onClearLogs}
               onExport={onExportLogs}
@@ -540,6 +608,8 @@ export function InspectorView({
             <HistoryScreen
               entries={history}
               pinnedIds={pinnedHistoryIds ?? new Set()}
+              ui={historyUi}
+              onUiChange={onHistoryUiChange}
               onClearAll={onClearHistory}
               onExport={onExportHistory}
               onReplay={onReplayHistory}
@@ -553,6 +623,8 @@ export function InspectorView({
           <ScreenStage active={activeTab === "Network"}>
             <NetworkScreen
               entries={network}
+              ui={networkUi}
+              onUiChange={onNetworkUiChange}
               onClear={onClearNetwork}
               onExport={onExportNetwork}
               sortDirection={networkSort}

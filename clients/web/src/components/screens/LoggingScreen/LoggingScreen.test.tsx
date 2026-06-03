@@ -1,17 +1,46 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { LoggingScreen } from "./LoggingScreen";
+import {
+  LoggingScreen,
+  type LoggingScreenProps,
+  type LogsUiState,
+} from "./LoggingScreen";
+import { EMPTY_LOGS_UI } from "../screenUiState";
 
 const baseProps = {
   entries: [],
   currentLevel: "info" as const,
+  ui: EMPTY_LOGS_UI,
+  onUiChange: vi.fn(),
   onSetLevel: vi.fn(),
   onClear: vi.fn(),
   onExport: vi.fn(),
   sortDirection: "newest-first" as const,
   onSortChange: vi.fn(),
 };
+
+// LoggingScreen is controlled: filter text + visible-level set live in the
+// parent (App) as one `ui` object so they persist across tab navigation
+// (#1417). This host holds that state so typing/toggling drives the rendered
+// list, mirroring how App owns it. Props passed in override defaults; the
+// stateful `ui` wiring is applied last so callers can still observe changes
+// via the spied `onUiChange` callback.
+function ControlledLoggingScreen(props: Partial<LoggingScreenProps>) {
+  const [ui, setUi] = useState<LogsUiState>({ ...EMPTY_LOGS_UI, ...props.ui });
+  return (
+    <LoggingScreen
+      {...baseProps}
+      {...props}
+      ui={ui}
+      onUiChange={(value) => {
+        setUi(value);
+        props.onUiChange?.(value);
+      }}
+    />
+  );
+}
 
 describe("LoggingScreen", () => {
   it("renders the log stream panel", () => {
@@ -58,7 +87,7 @@ describe("LoggingScreen", () => {
     const entries = [
       { receivedAt: new Date(), params: { level: "info" as const, data: "x" } },
     ];
-    renderWithMantine(<LoggingScreen {...baseProps} entries={entries} />);
+    renderWithMantine(<ControlledLoggingScreen entries={entries} />);
     expect(screen.getByText("x")).toBeInTheDocument();
     const debugButton = screen.getByRole("button", { name: "info" });
     await user.click(debugButton);
@@ -70,7 +99,7 @@ describe("LoggingScreen", () => {
     const entries = [
       { receivedAt: new Date(), params: { level: "info" as const, data: "x" } },
     ];
-    renderWithMantine(<LoggingScreen {...baseProps} entries={entries} />);
+    renderWithMantine(<ControlledLoggingScreen entries={entries} />);
     await user.click(screen.getByRole("button", { name: "Deselect All" }));
     expect(screen.queryByText("x")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Select All" }));
@@ -89,7 +118,7 @@ describe("LoggingScreen", () => {
         params: { level: "info" as const, data: "beta" },
       },
     ];
-    renderWithMantine(<LoggingScreen {...baseProps} entries={entries} />);
+    renderWithMantine(<ControlledLoggingScreen entries={entries} />);
     await user.type(screen.getByPlaceholderText("Search..."), "alpha");
     expect(screen.getByText("alpha")).toBeInTheDocument();
     expect(screen.queryByText("beta")).not.toBeInTheDocument();

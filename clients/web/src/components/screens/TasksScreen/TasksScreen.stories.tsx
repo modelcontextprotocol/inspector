@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { Task } from "@modelcontextprotocol/sdk/types.js";
 import { fn } from "storybook/test";
 import { TasksScreen } from "./TasksScreen";
+import { EMPTY_TASKS_UI } from "../screenUiState";
 
 const meta: Meta<typeof TasksScreen> = {
   title: "Screens/TasksScreen",
@@ -11,6 +12,8 @@ const meta: Meta<typeof TasksScreen> = {
     onRefresh: fn(),
     onClearCompleted: fn(),
     onCancel: fn(),
+    ui: EMPTY_TASKS_UI,
+    onUiChange: fn(),
   },
 };
 

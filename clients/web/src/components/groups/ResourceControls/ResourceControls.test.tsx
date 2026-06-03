@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type {
@@ -6,7 +7,10 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { InspectorResourceSubscription } from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { ResourceControls } from "./ResourceControls";
+import {
+  ResourceControls,
+  type ResourceControlsProps,
+} from "./ResourceControls";
 
 const sampleResources: Resource[] = [
   { name: "config.json", uri: "file:///config.json" },
@@ -30,12 +34,43 @@ const baseProps = {
   subscriptions: sampleSubscriptions,
   listChanged: false,
   onRefreshList: vi.fn(),
+  onSearchChange: vi.fn(),
+  onOpenSectionsChange: vi.fn(),
   onSelectUri: vi.fn(),
   onSelectTemplate: vi.fn(),
   onUnsubscribeResource: vi.fn(),
   compact: false,
   onCompactChange: vi.fn(),
 };
+
+// ResourceControls is controlled: search text + accordion open-sections live in
+// the parent (App, via ResourcesScreen) so they persist across tab navigation
+// (#1417). This host holds that state so typing filters the lists and toggling
+// the ListToggle drives the accordion, mirroring how App owns it. Props passed
+// in override defaults; the stateful search/open-sections wiring is applied last
+// so callers can still observe changes via the spied callbacks.
+function ControlledResourceControls(props: Partial<ResourceControlsProps>) {
+  const [searchText, setSearchText] = useState<string>(props.searchText ?? "");
+  const [openSections, setOpenSections] = useState<string[]>(
+    props.openSections ?? ["resources", "templates", "subscriptions"],
+  );
+  return (
+    <ResourceControls
+      {...baseProps}
+      {...props}
+      searchText={searchText}
+      openSections={openSections}
+      onSearchChange={(value) => {
+        setSearchText(value);
+        props.onSearchChange?.(value);
+      }}
+      onOpenSectionsChange={(value) => {
+        setOpenSections(value);
+        props.onOpenSectionsChange?.(value);
+      }}
+    />
+  );
+}
 
 describe("ResourceControls", () => {
   it("renders title and section counts", () => {
@@ -68,7 +103,7 @@ describe("ResourceControls", () => {
 
   it("filters resources, templates, and subscriptions by search text", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<ResourceControls {...baseProps} />);
+    renderWithMantine(<ControlledResourceControls />);
     await user.type(screen.getByPlaceholderText("Search..."), "README");
     expect(screen.getByText("URIs (1)")).toBeInTheDocument();
     expect(screen.getByText("Templates (0)")).toBeInTheDocument();
@@ -172,8 +207,7 @@ describe("ResourceControls", () => {
     const user = userEvent.setup();
     const onCompactChange = vi.fn();
     renderWithMantine(
-      <ResourceControls
-        {...baseProps}
+      <ControlledResourceControls
         compact={false}
         onCompactChange={onCompactChange}
       />,
@@ -195,7 +229,7 @@ describe("ResourceControls", () => {
       { name: "y", uri: "file:///y" },
     ];
     renderWithMantine(
-      <ResourceControls {...baseProps} resources={resourcesWithTitle} />,
+      <ControlledResourceControls resources={resourcesWithTitle} />,
     );
     await user.type(screen.getByPlaceholderText("Search..."), "special");
     expect(screen.getByText("URIs (1)")).toBeInTheDocument();

@@ -7,6 +7,21 @@ import {
 } from "./test/renderWithMantine";
 import userEvent from "@testing-library/user-event";
 
+// Spy on the toast layer so the progress-notification tests can assert the
+// show/update calls without mounting Mantine's <Notifications/> portal.
+// `vi.hoisted` lets the mock factory (hoisted above imports) reach the spies.
+const { notificationsMock } = vi.hoisted(() => ({
+  notificationsMock: {
+    show: vi.fn(),
+    update: vi.fn(),
+    hide: vi.fn(),
+    clean: vi.fn(),
+  },
+}));
+vi.mock("@mantine/notifications", () => ({
+  notifications: notificationsMock,
+}));
+
 // App is a wiring component: it owns session-scoped UI state (the per-call
 // result panels and the optimistic log level) and resets it when the active
 // InspectorClient emits `disconnect`. These tests exercise that reset in
@@ -177,10 +192,37 @@ vi.mock("@inspector/core/react/useSettingsDraft.js", () => ({
 vi.mock("./components/views/InspectorView/InspectorView", () => ({
   InspectorView: (props: {
     toolCallState?: { status?: string };
+    toolsUi?: {
+      selectedToolName?: string;
+      formValues: Record<string, unknown>;
+      search: string;
+    };
+    promptsUi?: {
+      selectedPromptName?: string;
+      argumentValues: Record<string, string>;
+      submittedFor?: string;
+      search: string;
+    };
+    logsUi?: { filterText: string; visibleLevels: Record<string, boolean> };
     getPromptState?: { status?: string };
     readResourceState?: { status?: string };
     currentLogLevel?: string;
     onToggleConnection: (id: string) => void;
+    onToolsUiChange: (next: {
+      selectedToolName?: string;
+      formValues: Record<string, unknown>;
+      search: string;
+    }) => void;
+    onPromptsUiChange: (next: {
+      selectedPromptName?: string;
+      argumentValues: Record<string, string>;
+      submittedFor?: string;
+      search: string;
+    }) => void;
+    onLogsUiChange: (next: {
+      filterText: string;
+      visibleLevels: Record<string, boolean>;
+    }) => void;
     onCallTool: (name: string, args: Record<string, unknown>) => void;
     onGetPrompt: (name: string, args: Record<string, string>) => void;
     onReadResource: (uri: string) => void;
@@ -190,6 +232,14 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
       <span data-testid="tool-status">
         {props.toolCallState?.status ?? "none"}
       </span>
+      <span data-testid="selected-tool">
+        {props.toolsUi?.selectedToolName ?? "none"}
+      </span>
+      <span data-testid="tool-search">{props.toolsUi?.search || "none"}</span>
+      <span data-testid="selected-prompt">
+        {props.promptsUi?.selectedPromptName ?? "none"}
+      </span>
+      <span data-testid="log-filter">{props.logsUi?.filterText || "none"}</span>
       <span data-testid="prompt-status">
         {props.getPromptState?.status ?? "none"}
       </span>
@@ -198,6 +248,64 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
       </span>
       <span data-testid="log-level">{props.currentLogLevel}</span>
       <button onClick={() => props.onToggleConnection("A")}>connect</button>
+      <button
+        onClick={() =>
+          props.onToolsUiChange({
+            formValues: {},
+            search: "",
+            ...props.toolsUi,
+            selectedToolName: "get_acts",
+          })
+        }
+      >
+        select-tool
+      </button>
+      <button
+        onClick={() =>
+          props.onToolsUiChange({
+            formValues: {},
+            search: "",
+            ...props.toolsUi,
+            selectedToolName: "other_tool",
+          })
+        }
+      >
+        select-other-tool
+      </button>
+      <button
+        onClick={() =>
+          props.onToolsUiChange({
+            formValues: {},
+            ...props.toolsUi,
+            search: "act",
+          })
+        }
+      >
+        set-tool-search
+      </button>
+      <button
+        onClick={() =>
+          props.onPromptsUiChange({
+            argumentValues: {},
+            search: "",
+            ...props.promptsUi,
+            selectedPromptName: "greet",
+          })
+        }
+      >
+        select-prompt
+      </button>
+      <button
+        onClick={() =>
+          props.onLogsUiChange({
+            visibleLevels: {},
+            ...props.logsUi,
+            filterText: "err",
+          })
+        }
+      >
+        set-log-filter
+      </button>
       <button onClick={() => props.onCallTool("get_acts", {})}>call</button>
       <button onClick={() => props.onGetPrompt("greet", {})}>get-prompt</button>
       <button onClick={() => props.onReadResource("res://x")}>
@@ -238,13 +346,29 @@ describe("App session-scoped state reset on disconnect", () => {
       expect(screen.getByTestId("resource-status")).toHaveTextContent("ok");
     });
 
+    // Set App-owned per-screen UI state (selection + search + filter) — all of
+    // it persists across navigation, so all of it must reset on disconnect
+    // (#1417). A representative sample across screens exercises the shared
+    // `resetSessionScopedUiState` wiring.
+    await user.click(screen.getByText("select-tool"));
+    await user.click(screen.getByText("set-tool-search"));
+    await user.click(screen.getByText("select-prompt"));
+    await user.click(screen.getByText("set-log-filter"));
+    await waitFor(() => {
+      expect(screen.getByTestId("selected-tool")).toHaveTextContent("get_acts");
+      expect(screen.getByTestId("tool-search")).toHaveTextContent("act");
+      expect(screen.getByTestId("selected-prompt")).toHaveTextContent("greet");
+      expect(screen.getByTestId("log-filter")).toHaveTextContent("err");
+    });
+
     // Bump the optimistic log level off its "info" default.
     await user.click(screen.getByText("set-level"));
     await waitFor(() =>
       expect(screen.getByTestId("log-level")).toHaveTextContent("debug"),
     );
 
-    // Disconnect: every panel empties and the level returns to "info".
+    // Disconnect: every panel empties, all per-screen UI state clears, and the
+    // level returns to "info".
     act(() => {
       clientInstances[0].dispatchEvent(new Event("disconnect"));
     });
@@ -254,7 +378,158 @@ describe("App session-scoped state reset on disconnect", () => {
       expect(screen.getByTestId("prompt-status")).toHaveTextContent("none");
       expect(screen.getByTestId("resource-status")).toHaveTextContent("none");
     });
+    expect(screen.getByTestId("selected-tool")).toHaveTextContent("none");
+    expect(screen.getByTestId("tool-search")).toHaveTextContent("none");
+    expect(screen.getByTestId("selected-prompt")).toHaveTextContent("none");
+    expect(screen.getByTestId("log-filter")).toHaveTextContent("none");
     expect(screen.getByTestId("log-level")).toHaveTextContent("info");
+  });
+
+  it("persists the selected tool across navigation within a live session", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    // The selection lives in App (not the unmounting ToolsScreen), so once set
+    // it stays put through re-renders / tab switches until the session ends.
+    await user.click(screen.getByText("select-tool"));
+    await waitFor(() =>
+      expect(screen.getByTestId("selected-tool")).toHaveTextContent("get_acts"),
+    );
+  });
+
+  it("drops the previous tool's result when a different tool is selected", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    // Select a tool and run it so the result panel is populated.
+    await user.click(screen.getByText("select-tool"));
+    await user.click(screen.getByText("call"));
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-status")).toHaveTextContent("ok"),
+    );
+
+    // Selecting a *different* tool clears the stale result so it doesn't linger
+    // under the new selection.
+    await user.click(screen.getByText("select-other-tool"));
+    await waitFor(() => {
+      expect(screen.getByTestId("selected-tool")).toHaveTextContent(
+        "other_tool",
+      );
+      expect(screen.getByTestId("tool-status")).toHaveTextContent("none");
+    });
+  });
+
+  it("keeps the result when the same tool stays selected (search/form edits)", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("select-tool"));
+    await user.click(screen.getByText("call"));
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-status")).toHaveTextContent("ok"),
+    );
+
+    // A search keystroke leaves `selectedToolName` unchanged, so the result
+    // stays put.
+    await user.click(screen.getByText("set-tool-search"));
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-search")).toHaveTextContent("act"),
+    );
+    expect(screen.getByTestId("tool-status")).toHaveTextContent("ok");
+  });
+});
+
+describe("App tool progress toasts", () => {
+  beforeEach(() => {
+    clientInstances.length = 0;
+    notificationsMock.show.mockClear();
+    notificationsMock.update.mockClear();
+    notificationsMock.hide.mockClear();
+  });
+
+  it("shows a toast on the first progress tick and updates it on later ticks", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    // First tick of a progress stream → a fresh toast keyed by its stream id.
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("progressNotification", {
+          detail: { progress: 1, total: 4, message: "Working" },
+        }),
+      );
+    });
+    expect(notificationsMock.show).toHaveBeenCalledTimes(1);
+    const shown = notificationsMock.show.mock.calls[0][0];
+    expect(shown.title).toBe("Tool progress");
+    expect(shown.message).toBe("Working — 1 / 4 (25%)");
+
+    // Second tick on the same stream → the existing toast is updated, not
+    // stacked, so a chatty server doesn't flood the corner.
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("progressNotification", {
+          detail: { progress: 2, total: 4, message: "Working" },
+        }),
+      );
+    });
+    expect(notificationsMock.show).toHaveBeenCalledTimes(1);
+    expect(notificationsMock.update).toHaveBeenCalledTimes(1);
+    expect(notificationsMock.update.mock.calls[0][0].message).toBe(
+      "Working — 2 / 4 (50%)",
+    );
+  });
+
+  it("formats a totalless progress tick as the bare count", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("progressNotification", {
+          detail: { progress: 7 },
+        }),
+      );
+    });
+    expect(notificationsMock.show.mock.calls[0][0].message).toBe("7");
+  });
+
+  it("dismisses still-visible progress toasts when the client is torn down", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderWithMantine(<App />);
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("progressNotification", {
+          detail: { progress: 1, total: 4 },
+        }),
+      );
+    });
+    const id = notificationsMock.show.mock.calls[0][0].id;
+
+    // Tearing down the client (here via unmount; same path as a server swap)
+    // hides the live toast so it can't linger into — or race with — the next
+    // session, rather than waiting out its auto-close window.
+    unmount();
+    expect(notificationsMock.hide).toHaveBeenCalledWith(id);
   });
 });
 

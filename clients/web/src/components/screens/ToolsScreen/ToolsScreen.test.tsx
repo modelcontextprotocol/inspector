@@ -1,8 +1,14 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { ToolsScreen } from "./ToolsScreen";
+import {
+  ToolsScreen,
+  type ToolsScreenProps,
+  type ToolsUiState,
+} from "./ToolsScreen";
+import { EMPTY_TOOLS_UI } from "../screenUiState";
 
 const tools: Tool[] = [
   { name: "alpha", inputSchema: { type: "object" } },
@@ -19,9 +25,34 @@ const tools: Tool[] = [
 const baseProps = {
   tools,
   listChanged: false,
+  ui: EMPTY_TOOLS_UI,
+  onUiChange: vi.fn(),
   onRefreshList: vi.fn(),
   onCallTool: vi.fn(),
 };
+
+// ToolsScreen is controlled: selection + form values live in the parent (App)
+// as one `ui` object so they persist across tab navigation (#1414). This host
+// holds that state so clicking a tool drives the detail panel, mirroring how
+// App owns it. Props passed in override defaults; the stateful `ui` wiring is
+// applied last so callers can still observe selections via the rendered state.
+function ControlledToolsScreen(props: Partial<ToolsScreenProps>) {
+  const [ui, setUi] = useState<ToolsUiState>({
+    ...EMPTY_TOOLS_UI,
+    ...props.ui,
+  });
+  return (
+    <ToolsScreen
+      {...baseProps}
+      {...props}
+      ui={ui}
+      onUiChange={(next) => {
+        setUi(next);
+        props.onUiChange?.(next);
+      }}
+    />
+  );
+}
 
 describe("ToolsScreen", () => {
   it("renders the empty selection state", () => {
@@ -34,11 +65,53 @@ describe("ToolsScreen", () => {
 
   it("shows the detail panel when a tool is selected", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<ToolsScreen {...baseProps} />);
+    renderWithMantine(<ControlledToolsScreen />);
     await user.click(screen.getByText("alpha"));
     expect(
       screen.queryByText("Select a tool to view details"),
     ).not.toBeInTheDocument();
+  });
+
+  it("filters the sidebar list as the search text changes", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledToolsScreen />);
+    expect(screen.getByText("beta")).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("Search tools..."), "alpha");
+    expect(screen.getByText("alpha")).toBeInTheDocument();
+    expect(screen.queryByText("beta")).not.toBeInTheDocument();
+  });
+
+  it("carries edited form values through to Execute", async () => {
+    const user = userEvent.setup();
+    const onCallTool = vi.fn();
+    renderWithMantine(<ControlledToolsScreen onCallTool={onCallTool} />);
+    await user.click(screen.getByText("gamma"));
+    // gamma seeds { mode: "fast" }; editing the field flows through onUiChange.
+    const field = screen.getByLabelText(/mode/i);
+    await user.clear(field);
+    await user.type(field, "slow");
+    await user.click(screen.getByRole("button", { name: /Execute/ }));
+    expect(onCallTool).toHaveBeenCalledWith("gamma", { mode: "slow" });
+  });
+
+  it("renders selection and result from props (persisted across navigation)", () => {
+    // App owns selection + result, so a remount after a tab switch re-renders
+    // with both still set — the detail and result panels show without any
+    // local re-selection.
+    renderWithMantine(
+      <ToolsScreen
+        {...baseProps}
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolName: "alpha" }}
+        callState={{
+          status: "ok",
+          result: { content: [{ type: "text", text: "ok" }] },
+        }}
+      />,
+    );
+    expect(
+      screen.queryByText("Select a tool to view details"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Results")).toBeInTheDocument();
   });
 
   it("renders the result panel when callState has a result", () => {
@@ -57,7 +130,7 @@ describe("ToolsScreen", () => {
   it("invokes onCallTool with form values on Execute", async () => {
     const user = userEvent.setup();
     const onCallTool = vi.fn();
-    renderWithMantine(<ToolsScreen {...baseProps} onCallTool={onCallTool} />);
+    renderWithMantine(<ControlledToolsScreen onCallTool={onCallTool} />);
     await user.click(screen.getByText("alpha"));
     await user.click(screen.getByRole("button", { name: /Execute/ }));
     expect(onCallTool).toHaveBeenCalledWith("alpha", {});
@@ -66,7 +139,7 @@ describe("ToolsScreen", () => {
   it("seeds schema defaults so untouched fields are sent on Execute", async () => {
     const user = userEvent.setup();
     const onCallTool = vi.fn();
-    renderWithMantine(<ToolsScreen {...baseProps} onCallTool={onCallTool} />);
+    renderWithMantine(<ControlledToolsScreen onCallTool={onCallTool} />);
     await user.click(screen.getByText("gamma"));
     // Execute without editing the form: the default must still be sent.
     await user.click(screen.getByRole("button", { name: /Execute/ }));
@@ -90,7 +163,9 @@ describe("ToolsScreen", () => {
     expect(onClearResult).toHaveBeenCalledTimes(1);
   });
 
-  it("clears the persisted result when the screen unmounts", () => {
+  it("does not clear the result when the screen unmounts", () => {
+    // The result is owned by App and must survive a tab switch (which unmounts
+    // the screen), so unmounting must NOT call onClearResult — see #1414.
     const onClearResult = vi.fn();
     const { unmount } = renderWithMantine(
       <ToolsScreen
@@ -102,17 +177,18 @@ describe("ToolsScreen", () => {
         }}
       />,
     );
-    expect(onClearResult).not.toHaveBeenCalled();
     unmount();
-    expect(onClearResult).toHaveBeenCalledTimes(1);
+    expect(onClearResult).not.toHaveBeenCalled();
   });
 
-  it("treats pending callState as executing", async () => {
-    const user = userEvent.setup();
+  it("treats pending callState as executing", () => {
     renderWithMantine(
-      <ToolsScreen {...baseProps} callState={{ status: "pending" }} />,
+      <ToolsScreen
+        {...baseProps}
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolName: "alpha" }}
+        callState={{ status: "pending" }}
+      />,
     );
-    await user.click(screen.getByText("alpha"));
     expect(screen.getByRole("button", { name: /Cancel/ })).toBeInTheDocument();
   });
 
@@ -122,11 +198,11 @@ describe("ToolsScreen", () => {
     renderWithMantine(
       <ToolsScreen
         {...baseProps}
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolName: "alpha" }}
         onCancelCall={onCancelCall}
         callState={{ status: "pending" }}
       />,
     );
-    await user.click(screen.getByText("alpha"));
     await user.click(screen.getByRole("button", { name: /Cancel/ }));
     expect(onCancelCall).toHaveBeenCalledTimes(1);
   });

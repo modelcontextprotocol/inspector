@@ -12,6 +12,7 @@ import type { Task, TaskStatus } from "@modelcontextprotocol/sdk/types.js";
 import { TaskCard } from "../TaskCard/TaskCard";
 import type { TaskProgress } from "../TaskCard/TaskCard";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
+import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
 export interface TaskListPanelProps {
   tasks: Task[];
@@ -75,6 +76,7 @@ export function TaskListPanel({
   onCancel,
   onClearCompleted,
 }: TaskListPanelProps) {
+  const viewportRef = useScrollMemory("tasks-list");
   const [compact, setCompact] = useState(false);
 
   const filteredTasks = useMemo(
@@ -109,7 +111,10 @@ export function TaskListPanel({
       {!hasResults ? (
         <EmptyState>No tasks</EmptyState>
       ) : (
-        <ScrollArea.Autosize mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)">
+        <ScrollArea.Autosize
+          viewportRef={viewportRef}
+          mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)"
+        >
           <Stack gap="md">
             {activeTasks.length > 0 && (
               <>

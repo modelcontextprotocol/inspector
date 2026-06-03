@@ -4,7 +4,12 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
-import { AppsScreen, type AppsScreenProps } from "./AppsScreen";
+import {
+  AppsScreen,
+  type AppsScreenProps,
+  type AppsUiState,
+} from "./AppsScreen";
+import { EMPTY_APPS_UI } from "../screenUiState";
 import type {
   AppRendererHandle,
   BridgeFactory,
@@ -80,6 +85,16 @@ const dashboardApp: Tool = {
 
 const sampleApps: Tool[] = [cohortApp, weatherApp, dashboardApp];
 
+// AppsScreen is controlled (app selection, form values, and search text live in
+// the parent as one `ui` object — running/maximized stay internal; see #1417).
+// This hook holds the lifted state so the play-driven select/type/open
+// interactions still drive the detail panel, mirroring how App owns the state in
+// the real app.
+function useLiftedAppState(args: AppsScreenProps) {
+  const [ui, setUi] = useState<AppsUiState>(args.ui ?? EMPTY_APPS_UI);
+  return { ui, onUiChange: setUi };
+}
+
 const meta: Meta<typeof AppsScreen> = {
   title: "Screens/AppsScreen",
   component: AppsScreen,
@@ -88,6 +103,8 @@ const meta: Meta<typeof AppsScreen> = {
     sandboxPath: PLACEHOLDER_SANDBOX,
     bridgeFactory: okBridgeFactory,
     listChanged: false,
+    ui: EMPTY_APPS_UI,
+    onUiChange: fn(),
     onRefreshList: fn(),
     onSelectApp: fn(),
     onOpenApp: fn(),
@@ -98,7 +115,8 @@ const meta: Meta<typeof AppsScreen> = {
   // arg edits, but the ref itself is owned by the wrapping component).
   render: function StoryRender(args: AppsScreenProps) {
     const ref = useRef<AppRendererHandle>(null);
-    return <AppsScreen {...args} rendererRef={ref} />;
+    const lifted = useLiftedAppState(args);
+    return <AppsScreen {...args} {...lifted} rendererRef={ref} />;
   },
 };
 
@@ -175,6 +193,7 @@ export const EchoRunning: Story = {
   render: function EchoRender(args: AppsScreenProps) {
     const ref = useRef<AppRendererHandle>(null);
     const [echo, setEcho] = useState<string | null>(null);
+    const lifted = useLiftedAppState(args);
 
     const bridgeFactory: BridgeFactory = useCallback(() => {
       let onInitialized: (() => void) | undefined;
@@ -227,6 +246,7 @@ export const EchoRunning: Story = {
         </Text>
         <AppsScreen
           {...args}
+          {...lifted}
           rendererRef={ref}
           bridgeFactory={bridgeFactory}
           onOpenApp={onOpenApp}

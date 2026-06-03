@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type { Task } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { TasksScreen } from "./TasksScreen";
+import { EMPTY_TASKS_UI } from "../screenUiState";
 
 const tasks: Task[] = [
   {
@@ -17,6 +18,8 @@ const tasks: Task[] = [
 
 const baseProps = {
   tasks,
+  ui: EMPTY_TASKS_UI,
+  onUiChange: vi.fn(),
   onRefresh: vi.fn(),
   onClearCompleted: vi.fn(),
   onCancel: vi.fn(),
@@ -39,5 +42,35 @@ describe("TasksScreen", () => {
     renderWithMantine(<TasksScreen {...baseProps} onRefresh={onRefresh} />);
     await user.click(screen.getByRole("button", { name: "Refresh" }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("emits the search text through onUiChange", async () => {
+    const user = userEvent.setup();
+    const onUiChange = vi.fn();
+    renderWithMantine(<TasksScreen {...baseProps} onUiChange={onUiChange} />);
+    await user.type(screen.getByPlaceholderText("Search..."), "x");
+    expect(onUiChange).toHaveBeenCalledWith(
+      expect.objectContaining({ search: "x" }),
+    );
+  });
+
+  it("emits the cleared status filter through onUiChange", async () => {
+    const user = userEvent.setup();
+    const onUiChange = vi.fn();
+    const { container } = renderWithMantine(
+      <TasksScreen
+        {...baseProps}
+        ui={{ ...EMPTY_TASKS_UI, statusFilter: "working" }}
+        onUiChange={onUiChange}
+      />,
+    );
+    const clearButton = container.querySelector(
+      "button.mantine-InputClearButton-root",
+    ) as HTMLButtonElement | null;
+    expect(clearButton).not.toBeNull();
+    await user.click(clearButton!);
+    expect(onUiChange).toHaveBeenCalledWith(
+      expect.objectContaining({ statusFilter: undefined }),
+    );
   });
 });

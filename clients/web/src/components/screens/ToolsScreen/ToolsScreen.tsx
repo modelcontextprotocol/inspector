@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import { Card, Flex, Stack, Text } from "@mantine/core";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ToolControls } from "../../groups/ToolControls/ToolControls";
@@ -16,10 +15,21 @@ export interface ToolCallState {
   progress?: ToolProgress;
 }
 
+// Selection, form values, and sidebar search — controlled by the parent (App)
+// as one object so they persist across tab navigation within a live session;
+// the screen unmounts on tab switch, so local state would be lost (#1414/#1417).
+export interface ToolsUiState {
+  selectedToolName?: string;
+  formValues: Record<string, unknown>;
+  search: string;
+}
+
 export interface ToolsScreenProps {
   tools: Tool[];
   callState?: ToolCallState;
+  ui: ToolsUiState;
   listChanged: boolean;
+  onUiChange: (next: ToolsUiState) => void;
   onRefreshList: () => void;
   onCallTool: (name: string, args: Record<string, unknown>) => void;
   onCancelCall?: () => void;
@@ -80,36 +90,19 @@ const EmptyState = Text.withProps({
 export function ToolsScreen({
   tools,
   callState,
+  ui,
   listChanged,
+  onUiChange,
   onRefreshList,
   onCallTool,
   onCancelCall,
   onClearResult,
 }: ToolsScreenProps) {
-  const [selectedToolName, setSelectedToolName] = useState<string | undefined>(
-    undefined,
-  );
-  const [formValues, setFormValues] = useState<Record<string, unknown>>({});
+  const { selectedToolName, formValues, search } = ui;
   const selectedTool = selectedToolName
     ? tools.find((t) => t.name === selectedToolName)
     : undefined;
   const isExecuting = callState?.status === "pending";
-
-  // The result lives in App so it survives pending → ok/error without
-  // remounting the screen. But the screen's selection is local and resets when
-  // the screen unmounts on tab switch — leaving the Results panel showing a
-  // result with no selected tool. Clear the result on unmount so returning to
-  // the screen starts from a clean slate. A ref keeps the latest handler so the
-  // effect can stay mount/unmount-only without re-running mid-session.
-  const onClearResultRef = useRef(onClearResult);
-  useEffect(() => {
-    onClearResultRef.current = onClearResult;
-  }, [onClearResult]);
-  useEffect(() => {
-    return () => {
-      onClearResultRef.current?.();
-    };
-  }, []);
 
   return (
     <ScreenLayout>
@@ -118,18 +111,21 @@ export function ToolsScreen({
           <ToolControls
             tools={tools}
             selectedName={selectedToolName}
+            searchText={search}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
+            onSearchChange={(value) => onUiChange({ ...ui, search: value })}
             onSelectTool={(name) => {
               // Seed the form with the tool's schema defaults so default-only
               // fields the user never edits are still sent on execute (the
               // form shows defaults via resolveValue, but onChange only writes
               // edited fields).
               const tool = tools.find((t) => t.name === name);
-              setFormValues(
-                tool ? collectSchemaDefaults(tool.inputSchema) : {},
-              );
-              setSelectedToolName(name);
+              onUiChange({
+                ...ui,
+                selectedToolName: name,
+                formValues: tool ? collectSchemaDefaults(tool.inputSchema) : {},
+              });
             }}
           />
         </SidebarCard>
@@ -143,7 +139,9 @@ export function ToolsScreen({
               formValues={formValues}
               isExecuting={isExecuting}
               progress={callState?.progress}
-              onFormChange={setFormValues}
+              onFormChange={(values) =>
+                onUiChange({ ...ui, formValues: values })
+              }
               onExecute={() => onCallTool(selectedTool.name, formValues)}
               onCancel={() => onCancelCall?.()}
             />

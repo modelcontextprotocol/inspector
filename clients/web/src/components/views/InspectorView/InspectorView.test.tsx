@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type {
@@ -13,6 +14,17 @@ import {
 } from "../../../test/renderWithMantine";
 import { InspectorView, type InspectorViewProps } from "./InspectorView";
 import type { BridgeFactory } from "../../elements/AppRenderer/AppRenderer";
+import type { AppsUiState } from "../../screens/AppsScreen/AppsScreen";
+import {
+  EMPTY_TOOLS_UI,
+  EMPTY_APPS_UI,
+  EMPTY_PROMPTS_UI,
+  EMPTY_RESOURCES_UI,
+  EMPTY_TASKS_UI,
+  EMPTY_LOGS_UI,
+  EMPTY_HISTORY_UI,
+  EMPTY_NETWORK_UI,
+} from "../../screens/screenUiState";
 
 // Stub bridge factory — AppsScreen mounts the inner iframe and invokes
 // `bridgeFactory(...)` on selection. The stub keeps that path quiet by
@@ -53,6 +65,14 @@ function makeProps(
     sandboxPath: "about:blank",
     bridgeFactory: noopBridgeFactory,
     appRendererRef: { current: null },
+    toolsUi: EMPTY_TOOLS_UI,
+    promptsUi: EMPTY_PROMPTS_UI,
+    resourcesUi: EMPTY_RESOURCES_UI,
+    appsUi: EMPTY_APPS_UI,
+    tasksUi: EMPTY_TASKS_UI,
+    logsUi: EMPTY_LOGS_UI,
+    historyUi: EMPTY_HISTORY_UI,
+    networkUi: EMPTY_NETWORK_UI,
     onToggleTheme: vi.fn(),
     onToggleConnection: vi.fn(),
     onDisconnect: vi.fn(),
@@ -65,26 +85,34 @@ function makeProps(
     onServerEdit: vi.fn(),
     onServerClone: vi.fn(),
     onServerRemove: vi.fn(),
+    onToolsUiChange: vi.fn(),
     onCallTool: vi.fn(),
     onRefreshTools: vi.fn(),
+    onPromptsUiChange: vi.fn(),
     onGetPrompt: vi.fn(),
     onRefreshPrompts: vi.fn(),
+    onResourcesUiChange: vi.fn(),
     onReadResource: vi.fn(),
     onSubscribeResource: vi.fn(),
     onUnsubscribeResource: vi.fn(),
     onRefreshResources: vi.fn(),
+    onTasksUiChange: vi.fn(),
     onCancelTask: vi.fn(),
     onClearCompletedTasks: vi.fn(),
     onRefreshTasks: vi.fn(),
     onSetLogLevel: vi.fn(),
+    onLogsUiChange: vi.fn(),
     onClearLogs: vi.fn(),
     onExportLogs: vi.fn(),
+    onHistoryUiChange: vi.fn(),
     onClearHistory: vi.fn(),
     onExportHistory: vi.fn(),
     onReplayHistory: vi.fn(),
     onTogglePinHistory: vi.fn(),
+    onNetworkUiChange: vi.fn(),
     onClearNetwork: vi.fn(),
     onExportNetwork: vi.fn(),
+    onAppsUiChange: vi.fn(),
     onSelectApp: vi.fn(),
     onOpenApp: vi.fn(),
     onCloseApp: vi.fn(),
@@ -92,6 +120,20 @@ function makeProps(
     onRefreshApps: vi.fn(),
     ...overrides,
   };
+}
+
+// Most tests render the view fully prop-driven (every callback is a spy). A few
+// interactions — selecting an App and watching it auto-launch — depend on the
+// parent-owned selection state actually updating, since the view is controlled
+// (#1417). This host holds the App-tab selection/form state and threads it back
+// in as controlled props, mirroring how App.tsx owns it in the real wiring.
+function StatefulInspectorView({ props }: { props: InspectorViewProps }) {
+  const [appsUi, setAppsUi] = useState<AppsUiState>(
+    props.appsUi ?? EMPTY_APPS_UI,
+  );
+  return (
+    <InspectorView {...props} appsUi={appsUi} onAppsUiChange={setAppsUi} />
+  );
 }
 
 const sampleServer: ServerEntry = {
@@ -270,8 +312,8 @@ describe("InspectorView", () => {
       _meta: { ui: { resourceUri: "not-a-ui-uri" } },
     };
     renderWithMantine(
-      <InspectorView
-        {...makeProps({
+      <StatefulInspectorView
+        props={makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
           connectionStatus: "connected",

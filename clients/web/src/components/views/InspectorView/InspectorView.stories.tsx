@@ -16,6 +16,16 @@ import type {
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import { InspectorView } from "./InspectorView";
+import {
+  EMPTY_TOOLS_UI,
+  EMPTY_APPS_UI,
+  EMPTY_PROMPTS_UI,
+  EMPTY_RESOURCES_UI,
+  EMPTY_TASKS_UI,
+  EMPTY_LOGS_UI,
+  EMPTY_HISTORY_UI,
+  EMPTY_NETWORK_UI,
+} from "../../screens/screenUiState";
 import { mixedEntries as demoLogs } from "../../screens/LoggingScreen/LoggingScreen.fixtures";
 import { longToolList as demoRegularTools } from "../../screens/ToolsScreen/ToolsScreen.fixtures";
 import { SUN_ICON_SVG } from "../../../test/fixtures/storyIcons";
@@ -321,6 +331,16 @@ const meta: Meta<typeof InspectorView> = {
     bridgeFactory: noopBridgeFactory,
     appRendererRef: { current: null },
 
+    // Per-screen UI state (search / filter / selection), one object per screen.
+    toolsUi: EMPTY_TOOLS_UI,
+    promptsUi: EMPTY_PROMPTS_UI,
+    resourcesUi: EMPTY_RESOURCES_UI,
+    appsUi: EMPTY_APPS_UI,
+    tasksUi: EMPTY_TASKS_UI,
+    logsUi: EMPTY_LOGS_UI,
+    historyUi: EMPTY_HISTORY_UI,
+    networkUi: EMPTY_NETWORK_UI,
+
     // Callbacks — all wired to storybook spies so play functions can assert
     // on dispatch. Real wiring routes these to InspectorClient methods (the
     // app shell at clients/web/src/App.tsx).
@@ -336,26 +356,34 @@ const meta: Meta<typeof InspectorView> = {
     onServerEdit: fn(),
     onServerClone: fn(),
     onServerRemove: fn(),
+    onToolsUiChange: fn(),
     onCallTool: fn(),
     onRefreshTools: fn(),
+    onPromptsUiChange: fn(),
     onGetPrompt: fn(),
     onRefreshPrompts: fn(),
+    onResourcesUiChange: fn(),
     onReadResource: fn(),
     onSubscribeResource: fn(),
     onUnsubscribeResource: fn(),
     onRefreshResources: fn(),
+    onTasksUiChange: fn(),
     onCancelTask: fn(),
     onClearCompletedTasks: fn(),
     onRefreshTasks: fn(),
     onSetLogLevel: fn(),
+    onLogsUiChange: fn(),
     onClearLogs: fn(),
     onExportLogs: fn(),
+    onHistoryUiChange: fn(),
     onClearHistory: fn(),
     onExportHistory: fn(),
     onReplayHistory: fn(),
     onTogglePinHistory: fn(),
+    onNetworkUiChange: fn(),
     onClearNetwork: fn(),
     onExportNetwork: fn(),
+    onAppsUiChange: fn(),
     onSelectApp: fn(),
     onOpenApp: fn(),
     onCloseApp: fn(),

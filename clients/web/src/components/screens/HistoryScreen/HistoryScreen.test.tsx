@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type { MessageEntry } from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { HistoryScreen } from "./HistoryScreen";
+import { EMPTY_HISTORY_UI } from "../screenUiState";
 
 const sampleEntries: MessageEntry[] = [
   {
@@ -22,6 +23,8 @@ const sampleEntries: MessageEntry[] = [
 const baseProps = {
   entries: sampleEntries,
   pinnedIds: new Set<string>(),
+  ui: EMPTY_HISTORY_UI,
+  onUiChange: vi.fn(),
   onClearAll: vi.fn(),
   onExport: vi.fn(),
   onReplay: vi.fn(),
@@ -51,5 +54,35 @@ describe("HistoryScreen", () => {
     const clearButton = screen.getByRole("button", { name: /Clear/ });
     await user.click(clearButton);
     expect(onClearAll).toHaveBeenCalled();
+  });
+
+  it("emits the search text through onUiChange", async () => {
+    const user = userEvent.setup();
+    const onUiChange = vi.fn();
+    renderWithMantine(<HistoryScreen {...baseProps} onUiChange={onUiChange} />);
+    await user.type(screen.getByPlaceholderText("Search..."), "t");
+    expect(onUiChange).toHaveBeenCalledWith(
+      expect.objectContaining({ search: "t" }),
+    );
+  });
+
+  it("emits the cleared method filter through onUiChange", async () => {
+    const user = userEvent.setup();
+    const onUiChange = vi.fn();
+    const { container } = renderWithMantine(
+      <HistoryScreen
+        {...baseProps}
+        ui={{ ...EMPTY_HISTORY_UI, methodFilter: "tools/list" }}
+        onUiChange={onUiChange}
+      />,
+    );
+    const clearButton = container.querySelector(
+      "button.mantine-InputClearButton-root",
+    ) as HTMLButtonElement | null;
+    expect(clearButton).not.toBeNull();
+    await user.click(clearButton!);
+    expect(onUiChange).toHaveBeenCalledWith(
+      expect.objectContaining({ methodFilter: undefined }),
+    );
   });
 });
