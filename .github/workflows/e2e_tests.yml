@@ -62,7 +62,7 @@ jobs:
           retention-days: 2
 
       - name: Publish Playwright Test Summary
-        uses: daun/playwright-report-summary@v3
+        uses: daun/playwright-report-summary@v4
         if: steps.playwright-tests.conclusion != 'skipped'
         with:
           create-comment: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
