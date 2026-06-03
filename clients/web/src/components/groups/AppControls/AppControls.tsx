@@ -10,6 +10,7 @@ import {
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { AppListItem } from "../AppListItem/AppListItem";
+import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
 export interface AppControlsProps {
   tools: Tool[];
@@ -46,6 +47,7 @@ export function AppControls({
   onSearchChange,
   onSelectApp,
 }: AppControlsProps) {
+  const viewportRef = useScrollMemory("apps-sidebar");
   const query = searchText.toLowerCase();
   const filteredTools = searchText
     ? tools.filter(
@@ -67,7 +69,7 @@ export function AppControls({
         value={searchText}
         onChange={(e) => onSearchChange(e.currentTarget.value)}
       />
-      <ScrollArea.Autosize mah={LIST_MAX_HEIGHT}>
+      <ScrollArea.Autosize viewportRef={viewportRef} mah={LIST_MAX_HEIGHT}>
         <Stack gap="xs">
           {filteredTools.length === 0 ? (
             <EmptyState>

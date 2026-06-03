@@ -18,6 +18,7 @@ import {
   SortToggle,
   type SortDirection,
 } from "../../elements/SortToggle/SortToggle";
+import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
 export interface NetworkStreamPanelProps {
   entries: FetchRequestEntry[];
@@ -95,6 +96,7 @@ export function NetworkStreamPanel({
   compact,
   onToggleCompact,
 }: NetworkStreamPanelProps) {
+  const viewportRef = useScrollMemory("network-stream");
   const filteredEntries = useMemo(() => {
     // `.filter()` returns a fresh array, so sorting in-place is safe.
     const sorted = entries
@@ -132,7 +134,10 @@ export function NetworkStreamPanel({
       {!hasResults ? (
         <EmptyState>No network requests</EmptyState>
       ) : (
-        <ScrollArea.Autosize mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)">
+        <ScrollArea.Autosize
+          viewportRef={viewportRef}
+          mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)"
+        >
           <Stack gap="md">
             {filteredEntries.map((entry) => (
               <NetworkEntry

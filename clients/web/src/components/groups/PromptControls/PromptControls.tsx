@@ -2,6 +2,7 @@ import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { PromptListItem } from "../PromptListItem/PromptListItem";
+import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
 export interface PromptControlsProps {
   prompts: Prompt[];
@@ -27,6 +28,7 @@ export function PromptControls({
   onSearchChange,
   onSelectPrompt,
 }: PromptControlsProps) {
+  const viewportRef = useScrollMemory("prompts-sidebar");
   const query = searchText.toLowerCase();
   const filteredPrompts = prompts.filter(
     (p) =>
@@ -46,7 +48,7 @@ export function PromptControls({
         value={searchText}
         onChange={(e) => onSearchChange(e.currentTarget.value)}
       />
-      <ScrollArea.Autosize mah={LIST_MAX_HEIGHT}>
+      <ScrollArea.Autosize viewportRef={viewportRef} mah={LIST_MAX_HEIGHT}>
         <Stack gap="xs">
           {filteredPrompts.map((prompt) => (
             <PromptListItem

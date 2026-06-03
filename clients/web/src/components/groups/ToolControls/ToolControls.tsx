@@ -2,6 +2,7 @@ import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { ToolListItem } from "../ToolListItem/ToolListItem";
+import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
 export interface ToolControlsProps {
   tools: Tool[];
@@ -27,6 +28,7 @@ export function ToolControls({
   onSearchChange,
   onSelectTool,
 }: ToolControlsProps) {
+  const viewportRef = useScrollMemory("tools-sidebar");
   const query = searchText.toLowerCase();
   const filteredTools = searchText
     ? tools.filter(
@@ -47,7 +49,7 @@ export function ToolControls({
         value={searchText}
         onChange={(e) => onSearchChange(e.currentTarget.value)}
       />
-      <ScrollArea.Autosize mah={LIST_MAX_HEIGHT}>
+      <ScrollArea.Autosize viewportRef={viewportRef} mah={LIST_MAX_HEIGHT}>
         <Stack gap="xs">
           {filteredTools.map((tool) => (
             <ToolListItem

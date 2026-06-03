@@ -73,6 +73,7 @@ import type { GetPromptState } from "./components/screens/PromptsScreen/PromptsS
 import type { ReadResourceState } from "./components/screens/ResourcesScreen/ResourcesScreen";
 import { ALL_LEVELS_VISIBLE } from "./components/screens/LoggingScreen/logLevels";
 import { ALL_CATEGORIES_VISIBLE } from "./components/screens/NetworkScreen/fetchCategories";
+import { clearScrollMemory } from "./hooks/useScrollMemory";
 import type { AppRendererHandle } from "./components/elements/AppRenderer/AppRenderer";
 import { createAppBridgeFactory } from "./components/elements/AppRenderer/createAppBridgeFactory";
 import type { LogEntryData } from "./components/elements/LogEntry/LogEntry";
@@ -551,6 +552,9 @@ function App() {
     setNetworkFilterText("");
     setNetworkVisibleCategories(ALL_CATEGORIES_VISIBLE);
     setCurrentLogLevel("info");
+    // Remembered scroll offsets are session-scoped too — drop them so the next
+    // session's screens start at the top (#1417).
+    clearScrollMemory();
   }, []);
 
   // Reset activeServerId whenever the live session ends. Without this the

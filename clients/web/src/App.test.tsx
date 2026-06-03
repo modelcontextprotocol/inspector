@@ -193,11 +193,17 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
   InspectorView: (props: {
     toolCallState?: { status?: string };
     selectedToolName?: string;
+    toolSearch?: string;
+    selectedPromptName?: string;
+    logFilterText?: string;
     getPromptState?: { status?: string };
     readResourceState?: { status?: string };
     currentLogLevel?: string;
     onToggleConnection: (id: string) => void;
     onSelectTool: (name: string) => void;
+    onToolSearchChange: (value: string) => void;
+    onSelectedPromptNameChange: (value: string | undefined) => void;
+    onLogFilterChange: (value: string) => void;
     onCallTool: (name: string, args: Record<string, unknown>) => void;
     onGetPrompt: (name: string, args: Record<string, string>) => void;
     onReadResource: (uri: string) => void;
@@ -210,6 +216,11 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
       <span data-testid="selected-tool">
         {props.selectedToolName ?? "none"}
       </span>
+      <span data-testid="tool-search">{props.toolSearch || "none"}</span>
+      <span data-testid="selected-prompt">
+        {props.selectedPromptName ?? "none"}
+      </span>
+      <span data-testid="log-filter">{props.logFilterText || "none"}</span>
       <span data-testid="prompt-status">
         {props.getPromptState?.status ?? "none"}
       </span>
@@ -220,6 +231,15 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
       <button onClick={() => props.onToggleConnection("A")}>connect</button>
       <button onClick={() => props.onSelectTool("get_acts")}>
         select-tool
+      </button>
+      <button onClick={() => props.onToolSearchChange("act")}>
+        set-tool-search
+      </button>
+      <button onClick={() => props.onSelectedPromptNameChange("greet")}>
+        select-prompt
+      </button>
+      <button onClick={() => props.onLogFilterChange("err")}>
+        set-log-filter
       </button>
       <button onClick={() => props.onCallTool("get_acts", {})}>call</button>
       <button onClick={() => props.onGetPrompt("greet", {})}>get-prompt</button>
@@ -261,12 +281,20 @@ describe("App session-scoped state reset on disconnect", () => {
       expect(screen.getByTestId("resource-status")).toHaveTextContent("ok");
     });
 
-    // Select a tool: the selection is App-owned (persists across navigation),
-    // so it must also reset on disconnect.
+    // Set App-owned per-screen UI state (selection + search + filter) — all of
+    // it persists across navigation, so all of it must reset on disconnect
+    // (#1417). A representative sample across screens exercises the shared
+    // `resetSessionScopedUiState` wiring.
     await user.click(screen.getByText("select-tool"));
-    await waitFor(() =>
-      expect(screen.getByTestId("selected-tool")).toHaveTextContent("get_acts"),
-    );
+    await user.click(screen.getByText("set-tool-search"));
+    await user.click(screen.getByText("select-prompt"));
+    await user.click(screen.getByText("set-log-filter"));
+    await waitFor(() => {
+      expect(screen.getByTestId("selected-tool")).toHaveTextContent("get_acts");
+      expect(screen.getByTestId("tool-search")).toHaveTextContent("act");
+      expect(screen.getByTestId("selected-prompt")).toHaveTextContent("greet");
+      expect(screen.getByTestId("log-filter")).toHaveTextContent("err");
+    });
 
     // Bump the optimistic log level off its "info" default.
     await user.click(screen.getByText("set-level"));
@@ -274,7 +302,8 @@ describe("App session-scoped state reset on disconnect", () => {
       expect(screen.getByTestId("log-level")).toHaveTextContent("debug"),
     );
 
-    // Disconnect: every panel empties and the level returns to "info".
+    // Disconnect: every panel empties, all per-screen UI state clears, and the
+    // level returns to "info".
     act(() => {
       clientInstances[0].dispatchEvent(new Event("disconnect"));
     });
@@ -285,6 +314,9 @@ describe("App session-scoped state reset on disconnect", () => {
       expect(screen.getByTestId("resource-status")).toHaveTextContent("none");
     });
     expect(screen.getByTestId("selected-tool")).toHaveTextContent("none");
+    expect(screen.getByTestId("tool-search")).toHaveTextContent("none");
+    expect(screen.getByTestId("selected-prompt")).toHaveTextContent("none");
+    expect(screen.getByTestId("log-filter")).toHaveTextContent("none");
     expect(screen.getByTestId("log-level")).toHaveTextContent("info");
   });
 

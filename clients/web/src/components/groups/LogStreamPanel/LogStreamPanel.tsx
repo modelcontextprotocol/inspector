@@ -15,6 +15,7 @@ import {
   SortToggle,
   type SortDirection,
 } from "../../elements/SortToggle/SortToggle";
+import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
 export interface LogStreamPanelProps {
   entries: LogEntryData[];
@@ -69,6 +70,7 @@ export function LogStreamPanel({
   sortDirection,
   onSortChange,
 }: LogStreamPanelProps) {
+  const viewportRef = useScrollMemory("logs-stream");
   const filteredEntries = useMemo(() => {
     // `.filter()` returns a fresh array, so sorting in-place is safe.
     const sorted = entries
@@ -105,7 +107,10 @@ export function LogStreamPanel({
         </Group>
       </Group>
       {filteredEntries.length > 0 ? (
-        <ScrollArea.Autosize mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)">
+        <ScrollArea.Autosize
+          viewportRef={viewportRef}
+          mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)"
+        >
           <Stack gap="xs">
             {filteredEntries.map((entry, index) => (
               <LogEntry key={index} entry={entry} />

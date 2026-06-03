@@ -16,6 +16,7 @@ import {
   type SortDirection,
 } from "../../elements/SortToggle/SortToggle";
 import { extractMethod } from "../historyUtils.js";
+import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
 export interface HistoryListPanelProps {
   entries: MessageEntry[];
@@ -84,6 +85,7 @@ export function HistoryListPanel({
   compact,
   onToggleCompact,
 }: HistoryListPanelProps) {
+  const viewportRef = useScrollMemory("history-list");
   const filteredEntries = useMemo(() => {
     // `.filter()` returns a fresh array, so sorting in-place is safe.
     const sorted = entries
@@ -134,7 +136,10 @@ export function HistoryListPanel({
       {!hasResults ? (
         <EmptyState>No request history</EmptyState>
       ) : (
-        <ScrollArea.Autosize mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)">
+        <ScrollArea.Autosize
+          viewportRef={viewportRef}
+          mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)"
+        >
           <Stack gap="md">
             {pinnedEntries.length > 0 && (
               <>
