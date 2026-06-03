@@ -83,7 +83,7 @@ export function ServerSettingsModal({
   }
 
   function handleTimeoutChange(
-    field: "connectionTimeout" | "requestTimeout",
+    field: "connectionTimeout" | "requestTimeout" | "taskTtl",
     value: number,
   ) {
     onSettingsChange({ ...settings, [field]: value });

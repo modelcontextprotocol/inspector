@@ -10,6 +10,7 @@ import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
 export interface UseManagedRequestorTasksResult {
   tasks: Task[];
   refresh: () => Promise<Task[]>;
+  clearCompleted: () => void;
 }
 
 /**
@@ -54,5 +55,9 @@ export function useManagedRequestorTasks(
     return next;
   }, [client, managedRequestorTasksState]);
 
-  return { tasks, refresh };
+  const clearCompleted = useCallback((): void => {
+    managedRequestorTasksState?.clearCompleted();
+  }, [managedRequestorTasksState]);
+
+  return { tasks, refresh, clearCompleted };
 }

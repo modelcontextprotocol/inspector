@@ -391,6 +391,7 @@ describe("useServers", () => {
         metadata: [{ key: "trace", value: "abc" }],
         connectionTimeout: 5000,
         requestTimeout: 30000,
+        taskTtl: 30000,
       });
     });
 
@@ -400,6 +401,7 @@ describe("useServers", () => {
         metadata: [{ key: "trace", value: "abc" }],
         connectionTimeout: 5000,
         requestTimeout: 30000,
+        taskTtl: 30000,
       });
     });
     const stored = readConfig(h.configPath).mcpServers
@@ -414,6 +416,7 @@ describe("useServers", () => {
     expect(stored.metadata).toEqual([{ key: "trace", value: "abc" }]);
     expect(stored.connectionTimeout).toBe(5000);
     expect(stored.requestTimeout).toBe(30000);
+    expect(stored.taskTtl).toBe(30000);
   });
 
   it("updateServerSettings throws when the target id does not exist (server-side 404)", async () => {
@@ -429,6 +432,7 @@ describe("useServers", () => {
           metadata: [],
           connectionTimeout: 0,
           requestTimeout: 0,
+          taskTtl: 0,
         });
       }),
     ).rejects.toThrow(/not found/);
@@ -475,6 +479,8 @@ describe("useServers", () => {
       metadata: [],
       connectionTimeout: 0,
       requestTimeout: 0,
+      // Absent taskTtl on disk reads back as the product default for the form.
+      taskTtl: 60000,
     });
   });
 

@@ -15,6 +15,7 @@ import type {
   LoggingMessageNotification,
   Progress,
   ProgressToken,
+  Task,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
@@ -30,6 +31,7 @@ import type {
   ServerEntry,
   ServerType,
 } from "@inspector/core/mcp/types.js";
+import { DEFAULT_TASK_TTL_MS } from "@inspector/core/mcp/types.js";
 import {
   API_SERVER_ENV_VARS,
   INSPECTOR_API_TOKEN_GLOBAL,
@@ -71,6 +73,7 @@ import type {
 } from "./components/screens/ToolsScreen/ToolsScreen";
 import type { GetPromptState } from "./components/screens/PromptsScreen/PromptsScreen";
 import type { ReadResourceState } from "./components/screens/ResourcesScreen/ResourcesScreen";
+import type { TaskProgress } from "./components/groups/TaskCard/TaskCard";
 import {
   EMPTY_TOOLS_UI,
   EMPTY_PROMPTS_UI,
@@ -193,6 +196,7 @@ const EMPTY_SETTINGS: InspectorServerSettings = {
   metadata: [],
   connectionTimeout: 0,
   requestTimeout: 0,
+  taskTtl: DEFAULT_TASK_TTL_MS,
 };
 
 // Body of the output-schema-mismatch warning toast: a one-line summary plus a
@@ -241,6 +245,52 @@ function formatProgressToastMessage(
       ? `${progress} / ${total} (${Math.round((progress / total) * 100)}%)`
       : `${progress}`;
   return message ? `${message} — ${ratio}` : ratio;
+}
+
+// Terminal task states — once a task reaches one of these it can't change, so
+// its toast is dismissed and its per-task progress entry is pruned.
+const TERMINAL_TASK_STATUSES: ReadonlySet<Task["status"]> = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
+function isTerminalTaskStatus(status: Task["status"]): boolean {
+  return TERMINAL_TASK_STATUSES.has(status);
+}
+
+// Stable toast id per task so live status updates replace one toast rather than
+// stacking a fresh one per `notifications/tasks/status` tick.
+function taskToastId(taskId: string): string {
+  return `task-${taskId}`;
+}
+
+// Toast color per task status — mirrors TaskStatusBadge's mapping so the toast
+// and the Tasks-screen badge read consistently.
+function taskToastColor(status: Task["status"]): string {
+  switch (status) {
+    case "completed":
+      return "green";
+    case "failed":
+      return "red";
+    case "cancelled":
+      return "gray";
+    case "input_required":
+      return "yellow";
+    default:
+      return "blue";
+  }
+}
+
+// The subset of Task fields the toast layer reads. Both task-event payloads —
+// the server `taskStatusChange` (full Task) and the client-origin
+// `requestorTaskUpdated` (Task with optional createdAt) — satisfy this.
+type TaskToastInput = Pick<Task, "status"> & { statusMessage?: string };
+
+// One-line toast body: the task's `statusMessage` when present, else a short
+// fallback naming the status. The title carries the status itself.
+function formatTaskToastMessage(task: TaskToastInput): string {
+  return task.statusMessage ?? `Task ${task.status}`;
 }
 
 function App() {
@@ -396,6 +446,18 @@ function App() {
   // because it's incidental bookkeeping that must not trigger re-renders.
   const progressToastIdsRef = useRef<Set<string>>(new Set());
 
+  // Same bookkeeping for live task-status toasts (one per taskId), so each
+  // `notifications/tasks/status` tick replaces the existing toast.
+  const taskToastIdsRef = useRef<Set<string>>(new Set());
+
+  // Per-task progress, keyed by taskId. Sourced from the core `requestorTaskProgress`
+  // event (emitted by callToolStream, which owns the taskId), fed to the Tasks
+  // screen so `TaskCard`'s progress bar renders for active tasks. Pruned on
+  // terminal status (below) and reset on disconnect (`resetSessionScopedUiState`).
+  const [progressByTaskId, setProgressByTaskId] = useState<
+    Record<string, TaskProgress>
+  >({});
+
   // Hook layer. Each hook subscribes to its respective event source and
   // re-renders the App on change. When `inspectorClient` / state managers
   // are null, the hooks degrade to empty results.
@@ -422,10 +484,11 @@ function App() {
     inspectorClient,
     managedResourceTemplatesState,
   );
-  const { tasks, refresh: refreshTasks } = useManagedRequestorTasks(
-    inspectorClient,
-    managedRequestorTasksState,
-  );
+  const {
+    tasks,
+    refresh: refreshTasks,
+    clearCompleted: clearCompletedTasks,
+  } = useManagedRequestorTasks(inspectorClient, managedRequestorTasksState);
   const { subscriptions } = useResourceSubscriptions(
     resourceSubscriptionsState,
   );
@@ -489,6 +552,7 @@ function App() {
     setLogsUi(EMPTY_LOGS_UI);
     setHistoryUi(EMPTY_HISTORY_UI);
     setNetworkUi(EMPTY_NETWORK_UI);
+    setProgressByTaskId({});
     setCurrentLogLevel("info");
     // Remembered scroll offsets are session-scoped too — drop them so the next
     // session's screens start at the top (#1417).
@@ -565,6 +629,118 @@ function App() {
       // "Tool progress" toast from lingering into the next session, and avoids
       // a race where the lingering toast's `onClose` would later delete an id
       // from the *new* session's set and trigger a duplicate-id re-show.
+      liveToastIds.forEach((id) => notifications.hide(id));
+      liveToastIds.clear();
+    };
+  }, [inspectorClient]);
+
+  // Correlate task-call progress to the task it belongs to. `callToolStream`
+  // emits `requestorTaskProgress` tagged with the taskId it owns (the generic
+  // `progressNotification` above carries only the caller's progressToken), so we
+  // build a taskId → progress map the Tasks screen reads to render each active
+  // task's progress bar. Entries are pruned on terminal status (in the task-
+  // status effect below) and the whole map resets on disconnect.
+  useEffect(() => {
+    if (!inspectorClient) return;
+    const onTaskProgress = (
+      event: TypedEventGeneric<
+        InspectorClientEventMap,
+        "requestorTaskProgress"
+      >,
+    ) => {
+      const { taskId, progress } = event.detail;
+      setProgressByTaskId((prev) => ({
+        ...prev,
+        [taskId]: {
+          progress: progress.progress,
+          total: progress.total,
+          message: progress.message,
+        },
+      }));
+    };
+    inspectorClient.addEventListener("requestorTaskProgress", onTaskProgress);
+    return () => {
+      inspectorClient.removeEventListener(
+        "requestorTaskProgress",
+        onTaskProgress,
+      );
+    };
+  }, [inspectorClient]);
+
+  // Surface live task status as per-task toasts — the v2 replacement for v1/v1.5's
+  // inline "Task status: … Polling…" line under the Tool Result (#1422, consistent
+  // with #1414). Subscribes to `taskStatusChange` (server `notifications/tasks/status`)
+  // and `requestorTaskUpdated` (client-origin updates from `callToolStream`) — the
+  // same sources the managed task store consumes; `toolCallTaskUpdated` is redundant
+  // with `requestorTaskUpdated` so we skip it to avoid double-firing. One toast per
+  // taskId, replaced per tick, dismissed on terminal status (which also prunes the
+  // task's progress entry) and on client teardown. The full status history still
+  // lives in the History view.
+  useEffect(() => {
+    if (!inspectorClient) return;
+    const liveToastIds = taskToastIdsRef.current;
+    const handleTaskUpdate = (taskId: string, task: TaskToastInput) => {
+      const id = taskToastId(taskId);
+      const terminal = isTerminalTaskStatus(task.status);
+      const title = `Task ${task.status}`;
+      const message = formatTaskToastMessage(task);
+      const color = taskToastColor(task.status);
+      if (terminal) {
+        // Drop the task's progress entry now that it can't change.
+        setProgressByTaskId((prev) => {
+          if (!(taskId in prev)) return prev;
+          const next = { ...prev };
+          delete next[taskId];
+          return next;
+        });
+      }
+      if (liveToastIds.has(id)) {
+        notifications.update({ id, title, message, color });
+        if (terminal) {
+          notifications.hide(id);
+          liveToastIds.delete(id);
+        }
+        return;
+      }
+      // A first sighting that's already terminal needs no toast at all.
+      if (terminal) return;
+      liveToastIds.add(id);
+      notifications.show({
+        id,
+        title,
+        message,
+        color,
+        autoClose: false,
+        onClose: () => liveToastIds.delete(id),
+      });
+    };
+    const onTaskStatusChange = (
+      event: TypedEventGeneric<InspectorClientEventMap, "taskStatusChange">,
+    ) => {
+      handleTaskUpdate(event.detail.taskId, event.detail.task);
+    };
+    const onRequestorTaskUpdated = (
+      event: TypedEventGeneric<InspectorClientEventMap, "requestorTaskUpdated">,
+    ) => {
+      handleTaskUpdate(event.detail.taskId, event.detail.task);
+    };
+    inspectorClient.addEventListener("taskStatusChange", onTaskStatusChange);
+    inspectorClient.addEventListener(
+      "requestorTaskUpdated",
+      onRequestorTaskUpdated,
+    );
+    return () => {
+      inspectorClient.removeEventListener(
+        "taskStatusChange",
+        onTaskStatusChange,
+      );
+      inspectorClient.removeEventListener(
+        "requestorTaskUpdated",
+        onRequestorTaskUpdated,
+      );
+      // Hide any still-visible task toasts on client swap so they don't linger
+      // into the next session, then drop the bookkeeping (mirrors the progress-
+      // toast teardown above).
       liveToastIds.forEach((id) => notifications.hide(id));
       liveToastIds.clear();
     };
@@ -1027,10 +1203,19 @@ function App() {
   // --- Action handlers that route directly to the InspectorClient. ---
 
   const onCallTool = useCallback(
-    async (name: string, args: Record<string, unknown>) => {
+    async (
+      name: string,
+      args: Record<string, unknown>,
+      runAsTask?: boolean,
+    ) => {
       if (!inspectorClient) return;
       const tool = tools.find((t: Tool) => t.name === name);
       if (!tool) return;
+      // Route through the task pipeline when the caller asked to (or the tool
+      // requires it — `callTool` throws for those). The created task shows up on
+      // the Tasks screen via the `requestorTaskUpdated` events callToolStream
+      // dispatches, and its live status/progress surface as toasts + progress bar.
+      const asTask = runAsTask || tool.execution?.taskSupport === "required";
       setToolCallState({ status: "pending" });
       try {
         // ToolsScreen types the args as `Record<string, unknown>` (it accepts
@@ -1038,10 +1223,18 @@ function App() {
         // `Record<string, JsonValue>` — narrow at the boundary instead of
         // claiming the object is empty (which the previous `as Record<string,
         // never>` cast did, misleadingly).
-        const invocation = await inspectorClient.callTool(
-          tool,
-          args as Record<string, JsonValue>,
-        );
+        const invocation = asTask
+          ? await inspectorClient.callToolStream(
+              tool,
+              args as Record<string, JsonValue>,
+              undefined,
+              undefined,
+              { ttl: activeServer?.settings?.taskTtl || DEFAULT_TASK_TTL_MS },
+            )
+          : await inspectorClient.callTool(
+              tool,
+              args as Record<string, JsonValue>,
+            );
         setToolCallState({
           status: invocation.success ? "ok" : "error",
           result: invocation.result ?? undefined,
@@ -1054,7 +1247,7 @@ function App() {
         });
       }
     },
-    [inspectorClient, tools],
+    [inspectorClient, tools, activeServer],
   );
 
   const onClearToolResult = useCallback(() => {
@@ -1246,12 +1439,27 @@ function App() {
   );
 
   const onCancelTask = useCallback(
-    (taskId: string) => {
+    async (taskId: string) => {
       if (!inspectorClient) return;
-      void inspectorClient.cancelRequestorTask(taskId);
+      // The cancelled status is reflected by the managed store via the
+      // `taskCancelled` event, so no manual reload is needed — but a cancel
+      // *failure* would otherwise be swallowed, so surface it.
+      try {
+        await inspectorClient.cancelRequestorTask(taskId);
+      } catch (err) {
+        notifications.show({
+          title: "Failed to cancel task",
+          message: err instanceof Error ? err.message : String(err),
+          color: "red",
+        });
+      }
     },
     [inspectorClient],
   );
+
+  const onClearCompletedTasks = useCallback(() => {
+    clearCompletedTasks();
+  }, [clearCompletedTasks]);
 
   const onSetLogLevel = useCallback(
     (level: LoggingLevel) => {
@@ -1272,7 +1480,15 @@ function App() {
     void refreshResources();
   }, [refreshResources]);
   const onRefreshTasks = useCallback(() => {
-    void refreshTasks();
+    // Surface list failures (e.g. the MAX_PAGES guard or a tasks/list error)
+    // instead of letting the rejected promise go unhandled.
+    refreshTasks().catch((err: unknown) => {
+      notifications.show({
+        title: "Failed to refresh tasks",
+        message: err instanceof Error ? err.message : String(err),
+        color: "red",
+      });
+    });
   }, [refreshTasks]);
 
   const onClearLogs = useCallback(() => {
@@ -1568,6 +1784,7 @@ function App() {
         subscriptions={subscriptions}
         logs={logs}
         tasks={tasks}
+        progressByTaskId={progressByTaskId}
         history={messages}
         network={fetchRequests}
         toolCallState={toolCallState}
@@ -1604,9 +1821,12 @@ function App() {
           const target = servers.find((s) => s.id === id);
           if (target) setRemoveTarget(target);
         }}
+        serverSupportsTaskToolCalls={
+          !!capabilities?.tasks?.requests?.tools?.call
+        }
         onToolsUiChange={onToolsUiChange}
-        onCallTool={(name, args) => {
-          void onCallTool(name, args);
+        onCallTool={(name, args, runAsTask) => {
+          void onCallTool(name, args, runAsTask);
         }}
         onClearToolResult={onClearToolResult}
         onRefreshTools={onRefreshTools}
@@ -1625,8 +1845,10 @@ function App() {
         onCompleteArgument={onCompleteArgument}
         completionsSupported={capabilities?.completions !== undefined}
         onTasksUiChange={setTasksUi}
-        onCancelTask={onCancelTask}
-        onClearCompletedTasks={todoNoop}
+        onCancelTask={(taskId) => {
+          void onCancelTask(taskId);
+        }}
+        onClearCompletedTasks={onClearCompletedTasks}
         onRefreshTasks={onRefreshTasks}
         onSetLogLevel={onSetLogLevel}
         onLogsUiChange={setLogsUi}

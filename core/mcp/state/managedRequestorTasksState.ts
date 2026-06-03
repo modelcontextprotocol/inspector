@@ -18,6 +18,14 @@ import { mergeTaskIntoList } from "./mergeTaskIntoList.js";
 
 const MAX_PAGES = 100;
 
+// Terminal task states — a task in one of these can no longer change, so
+// "Clear Completed" targets exactly these.
+const TERMINAL_STATUSES: ReadonlySet<Task["status"]> = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
 export interface ManagedRequestorTasksStateEventMap {
   tasksChange: Task[];
 }
@@ -31,6 +39,11 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
   private tasks: Task[] = [];
   private client: InspectorClientProtocol | null = null;
   private unsubscribe: (() => void) | null = null;
+  // Task ids the user dismissed via clearCompleted(). Sticky for the session:
+  // these are filtered out of refresh() results and ignored by the live-merge
+  // handlers so a late status update (or a server that still lists the task)
+  // can't resurrect a cleared task. Reset on disconnect / destroy.
+  private dismissedTaskIds = new Set<string>();
 
   constructor(client: InspectorClientProtocol) {
     super();
@@ -44,6 +57,7 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
     const onStatusChange = (): void => {
       if (this.client?.getStatus() === "disconnected") {
         this.tasks = [];
+        this.dismissedTaskIds.clear();
         this.dispatchTypedEvent("tasksChange", []);
       }
     };
@@ -51,6 +65,7 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
       e: TypedEventGeneric<InspectorClientEventMap, "taskStatusChange">,
     ): void => {
       const { taskId, task } = e.detail;
+      if (this.dismissedTaskIds.has(taskId)) return;
       this.tasks = mergeTaskIntoList(this.tasks, taskId, task);
       this.dispatchTypedEvent("tasksChange", this.tasks);
     };
@@ -58,6 +73,7 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
       e: TypedEventGeneric<InspectorClientEventMap, "requestorTaskUpdated">,
     ): void => {
       const { taskId, task } = e.detail;
+      if (this.dismissedTaskIds.has(taskId)) return;
       this.tasks = mergeTaskIntoList(this.tasks, taskId, task);
       this.dispatchTypedEvent("tasksChange", this.tasks);
     };
@@ -65,6 +81,7 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
       e: TypedEventGeneric<InspectorClientEventMap, "taskCancelled">,
     ): void => {
       const { taskId } = e.detail;
+      if (this.dismissedTaskIds.has(taskId)) return;
       const idx = this.tasks.findIndex((t) => t.taskId === taskId);
       if (idx >= 0) {
         const next = [...this.tasks];
@@ -123,9 +140,12 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
     let pageCount = 0;
     do {
       const result = await client.listRequestorTasks(cursor);
-      this.tasks = cursor
-        ? [...this.tasks, ...result.tasks]
-        : result.tasks;
+      // Filter out tasks the user dismissed via clearCompleted() so a server
+      // that still lists them (or an in-flight refresh) can't resurrect them.
+      const page = result.tasks.filter(
+        (t) => !this.dismissedTaskIds.has(t.taskId),
+      );
+      this.tasks = cursor ? [...this.tasks, ...page] : page;
       cursor = result.nextCursor;
       pageCount++;
       if (pageCount >= MAX_PAGES) {
@@ -138,9 +158,32 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
     return this.getTasks();
   }
 
+  /**
+   * Drop terminal-state tasks (completed / failed / cancelled) from the list.
+   * Their ids are remembered in `dismissedTaskIds` so they stay gone for the
+   * rest of the session — a subsequent refresh() or live update won't bring
+   * them back. No-op (and no event) when there's nothing terminal to clear.
+   */
+  clearCompleted(): void {
+    const remaining: Task[] = [];
+    let dismissedAny = false;
+    for (const task of this.tasks) {
+      if (TERMINAL_STATUSES.has(task.status)) {
+        this.dismissedTaskIds.add(task.taskId);
+        dismissedAny = true;
+      } else {
+        remaining.push(task);
+      }
+    }
+    if (!dismissedAny) return;
+    this.tasks = remaining;
+    this.dispatchTypedEvent("tasksChange", this.tasks);
+  }
+
   destroy(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.tasks = [];
+    this.dismissedTaskIds.clear();
   }
 }

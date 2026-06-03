@@ -28,6 +28,7 @@ const meta: Meta<typeof ToolsScreen> = {
   parameters: { layout: "fullscreen" },
   args: {
     listChanged: false,
+    serverSupportsTaskToolCalls: false,
     ui: EMPTY_TOOLS_UI,
     onUiChange: fn(),
     onRefreshList: fn(),

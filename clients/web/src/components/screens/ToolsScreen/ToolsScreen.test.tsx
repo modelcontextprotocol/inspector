@@ -25,6 +25,7 @@ const tools: Tool[] = [
 const baseProps = {
   tools,
   listChanged: false,
+  serverSupportsTaskToolCalls: false,
   ui: EMPTY_TOOLS_UI,
   onUiChange: vi.fn(),
   onRefreshList: vi.fn(),
@@ -91,7 +92,7 @@ describe("ToolsScreen", () => {
     await user.clear(field);
     await user.type(field, "slow");
     await user.click(screen.getByRole("button", { name: /Execute/ }));
-    expect(onCallTool).toHaveBeenCalledWith("gamma", { mode: "slow" });
+    expect(onCallTool).toHaveBeenCalledWith("gamma", { mode: "slow" }, false);
   });
 
   it("renders selection and result from props (persisted across navigation)", () => {
@@ -133,7 +134,7 @@ describe("ToolsScreen", () => {
     renderWithMantine(<ControlledToolsScreen onCallTool={onCallTool} />);
     await user.click(screen.getByText("alpha"));
     await user.click(screen.getByRole("button", { name: /Execute/ }));
-    expect(onCallTool).toHaveBeenCalledWith("alpha", {});
+    expect(onCallTool).toHaveBeenCalledWith("alpha", {}, false);
   });
 
   it("seeds schema defaults so untouched fields are sent on Execute", async () => {
@@ -143,7 +144,7 @@ describe("ToolsScreen", () => {
     await user.click(screen.getByText("gamma"));
     // Execute without editing the form: the default must still be sent.
     await user.click(screen.getByRole("button", { name: /Execute/ }));
-    expect(onCallTool).toHaveBeenCalledWith("gamma", { mode: "fast" });
+    expect(onCallTool).toHaveBeenCalledWith("gamma", { mode: "fast" }, false);
   });
 
   it("invokes onClearResult when Clear is clicked on the result panel", async () => {

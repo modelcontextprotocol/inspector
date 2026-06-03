@@ -30,7 +30,7 @@ export interface ServerSettingsFormProps {
   onRemoveMetadata: (index: number) => void;
   onMetadataChange: (index: number, key: string, value: string) => void;
   onTimeoutChange: (
-    field: "connectionTimeout" | "requestTimeout",
+    field: "connectionTimeout" | "requestTimeout" | "taskTtl",
     value: number,
   ) => void;
   onOAuthChange: (oauth: OAuthSettings) => void;
@@ -105,7 +105,7 @@ export function ServerSettingsForm({
   onOAuthChange,
 }: ServerSettingsFormProps) {
   const handleTimeoutChange =
-    (field: "connectionTimeout" | "requestTimeout") =>
+    (field: "connectionTimeout" | "requestTimeout" | "taskTtl") =>
     (value: number | string) => {
       const numValue =
         typeof value === "string" ? parseInt(value, 10) || 0 : value;
@@ -192,6 +192,12 @@ export function ServerSettingsForm({
               suffix=" ms"
               value={settings.requestTimeout}
               onChange={handleTimeoutChange("requestTimeout")}
+            />
+            <NumberInput
+              label="Task TTL"
+              suffix=" ms"
+              value={settings.taskTtl}
+              onChange={handleTimeoutChange("taskTtl")}
             />
           </Group>
         </Accordion.Panel>

@@ -41,6 +41,10 @@ vi.mock("@inspector/core/mcp/index.js", () => {
     callTool = vi
       .fn()
       .mockResolvedValue({ success: true, result: { acts: [] } });
+    callToolStream = vi
+      .fn()
+      .mockResolvedValue({ success: true, result: { acts: [] } });
+    cancelRequestorTask = vi.fn().mockResolvedValue(undefined);
     getPrompt = vi.fn().mockResolvedValue({ result: { messages: [] } });
     readResource = vi
       .fn()
@@ -166,7 +170,11 @@ vi.mock("@inspector/core/react/useManagedResourceTemplates.js", () => ({
   useManagedResourceTemplates: vi.fn(() => ({ resourceTemplates: [] })),
 }));
 vi.mock("@inspector/core/react/useManagedRequestorTasks.js", () => ({
-  useManagedRequestorTasks: vi.fn(() => ({ tasks: [], refresh: vi.fn() })),
+  useManagedRequestorTasks: vi.fn(() => ({
+    tasks: [],
+    refresh: vi.fn().mockResolvedValue([]),
+    clearCompleted: vi.fn(),
+  })),
 }));
 vi.mock("@inspector/core/react/useResourceSubscriptions.js", () => ({
   useResourceSubscriptions: vi.fn(() => ({ subscriptions: [] })),
@@ -223,14 +231,25 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
       filterText: string;
       visibleLevels: Record<string, boolean>;
     }) => void;
-    onCallTool: (name: string, args: Record<string, unknown>) => void;
+    progressByTaskId?: Record<string, unknown>;
+    onCallTool: (
+      name: string,
+      args: Record<string, unknown>,
+      runAsTask?: boolean,
+    ) => void;
     onGetPrompt: (name: string, args: Record<string, string>) => void;
     onReadResource: (uri: string) => void;
     onSetLogLevel: (level: string) => void;
+    onCancelTask: (taskId: string) => void;
+    onClearCompletedTasks: () => void;
+    onRefreshTasks: () => void;
   }) => (
     <div>
       <span data-testid="tool-status">
         {props.toolCallState?.status ?? "none"}
+      </span>
+      <span data-testid="task-progress-keys">
+        {Object.keys(props.progressByTaskId ?? {}).join(",") || "none"}
       </span>
       <span data-testid="selected-tool">
         {props.toolsUi?.selectedToolName ?? "none"}
@@ -307,6 +326,14 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
         set-log-filter
       </button>
       <button onClick={() => props.onCallTool("get_acts", {})}>call</button>
+      <button onClick={() => props.onCallTool("get_acts", {}, true)}>
+        call-as-task
+      </button>
+      <button onClick={() => props.onCancelTask("task-1")}>cancel-task</button>
+      <button onClick={() => props.onClearCompletedTasks()}>
+        clear-completed
+      </button>
+      <button onClick={() => props.onRefreshTasks()}>refresh-tasks</button>
       <button onClick={() => props.onGetPrompt("greet", {})}>get-prompt</button>
       <button onClick={() => props.onReadResource("res://x")}>
         read-resource
@@ -318,6 +345,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
 
 import App from "./App";
 import * as McpIndex from "@inspector/core/mcp/index.js";
+import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
 
 const clientInstances = (
   McpIndex as unknown as { __clientInstances: EventTarget[] }
@@ -584,6 +612,195 @@ describe("App pending server-initiated request modal", () => {
     });
     await waitFor(() =>
       expect(screen.queryByText("Sampling Request")).not.toBeInTheDocument(),
+    );
+  });
+});
+
+describe("App task wiring", () => {
+  beforeEach(() => {
+    clientInstances.length = 0;
+    notificationsMock.show.mockClear();
+    notificationsMock.update.mockClear();
+    notificationsMock.hide.mockClear();
+    // Restore the default task-hook return between tests that override it.
+    vi.mocked(useManagedRequestorTasks).mockReturnValue({
+      tasks: [],
+      refresh: vi.fn().mockResolvedValue([]),
+      clearCompleted: vi.fn(),
+    });
+  });
+
+  it("routes a Run-as-task call through callToolStream with the server's TTL", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("call-as-task"));
+
+    const client = clientInstances[0] as unknown as {
+      callToolStream: ReturnType<typeof vi.fn>;
+      callTool: ReturnType<typeof vi.fn>;
+    };
+    await waitFor(() => expect(client.callToolStream).toHaveBeenCalledTimes(1));
+    expect(client.callTool).not.toHaveBeenCalled();
+    // 5th arg is the task options; TTL falls back to the 60000 default since
+    // SERVER_A has no `settings.taskTtl`.
+    expect(client.callToolStream.mock.calls[0][4]).toEqual({ ttl: 60000 });
+  });
+
+  it("surfaces a cancel failure as a red toast", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    (
+      clientInstances[0] as unknown as {
+        cancelRequestorTask: ReturnType<typeof vi.fn>;
+      }
+    ).cancelRequestorTask.mockRejectedValueOnce(new Error("nope"));
+
+    await user.click(screen.getByText("cancel-task"));
+
+    await waitFor(() =>
+      expect(notificationsMock.show).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Failed to cancel task",
+          color: "red",
+        }),
+      ),
+    );
+  });
+
+  it("surfaces a refresh failure as a red toast", async () => {
+    vi.mocked(useManagedRequestorTasks).mockReturnValue({
+      tasks: [],
+      refresh: vi.fn().mockRejectedValue(new Error("list boom")),
+      clearCompleted: vi.fn(),
+    });
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("refresh-tasks"));
+
+    await waitFor(() =>
+      expect(notificationsMock.show).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Failed to refresh tasks",
+          color: "red",
+        }),
+      ),
+    );
+  });
+
+  it("clear-completed calls through to the hook's clearCompleted", async () => {
+    const clearCompleted = vi.fn();
+    vi.mocked(useManagedRequestorTasks).mockReturnValue({
+      tasks: [],
+      refresh: vi.fn().mockResolvedValue([]),
+      clearCompleted,
+    });
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("clear-completed"));
+    expect(clearCompleted).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a task-status toast, updates it, and hides it on terminal status", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    // First status → a fresh toast keyed by the task id.
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("taskStatusChange", {
+          detail: {
+            taskId: "task-1",
+            task: { status: "working", statusMessage: "Interpreting" },
+          },
+        }),
+      );
+    });
+    expect(notificationsMock.show).toHaveBeenCalledTimes(1);
+    const shown = notificationsMock.show.mock.calls[0][0];
+    expect(shown.title).toBe("Task working");
+    expect(shown.message).toBe("Interpreting");
+
+    // Next status on the same task → the existing toast is updated, not stacked.
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("taskStatusChange", {
+          detail: {
+            taskId: "task-1",
+            task: { status: "working", statusMessage: "Still going" },
+          },
+        }),
+      );
+    });
+    expect(notificationsMock.show).toHaveBeenCalledTimes(1);
+    expect(notificationsMock.update).toHaveBeenCalledTimes(1);
+
+    // Terminal status → the toast is hidden.
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("taskStatusChange", {
+          detail: {
+            taskId: "task-1",
+            task: { status: "completed", statusMessage: "Done" },
+          },
+        }),
+      );
+    });
+    expect(notificationsMock.hide).toHaveBeenCalledWith(shown.id);
+  });
+
+  it("builds progressByTaskId from requestorTaskProgress and prunes it on terminal status", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    expect(screen.getByTestId("task-progress-keys")).toHaveTextContent("none");
+
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("requestorTaskProgress", {
+          detail: {
+            taskId: "task-1",
+            progress: { progress: 2, total: 5, message: "Halfway" },
+          },
+        }),
+      );
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("task-progress-keys")).toHaveTextContent(
+        "task-1",
+      ),
+    );
+
+    // A terminal task update prunes the entry.
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("requestorTaskUpdated", {
+          detail: {
+            taskId: "task-1",
+            task: { status: "completed", statusMessage: "Done" },
+          },
+        }),
+      );
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("task-progress-keys")).toHaveTextContent(
+        "none",
+      ),
     );
   });
 });

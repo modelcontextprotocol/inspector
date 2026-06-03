@@ -12,6 +12,7 @@ const emptySettings: InspectorServerSettings = {
   metadata: [],
   connectionTimeout: 30000,
   requestTimeout: 60000,
+  taskTtl: 60000,
 };
 
 const populatedSettings: InspectorServerSettings = {
@@ -19,6 +20,7 @@ const populatedSettings: InspectorServerSettings = {
   metadata: [{ key: "userId", value: "u-1" }],
   connectionTimeout: 30000,
   requestTimeout: 60000,
+  taskTtl: 60000,
   oauthClientId: "cid",
   oauthClientSecret: "secret",
   oauthScopes: "read",
@@ -195,6 +197,36 @@ describe("ServerSettingsForm", () => {
     const call = onTimeoutChange.mock.calls[0];
     expect(call[0]).toBe("connectionTimeout");
     expect(typeof call[1]).toBe("number");
+  });
+
+  it("invokes onTimeoutChange with the taskTtl field when typing in Task TTL", async () => {
+    const user = userEvent.setup();
+    const onTimeoutChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onTimeoutChange={onTimeoutChange}
+        settings={emptySettings}
+        expandedSections={["timeouts"]}
+      />,
+    );
+    const ttlInput = screen.getByLabelText(/Task TTL/);
+    await user.type(ttlInput, "9");
+    expect(onTimeoutChange).toHaveBeenCalled();
+    const call = onTimeoutChange.mock.calls[0];
+    expect(call[0]).toBe("taskTtl");
+    expect(typeof call[1]).toBe("number");
+  });
+
+  it("renders the Task TTL value from settings", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, taskTtl: 45000 }}
+        expandedSections={["timeouts"]}
+      />,
+    );
+    expect(screen.getByLabelText(/Task TTL/)).toHaveValue("45000 ms");
   });
 
   it("invokes onOAuthChange when typing in client id", async () => {

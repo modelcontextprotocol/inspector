@@ -201,6 +201,8 @@ describe("serverEntriesToMcpConfig", () => {
       metadata: [],
       connectionTimeout: 0,
       requestTimeout: 0,
+      // Absent taskTtl on disk → product default in memory (for the form)
+      taskTtl: 60000,
       // Nested oauth on disk → flat oauthClientId in memory
       oauthClientId: "the-client",
     });
@@ -272,6 +274,7 @@ describe("serverEntriesToMcpConfig", () => {
           metadata: [],
           connectionTimeout: 0,
           requestTimeout: 0,
+          taskTtl: 0,
         },
         connection: { status: "disconnected" },
       },
@@ -295,6 +298,7 @@ describe("serverEntriesToMcpConfig", () => {
           metadata: [],
           connectionTimeout: 0,
           requestTimeout: 0,
+          taskTtl: 0,
         },
         connection: { status: "disconnected" },
       },
@@ -302,6 +306,7 @@ describe("serverEntriesToMcpConfig", () => {
     const stored = serverEntriesToMcpConfig(entries).mcpServers.alpha;
     expect(stored).not.toHaveProperty("connectionTimeout");
     expect(stored).not.toHaveProperty("requestTimeout");
+    expect(stored).not.toHaveProperty("taskTtl");
     expect(stored).not.toHaveProperty("oauth");
     expect(stored).not.toHaveProperty("headers");
     expect(stored).not.toHaveProperty("metadata");

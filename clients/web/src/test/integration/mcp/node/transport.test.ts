@@ -216,6 +216,7 @@ describe("Transport", () => {
           metadata: [],
           connectionTimeout: 0,
           requestTimeout: 0,
+          taskTtl: 0,
         };
 
         const fetchRequests: FetchRequestEntryBase[] = [];
@@ -267,6 +268,7 @@ describe("Transport", () => {
           metadata: [],
           connectionTimeout: 0,
           requestTimeout: 0,
+          taskTtl: 0,
         };
 
         const fetchRequests: FetchRequestEntryBase[] = [];
@@ -308,6 +310,7 @@ describe("Transport", () => {
         metadata: [],
         connectionTimeout: 0,
         requestTimeout: 0,
+        taskTtl: 0,
       };
       const result = createTransportNode(config, { settings });
       // Just exercise the empty-headers path — no transport construction

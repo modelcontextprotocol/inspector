@@ -319,6 +319,7 @@ describe("InspectorClient", () => {
             metadata: [],
             connectionTimeout: 50,
             requestTimeout: 0,
+            taskTtl: 0,
           },
         },
       );
@@ -3605,6 +3606,45 @@ describe("InspectorClient", () => {
       const task = tasks.find((t) => t.taskId && t.status === "completed");
       expect(task).toBeDefined();
       expect(task).toHaveProperty("ttl");
+    });
+
+    it("emits requestorTaskProgress tagged with the owning taskId during a task-augmented call", async () => {
+      // Core-side progress→task correlation (#1422): the wrapped onprogress in
+      // callToolStream tags each tick with the taskId it owns, so App can map
+      // progress to the right TaskCard. The progress_task tool emits 5 ticks.
+      const progressEvents: Array<{ taskId: string; progress: Progress }> = [];
+      client!.addEventListener(
+        "requestorTaskProgress",
+        (event: TypedEvent<"requestorTaskProgress">) => {
+          progressEvents.push(event.detail);
+        },
+      );
+
+      // Capture the created taskId from the toolCall event stream for comparison.
+      let createdTaskId: string | undefined;
+      client!.addEventListener(
+        "toolCallTaskUpdated",
+        (event: TypedEvent<"toolCallTaskUpdated">) => {
+          createdTaskId ??= event.detail.taskId;
+        },
+      );
+
+      const progressTool = await getTool(client!, "progress_task");
+      const result = await client!.callToolStream(progressTool, {
+        message: "with progress",
+      });
+      expect(result.success).toBe(true);
+
+      expect(progressEvents.length).toBeGreaterThan(0);
+      // Every tick is tagged with the same (and the correct) task id.
+      const taskIds = new Set(progressEvents.map((e) => e.taskId));
+      expect(taskIds.size).toBe(1);
+      const [taggedTaskId] = [...taskIds];
+      expect(typeof taggedTaskId).toBe("string");
+      expect(taggedTaskId!.length).toBeGreaterThan(0);
+      expect(taggedTaskId).toBe(createdTaskId);
+      // The payload carries the server's progress units.
+      expect(progressEvents.some((e) => e.progress.total === 5)).toBe(true);
     });
 
     it("should get task by taskId", async () => {

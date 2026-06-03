@@ -22,6 +22,10 @@ export interface ToolsUiState {
   selectedToolName?: string;
   formValues: Record<string, unknown>;
   search: string;
+  // "Run as task" preference for the selected tool. Persists across tab
+  // navigation like the rest of the UI state; only honored for tools whose
+  // `execution.taskSupport` is "optional" (see ToolDetailPanel).
+  runAsTask: boolean;
 }
 
 export interface ToolsScreenProps {
@@ -29,9 +33,15 @@ export interface ToolsScreenProps {
   callState?: ToolCallState;
   ui: ToolsUiState;
   listChanged: boolean;
+  /** Whether the connected server advertises task-augmented tool calls. */
+  serverSupportsTaskToolCalls: boolean;
   onUiChange: (next: ToolsUiState) => void;
   onRefreshList: () => void;
-  onCallTool: (name: string, args: Record<string, unknown>) => void;
+  onCallTool: (
+    name: string,
+    args: Record<string, unknown>,
+    runAsTask?: boolean,
+  ) => void;
   onCancelCall?: () => void;
   onClearResult?: () => void;
 }
@@ -92,6 +102,7 @@ export function ToolsScreen({
   callState,
   ui,
   listChanged,
+  serverSupportsTaskToolCalls,
   onUiChange,
   onRefreshList,
   onCallTool,
@@ -139,10 +150,17 @@ export function ToolsScreen({
               formValues={formValues}
               isExecuting={isExecuting}
               progress={callState?.progress}
+              serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
+              runAsTask={ui.runAsTask}
+              onRunAsTaskChange={(value) =>
+                onUiChange({ ...ui, runAsTask: value })
+              }
               onFormChange={(values) =>
                 onUiChange({ ...ui, formValues: values })
               }
-              onExecute={() => onCallTool(selectedTool.name, formValues)}
+              onExecute={(runAsTask) =>
+                onCallTool(selectedTool.name, formValues, runAsTask)
+              }
               onCancel={() => onCancelCall?.()}
             />
           ) : (

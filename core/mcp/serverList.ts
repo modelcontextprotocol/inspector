@@ -5,6 +5,7 @@
  * remote-server route handlers.
  */
 
+import { DEFAULT_TASK_TTL_MS } from "./types.js";
 import type {
   InspectorServerSettings,
   MCPConfig,
@@ -64,7 +65,12 @@ export function normalizeServerType(
  */
 type StoredInspectorFields = Pick<
   StoredMCPServer,
-  "headers" | "metadata" | "connectionTimeout" | "requestTimeout" | "oauth"
+  | "headers"
+  | "metadata"
+  | "connectionTimeout"
+  | "requestTimeout"
+  | "taskTtl"
+  | "oauth"
 >;
 
 /**
@@ -87,6 +93,7 @@ export function storedFieldsToInspectorSettings(
     stored.metadata !== undefined ||
     stored.connectionTimeout !== undefined ||
     stored.requestTimeout !== undefined ||
+    stored.taskTtl !== undefined ||
     stored.oauth !== undefined;
   if (!hasAny) return undefined;
 
@@ -99,6 +106,9 @@ export function storedFieldsToInspectorSettings(
     metadata: stored.metadata ?? [],
     connectionTimeout: stored.connectionTimeout ?? 0,
     requestTimeout: stored.requestTimeout ?? 0,
+    // Unlike the timeouts (0 = "SDK default"), task TTL has a concrete product
+    // default so the form shows it and "Run as task" has a value to send.
+    taskTtl: stored.taskTtl ?? DEFAULT_TASK_TTL_MS,
   };
   // Truthiness drops empty-string OAuth fields — mirrors the write-side
   // coercion in `validateSettings` (server.ts) so a round-trip can't
@@ -148,6 +158,13 @@ export function inspectorSettingsToStoredFields(
   if (settings.requestTimeout > 0) {
     out.requestTimeout = settings.requestTimeout;
   }
+  // Persist taskTtl only when it's a non-default positive value. The product
+  // default (DEFAULT_TASK_TTL_MS) is the omit-sentinel here — an absent field
+  // reads back as the default (above), so writing the default would inject it
+  // into hand-edited files that never had it and break byte-stable round-trips.
+  if (settings.taskTtl > 0 && settings.taskTtl !== DEFAULT_TASK_TTL_MS) {
+    out.taskTtl = settings.taskTtl;
+  }
 
   const oauthFields: {
     clientId?: string;
@@ -184,6 +201,7 @@ const INSPECTOR_FIELD_KEY_MAP = {
   metadata: true,
   connectionTimeout: true,
   requestTimeout: true,
+  taskTtl: true,
   oauth: true,
 } as const satisfies Record<keyof StoredInspectorFields, true>;
 
