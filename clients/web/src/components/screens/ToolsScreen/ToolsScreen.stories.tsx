@@ -5,32 +5,21 @@ import type { ElicitRequest, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Modal } from "@mantine/core";
 import { fn, userEvent, within } from "storybook/test";
 import { ToolsScreen } from "./ToolsScreen";
-import type { ToolCallState } from "./ToolsScreen";
+import type { ToolCallState, ToolsUiState } from "./ToolsScreen";
+import { EMPTY_TOOLS_UI } from "../screenUiState";
 import { SamplingRequestPanel } from "../../groups/SamplingRequestPanel/SamplingRequestPanel";
 import { ElicitationFormPanel } from "../../groups/ElicitationFormPanel/ElicitationFormPanel";
 import { PendingClientRequests } from "../../groups/PendingClientRequests/PendingClientRequests";
 import { InlineSamplingRequest } from "../../groups/InlineSamplingRequest/InlineSamplingRequest";
 import { InlineElicitationRequest } from "../../groups/InlineElicitationRequest/InlineElicitationRequest";
 
-// ToolsScreen is controlled (selection + form values live in the parent — see
-// #1414). This wrapper holds that state so the play-driven tool clicks still
-// drive the detail panel, mirroring how App owns the state in the real app.
+// ToolsScreen is controlled (selection + form values live in the parent as one
+// `ui` object — see #1414). This wrapper holds that state so the play-driven
+// tool clicks still drive the detail panel, mirroring how App owns the state in
+// the real app.
 function StatefulToolsScreen(args: ComponentProps<typeof ToolsScreen>) {
-  const [selectedToolName, setSelectedToolName] = useState(
-    args.selectedToolName,
-  );
-  const [formValues, setFormValues] = useState<Record<string, unknown>>(
-    args.formValues ?? {},
-  );
-  return (
-    <ToolsScreen
-      {...args}
-      selectedToolName={selectedToolName}
-      formValues={formValues}
-      onSelectTool={setSelectedToolName}
-      onFormChange={setFormValues}
-    />
-  );
+  const [ui, setUi] = useState<ToolsUiState>(args.ui ?? EMPTY_TOOLS_UI);
+  return <ToolsScreen {...args} ui={ui} onUiChange={setUi} />;
 }
 
 const meta: Meta<typeof ToolsScreen> = {
@@ -39,8 +28,8 @@ const meta: Meta<typeof ToolsScreen> = {
   parameters: { layout: "fullscreen" },
   args: {
     listChanged: false,
-    onSelectTool: fn(),
-    onFormChange: fn(),
+    ui: EMPTY_TOOLS_UI,
+    onUiChange: fn(),
     onRefreshList: fn(),
     onCallTool: fn(),
     onCancelCall: fn(),

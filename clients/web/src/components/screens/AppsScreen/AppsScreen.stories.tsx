@@ -4,7 +4,12 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
-import { AppsScreen, type AppsScreenProps } from "./AppsScreen";
+import {
+  AppsScreen,
+  type AppsScreenProps,
+  type AppsUiState,
+} from "./AppsScreen";
+import { EMPTY_APPS_UI } from "../screenUiState";
 import type {
   AppRendererHandle,
   BridgeFactory,
@@ -81,23 +86,13 @@ const dashboardApp: Tool = {
 const sampleApps: Tool[] = [cohortApp, weatherApp, dashboardApp];
 
 // AppsScreen is controlled (app selection, form values, and search text live in
-// the parent — running/maximized stay internal; see #1417). This hook holds the
-// lifted state so the play-driven select/type/open interactions still drive the
-// detail panel, mirroring how App owns the state in the real app.
+// the parent as one `ui` object — running/maximized stay internal; see #1417).
+// This hook holds the lifted state so the play-driven select/type/open
+// interactions still drive the detail panel, mirroring how App owns the state in
+// the real app.
 function useLiftedAppState(args: AppsScreenProps) {
-  const [selectedAppName, setSelectedAppName] = useState(args.selectedAppName);
-  const [formValues, setFormValues] = useState<Record<string, unknown>>(
-    args.formValues ?? {},
-  );
-  const [searchText, setSearchText] = useState(args.searchText ?? "");
-  return {
-    selectedAppName,
-    formValues,
-    searchText,
-    onSelectedAppNameChange: setSelectedAppName,
-    onFormValuesChange: setFormValues,
-    onSearchChange: setSearchText,
-  };
+  const [ui, setUi] = useState<AppsUiState>(args.ui ?? EMPTY_APPS_UI);
+  return { ui, onUiChange: setUi };
 }
 
 const meta: Meta<typeof AppsScreen> = {
@@ -108,13 +103,12 @@ const meta: Meta<typeof AppsScreen> = {
     sandboxPath: PLACEHOLDER_SANDBOX,
     bridgeFactory: okBridgeFactory,
     listChanged: false,
+    ui: EMPTY_APPS_UI,
+    onUiChange: fn(),
     onRefreshList: fn(),
     onSelectApp: fn(),
     onOpenApp: fn(),
     onCloseApp: fn(),
-    onSelectedAppNameChange: fn(),
-    onFormValuesChange: fn(),
-    onSearchChange: fn(),
   },
   // Each story uses its own ref so AppRenderer's imperative handle gets a
   // fresh slot per render (Storybook may keep the canvas mounted across

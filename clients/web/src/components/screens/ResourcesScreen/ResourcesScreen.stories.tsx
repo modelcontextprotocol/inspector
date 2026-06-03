@@ -8,39 +8,17 @@ import type {
 import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
 import { fn, userEvent, within } from "storybook/test";
 import { ResourcesScreen } from "./ResourcesScreen";
-import type { ReadResourceState } from "./ResourcesScreen";
+import type { ReadResourceState, ResourcesUiState } from "./ResourcesScreen";
+import { EMPTY_RESOURCES_UI } from "../screenUiState";
 
 // ResourcesScreen is controlled (resource/template selection, the originating
-// template, search text, and open accordion sections live in the parent — see
-// #1417). This wrapper holds that state so the play-driven clicks still drive
-// the detail/preview panels, mirroring how App owns the state in the real app.
+// template, search text, and open accordion sections live in the parent as one
+// `ui` object — see #1417). This wrapper holds that state so the play-driven
+// clicks still drive the detail/preview panels, mirroring how App owns the state
+// in the real app.
 function StatefulResourcesScreen(args: ComponentProps<typeof ResourcesScreen>) {
-  const [selectedResourceUri, setSelectedResourceUri] = useState(
-    args.selectedResourceUri,
-  );
-  const [selectedTemplateUri, setSelectedTemplateUri] = useState(
-    args.selectedTemplateUri,
-  );
-  const [originatingTemplateUri, setOriginatingTemplateUri] = useState(
-    args.originatingTemplateUri,
-  );
-  const [searchText, setSearchText] = useState(args.searchText ?? "");
-  const [openSections, setOpenSections] = useState(args.openSections);
-  return (
-    <ResourcesScreen
-      {...args}
-      selectedResourceUri={selectedResourceUri}
-      selectedTemplateUri={selectedTemplateUri}
-      originatingTemplateUri={originatingTemplateUri}
-      searchText={searchText}
-      openSections={openSections}
-      onSelectedResourceUriChange={setSelectedResourceUri}
-      onSelectedTemplateUriChange={setSelectedTemplateUri}
-      onOriginatingTemplateUriChange={setOriginatingTemplateUri}
-      onSearchChange={setSearchText}
-      onOpenSectionsChange={setOpenSections}
-    />
-  );
+  const [ui, setUi] = useState<ResourcesUiState>(args.ui ?? EMPTY_RESOURCES_UI);
+  return <ResourcesScreen {...args} ui={ui} onUiChange={setUi} />;
 }
 
 const meta: Meta<typeof ResourcesScreen> = {
@@ -48,15 +26,12 @@ const meta: Meta<typeof ResourcesScreen> = {
   component: ResourcesScreen,
   parameters: { layout: "fullscreen" },
   args: {
+    ui: EMPTY_RESOURCES_UI,
+    onUiChange: fn(),
     onRefreshList: fn(),
     onReadResource: fn(),
     onSubscribeResource: fn(),
     onUnsubscribeResource: fn(),
-    onSelectedResourceUriChange: fn(),
-    onSelectedTemplateUriChange: fn(),
-    onOriginatingTemplateUriChange: fn(),
-    onSearchChange: fn(),
-    onOpenSectionsChange: fn(),
     listChanged: false,
     subscriptions: [],
     templates: [],

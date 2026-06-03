@@ -9,17 +9,20 @@ import { ALL_LEVELS_VISIBLE, NO_LEVELS_VISIBLE } from "./logLevels";
 export interface LoggingScreenProps {
   entries: LogEntryData[];
   currentLevel: LoggingLevel;
-  // Filter text + visible-level set are controlled by the parent (App) so they
-  // persist across tab navigation within a live session — see #1417.
-  filterText?: string;
-  visibleLevels?: Record<LoggingLevel, boolean>;
-  onFilterChange: (value: string) => void;
-  onVisibleLevelsChange: (value: Record<LoggingLevel, boolean>) => void;
+  ui: LogsUiState;
+  onUiChange: (next: LogsUiState) => void;
   onSetLevel: (level: LoggingLevel) => void;
   onClear: () => void;
   onExport: () => void;
   sortDirection: SortDirection;
   onSortChange: (next: SortDirection) => void;
+}
+
+// Filter text + visible-level set — controlled by the parent (App) as one
+// object so they persist across tab navigation within a live session (#1417).
+export interface LogsUiState {
+  filterText: string;
+  visibleLevels: Record<LoggingLevel, boolean>;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -42,23 +45,29 @@ const SidebarCard = Card.withProps({
 export function LoggingScreen({
   entries,
   currentLevel,
-  filterText = "",
-  visibleLevels = ALL_LEVELS_VISIBLE,
-  onFilterChange,
-  onVisibleLevelsChange,
+  ui,
+  onUiChange,
   onSetLevel,
   onClear,
   onExport,
   sortDirection,
   onSortChange,
 }: LoggingScreenProps) {
+  const { filterText, visibleLevels } = ui;
+
   function handleToggleLevel(level: LoggingLevel, visible: boolean) {
-    onVisibleLevelsChange({ ...visibleLevels, [level]: visible });
+    onUiChange({
+      ...ui,
+      visibleLevels: { ...visibleLevels, [level]: visible },
+    });
   }
 
   function handleToggleAllLevels() {
     const allSelected = Object.values(visibleLevels).every(Boolean);
-    onVisibleLevelsChange(allSelected ? NO_LEVELS_VISIBLE : ALL_LEVELS_VISIBLE);
+    onUiChange({
+      ...ui,
+      visibleLevels: allSelected ? NO_LEVELS_VISIBLE : ALL_LEVELS_VISIBLE,
+    });
   }
 
   return (
@@ -70,7 +79,7 @@ export function LoggingScreen({
             filterText={filterText}
             visibleLevels={visibleLevels}
             onSetLevel={onSetLevel}
-            onFilterChange={onFilterChange}
+            onFilterChange={(value) => onUiChange({ ...ui, filterText: value })}
             onToggleLevel={handleToggleLevel}
             onToggleAllLevels={handleToggleAllLevels}
           />

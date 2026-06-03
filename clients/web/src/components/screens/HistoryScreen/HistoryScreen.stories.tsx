@@ -1,30 +1,18 @@
 import { useState } from "react";
 import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type {
-  MessageEntry,
-  MessageMethod,
-} from "../../../../../../core/mcp/types.js";
+import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { expect, fn, screen, userEvent, within } from "storybook/test";
 import { HistoryScreen } from "./HistoryScreen";
+import { EMPTY_HISTORY_UI } from "../screenUiState";
 
-// HistoryScreen is controlled (search text + method filter live in the parent —
-// see #1417). This wrapper holds that state so the play-driven filter selection
-// and clear-all reset are observable, mirroring how App owns the state.
+// HistoryScreen is controlled (search text + method filter live in the parent
+// as one `ui` object — see #1417). This wrapper holds that state so the
+// play-driven filter selection and clear-all reset are observable, mirroring
+// how App owns the state.
 function StatefulHistoryScreen(args: ComponentProps<typeof HistoryScreen>) {
-  const [searchText, setSearchText] = useState(args.searchText ?? "");
-  const [methodFilter, setMethodFilter] = useState<MessageMethod | undefined>(
-    args.methodFilter,
-  );
-  return (
-    <HistoryScreen
-      {...args}
-      searchText={searchText}
-      methodFilter={methodFilter}
-      onSearchChange={setSearchText}
-      onMethodFilterChange={setMethodFilter}
-    />
-  );
+  const [ui, setUi] = useState({ ...EMPTY_HISTORY_UI, ...args.ui });
+  return <HistoryScreen {...args} ui={ui} onUiChange={setUi} />;
 }
 
 const meta: Meta<typeof HistoryScreen> = {
@@ -37,8 +25,8 @@ const meta: Meta<typeof HistoryScreen> = {
     onExport: fn(),
     onReplay: fn(),
     onTogglePin: fn(),
-    onSearchChange: fn(),
-    onMethodFilterChange: fn(),
+    ui: EMPTY_HISTORY_UI,
+    onUiChange: fn(),
     sortDirection: "newest-first",
     onSortChange: fn(),
     compact: true,

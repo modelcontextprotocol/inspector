@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import type {
-  FetchRequestCategory,
-  FetchRequestEntry,
-} from "@inspector/core/mcp/types.js";
+import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { NetworkScreen, type NetworkScreenProps } from "./NetworkScreen";
-import { ALL_CATEGORIES_VISIBLE } from "./fetchCategories";
+import {
+  NetworkScreen,
+  type NetworkScreenProps,
+  type NetworkUiState,
+} from "./NetworkScreen";
+import { EMPTY_NETWORK_UI } from "../screenUiState";
 
 const transportEntry: FetchRequestEntry = {
   id: "t-1",
@@ -46,8 +47,8 @@ const errorEntry: FetchRequestEntry = {
 
 const baseProps = {
   entries: [transportEntry, authEntry, errorEntry],
-  onFilterChange: vi.fn(),
-  onVisibleCategoriesChange: vi.fn(),
+  ui: EMPTY_NETWORK_UI,
+  onUiChange: vi.fn(),
   onClear: vi.fn(),
   onExport: vi.fn(),
   sortDirection: "newest-first" as const,
@@ -57,28 +58,24 @@ const baseProps = {
 };
 
 // NetworkScreen is controlled: filter text + visible-category set live in the
-// parent (App) so they persist across tab navigation (#1417). This host holds
-// that state so typing/toggling drives the rendered list, mirroring how App
-// owns it. Props passed in override defaults; the stateful filter wiring is
-// applied last so callers can still observe changes via the spied callbacks.
+// parent (App) as one `ui` object so they persist across tab navigation
+// (#1417). This host holds that state so typing/toggling drives the rendered
+// list, mirroring how App owns it. Props passed in override defaults; the
+// stateful `ui` wiring is applied last so callers can still observe changes via
+// the spied `onUiChange` callback.
 function ControlledNetworkScreen(props: Partial<NetworkScreenProps>) {
-  const [filterText, setFilterText] = useState(props.filterText ?? "");
-  const [visibleCategories, setVisibleCategories] = useState<
-    Record<FetchRequestCategory, boolean>
-  >(props.visibleCategories ?? ALL_CATEGORIES_VISIBLE);
+  const [ui, setUi] = useState<NetworkUiState>({
+    ...EMPTY_NETWORK_UI,
+    ...props.ui,
+  });
   return (
     <NetworkScreen
       {...baseProps}
       {...props}
-      filterText={filterText}
-      visibleCategories={visibleCategories}
-      onFilterChange={(value) => {
-        setFilterText(value);
-        props.onFilterChange?.(value);
-      }}
-      onVisibleCategoriesChange={(value) => {
-        setVisibleCategories(value);
-        props.onVisibleCategoriesChange?.(value);
+      ui={ui}
+      onUiChange={(value) => {
+        setUi(value);
+        props.onUiChange?.(value);
       }}
     />
   );

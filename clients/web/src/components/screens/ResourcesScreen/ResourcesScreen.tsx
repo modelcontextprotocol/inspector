@@ -32,22 +32,10 @@ export interface ResourcesScreenProps {
   templates: ResourceTemplate[];
   subscriptions: InspectorResourceSubscription[];
   readState?: ReadResourceState;
-  // Selection (resource URI, template URI, the originating-template marker),
-  // the sidebar search, and accordion open-sections are controlled by the
-  // parent (App) so they persist across tab navigation within a live
-  // session — see #1417.
-  selectedResourceUri?: string;
-  selectedTemplateUri?: string;
-  originatingTemplateUri?: string;
-  searchText?: string;
-  openSections?: string[];
+  ui: ResourcesUiState;
   listChanged: boolean;
   completionsSupported?: boolean;
-  onSelectedResourceUriChange: (value: string | undefined) => void;
-  onSelectedTemplateUriChange: (value: string | undefined) => void;
-  onOriginatingTemplateUriChange: (value: string | undefined) => void;
-  onSearchChange: (value: string) => void;
-  onOpenSectionsChange: (value: string[]) => void;
+  onUiChange: (next: ResourcesUiState) => void;
   onRefreshList: () => void;
   onReadResource: (uri: string) => void;
   onSubscribeResource: (uri: string) => void;
@@ -62,6 +50,19 @@ export interface ResourcesScreenProps {
   ) => Promise<string[]>;
   compact: boolean;
   onCompactChange: (next: boolean) => void;
+}
+
+// Selection (resource URI, template URI, the originating-template marker), the
+// sidebar search, and accordion open-sections — controlled by the parent (App)
+// as one object so they persist across tab navigation within a live session
+// (#1417). `openSections` undefined → ResourceControls falls back to the
+// compact-derived default.
+export interface ResourcesUiState {
+  selectedResourceUri?: string;
+  selectedTemplateUri?: string;
+  originatingTemplateUri?: string;
+  search: string;
+  openSections?: string[];
 }
 
 const ScreenLayout = Flex.withProps({
@@ -120,18 +121,10 @@ export function ResourcesScreen({
   templates,
   subscriptions,
   readState,
-  selectedResourceUri,
-  selectedTemplateUri,
-  originatingTemplateUri,
-  searchText = "",
-  openSections,
+  ui,
   listChanged,
   completionsSupported,
-  onSelectedResourceUriChange,
-  onSelectedTemplateUriChange,
-  onOriginatingTemplateUriChange,
-  onSearchChange,
-  onOpenSectionsChange,
+  onUiChange,
   onRefreshList,
   onReadResource,
   onSubscribeResource,
@@ -140,6 +133,13 @@ export function ResourcesScreen({
   compact,
   onCompactChange,
 }: ResourcesScreenProps) {
+  const {
+    selectedResourceUri,
+    selectedTemplateUri,
+    originatingTemplateUri,
+    search,
+    openSections,
+  } = ui;
   const selectedResource = selectedResourceUri
     ? resources.find((r) => r.uri === selectedResourceUri)
     : undefined;
@@ -156,16 +156,22 @@ export function ResourcesScreen({
       : undefined);
 
   function handleSelectResource(uri: string) {
-    onSelectedTemplateUriChange(undefined);
-    onSelectedResourceUriChange(uri);
-    onOriginatingTemplateUriChange(undefined);
+    onUiChange({
+      ...ui,
+      selectedTemplateUri: undefined,
+      selectedResourceUri: uri,
+      originatingTemplateUri: undefined,
+    });
     onReadResource(uri);
   }
 
   function handleSelectTemplate(uriTemplate: string) {
-    onSelectedResourceUriChange(undefined);
-    onSelectedTemplateUriChange(uriTemplate);
-    onOriginatingTemplateUriChange(undefined);
+    onUiChange({
+      ...ui,
+      selectedResourceUri: undefined,
+      selectedTemplateUri: uriTemplate,
+      originatingTemplateUri: undefined,
+    });
   }
 
   function handleReadResource(uri: string) {
@@ -174,19 +180,25 @@ export function ResourcesScreen({
     // clearing the template selection hides the template form so only
     // the rendered resource is shown. We remember the template URI so
     // closing the preview can restore the form.
-    if (selectedTemplateUri) {
-      onOriginatingTemplateUriChange(selectedTemplateUri);
-    }
-    onSelectedTemplateUriChange(undefined);
-    onSelectedResourceUriChange(uri);
+    onUiChange({
+      ...ui,
+      originatingTemplateUri: selectedTemplateUri ?? originatingTemplateUri,
+      selectedTemplateUri: undefined,
+      selectedResourceUri: uri,
+    });
     onReadResource(uri);
   }
 
   function handleClosePreview() {
-    onSelectedResourceUriChange(undefined);
     if (originatingTemplateUri) {
-      onSelectedTemplateUriChange(originatingTemplateUri);
-      onOriginatingTemplateUriChange(undefined);
+      onUiChange({
+        ...ui,
+        selectedResourceUri: undefined,
+        selectedTemplateUri: originatingTemplateUri,
+        originatingTemplateUri: undefined,
+      });
+    } else {
+      onUiChange({ ...ui, selectedResourceUri: undefined });
     }
   }
 
@@ -260,12 +272,14 @@ export function ResourcesScreen({
             subscriptions={subscriptions}
             selectedUri={selectedResourceUri}
             selectedTemplateUri={selectedTemplateUri}
-            searchText={searchText}
+            searchText={search}
             openSections={openSections}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
-            onSearchChange={onSearchChange}
-            onOpenSectionsChange={onOpenSectionsChange}
+            onSearchChange={(value) => onUiChange({ ...ui, search: value })}
+            onOpenSectionsChange={(value) =>
+              onUiChange({ ...ui, openSections: value })
+            }
             onSelectUri={handleSelectResource}
             onSelectTemplate={handleSelectTemplate}
             onUnsubscribeResource={onUnsubscribeResource}

@@ -13,20 +13,21 @@ import {
 
 export interface NetworkScreenProps {
   entries: FetchRequestEntry[];
-  // Filter text + visible-category set are controlled by the parent (App) so
-  // they persist across tab navigation within a live session — see #1417.
-  filterText?: string;
-  visibleCategories?: Record<FetchRequestCategory, boolean>;
-  onFilterChange: (value: string) => void;
-  onVisibleCategoriesChange: (
-    value: Record<FetchRequestCategory, boolean>,
-  ) => void;
+  ui: NetworkUiState;
+  onUiChange: (next: NetworkUiState) => void;
   onClear: () => void;
   onExport: () => void;
   sortDirection: SortDirection;
   onSortChange: (next: SortDirection) => void;
   compact: boolean;
   onToggleCompact: () => void;
+}
+
+// Filter text + visible-category set — controlled by the parent (App) as one
+// object so they persist across tab navigation within a live session (#1417).
+export interface NetworkUiState {
+  filterText: string;
+  visibleCategories: Record<FetchRequestCategory, boolean>;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -48,10 +49,8 @@ const SidebarCard = Card.withProps({
 
 export function NetworkScreen({
   entries,
-  filterText = "",
-  visibleCategories = ALL_CATEGORIES_VISIBLE,
-  onFilterChange,
-  onVisibleCategoriesChange,
+  ui,
+  onUiChange,
   onClear,
   onExport,
   sortDirection,
@@ -59,18 +58,26 @@ export function NetworkScreen({
   compact,
   onToggleCompact,
 }: NetworkScreenProps) {
+  const { filterText, visibleCategories } = ui;
+
   function handleToggleCategory(
     category: FetchRequestCategory,
     visible: boolean,
   ) {
-    onVisibleCategoriesChange({ ...visibleCategories, [category]: visible });
+    onUiChange({
+      ...ui,
+      visibleCategories: { ...visibleCategories, [category]: visible },
+    });
   }
 
   function handleToggleAllCategories() {
     const allSelected = Object.values(visibleCategories).every(Boolean);
-    onVisibleCategoriesChange(
-      allSelected ? NO_CATEGORIES_VISIBLE : ALL_CATEGORIES_VISIBLE,
-    );
+    onUiChange({
+      ...ui,
+      visibleCategories: allSelected
+        ? NO_CATEGORIES_VISIBLE
+        : ALL_CATEGORIES_VISIBLE,
+    });
   }
 
   return (
@@ -80,7 +87,7 @@ export function NetworkScreen({
           <NetworkControls
             filterText={filterText}
             visibleCategories={visibleCategories}
-            onFilterChange={onFilterChange}
+            onFilterChange={(value) => onUiChange({ ...ui, filterText: value })}
             onToggleCategory={handleToggleCategory}
             onToggleAllCategories={handleToggleAllCategories}
           />

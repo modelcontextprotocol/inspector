@@ -7,15 +7,18 @@ import type { TaskProgress } from "../../groups/TaskCard/TaskCard";
 export interface TasksScreenProps {
   tasks: Task[];
   progressByTaskId?: Record<string, TaskProgress>;
-  // Search + status filter are controlled by the parent (App) so they persist
-  // across tab navigation within a live session — see #1417.
-  searchText?: string;
-  statusFilter?: TaskStatus;
-  onSearchChange: (value: string) => void;
-  onStatusFilterChange: (value: TaskStatus | undefined) => void;
+  ui: TasksUiState;
+  onUiChange: (next: TasksUiState) => void;
   onRefresh: () => void;
   onClearCompleted: () => void;
   onCancel: (taskId: string) => void;
+}
+
+// Search + status filter — controlled by the parent (App) as one object so they
+// persist across tab navigation within a live session (#1417).
+export interface TasksUiState {
+  search: string;
+  statusFilter?: TaskStatus;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -38,23 +41,24 @@ const SidebarCard = Card.withProps({
 export function TasksScreen({
   tasks,
   progressByTaskId,
-  searchText = "",
-  statusFilter,
-  onSearchChange,
-  onStatusFilterChange,
+  ui,
+  onUiChange,
   onRefresh,
   onClearCompleted,
   onCancel,
 }: TasksScreenProps) {
+  const { search, statusFilter } = ui;
   return (
     <ScreenLayout>
       <Sidebar>
         <SidebarCard>
           <TaskControls
-            searchText={searchText}
+            searchText={search}
             statusFilter={statusFilter}
-            onSearchChange={onSearchChange}
-            onStatusFilterChange={onStatusFilterChange}
+            onSearchChange={(value) => onUiChange({ ...ui, search: value })}
+            onStatusFilterChange={(value) =>
+              onUiChange({ ...ui, statusFilter: value })
+            }
             onRefresh={onRefresh}
           />
         </SidebarCard>
@@ -62,7 +66,7 @@ export function TasksScreen({
       <TaskListPanel
         tasks={tasks}
         progressByTaskId={progressByTaskId}
-        searchText={searchText}
+        searchText={search}
         statusFilter={statusFilter}
         onCancel={onCancel}
         onClearCompleted={onClearCompleted}

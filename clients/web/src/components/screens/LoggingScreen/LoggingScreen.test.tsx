@@ -1,16 +1,19 @@
 import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { LoggingScreen, type LoggingScreenProps } from "./LoggingScreen";
-import { ALL_LEVELS_VISIBLE } from "./logLevels";
+import {
+  LoggingScreen,
+  type LoggingScreenProps,
+  type LogsUiState,
+} from "./LoggingScreen";
+import { EMPTY_LOGS_UI } from "../screenUiState";
 
 const baseProps = {
   entries: [],
   currentLevel: "info" as const,
-  onFilterChange: vi.fn(),
-  onVisibleLevelsChange: vi.fn(),
+  ui: EMPTY_LOGS_UI,
+  onUiChange: vi.fn(),
   onSetLevel: vi.fn(),
   onClear: vi.fn(),
   onExport: vi.fn(),
@@ -19,28 +22,21 @@ const baseProps = {
 };
 
 // LoggingScreen is controlled: filter text + visible-level set live in the
-// parent (App) so they persist across tab navigation (#1417). This host holds
-// that state so typing/toggling drives the rendered list, mirroring how App
-// owns it. Props passed in override defaults; the stateful filter wiring is
-// applied last so callers can still observe changes via the spied callbacks.
+// parent (App) as one `ui` object so they persist across tab navigation
+// (#1417). This host holds that state so typing/toggling drives the rendered
+// list, mirroring how App owns it. Props passed in override defaults; the
+// stateful `ui` wiring is applied last so callers can still observe changes
+// via the spied `onUiChange` callback.
 function ControlledLoggingScreen(props: Partial<LoggingScreenProps>) {
-  const [filterText, setFilterText] = useState(props.filterText ?? "");
-  const [visibleLevels, setVisibleLevels] = useState<
-    Record<LoggingLevel, boolean>
-  >(props.visibleLevels ?? ALL_LEVELS_VISIBLE);
+  const [ui, setUi] = useState<LogsUiState>({ ...EMPTY_LOGS_UI, ...props.ui });
   return (
     <LoggingScreen
       {...baseProps}
       {...props}
-      filterText={filterText}
-      visibleLevels={visibleLevels}
-      onFilterChange={(value) => {
-        setFilterText(value);
-        props.onFilterChange?.(value);
-      }}
-      onVisibleLevelsChange={(value) => {
-        setVisibleLevels(value);
-        props.onVisibleLevelsChange?.(value);
+      ui={ui}
+      onUiChange={(value) => {
+        setUi(value);
+        props.onUiChange?.(value);
       }}
     />
   );

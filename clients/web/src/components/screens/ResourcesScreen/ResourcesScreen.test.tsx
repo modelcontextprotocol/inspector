@@ -7,7 +7,12 @@ import type {
   ReadResourceResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { ResourcesScreen, type ResourcesScreenProps } from "./ResourcesScreen";
+import {
+  ResourcesScreen,
+  type ResourcesScreenProps,
+  type ResourcesUiState,
+} from "./ResourcesScreen";
+import { EMPTY_RESOURCES_UI } from "../screenUiState";
 
 const resources: Resource[] = [
   { uri: "file:///x", name: "x.txt" },
@@ -23,15 +28,12 @@ const baseProps = {
   templates,
   subscriptions: [],
   listChanged: false,
+  ui: EMPTY_RESOURCES_UI,
+  onUiChange: vi.fn(),
   onRefreshList: vi.fn(),
   onReadResource: vi.fn(),
   onSubscribeResource: vi.fn(),
   onUnsubscribeResource: vi.fn(),
-  onSelectedResourceUriChange: vi.fn(),
-  onSelectedTemplateUriChange: vi.fn(),
-  onOriginatingTemplateUriChange: vi.fn(),
-  onSearchChange: vi.fn(),
-  onOpenSectionsChange: vi.fn(),
   compact: false,
   onCompactChange: vi.fn(),
 };
@@ -42,55 +44,25 @@ const okResult: ReadResourceResult = {
 
 // ResourcesScreen is controlled: the selected resource/template URIs, the
 // originating-template marker, the sidebar search, and the accordion's open
-// sections live in the parent (App) so they persist across tab navigation
-// (#1417). This host holds that state so clicking a resource/template, typing
-// into the template form, reading, and closing drive the panel exactly as App
-// owns it. Props passed in override defaults; the stateful wiring is applied
-// last so callers can still observe activity via the spied callbacks.
+// sections live in the parent (App) as one `ui` object so they persist across
+// tab navigation (#1417). This host holds that state so clicking a
+// resource/template, typing into the template form, reading, and closing drive
+// the panel exactly as App owns it. Props passed in override defaults; the
+// stateful `ui` wiring is applied last so callers can still observe activity via
+// the rendered state.
 function ControlledResourcesScreen(props: Partial<ResourcesScreenProps>) {
-  const [selectedResourceUri, setSelectedResourceUri] = useState<
-    string | undefined
-  >(props.selectedResourceUri);
-  const [selectedTemplateUri, setSelectedTemplateUri] = useState<
-    string | undefined
-  >(props.selectedTemplateUri);
-  const [originatingTemplateUri, setOriginatingTemplateUri] = useState<
-    string | undefined
-  >(props.originatingTemplateUri);
-  const [searchText, setSearchText] = useState<string | undefined>(
-    props.searchText,
-  );
-  const [openSections, setOpenSections] = useState<string[] | undefined>(
-    props.openSections,
-  );
+  const [ui, setUi] = useState<ResourcesUiState>({
+    ...EMPTY_RESOURCES_UI,
+    ...props.ui,
+  });
   return (
     <ResourcesScreen
       {...baseProps}
       {...props}
-      selectedResourceUri={selectedResourceUri}
-      selectedTemplateUri={selectedTemplateUri}
-      originatingTemplateUri={originatingTemplateUri}
-      searchText={searchText}
-      openSections={openSections}
-      onSelectedResourceUriChange={(value) => {
-        setSelectedResourceUri(value);
-        props.onSelectedResourceUriChange?.(value);
-      }}
-      onSelectedTemplateUriChange={(value) => {
-        setSelectedTemplateUri(value);
-        props.onSelectedTemplateUriChange?.(value);
-      }}
-      onOriginatingTemplateUriChange={(value) => {
-        setOriginatingTemplateUri(value);
-        props.onOriginatingTemplateUriChange?.(value);
-      }}
-      onSearchChange={(value) => {
-        setSearchText(value);
-        props.onSearchChange?.(value);
-      }}
-      onOpenSectionsChange={(value) => {
-        setOpenSections(value);
-        props.onOpenSectionsChange?.(value);
+      ui={ui}
+      onUiChange={(next) => {
+        setUi(next);
+        props.onUiChange?.(next);
       }}
     />
   );

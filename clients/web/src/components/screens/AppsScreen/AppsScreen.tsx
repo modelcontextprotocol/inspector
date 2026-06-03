@@ -39,24 +39,26 @@ export interface AppsScreenProps {
   sandboxPath?: string;
   bridgeFactory: BridgeFactory;
   rendererRef: Ref<AppRendererHandle>;
-  // Selected app, its form values, and the sidebar search are controlled by the
-  // parent (App) so they persist across tab navigation within a live session
-  // (#1417). `running`/`maximized` stay local: they're tied to the live iframe
-  // and bridge, which are torn down on unmount, so persisting them would
-  // restore a flag without its runtime. On return the selected app's input
-  // form (with its values) is shown, ready to re-open.
-  selectedAppName?: string;
-  formValues?: Record<string, unknown>;
-  searchText?: string;
-  onSelectedAppNameChange: (value: string | undefined) => void;
-  onFormValuesChange: (values: Record<string, unknown>) => void;
-  onSearchChange: (value: string) => void;
+  ui: AppsUiState;
+  onUiChange: (next: AppsUiState) => void;
   onRefreshList: () => void;
   onSelectApp: (name: string) => void;
   onOpenApp: (name: string, args: Record<string, unknown>) => void;
   onCloseApp: () => void;
   /** Surfaces bridge/runtime failures from the renderer (e.g. no client). */
   onError?: (err: Error) => void;
+}
+
+// Selected app, its form values, and the sidebar search — controlled by the
+// parent (App) as one object so they persist across tab navigation within a
+// live session (#1417). `running`/`maximized` stay local to the screen: they're
+// tied to the live iframe and bridge, which are torn down on unmount, so
+// persisting them would restore a flag without its runtime. On return the
+// selected app's input form (with its values) is shown, ready to re-open.
+export interface AppsUiState {
+  selectedAppName?: string;
+  formValues: Record<string, unknown>;
+  search: string;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -143,18 +145,15 @@ export function AppsScreen({
   sandboxPath,
   bridgeFactory,
   rendererRef,
-  selectedAppName,
-  formValues = {},
-  searchText = "",
-  onSelectedAppNameChange,
-  onFormValuesChange,
-  onSearchChange,
+  ui,
+  onUiChange,
   onRefreshList,
   onSelectApp,
   onOpenApp,
   onCloseApp,
   onError,
 }: AppsScreenProps) {
+  const { selectedAppName, formValues, search } = ui;
   const [running, setRunning] = useState(false);
   const [maximized, setMaximized] = useState(false);
 
@@ -167,10 +166,13 @@ export function AppsScreen({
     if (name === selectedAppName) return;
     const next = tools.find((t) => t.name === name);
     if (!next) return;
-    onSelectedAppNameChange(name);
     // Seed schema defaults so default-only fields are sent on Open App (parity
     // with the form's resolveValue display, which onChange doesn't capture).
-    onFormValuesChange(collectSchemaDefaults(next.inputSchema));
+    onUiChange({
+      ...ui,
+      selectedAppName: name,
+      formValues: collectSchemaDefaults(next.inputSchema),
+    });
     setMaximized(false);
     onSelectApp(name);
     // No-input apps auto-launch on selection so the user lands directly in
@@ -191,8 +193,7 @@ export function AppsScreen({
 
   function handleClose() {
     setRunning(false);
-    onSelectedAppNameChange(undefined);
-    onFormValuesChange({});
+    onUiChange({ ...ui, selectedAppName: undefined, formValues: {} });
     setMaximized(false);
     onCloseApp();
   }
@@ -225,10 +226,10 @@ export function AppsScreen({
             <AppControls
               tools={tools}
               selectedName={selectedAppName}
-              searchText={searchText}
+              searchText={search}
               listChanged={listChanged}
               onRefreshList={onRefreshList}
-              onSearchChange={onSearchChange}
+              onSearchChange={(value) => onUiChange({ ...ui, search: value })}
               onSelectApp={handleSelect}
             />
           </SidebarCard>
@@ -310,7 +311,9 @@ export function AppsScreen({
                 tool={selectedTool}
                 formValues={formValues}
                 isOpening={false}
-                onFormChange={onFormValuesChange}
+                onFormChange={(values) =>
+                  onUiChange({ ...ui, formValues: values })
+                }
                 onOpenApp={handleOpen}
               />
             )}

@@ -8,7 +8,12 @@ import {
   screen,
   within,
 } from "../../../test/renderWithMantine";
-import { AppsScreen, type AppsScreenProps } from "./AppsScreen";
+import {
+  AppsScreen,
+  type AppsScreenProps,
+  type AppsUiState,
+} from "./AppsScreen";
+import { EMPTY_APPS_UI } from "../screenUiState";
 import type {
   AppRendererHandle,
   BridgeFactory,
@@ -64,53 +69,37 @@ function buildProps(overrides: Partial<AppsScreenProps> = {}): AppsScreenProps {
     sandboxPath: "data:text/html,<title>sandbox</title>",
     bridgeFactory: okBridgeFactory,
     rendererRef: createRef<AppRendererHandle>(),
+    ui: EMPTY_APPS_UI,
+    onUiChange: vi.fn(),
     onRefreshList: vi.fn(),
     onSelectApp: vi.fn(),
     onOpenApp: vi.fn(),
     onCloseApp: vi.fn(),
-    onSelectedAppNameChange: vi.fn(),
-    onFormValuesChange: vi.fn(),
-    onSearchChange: vi.fn(),
     ...overrides,
   };
 }
 
 // AppsScreen lifts selection, form values, and the sidebar search to the
-// parent (App) so they persist across tab navigation (#1417), while
-// `running`/`maximized` stay local to the screen. This host holds the lifted
-// state so clicking an app, typing into its form/search, and closing drive the
-// panel exactly as App owns it. The internal running/maximized state handles
-// auto-launch, open, maximize, and back-to-input on its own. Props passed in
-// override defaults; the stateful wiring is applied last so callers can still
-// observe activity via the spied callbacks.
+// parent (App) as one `ui` object so they persist across tab navigation
+// (#1417), while `running`/`maximized` stay local to the screen. This host
+// holds the lifted state so clicking an app, typing into its form/search, and
+// closing drive the panel exactly as App owns it. The internal running/maximized
+// state handles auto-launch, open, maximize, and back-to-input on its own. Props
+// passed in override defaults; the stateful `ui` wiring is applied last so
+// callers can still observe activity via the rendered state.
 function ControlledAppsScreen(overrides: Partial<AppsScreenProps> = {}) {
   const props = buildProps(overrides);
-  const [selectedAppName, setSelectedAppName] = useState<string | undefined>(
-    props.selectedAppName,
-  );
-  const [formValues, setFormValues] = useState<Record<string, unknown>>(
-    props.formValues ?? {},
-  );
-  const [searchText, setSearchText] = useState<string | undefined>(
-    props.searchText,
-  );
+  const [ui, setUi] = useState<AppsUiState>({
+    ...EMPTY_APPS_UI,
+    ...props.ui,
+  });
   return (
     <AppsScreen
       {...props}
-      selectedAppName={selectedAppName}
-      formValues={formValues}
-      searchText={searchText}
-      onSelectedAppNameChange={(value) => {
-        setSelectedAppName(value);
-        props.onSelectedAppNameChange(value);
-      }}
-      onFormValuesChange={(values) => {
-        setFormValues(values);
-        props.onFormValuesChange(values);
-      }}
-      onSearchChange={(value) => {
-        setSearchText(value);
-        props.onSearchChange(value);
+      ui={ui}
+      onUiChange={(next) => {
+        setUi(next);
+        props.onUiChange(next);
       }}
     />
   );

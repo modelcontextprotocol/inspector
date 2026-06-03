@@ -9,12 +9,8 @@ import type { SortDirection } from "../../elements/SortToggle/SortToggle";
 export interface HistoryScreenProps {
   entries: MessageEntry[];
   pinnedIds: Set<string>;
-  // Search text + method filter are controlled by the parent (App) so they
-  // persist across tab navigation within a live session — see #1417.
-  searchText?: string;
-  methodFilter?: MessageMethod;
-  onSearchChange: (value: string) => void;
-  onMethodFilterChange: (value: MessageMethod | undefined) => void;
+  ui: HistoryUiState;
+  onUiChange: (next: HistoryUiState) => void;
   onClearAll: () => void;
   onExport: () => void;
   onReplay: (id: string) => void;
@@ -23,6 +19,13 @@ export interface HistoryScreenProps {
   onSortChange: (next: SortDirection) => void;
   compact: boolean;
   onToggleCompact: () => void;
+}
+
+// Search text + method filter — controlled by the parent (App) as one object so
+// they persist across tab navigation within a live session (#1417).
+export interface HistoryUiState {
+  search: string;
+  methodFilter?: MessageMethod;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -45,10 +48,8 @@ const SidebarCard = Card.withProps({
 export function HistoryScreen({
   entries,
   pinnedIds,
-  searchText = "",
-  methodFilter,
-  onSearchChange,
-  onMethodFilterChange,
+  ui,
+  onUiChange,
   onClearAll,
   onExport,
   onReplay,
@@ -58,33 +59,37 @@ export function HistoryScreen({
   compact,
   onToggleCompact,
 }: HistoryScreenProps) {
+  const { search, methodFilter } = ui;
+
   const availableMethods = useMemo(
     () => Array.from(new Set(entries.map(extractMethod))).sort(),
     [entries],
   );
 
   const handleClearAll = useCallback(() => {
-    onMethodFilterChange(undefined);
+    onUiChange({ ...ui, methodFilter: undefined });
     onClearAll();
-  }, [onMethodFilterChange, onClearAll]);
+  }, [ui, onUiChange, onClearAll]);
 
   return (
     <ScreenLayout>
       <Sidebar>
         <SidebarCard>
           <HistoryControls
-            searchText={searchText}
+            searchText={search}
             methodFilter={methodFilter}
             availableMethods={availableMethods}
-            onSearchChange={onSearchChange}
-            onMethodFilterChange={onMethodFilterChange}
+            onSearchChange={(value) => onUiChange({ ...ui, search: value })}
+            onMethodFilterChange={(value) =>
+              onUiChange({ ...ui, methodFilter: value })
+            }
           />
         </SidebarCard>
       </Sidebar>
       <HistoryListPanel
         entries={entries}
         pinnedIds={pinnedIds}
-        searchText={searchText}
+        searchText={search}
         methodFilter={methodFilter}
         onClearAll={handleClearAll}
         onExport={onExport}

@@ -3,7 +3,12 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { PromptsScreen, type PromptsScreenProps } from "./PromptsScreen";
+import {
+  PromptsScreen,
+  type PromptsScreenProps,
+  type PromptsUiState,
+} from "./PromptsScreen";
+import { EMPTY_PROMPTS_UI } from "../screenUiState";
 
 const promptsWithArgs: Prompt[] = [
   {
@@ -26,56 +31,32 @@ const noArgPrompts: Prompt[] = [
 const baseProps = {
   prompts: promptsWithArgs,
   listChanged: false,
+  ui: EMPTY_PROMPTS_UI,
+  onUiChange: vi.fn(),
   onRefreshList: vi.fn(),
   onGetPrompt: vi.fn(),
-  onSelectedPromptNameChange: vi.fn(),
-  onArgumentValuesChange: vi.fn(),
-  onSubmittedForChange: vi.fn(),
-  onSearchChange: vi.fn(),
 };
 
 // PromptsScreen is controlled: selection, argument values, the submitted
-// marker, and the sidebar search live in the parent (App) so they persist
-// across tab navigation (#1417). This host holds that state so clicking a
-// prompt, typing arguments, submitting, and closing drive the panel exactly
-// as App owns it. Props passed in override defaults; the stateful wiring is
-// applied last so callers can still observe activity via the spied callbacks.
+// marker, and the sidebar search live in the parent (App) as one `ui` object so
+// they persist across tab navigation (#1417). This host holds that state so
+// clicking a prompt, typing arguments, submitting, and closing drive the panel
+// exactly as App owns it. Props passed in override defaults; the stateful `ui`
+// wiring is applied last so callers can still observe activity via the rendered
+// state.
 function ControlledPromptsScreen(props: Partial<PromptsScreenProps>) {
-  const [selectedPromptName, setSelectedPromptName] = useState<
-    string | undefined
-  >(props.selectedPromptName);
-  const [argumentValues, setArgumentValues] = useState<Record<string, string>>(
-    props.argumentValues ?? {},
-  );
-  const [submittedFor, setSubmittedFor] = useState<string | undefined>(
-    props.submittedFor,
-  );
-  const [searchText, setSearchText] = useState<string | undefined>(
-    props.searchText,
-  );
+  const [ui, setUi] = useState<PromptsUiState>({
+    ...EMPTY_PROMPTS_UI,
+    ...props.ui,
+  });
   return (
     <PromptsScreen
       {...baseProps}
       {...props}
-      selectedPromptName={selectedPromptName}
-      argumentValues={argumentValues}
-      submittedFor={submittedFor}
-      searchText={searchText}
-      onSelectedPromptNameChange={(value) => {
-        setSelectedPromptName(value);
-        props.onSelectedPromptNameChange?.(value);
-      }}
-      onArgumentValuesChange={(value) => {
-        setArgumentValues(value);
-        props.onArgumentValuesChange?.(value);
-      }}
-      onSubmittedForChange={(value) => {
-        setSubmittedFor(value);
-        props.onSubmittedForChange?.(value);
-      }}
-      onSearchChange={(value) => {
-        setSearchText(value);
-        props.onSearchChange?.(value);
+      ui={ui}
+      onUiChange={(next) => {
+        setUi(next);
+        props.onUiChange?.(next);
       }}
     />
   );

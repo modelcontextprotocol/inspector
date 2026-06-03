@@ -4,34 +4,16 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 import { fn, userEvent, within } from "storybook/test";
 import { PromptsScreen } from "./PromptsScreen";
-import type { GetPromptState } from "./PromptsScreen";
+import type { GetPromptState, PromptsUiState } from "./PromptsScreen";
+import { EMPTY_PROMPTS_UI } from "../screenUiState";
 
 // PromptsScreen is controlled (selection, argument values, submitted prompt, and
-// search text live in the parent — see #1417). This wrapper holds that state so
-// the play-driven prompt clicks still drive the detail panel, mirroring how App
-// owns the state in the real app.
+// search text live in the parent as one `ui` object — see #1417). This wrapper
+// holds that state so the play-driven prompt clicks still drive the detail
+// panel, mirroring how App owns the state in the real app.
 function StatefulPromptsScreen(args: ComponentProps<typeof PromptsScreen>) {
-  const [selectedPromptName, setSelectedPromptName] = useState(
-    args.selectedPromptName,
-  );
-  const [argumentValues, setArgumentValues] = useState<Record<string, string>>(
-    args.argumentValues ?? {},
-  );
-  const [submittedFor, setSubmittedFor] = useState(args.submittedFor);
-  const [searchText, setSearchText] = useState(args.searchText ?? "");
-  return (
-    <PromptsScreen
-      {...args}
-      selectedPromptName={selectedPromptName}
-      argumentValues={argumentValues}
-      submittedFor={submittedFor}
-      searchText={searchText}
-      onSelectedPromptNameChange={setSelectedPromptName}
-      onArgumentValuesChange={setArgumentValues}
-      onSubmittedForChange={setSubmittedFor}
-      onSearchChange={setSearchText}
-    />
-  );
+  const [ui, setUi] = useState<PromptsUiState>(args.ui ?? EMPTY_PROMPTS_UI);
+  return <PromptsScreen {...args} ui={ui} onUiChange={setUi} />;
 }
 
 const meta: Meta<typeof PromptsScreen> = {
@@ -39,13 +21,11 @@ const meta: Meta<typeof PromptsScreen> = {
   component: PromptsScreen,
   parameters: { layout: "fullscreen" },
   args: {
+    ui: EMPTY_PROMPTS_UI,
+    onUiChange: fn(),
     onRefreshList: fn(),
     onGetPrompt: fn(),
     onCopyMessages: fn(),
-    onSelectedPromptNameChange: fn(),
-    onArgumentValuesChange: fn(),
-    onSubmittedForChange: fn(),
-    onSearchChange: fn(),
     listChanged: false,
   },
   render: (args) => <StatefulPromptsScreen {...args} />,

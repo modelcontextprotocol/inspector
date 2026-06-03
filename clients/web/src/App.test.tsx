@@ -192,18 +192,37 @@ vi.mock("@inspector/core/react/useSettingsDraft.js", () => ({
 vi.mock("./components/views/InspectorView/InspectorView", () => ({
   InspectorView: (props: {
     toolCallState?: { status?: string };
-    selectedToolName?: string;
-    toolSearch?: string;
-    selectedPromptName?: string;
-    logFilterText?: string;
+    toolsUi?: {
+      selectedToolName?: string;
+      formValues: Record<string, unknown>;
+      search: string;
+    };
+    promptsUi?: {
+      selectedPromptName?: string;
+      argumentValues: Record<string, string>;
+      submittedFor?: string;
+      search: string;
+    };
+    logsUi?: { filterText: string; visibleLevels: Record<string, boolean> };
     getPromptState?: { status?: string };
     readResourceState?: { status?: string };
     currentLogLevel?: string;
     onToggleConnection: (id: string) => void;
-    onSelectTool: (name: string) => void;
-    onToolSearchChange: (value: string) => void;
-    onSelectedPromptNameChange: (value: string | undefined) => void;
-    onLogFilterChange: (value: string) => void;
+    onToolsUiChange: (next: {
+      selectedToolName?: string;
+      formValues: Record<string, unknown>;
+      search: string;
+    }) => void;
+    onPromptsUiChange: (next: {
+      selectedPromptName?: string;
+      argumentValues: Record<string, string>;
+      submittedFor?: string;
+      search: string;
+    }) => void;
+    onLogsUiChange: (next: {
+      filterText: string;
+      visibleLevels: Record<string, boolean>;
+    }) => void;
     onCallTool: (name: string, args: Record<string, unknown>) => void;
     onGetPrompt: (name: string, args: Record<string, string>) => void;
     onReadResource: (uri: string) => void;
@@ -214,13 +233,13 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
         {props.toolCallState?.status ?? "none"}
       </span>
       <span data-testid="selected-tool">
-        {props.selectedToolName ?? "none"}
+        {props.toolsUi?.selectedToolName ?? "none"}
       </span>
-      <span data-testid="tool-search">{props.toolSearch || "none"}</span>
+      <span data-testid="tool-search">{props.toolsUi?.search || "none"}</span>
       <span data-testid="selected-prompt">
-        {props.selectedPromptName ?? "none"}
+        {props.promptsUi?.selectedPromptName ?? "none"}
       </span>
-      <span data-testid="log-filter">{props.logFilterText || "none"}</span>
+      <span data-testid="log-filter">{props.logsUi?.filterText || "none"}</span>
       <span data-testid="prompt-status">
         {props.getPromptState?.status ?? "none"}
       </span>
@@ -229,16 +248,50 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
       </span>
       <span data-testid="log-level">{props.currentLogLevel}</span>
       <button onClick={() => props.onToggleConnection("A")}>connect</button>
-      <button onClick={() => props.onSelectTool("get_acts")}>
+      <button
+        onClick={() =>
+          props.onToolsUiChange({
+            formValues: {},
+            search: "",
+            ...props.toolsUi,
+            selectedToolName: "get_acts",
+          })
+        }
+      >
         select-tool
       </button>
-      <button onClick={() => props.onToolSearchChange("act")}>
+      <button
+        onClick={() =>
+          props.onToolsUiChange({
+            formValues: {},
+            ...props.toolsUi,
+            search: "act",
+          })
+        }
+      >
         set-tool-search
       </button>
-      <button onClick={() => props.onSelectedPromptNameChange("greet")}>
+      <button
+        onClick={() =>
+          props.onPromptsUiChange({
+            argumentValues: {},
+            search: "",
+            ...props.promptsUi,
+            selectedPromptName: "greet",
+          })
+        }
+      >
         select-prompt
       </button>
-      <button onClick={() => props.onLogFilterChange("err")}>
+      <button
+        onClick={() =>
+          props.onLogsUiChange({
+            visibleLevels: {},
+            ...props.logsUi,
+            filterText: "err",
+          })
+        }
+      >
         set-log-filter
       </button>
       <button onClick={() => props.onCallTool("get_acts", {})}>call</button>
