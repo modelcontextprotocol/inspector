@@ -65,7 +65,10 @@ import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js"
 import { useSandboxUrl } from "@inspector/core/react/useSandboxUrl.js";
 import { usePendingClientRequests } from "@inspector/core/react/usePendingClientRequests.js";
 import { InspectorView } from "./components/views/InspectorView/InspectorView";
-import type { ToolCallState } from "./components/screens/ToolsScreen/ToolsScreen";
+import type {
+  ToolCallState,
+  ToolsUiState,
+} from "./components/screens/ToolsScreen/ToolsScreen";
 import type { GetPromptState } from "./components/screens/PromptsScreen/PromptsScreen";
 import type { ReadResourceState } from "./components/screens/ResourcesScreen/ResourcesScreen";
 import {
@@ -1058,6 +1061,23 @@ function App() {
     setToolCallState(undefined);
   }, []);
 
+  // Tools UI changes flow through here so selecting a *different* tool also
+  // drops the previous tool's result — the result panel renders `toolCallState`
+  // regardless of selection, so without this a stale result would linger under
+  // the newly-selected tool (which has no result of its own yet). Search and
+  // form edits keep `selectedToolName` unchanged, so they leave the result be.
+  // Depends on `selectedToolName` only (not the whole `toolsUi`), so a search
+  // keystroke doesn't churn the callback identity.
+  const onToolsUiChange = useCallback(
+    (next: ToolsUiState) => {
+      if (next.selectedToolName !== toolsUi.selectedToolName) {
+        setToolCallState(undefined);
+      }
+      setToolsUi(next);
+    },
+    [toolsUi.selectedToolName],
+  );
+
   // --- MCP Apps handlers. Unlike onCallTool (which feeds the Tools panel),
   // these route the tool input/result into the running app via the renderer's
   // imperative handle. ---
@@ -1584,7 +1604,7 @@ function App() {
           const target = servers.find((s) => s.id === id);
           if (target) setRemoveTarget(target);
         }}
-        onToolsUiChange={setToolsUi}
+        onToolsUiChange={onToolsUiChange}
         onCallTool={(name, args) => {
           void onCallTool(name, args);
         }}

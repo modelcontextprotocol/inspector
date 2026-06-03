@@ -264,6 +264,18 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
         onClick={() =>
           props.onToolsUiChange({
             formValues: {},
+            search: "",
+            ...props.toolsUi,
+            selectedToolName: "other_tool",
+          })
+        }
+      >
+        select-other-tool
+      </button>
+      <button
+        onClick={() =>
+          props.onToolsUiChange({
+            formValues: {},
             ...props.toolsUi,
             search: "act",
           })
@@ -386,6 +398,53 @@ describe("App session-scoped state reset on disconnect", () => {
     await waitFor(() =>
       expect(screen.getByTestId("selected-tool")).toHaveTextContent("get_acts"),
     );
+  });
+
+  it("drops the previous tool's result when a different tool is selected", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    // Select a tool and run it so the result panel is populated.
+    await user.click(screen.getByText("select-tool"));
+    await user.click(screen.getByText("call"));
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-status")).toHaveTextContent("ok"),
+    );
+
+    // Selecting a *different* tool clears the stale result so it doesn't linger
+    // under the new selection.
+    await user.click(screen.getByText("select-other-tool"));
+    await waitFor(() => {
+      expect(screen.getByTestId("selected-tool")).toHaveTextContent(
+        "other_tool",
+      );
+      expect(screen.getByTestId("tool-status")).toHaveTextContent("none");
+    });
+  });
+
+  it("keeps the result when the same tool stays selected (search/form edits)", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("select-tool"));
+    await user.click(screen.getByText("call"));
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-status")).toHaveTextContent("ok"),
+    );
+
+    // A search keystroke leaves `selectedToolName` unchanged, so the result
+    // stays put.
+    await user.click(screen.getByText("set-tool-search"));
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-search")).toHaveTextContent("act"),
+    );
+    expect(screen.getByTestId("tool-status")).toHaveTextContent("ok");
   });
 });
 
