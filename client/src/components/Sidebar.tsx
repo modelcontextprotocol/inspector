@@ -45,6 +45,30 @@ import { useToast } from "../lib/hooks/useToast";
 import IconDisplay, { WithIcons } from "./IconDisplay";
 import { validateRedirectUrl } from "@/utils/urlValidation";
 
+const copyToClipboard = async (text: string) => {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.style.position = "fixed";
+  textArea.style.left = "-9999px";
+  textArea.style.top = "-9999px";
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+
+  try {
+    if (!document.execCommand("copy")) {
+      throw new Error("Copy command was not successful");
+    }
+  } finally {
+    document.body.removeChild(textArea);
+  }
+};
+
 interface SidebarProps {
   connectionStatus: ConnectionStatus;
   transportType: "stdio" | "sse" | "streamable-http";
@@ -180,57 +204,45 @@ const Sidebar = ({
   }, [generateServerConfig]);
 
   // Memoized copy handlers
-  const handleCopyServerEntry = useCallback(() => {
+  const handleCopyServerEntry = useCallback(async () => {
     try {
       const configJson = generateMCPServerEntry();
-      navigator.clipboard
-        .writeText(configJson)
-        .then(() => {
-          setCopiedServerEntry(true);
+      await copyToClipboard(configJson);
+      setCopiedServerEntry(true);
 
-          toast({
-            title: "Config entry copied",
-            description:
-              transportType === "stdio"
-                ? "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name."
-                : transportType === "streamable-http"
-                  ? "Streamable HTTP URL has been copied. Use this URL directly in your MCP Client."
-                  : "SSE URL has been copied. Use this URL directly in your MCP Client.",
-          });
+      toast({
+        title: "Config entry copied",
+        description:
+          transportType === "stdio"
+            ? "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name."
+            : transportType === "streamable-http"
+              ? "Streamable HTTP URL has been copied. Use this URL directly in your MCP Client."
+              : "SSE URL has been copied. Use this URL directly in your MCP Client.",
+      });
 
-          setTimeout(() => {
-            setCopiedServerEntry(false);
-          }, 2000);
-        })
-        .catch((error) => {
-          reportError(error);
-        });
+      setTimeout(() => {
+        setCopiedServerEntry(false);
+      }, 2000);
     } catch (error) {
       reportError(error);
     }
   }, [generateMCPServerEntry, transportType, toast, reportError]);
 
-  const handleCopyServerFile = useCallback(() => {
+  const handleCopyServerFile = useCallback(async () => {
     try {
       const configJson = generateMCPServerFile();
-      navigator.clipboard
-        .writeText(configJson)
-        .then(() => {
-          setCopiedServerFile(true);
+      await copyToClipboard(configJson);
+      setCopiedServerFile(true);
 
-          toast({
-            title: "Servers file copied",
-            description:
-              "Servers configuration has been copied to clipboard. Add this to your mcp.json file. Current testing server will be added as 'default-server'",
-          });
+      toast({
+        title: "Servers file copied",
+        description:
+          "Servers configuration has been copied to clipboard. Add this to your mcp.json file. Current testing server will be added as 'default-server'",
+      });
 
-          setTimeout(() => {
-            setCopiedServerFile(false);
-          }, 2000);
-        })
-        .catch((error) => {
-          reportError(error);
-        });
+      setTimeout(() => {
+        setCopiedServerFile(false);
+      }, 2000);
     } catch (error) {
       reportError(error);
     }

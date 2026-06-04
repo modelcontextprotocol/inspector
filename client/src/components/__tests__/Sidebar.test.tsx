@@ -20,13 +20,9 @@ jest.mock("@/lib/hooks/useToast", () => ({
   }),
 }));
 
-// Mock navigator clipboard
 const mockClipboardWrite = jest.fn(() => Promise.resolve());
-Object.defineProperty(navigator, "clipboard", {
-  value: {
-    writeText: mockClipboardWrite,
-  },
-});
+const originalClipboard = navigator.clipboard;
+const mockExecCommand = jest.fn(() => true);
 
 // Setup fake timers
 jest.useFakeTimers();
@@ -76,6 +72,23 @@ describe("Sidebar", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.clearAllTimers();
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        writeText: mockClipboardWrite,
+      },
+      configurable: true,
+    });
+    Object.defineProperty(document, "execCommand", {
+      value: mockExecCommand,
+      configurable: true,
+    });
+  });
+
+  afterAll(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: originalClipboard,
+      configurable: true,
+    });
   });
 
   describe("Command and arguments", () => {
@@ -629,6 +642,30 @@ describe("Sidebar", () => {
         4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
+    });
+
+    it("should fall back to execCommand when clipboard API is unavailable", async () => {
+      Object.defineProperty(navigator, "clipboard", {
+        value: undefined,
+        configurable: true,
+      });
+      const command = "node";
+      const args = "server.js";
+      renderSidebar({ transportType: "stdio", command, args });
+
+      await act(async () => {
+        const { serverEntry } = getCopyButtons();
+        fireEvent.click(serverEntry);
+        jest.runAllTimers();
+      });
+
+      expect(mockExecCommand).toHaveBeenCalledWith("copy");
+      expect(mockClipboardWrite).not.toHaveBeenCalled();
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Config entry copied",
+        description:
+          "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name.",
+      });
     });
   });
 
