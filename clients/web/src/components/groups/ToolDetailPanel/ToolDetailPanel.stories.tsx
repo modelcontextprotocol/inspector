@@ -10,8 +10,11 @@ const meta: Meta<typeof ToolDetailPanel> = {
     onFormChange: fn(),
     onExecute: fn(),
     onCancel: fn(),
+    onRunAsTaskChange: fn(),
     formValues: {},
     isExecuting: false,
+    serverSupportsTaskToolCalls: false,
+    runAsTask: false,
   },
 };
 
@@ -140,5 +143,47 @@ export const WithProgress: Story = {
     isExecuting: true,
     progress: { progress: 3, total: 5, message: "Processing step 3 of 5" },
     formValues: { batchSize: 100 },
+  },
+};
+
+const optionalTaskTool: Tool = {
+  name: "summarize_corpus",
+  description: "Summarizes a large corpus — can run as a background task",
+  execution: { taskSupport: "optional" },
+  inputSchema: {
+    type: "object",
+    properties: {
+      corpus: { type: "string", description: "Text to summarize" },
+    },
+  },
+};
+
+const requiredTaskTool: Tool = {
+  name: "train_model",
+  description: "Long-running training job — always runs as a task",
+  execution: { taskSupport: "required" },
+  inputSchema: {
+    type: "object",
+    properties: {
+      dataset: { type: "string", description: "Dataset id" },
+    },
+  },
+};
+
+// Server supports task tool calls + tool is `optional`: the toggle renders
+// enabled and off by default.
+export const RunAsTaskOptional: Story = {
+  args: {
+    tool: optionalTaskTool,
+    serverSupportsTaskToolCalls: true,
+    runAsTask: false,
+  },
+};
+
+// Tool is `required`: the toggle is forced on and disabled.
+export const RunAsTaskRequired: Story = {
+  args: {
+    tool: requiredTaskTool,
+    serverSupportsTaskToolCalls: true,
   },
 };

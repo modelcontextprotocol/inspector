@@ -5,6 +5,7 @@ import {
   Image,
   ScrollArea,
   Stack,
+  Switch,
   Text,
 } from "@mantine/core";
 import type {
@@ -27,8 +28,14 @@ export interface ToolDetailPanelProps {
   formValues: Record<string, unknown>;
   isExecuting: boolean;
   progress?: ToolProgress;
+  /** Whether the connected server advertises task-augmented tool calls. */
+  serverSupportsTaskToolCalls: boolean;
+  /** User's "Run as task" preference (only meaningful for `optional` tools). */
+  runAsTask: boolean;
+  onRunAsTaskChange: (value: boolean) => void;
   onFormChange: (values: Record<string, unknown>) => void;
-  onExecute: () => void;
+  /** Receives the effective run-as-task decision for this execution. */
+  onExecute: (runAsTask: boolean) => void;
   onCancel: () => void;
 }
 
@@ -95,6 +102,24 @@ const CancelButton = Button.withProps({
   color: "red",
 });
 
+// Left-aligned row hosting the "Run as task" toggle, above the execute footer.
+const TaskToggleRow = Group.withProps({
+  justify: "flex-start",
+  flex: "0 0 auto",
+});
+
+const RunAsTaskSwitch = Switch.withProps({
+  size: "sm",
+  label: "Run as task",
+});
+
+// A tool's per-tool task support, defaulting to "forbidden" (the SDK default
+// when `execution` is absent) so tools that say nothing can't be run as tasks.
+type TaskSupport = "forbidden" | "optional" | "required";
+function getTaskSupport(tool: Tool): TaskSupport {
+  return tool.execution?.taskSupport ?? "forbidden";
+}
+
 function hasAnyAnnotation(annotations?: ToolAnnotations): boolean {
   return !!(
     annotations &&
@@ -110,12 +135,30 @@ export function ToolDetailPanel({
   formValues,
   isExecuting,
   progress,
+  serverSupportsTaskToolCalls,
+  runAsTask,
+  onRunAsTaskChange,
   onFormChange,
   onExecute,
   onCancel,
 }: ToolDetailPanelProps) {
   const { name, title, description, icons, annotations, inputSchema } = tool;
   const iconSrc = icons?.[0]?.src;
+
+  // Show the toggle only when the server supports task tool calls and the tool
+  // doesn't forbid them. `required` tools are forced on (checked + disabled);
+  // `optional` tools follow the user's `runAsTask` choice.
+  const taskSupport = getTaskSupport(tool);
+  const showRunAsTask =
+    serverSupportsTaskToolCalls && taskSupport !== "forbidden";
+  // Gate the effective decision on `showRunAsTask` (which includes
+  // `serverSupportsTaskToolCalls`): a stale `runAsTask`/`required` value must
+  // not route through callToolStream when the toggle is hidden because the
+  // server doesn't advertise task tool calls. Per spec, a tool's taskSupport is
+  // only considered when the server advertises `tasks.requests.tools.call`.
+  const effectiveRunAsTask =
+    showRunAsTask &&
+    (taskSupport === "required" || (taskSupport === "optional" && runAsTask));
 
   return (
     <PanelStack>
@@ -159,11 +202,21 @@ export function ToolDetailPanel({
         </BodyStack>
       </BodyScroll>
 
+      {showRunAsTask && (
+        <TaskToggleRow>
+          <RunAsTaskSwitch
+            checked={effectiveRunAsTask}
+            disabled={isExecuting || taskSupport === "required"}
+            onChange={(event) => onRunAsTaskChange(event.currentTarget.checked)}
+          />
+        </TaskToggleRow>
+      )}
+
       <FooterRow>
         {isExecuting && <CancelButton onClick={onCancel}>Cancel</CancelButton>}
         <Button
           size="md"
-          onClick={onExecute}
+          onClick={() => onExecute(effectiveRunAsTask)}
           disabled={isExecuting}
           loading={isExecuting}
         >

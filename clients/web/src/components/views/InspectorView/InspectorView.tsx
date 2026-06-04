@@ -264,8 +264,14 @@ export interface InspectorViewProps {
 
   // Per-primitive actions (route to `inspectorClient` methods / hook refresh).
   // Each `on{Screen}UiChange` persists that screen's lifted UI state (#1417).
+  /** Whether the connected server advertises task-augmented tool calls. */
+  serverSupportsTaskToolCalls: boolean;
   onToolsUiChange: (next: ToolsUiState) => void;
-  onCallTool: (name: string, args: Record<string, unknown>) => void;
+  onCallTool: (
+    name: string,
+    args: Record<string, unknown>,
+    runAsTask?: boolean,
+  ) => void;
   onCancelToolCall?: () => void;
   onClearToolResult?: () => void;
   onRefreshTools: () => void;
@@ -362,6 +368,7 @@ export function InspectorView({
   onServerEdit,
   onServerClone,
   onServerRemove,
+  serverSupportsTaskToolCalls,
   onToolsUiChange,
   onCallTool,
   onCancelToolCall,
@@ -524,6 +531,7 @@ export function InspectorView({
               callState={toolCallState}
               ui={toolsUi}
               listChanged={false}
+              serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
               onUiChange={onToolsUiChange}
               onRefreshList={onRefreshTools}
               onCallTool={onCallTool}

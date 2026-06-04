@@ -341,6 +341,7 @@ describe("RemoteClientTransport", () => {
       metadata: [],
       connectionTimeout: 0,
       requestTimeout: 0,
+      taskTtl: 0,
     };
     const transport = new RemoteClientTransport(
       {

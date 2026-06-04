@@ -116,4 +116,33 @@ describe("useManagedRequestorTasks", () => {
 
     expect(result.current.tasks).toEqual([]);
   });
+
+  it("clearCompleted() drops terminal tasks through to the state", async () => {
+    client.queueTaskPages({
+      tasks: [task("active", "working"), task("done", "completed")],
+    });
+    await state.refresh();
+
+    const { result } = renderHook(() =>
+      useManagedRequestorTasks(client, state),
+    );
+    await waitFor(() => {
+      expect(result.current.tasks.map((t) => t.taskId)).toEqual([
+        "active",
+        "done",
+      ]);
+    });
+
+    act(() => {
+      result.current.clearCompleted();
+    });
+    await waitFor(() => {
+      expect(result.current.tasks.map((t) => t.taskId)).toEqual(["active"]);
+    });
+  });
+
+  it("clearCompleted() is a safe no-op when state is null", () => {
+    const { result } = renderHook(() => useManagedRequestorTasks(client, null));
+    expect(() => result.current.clearCompleted()).not.toThrow();
+  });
 });

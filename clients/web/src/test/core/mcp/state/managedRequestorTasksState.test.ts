@@ -243,4 +243,101 @@ describe("ManagedRequestorTasksState", () => {
     state.destroy();
     expect(() => state.destroy()).not.toThrow();
   });
+
+  describe("clearCompleted", () => {
+    it("drops terminal-state tasks and keeps active ones", async () => {
+      client.setStatus("connected");
+      client.queueTaskPages({
+        tasks: [
+          task("active", "working"),
+          task("done", "completed"),
+          task("bad", "failed"),
+          task("gone", "cancelled"),
+          task("waiting", "input_required"),
+        ],
+      });
+      await state.refresh();
+
+      const changePromise = waitForChange(state);
+      state.clearCompleted();
+      const next = await changePromise;
+      expect(next.map((t) => t.taskId)).toEqual(["active", "waiting"]);
+      expect(state.getTasks().map((t) => t.taskId)).toEqual([
+        "active",
+        "waiting",
+      ]);
+    });
+
+    it("is a no-op (no event) when there are no terminal tasks", async () => {
+      client.setStatus("connected");
+      client.queueTaskPages({ tasks: [task("active", "working")] });
+      await state.refresh();
+
+      let dispatched = false;
+      state.addEventListener("tasksChange", () => {
+        dispatched = true;
+      });
+      state.clearCompleted();
+      expect(dispatched).toBe(false);
+      expect(state.getTasks().map((t) => t.taskId)).toEqual(["active"]);
+    });
+
+    it("keeps cleared tasks gone across a subsequent refresh (sticky)", async () => {
+      client.setStatus("connected");
+      client.queueTaskPages({
+        tasks: [task("active", "working"), task("done", "completed")],
+      });
+      await state.refresh();
+      state.clearCompleted();
+      expect(state.getTasks().map((t) => t.taskId)).toEqual(["active"]);
+
+      // Server still lists the dismissed task on the next refresh — it must be
+      // filtered back out rather than reappearing.
+      client.queueTaskPages({
+        tasks: [task("active", "working"), task("done", "completed")],
+      });
+      const refreshed = await state.refresh();
+      expect(refreshed.map((t) => t.taskId)).toEqual(["active"]);
+    });
+
+    it("ignores a late status update for a cleared task (sticky)", async () => {
+      client.setStatus("connected");
+      client.queueTaskPages({ tasks: [task("done", "completed")] });
+      await state.refresh();
+      state.clearCompleted();
+      expect(state.getTasks()).toEqual([]);
+
+      let dispatched = false;
+      state.addEventListener("tasksChange", () => {
+        dispatched = true;
+      });
+      client.dispatchTypedEvent("taskStatusChange", {
+        taskId: "done",
+        task: task("done", "completed"),
+      });
+      client.dispatchTypedEvent("requestorTaskUpdated", {
+        taskId: "done",
+        task: task("done", "working"),
+      });
+      client.dispatchTypedEvent("taskCancelled", { taskId: "done" });
+      expect(dispatched).toBe(false);
+      expect(state.getTasks()).toEqual([]);
+    });
+
+    it("resets dismissals on disconnect so a reconnect starts fresh", async () => {
+      client.setStatus("connected");
+      client.queueTaskPages({ tasks: [task("done", "completed")] });
+      await state.refresh();
+      state.clearCompleted();
+
+      // Disconnect clears the dismissed set...
+      client.setStatus("disconnected");
+      client.setStatus("connected");
+
+      // ...so the same task id can reappear on a fresh refresh.
+      client.queueTaskPages({ tasks: [task("done", "completed")] });
+      const refreshed = await state.refresh();
+      expect(refreshed.map((t) => t.taskId)).toEqual(["done"]);
+    });
+  });
 });

@@ -18,6 +18,7 @@ export const EMPTY_TOOLS_UI: ToolsUiState = {
   selectedToolName: undefined,
   formValues: {},
   search: "",
+  runAsTask: false,
 };
 
 export const EMPTY_PROMPTS_UI: PromptsUiState = {

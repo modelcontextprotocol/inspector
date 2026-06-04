@@ -16,6 +16,7 @@ const initialSettings: InspectorServerSettings = {
   metadata: [{ key: "userId", value: "user-789" }],
   connectionTimeout: 30000,
   requestTimeout: 60000,
+  taskTtl: 60000,
   oauthClientId: "my-client-id",
   oauthClientSecret: "super-secret-value",
   oauthScopes: "read write",
@@ -67,6 +68,7 @@ export const EmptySettings: Story = {
       metadata: [],
       connectionTimeout: 30000,
       requestTimeout: 60000,
+      taskTtl: 60000,
     },
   },
 };

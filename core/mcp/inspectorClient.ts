@@ -1517,15 +1517,42 @@ export class InspectorClient extends InspectorClientEventTarget {
       if (taskOptions?.ttl != null) {
         streamParams.task = { ttl: taskOptions.ttl };
       }
-      const stream = this.client.experimental.tasks.callToolStream(
-        streamParams as CallToolRequest["params"],
-        undefined, // Use default CallToolResultSchema
-        this.getRequestOptions(metadata?.progressToken),
-      );
 
       let finalResult: CallToolResult | undefined;
       let taskId: string | undefined;
       let error: Error | undefined;
+
+      // Correlate progress → task. getRequestOptions already wires onprogress to
+      // dispatch the generic progressNotification (keyed by the caller's
+      // progressToken). Wrap it so each tick that arrives after the task is
+      // created also dispatches requestorTaskProgress tagged with the taskId
+      // this stream owns — the only place that mapping is known. Ticks before
+      // taskCreated (rare) just fall through to the generic event.
+      //
+      // Gate on `this.progress`, mirroring getRequestOptions: when progress is
+      // globally disabled there's no inner handler to wrap, and we must not
+      // attach one here either — doing so would request a progress token (and
+      // emit requestorTaskProgress) for task calls only, bypassing the toggle
+      // that governs every other call path.
+      const requestOptions = this.getRequestOptions(metadata?.progressToken);
+      if (this.progress) {
+        const innerOnProgress = requestOptions.onprogress;
+        requestOptions.onprogress = (progress: Progress) => {
+          innerOnProgress?.(progress);
+          if (taskId) {
+            this.dispatchTypedEvent("requestorTaskProgress", {
+              taskId,
+              progress,
+            });
+          }
+        };
+      }
+
+      const stream = this.client.experimental.tasks.callToolStream(
+        streamParams as CallToolRequest["params"],
+        undefined, // Use default CallToolResultSchema
+        requestOptions,
+      );
 
       // Iterate through the async generator
       for await (const message of stream) {

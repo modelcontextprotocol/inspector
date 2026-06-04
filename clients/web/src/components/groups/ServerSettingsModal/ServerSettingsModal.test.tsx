@@ -9,6 +9,7 @@ const initialSettings: InspectorServerSettings = {
   metadata: [{ key: "userId", value: "u-1" }],
   connectionTimeout: 30000,
   requestTimeout: 60000,
+  taskTtl: 60000,
   oauthClientId: "cid",
   oauthClientSecret: "secret",
   oauthScopes: "read",
@@ -19,6 +20,7 @@ const emptySettings: InspectorServerSettings = {
   metadata: [],
   connectionTimeout: 30000,
   requestTimeout: 60000,
+  taskTtl: 60000,
 };
 
 describe("ServerSettingsModal", () => {

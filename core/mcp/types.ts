@@ -102,6 +102,8 @@ export type StoredMCPServer = MCPServerConfig & {
   connectionTimeout?: number;
   /** Inspector-specific request timeout (ms). */
   requestTimeout?: number;
+  /** Inspector-specific TTL (ms) for tasks created via "Run as task". */
+  taskTtl?: number;
   /**
    * Pre-configured OAuth client credentials for HTTP transports. Nested to
    * match Claude Code's `.mcp.json` shape; lifted into the flat `oauthClientId`
@@ -342,6 +344,12 @@ export interface OAuthSettings {
 }
 
 /**
+ * Default TTL (ms) for tasks created via "Run as task". Mirrors v1/v1.5's
+ * `MCP_TASK_TTL` config default. Used when a server has no explicit `taskTtl`.
+ */
+export const DEFAULT_TASK_TTL_MS = 60000;
+
+/**
  * Runtime settings for a configured server. A subset of
  * InspectorClientOptions (v1.5) relevant to the settings form:
  * headers, metadata, timeouts, and OAuth credentials.
@@ -351,6 +359,8 @@ export interface InspectorServerSettings {
   metadata: { key: string; value: string }[];
   connectionTimeout: number;
   requestTimeout: number;
+  /** TTL (ms) for tasks created via "Run as task". Defaults to 60000. */
+  taskTtl: number;
   oauthClientId?: string;
   oauthClientSecret?: string;
   oauthScopes?: string;

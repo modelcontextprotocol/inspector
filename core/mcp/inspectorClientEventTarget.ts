@@ -114,6 +114,13 @@ export interface InspectorClientEventMap {
     error?: McpError;
   };
   taskCancelled: { taskId: string };
+  /**
+   * Fired from callToolStream when a progress notification arrives for a
+   * task-augmented tool call, tagged with the taskId callToolStream owns so
+   * consumers can correlate progress → task (the generic progressNotification
+   * event carries only the caller's progressToken, not the taskId).
+   */
+  requestorTaskProgress: { taskId: string; progress: Progress };
   tasksChange: Task[];
   // Signal events (no payload)
   connect: void;

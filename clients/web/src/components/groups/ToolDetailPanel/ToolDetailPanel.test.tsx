@@ -59,6 +59,9 @@ const annotatedTool: Tool = {
 const baseProps = {
   formValues: {},
   isExecuting: false,
+  serverSupportsTaskToolCalls: false,
+  runAsTask: false,
+  onRunAsTaskChange: vi.fn(),
   onFormChange: vi.fn(),
   onExecute: vi.fn(),
   onCancel: vi.fn(),
@@ -203,5 +206,145 @@ describe("ToolDetailPanel", () => {
     const input = screen.getByRole("textbox");
     await user.type(input, "hi");
     expect(onFormChange).toHaveBeenCalled();
+  });
+
+  describe("Run as task toggle", () => {
+    const toolWithSupport = (
+      taskSupport: "forbidden" | "optional" | "required",
+    ): Tool => ({
+      name: "run_job",
+      execution: { taskSupport },
+      inputSchema: { type: "object", properties: {} },
+    });
+
+    it("hides the toggle when the server doesn't support task tool calls", () => {
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={toolWithSupport("optional")}
+          serverSupportsTaskToolCalls={false}
+        />,
+      );
+      expect(screen.queryByLabelText("Run as task")).not.toBeInTheDocument();
+    });
+
+    it("hides the toggle for a task-forbidden tool even when the server supports tasks", () => {
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={toolWithSupport("forbidden")}
+          serverSupportsTaskToolCalls={true}
+        />,
+      );
+      expect(screen.queryByLabelText("Run as task")).not.toBeInTheDocument();
+    });
+
+    it("shows an unchecked, enabled toggle for an optional tool (off by default)", () => {
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={toolWithSupport("optional")}
+          serverSupportsTaskToolCalls={true}
+          runAsTask={false}
+        />,
+      );
+      const toggle = screen.getByLabelText("Run as task");
+      expect(toggle).not.toBeChecked();
+      expect(toggle).not.toBeDisabled();
+    });
+
+    it("reflects the runAsTask prop for an optional tool", () => {
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={toolWithSupport("optional")}
+          serverSupportsTaskToolCalls={true}
+          runAsTask={true}
+        />,
+      );
+      expect(screen.getByLabelText("Run as task")).toBeChecked();
+    });
+
+    it("forces the toggle on and disabled for a required tool", () => {
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={toolWithSupport("required")}
+          serverSupportsTaskToolCalls={true}
+          runAsTask={false}
+        />,
+      );
+      const toggle = screen.getByLabelText("Run as task");
+      expect(toggle).toBeChecked();
+      expect(toggle).toBeDisabled();
+    });
+
+    it("invokes onRunAsTaskChange when an optional toggle is clicked", async () => {
+      const user = userEvent.setup();
+      const onRunAsTaskChange = vi.fn();
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={toolWithSupport("optional")}
+          serverSupportsTaskToolCalls={true}
+          runAsTask={false}
+          onRunAsTaskChange={onRunAsTaskChange}
+        />,
+      );
+      await user.click(screen.getByLabelText("Run as task"));
+      expect(onRunAsTaskChange).toHaveBeenCalledWith(true);
+    });
+
+    it("passes the effective run-as-task decision to onExecute", async () => {
+      const user = userEvent.setup();
+      const onExecute = vi.fn();
+      // optional + runAsTask=true → effective true
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={toolWithSupport("optional")}
+          serverSupportsTaskToolCalls={true}
+          runAsTask={true}
+          onExecute={onExecute}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: "Execute Tool" }));
+      expect(onExecute).toHaveBeenCalledWith(true);
+    });
+
+    it("passes runAsTask=true to onExecute for a required tool regardless of the prop", async () => {
+      const user = userEvent.setup();
+      const onExecute = vi.fn();
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={toolWithSupport("required")}
+          serverSupportsTaskToolCalls={true}
+          runAsTask={false}
+          onExecute={onExecute}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: "Execute Tool" }));
+      expect(onExecute).toHaveBeenCalledWith(true);
+    });
+
+    it("gates onExecute to false when the server lacks task-tool-call support, even with a stale runAsTask", async () => {
+      const user = userEvent.setup();
+      const onExecute = vi.fn();
+      // The toggle is hidden (server doesn't support it), but a leftover
+      // runAsTask=true must not leak into the effective decision.
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={toolWithSupport("optional")}
+          serverSupportsTaskToolCalls={false}
+          runAsTask={true}
+          onExecute={onExecute}
+        />,
+      );
+      expect(screen.queryByLabelText("Run as task")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Execute Tool" }));
+      expect(onExecute).toHaveBeenCalledWith(false);
+    });
   });
 });

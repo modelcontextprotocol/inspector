@@ -25,6 +25,7 @@ import { streamSSE } from "hono/streaming";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
 import type { RemoteConnectRequest, RemoteSendRequest } from "../types.js";
+import { DEFAULT_TASK_TTL_MS } from "../../types.js";
 import type {
   InspectorServerSettings,
   MCPConfig,
@@ -939,6 +940,13 @@ export function createRemoteApp(
         );
         delete valObj.requestTimeout;
       }
+      if ("taskTtl" in valObj && !isNonNegNumber(valObj.taskTtl)) {
+        logWarn(
+          { route: "/api/servers", id, droppedKey: "taskTtl" },
+          "Dropping malformed `taskTtl` field — expected non-negative number.",
+        );
+        delete valObj.taskTtl;
+      }
       if ("oauth" in valObj && !isOauthObject(valObj.oauth)) {
         logWarn(
           { route: "/api/servers", id, droppedKey: "oauth" },
@@ -1068,6 +1076,17 @@ export function createRemoteApp(
         error: "settings.requestTimeout must be a non-negative number",
       };
     }
+    // taskTtl is optional on the wire (older clients won't send it); when
+    // present it must be a non-negative number, otherwise it defaults below.
+    if (
+      obj.taskTtl !== undefined &&
+      (typeof obj.taskTtl !== "number" || obj.taskTtl < 0)
+    ) {
+      return {
+        ok: false,
+        error: "settings.taskTtl must be a non-negative number",
+      };
+    }
     for (const optional of [
       "oauthClientId",
       "oauthClientSecret",
@@ -1089,6 +1108,12 @@ export function createRemoteApp(
       metadata: obj.metadata as { key: string; value: string }[],
       connectionTimeout: obj.connectionTimeout as number,
       requestTimeout: obj.requestTimeout as number,
+      // Absent → product default, matching the read side
+      // (storedFieldsToInspectorSettings). The default is the omit-sentinel in
+      // inspectorSettingsToStoredFields, so this won't write a spurious taskTtl
+      // to disk for a client that didn't send one.
+      taskTtl:
+        typeof obj.taskTtl === "number" ? obj.taskTtl : DEFAULT_TASK_TTL_MS,
     };
     if (typeof obj.oauthClientId === "string" && obj.oauthClientId !== "") {
       value.oauthClientId = obj.oauthClientId;
