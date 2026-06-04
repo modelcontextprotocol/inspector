@@ -13,7 +13,36 @@ interface ToolResultsProps {
   resourceContent: Record<string, string>;
   onReadResource?: (uri: string) => void;
   isPollingTask?: boolean;
+  /**
+   * Wall-clock time the last `callTool` invocation took, in milliseconds.
+   * `undefined` means no measurement is available (e.g. legacy result path).
+   */
+  durationMs?: number | null;
 }
+
+// Format a millisecond duration for display in the tool result header.
+// - < 1ms  -> "<1 ms"
+// - < 1s   -> "123 ms"
+// - < 1min -> "1.23 s"
+// - >= 1m  -> "1m 23.4s"
+const formatCallDuration = (durationMs: number): string => {
+  if (!Number.isFinite(durationMs) || durationMs < 0) {
+    return "";
+  }
+  if (durationMs < 1) {
+    return "<1 ms";
+  }
+  if (durationMs < 1000) {
+    return `${Math.round(durationMs)} ms`;
+  }
+  if (durationMs < 60_000) {
+    return `${(durationMs / 1000).toFixed(2)} s`;
+  }
+  const totalSeconds = Math.floor(durationMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = (durationMs - minutes * 60_000) / 1000;
+  return `${minutes}m ${seconds.toFixed(1)}s`;
+};
 
 const checkContentCompatibility = (
   structuredContent: unknown,
@@ -65,6 +94,7 @@ const ToolResults = ({
   resourceContent,
   onReadResource,
   isPollingTask,
+  durationMs,
 }: ToolResultsProps) => {
   if (!toolResult) return null;
 
@@ -140,6 +170,15 @@ const ToolResults = ({
             <span className="text-yellow-600 font-semibold">Task Running</span>
           ) : (
             <span className="text-green-600 font-semibold">Success</span>
+          )}
+          {typeof durationMs === "number" && (
+            <span
+              className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400"
+              data-testid="tool-call-duration"
+              title="Time taken to run the tool (round-trip)"
+            >
+              ({formatCallDuration(durationMs)})
+            </span>
           )}
         </h4>
         {structuredResult.structuredContent && (

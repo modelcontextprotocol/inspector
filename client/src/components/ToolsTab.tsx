@@ -207,6 +207,9 @@ const ToolsTab = ({
     { id: string; key: string; value: string }[]
   >([]);
   const [hasValidationErrors, setHasValidationErrors] = useState(false);
+  const [lastCallDurationMs, setLastCallDurationMs] = useState<number | null>(
+    null,
+  );
   const formRefs = useRef<Record<string, DynamicJsonFormRef | null>>({});
   const { toast } = useToast();
   const { copied, setCopied } = useCopy();
@@ -248,6 +251,10 @@ const ToolsTab = ({
 
     // Reset validation errors when switching tools
     setHasValidationErrors(false);
+
+    // Reset the recorded duration so the previous tool's timing doesn't
+    // appear next to the new tool's result.
+    setLastCallDurationMs(null);
 
     // Clear form refs for the previous tool
     formRefs.current = {};
@@ -824,12 +831,19 @@ const ToolsTab = ({
                         }
                         return acc;
                       }, {});
-                      await callTool(
-                        selectedTool.name,
-                        params,
-                        Object.keys(metadata).length ? metadata : undefined,
-                        runAsTask,
-                      );
+                      // Measure the call duration so the user can see how
+                      // long the tool took to respond (issue #1284).
+                      const startTime = performance.now();
+                      try {
+                        await callTool(
+                          selectedTool.name,
+                          params,
+                          Object.keys(metadata).length ? metadata : undefined,
+                          runAsTask,
+                        );
+                      } finally {
+                        setLastCallDurationMs(performance.now() - startTime);
+                      }
                     } finally {
                       setIsToolRunning(false);
                     }
@@ -886,6 +900,7 @@ const ToolsTab = ({
                   resourceContent={resourceContent}
                   onReadResource={onReadResource}
                   isPollingTask={isPollingTask}
+                  durationMs={lastCallDurationMs}
                 />
               </div>
             ) : (
