@@ -1313,7 +1313,7 @@ describe("useConnection", () => {
       );
     });
 
-    test("uses OAuth token when no custom headers or legacy auth provided", async () => {
+    test("relies on the auth provider for the OAuth token instead of baking it into requestInit", async () => {
       const propsWithoutAuth = {
         ...defaultProps,
       };
@@ -1324,8 +1324,12 @@ describe("useConnection", () => {
         await result.current.connect();
       });
 
-      const headers = mockSSETransport.options?.requestInit?.headers;
-      expect(headers).toHaveProperty("Authorization", "Bearer mock-token");
+      const options = mockSSETransport.options;
+      // The SDK's authProvider supplies (and refreshes) the OAuth token on every
+      // request, so the Inspector must not snapshot it into requestInit — doing
+      // so would shadow the refreshed token and 401-loop after expiry.
+      expect(options?.authProvider).toBeDefined();
+      expect(options?.requestInit?.headers).not.toHaveProperty("Authorization");
     });
 
     test("warns of enabled empty Bearer token", async () => {
@@ -1792,6 +1796,62 @@ describe("useConnection", () => {
       expect(
         mockStreamableHTTPTransport.url?.searchParams.get("proxyFullAddress"),
       ).toBeNull();
+    });
+  });
+
+  describe("OAuth access token is supplied by the provider, not snapshotted", () => {
+    // The mocked InspectorOAuthClientProvider always returns a token, so the
+    // pre-fix code would have baked "Bearer mock-token" into requestInit. These
+    // tests assert it no longer does, for the direct transports where the SDK's
+    // authProvider is the single, always-current source of the token.
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockSSETransport.options = undefined;
+      mockStreamableHTTPTransport.options = undefined;
+    });
+
+    test("direct streamable-http does not bake an Authorization header into requestInit", async () => {
+      const props = {
+        ...defaultProps,
+        connectionType: "direct" as const,
+        transportType: "streamable-http" as const,
+        sseUrl: "http://localhost:8080",
+      };
+
+      const { result } = renderHook(() => useConnection(props));
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const options = mockStreamableHTTPTransport.options;
+      expect(options).toBeDefined();
+      // The provider is the single source of truth for the OAuth token.
+      expect(options?.authProvider).toBeDefined();
+      // No connect-time snapshot that would shadow the provider's refreshed
+      // token (the SDK lets requestInit override the provider) and cause a
+      // 401 loop after the access token expires.
+      expect(options?.requestInit?.headers).not.toHaveProperty("Authorization");
+      expect(options?.requestInit?.headers).not.toHaveProperty("authorization");
+    });
+
+    test("direct SSE does not bake an Authorization header into requestInit", async () => {
+      const props = {
+        ...defaultProps,
+        connectionType: "direct" as const,
+        transportType: "sse" as const,
+        sseUrl: "http://localhost:8080",
+      };
+
+      const { result } = renderHook(() => useConnection(props));
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const options = mockSSETransport.options;
+      expect(options).toBeDefined();
+      expect(options?.authProvider).toBeDefined();
+      expect(options?.requestInit?.headers).not.toHaveProperty("Authorization");
+      expect(options?.requestInit?.headers).not.toHaveProperty("authorization");
     });
   });
 });

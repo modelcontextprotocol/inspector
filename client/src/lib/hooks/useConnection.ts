@@ -499,7 +499,7 @@ export function useConnection({
       const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
 
       // Use custom headers (migration is handled in App.tsx)
-      let finalHeaders: CustomHeaders = customHeaders || [];
+      const finalHeaders: CustomHeaders = customHeaders || [];
 
       const isEmptyAuthHeader = (header: CustomHeaders[number]) =>
         header.name.trim().toLowerCase() === "authorization" &&
@@ -519,27 +519,15 @@ export function useConnection({
         });
       }
 
-      const needsOAuthToken = !finalHeaders.some(
-        (header) =>
-          header.enabled &&
-          header.name.trim().toLowerCase() === "authorization",
-      );
-
-      if (needsOAuthToken) {
-        const oauthToken = (await serverAuthProvider.tokens())?.access_token;
-        if (oauthToken) {
-          // Add the OAuth token
-          finalHeaders = [
-            // Remove any existing Authorization headers with empty tokens
-            ...finalHeaders.filter((header) => !isEmptyAuthHeader(header)),
-            {
-              name: "Authorization",
-              value: `Bearer ${oauthToken}`,
-              enabled: true,
-            },
-          ];
-        }
-      }
+      // Do not inject the OAuth access token here. The transports below receive
+      // `serverAuthProvider` as their authProvider, so the SDK adds a fresh
+      // `Authorization` from the provider on every request and replaces it after
+      // a refresh. Baking a connect-time snapshot into requestInit.headers would
+      // shadow that: the SDK's _commonHeaders lets requestInit override the
+      // provider token, so the stale token would keep being sent and the session
+      // would 401-loop once the access token expires. A user-supplied static
+      // Authorization header still flows through the custom-headers path below
+      // and intentionally overrides the provider.
 
       // Process all enabled custom headers
       const customHeaderNames: string[] = [];
