@@ -114,8 +114,10 @@ export function ServerSettingsModal({
   }
 
   function handleRootChange(index: number, uri: string, name: string) {
+    // Spread the existing root so any non-form fields (e.g. `_meta` from a
+    // hand-edited mcp.json) survive an edit; only `uri`/`name` are overwritten.
     const roots = settings.roots.map((r, i) =>
-      i === index ? { uri, name } : r,
+      i === index ? { ...r, uri, name } : r,
     );
     onSettingsChange({ ...settings, roots });
   }

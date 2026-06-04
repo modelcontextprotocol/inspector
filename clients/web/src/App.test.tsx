@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   renderWithMantine,
   screen,
@@ -53,6 +53,8 @@ vi.mock("@inspector/core/mcp/index.js", () => {
     getOAuthState = vi.fn().mockReturnValue(undefined);
     getPendingSamples = vi.fn().mockReturnValue([]);
     getPendingElicitations = vi.fn().mockReturnValue([]);
+    getRoots = vi.fn().mockReturnValue([]);
+    setRoots = vi.fn().mockResolvedValue(undefined);
   }
   const instances: FakeInspectorClient[] = [];
   return {
@@ -187,7 +189,9 @@ vi.mock("@inspector/core/react/useFetchRequestLog.js", () => ({
 }));
 vi.mock("@inspector/core/react/useSettingsDraft.js", () => ({
   useSettingsDraft: vi.fn(() => ({
-    draft: undefined,
+    // `draft` is widened so tests can override the return with a populated
+    // settings draft via `mockReturnValue` (the roots live-apply-on-close path).
+    draft: undefined as InspectorServerSettings | undefined,
     onChange: vi.fn(),
     flush: vi.fn(),
   })),
@@ -243,6 +247,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
     onCancelTask: (taskId: string) => void;
     onClearCompletedTasks: () => void;
     onRefreshTasks: () => void;
+    onServerSettings: (id: string) => void;
   }) => (
     <div>
       <span data-testid="tool-status">
@@ -339,6 +344,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
         read-resource
       </button>
       <button onClick={() => props.onSetLogLevel("debug")}>set-level</button>
+      <button onClick={() => props.onServerSettings("A")}>open-settings</button>
     </div>
   ),
 }));
@@ -347,6 +353,8 @@ import App from "./App";
 import * as McpIndex from "@inspector/core/mcp/index.js";
 import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
 import { useInspectorClient } from "@inspector/core/react/useInspectorClient.js";
+import { useSettingsDraft } from "@inspector/core/react/useSettingsDraft.js";
+import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 
 // Default useInspectorClient return — capabilities empty (no task tool calls).
 // Individual tests override via vi.mocked(...).mockReturnValue(...).
@@ -841,5 +849,104 @@ describe("App task wiring", () => {
         "none",
       ),
     );
+  });
+});
+
+// Live-apply roots on settings-dialog close: the App diffs the final draft
+// roots against what the connected client advertises and calls `setRoots`
+// once (not per keystroke), and only for the active server. App.tsx is
+// excluded from the coverage gate, but the acceptance criterion ("editing
+// roots on a live connection notifies the server on dialog close") lives
+// here, so it's worth a direct test of the gate/diff/notify path.
+type RootsFakeClient = EventTarget & {
+  setRoots: ReturnType<typeof vi.fn>;
+  getRoots: ReturnType<typeof vi.fn>;
+};
+
+const settingsWithRoots = (
+  roots: InspectorServerSettings["roots"],
+): InspectorServerSettings => ({
+  headers: [],
+  metadata: [],
+  connectionTimeout: 0,
+  requestTimeout: 0,
+  taskTtl: 60000,
+  roots,
+});
+
+describe("App roots live-apply on settings-dialog close", () => {
+  beforeEach(() => {
+    clientInstances.length = 0;
+    vi.mocked(useInspectorClient).mockReturnValue(DEFAULT_USE_INSPECTOR_CLIENT);
+  });
+
+  afterEach(() => {
+    // Restore the default empty draft so the override doesn't leak.
+    vi.mocked(useSettingsDraft).mockReturnValue({
+      draft: undefined,
+      onChange: vi.fn(),
+      flush: vi.fn(),
+    });
+  });
+
+  async function openSettingsForConnectedServer(
+    draft: InspectorServerSettings,
+  ): Promise<RootsFakeClient> {
+    vi.mocked(useSettingsDraft).mockReturnValue({
+      draft,
+      onChange: vi.fn(),
+      flush: vi.fn(),
+    });
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+    await user.click(screen.getByText("open-settings"));
+    await waitFor(() =>
+      expect(screen.getByText("Server Settings")).toBeInTheDocument(),
+    );
+    return clientInstances[0] as RootsFakeClient;
+  }
+
+  async function closeModal(user: ReturnType<typeof userEvent.setup>) {
+    const closeBtn = document.querySelector(
+      "button.mantine-CloseButton-root",
+    ) as HTMLButtonElement | null;
+    expect(closeBtn).not.toBeNull();
+    await user.click(closeBtn!);
+  }
+
+  it("calls setRoots once with cleaned roots when roots changed on the active server", async () => {
+    const user = userEvent.setup();
+    const client = await openSettingsForConnectedServer(
+      // A blank-uri row (left mid-edit) must be dropped; the named root kept.
+      settingsWithRoots([{ uri: "file:///x", name: "X" }, { uri: "" }]),
+    );
+    // Client currently advertises no roots → the draft differs → notify.
+    client.getRoots.mockReturnValue([]);
+
+    await closeModal(user);
+
+    await waitFor(() => expect(client.setRoots).toHaveBeenCalledTimes(1));
+    expect(client.setRoots).toHaveBeenCalledWith([
+      { uri: "file:///x", name: "X" },
+    ]);
+  });
+
+  it("does not call setRoots when the cleaned roots match what the client advertises", async () => {
+    const user = userEvent.setup();
+    const client = await openSettingsForConnectedServer(
+      settingsWithRoots([{ uri: "file:///x" }]),
+    );
+    // Same roots already advertised → no notification on close.
+    client.getRoots.mockReturnValue([{ uri: "file:///x" }]);
+
+    await closeModal(user);
+
+    // Let any close-handler microtasks settle, then assert no notification.
+    await waitFor(() =>
+      expect(screen.queryByText("Server Settings")).not.toBeInTheDocument(),
+    );
+    expect(client.setRoots).not.toHaveBeenCalled();
   });
 });

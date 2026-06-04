@@ -6,6 +6,7 @@
  */
 
 import { DEFAULT_TASK_TTL_MS } from "./types.js";
+import type { Root } from "@modelcontextprotocol/sdk/types.js";
 import type {
   InspectorServerSettings,
   MCPConfig,
@@ -55,6 +56,27 @@ export function normalizeServerType(
     normalizedType = "stdio";
   }
   return { ...config, type: normalizedType } as MCPServerConfig;
+}
+
+/**
+ * Normalize the form's controlled root rows into the shape the Inspector
+ * advertises and persists: drop rows whose `uri` is blank (the form leaves a
+ * new row empty mid-edit) and drop a blank/whitespace `name`. Any other fields
+ * a root carries (e.g. `_meta` from a hand-edited `mcp.json`) are preserved —
+ * only `uri`/`name` are normalized. Shared by the settings → disk converter
+ * (`inspectorSettingsToStoredFields`) and the web client's connect-time +
+ * `setRoots` wiring so the roots told to the server match what hits disk.
+ */
+export function cleanRoots(roots: Root[]): Root[] {
+  return roots
+    .filter((r) => r.uri.trim() !== "")
+    .map((r) => {
+      const trimmedName = r.name?.trim();
+      // Strip `name` off the carried-through rest so a cleared optional name
+      // doesn't persist as `name: ""`; re-add it only when non-empty.
+      const { name: _name, ...rest } = r;
+      return trimmedName ? { ...rest, name: trimmedName } : rest;
+    });
 }
 
 /**
@@ -185,17 +207,10 @@ export function inspectorSettingsToStoredFields(
     out.oauth = oauthFields;
   }
 
-  // Drop empty-uri rows (the form lets users leave a new row blank mid-edit)
-  // and normalize each survivor to `{ uri }` plus `name` only when non-empty,
-  // so a cleared optional name doesn't write `name: ""` to disk. Omit the
+  // Drop empty-uri rows / blank names via the shared normalizer; omit the
   // field entirely when nothing survives, keeping the diff minimal for entries
   // that never configured roots.
-  const rootsFiltered = settings.roots
-    .filter((r) => r.uri.trim() !== "")
-    .map((r) => {
-      const name = r.name?.trim();
-      return name ? { uri: r.uri, name } : { uri: r.uri };
-    });
+  const rootsFiltered = cleanRoots(settings.roots);
   if (rootsFiltered.length > 0) {
     out.roots = rootsFiltered;
   }

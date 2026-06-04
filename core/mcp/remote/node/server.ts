@@ -1119,20 +1119,9 @@ export function createRemoteApp(
       }
     }
     // roots is optional on the wire (older clients won't send it); when
-    // present it must be an array of `{ uri, name? }`. Mirrors the read-side
-    // `isRootArray` drop guard above.
-    const isRootArray = (
-      v: unknown,
-    ): v is { uri: string; name?: string }[] => {
-      if (!Array.isArray(v)) return false;
-      return v.every((e) => {
-        if (e === null || typeof e !== "object") return false;
-        const o = e as Record<string, unknown>;
-        if (typeof o.uri !== "string") return false;
-        if (o.name !== undefined && typeof o.name !== "string") return false;
-        return true;
-      });
-    };
+    // present it must be an array of `{ uri, name? }`. Reuses the same
+    // module-scope `isRootArray` guard the read path applies in
+    // `normalizeMcpServers`, so the two paths can't drift.
     if (obj.roots !== undefined && !isRootArray(obj.roots)) {
       return {
         ok: false,

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  cleanRoots,
   DEFAULT_SEED_CONFIG,
   expectedSecretFields,
   extractSecretsFromStored,
@@ -71,6 +72,31 @@ describe("normalizeServerType", () => {
     const out = normalizeServerType(input);
     expect(out).not.toBe(input);
     expect(input).not.toHaveProperty("type");
+  });
+});
+
+describe("cleanRoots", () => {
+  it("drops blank-uri rows and trims/drops blank names", () => {
+    expect(
+      cleanRoots([
+        { uri: "file:///a", name: "  Alpha  " },
+        { uri: "file:///b", name: "   " },
+        { uri: "   " },
+        { uri: "" },
+      ]),
+    ).toEqual([{ uri: "file:///a", name: "Alpha" }, { uri: "file:///b" }]);
+  });
+
+  it("preserves non-form fields (e.g. _meta) on surviving rows", () => {
+    expect(
+      cleanRoots([
+        { uri: "file:///a", name: "Alpha", _meta: { k: 1 } },
+        { uri: "file:///b", _meta: { k: 2 } },
+      ]),
+    ).toEqual([
+      { uri: "file:///a", name: "Alpha", _meta: { k: 1 } },
+      { uri: "file:///b", _meta: { k: 2 } },
+    ]);
   });
 });
 

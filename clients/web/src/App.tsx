@@ -15,7 +15,6 @@ import type {
   LoggingMessageNotification,
   Progress,
   ProgressToken,
-  Root,
   Task,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -43,7 +42,10 @@ import { ManagedResourcesState } from "@inspector/core/mcp/state/managedResource
 import { ManagedResourceTemplatesState } from "@inspector/core/mcp/state/managedResourceTemplatesState.js";
 import { ManagedRequestorTasksState } from "@inspector/core/mcp/state/managedRequestorTasksState.js";
 import { ResourceSubscriptionsState } from "@inspector/core/mcp/state/resourceSubscriptionsState.js";
-import { serializeMcpConfig } from "@inspector/core/mcp/serverList.js";
+import {
+  cleanRoots,
+  serializeMcpConfig,
+} from "@inspector/core/mcp/serverList.js";
 import { MessageLogState } from "@inspector/core/mcp/state/messageLogState.js";
 import { FetchRequestLogState } from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import { StderrLogState } from "@inspector/core/mcp/state/stderrLogState.js";
@@ -200,21 +202,6 @@ const EMPTY_SETTINGS: InspectorServerSettings = {
   taskTtl: DEFAULT_TASK_TTL_MS,
   roots: [],
 };
-
-/**
- * Normalize the form's controlled root rows into the clean shape the client
- * advertises: drop rows whose URI is blank (left empty mid-edit) and the
- * optional `name` when blank. Mirrors `inspectorSettingsToStoredFields` so
- * the roots the server is told about match what persists to disk.
- */
-function cleanRoots(roots: Root[]): Root[] {
-  return roots
-    .filter((r) => r.uri.trim() !== "")
-    .map((r) => {
-      const name = r.name?.trim();
-      return name ? { uri: r.uri, name } : { uri: r.uri };
-    });
-}
 
 // Body of the output-schema-mismatch warning toast: a one-line summary plus a
 // link that opens the full validation details in a modal (the raw error is far
