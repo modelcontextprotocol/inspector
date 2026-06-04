@@ -115,6 +115,14 @@ export type StoredMCPServer = MCPServerConfig & {
     clientSecret?: string;
     scopes?: string;
   };
+  /**
+   * Filesystem/URI roots advertised to the server via the `roots` client
+   * capability. Inspector-specific (no analog in the broader mcp.json
+   * ecosystem). Each root is the SDK `Root` shape `{ uri, name? }`; unlike v1
+   * (URI-only), the optional `name` round-trips here. Persisted as-is on disk
+   * and lifted onto `InspectorServerSettings.roots` when read into memory.
+   */
+  roots?: Root[];
 };
 
 export interface MCPConfig {
@@ -364,6 +372,13 @@ export interface InspectorServerSettings {
   oauthClientId?: string;
   oauthClientSecret?: string;
   oauthScopes?: string;
+  /**
+   * Roots advertised to the server via the `roots` client capability. Each
+   * root carries a required `uri` and an optional `name` (SDK `Root`). The
+   * form edits these as controlled rows; empty-uri rows are dropped on
+   * persist (see `inspectorSettingsToStoredFields`).
+   */
+  roots: Root[];
 }
 
 /**

@@ -15,6 +15,7 @@ import type {
   LoggingMessageNotification,
   Progress,
   ProgressToken,
+  Root,
   Task,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -197,7 +198,23 @@ const EMPTY_SETTINGS: InspectorServerSettings = {
   connectionTimeout: 0,
   requestTimeout: 0,
   taskTtl: DEFAULT_TASK_TTL_MS,
+  roots: [],
 };
+
+/**
+ * Normalize the form's controlled root rows into the clean shape the client
+ * advertises: drop rows whose URI is blank (left empty mid-edit) and the
+ * optional `name` when blank. Mirrors `inspectorSettingsToStoredFields` so
+ * the roots the server is told about match what persists to disk.
+ */
+function cleanRoots(roots: Root[]): Root[] {
+  return roots
+    .filter((r) => r.uri.trim() !== "")
+    .map((r) => {
+      const name = r.name?.trim();
+      return name ? { uri: r.uri, name } : { uri: r.uri };
+    });
+}
 
 // Body of the output-schema-mismatch warning toast: a one-line summary plus a
 // link that opens the full validation details in a modal (the raw error is far
@@ -951,6 +968,11 @@ function App() {
         // Sampling / elicitation are on by default; keep the parameterized
         // options off until the UI grows the surface to render them.
         elicit: { form: true, url: true },
+        // Always advertise the roots capability (even with no configured
+        // roots) so the server can issue roots/list and receive
+        // roots/list_changed; the configured roots are the answer to
+        // roots/list. Empty-uri rows are dropped before they reach the wire.
+        roots: cleanRoots(savedSettings?.roots ?? []),
         ...(savedSettings &&
           savedSettings.requestTimeout > 0 && {
             timeout: savedSettings.requestTimeout,
@@ -1693,8 +1715,36 @@ function App() {
 
   const onSettingsModalClose = useCallback(() => {
     flushSettingsDraft();
+    // Apply root edits to the live client once, on close — not on every
+    // keystroke. `setRoots` fires `notifications/roots/list_changed`, which
+    // makes the server re-request `roots/list`; doing that per character while
+    // the user types a URI would flood the wire. We diff the final draft roots
+    // against what the client currently advertises (both cleaned) and notify
+    // only when they actually differ, and only for the connected server.
+    if (
+      inspectorClient &&
+      settingsModalTargetId !== undefined &&
+      settingsModalTargetId === activeServerId &&
+      settingsDraft
+    ) {
+      const nextRoots = cleanRoots(settingsDraft.roots);
+      const currentRoots = cleanRoots(inspectorClient.getRoots());
+      if (JSON.stringify(nextRoots) !== JSON.stringify(currentRoots)) {
+        void inspectorClient.setRoots(nextRoots).catch(() => {
+          // setRoots swallows notification failures internally; a throw here
+          // only means the client is mid-teardown — the persisted roots will
+          // re-advertise on the next connect, so nothing to surface.
+        });
+      }
+    }
     setSettingsModalTargetId(undefined);
-  }, [flushSettingsDraft]);
+  }, [
+    flushSettingsDraft,
+    inspectorClient,
+    settingsModalTargetId,
+    activeServerId,
+    settingsDraft,
+  ]);
 
   // The Resources screen needs `isSubscribed` to flip the Subscribe button
   // label to "Unsubscribe". Derive it from the live subscriptions list rather

@@ -71,6 +71,7 @@ type StoredInspectorFields = Pick<
   | "requestTimeout"
   | "taskTtl"
   | "oauth"
+  | "roots"
 >;
 
 /**
@@ -94,7 +95,8 @@ export function storedFieldsToInspectorSettings(
     stored.connectionTimeout !== undefined ||
     stored.requestTimeout !== undefined ||
     stored.taskTtl !== undefined ||
-    stored.oauth !== undefined;
+    stored.oauth !== undefined ||
+    stored.roots !== undefined;
   if (!hasAny) return undefined;
 
   const headersPairs: { key: string; value: string }[] = stored.headers
@@ -109,6 +111,10 @@ export function storedFieldsToInspectorSettings(
     // Unlike the timeouts (0 = "SDK default"), task TTL has a concrete product
     // default so the form shows it and "Run as task" has a value to send.
     taskTtl: stored.taskTtl ?? DEFAULT_TASK_TTL_MS,
+    // Defaults to an empty list so the form always has a concrete array to
+    // render controlled rows from. An absent on-disk `roots` reads back as
+    // `[]`, which `inspectorSettingsToStoredFields` then omits on write.
+    roots: stored.roots ?? [],
   };
   // Truthiness drops empty-string OAuth fields — mirrors the write-side
   // coercion in `validateSettings` (server.ts) so a round-trip can't
@@ -179,6 +185,21 @@ export function inspectorSettingsToStoredFields(
     out.oauth = oauthFields;
   }
 
+  // Drop empty-uri rows (the form lets users leave a new row blank mid-edit)
+  // and normalize each survivor to `{ uri }` plus `name` only when non-empty,
+  // so a cleared optional name doesn't write `name: ""` to disk. Omit the
+  // field entirely when nothing survives, keeping the diff minimal for entries
+  // that never configured roots.
+  const rootsFiltered = settings.roots
+    .filter((r) => r.uri.trim() !== "")
+    .map((r) => {
+      const name = r.name?.trim();
+      return name ? { uri: r.uri, name } : { uri: r.uri };
+    });
+  if (rootsFiltered.length > 0) {
+    out.roots = rootsFiltered;
+  }
+
   return out;
 }
 
@@ -203,6 +224,7 @@ const INSPECTOR_FIELD_KEY_MAP = {
   requestTimeout: true,
   taskTtl: true,
   oauth: true,
+  roots: true,
 } as const satisfies Record<keyof StoredInspectorFields, true>;
 
 export const INSPECTOR_FIELD_KEYS = new Set(

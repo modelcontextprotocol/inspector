@@ -411,6 +411,7 @@ describe("Remote transport e2e", () => {
         connectionTimeout: 0,
         requestTimeout: 0,
         taskTtl: 0,
+        roots: [],
       };
 
       const createTransport = createRemoteTransport({ baseUrl, authToken });

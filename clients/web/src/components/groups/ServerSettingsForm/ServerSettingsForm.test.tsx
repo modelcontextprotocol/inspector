@@ -13,6 +13,7 @@ const emptySettings: InspectorServerSettings = {
   connectionTimeout: 30000,
   requestTimeout: 60000,
   taskTtl: 60000,
+  roots: [],
 };
 
 const populatedSettings: InspectorServerSettings = {
@@ -24,6 +25,7 @@ const populatedSettings: InspectorServerSettings = {
   oauthClientId: "cid",
   oauthClientSecret: "secret",
   oauthScopes: "read",
+  roots: [{ uri: "file:///project", name: "Project" }],
 };
 
 const allSections: ServerSettingsSection[] = [
@@ -31,6 +33,7 @@ const allSections: ServerSettingsSection[] = [
   "metadata",
   "timeouts",
   "oauth",
+  "roots",
 ];
 
 const baseHandlers = {
@@ -43,6 +46,9 @@ const baseHandlers = {
   onMetadataChange: vi.fn(),
   onTimeoutChange: vi.fn(),
   onOAuthChange: vi.fn(),
+  onAddRoot: vi.fn(),
+  onRemoveRoot: vi.fn(),
+  onRootChange: vi.fn(),
 };
 
 describe("ServerSettingsForm", () => {
@@ -58,6 +64,7 @@ describe("ServerSettingsForm", () => {
     expect(screen.getByText("Request Metadata")).toBeInTheDocument();
     expect(screen.getByText("Timeouts")).toBeInTheDocument();
     expect(screen.getByText("OAuth Settings")).toBeInTheDocument();
+    expect(screen.getByText("Roots")).toBeInTheDocument();
   });
 
   it("shows empty hints for headers and metadata when no entries exist", () => {
@@ -286,6 +293,71 @@ describe("ServerSettingsForm", () => {
       clientSecret: "z",
       scopes: "",
     });
+  });
+
+  it("shows the empty hint for roots when none are configured", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["roots"]}
+      />,
+    );
+    expect(screen.getByText("No roots configured")).toBeInTheDocument();
+  });
+
+  it("invokes onAddRoot when + Add Root is clicked", async () => {
+    const user = userEvent.setup();
+    const onAddRoot = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onAddRoot={onAddRoot}
+        settings={emptySettings}
+        expandedSections={["roots"]}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "+ Add Root" }));
+    expect(onAddRoot).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a row's uri and optional name and reports edits via onRootChange", async () => {
+    const user = userEvent.setup();
+    const onRootChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onRootChange={onRootChange}
+        settings={populatedSettings}
+        expandedSections={["roots"]}
+      />,
+    );
+    // populatedSettings has one root { uri: "file:///project", name: "Project" }
+    expect(screen.getByDisplayValue("file:///project")).toBeInTheDocument();
+    const nameInput = screen.getByDisplayValue("Project");
+    await user.type(nameInput, "X");
+    expect(onRootChange).toHaveBeenCalled();
+    const lastCall =
+      onRootChange.mock.calls[onRootChange.mock.calls.length - 1];
+    expect(lastCall[0]).toBe(0);
+    // uri is threaded through unchanged when only the name changes
+    expect(lastCall[1]).toBe("file:///project");
+  });
+
+  it("invokes onRemoveRoot when X is clicked on a root row", async () => {
+    const user = userEvent.setup();
+    const onRemoveRoot = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onRemoveRoot={onRemoveRoot}
+        settings={populatedSettings}
+        expandedSections={["roots"]}
+      />,
+    );
+    const removeButtons = screen.getAllByRole("button", { name: "X" });
+    await user.click(removeButtons[0]);
+    expect(onRemoveRoot).toHaveBeenCalledWith(0);
   });
 
   it("invokes onExpandedSectionsChange when an Accordion section is toggled", async () => {

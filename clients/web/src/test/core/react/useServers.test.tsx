@@ -392,6 +392,7 @@ describe("useServers", () => {
         connectionTimeout: 5000,
         requestTimeout: 30000,
         taskTtl: 30000,
+        roots: [],
       });
     });
 
@@ -402,6 +403,7 @@ describe("useServers", () => {
         connectionTimeout: 5000,
         requestTimeout: 30000,
         taskTtl: 30000,
+        roots: [],
       });
     });
     const stored = readConfig(h.configPath).mcpServers
@@ -433,6 +435,7 @@ describe("useServers", () => {
           connectionTimeout: 0,
           requestTimeout: 0,
           taskTtl: 0,
+          roots: [],
         });
       }),
     ).rejects.toThrow(/not found/);
@@ -481,6 +484,8 @@ describe("useServers", () => {
       requestTimeout: 0,
       // Absent taskTtl on disk reads back as the product default for the form.
       taskTtl: 60000,
+      // Absent roots on disk reads back as an empty list for the form.
+      roots: [],
     });
   });
 

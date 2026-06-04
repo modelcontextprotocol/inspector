@@ -829,6 +829,8 @@ describe("/api/servers routes", () => {
               requestTimeout: 60000,
               // Bad: array instead of object → drop
               oauth: ["not", "an", "object"],
+              // Bad: entry missing a string `uri` → drop the whole roots field
+              roots: [{ name: "no-uri" }],
             },
           },
         }),
@@ -847,6 +849,114 @@ describe("/api/servers routes", () => {
       expect(fetched).not.toHaveProperty("metadata");
       expect(fetched).not.toHaveProperty("connectionTimeout");
       expect(fetched).not.toHaveProperty("oauth");
+      expect(fetched).not.toHaveProperty("roots");
+    });
+
+    it("round-trips roots (uri + optional name) on PUT and drops empty-uri rows", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            "roots-srv": { type: "stdio", command: "node" },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/roots-srv`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "stdio", command: "node" },
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            roots: [
+              { uri: "file:///project", name: "Project" },
+              { uri: "file:///tmp" },
+              // Empty-uri row left mid-edit by the form → dropped on write.
+              { uri: "" },
+            ],
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers[
+        "roots-srv"
+      ] as unknown as Record<string, unknown>;
+      expect(stored.roots).toEqual([
+        { uri: "file:///project", name: "Project" },
+        { uri: "file:///tmp" },
+      ]);
+
+      // The GET round-trip surfaces the same roots back to the form.
+      const getRes = await fetch(`${h.baseUrl}/api/servers`);
+      const getBody = (await getRes.json()) as {
+        mcpServers: Record<string, Record<string, unknown>>;
+      };
+      expect(getBody.mcpServers["roots-srv"]!.roots).toEqual([
+        { uri: "file:///project", name: "Project" },
+        { uri: "file:///tmp" },
+      ]);
+    });
+
+    it("omits the roots field on disk when all rows are empty", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            "roots-empty": { type: "stdio", command: "node" },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/roots-empty`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "stdio", command: "node" },
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            roots: [{ uri: "  " }],
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers[
+        "roots-empty"
+      ] as unknown as Record<string, unknown>;
+      expect(stored).not.toHaveProperty("roots");
+    });
+
+    it("rejects a malformed roots shape with 400", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            "roots-bad": { type: "stdio", command: "node" },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/roots-bad`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "stdio", command: "node" },
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            // uri must be a string.
+            roots: [{ uri: 42 }],
+          },
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/settings\.roots/);
     });
 
     it("loads a hand-edited file with top-level Claude Code-style `headers` (interop with `.mcp.json`)", async () => {
