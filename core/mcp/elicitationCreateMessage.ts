@@ -73,6 +73,22 @@ export class ElicitationCreateMessage {
   }
 
   /**
+   * Resolve this elicitation as accepted, but only if it is still pending.
+   *
+   * Used by the URL-mode `notifications/elicitation/complete` handler to
+   * auto-advance an open URL elicitation when the server signals the
+   * out-of-band flow finished. It is a no-op once the user has already
+   * responded — that guard (plus the modal's own once-guard) keeps `respond()`
+   * from throwing its "already resolved" error on a race between the manual
+   * "I've completed it" click and the server's completion notification.
+   */
+  completeIfPending(): void {
+    if (this.resolvePromise) {
+      void this.respond({ action: "accept" });
+    }
+  }
+
+  /**
    * Remove this pending elicitation from the list
    */
   remove(): void {

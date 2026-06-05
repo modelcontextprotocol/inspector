@@ -1,0 +1,40 @@
+import {
+  ErrorCode,
+  McpError,
+  UrlElicitationRequiredError,
+} from "@modelcontextprotocol/sdk/types.js";
+import type { ElicitRequestURLParams } from "@modelcontextprotocol/sdk/types.js";
+
+export type { ElicitRequestURLParams };
+
+/**
+ * Detect a `URLElicitationRequiredError` (JSON-RPC code `-32042`) and return the
+ * list of URL-mode elicitations the server attached, or `null` when `error` is
+ * not that error.
+ *
+ * Two shapes reach us, both code `-32042`:
+ * - the SDK's typed {@link UrlElicitationRequiredError} (created by
+ *   `McpError.fromError` when `data.elicitations` is present), and
+ * - a generic {@link McpError} with code `-32042` when the server omitted
+ *   `data.elicitations` (a non-spec response — the spec requires the list).
+ *
+ * The empty array is meaningful: it signals the non-spec "no elicitations"
+ * case, which the caller surfaces differently (a toast pointing at the raw
+ * error) from the spec-compliant case (surface each URL elicitation, then retry
+ * the original request). A non-`-32042` error returns `null` so callers fall
+ * through to their generic error handling.
+ */
+export function getUrlElicitationsFromError(
+  error: unknown,
+): ElicitRequestURLParams[] | null {
+  if (error instanceof UrlElicitationRequiredError) {
+    return error.elicitations ?? [];
+  }
+  if (error instanceof McpError && error.code === ErrorCode.UrlElicitationRequired) {
+    const data = error.data as
+      | { elicitations?: ElicitRequestURLParams[] }
+      | undefined;
+    return data?.elicitations ?? [];
+  }
+  return null;
+}

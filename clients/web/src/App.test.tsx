@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import {
   renderWithMantine,
   screen,
@@ -715,6 +716,35 @@ describe("App task wiring", () => {
         expect.objectContaining({
           title: "Failed to cancel task",
           color: "red",
+        }),
+      ),
+    );
+  });
+
+  it("shows a URL-elicitation toast when a tool call fails with a no-list -32042", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    (
+      clientInstances[0] as unknown as {
+        callTool: ReturnType<typeof vi.fn>;
+      }
+    ).callTool.mockRejectedValueOnce(
+      new McpError(
+        ErrorCode.UrlElicitationRequired,
+        "This request requires browser-based authorization.",
+      ),
+    );
+
+    await user.click(screen.getByText("call"));
+
+    await waitFor(() =>
+      expect(notificationsMock.show).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "URL elicitation required",
+          color: "yellow",
         }),
       ),
     );

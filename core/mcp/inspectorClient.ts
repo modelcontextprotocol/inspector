@@ -56,7 +56,9 @@ import type {
   Prompt,
   Root,
   CreateMessageResult,
+  ElicitRequest,
   ElicitResult,
+  ElicitRequestURLParams,
   CallToolResult,
   Task,
   Progress,
@@ -110,6 +112,7 @@ import {
 } from "./inspectorClientEventTarget.js";
 import { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
+import { getUrlElicitationsFromError } from "./urlElicitation.js";
 import type { AuthGuidedState, OAuthStep } from "../auth/types.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type pino from "pino";
@@ -125,6 +128,14 @@ interface ReceiverTaskRecord {
   rejectPayload: (reason?: unknown) => void;
   cleanupTimeoutId?: ReturnType<typeof setTimeout>;
 }
+
+/**
+ * Cap on how many times a single `callTool` will surface URL elicitations and
+ * retry after a `-32042` (UrlElicitationRequired) response. A spec-compliant
+ * flow resolves in one round; the bound only guards against a server that keeps
+ * returning the error.
+ */
+const MAX_URL_ELICITATION_RETRIES = 5;
 
 /**
  * InspectorClient wraps an MCP Client and provides:
@@ -938,7 +949,11 @@ export class InspectorClient extends InspectorClientEventTarget {
                   e.request.params?.elicitationId === elicitationId,
               );
               if (pending) {
-                pending.remove();
+                // Resolve (not just remove): for the error-path retry loop this
+                // unblocks `awaitUrlElicitation`, and for request-path it sends
+                // the `accept` response the server is still awaiting. No-op once
+                // the user already clicked "I've completed it".
+                pending.completeIfPending();
               }
             },
           );
@@ -1330,7 +1345,87 @@ export class InspectorClient extends InspectorClientEventTarget {
       );
     }
 
-    try {
+    // Retry loop for the URL-elicitation error path: a `-32042`
+    // (UrlElicitationRequired) response means the server needs the user to
+    // complete one or more URL elicitations before the call can succeed. We
+    // surface them, wait for completion, then re-issue the same call. The
+    // counter bounds a server that keeps returning `-32042` so we can't spin
+    // forever (each accepted round is one attempt).
+    let urlElicitationAttempt = 0;
+    while (true) {
+      try {
+        return await this.attemptToolCall(
+          tool,
+          args,
+          generalMetadata,
+          toolSpecificMetadata,
+          taskOptions,
+          options,
+        );
+      } catch (error) {
+        const urlElicitations = getUrlElicitationsFromError(error);
+        if (
+          urlElicitations &&
+          urlElicitations.length > 0 &&
+          urlElicitationAttempt < MAX_URL_ELICITATION_RETRIES
+        ) {
+          urlElicitationAttempt++;
+          const action = await this.runUrlElicitations(urlElicitations);
+          if (action === "accept") {
+            continue;
+          }
+          // The user declined/cancelled a required URL elicitation, so the
+          // original call can't proceed. Surface it as a failed call with a
+          // clear reason instead of the raw "-32042" message.
+          const abortError = new Error(
+            `Tool call cancelled: required URL elicitation was ${
+              action === "decline" ? "declined" : "cancelled"
+            }.`,
+          );
+          this.dispatchFailedToolCall(
+            tool,
+            args,
+            generalMetadata,
+            toolSpecificMetadata,
+            abortError.message,
+          );
+          throw abortError;
+        }
+        // Not a URL-elicitation error (or the non-spec no-list variant, or
+        // retries exhausted): record + rethrow so the caller can surface it.
+        // The App distinguishes the no-list `-32042` case (a dedicated toast)
+        // via getUrlElicitationsFromError on the thrown error.
+        this.dispatchFailedToolCall(
+          tool,
+          args,
+          generalMetadata,
+          toolSpecificMetadata,
+          error instanceof Error ? error.message : String(error),
+        );
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Run a single tools/call attempt: convert args, issue the request, validate,
+   * and return a successful {@link ToolCallInvocation}. Throws on any error
+   * (including a `-32042` UrlElicitationRequired response); {@link callTool}'s
+   * retry loop owns the elicitation handling and failure bookkeeping.
+   */
+  private async attemptToolCall(
+    tool: Tool,
+    args: Record<string, JsonValue>,
+    generalMetadata?: Record<string, string>,
+    toolSpecificMetadata?: Record<string, string>,
+    taskOptions?: { ttl?: number },
+    options?: { skipOutputValidation?: boolean },
+  ): Promise<ToolCallInvocation> {
+    {
+      const client = this.client;
+      if (!client) {
+        throw new Error("Client is not connected");
+      }
       let convertedArgs: Record<string, JsonValue> = args;
       const stringArgs: Record<string, string> = {};
       for (const [key, value] of Object.entries(args)) {
@@ -1380,12 +1475,12 @@ export class InspectorClient extends InspectorClientEventTarget {
       // CallToolResultSchema above, callTool() returns the same shape — so the
       // `as CallToolResult` casts below are safe.
       const result = options?.skipOutputValidation
-        ? await this.client.request(
+        ? await client.request(
             { method: "tools/call", params: callParams },
             CallToolResultSchema,
             requestOptions,
           )
-        : await this.client.callTool(callParams, undefined, requestOptions);
+        : await client.callTool(callParams, undefined, requestOptions);
 
       // On the bypass path the result was delivered without the SDK's strict
       // output validation. Run that check ourselves, non-fatally, so callers can
@@ -1416,38 +1511,80 @@ export class InspectorClient extends InspectorClientEventTarget {
       });
 
       return invocation;
-    } catch (error) {
-      // Merge general metadata with tool-specific metadata for error case
-      const callMetadata: Record<string, string> | undefined =
-        generalMetadata || toolSpecificMetadata
-          ? { ...(generalMetadata || {}), ...(toolSpecificMetadata || {}) }
-          : undefined;
-
-      const timestamp = new Date();
-      const metadata = this.mergeMeta(callMetadata);
-
-      const invocation: ToolCallInvocation = {
-        toolName: tool.name,
-        params: args,
-        result: null,
-        timestamp,
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-        metadata,
-      };
-
-      this.dispatchTypedEvent("toolCallResultChange", {
-        toolName: tool.name,
-        params: args,
-        result: null,
-        timestamp,
-        success: false,
-        error: invocation.error,
-        metadata,
-      });
-
-      throw error;
     }
+  }
+
+  /**
+   * Record a failed tools/call as a `toolCallResultChange` event (history + the
+   * Tools panel) without throwing. {@link callTool} calls this before rethrowing
+   * so a failure — whether a transport error, a declined URL elicitation, or a
+   * non-spec `-32042` — lands in the request history exactly once.
+   */
+  private dispatchFailedToolCall(
+    tool: Tool,
+    args: Record<string, JsonValue>,
+    generalMetadata: Record<string, string> | undefined,
+    toolSpecificMetadata: Record<string, string> | undefined,
+    errorMessage: string,
+  ): void {
+    const callMetadata: Record<string, string> | undefined =
+      generalMetadata || toolSpecificMetadata
+        ? { ...(generalMetadata || {}), ...(toolSpecificMetadata || {}) }
+        : undefined;
+    const metadata = this.mergeMeta(callMetadata);
+    this.dispatchTypedEvent("toolCallResultChange", {
+      toolName: tool.name,
+      params: args,
+      result: null,
+      timestamp: new Date(),
+      success: false,
+      error: errorMessage,
+      metadata,
+    });
+  }
+
+  /**
+   * Surface the URL elicitations carried by a `-32042` error, one at a time and
+   * in order (per the spec's "URL mode with elicitation required error" flow),
+   * returning as soon as the user declines/cancels one. Returns `"accept"` only
+   * when every elicitation was accepted, which is {@link callTool}'s signal to
+   * retry the original call.
+   */
+  private async runUrlElicitations(
+    elicitations: ElicitRequestURLParams[],
+  ): Promise<ElicitResult["action"]> {
+    for (const params of elicitations) {
+      const action = await this.awaitUrlElicitation(params);
+      if (action !== "accept") {
+        return action;
+      }
+    }
+    return "accept";
+  }
+
+  /**
+   * Add one error-path URL elicitation to the pending queue (so it renders in
+   * the same modal as request-path elicitations) and resolve with the user's
+   * action. Unlike the request-path handler there is no server request to
+   * answer — accepting it just unblocks the retry; the server's optional
+   * `notifications/elicitation/complete` resolves it as accepted too (via
+   * `completeIfPending`).
+   */
+  private awaitUrlElicitation(
+    params: ElicitRequestURLParams,
+  ): Promise<ElicitResult["action"]> {
+    return new Promise<ElicitResult["action"]>((resolve) => {
+      const request = {
+        method: "elicitation/create",
+        params,
+      } as ElicitRequest;
+      const message = new ElicitationCreateMessage(
+        request,
+        (result) => resolve(result.action),
+        (id) => this.removePendingElicitation(id),
+      );
+      this.addPendingElicitation(message);
+    });
   }
 
   /**
