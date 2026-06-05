@@ -8,6 +8,26 @@ import type { ElicitRequestURLParams } from "@modelcontextprotocol/sdk/types.js"
 export type { ElicitRequestURLParams };
 
 /**
+ * Thrown by `callTool` when the URL-elicitation error path would loop: the
+ * server's `-32042` retry response re-requests a URL the user already completed
+ * earlier in the same call. Completing it again can't make progress, so the
+ * call is cancelled instead of re-presenting the same URL. The web layer
+ * detects this (over a generic failure) to show a "same URL again" toast.
+ */
+export class UrlElicitationLoopError extends Error {
+  /** The URL the server repeated. */
+  readonly url: string;
+
+  constructor(url: string) {
+    super(
+      `The server asked for the same URL elicitation again (${url}); cancelling the call to avoid a loop.`,
+    );
+    this.name = "UrlElicitationLoopError";
+    this.url = url;
+  }
+}
+
+/**
  * Detect a `URLElicitationRequiredError` (JSON-RPC code `-32042`) and return the
  * list of URL-mode elicitations the server attached, or `null` when `error` is
  * not that error.

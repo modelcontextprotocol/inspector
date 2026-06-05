@@ -9,6 +9,7 @@ import type {
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
+import { UrlElicitationLoopError } from "@inspector/core/mcp/urlElicitation.js";
 import type { CreateTransport } from "@inspector/core/mcp/types.js";
 
 // The client is never connected in these tests, so the transport factory is
@@ -150,6 +151,32 @@ describe("InspectorClient URL-elicitation error path", () => {
 
     await expect(pending).rejects.toThrow(/cancelled/i);
     expect(fake.callTool).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts with a loop error when the server re-requests a completed URL", async () => {
+    // The server keeps returning the same URL after the user completes it.
+    const fake: FakeClient = {
+      callTool: vi.fn(async () => {
+        throw new UrlElicitationRequiredError([elicitation]);
+      }),
+      request: vi.fn(),
+    };
+    const client = makeClient(fake);
+
+    const pending = client.callTool(tool, {});
+
+    // First round: the URL is presented; the user completes it.
+    await vi.waitFor(() =>
+      expect(client.getPendingElicitations()).toHaveLength(1),
+    );
+    await client.getPendingElicitations()[0].respond({ action: "accept" });
+
+    // The retry returns the same URL; rather than re-prompt, the call aborts.
+    await expect(pending).rejects.toBeInstanceOf(UrlElicitationLoopError);
+    await expect(pending).rejects.toMatchObject({ url: elicitation.url });
+    // Only the initial call + one retry ran; the URL was presented just once.
+    expect(fake.callTool).toHaveBeenCalledTimes(2);
+    expect(client.getPendingElicitations()).toHaveLength(0);
   });
 
   it("rethrows a -32042 error with no elicitations without queuing anything", async () => {

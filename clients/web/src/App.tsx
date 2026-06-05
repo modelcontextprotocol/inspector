@@ -23,7 +23,10 @@ import type {
   InspectorClientEventMap,
   JsonValue,
 } from "@inspector/core/mcp/index.js";
-import { getUrlElicitationsFromError } from "@inspector/core/mcp/urlElicitation.js";
+import {
+  getUrlElicitationsFromError,
+  UrlElicitationLoopError,
+} from "@inspector/core/mcp/urlElicitation.js";
 import type { TypedEventGeneric } from "@inspector/core/mcp/typedEventTarget.js";
 import type {
   InspectorServerSettings,
@@ -1306,6 +1309,24 @@ function App() {
           error: invocation.error,
         });
       } catch (err) {
+        // The server kept asking for a URL the user already completed this call,
+        // so callTool aborted to avoid an endless re-prompt loop. Surface that
+        // explicitly rather than as a generic failure.
+        if (err instanceof UrlElicitationLoopError) {
+          setToolCallState({ status: "error", error: err.message });
+          notifications.show({
+            autoClose: false,
+            title: "URL elicitation loop",
+            color: "yellow",
+            message: (
+              <Text size="sm">
+                The server requested the same URL again after you completed it (
+                {err.url}), so the call was cancelled to avoid an endless loop.
+              </Text>
+            ),
+          });
+          return;
+        }
         // A URLElicitationRequired (-32042) error that reaches here carried no
         // elicitations (a non-spec response — the with-list case is handled and
         // retried inside callTool). There's no URL to open, so surface a short

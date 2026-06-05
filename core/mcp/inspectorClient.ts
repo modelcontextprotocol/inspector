@@ -112,7 +112,10 @@ import {
 } from "./inspectorClientEventTarget.js";
 import { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
-import { getUrlElicitationsFromError } from "./urlElicitation.js";
+import {
+  getUrlElicitationsFromError,
+  UrlElicitationLoopError,
+} from "./urlElicitation.js";
 import type { AuthGuidedState, OAuthStep } from "../auth/types.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type pino from "pino";
@@ -1352,6 +1355,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     // counter bounds a server that keeps returning `-32042` so we can't spin
     // forever (each accepted round is one attempt).
     let urlElicitationAttempt = 0;
+    // URLs already presented in this call. If a retry's error re-requests one,
+    // completing it again can't make progress (the server isn't advancing), so
+    // we abort with a UrlElicitationLoopError rather than re-prompt the user.
+    const presentedUrls = new Set<string>();
     while (true) {
       try {
         return await this.attemptToolCall(
@@ -1369,7 +1376,25 @@ export class InspectorClient extends InspectorClientEventTarget {
           urlElicitations.length > 0 &&
           urlElicitationAttempt < MAX_URL_ELICITATION_RETRIES
         ) {
+          // Loop guard: the server repeated a URL we already handled this call.
+          const repeated = urlElicitations.find((e) =>
+            presentedUrls.has(e.url),
+          );
+          if (repeated) {
+            const loopError = new UrlElicitationLoopError(repeated.url);
+            this.dispatchFailedToolCall(
+              tool,
+              args,
+              generalMetadata,
+              toolSpecificMetadata,
+              loopError.message,
+            );
+            throw loopError;
+          }
           urlElicitationAttempt++;
+          for (const e of urlElicitations) {
+            presentedUrls.add(e.url);
+          }
           const action = await this.runUrlElicitations(urlElicitations);
           if (action === "accept") {
             continue;
