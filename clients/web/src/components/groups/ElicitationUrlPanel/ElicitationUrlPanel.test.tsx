@@ -10,6 +10,7 @@ const baseProps = {
   isWaiting: false,
   onCopyUrl: vi.fn(),
   onOpenInBrowser: vi.fn(),
+  onComplete: vi.fn(),
   onCancel: vi.fn(),
 };
 
@@ -33,16 +34,29 @@ describe("ElicitationUrlPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("does not render waiting indicator when isWaiting is false", () => {
+  it("does not render the waiting indicator or complete action when not waiting", () => {
     renderWithMantine(<ElicitationUrlPanel {...baseProps} />);
     expect(
-      screen.queryByText("Waiting for completion..."),
+      screen.queryByText(/Waiting for completion/),
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "I've completed it" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open in Browser" }),
+    ).toBeInTheDocument();
   });
 
-  it("renders waiting indicator when isWaiting is true", () => {
+  it("renders the waiting indicator and complete action when waiting", () => {
     renderWithMantine(<ElicitationUrlPanel {...baseProps} isWaiting />);
-    expect(screen.getByText("Waiting for completion...")).toBeInTheDocument();
+    expect(screen.getByText(/Waiting for completion/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "I've completed it" }),
+    ).toBeInTheDocument();
+    // The open action is relabelled so the user can reopen the tab.
+    expect(
+      screen.getByRole("button", { name: "Reopen in Browser" }),
+    ).toBeInTheDocument();
   });
 
   it("invokes onCopyUrl when Copy URL is clicked", async () => {
@@ -65,6 +79,16 @@ describe("ElicitationUrlPanel", () => {
     expect(onOpenInBrowser).toHaveBeenCalledTimes(1);
   });
 
+  it("invokes onComplete when I've completed it is clicked while waiting", async () => {
+    const user = userEvent.setup();
+    const onComplete = vi.fn();
+    renderWithMantine(
+      <ElicitationUrlPanel {...baseProps} isWaiting onComplete={onComplete} />,
+    );
+    await user.click(screen.getByRole("button", { name: "I've completed it" }));
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
   it("invokes onCancel when Cancel is clicked", async () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();
@@ -73,5 +97,13 @@ describe("ElicitationUrlPanel", () => {
     );
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables the completion and cancel actions when busy", () => {
+    renderWithMantine(<ElicitationUrlPanel {...baseProps} isWaiting busy />);
+    expect(
+      screen.getByRole("button", { name: "I've completed it" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
   });
 });
