@@ -85,10 +85,7 @@ export function ElicitationUrlPanel({
       {isWaiting && (
         <Group>
           <Loader size="sm" />
-          <HintText>
-            Waiting for completion... Confirm once you've finished in the
-            browser.
-          </HintText>
+          <HintText>Waiting for completion...</HintText>
         </Group>
       )}
       <MetaText>{formatRequestId(requestId)}</MetaText>

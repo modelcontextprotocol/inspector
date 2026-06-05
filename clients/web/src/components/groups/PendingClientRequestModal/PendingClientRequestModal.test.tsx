@@ -267,6 +267,26 @@ describe("PendingClientRequestModal", () => {
     expect(writeText).toHaveBeenCalledWith("https://example.com/authorize");
   });
 
+  it("reveals the completion step after Copy URL so a copy-paste flow can accept", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    });
+    renderWithMantine(
+      <PendingClientRequestModal {...baseProps} request={urlContent} />,
+    );
+    // Before copying there is no completion action.
+    expect(
+      screen.queryByRole("button", { name: "I've completed it" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Copy URL" }));
+    await user.click(screen.getByRole("button", { name: "I've completed it" }));
+    expect(baseProps.onElicitationRespond).toHaveBeenCalledWith({
+      action: "accept",
+    });
+  });
+
   it("cancels a URL elicitation after opening without sending accept", async () => {
     const user = userEvent.setup();
     const openSpy = vi.spyOn(window, "open").mockReturnValue(null);

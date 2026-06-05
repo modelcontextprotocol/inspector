@@ -184,6 +184,10 @@ function ElicitationUrlModalBody({
       isWaiting={isWaiting}
       onCopyUrl={() => {
         void navigator.clipboard?.writeText(url);
+        // Copying the URL is the other way to start the external flow (paste
+        // into a browser). Reveal the completion step too, otherwise a user who
+        // copies rather than clicking "Open in Browser" could only Cancel.
+        setIsWaiting(true);
       }}
       onOpenInBrowser={() => {
         window.open(url, "_blank", "noopener,noreferrer");
