@@ -15,6 +15,7 @@ const ALL_SECTIONS: ServerSettingsSection[] = [
   "metadata",
   "timeouts",
   "oauth",
+  "roots",
 ];
 
 export interface ServerSettingsModalProps {
@@ -98,6 +99,29 @@ export function ServerSettingsModal({
     });
   }
 
+  function handleAddRoot() {
+    onSettingsChange({
+      ...settings,
+      roots: [...settings.roots, { uri: "", name: "" }],
+    });
+  }
+
+  function handleRemoveRoot(index: number) {
+    onSettingsChange({
+      ...settings,
+      roots: settings.roots.filter((_, i) => i !== index),
+    });
+  }
+
+  function handleRootChange(index: number, uri: string, name: string) {
+    // Spread the existing root so any non-form fields (e.g. `_meta` from a
+    // hand-edited mcp.json) survive an edit; only `uri`/`name` are overwritten.
+    const roots = settings.roots.map((r, i) =>
+      i === index ? { ...r, uri, name } : r,
+    );
+    onSettingsChange({ ...settings, roots });
+  }
+
   return (
     <Modal
       opened={opened}
@@ -130,6 +154,9 @@ export function ServerSettingsModal({
           onMetadataChange={handleMetadataChange}
           onTimeoutChange={handleTimeoutChange}
           onOAuthChange={handleOAuthChange}
+          onAddRoot={handleAddRoot}
+          onRemoveRoot={handleRemoveRoot}
+          onRootChange={handleRootChange}
         />
       </Stack>
     </Modal>

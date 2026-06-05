@@ -13,6 +13,7 @@ const defaultSettings: InspectorServerSettings = {
   connectionTimeout: 30000,
   requestTimeout: 60000,
   taskTtl: 60000,
+  roots: [],
 };
 
 function InteractiveRender(args: ServerSettingsFormProps) {
@@ -171,6 +172,10 @@ export const AllConfigured: Story = {
       oauthClientId: "my-client-id",
       oauthClientSecret: "super-secret-value",
       oauthScopes: "read write",
+      roots: [
+        { uri: "file:///home/user/project", name: "Project" },
+        { uri: "file:///tmp" },
+      ],
     },
   },
 };

@@ -12,12 +12,14 @@ import type {
   InspectorServerSettings,
   OAuthSettings,
 } from "@inspector/core/mcp/types.js";
+import type { Root } from "@modelcontextprotocol/sdk/types.js";
 
 export type ServerSettingsSection =
   | "headers"
   | "metadata"
   | "timeouts"
-  | "oauth";
+  | "oauth"
+  | "roots";
 
 export interface ServerSettingsFormProps {
   settings: InspectorServerSettings;
@@ -34,6 +36,9 @@ export interface ServerSettingsFormProps {
     value: number,
   ) => void;
   onOAuthChange: (oauth: OAuthSettings) => void;
+  onAddRoot: () => void;
+  onRemoveRoot: (index: number) => void;
+  onRootChange: (index: number, uri: string, name: string) => void;
 }
 
 const RemoveIcon = ActionIcon.withProps({
@@ -91,6 +96,42 @@ function KeyValueRows({
   );
 }
 
+function RootRows({
+  roots,
+  onChange,
+  onRemove,
+}: {
+  roots: Root[];
+  onChange: (index: number, uri: string, name: string) => void;
+  onRemove: (index: number) => void;
+}) {
+  if (roots.length === 0) {
+    return null;
+  }
+
+  return (
+    <>
+      {roots.map((root, index) => (
+        <Group key={index} grow>
+          <TextInput
+            placeholder="URI (e.g. file:///path)"
+            value={root.uri}
+            onChange={(e) =>
+              onChange(index, e.currentTarget.value, root.name ?? "")
+            }
+          />
+          <TextInput
+            placeholder="Name (optional)"
+            value={root.name ?? ""}
+            onChange={(e) => onChange(index, root.uri, e.currentTarget.value)}
+          />
+          <RemoveIcon onClick={() => onRemove(index)}>X</RemoveIcon>
+        </Group>
+      ))}
+    </>
+  );
+}
+
 export function ServerSettingsForm({
   settings,
   expandedSections,
@@ -103,6 +144,9 @@ export function ServerSettingsForm({
   onMetadataChange,
   onTimeoutChange,
   onOAuthChange,
+  onAddRoot,
+  onRemoveRoot,
+  onRootChange,
 }: ServerSettingsFormProps) {
   const handleTimeoutChange =
     (field: "connectionTimeout" | "requestTimeout" | "taskTtl") =>
@@ -201,6 +245,30 @@ export function ServerSettingsForm({
               onChange={handleTimeoutChange("taskTtl")}
             />
           </Group>
+        </Accordion.Panel>
+      </Accordion.Item>
+
+      <Accordion.Item value="roots">
+        <Accordion.Control>Roots</Accordion.Control>
+        <Accordion.Panel>
+          <Stack gap="md">
+            <Group justify="space-between">
+              <HintText>
+                Configure the root directories that the server can access. Each
+                root needs a URI; the name is optional.
+              </HintText>
+              <AddButton onClick={onAddRoot}>+ Add Root</AddButton>
+            </Group>
+            {settings.roots.length === 0 ? (
+              <EmptyHint>No roots configured</EmptyHint>
+            ) : (
+              <RootRows
+                roots={settings.roots}
+                onChange={onRootChange}
+                onRemove={onRemoveRoot}
+              />
+            )}
+          </Stack>
         </Accordion.Panel>
       </Accordion.Item>
 

@@ -870,6 +870,21 @@ export function createRemoteApp(
     }
     return true;
   };
+  // A roots array: each entry must have a string `uri` and, when present, a
+  // string `name` (SDK `Root`). Other keys (e.g. `_meta`) pass through — we
+  // only gate the two fields the Inspector reads/writes.
+  const isRootArray = (
+    v: unknown,
+  ): v is { uri: string; name?: string }[] => {
+    if (!Array.isArray(v)) return false;
+    return v.every((e) => {
+      if (e === null || typeof e !== "object") return false;
+      const o = e as Record<string, unknown>;
+      if (typeof o.uri !== "string") return false;
+      if (o.name !== undefined && typeof o.name !== "string") return false;
+      return true;
+    });
+  };
   // `Number.isFinite` rejects `Infinity` and `NaN` as well as non-numbers,
   // matching the write-side semantics in `validateSettings`. A hand-edited
   // file with `connectionTimeout: Infinity` would otherwise pass the guard
@@ -953,6 +968,13 @@ export function createRemoteApp(
           "Dropping malformed `oauth` field — expected `{ clientId?, clientSecret?, scopes? }`.",
         );
         delete valObj.oauth;
+      }
+      if ("roots" in valObj && !isRootArray(valObj.roots)) {
+        logWarn(
+          { route: "/api/servers", id, droppedKey: "roots" },
+          "Dropping malformed `roots` field — expected `Array<{ uri: string, name?: string }>`.",
+        );
+        delete valObj.roots;
       }
 
       out[id] = normalizeServerType(
@@ -1096,6 +1118,16 @@ export function createRemoteApp(
         return { ok: false, error: `settings.${optional} must be a string` };
       }
     }
+    // roots is optional on the wire (older clients won't send it); when
+    // present it must be an array of `{ uri, name? }`. Reuses the same
+    // module-scope `isRootArray` guard the read path applies in
+    // `normalizeMcpServers`, so the two paths can't drift.
+    if (obj.roots !== undefined && !isRootArray(obj.roots)) {
+      return {
+        ok: false,
+        error: "settings.roots must be an array of { uri, name? }",
+      };
+    }
     // Build the validated value from explicitly named fields rather than
     // casting the raw object through. Unknown keys silently drop so a
     // misconfigured client can't smuggle stowaways onto disk, and consumers
@@ -1114,6 +1146,11 @@ export function createRemoteApp(
       // to disk for a client that didn't send one.
       taskTtl:
         typeof obj.taskTtl === "number" ? obj.taskTtl : DEFAULT_TASK_TTL_MS,
+      // Absent → empty list, matching the read side
+      // (storedFieldsToInspectorSettings). Empty rows are dropped on the way
+      // to disk by inspectorSettingsToStoredFields, so an empty array here
+      // writes no spurious `roots` field.
+      roots: isRootArray(obj.roots) ? obj.roots : [],
     };
     if (typeof obj.oauthClientId === "string" && obj.oauthClientId !== "") {
       value.oauthClientId = obj.oauthClientId;

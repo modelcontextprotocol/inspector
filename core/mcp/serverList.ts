@@ -6,6 +6,7 @@
  */
 
 import { DEFAULT_TASK_TTL_MS } from "./types.js";
+import type { Root } from "@modelcontextprotocol/sdk/types.js";
 import type {
   InspectorServerSettings,
   MCPConfig,
@@ -58,6 +59,27 @@ export function normalizeServerType(
 }
 
 /**
+ * Normalize the form's controlled root rows into the shape the Inspector
+ * advertises and persists: drop rows whose `uri` is blank (the form leaves a
+ * new row empty mid-edit) and drop a blank/whitespace `name`. Any other fields
+ * a root carries (e.g. `_meta` from a hand-edited `mcp.json`) are preserved —
+ * only `uri`/`name` are normalized. Shared by the settings → disk converter
+ * (`inspectorSettingsToStoredFields`) and the web client's connect-time +
+ * `setRoots` wiring so the roots told to the server match what hits disk.
+ */
+export function cleanRoots(roots: Root[]): Root[] {
+  return roots
+    .filter((r) => r.uri.trim() !== "")
+    .map((r) => {
+      const trimmedName = r.name?.trim();
+      // Strip `name` off the carried-through rest so a cleared optional name
+      // doesn't persist as `name: ""`; re-add it only when non-empty.
+      const { name: _name, ...rest } = r;
+      return trimmedName ? { ...rest, name: trimmedName } : rest;
+    });
+}
+
+/**
  * The Inspector-extension fields that live as direct keys on a `StoredMCPServer`
  * (post-#1358) — split out from `MCPServerConfig` so both directions of the
  * converter can name them in one place. Equivalent to
@@ -71,6 +93,7 @@ type StoredInspectorFields = Pick<
   | "requestTimeout"
   | "taskTtl"
   | "oauth"
+  | "roots"
 >;
 
 /**
@@ -94,7 +117,8 @@ export function storedFieldsToInspectorSettings(
     stored.connectionTimeout !== undefined ||
     stored.requestTimeout !== undefined ||
     stored.taskTtl !== undefined ||
-    stored.oauth !== undefined;
+    stored.oauth !== undefined ||
+    stored.roots !== undefined;
   if (!hasAny) return undefined;
 
   const headersPairs: { key: string; value: string }[] = stored.headers
@@ -109,6 +133,10 @@ export function storedFieldsToInspectorSettings(
     // Unlike the timeouts (0 = "SDK default"), task TTL has a concrete product
     // default so the form shows it and "Run as task" has a value to send.
     taskTtl: stored.taskTtl ?? DEFAULT_TASK_TTL_MS,
+    // Defaults to an empty list so the form always has a concrete array to
+    // render controlled rows from. An absent on-disk `roots` reads back as
+    // `[]`, which `inspectorSettingsToStoredFields` then omits on write.
+    roots: stored.roots ?? [],
   };
   // Truthiness drops empty-string OAuth fields — mirrors the write-side
   // coercion in `validateSettings` (server.ts) so a round-trip can't
@@ -179,6 +207,14 @@ export function inspectorSettingsToStoredFields(
     out.oauth = oauthFields;
   }
 
+  // Drop empty-uri rows / blank names via the shared normalizer; omit the
+  // field entirely when nothing survives, keeping the diff minimal for entries
+  // that never configured roots.
+  const rootsFiltered = cleanRoots(settings.roots);
+  if (rootsFiltered.length > 0) {
+    out.roots = rootsFiltered;
+  }
+
   return out;
 }
 
@@ -203,6 +239,7 @@ const INSPECTOR_FIELD_KEY_MAP = {
   requestTimeout: true,
   taskTtl: true,
   oauth: true,
+  roots: true,
 } as const satisfies Record<keyof StoredInspectorFields, true>;
 
 export const INSPECTOR_FIELD_KEYS = new Set(

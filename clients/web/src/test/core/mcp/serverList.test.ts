@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  cleanRoots,
   DEFAULT_SEED_CONFIG,
   expectedSecretFields,
   extractSecretsFromStored,
@@ -71,6 +72,31 @@ describe("normalizeServerType", () => {
     const out = normalizeServerType(input);
     expect(out).not.toBe(input);
     expect(input).not.toHaveProperty("type");
+  });
+});
+
+describe("cleanRoots", () => {
+  it("drops blank-uri rows and trims/drops blank names", () => {
+    expect(
+      cleanRoots([
+        { uri: "file:///a", name: "  Alpha  " },
+        { uri: "file:///b", name: "   " },
+        { uri: "   " },
+        { uri: "" },
+      ]),
+    ).toEqual([{ uri: "file:///a", name: "Alpha" }, { uri: "file:///b" }]);
+  });
+
+  it("preserves non-form fields (e.g. _meta) on surviving rows", () => {
+    expect(
+      cleanRoots([
+        { uri: "file:///a", name: "Alpha", _meta: { k: 1 } },
+        { uri: "file:///b", _meta: { k: 2 } },
+      ]),
+    ).toEqual([
+      { uri: "file:///a", name: "Alpha", _meta: { k: 1 } },
+      { uri: "file:///b", _meta: { k: 2 } },
+    ]);
   });
 });
 
@@ -203,6 +229,8 @@ describe("serverEntriesToMcpConfig", () => {
       requestTimeout: 0,
       // Absent taskTtl on disk → product default in memory (for the form)
       taskTtl: 60000,
+      // Absent roots on disk → empty list in memory (for the form)
+      roots: [],
       // Nested oauth on disk → flat oauthClientId in memory
       oauthClientId: "the-client",
     });
@@ -275,6 +303,7 @@ describe("serverEntriesToMcpConfig", () => {
           connectionTimeout: 0,
           requestTimeout: 0,
           taskTtl: 0,
+          roots: [],
         },
         connection: { status: "disconnected" },
       },
@@ -299,6 +328,7 @@ describe("serverEntriesToMcpConfig", () => {
           connectionTimeout: 0,
           requestTimeout: 0,
           taskTtl: 0,
+          roots: [],
         },
         connection: { status: "disconnected" },
       },
@@ -310,6 +340,90 @@ describe("serverEntriesToMcpConfig", () => {
     expect(stored).not.toHaveProperty("oauth");
     expect(stored).not.toHaveProperty("headers");
     expect(stored).not.toHaveProperty("metadata");
+    expect(stored).not.toHaveProperty("roots");
+  });
+
+  it("round-trips roots (uri + optional name) onto the top-level disk field", () => {
+    const entries: ServerEntry[] = [
+      {
+        id: "alpha",
+        name: "alpha",
+        config: { type: "stdio", command: "node" },
+        settings: {
+          headers: [],
+          metadata: [],
+          connectionTimeout: 0,
+          requestTimeout: 0,
+          taskTtl: 0,
+          roots: [
+            { uri: "file:///project", name: "Project" },
+            { uri: "file:///tmp" },
+          ],
+        },
+        connection: { status: "disconnected" },
+      },
+    ];
+    const stored = serverEntriesToMcpConfig(entries).mcpServers.alpha;
+    expect(stored?.roots).toEqual([
+      { uri: "file:///project", name: "Project" },
+      { uri: "file:///tmp" },
+    ]);
+    // Disk → memory lifts the same roots back onto settings.
+    const [entry] = mcpConfigToServerEntries({
+      mcpServers: { alpha: stored! },
+    });
+    expect(entry?.settings?.roots).toEqual([
+      { uri: "file:///project", name: "Project" },
+      { uri: "file:///tmp" },
+    ]);
+  });
+
+  it("drops empty-uri root rows and blank names on serialize", () => {
+    // The form leaves a blank row when the user clicks 'Add Root' but hasn't
+    // typed a URI yet; a cleared optional name should not write `name: ""`.
+    const entries: ServerEntry[] = [
+      {
+        id: "alpha",
+        name: "alpha",
+        config: { type: "stdio", command: "node" },
+        settings: {
+          headers: [],
+          metadata: [],
+          connectionTimeout: 0,
+          requestTimeout: 0,
+          taskTtl: 0,
+          roots: [
+            { uri: "file:///keep", name: "  " },
+            { uri: "   " },
+            { uri: "" },
+          ],
+        },
+        connection: { status: "disconnected" },
+      },
+    ];
+    const stored = serverEntriesToMcpConfig(entries).mcpServers.alpha;
+    expect(stored?.roots).toEqual([{ uri: "file:///keep" }]);
+  });
+
+  it("omits the roots field entirely when no rows survive filtering", () => {
+    const entries: ServerEntry[] = [
+      {
+        id: "alpha",
+        name: "alpha",
+        config: { type: "stdio", command: "node" },
+        settings: {
+          headers: [],
+          metadata: [],
+          connectionTimeout: 0,
+          requestTimeout: 0,
+          taskTtl: 0,
+          roots: [{ uri: "" }],
+        },
+        connection: { status: "disconnected" },
+      },
+    ];
+    const stored = serverEntriesToMcpConfig(entries).mcpServers.alpha;
+    expect(stored).not.toHaveProperty("roots");
   });
 
   it("preserves insertion order on serialize", () => {

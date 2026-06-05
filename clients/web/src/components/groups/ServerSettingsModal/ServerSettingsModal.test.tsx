@@ -13,6 +13,7 @@ const initialSettings: InspectorServerSettings = {
   oauthClientId: "cid",
   oauthClientSecret: "secret",
   oauthScopes: "read",
+  roots: [{ uri: "file:///project", name: "Project" }],
 };
 
 const emptySettings: InspectorServerSettings = {
@@ -21,6 +22,7 @@ const emptySettings: InspectorServerSettings = {
   connectionTimeout: 30000,
   requestTimeout: 60000,
   taskTtl: 60000,
+  roots: [],
 };
 
 describe("ServerSettingsModal", () => {
@@ -225,6 +227,67 @@ describe("ServerSettingsModal", () => {
     expect(call.oauthClientId).toBe("a");
   });
 
+  it("calls onSettingsChange with a blank row when adding a root", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={emptySettings}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Roots" }));
+    await user.click(screen.getByRole("button", { name: "+ Add Root" }));
+    expect(onSettingsChange).toHaveBeenCalledWith({
+      ...emptySettings,
+      roots: [{ uri: "", name: "" }],
+    });
+  });
+
+  it("calls onSettingsChange when removing a root", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={initialSettings}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Roots" }));
+    const removeButtons = screen.getAllByRole("button", { name: "X" });
+    // The roots X is the last one (headers section is also expanded).
+    await user.click(removeButtons[removeButtons.length - 1]);
+    expect(onSettingsChange).toHaveBeenCalledWith({
+      ...initialSettings,
+      roots: [],
+    });
+  });
+
+  it("calls onSettingsChange when editing a root uri/name", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={initialSettings}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Roots" }));
+    const uriInput = screen.getByDisplayValue("file:///project");
+    await user.type(uriInput, "/src");
+    expect(onSettingsChange).toHaveBeenCalled();
+    const lastCall =
+      onSettingsChange.mock.calls[onSettingsChange.mock.calls.length - 1][0];
+    expect(lastCall.roots[0].name).toBe("Project");
+    expect(lastCall.roots[0].uri).toContain("file:///project");
+  });
+
   it("toggles all accordion sections when ListToggle button is clicked", async () => {
     const user = userEvent.setup();
     renderWithMantine(
@@ -243,6 +306,7 @@ describe("ServerSettingsModal", () => {
     });
     const timeoutsControl = screen.getByRole("button", { name: "Timeouts" });
     const oauthControl = screen.getByRole("button", { name: "OAuth Settings" });
+    const rootsControl = screen.getByRole("button", { name: "Roots" });
 
     // Initially only "headers" is expanded.
     expect(headersControl.getAttribute("aria-expanded")).toBe("true");
@@ -255,6 +319,7 @@ describe("ServerSettingsModal", () => {
     expect(metadataControl.getAttribute("aria-expanded")).toBe("true");
     expect(timeoutsControl.getAttribute("aria-expanded")).toBe("true");
     expect(oauthControl.getAttribute("aria-expanded")).toBe("true");
+    expect(rootsControl.getAttribute("aria-expanded")).toBe("true");
 
     // After expanding every section the toggle flips to "Collapse all".
     await user.click(screen.getByRole("button", { name: "Collapse all" }));

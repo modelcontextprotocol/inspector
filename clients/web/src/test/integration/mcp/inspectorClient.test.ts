@@ -320,6 +320,7 @@ describe("InspectorClient", () => {
             connectionTimeout: 50,
             requestTimeout: 0,
             taskTtl: 0,
+            roots: [],
           },
         },
       );
