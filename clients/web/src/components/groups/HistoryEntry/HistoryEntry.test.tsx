@@ -90,6 +90,21 @@ const noParamsEntry: MessageEntry = {
   },
 };
 
+const notificationEntry: MessageEntry = {
+  id: "note-1",
+  timestamp: new Date("2026-03-17T10:36:00Z"),
+  direction: "notification",
+  message: {
+    jsonrpc: "2.0",
+    method: "notifications/message",
+    params: {
+      level: "info",
+      logger: "everything-server",
+      data: "Roots updated: 2 root(s) received from client",
+    },
+  },
+};
+
 const baseProps = {
   isPinned: false,
   isListExpanded: false,
@@ -122,6 +137,18 @@ describe("HistoryEntry", () => {
   it("renders Pending status when no response present", () => {
     renderWithMantine(<HistoryEntry {...baseProps} entry={pendingEntry} />);
     expect(screen.getByText("Pending")).toBeInTheDocument();
+  });
+
+  it("renders no request-style status badge for a notification", () => {
+    renderWithMantine(
+      <HistoryEntry {...baseProps} entry={notificationEntry} />,
+    );
+    // The method badge still labels it; there is no Pending/OK/Error badge,
+    // since a fire-and-forget notification has no request lifecycle.
+    expect(screen.getByText("notifications/message")).toBeInTheDocument();
+    expect(screen.queryByText("Pending")).not.toBeInTheDocument();
+    expect(screen.queryByText("OK")).not.toBeInTheDocument();
+    expect(screen.queryByText("Error")).not.toBeInTheDocument();
   });
 
   it("renders Pin label when not pinned", () => {

@@ -73,7 +73,15 @@ function extractTarget(entry: MessageEntry): string | undefined {
   return undefined;
 }
 
-function extractStatus(entry: MessageEntry): "success" | "error" | "pending" {
+// The pending → OK/Error lifecycle only applies to requests: messageLogState
+// attaches a `response` to request entries by JSON-RPC id. A notification is
+// fire-and-forget (no id, no response, ever) and an unmatched standalone
+// response has none either — so those carry no request-style status ("none")
+// and render no badge, rather than a misleading permanent "Pending".
+function extractStatus(
+  entry: MessageEntry,
+): "success" | "error" | "pending" | "none" {
+  if (entry.direction !== "request") return "none";
   if (!entry.response) return "pending";
   if ("error" in entry.response) return "error";
   return "success";
@@ -124,7 +132,9 @@ export function HistoryEntry({
             {entry.duration != null && (
               <DurationText>{formatDuration(entry.duration)}</DurationText>
             )}
-            <Badge color={statusColor(status)}>{statusLabel(status)}</Badge>
+            {status !== "none" && (
+              <Badge color={statusColor(status)}>{statusLabel(status)}</Badge>
+            )}
           </Group>
         </HeaderRow>
 
