@@ -1420,6 +1420,16 @@ export class InspectorClient extends InspectorClientEventTarget {
         // retries exhausted): record + rethrow so the caller can surface it.
         // The App distinguishes the no-list `-32042` case (a dedicated toast)
         // via getUrlElicitationsFromError on the thrown error.
+        if (urlElicitations && urlElicitations.length > 0) {
+          // A non-empty list here means the retry cap was hit (the live path
+          // returns or continues). Log the give-up so a server that keeps
+          // demanding new URL elicitations is diagnosable rather than looking
+          // like an ordinary failure.
+          this.logger.warn(
+            { tool: tool.name, attempts: urlElicitationAttempt },
+            `Tool "${tool.name}" still required URL elicitations after ${MAX_URL_ELICITATION_RETRIES} attempts; giving up.`,
+          );
+        }
         this.dispatchFailedToolCall(
           tool,
           args,
@@ -1446,12 +1456,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     taskOptions?: { ttl?: number },
     options?: { skipOutputValidation?: boolean },
   ): Promise<ToolCallInvocation> {
-    {
-      const client = this.client;
-      if (!client) {
-        throw new Error("Client is not connected");
-      }
-      let convertedArgs: Record<string, JsonValue> = args;
+    const client = this.client;
+    if (!client) {
+      throw new Error("Client is not connected");
+    }
+    let convertedArgs: Record<string, JsonValue> = args;
       const stringArgs: Record<string, string> = {};
       for (const [key, value] of Object.entries(args)) {
         if (typeof value === "string") {
@@ -1536,7 +1545,6 @@ export class InspectorClient extends InspectorClientEventTarget {
       });
 
       return invocation;
-    }
   }
 
   /**

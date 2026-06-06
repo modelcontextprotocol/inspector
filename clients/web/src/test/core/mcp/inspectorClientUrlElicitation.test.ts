@@ -52,6 +52,18 @@ function makeClient(fake: FakeClient): InspectorClient {
   return client;
 }
 
+/**
+ * Count the failed `toolCallResultChange` events a client records. Used to lock
+ * in the "record a failure exactly once" invariant on the terminal error paths.
+ */
+function trackFailedDispatches(client: InspectorClient): () => number {
+  let count = 0;
+  client.addEventListener("toolCallResultChange", (e) => {
+    if (!e.detail.success) count += 1;
+  });
+  return () => count;
+}
+
 describe("InspectorClient URL-elicitation error path", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -142,6 +154,7 @@ describe("InspectorClient URL-elicitation error path", () => {
       request: vi.fn(),
     };
     const client = makeClient(fake);
+    const failedDispatches = trackFailedDispatches(client);
 
     const pending = client.callTool(tool, {});
     await vi.waitFor(() =>
@@ -151,6 +164,9 @@ describe("InspectorClient URL-elicitation error path", () => {
 
     await expect(pending).rejects.toThrow(/cancelled/i);
     expect(fake.callTool).toHaveBeenCalledTimes(1);
+    // The abort records exactly one failed history entry — not zero, not a
+    // duplicate from the generic catch.
+    expect(failedDispatches()).toBe(1);
   });
 
   it("aborts with a loop error when the server re-requests a completed URL", async () => {
@@ -162,6 +178,7 @@ describe("InspectorClient URL-elicitation error path", () => {
       request: vi.fn(),
     };
     const client = makeClient(fake);
+    const failedDispatches = trackFailedDispatches(client);
 
     const pending = client.callTool(tool, {});
 
@@ -177,6 +194,9 @@ describe("InspectorClient URL-elicitation error path", () => {
     // Only the initial call + one retry ran; the URL was presented just once.
     expect(fake.callTool).toHaveBeenCalledTimes(2);
     expect(client.getPendingElicitations()).toHaveLength(0);
+    // The loop abort records exactly one failed history entry (the accepted
+    // first round records nothing).
+    expect(failedDispatches()).toBe(1);
   });
 
   it("rethrows a -32042 error with no elicitations without queuing anything", async () => {
