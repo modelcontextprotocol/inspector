@@ -58,6 +58,7 @@ vi.mock("@inspector/core/mcp/index.js", () => {
     listResourceTemplates = vi
       .fn()
       .mockResolvedValue({ resourceTemplates: [] });
+    listRequestorTasks = vi.fn().mockResolvedValue({ tasks: [] });
     ping = vi.fn().mockResolvedValue(undefined);
     getOAuthState = vi.fn().mockReturnValue(undefined);
     getPendingSamples = vi.fn().mockReturnValue([]);
@@ -1106,6 +1107,30 @@ describe("App history pin/replay", () => {
     };
     await waitFor(() =>
       expect(client.listTools).toHaveBeenCalledWith("page-2"),
+    );
+  });
+
+  it("replays a tasks/list entry via listRequestorTasks", async () => {
+    vi.mocked(useMessageLog).mockReturnValue({
+      messages: [
+        {
+          ...replayableEntry,
+          message: { jsonrpc: "2.0", id: 7, method: "tasks/list" },
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("replay-history"));
+
+    const client = clientInstances[0] as unknown as {
+      listRequestorTasks: ReturnType<typeof vi.fn>;
+    };
+    await waitFor(() =>
+      expect(client.listRequestorTasks).toHaveBeenCalledTimes(1),
     );
   });
 

@@ -173,6 +173,24 @@ describe("HistoryEntry", () => {
     expect(onReplay).toHaveBeenCalledTimes(1);
   });
 
+  it("hides the Replay button for a method that can't be replayed", () => {
+    // A notification isn't a replayable client→server request.
+    renderWithMantine(
+      <HistoryEntry {...baseProps} entry={notificationEntry} />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Replay" }),
+    ).not.toBeInTheDocument();
+    // Pin stays available.
+    expect(screen.getByRole("button", { name: "Pin" })).toBeInTheDocument();
+  });
+
+  it("renders Pin before Replay", () => {
+    renderWithMantine(<HistoryEntry {...baseProps} entry={successEntry} />);
+    const buttons = screen.getAllByRole("button").map((b) => b.textContent);
+    expect(buttons.indexOf("Pin")).toBeLessThan(buttons.indexOf("Replay"));
+  });
+
   it("invokes onTogglePin when Pin button is clicked", async () => {
     const user = userEvent.setup();
     const onTogglePin = vi.fn();

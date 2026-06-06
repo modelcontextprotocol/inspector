@@ -103,6 +103,7 @@ import { ServerSettingsModal } from "./components/groups/ServerSettingsModal/Ser
 import { ConnectionInfoModal } from "./components/groups/ConnectionInfoModal/ConnectionInfoModal";
 import { OutputValidationModal } from "./components/groups/OutputValidationModal/OutputValidationModal";
 import { UrlElicitationErrorModal } from "./components/groups/UrlElicitationErrorModal/UrlElicitationErrorModal";
+import { isReplayableHistoryMethod } from "./components/groups/historyUtils.js";
 import type { OAuthDetails } from "./components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
 import {
@@ -205,6 +206,11 @@ async function replayHistoryRequest(
   params: Record<string, unknown> | undefined,
   tools: Tool[],
 ): Promise<string | null> {
+  // Gate on the shared replayable-method set (the same one HistoryEntry uses to
+  // show/hide the Replay button) so the two can't drift.
+  if (!isReplayableHistoryMethod(method)) {
+    return `Replay isn't supported for "${method}".`;
+  }
   // Pagination cursor carried by the */list requests; replaying the same page
   // reproduces the original call.
   const cursor = typeof params?.cursor === "string" ? params.cursor : undefined;
@@ -247,6 +253,9 @@ async function replayHistoryRequest(
       return null;
     case "resources/templates/list":
       await client.listResourceTemplates(cursor);
+      return null;
+    case "tasks/list":
+      await client.listRequestorTasks(cursor);
       return null;
     case "ping":
       await client.ping();

@@ -11,7 +11,7 @@ import {
 } from "@mantine/core";
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
-import { extractMethod } from "../historyUtils.js";
+import { extractMethod, isReplayableHistoryMethod } from "../historyUtils.js";
 
 export interface HistoryEntryProps {
   entry: MessageEntry;
@@ -114,6 +114,7 @@ export function HistoryEntry({
   const method = extractMethod(entry);
   const target = extractTarget(entry);
   const status = extractStatus(entry);
+  const canReplay = isReplayableHistoryMethod(method);
 
   useEffect(() => {
     setIsExpanded(isListExpanded);
@@ -139,10 +140,10 @@ export function HistoryEntry({
         </HeaderRow>
 
         <Group gap="xs">
-          <SubtleButton onClick={onReplay}>Replay</SubtleButton>
           <SubtleButton onClick={onTogglePin}>
             {formatPinLabel(isPinned)}
           </SubtleButton>
+          {canReplay && <SubtleButton onClick={onReplay}>Replay</SubtleButton>}
           <SubtleButton onClick={() => setIsExpanded((v) => !v)} ml="auto">
             {isExpanded ? "Collapse" : "Expand"}
           </SubtleButton>
