@@ -1461,90 +1461,90 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Client is not connected");
     }
     let convertedArgs: Record<string, JsonValue> = args;
-      const stringArgs: Record<string, string> = {};
-      for (const [key, value] of Object.entries(args)) {
-        if (typeof value === "string") {
-          stringArgs[key] = value;
-        }
+    const stringArgs: Record<string, string> = {};
+    for (const [key, value] of Object.entries(args)) {
+      if (typeof value === "string") {
+        stringArgs[key] = value;
       }
-      if (Object.keys(stringArgs).length > 0) {
-        const convertedStringArgs = convertToolParameters(tool, stringArgs);
-        convertedArgs = { ...args, ...convertedStringArgs };
-      }
+    }
+    if (Object.keys(stringArgs).length > 0) {
+      const convertedStringArgs = convertToolParameters(tool, stringArgs);
+      convertedArgs = { ...args, ...convertedStringArgs };
+    }
 
-      // Merge general metadata with tool-specific metadata; tool-specific wins.
-      const callMetadata: Record<string, string> | undefined =
-        generalMetadata || toolSpecificMetadata
-          ? { ...(generalMetadata || {}), ...(toolSpecificMetadata || {}) }
-          : undefined;
-
-      const timestamp = new Date();
-      // Fold in this client's defaultMetadata so server-wide _meta reaches
-      // the wire even when the caller passed nothing.
-      const metadata = this.mergeMeta(callMetadata);
-
-      const callParams: {
-        name: string;
-        arguments: Record<string, JsonValue>;
-        _meta?: Record<string, string>;
-        task?: { ttl: number };
-      } = {
-        name: tool.name,
-        arguments: convertedArgs,
-        _meta: metadata,
-      };
-      if (taskOptions?.ttl != null) {
-        callParams.task = { ttl: taskOptions.ttl };
-      }
-
-      // MCP Apps forward the server's CallToolResult straight to the running
-      // view, which is the real consumer. The SDK's callTool() validates
-      // structuredContent against the tool's outputSchema and THROWS on a
-      // mismatch — which would deny the app a result the server actually
-      // returned (and that legacy hosts render fine). For those passthrough
-      // calls go through request() directly, which skips that host-side
-      // validation. Regular Tools-screen calls keep validating.
-      const requestOptions = this.getRequestOptions(metadata?.progressToken);
-      // Both branches yield a CallToolResult: request() parsed it with
-      // CallToolResultSchema above, callTool() returns the same shape — so the
-      // `as CallToolResult` casts below are safe.
-      const result = options?.skipOutputValidation
-        ? await client.request(
-            { method: "tools/call", params: callParams },
-            CallToolResultSchema,
-            requestOptions,
-          )
-        : await client.callTool(callParams, undefined, requestOptions);
-
-      // On the bypass path the result was delivered without the SDK's strict
-      // output validation. Run that check ourselves, non-fatally, so callers can
-      // warn that strict clients would reject this payload (the app still
-      // renders, but it may not in other hosts).
-      const outputValidationError = options?.skipOutputValidation
-        ? this.validateToolOutput(tool, result as CallToolResult)
+    // Merge general metadata with tool-specific metadata; tool-specific wins.
+    const callMetadata: Record<string, string> | undefined =
+      generalMetadata || toolSpecificMetadata
+        ? { ...(generalMetadata || {}), ...(toolSpecificMetadata || {}) }
         : undefined;
 
-      const invocation: ToolCallInvocation = {
-        toolName: tool.name,
-        params: args,
-        result: result as CallToolResult,
-        timestamp,
-        success: true,
-        metadata,
-        outputValidationError,
-      };
+    const timestamp = new Date();
+    // Fold in this client's defaultMetadata so server-wide _meta reaches
+    // the wire even when the caller passed nothing.
+    const metadata = this.mergeMeta(callMetadata);
 
-      this.dispatchTypedEvent("toolCallResultChange", {
-        toolName: tool.name,
-        params: args,
-        result: invocation.result,
-        timestamp,
-        success: true,
-        metadata,
-        outputValidationError,
-      });
+    const callParams: {
+      name: string;
+      arguments: Record<string, JsonValue>;
+      _meta?: Record<string, string>;
+      task?: { ttl: number };
+    } = {
+      name: tool.name,
+      arguments: convertedArgs,
+      _meta: metadata,
+    };
+    if (taskOptions?.ttl != null) {
+      callParams.task = { ttl: taskOptions.ttl };
+    }
 
-      return invocation;
+    // MCP Apps forward the server's CallToolResult straight to the running
+    // view, which is the real consumer. The SDK's callTool() validates
+    // structuredContent against the tool's outputSchema and THROWS on a
+    // mismatch — which would deny the app a result the server actually
+    // returned (and that legacy hosts render fine). For those passthrough
+    // calls go through request() directly, which skips that host-side
+    // validation. Regular Tools-screen calls keep validating.
+    const requestOptions = this.getRequestOptions(metadata?.progressToken);
+    // Both branches yield a CallToolResult: request() parsed it with
+    // CallToolResultSchema above, callTool() returns the same shape — so the
+    // `as CallToolResult` casts below are safe.
+    const result = options?.skipOutputValidation
+      ? await client.request(
+          { method: "tools/call", params: callParams },
+          CallToolResultSchema,
+          requestOptions,
+        )
+      : await client.callTool(callParams, undefined, requestOptions);
+
+    // On the bypass path the result was delivered without the SDK's strict
+    // output validation. Run that check ourselves, non-fatally, so callers can
+    // warn that strict clients would reject this payload (the app still
+    // renders, but it may not in other hosts).
+    const outputValidationError = options?.skipOutputValidation
+      ? this.validateToolOutput(tool, result as CallToolResult)
+      : undefined;
+
+    const invocation: ToolCallInvocation = {
+      toolName: tool.name,
+      params: args,
+      result: result as CallToolResult,
+      timestamp,
+      success: true,
+      metadata,
+      outputValidationError,
+    };
+
+    this.dispatchTypedEvent("toolCallResultChange", {
+      toolName: tool.name,
+      params: args,
+      result: invocation.result,
+      timestamp,
+      success: true,
+      metadata,
+      outputValidationError,
+    });
+
+    return invocation;
   }
 
   /**
