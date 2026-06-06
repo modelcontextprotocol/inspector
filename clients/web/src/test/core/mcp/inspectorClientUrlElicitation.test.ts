@@ -199,6 +199,28 @@ describe("InspectorClient URL-elicitation error path", () => {
     expect(failedDispatches()).toBe(1);
   });
 
+  it("settles a pending error-path elicitation as cancelled on disconnect (no hang)", async () => {
+    const fake: FakeClient = {
+      callTool: vi.fn(async () => {
+        throw new UrlElicitationRequiredError([elicitation]);
+      }),
+      request: vi.fn(),
+    };
+    const client = makeClient(fake);
+
+    const pending = client.callTool(tool, {});
+    await vi.waitFor(() =>
+      expect(client.getPendingElicitations()).toHaveLength(1),
+    );
+
+    // Tearing down mid-elicitation must settle the awaiting promise rather than
+    // leave callTool hanging forever on a dropped queue.
+    await client.disconnect();
+
+    await expect(pending).rejects.toThrow(/cancelled/i);
+    expect(client.getPendingElicitations()).toHaveLength(0);
+  });
+
   it("rethrows a -32042 error with no elicitations without queuing anything", async () => {
     const fake: FakeClient = {
       callTool: vi.fn(async () => {

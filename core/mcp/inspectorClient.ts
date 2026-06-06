@@ -1023,8 +1023,14 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.dispatchTypedEvent("disconnect");
     }
 
-    // Clear server state on disconnect (list state is in state managers)
+    // Clear server state on disconnect (list state is in state managers).
+    // Settle any outstanding elicitations as cancelled before dropping them, so
+    // an error-path `awaitUrlElicitation` (which blocks `callTool`) doesn't hang
+    // forever when the queue is cleared on teardown.
     this.pendingSamples = [];
+    for (const elicitation of this.pendingElicitations) {
+      elicitation.cancel();
+    }
     this.pendingElicitations = [];
     // Clear resource subscriptions on disconnect
     this.subscribedResources.clear();
@@ -1040,6 +1046,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.serverInfo = undefined;
     this.instructions = undefined;
     this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
+    this.dispatchTypedEvent("pendingElicitationsChange", this.pendingElicitations);
     this.dispatchTypedEvent("capabilitiesChange", this.capabilities);
     this.dispatchTypedEvent("serverInfoChange", this.serverInfo);
     this.dispatchTypedEvent("instructionsChange", this.instructions);

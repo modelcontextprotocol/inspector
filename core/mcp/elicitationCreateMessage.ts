@@ -89,6 +89,22 @@ export class ElicitationCreateMessage {
   }
 
   /**
+   * Settle a still-pending elicitation as cancelled, without removing it from
+   * the queue. Used by `disconnect()` teardown so an awaiting caller — notably
+   * the error-path `awaitUrlElicitation` that blocks `callTool` — doesn't hang
+   * forever when the pending queue is dropped wholesale. No-op once already
+   * resolved; deliberately does not call `onRemove` (the caller clears the
+   * queue itself, so we must not splice it mid-iteration).
+   */
+  cancel(): void {
+    if (this.resolvePromise) {
+      this.resolvePromise({ action: "cancel" });
+      this.resolvePromise = undefined;
+    }
+    this.rejectCallback = undefined;
+  }
+
+  /**
    * Remove this pending elicitation from the list
    */
   remove(): void {

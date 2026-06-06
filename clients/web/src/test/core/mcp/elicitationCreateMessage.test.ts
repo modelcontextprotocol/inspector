@@ -53,3 +53,38 @@ describe("ElicitationCreateMessage.completeIfPending", () => {
     expect(onRemove).not.toHaveBeenCalled();
   });
 });
+
+describe("ElicitationCreateMessage.cancel", () => {
+  it("resolves a pending elicitation as cancelled without removing it", () => {
+    const resolve = vi.fn();
+    const onRemove = vi.fn();
+    const message = new ElicitationCreateMessage(
+      urlRequest(),
+      resolve,
+      onRemove,
+    );
+
+    message.cancel();
+
+    // Settles the awaiting promise (so callTool unblocks on teardown) but does
+    // not splice the queue — disconnect() clears it wholesale.
+    expect(resolve).toHaveBeenCalledWith({ action: "cancel" });
+    expect(onRemove).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op once already responded to", async () => {
+    const resolve = vi.fn();
+    const onRemove = vi.fn();
+    const message = new ElicitationCreateMessage(
+      urlRequest(),
+      resolve,
+      onRemove,
+    );
+
+    await message.respond({ action: "accept" });
+    resolve.mockClear();
+
+    message.cancel();
+    expect(resolve).not.toHaveBeenCalled();
+  });
+});
