@@ -16,15 +16,16 @@ const LABEL: Record<MessageDirectionBadgeProps["direction"], string> = {
 
 /**
  * Dual-state badge showing which way a History/Network entry traveled. Outgoing
- * (client → server) is green; incoming (client ← server) is yellow, so the two
- * are distinguishable at a glance. Shared by `HistoryEntry` and `NetworkEntry`.
+ * (client → server) is green; incoming (client ← server) is purple — not yellow,
+ * which (paired with green) reads as caution/ok status rather than direction.
+ * Shared by `HistoryEntry` and `NetworkEntry`.
  */
 export function MessageDirectionBadge({
   direction,
 }: MessageDirectionBadgeProps) {
   return (
     <Badge
-      color={direction === "outgoing" ? "green" : "yellow"}
+      color={direction === "outgoing" ? "green" : "violet"}
       variant="light"
     >
       {LABEL[direction]}
