@@ -8,6 +8,7 @@ const meta: Meta<typeof ElicitationUrlPanel> = {
   args: {
     onCopyUrl: fn(),
     onOpenInBrowser: fn(),
+    onComplete: fn(),
     onCancel: fn(),
     message: "Please authenticate with the external service.",
     requestId: "elicit-abc-123",

@@ -174,25 +174,30 @@ function ElicitationUrlModalBody({
   url: string;
   onRespond: (result: ElicitResult) => void;
 }) {
+  const [isWaiting, setIsWaiting] = useState(false);
   const { responded, once } = useRespondOnce();
   return (
     <ElicitationUrlPanel
       message={message}
       url={url}
       requestId={id}
-      isWaiting={false}
+      isWaiting={isWaiting}
       onCopyUrl={() => {
         void navigator.clipboard?.writeText(url);
+        // Copying the URL is the other way to start the external flow (paste
+        // into a browser). Reveal the completion step too, otherwise a user who
+        // copies rather than clicking "Open in Browser" could only Cancel.
+        setIsWaiting(true);
       }}
-      onOpenInBrowser={once(() => {
+      onOpenInBrowser={() => {
         window.open(url, "_blank", "noopener,noreferrer");
-        // Accept-on-open: the inspector can't observe completion of an external
-        // flow, so opening the URL is treated as acceptance. This is optimistic
-        // — the user could close the tab without finishing. A proper two-step
-        // "open, then confirm completion" flow (using ElicitationUrlPanel's
-        // isWaiting state) is tracked as a follow-up; see #1415.
-        onRespond({ action: "accept" });
-      })}
+        // Opening the URL only moves the panel into its waiting state — the
+        // inspector can't observe completion of an external flow, so the
+        // elicitation resolves only when the user explicitly confirms
+        // completion (accept) or cancels.
+        setIsWaiting(true);
+      }}
+      onComplete={once(() => onRespond({ action: "accept" }))}
       onCancel={once(() => onRespond({ action: "cancel" }))}
       busy={responded}
     />

@@ -23,6 +23,10 @@ import type {
   InspectorClientEventMap,
   JsonValue,
 } from "@inspector/core/mcp/index.js";
+import {
+  getUrlElicitationsFromError,
+  UrlElicitationLoopError,
+} from "@inspector/core/mcp/urlElicitation.js";
 import type { TypedEventGeneric } from "@inspector/core/mcp/typedEventTarget.js";
 import type {
   InspectorServerSettings,
@@ -98,6 +102,7 @@ import {
 import { ServerSettingsModal } from "./components/groups/ServerSettingsModal/ServerSettingsModal";
 import { ConnectionInfoModal } from "./components/groups/ConnectionInfoModal/ConnectionInfoModal";
 import { OutputValidationModal } from "./components/groups/OutputValidationModal/OutputValidationModal";
+import { UrlElicitationErrorModal } from "./components/groups/UrlElicitationErrorModal/UrlElicitationErrorModal";
 import type { OAuthDetails } from "./components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
 import {
@@ -223,6 +228,46 @@ const OutputValidationToastMessage = ({
   </Stack>
 );
 
+// Body of the non-spec URLElicitationRequired toast: the server returned a
+// -32042 error with no `elicitations` list, so there's no URL to open. We keep
+// the toast short and link to a modal with the raw error body.
+const UrlElicitationErrorToastMessage = ({
+  onViewDetails,
+}: {
+  onViewDetails: () => void;
+}) => (
+  <Stack gap={4}>
+    <Text size="sm">
+      The server reported a URLElicitationRequired error but listed no required
+      elicitations, so there&apos;s nothing to open.
+    </Text>
+    <Anchor component="button" type="button" size="sm" onClick={onViewDetails}>
+      View error details
+    </Anchor>
+  </Stack>
+);
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+// Pretty-print a thrown error for the URL-elicitation details modal: an McpError
+// carries a `code`/`data` worth showing alongside the message, so include them
+// when present; otherwise fall back to the plain message.
+function formatErrorDetails(err: unknown): string {
+  if (err && typeof err === "object") {
+    const e = err as { code?: unknown; message?: unknown; data?: unknown };
+    if (e.code !== undefined || e.data !== undefined) {
+      return JSON.stringify(
+        { code: e.code, message: e.message, data: e.data },
+        null,
+        2,
+      );
+    }
+  }
+  return errorMessage(err);
+}
+
 // How long a progress toast lingers after its last tick. Each new tick on the
 // same progress stream resets this window (via `notifications.update`), so a
 // steady stream keeps one toast alive; the toast clears a few seconds after
@@ -338,6 +383,12 @@ function App() {
   const [outputValidationDetails, setOutputValidationDetails] = useState<{
     toolName: string;
     message: string;
+  } | null>(null);
+  // Raw body for the non-spec URLElicitationRequired (-32042, no elicitations)
+  // modal opened from its warning toast.
+  const [urlElicitationErrorDetails, setUrlElicitationErrorDetails] = useState<{
+    toolName: string;
+    details: string;
   } | null>(null);
 
   // The active connection target. `null` between sessions; set as soon as
@@ -1258,9 +1309,50 @@ function App() {
           error: invocation.error,
         });
       } catch (err) {
+        // The server kept asking for a URL the user already completed this call,
+        // so callTool aborted to avoid an endless re-prompt loop. Surface that
+        // explicitly rather than as a generic failure.
+        if (err instanceof UrlElicitationLoopError) {
+          setToolCallState({ status: "error", error: err.message });
+          notifications.show({
+            autoClose: false,
+            title: "URL elicitation loop",
+            color: "yellow",
+            message: (
+              <Text size="sm">
+                The server requested the same URL again after you completed it (
+                {err.url}), so the call was cancelled to avoid an endless loop.
+              </Text>
+            ),
+          });
+          return;
+        }
+        // A URLElicitationRequired (-32042) error that reaches here carried no
+        // elicitations (a non-spec response — the with-list case is handled and
+        // retried inside callTool). There's no URL to open, so surface a short
+        // toast that links to the raw error rather than a bare error panel.
+        const urlElicitations = getUrlElicitationsFromError(err);
+        if (urlElicitations !== null && urlElicitations.length === 0) {
+          const details = {
+            toolName: name,
+            details: formatErrorDetails(err),
+          };
+          setToolCallState({ status: "error", error: errorMessage(err) });
+          notifications.show({
+            autoClose: false,
+            title: "URL elicitation required",
+            color: "yellow",
+            message: (
+              <UrlElicitationErrorToastMessage
+                onViewDetails={() => setUrlElicitationErrorDetails(details)}
+              />
+            ),
+          });
+          return;
+        }
         setToolCallState({
           status: "error",
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       }
     },
@@ -1952,6 +2044,12 @@ function App() {
         toolName={outputValidationDetails?.toolName}
         message={outputValidationDetails?.message}
         onClose={() => setOutputValidationDetails(null)}
+      />
+      <UrlElicitationErrorModal
+        opened={urlElicitationErrorDetails !== null}
+        toolName={urlElicitationErrorDetails?.toolName}
+        details={urlElicitationErrorDetails?.details}
+        onClose={() => setUrlElicitationErrorDetails(null)}
       />
       <PendingClientRequestModal
         request={pendingRequestContent}

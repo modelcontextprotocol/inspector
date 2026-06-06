@@ -214,18 +214,39 @@ describe("PendingClientRequestModal", () => {
     });
   });
 
-  it("opens the URL and accepts a URL elicitation", async () => {
+  it("opens the URL into a waiting state without resolving the elicitation", async () => {
     const user = userEvent.setup();
     const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
     renderWithMantine(
       <PendingClientRequestModal {...baseProps} request={urlContent} />,
     );
+    // Before opening there is no completion action.
+    expect(
+      screen.queryByRole("button", { name: "I've completed it" }),
+    ).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open in Browser" }));
     expect(openSpy).toHaveBeenCalledWith(
       "https://example.com/authorize",
       "_blank",
       "noopener,noreferrer",
     );
+    // Opening alone must not resolve the elicitation; it only reveals the
+    // explicit completion step.
+    expect(baseProps.onElicitationRespond).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "I've completed it" }),
+    ).toBeInTheDocument();
+    openSpy.mockRestore();
+  });
+
+  it("accepts a URL elicitation only after the user confirms completion", async () => {
+    const user = userEvent.setup();
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    renderWithMantine(
+      <PendingClientRequestModal {...baseProps} request={urlContent} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Open in Browser" }));
+    await user.click(screen.getByRole("button", { name: "I've completed it" }));
     expect(baseProps.onElicitationRespond).toHaveBeenCalledWith({
       action: "accept",
     });
@@ -246,14 +267,38 @@ describe("PendingClientRequestModal", () => {
     expect(writeText).toHaveBeenCalledWith("https://example.com/authorize");
   });
 
-  it("cancels a URL elicitation", async () => {
+  it("reveals the completion step after Copy URL so a copy-paste flow can accept", async () => {
     const user = userEvent.setup();
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    });
     renderWithMantine(
       <PendingClientRequestModal {...baseProps} request={urlContent} />,
     );
+    // Before copying there is no completion action.
+    expect(
+      screen.queryByRole("button", { name: "I've completed it" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Copy URL" }));
+    await user.click(screen.getByRole("button", { name: "I've completed it" }));
+    expect(baseProps.onElicitationRespond).toHaveBeenCalledWith({
+      action: "accept",
+    });
+  });
+
+  it("cancels a URL elicitation after opening without sending accept", async () => {
+    const user = userEvent.setup();
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    renderWithMantine(
+      <PendingClientRequestModal {...baseProps} request={urlContent} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Open in Browser" }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(baseProps.onElicitationRespond).toHaveBeenCalledTimes(1);
     expect(baseProps.onElicitationRespond).toHaveBeenCalledWith({
       action: "cancel",
     });
+    openSpy.mockRestore();
   });
 });
