@@ -114,6 +114,38 @@ describe("HistoryListPanel", () => {
     expect(screen.getByText("History (2)")).toBeInTheDocument();
   });
 
+  it("toggles a section's expanded state when its header is clicked", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <HistoryListPanel {...baseProps} entries={sampleEntries} />,
+    );
+    const header = screen.getByRole("button", { name: "History (3)" });
+    expect(header).toHaveAttribute("aria-expanded", "true");
+    await user.click(header);
+    expect(header).toHaveAttribute("aria-expanded", "false");
+    await user.click(header);
+    expect(header).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("collapses the Pinned and History sections independently", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        pinnedIds={new Set(["req-1"])}
+      />,
+    );
+    const pinned = screen.getByRole("button", {
+      name: "Pinned Requests (1)",
+    });
+    const history = screen.getByRole("button", { name: "History (2)" });
+    await user.click(pinned);
+    expect(pinned).toHaveAttribute("aria-expanded", "false");
+    // Collapsing Pinned leaves History untouched.
+    expect(history).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("filters entries by searchText (case-insensitive)", () => {
     renderWithMantine(
       <HistoryListPanel

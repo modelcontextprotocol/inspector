@@ -1,12 +1,14 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Button,
+  Collapse,
   Group,
   Paper,
   ScrollArea,
   Stack,
   Text,
   Title,
+  UnstyledButton,
 } from "@mantine/core";
 import type { MessageEntry, MessageMethod } from "@inspector/core/mcp/types.js";
 import { HistoryEntry } from "../HistoryEntry/HistoryEntry";
@@ -44,6 +46,19 @@ const EmptyState = Text.withProps({
   c: "dimmed",
   ta: "center",
   py: "xl",
+});
+
+// Section header rendered as a toggle button — same `listItem` variant + active
+// background as the LogControls level toggles. Clicking expands/collapses the
+// section below it. `bg`, `onClick`, and the label are passed per instance.
+const SectionToggle = UnstyledButton.withProps({
+  w: "100%",
+  p: "sm",
+  variant: "listItem",
+});
+
+const SectionTitle = Text.withProps({
+  fw: 600,
 });
 
 function formatPinnedTitle(count: number): string {
@@ -86,6 +101,10 @@ export function HistoryListPanel({
   onToggleCompact,
 }: HistoryListPanelProps) {
   const viewportRef = useScrollMemory("history-list");
+  // Per-section expand/collapse, like the LogControls level toggles. Both start
+  // open; collapsing hides that section's entries without affecting the other.
+  const [pinnedOpen, setPinnedOpen] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(true);
   const filteredEntries = useMemo(() => {
     // `.filter()` returns a fresh array, so sorting in-place is safe.
     const sorted = entries
@@ -142,39 +161,67 @@ export function HistoryListPanel({
         >
           <Stack gap="md">
             {pinnedEntries.length > 0 && (
-              <>
-                <Title order={5}>
-                  {formatPinnedTitle(pinnedEntries.length)}
-                </Title>
-                {pinnedEntries.map((entry) => (
-                  <HistoryEntry
-                    key={entry.id}
-                    entry={entry}
-                    isPinned={true}
-                    isListExpanded={!compact}
-                    onReplay={() => onReplay(entry.id)}
-                    onTogglePin={() => onTogglePin(entry.id)}
-                  />
-                ))}
-              </>
+              <Stack gap="md">
+                <SectionToggle
+                  bg={
+                    pinnedOpen
+                      ? "var(--mantine-primary-color-light)"
+                      : undefined
+                  }
+                  aria-expanded={pinnedOpen}
+                  onClick={() => setPinnedOpen((v) => !v)}
+                >
+                  <SectionTitle>
+                    {formatPinnedTitle(pinnedEntries.length)}
+                  </SectionTitle>
+                </SectionToggle>
+                <Collapse in={pinnedOpen}>
+                  <Stack gap="md">
+                    {pinnedEntries.map((entry) => (
+                      <HistoryEntry
+                        key={entry.id}
+                        entry={entry}
+                        isPinned={true}
+                        isListExpanded={!compact}
+                        onReplay={() => onReplay(entry.id)}
+                        onTogglePin={() => onTogglePin(entry.id)}
+                      />
+                    ))}
+                  </Stack>
+                </Collapse>
+              </Stack>
             )}
 
             {unpinnedEntries.length > 0 && (
-              <>
-                <Title order={5}>
-                  {formatHistoryTitle(unpinnedEntries.length)}
-                </Title>
-                {unpinnedEntries.map((entry) => (
-                  <HistoryEntry
-                    key={entry.id}
-                    entry={entry}
-                    isPinned={false}
-                    isListExpanded={!compact}
-                    onReplay={() => onReplay(entry.id)}
-                    onTogglePin={() => onTogglePin(entry.id)}
-                  />
-                ))}
-              </>
+              <Stack gap="md">
+                <SectionToggle
+                  bg={
+                    historyOpen
+                      ? "var(--mantine-primary-color-light)"
+                      : undefined
+                  }
+                  aria-expanded={historyOpen}
+                  onClick={() => setHistoryOpen((v) => !v)}
+                >
+                  <SectionTitle>
+                    {formatHistoryTitle(unpinnedEntries.length)}
+                  </SectionTitle>
+                </SectionToggle>
+                <Collapse in={historyOpen}>
+                  <Stack gap="md">
+                    {unpinnedEntries.map((entry) => (
+                      <HistoryEntry
+                        key={entry.id}
+                        entry={entry}
+                        isPinned={false}
+                        isListExpanded={!compact}
+                        onReplay={() => onReplay(entry.id)}
+                        onTogglePin={() => onTogglePin(entry.id)}
+                      />
+                    ))}
+                  </Stack>
+                </Collapse>
+              </Stack>
             )}
           </Stack>
         </ScrollArea.Autosize>
