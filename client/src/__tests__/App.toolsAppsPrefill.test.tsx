@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import "@testing-library/jest-dom";
 import App from "../App";
 import { useConnection } from "../lib/hooks/useConnection";
@@ -56,6 +62,7 @@ jest.mock("../utils/configUtils", () => ({
   getInitialArgs: jest.fn(() => ""),
   initializeInspectorConfig: jest.fn(() => ({})),
   saveInspectorConfig: jest.fn(),
+  getMCPTaskTtl: jest.fn(() => 60000),
 }));
 
 jest.mock("../lib/hooks/useDraggablePane", () => ({
@@ -135,6 +142,9 @@ jest.mock("../components/ToolsTab", () => ({
   default: ({
     listTools,
     callTool,
+    toolResult,
+    isPollingTask,
+    cancelPolling,
   }: {
     listTools: () => void;
     callTool: (
@@ -143,6 +153,11 @@ jest.mock("../components/ToolsTab", () => ({
       metadata?: Record<string, unknown>,
       runAsTask?: boolean,
     ) => Promise<unknown>;
+    toolResult?: {
+      content?: Array<{ type: string; text: string }>;
+    } | null;
+    isPollingTask?: boolean;
+    cancelPolling?: () => void;
   }) => (
     <div data-testid="tools-tab">
       <button type="button" onClick={listTools}>
@@ -156,6 +171,20 @@ jest.mock("../components/ToolsTab", () => ({
       >
         mock run app tool
       </button>
+      <button
+        type="button"
+        onClick={() => {
+          void callTool("weatherApp", { city: "Lisbon" }, undefined, true);
+        }}
+      >
+        mock run task tool
+      </button>
+      {isPollingTask && (
+        <button type="button" onClick={cancelPolling}>
+          mock cancel polling
+        </button>
+      )}
+      <div data-testid="tools-result">{JSON.stringify(toolResult ?? null)}</div>
     </div>
   ),
 }));
@@ -280,5 +309,101 @@ describe("App - Tools to Apps prefilled handoff", () => {
     await waitFor(() => {
       expect(screen.getByTestId("apps-prefilled")).toHaveTextContent("null");
     });
+  });
+
+  it("can cancel task polling from ToolsTab", async () => {
+    const makeRequest = jest.fn(
+      async (request: { method: string; params?: { name?: string } }) => {
+        if (request.method === "tools/call") {
+          return {
+            task: {
+              taskId: "task-1",
+              status: "pending",
+              pollInterval: 10000,
+            },
+          };
+        }
+
+        if (request.method === "tasks/get") {
+          return {
+            taskId: "task-1",
+            status: "running",
+            pollInterval: 10000,
+            lastUpdatedAt: new Date().toISOString(),
+          };
+        }
+
+        throw new Error(`Unexpected method: ${request.method}`);
+      },
+    );
+
+    mockUseConnection.mockReturnValue({
+      connectionStatus: "connected",
+      serverCapabilities: {
+        tools: { listChanged: true },
+        tasks: { requests: { tools: { call: true } } },
+      },
+      serverImplementation: null,
+      mcpClient: {
+        request: jest.fn(),
+        notification: jest.fn(),
+        close: jest.fn(),
+      } as unknown as Client,
+      requestHistory: [],
+      clearRequestHistory: jest.fn(),
+      makeRequest,
+      cancelTask: jest.fn(),
+      listTasks: jest.fn(),
+      sendNotification: jest.fn(),
+      handleCompletion: jest.fn(),
+      completionsSupported: false,
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+    } as ReturnType<typeof useConnection>);
+
+    render(<App />);
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /mock run task tool/i }),
+      );
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(
+        makeRequest.mock.calls.some(
+          ([request]) => request.method === "tools/call",
+        ),
+      ).toBe(true);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("tools-result")).toHaveTextContent(
+        "Task created: task-1",
+      );
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /mock cancel polling/i }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /mock cancel polling/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("tools-result")).toHaveTextContent(
+        "Polling cancelled for task task-1",
+      );
+    });
+
+    expect(
+      makeRequest.mock.calls.some(
+        ([request]) => request.method === "tasks/get",
+      ),
+    ).toBe(false);
   });
 });

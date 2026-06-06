@@ -124,6 +124,50 @@ const cloneToolParams = (
   }
 };
 
+const createPollingCancelledError = (): Error | DOMException => {
+  if (typeof DOMException !== "undefined") {
+    return new DOMException("Polling cancelled", "AbortError");
+  }
+
+  const error = new Error("Polling cancelled");
+  error.name = "AbortError";
+  return error;
+};
+
+const isAbortError = (error: unknown): boolean => {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: string }).name === "AbortError"
+  );
+};
+
+const waitForNextTaskPoll = (
+  pollInterval: number,
+  signal: AbortSignal,
+): Promise<void> => {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(createPollingCancelledError());
+      return;
+    }
+
+    function onAbort() {
+      window.clearTimeout(timeoutId);
+      signal.removeEventListener("abort", onAbort);
+      reject(createPollingCancelledError());
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, pollInterval);
+
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+};
+
 const filterReservedMetadata = (
   metadata: Record<string, string>,
 ): Record<string, string> => {
@@ -304,6 +348,7 @@ const App = () => {
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isPollingTask, setIsPollingTask] = useState(false);
+  const pollingAbortControllerRef = useRef<AbortController | null>(null);
   const [nextResourceCursor, setNextResourceCursor] = useState<
     string | undefined
   >();
@@ -317,6 +362,16 @@ const App = () => {
   const [nextTaskCursor, setNextTaskCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
   const prefilledAppsToolCallIdRef = useRef(0);
+
+  const cancelToolPolling = useCallback(() => {
+    pollingAbortControllerRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      pollingAbortControllerRef.current?.abort();
+    };
+  }, []);
 
   const [activeTab, setActiveTab] = useState<string>(() => {
     const hash = window.location.hash.slice(1);
@@ -851,9 +906,10 @@ const App = () => {
     request: ClientRequest,
     schema: T,
     tabKey?: keyof typeof errors,
+    options?: Parameters<typeof makeRequest>[2],
   ): Promise<SchemaOutput<T>> => {
     try {
-      const response = await makeRequest(request, schema);
+      const response = await makeRequest(request, schema, options);
       if (tabKey !== undefined) {
         clearError(tabKey);
       }
@@ -1082,6 +1138,8 @@ const App = () => {
       if (runAsTask && isTaskResult(response)) {
         const taskId = response.task.taskId;
         const pollInterval = response.task.pollInterval;
+        const abortController = new AbortController();
+        pollingAbortControllerRef.current = abortController;
         // Set polling state BEFORE setting tool result for proper UI update
         setIsPollingTask(true);
         // Safely extract any _meta from the original response (if present)
@@ -1107,100 +1165,130 @@ const App = () => {
 
         // Polling loop
         let taskCompleted = false;
-        while (!taskCompleted) {
-          try {
-            // Wait for 1 second before polling
-            await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        try {
+          while (!taskCompleted && !abortController.signal.aborted) {
+            try {
+              await waitForNextTaskPoll(pollInterval, abortController.signal);
 
-            const taskStatus = await sendMCPRequest(
-              {
-                method: "tasks/get",
-                params: { taskId },
-              },
-              GetTaskResultSchema,
-            );
-
-            if (
-              taskStatus.status === "completed" ||
-              taskStatus.status === "failed" ||
-              taskStatus.status === "cancelled"
-            ) {
-              taskCompleted = true;
-              console.log(
-                `Polling complete for task ${taskId}: ${taskStatus.status}`,
+              const taskStatus = await sendMCPRequest(
+                {
+                  method: "tasks/get",
+                  params: { taskId },
+                },
+                GetTaskResultSchema,
+                undefined,
+                { signal: abortController.signal },
               );
 
-              if (taskStatus.status === "completed") {
-                console.log(`Fetching result for task ${taskId}`);
-                const result = await sendMCPRequest(
-                  {
-                    method: "tasks/result",
-                    params: { taskId },
-                  },
-                  CompatibilityCallToolResultSchema,
+              if (
+                taskStatus.status === "completed" ||
+                taskStatus.status === "failed" ||
+                taskStatus.status === "cancelled"
+              ) {
+                taskCompleted = true;
+                console.log(
+                  `Polling complete for task ${taskId}: ${taskStatus.status}`,
                 );
-                console.log(`Result received for task ${taskId}:`, result);
-                latestToolResult = result as CompatibilityCallToolResult;
-                setToolResult(latestToolResult);
 
-                // Refresh tasks list to show completed state
-                void listTasks();
+                if (taskStatus.status === "completed") {
+                  console.log(`Fetching result for task ${taskId}`);
+                  const result = await sendMCPRequest(
+                    {
+                      method: "tasks/result",
+                      params: { taskId },
+                    },
+                    CompatibilityCallToolResultSchema,
+                    undefined,
+                    { signal: abortController.signal },
+                  );
+                  console.log(`Result received for task ${taskId}:`, result);
+                  latestToolResult = result as CompatibilityCallToolResult;
+                  setToolResult(latestToolResult);
+
+                  // Refresh tasks list to show completed state
+                  void listTasks();
+                } else {
+                  latestToolResult = {
+                    content: [
+                      {
+                        type: "text",
+                        text: `Task ${taskStatus.status}: ${taskStatus.statusMessage || "No additional information"}`,
+                      },
+                    ],
+                    isError: true,
+                  };
+                  setToolResult(latestToolResult);
+                  // Refresh tasks list to show failed/cancelled state
+                  void listTasks();
+                }
               } else {
+                // Update status message while polling
+                // Safely extract any _meta from the original response (if present)
+                const pollingResponseMeta =
+                  response &&
+                  typeof response === "object" &&
+                  "_meta" in (response as Record<string, unknown>)
+                    ? ((response as { _meta?: Record<string, unknown> })
+                        ._meta ?? {})
+                    : undefined;
                 latestToolResult = {
                   content: [
                     {
                       type: "text",
-                      text: `Task ${taskStatus.status}: ${taskStatus.statusMessage || "No additional information"}`,
+                      text: `Task status: ${taskStatus.status}${taskStatus.statusMessage ? ` - ${taskStatus.statusMessage}` : ""}. Polling...`,
                     },
                   ],
-                  isError: true,
+                  _meta: {
+                    ...(pollingResponseMeta || {}),
+                    "io.modelcontextprotocol/related-task": { taskId },
+                  },
                 };
                 setToolResult(latestToolResult);
-                // Refresh tasks list to show failed/cancelled state
+                // Refresh tasks list to show progress
                 void listTasks();
               }
-            } else {
-              // Update status message while polling
-              // Safely extract any _meta from the original response (if present)
-              const pollingResponseMeta =
-                response &&
-                typeof response === "object" &&
-                "_meta" in (response as Record<string, unknown>)
-                  ? ((response as { _meta?: Record<string, unknown> })._meta ??
-                    {})
-                  : undefined;
+            } catch (pollingError) {
+              if (
+                abortController.signal.aborted ||
+                isAbortError(pollingError)
+              ) {
+                latestToolResult = {
+                  content: [
+                    {
+                      type: "text",
+                      text: `Polling cancelled for task ${taskId}. The task may still be running on the server.`,
+                    },
+                  ],
+                  _meta: {
+                    ...(initialResponseMeta || {}),
+                    "io.modelcontextprotocol/related-task": { taskId },
+                  },
+                };
+                setToolResult(latestToolResult);
+                taskCompleted = true;
+                break;
+              }
+
+              console.error("Error polling task status:", pollingError);
               latestToolResult = {
                 content: [
                   {
                     type: "text",
-                    text: `Task status: ${taskStatus.status}${taskStatus.statusMessage ? ` - ${taskStatus.statusMessage}` : ""}. Polling...`,
+                    text: `Error polling task status: ${pollingError instanceof Error ? pollingError.message : String(pollingError)}`,
                   },
                 ],
-                _meta: {
-                  ...(pollingResponseMeta || {}),
-                  "io.modelcontextprotocol/related-task": { taskId },
-                },
+                isError: true,
               };
               setToolResult(latestToolResult);
-              // Refresh tasks list to show progress
-              void listTasks();
+              taskCompleted = true;
             }
-          } catch (pollingError) {
-            console.error("Error polling task status:", pollingError);
-            latestToolResult = {
-              content: [
-                {
-                  type: "text",
-                  text: `Error polling task status: ${pollingError instanceof Error ? pollingError.message : String(pollingError)}`,
-                },
-              ],
-              isError: true,
-            };
-            setToolResult(latestToolResult);
-            taskCompleted = true;
+          }
+        } finally {
+          setIsPollingTask(false);
+          if (pollingAbortControllerRef.current === abortController) {
+            pollingAbortControllerRef.current = null;
           }
         }
-        setIsPollingTask(false);
         // Clear any validation errors since tool execution completed
         setErrors((prev) => ({ ...prev, tools: null }));
         return latestToolResult;
@@ -1599,6 +1687,7 @@ const App = () => {
                       }}
                       toolResult={toolResult}
                       isPollingTask={isPollingTask}
+                      cancelPolling={cancelToolPolling}
                       nextCursor={nextToolCursor}
                       error={errors.tools}
                       resourceContent={resourceContentMap}
