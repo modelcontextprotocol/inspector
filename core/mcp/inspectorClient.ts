@@ -4,6 +4,7 @@ import type {
   StderrLogEntry,
   ConnectionStatus,
   MessageEntry,
+  MessageOrigin,
   FetchRequestEntry,
   FetchRequestEntryBase,
   InspectorServerSettings,
@@ -351,31 +352,35 @@ export class InspectorClient extends InspectorClientEventTarget {
 
   private createMessageTrackingCallbacks(): MessageTrackingCallbacks {
     return {
-      trackRequest: (message: JSONRPCRequest) => {
+      trackRequest: (message: JSONRPCRequest, origin: MessageOrigin) => {
         const entry: MessageEntry = {
           id: crypto.randomUUID(),
           timestamp: new Date(),
           direction: "request",
+          origin,
           message,
         };
         this.dispatchTypedEvent("message", entry);
       },
       trackResponse: (
         message: JSONRPCResultResponse | JSONRPCErrorResponse,
+        origin: MessageOrigin,
       ) => {
         const entry: MessageEntry = {
           id: crypto.randomUUID(),
           timestamp: new Date(),
           direction: "response",
+          origin,
           message,
         };
         this.dispatchTypedEvent("message", entry);
       },
-      trackNotification: (message: JSONRPCNotification) => {
+      trackNotification: (message: JSONRPCNotification, origin: MessageOrigin) => {
         const entry: MessageEntry = {
           id: crypto.randomUUID(),
           timestamp: new Date(),
           direction: "notification",
+          origin,
           message,
         };
         this.dispatchTypedEvent("message", entry);

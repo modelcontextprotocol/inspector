@@ -168,10 +168,20 @@ export interface StderrLogEntry {
   message: string;
 }
 
+/** Who sent a tracked message: the inspector ("client") or the "server". */
+export type MessageOrigin = "client" | "server";
+
 export interface MessageEntry {
   id: string;
   timestamp: Date;
   direction: "request" | "response" | "notification";
+  /**
+   * Who sent the message — drives the History direction badge (client → server
+   * vs client ← server). Set at tracking time: outgoing (transport `send`) is
+   * "client", incoming (`onmessage`) is "server". Optional for back-compat with
+   * older logs and test fixtures that predate it.
+   */
+  origin?: MessageOrigin;
   message:
     | JSONRPCRequest
     | JSONRPCNotification

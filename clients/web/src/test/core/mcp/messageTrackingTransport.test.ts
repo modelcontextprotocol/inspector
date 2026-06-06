@@ -32,7 +32,7 @@ describe("MessageTrackingTransport.send", () => {
     const { callbacks, tracked } = makeTracked();
     const request = { jsonrpc: "2.0", id: 1, method: "tools/list" } as const;
     await tracked.send(request);
-    expect(callbacks.trackRequest).toHaveBeenCalledWith(request);
+    expect(callbacks.trackRequest).toHaveBeenCalledWith(request, "client");
     expect(callbacks.trackResponse).not.toHaveBeenCalled();
   });
 
@@ -45,7 +45,7 @@ describe("MessageTrackingTransport.send", () => {
       result: { roots: [{ uri: "file:///work", name: "work" }] },
     } as const;
     await tracked.send(response);
-    expect(callbacks.trackResponse).toHaveBeenCalledWith(response);
+    expect(callbacks.trackResponse).toHaveBeenCalledWith(response, "client");
     expect(callbacks.trackRequest).not.toHaveBeenCalled();
   });
 
@@ -57,7 +57,10 @@ describe("MessageTrackingTransport.send", () => {
       error: { code: -32603, message: "boom" },
     } as const;
     await tracked.send(errorResponse);
-    expect(callbacks.trackResponse).toHaveBeenCalledWith(errorResponse);
+    expect(callbacks.trackResponse).toHaveBeenCalledWith(
+      errorResponse,
+      "client",
+    );
   });
 
   it("does not track an outgoing notification (no id)", async () => {
@@ -99,9 +102,15 @@ describe("MessageTrackingTransport.onmessage", () => {
     base.onmessage?.(serverRequest);
     base.onmessage?.(notification);
 
-    expect(callbacks.trackResponse).toHaveBeenCalledWith(response);
-    expect(callbacks.trackRequest).toHaveBeenCalledWith(serverRequest);
-    expect(callbacks.trackNotification).toHaveBeenCalledWith(notification);
+    expect(callbacks.trackResponse).toHaveBeenCalledWith(response, "server");
+    expect(callbacks.trackRequest).toHaveBeenCalledWith(
+      serverRequest,
+      "server",
+    );
+    expect(callbacks.trackNotification).toHaveBeenCalledWith(
+      notification,
+      "server",
+    );
     // The wrapped handler still receives every message.
     expect(handler).toHaveBeenCalledTimes(3);
   });

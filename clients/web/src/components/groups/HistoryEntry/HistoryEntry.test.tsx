@@ -8,6 +8,7 @@ const successEntry: MessageEntry = {
   id: "req-1",
   timestamp: new Date("2026-03-17T10:30:00Z"),
   direction: "request",
+  origin: "client",
   message: {
     jsonrpc: "2.0",
     id: 1,
@@ -94,6 +95,7 @@ const notificationEntry: MessageEntry = {
   id: "note-1",
   timestamp: new Date("2026-03-17T10:36:00Z"),
   direction: "notification",
+  origin: "server",
   message: {
     jsonrpc: "2.0",
     method: "notifications/message",
@@ -149,6 +151,18 @@ describe("HistoryEntry", () => {
     expect(screen.queryByText("Pending")).not.toBeInTheDocument();
     expect(screen.queryByText("OK")).not.toBeInTheDocument();
     expect(screen.queryByText("Error")).not.toBeInTheDocument();
+  });
+
+  it("shows client → server for a client-originated entry", () => {
+    renderWithMantine(<HistoryEntry {...baseProps} entry={successEntry} />);
+    expect(screen.getByText("client → server")).toBeInTheDocument();
+  });
+
+  it("shows client ← server for a server-originated entry", () => {
+    renderWithMantine(
+      <HistoryEntry {...baseProps} entry={notificationEntry} />,
+    );
+    expect(screen.getByText("client ← server")).toBeInTheDocument();
   });
 
   it("renders Pin label when not pinned", () => {

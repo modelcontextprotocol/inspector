@@ -19,6 +19,7 @@ const toolCallEntry: MessageEntry = {
   id: "req-1",
   timestamp: new Date("2026-03-17T10:30:00Z"),
   direction: "request",
+  origin: "client",
   message: {
     jsonrpc: "2.0",
     id: 1,
@@ -39,6 +40,7 @@ const errorEntry: MessageEntry = {
   id: "req-2",
   timestamp: new Date("2026-03-17T10:31:15Z"),
   direction: "request",
+  origin: "client",
   message: {
     jsonrpc: "2.0",
     id: 2,
@@ -57,6 +59,7 @@ const resourceReadEntry: MessageEntry = {
   id: "req-3",
   timestamp: new Date("2026-03-17T10:33:00Z"),
   direction: "request",
+  origin: "client",
   message: {
     jsonrpc: "2.0",
     id: 3,
@@ -77,6 +80,7 @@ const pendingEntry: MessageEntry = {
   id: "req-4",
   timestamp: new Date("2026-03-17T10:34:00Z"),
   direction: "request",
+  origin: "client",
   message: {
     jsonrpc: "2.0",
     id: 4,

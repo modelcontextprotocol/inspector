@@ -11,6 +11,7 @@ import {
 } from "@mantine/core";
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { MessageDirectionBadge } from "../../elements/MessageDirectionBadge/MessageDirectionBadge";
 import { extractMethod, isReplayableHistoryMethod } from "../historyUtils.js";
 
 export interface HistoryEntryProps {
@@ -125,6 +126,11 @@ export function HistoryEntry({
       <Stack gap="sm">
         <HeaderRow>
           <Group gap="sm">
+            {entry.origin && (
+              <MessageDirectionBadge
+                direction={entry.origin === "client" ? "outgoing" : "incoming"}
+              />
+            )}
             <TimestampText>{formatTimestamp(entry.timestamp)}</TimestampText>
             <Badge color="dark">{method}</Badge>
             {target && <TargetText>{target}</TargetText>}

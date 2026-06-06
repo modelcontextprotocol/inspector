@@ -12,13 +12,18 @@ import type {
   JSONRPCResultResponse,
   JSONRPCErrorResponse,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { MessageOrigin } from "./types.js";
 
 export interface MessageTrackingCallbacks {
-  trackRequest?: (message: JSONRPCRequest) => void;
+  trackRequest?: (message: JSONRPCRequest, origin: MessageOrigin) => void;
   trackResponse?: (
     message: JSONRPCResultResponse | JSONRPCErrorResponse,
+    origin: MessageOrigin,
   ) => void;
-  trackNotification?: (message: JSONRPCNotification) => void;
+  trackNotification?: (
+    message: JSONRPCNotification,
+    origin: MessageOrigin,
+  ) => void;
 }
 
 // Transport wrapper that intercepts all messages for tracking
@@ -51,9 +56,10 @@ export class MessageTrackingTransport implements Transport {
       if ("result" in message || "error" in message) {
         this.callbacks.trackResponse?.(
           message as JSONRPCResultResponse | JSONRPCErrorResponse,
+          "client",
         );
       } else if ("method" in message) {
-        this.callbacks.trackRequest?.(message as JSONRPCRequest);
+        this.callbacks.trackRequest?.(message as JSONRPCRequest, "client");
       }
     }
     return this.baseTransport.send(message, options);
@@ -109,14 +115,18 @@ export class MessageTrackingTransport implements Transport {
           if ("result" in message || "error" in message) {
             this.callbacks.trackResponse?.(
               message as JSONRPCResultResponse | JSONRPCErrorResponse,
+              "server",
             );
           } else if ("method" in message) {
             // This is a request coming from the server
-            this.callbacks.trackRequest?.(message as JSONRPCRequest);
+            this.callbacks.trackRequest?.(message as JSONRPCRequest, "server");
           }
         } else if ("method" in message) {
           // Notification (no ID, has method)
-          this.callbacks.trackNotification?.(message as JSONRPCNotification);
+          this.callbacks.trackNotification?.(
+            message as JSONRPCNotification,
+            "server",
+          );
         }
         // Call the original handler
         handler(message, extra);
