@@ -193,6 +193,48 @@ function messagesToLogEntries(messages: MessageEntry[]): LogEntryData[] {
   return out;
 }
 
+// Re-issue the original request behind a History entry. The call goes through
+// InspectorClient → tracked transport → message log, so the replayed
+// request+response surface as a fresh History entry (history-local) — it
+// intentionally does NOT touch the Tools/Prompts/Resources panels. Returns a
+// human-readable reason when the entry can't be replayed (unsupported method,
+// or a tool that's no longer present), or null on a dispatched replay.
+async function replayHistoryRequest(
+  client: InspectorClient,
+  method: string,
+  params: Record<string, unknown> | undefined,
+  tools: Tool[],
+): Promise<string | null> {
+  if (method === "tools/call") {
+    const name = typeof params?.name === "string" ? params.name : undefined;
+    const tool = tools.find((t) => t.name === name);
+    if (!tool) {
+      return `Tool "${name ?? "?"}" is no longer available to replay.`;
+    }
+    await client.callTool(
+      tool,
+      (params?.arguments ?? {}) as Record<string, JsonValue>,
+    );
+    return null;
+  }
+  if (method === "prompts/get") {
+    const name = typeof params?.name === "string" ? params.name : undefined;
+    if (!name) return "Prompt name is missing; cannot replay.";
+    await client.getPrompt(
+      name,
+      (params?.arguments ?? {}) as Record<string, JsonValue>,
+    );
+    return null;
+  }
+  if (method === "resources/read") {
+    const uri = typeof params?.uri === "string" ? params.uri : undefined;
+    if (!uri) return "Resource URI is missing; cannot replay.";
+    await client.readResource(uri);
+    return null;
+  }
+  return `Replay isn't supported for "${method}".`;
+}
+
 // Stable empty-shell for `InspectorServerSettings`. Used both as the
 // initial draft for a server entry that hasn't been touched yet, and as
 // the fallback the settings modal renders against when it's closed
@@ -482,6 +524,12 @@ function App() {
   const [tasksUi, setTasksUi] = useState(EMPTY_TASKS_UI);
   const [logsUi, setLogsUi] = useState(EMPTY_LOGS_UI);
   const [historyUi, setHistoryUi] = useState(EMPTY_HISTORY_UI);
+  // History entries the user pinned (by entry id). Session-scoped — the ids
+  // reference message-log entries, which clear on disconnect, so this resets
+  // with the rest of the per-screen state.
+  const [pinnedHistoryIds, setPinnedHistoryIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [networkUi, setNetworkUi] = useState(EMPTY_NETWORK_UI);
 
   // Handshake telemetry. `connectStartRef` is set at the "connecting" edge
@@ -606,6 +654,7 @@ function App() {
     setTasksUi(EMPTY_TASKS_UI);
     setLogsUi(EMPTY_LOGS_UI);
     setHistoryUi(EMPTY_HISTORY_UI);
+    setPinnedHistoryIds(new Set());
     setNetworkUi(EMPTY_NETWORK_UI);
     setProgressByTaskId({});
     setCurrentLogLevel("info");
@@ -1636,6 +1685,56 @@ function App() {
     );
   }, [messages, activeServerId]);
 
+  // Pin/unpin a history entry by id. HistoryListPanel sorts pinned entries to
+  // the top; the set is session-scoped (see resetSessionScopedUiState).
+  const onTogglePinHistory = useCallback((id: string) => {
+    setPinnedHistoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  // Replay a history entry: re-issue its original request so the fresh
+  // request+response appear as a new History entry (history-local). A reason
+  // string (unsupported method / missing tool) surfaces as a toast; a genuine
+  // call error already shows up as the replayed entry's Error status, so only a
+  // pre-flight failure (nothing logged) needs the fallback toast.
+  const onReplayHistory = useCallback(
+    (id: string) => {
+      if (!inspectorClient) return;
+      const entry = messages.find((m) => m.id === id);
+      if (!entry || !("method" in entry.message)) return;
+      const { method } = entry.message;
+      const params =
+        "params" in entry.message
+          ? (entry.message.params as Record<string, unknown> | undefined)
+          : undefined;
+      void replayHistoryRequest(inspectorClient, method, params, tools)
+        .then((reason) => {
+          if (reason) {
+            notifications.show({
+              title: "Can't replay",
+              message: reason,
+              color: "yellow",
+            });
+          }
+        })
+        .catch((err: unknown) => {
+          notifications.show({
+            title: "Replay failed",
+            message: err instanceof Error ? err.message : String(err),
+            color: "red",
+          });
+        });
+    },
+    [inspectorClient, messages, tools],
+  );
+
   const onExportLogs = useCallback(() => {
     if (logs.length === 0) return;
     downloadJsonFile(
@@ -1994,8 +2093,9 @@ function App() {
         onHistoryUiChange={setHistoryUi}
         onClearHistory={onClearHistory}
         onExportHistory={onExportHistory}
-        onReplayHistory={todoNoop}
-        onTogglePinHistory={todoNoop}
+        onReplayHistory={onReplayHistory}
+        onTogglePinHistory={onTogglePinHistory}
+        pinnedHistoryIds={pinnedHistoryIds}
         onNetworkUiChange={setNetworkUi}
         onClearNetwork={onClearNetwork}
         onExportNetwork={onExportNetwork}

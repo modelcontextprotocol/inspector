@@ -250,6 +250,9 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
     onClearCompletedTasks: () => void;
     onRefreshTasks: () => void;
     onServerSettings: (id: string) => void;
+    onReplayHistory: (id: string) => void;
+    onTogglePinHistory: (id: string) => void;
+    pinnedHistoryIds?: Set<string>;
   }) => (
     <div>
       <span data-testid="tool-status">
@@ -347,6 +350,15 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
       </button>
       <button onClick={() => props.onSetLogLevel("debug")}>set-level</button>
       <button onClick={() => props.onServerSettings("A")}>open-settings</button>
+      <span data-testid="pinned-history">
+        {Array.from(props.pinnedHistoryIds ?? []).join(",")}
+      </span>
+      <button onClick={() => props.onTogglePinHistory("hist-1")}>
+        toggle-pin
+      </button>
+      <button onClick={() => props.onReplayHistory("hist-1")}>
+        replay-history
+      </button>
     </div>
   ),
 }));
@@ -354,9 +366,13 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
 import App from "./App";
 import * as McpIndex from "@inspector/core/mcp/index.js";
 import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
+import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useInspectorClient } from "@inspector/core/react/useInspectorClient.js";
 import { useSettingsDraft } from "@inspector/core/react/useSettingsDraft.js";
-import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
+import type {
+  InspectorServerSettings,
+  MessageEntry,
+} from "@inspector/core/mcp/types.js";
 
 // Default useInspectorClient return — capabilities empty (no task tool calls).
 // Individual tests override via vi.mocked(...).mockReturnValue(...).
@@ -1005,5 +1021,164 @@ describe("App roots live-apply on settings-dialog close", () => {
       expect(screen.queryByText("Server Settings")).not.toBeInTheDocument(),
     );
     expect(client.setRoots).not.toHaveBeenCalled();
+  });
+});
+
+describe("App history pin/replay", () => {
+  const replayableEntry: MessageEntry = {
+    id: "hist-1",
+    timestamp: new Date("2026-06-06T22:00:00Z"),
+    direction: "request",
+    message: {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "get_acts", arguments: { city: "SF" } },
+    },
+  };
+
+  beforeEach(() => {
+    clientInstances.length = 0;
+    notificationsMock.show.mockClear();
+    vi.mocked(useInspectorClient).mockReturnValue(DEFAULT_USE_INSPECTOR_CLIENT);
+    vi.mocked(useMessageLog).mockReturnValue({ messages: [] });
+  });
+
+  it("toggles a pinned history id and passes the set down to the view", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    expect(screen.getByTestId("pinned-history")).toHaveTextContent("");
+    await user.click(screen.getByText("toggle-pin"));
+    expect(screen.getByTestId("pinned-history")).toHaveTextContent("hist-1");
+    await user.click(screen.getByText("toggle-pin"));
+    expect(screen.getByTestId("pinned-history")).toHaveTextContent("");
+  });
+
+  it("replays a tools/call entry by re-issuing callTool with the recorded args", async () => {
+    vi.mocked(useMessageLog).mockReturnValue({ messages: [replayableEntry] });
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("replay-history"));
+
+    const client = clientInstances[0] as unknown as {
+      callTool: ReturnType<typeof vi.fn>;
+    };
+    await waitFor(() => expect(client.callTool).toHaveBeenCalledTimes(1));
+    expect(client.callTool.mock.calls[0][1]).toEqual({ city: "SF" });
+  });
+
+  it("toasts when replaying an unsupported method", async () => {
+    vi.mocked(useMessageLog).mockReturnValue({
+      messages: [
+        {
+          ...replayableEntry,
+          message: { jsonrpc: "2.0", id: 2, method: "roots/list" },
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("replay-history"));
+
+    await waitFor(() =>
+      expect(notificationsMock.show).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Can't replay", color: "yellow" }),
+      ),
+    );
+  });
+
+  it("replays a prompts/get entry via getPrompt", async () => {
+    vi.mocked(useMessageLog).mockReturnValue({
+      messages: [
+        {
+          ...replayableEntry,
+          message: {
+            jsonrpc: "2.0",
+            id: 3,
+            method: "prompts/get",
+            params: { name: "greet", arguments: { who: "x" } },
+          },
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("replay-history"));
+
+    const client = clientInstances[0] as unknown as {
+      getPrompt: ReturnType<typeof vi.fn>;
+    };
+    await waitFor(() =>
+      expect(client.getPrompt).toHaveBeenCalledWith("greet", { who: "x" }),
+    );
+  });
+
+  it("replays a resources/read entry via readResource", async () => {
+    vi.mocked(useMessageLog).mockReturnValue({
+      messages: [
+        {
+          ...replayableEntry,
+          message: {
+            jsonrpc: "2.0",
+            id: 4,
+            method: "resources/read",
+            params: { uri: "res://x" },
+          },
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("replay-history"));
+
+    const client = clientInstances[0] as unknown as {
+      readResource: ReturnType<typeof vi.fn>;
+    };
+    await waitFor(() =>
+      expect(client.readResource).toHaveBeenCalledWith("res://x"),
+    );
+  });
+
+  it("toasts when the replayed tool is no longer available", async () => {
+    vi.mocked(useMessageLog).mockReturnValue({
+      messages: [
+        {
+          ...replayableEntry,
+          message: {
+            jsonrpc: "2.0",
+            id: 5,
+            method: "tools/call",
+            params: { name: "gone", arguments: {} },
+          },
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("replay-history"));
+
+    await waitFor(() =>
+      expect(notificationsMock.show).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Can't replay", color: "yellow" }),
+      ),
+    );
   });
 });
