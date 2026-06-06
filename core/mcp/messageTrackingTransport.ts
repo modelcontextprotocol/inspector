@@ -42,9 +42,19 @@ export class MessageTrackingTransport implements Transport {
     message: JSONRPCMessage,
     options?: TransportSendOptions,
   ): Promise<void> {
-    // Track outgoing requests (only requests have a method and are sent by the client)
-    if ("method" in message && "id" in message) {
-      this.callbacks.trackRequest?.(message as JSONRPCRequest);
+    // Track outgoing traffic symmetrically to onmessage. The client both issues
+    // requests (client→server) and answers server→client requests — roots/list,
+    // sampling, elicitation. Without tracking those outgoing responses, the
+    // originating request entry stays "pending" in history with no response
+    // body, since messageLogState folds a response into its request by id.
+    if ("id" in message && message.id !== null && message.id !== undefined) {
+      if ("result" in message || "error" in message) {
+        this.callbacks.trackResponse?.(
+          message as JSONRPCResultResponse | JSONRPCErrorResponse,
+        );
+      } else if ("method" in message) {
+        this.callbacks.trackRequest?.(message as JSONRPCRequest);
+      }
     }
     return this.baseTransport.send(message, options);
   }
