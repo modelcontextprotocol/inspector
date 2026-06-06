@@ -205,34 +205,55 @@ async function replayHistoryRequest(
   params: Record<string, unknown> | undefined,
   tools: Tool[],
 ): Promise<string | null> {
-  if (method === "tools/call") {
-    const name = typeof params?.name === "string" ? params.name : undefined;
-    const tool = tools.find((t) => t.name === name);
-    if (!tool) {
-      return `Tool "${name ?? "?"}" is no longer available to replay.`;
+  // Pagination cursor carried by the */list requests; replaying the same page
+  // reproduces the original call.
+  const cursor = typeof params?.cursor === "string" ? params.cursor : undefined;
+  switch (method) {
+    case "tools/call": {
+      const name = typeof params?.name === "string" ? params.name : undefined;
+      const tool = tools.find((t) => t.name === name);
+      if (!tool) {
+        return `Tool "${name ?? "?"}" is no longer available to replay.`;
+      }
+      await client.callTool(
+        tool,
+        (params?.arguments ?? {}) as Record<string, JsonValue>,
+      );
+      return null;
     }
-    await client.callTool(
-      tool,
-      (params?.arguments ?? {}) as Record<string, JsonValue>,
-    );
-    return null;
+    case "prompts/get": {
+      const name = typeof params?.name === "string" ? params.name : undefined;
+      if (!name) return "Prompt name is missing; cannot replay.";
+      await client.getPrompt(
+        name,
+        (params?.arguments ?? {}) as Record<string, JsonValue>,
+      );
+      return null;
+    }
+    case "resources/read": {
+      const uri = typeof params?.uri === "string" ? params.uri : undefined;
+      if (!uri) return "Resource URI is missing; cannot replay.";
+      await client.readResource(uri);
+      return null;
+    }
+    case "tools/list":
+      await client.listTools(cursor);
+      return null;
+    case "prompts/list":
+      await client.listPrompts(cursor);
+      return null;
+    case "resources/list":
+      await client.listResources(cursor);
+      return null;
+    case "resources/templates/list":
+      await client.listResourceTemplates(cursor);
+      return null;
+    case "ping":
+      await client.ping();
+      return null;
+    default:
+      return `Replay isn't supported for "${method}".`;
   }
-  if (method === "prompts/get") {
-    const name = typeof params?.name === "string" ? params.name : undefined;
-    if (!name) return "Prompt name is missing; cannot replay.";
-    await client.getPrompt(
-      name,
-      (params?.arguments ?? {}) as Record<string, JsonValue>,
-    );
-    return null;
-  }
-  if (method === "resources/read") {
-    const uri = typeof params?.uri === "string" ? params.uri : undefined;
-    if (!uri) return "Resource URI is missing; cannot replay.";
-    await client.readResource(uri);
-    return null;
-  }
-  return `Replay isn't supported for "${method}".`;
 }
 
 // Stable empty-shell for `InspectorServerSettings`. Used both as the

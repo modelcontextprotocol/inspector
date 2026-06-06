@@ -52,6 +52,13 @@ vi.mock("@inspector/core/mcp/index.js", () => {
       .fn()
       .mockResolvedValue({ result: { contents: [] }, timestamp: 1 });
     setLoggingLevel = vi.fn().mockResolvedValue(undefined);
+    listTools = vi.fn().mockResolvedValue({ tools: [] });
+    listPrompts = vi.fn().mockResolvedValue({ prompts: [] });
+    listResources = vi.fn().mockResolvedValue({ resources: [] });
+    listResourceTemplates = vi
+      .fn()
+      .mockResolvedValue({ resourceTemplates: [] });
+    ping = vi.fn().mockResolvedValue(undefined);
     getOAuthState = vi.fn().mockReturnValue(undefined);
     getPendingSamples = vi.fn().mockReturnValue([]);
     getPendingElicitations = vi.fn().mockReturnValue([]);
@@ -1073,12 +1080,46 @@ describe("App history pin/replay", () => {
     expect(client.callTool.mock.calls[0][1]).toEqual({ city: "SF" });
   });
 
+  it("replays a tools/list entry via listTools, preserving the cursor", async () => {
+    vi.mocked(useMessageLog).mockReturnValue({
+      messages: [
+        {
+          ...replayableEntry,
+          message: {
+            jsonrpc: "2.0",
+            id: 6,
+            method: "tools/list",
+            params: { cursor: "page-2" },
+          },
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("replay-history"));
+
+    const client = clientInstances[0] as unknown as {
+      listTools: ReturnType<typeof vi.fn>;
+    };
+    await waitFor(() =>
+      expect(client.listTools).toHaveBeenCalledWith("page-2"),
+    );
+  });
+
   it("toasts when replaying an unsupported method", async () => {
     vi.mocked(useMessageLog).mockReturnValue({
       messages: [
         {
           ...replayableEntry,
-          message: { jsonrpc: "2.0", id: 2, method: "roots/list" },
+          message: {
+            jsonrpc: "2.0",
+            id: 2,
+            method: "logging/setLevel",
+            params: { level: "debug" },
+          },
         },
       ],
     });
