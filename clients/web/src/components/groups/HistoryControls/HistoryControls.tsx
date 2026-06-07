@@ -18,11 +18,16 @@ const SubtleButton = Button.withProps({
   size: "xs",
 });
 
-// The two message directions, in display order, with the labels used by the
-// MessageDirectionBadge (client → server = outgoing; client ← server = incoming).
-const MESSAGE_DIRECTIONS: { origin: MessageOrigin; label: string }[] = [
-  { origin: "client", label: "client → server" },
-  { origin: "server", label: "client ← server" },
+// The two message directions, in display order. Label + color mirror the
+// MessageDirectionBadge: outgoing (client → server) is green, incoming
+// (client ← server) is violet.
+const MESSAGE_DIRECTIONS: {
+  origin: MessageOrigin;
+  label: string;
+  color: string;
+}[] = [
+  { origin: "client", label: "client → server", color: "green" },
+  { origin: "server", label: "client ← server", color: "violet" },
 ];
 
 export interface HistoryControlsProps {
@@ -75,7 +80,7 @@ export function HistoryControls({
         </SubtleButton>
       </Group>
       <Stack gap="xs">
-        {MESSAGE_DIRECTIONS.map(({ origin, label }) => {
+        {MESSAGE_DIRECTIONS.map(({ origin, label, color }) => {
           const active = visibleDirections[origin];
           return (
             <UnstyledButton
@@ -86,7 +91,7 @@ export function HistoryControls({
               bg={active ? "var(--mantine-primary-color-light)" : undefined}
               onClick={() => onToggleDirection(origin, !active)}
             >
-              <Text ta="center" fw={500}>
+              <Text c={color} ta="center" fw={500}>
                 {label}
               </Text>
             </UnstyledButton>
