@@ -12,6 +12,7 @@ import {
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { MessageDirectionBadge } from "../../elements/MessageDirectionBadge/MessageDirectionBadge";
+import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { extractMethod, isReplayableHistoryMethod } from "../historyUtils.js";
 
 export interface HistoryEntryProps {
@@ -145,14 +146,19 @@ export function HistoryEntry({
           </Group>
         </HeaderRow>
 
-        <Group gap="xs">
-          <SubtleButton onClick={onTogglePin}>
-            {formatPinLabel(isPinned)}
-          </SubtleButton>
-          {canReplay && <SubtleButton onClick={onReplay}>Replay</SubtleButton>}
-          <SubtleButton onClick={() => setIsExpanded((v) => !v)} ml="auto">
-            {isExpanded ? "Collapse" : "Expand"}
-          </SubtleButton>
+        <Group gap="xs" justify="space-between">
+          <Group gap="xs">
+            <SubtleButton onClick={onTogglePin}>
+              {formatPinLabel(isPinned)}
+            </SubtleButton>
+            {canReplay && (
+              <SubtleButton onClick={onReplay}>Replay</SubtleButton>
+            )}
+          </Group>
+          <ExpandToggle
+            expanded={isExpanded}
+            onToggle={() => setIsExpanded((v) => !v)}
+          />
         </Group>
 
         <Collapse in={isExpanded}>

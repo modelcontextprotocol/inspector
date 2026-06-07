@@ -13,6 +13,7 @@ import type {
   Task,
 } from "@modelcontextprotocol/sdk/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";
 import { TaskStatusBadge } from "../../elements/TaskStatusBadge/TaskStatusBadge";
 
@@ -57,11 +58,6 @@ const DetailValue = Text.withProps({
 const StatusMessageText = Text.withProps({
   size: "sm",
   fs: "italic",
-});
-
-const SubtleButton = Button.withProps({
-  variant: "subtle",
-  size: "xs",
 });
 
 const CancelButton = Button.withProps({
@@ -148,9 +144,10 @@ export function TaskCard({
               </Stack>
             )}
           </DetailRow>
-          <SubtleButton onClick={() => setIsExpanded((v) => !v)}>
-            {isExpanded ? "Collapse" : "Expand"}
-          </SubtleButton>
+          <ExpandToggle
+            expanded={isExpanded}
+            onToggle={() => setIsExpanded((v) => !v)}
+          />
         </SummaryRow>
 
         {progress && isActive ? (
