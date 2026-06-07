@@ -13,6 +13,7 @@ import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { MessageDirectionBadge } from "../../elements/MessageDirectionBadge/MessageDirectionBadge";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
+import { PinToggle } from "../../elements/PinToggle/PinToggle";
 import { extractMethod, isReplayableHistoryMethod } from "../historyUtils.js";
 
 export interface HistoryEntryProps {
@@ -60,10 +61,6 @@ function formatDuration(ms: number): string {
 
 function formatTimestamp(date: Date): string {
   return date.toISOString();
-}
-
-function formatPinLabel(isPinned: boolean): string {
-  return isPinned ? "Unpin" : "Pin";
 }
 
 function extractTarget(entry: MessageEntry): string | undefined {
@@ -148,17 +145,17 @@ export function HistoryEntry({
 
         <Group gap="xs" justify="space-between">
           <Group gap="xs">
-            <SubtleButton onClick={onTogglePin}>
-              {formatPinLabel(isPinned)}
-            </SubtleButton>
             {canReplay && (
               <SubtleButton onClick={onReplay}>Replay</SubtleButton>
             )}
           </Group>
-          <ExpandToggle
-            expanded={isExpanded}
-            onToggle={() => setIsExpanded((v) => !v)}
-          />
+          <Group gap="xs">
+            <PinToggle pinned={isPinned} onToggle={onTogglePin} />
+            <ExpandToggle
+              expanded={isExpanded}
+              onToggle={() => setIsExpanded((v) => !v)}
+            />
+          </Group>
         </Group>
 
         <Collapse in={isExpanded}>

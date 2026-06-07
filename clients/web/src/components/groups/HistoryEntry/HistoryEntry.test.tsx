@@ -199,10 +199,13 @@ describe("HistoryEntry", () => {
     expect(screen.getByRole("button", { name: "Pin" })).toBeInTheDocument();
   });
 
-  it("renders Pin before Replay", () => {
+  it("orders the actions Replay, then Pin, then the expand toggle on the right", () => {
     renderWithMantine(<HistoryEntry {...baseProps} entry={successEntry} />);
-    const buttons = screen.getAllByRole("button").map((b) => b.textContent);
-    expect(buttons.indexOf("Pin")).toBeLessThan(buttons.indexOf("Replay"));
+    const names = screen
+      .getAllByRole("button")
+      .map((b) => b.getAttribute("aria-label") ?? b.textContent);
+    expect(names.indexOf("Replay")).toBeLessThan(names.indexOf("Pin"));
+    expect(names.indexOf("Pin")).toBeLessThan(names.indexOf("Expand"));
   });
 
   it("invokes onTogglePin when Pin button is clicked", async () => {
