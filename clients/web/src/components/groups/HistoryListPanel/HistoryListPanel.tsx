@@ -58,14 +58,21 @@ const EmptyState = Text.withProps({
   py: "xl",
 });
 
-// Section header rendered as a toggle button — same `listItem` variant + active
-// background as the LogControls level toggles. Clicking expands/collapses the
-// section below it. `bg`, `onClick`, and the label are passed per instance.
-// `flex: 1` so it fills the header row beside the optional section actions.
-const SectionToggle = UnstyledButton.withProps({
-  flex: 1,
+// The section header is a single "pleat" bar (rounded, hover-highlighted, with
+// the active background passed per instance via `bg`). Inside it sit the
+// clickable toggle area (the title, filling the left) and the optional
+// Clear/Export actions on the right — so the actions live on the pleat itself,
+// not beside it. The toggle is its own button (the actions can't nest inside a
+// button), `flex: 1` so it spans the bar up to the actions.
+const SectionHeaderBar = Group.withProps({
+  variant: "sectionHeader",
+  gap: "sm",
+  wrap: "nowrap",
   p: "sm",
-  variant: "listItem",
+});
+
+const SectionToggleArea = UnstyledButton.withProps({
+  flex: 1,
 });
 
 const SectionTitle = Text.withProps({
@@ -141,16 +148,14 @@ function CollapsibleSection({
   }
   return (
     <Stack gap="md">
-      <Group gap="sm" wrap="nowrap">
-        <SectionToggle
-          bg={open ? "var(--mantine-primary-color-light)" : undefined}
-          aria-expanded={open}
-          onClick={onToggle}
-        >
+      <SectionHeaderBar
+        bg={open ? "var(--mantine-primary-color-light)" : undefined}
+      >
+        <SectionToggleArea aria-expanded={open} onClick={onToggle}>
           <SectionTitle>{title}</SectionTitle>
-        </SectionToggle>
+        </SectionToggleArea>
         {actions}
-      </Group>
+      </SectionHeaderBar>
       <Collapse in={open}>
         <Stack gap="md">{children}</Stack>
       </Collapse>
