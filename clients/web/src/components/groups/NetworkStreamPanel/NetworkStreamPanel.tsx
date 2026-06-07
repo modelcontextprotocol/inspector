@@ -11,7 +11,6 @@ import {
 import type {
   FetchRequestCategory,
   FetchRequestEntry,
-  MessageOrigin,
 } from "@inspector/core/mcp/types.js";
 import { NetworkEntry } from "../NetworkEntry/NetworkEntry";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
@@ -21,15 +20,10 @@ import {
 } from "../../elements/SortToggle/SortToggle";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
-// Every network fetch is inspector-originated (the inspector is the HTTP
-// client), so they're all "client" / client → server for the direction filter.
-const NETWORK_ENTRY_ORIGIN: MessageOrigin = "client";
-
 export interface NetworkStreamPanelProps {
   entries: FetchRequestEntry[];
   filterText: string;
   visibleCategories: Record<FetchRequestCategory, boolean>;
-  visibleDirections: Record<MessageOrigin, boolean>;
   onClear: () => void;
   onExport: () => void;
   sortDirection: SortDirection;
@@ -66,12 +60,8 @@ function matchesFilters(
   entry: FetchRequestEntry,
   filterText: string,
   visibleCategories: Record<FetchRequestCategory, boolean>,
-  visibleDirections: Record<MessageOrigin, boolean>,
 ): boolean {
   if (!visibleCategories[entry.category]) return false;
-  // All fetches are outgoing (client → server), so the client toggle gates them
-  // all; the server toggle never matches.
-  if (!visibleDirections[NETWORK_ENTRY_ORIGIN]) return false;
   if (filterText) {
     const term = filterText.toLowerCase();
     const status =
@@ -99,7 +89,6 @@ export function NetworkStreamPanel({
   entries,
   filterText,
   visibleCategories,
-  visibleDirections,
   onClear,
   onExport,
   sortDirection,
@@ -111,19 +100,11 @@ export function NetworkStreamPanel({
   const filteredEntries = useMemo(() => {
     // `.filter()` returns a fresh array, so sorting in-place is safe.
     const sorted = entries
-      .filter((e) =>
-        matchesFilters(e, filterText, visibleCategories, visibleDirections),
-      )
+      .filter((e) => matchesFilters(e, filterText, visibleCategories))
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     if (sortDirection === "newest-first") sorted.reverse();
     return sorted;
-  }, [
-    entries,
-    filterText,
-    visibleCategories,
-    visibleDirections,
-    sortDirection,
-  ]);
+  }, [entries, filterText, visibleCategories, sortDirection]);
 
   const hasEntries = entries.length > 0;
   const hasResults = filteredEntries.length > 0;

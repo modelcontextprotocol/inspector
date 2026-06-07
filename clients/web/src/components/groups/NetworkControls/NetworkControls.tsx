@@ -7,11 +7,7 @@ import {
   Title,
   UnstyledButton,
 } from "@mantine/core";
-import type {
-  FetchRequestCategory,
-  MessageOrigin,
-} from "@inspector/core/mcp/types.js";
-import { MessageDirectionFilter } from "../MessageDirectionFilter/MessageDirectionFilter";
+import type { FetchRequestCategory } from "@inspector/core/mcp/types.js";
 
 const NETWORK_CATEGORIES: FetchRequestCategory[] = ["auth", "transport"];
 
@@ -28,23 +24,17 @@ const SubtleButton = Button.withProps({
 export interface NetworkControlsProps {
   filterText: string;
   visibleCategories: Record<FetchRequestCategory, boolean>;
-  visibleDirections: Record<MessageOrigin, boolean>;
   onFilterChange: (text: string) => void;
   onToggleCategory: (category: FetchRequestCategory, visible: boolean) => void;
   onToggleAllCategories: () => void;
-  onToggleDirection: (direction: MessageOrigin, visible: boolean) => void;
-  onToggleAllDirections: () => void;
 }
 
 export function NetworkControls({
   filterText,
   visibleCategories,
-  visibleDirections,
   onFilterChange,
   onToggleCategory,
   onToggleAllCategories,
-  onToggleDirection,
-  onToggleAllDirections,
 }: NetworkControlsProps) {
   const allSelected = NETWORK_CATEGORIES.every((c) => visibleCategories[c]);
   return (
@@ -83,12 +73,6 @@ export function NetworkControls({
           );
         })}
       </Stack>
-
-      <MessageDirectionFilter
-        visibleDirections={visibleDirections}
-        onToggleDirection={onToggleDirection}
-        onToggleAllDirections={onToggleAllDirections}
-      />
     </Stack>
   );
 }

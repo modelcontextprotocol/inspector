@@ -10,7 +10,6 @@ const meta: Meta<typeof NetworkStreamPanel> = {
   args: {
     filterText: "",
     visibleCategories: { auth: true, transport: true },
-    visibleDirections: { client: true, server: true },
     onClear: fn(),
     onExport: fn(),
     sortDirection: "newest-first",

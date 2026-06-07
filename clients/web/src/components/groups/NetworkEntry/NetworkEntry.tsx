@@ -13,7 +13,6 @@ import {
 import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
 import { isLongLivedStreamResponse } from "@inspector/core/mcp/fetchTracking.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
-import { MessageDirectionBadge } from "../../elements/MessageDirectionBadge/MessageDirectionBadge";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { maskSecretsInBody } from "../../../utils/maskSecrets";
 
@@ -216,9 +215,6 @@ export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
       <Stack gap="sm">
         <HeaderRow>
           <Group gap="sm" wrap="nowrap" miw={0} flex={1}>
-            {/* Network fetches are always inspector-originated (the inspector is
-                the HTTP client), so the direction is constant here. */}
-            <MessageDirectionBadge direction="outgoing" />
             <TimestampText>{formatTimestamp(entry.timestamp)}</TimestampText>
             <Badge color="dark">{entry.method}</Badge>
             <Badge color={categoryColor(entry.category)} variant="light">
