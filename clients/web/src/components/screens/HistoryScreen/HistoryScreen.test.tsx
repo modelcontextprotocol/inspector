@@ -27,6 +27,8 @@ const baseProps = {
   onUiChange: vi.fn(),
   onClearAll: vi.fn(),
   onExport: vi.fn(),
+  onClearSection: vi.fn(),
+  onExportSection: vi.fn(),
   onReplay: vi.fn(),
   onTogglePin: vi.fn(),
   sortDirection: "newest-first" as const,

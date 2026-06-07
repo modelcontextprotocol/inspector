@@ -309,6 +309,8 @@ export interface InspectorViewProps {
   onHistoryUiChange: (next: HistoryUiState) => void;
   onClearHistory: () => void;
   onExportHistory: () => void;
+  onClearHistorySection: (section: "pinned" | "history") => void;
+  onExportHistorySection: (section: "pinned" | "history") => void;
   onReplayHistory: (id: string) => void;
   onTogglePinHistory: (id: string) => void;
 
@@ -396,6 +398,8 @@ export function InspectorView({
   onHistoryUiChange,
   onClearHistory,
   onExportHistory,
+  onClearHistorySection,
+  onExportHistorySection,
   onReplayHistory,
   onTogglePinHistory,
   onNetworkUiChange,
@@ -620,6 +624,8 @@ export function InspectorView({
               onUiChange={onHistoryUiChange}
               onClearAll={onClearHistory}
               onExport={onExportHistory}
+              onClearSection={onClearHistorySection}
+              onExportSection={onExportHistorySection}
               onReplay={onReplayHistory}
               onTogglePin={onTogglePinHistory}
               sortDirection={historySort}

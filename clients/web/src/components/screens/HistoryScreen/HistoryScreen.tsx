@@ -13,6 +13,8 @@ export interface HistoryScreenProps {
   onUiChange: (next: HistoryUiState) => void;
   onClearAll: () => void;
   onExport: () => void;
+  onClearSection: (section: "pinned" | "history") => void;
+  onExportSection: (section: "pinned" | "history") => void;
   onReplay: (id: string) => void;
   onTogglePin: (id: string) => void;
   sortDirection: SortDirection;
@@ -52,6 +54,8 @@ export function HistoryScreen({
   onUiChange,
   onClearAll,
   onExport,
+  onClearSection,
+  onExportSection,
   onReplay,
   onTogglePin,
   sortDirection,
@@ -93,6 +97,8 @@ export function HistoryScreen({
         methodFilter={methodFilter}
         onClearAll={handleClearAll}
         onExport={onExport}
+        onClearSection={onClearSection}
+        onExportSection={onExportSection}
         onReplay={onReplay}
         onTogglePin={onTogglePin}
         sortDirection={sortDirection}

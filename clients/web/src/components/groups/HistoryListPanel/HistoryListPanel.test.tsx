@@ -64,6 +64,8 @@ const baseProps = {
   searchText: "",
   onClearAll: vi.fn(),
   onExport: vi.fn(),
+  onClearSection: vi.fn(),
+  onExportSection: vi.fn(),
   onReplay: vi.fn(),
   onTogglePin: vi.fn(),
   sortDirection: "newest-first" as const,
@@ -144,6 +146,49 @@ describe("HistoryListPanel", () => {
     expect(pinned).toHaveAttribute("aria-expanded", "false");
     // Collapsing Pinned leaves History untouched.
     expect(history).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("shows per-section Clear/Export only when both sections are present", () => {
+    // Only an unpinned section → just the panel-level Clear/Export.
+    const { unmount } = renderWithMantine(
+      <HistoryListPanel {...baseProps} entries={sampleEntries} />,
+    );
+    expect(screen.getAllByRole("button", { name: "Clear" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Export" })).toHaveLength(1);
+    unmount();
+
+    // Both sections → panel-level plus one Clear/Export per section.
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        pinnedIds={new Set(["req-1"])}
+      />,
+    );
+    expect(screen.getAllByRole("button", { name: "Clear" })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: "Export" })).toHaveLength(3);
+  });
+
+  it("invokes onClearSection/onExportSection for the clicked section", async () => {
+    const user = userEvent.setup();
+    const onClearSection = vi.fn();
+    const onExportSection = vi.fn();
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        pinnedIds={new Set(["req-1"])}
+        onClearSection={onClearSection}
+        onExportSection={onExportSection}
+      />,
+    );
+    // [0] = panel-level, [1] = Pinned section, [2] = History section.
+    const clears = screen.getAllByRole("button", { name: "Clear" });
+    const exports = screen.getAllByRole("button", { name: "Export" });
+    await user.click(clears[1]);
+    expect(onClearSection).toHaveBeenCalledWith("pinned");
+    await user.click(exports[2]);
+    expect(onExportSection).toHaveBeenCalledWith("history");
   });
 
   it("filters entries by searchText (case-insensitive)", () => {

@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
+  Anchor,
   Button,
   Collapse,
   Group,
@@ -27,6 +28,10 @@ export interface HistoryListPanelProps {
   methodFilter?: MessageMethod;
   onClearAll: () => void;
   onExport: () => void;
+  /** Clear just one section's entries (pinned vs unpinned history). */
+  onClearSection: (section: HistorySectionName) => void;
+  /** Export just one section's entries. */
+  onExportSection: (section: HistorySectionName) => void;
   onReplay: (id: string) => void;
   onTogglePin: (id: string) => void;
   sortDirection: SortDirection;
@@ -51,8 +56,9 @@ const EmptyState = Text.withProps({
 // Section header rendered as a toggle button — same `listItem` variant + active
 // background as the LogControls level toggles. Clicking expands/collapses the
 // section below it. `bg`, `onClick`, and the label are passed per instance.
+// `flex: 1` so it fills the header row beside the optional section actions.
 const SectionToggle = UnstyledButton.withProps({
-  w: "100%",
+  flex: 1,
   p: "sm",
   variant: "listItem",
 });
@@ -61,12 +67,74 @@ const SectionTitle = Text.withProps({
   fw: 600,
 });
 
+const SectionActionGroup = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
+});
+
 function formatPinnedTitle(count: number): string {
   return `Pinned Requests (${count})`;
 }
 
 function formatHistoryTitle(count: number): string {
   return `History (${count})`;
+}
+
+type HistorySectionName = "pinned" | "history";
+
+// Per-section Clear / Export links, shown to the right of a section header when
+// both sections are present (so each can be cleared/exported on its own).
+function SectionActions({
+  onClear,
+  onExport,
+}: {
+  onClear: () => void;
+  onExport: () => void;
+}) {
+  return (
+    <SectionActionGroup>
+      <Anchor component="button" type="button" size="sm" onClick={onClear}>
+        Clear
+      </Anchor>
+      <Anchor component="button" type="button" size="sm" onClick={onExport}>
+        Export
+      </Anchor>
+    </SectionActionGroup>
+  );
+}
+
+// A collapsible History section: a `listItem` toggle header (with an optional
+// actions slot on the right) over a `Collapse` of the entries.
+function CollapsibleSection({
+  title,
+  open,
+  onToggle,
+  actions,
+  children,
+}: {
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Stack gap="md">
+      <Group gap="sm" wrap="nowrap">
+        <SectionToggle
+          bg={open ? "var(--mantine-primary-color-light)" : undefined}
+          aria-expanded={open}
+          onClick={onToggle}
+        >
+          <SectionTitle>{title}</SectionTitle>
+        </SectionToggle>
+        {actions}
+      </Group>
+      <Collapse in={open}>
+        <Stack gap="md">{children}</Stack>
+      </Collapse>
+    </Stack>
+  );
 }
 
 function matchesFilters(
@@ -93,6 +161,8 @@ export function HistoryListPanel({
   methodFilter,
   onClearAll,
   onExport,
+  onClearSection,
+  onExportSection,
   onReplay,
   onTogglePin,
   sortDirection,
@@ -125,6 +195,9 @@ export function HistoryListPanel({
   );
 
   const hasResults = filteredEntries.length > 0;
+  // Per-section Clear/Export only make sense when both sections are on screen;
+  // with a single section the panel-level Clear/Export already covers it.
+  const bothSections = pinnedEntries.length > 0 && unpinnedEntries.length > 0;
 
   return (
     <PanelContainer>
@@ -161,67 +234,57 @@ export function HistoryListPanel({
         >
           <Stack gap="md">
             {pinnedEntries.length > 0 && (
-              <Stack gap="md">
-                <SectionToggle
-                  bg={
-                    pinnedOpen
-                      ? "var(--mantine-primary-color-light)"
-                      : undefined
-                  }
-                  aria-expanded={pinnedOpen}
-                  onClick={() => setPinnedOpen((v) => !v)}
-                >
-                  <SectionTitle>
-                    {formatPinnedTitle(pinnedEntries.length)}
-                  </SectionTitle>
-                </SectionToggle>
-                <Collapse in={pinnedOpen}>
-                  <Stack gap="md">
-                    {pinnedEntries.map((entry) => (
-                      <HistoryEntry
-                        key={entry.id}
-                        entry={entry}
-                        isPinned={true}
-                        isListExpanded={!compact}
-                        onReplay={() => onReplay(entry.id)}
-                        onTogglePin={() => onTogglePin(entry.id)}
-                      />
-                    ))}
-                  </Stack>
-                </Collapse>
-              </Stack>
+              <CollapsibleSection
+                title={formatPinnedTitle(pinnedEntries.length)}
+                open={pinnedOpen}
+                onToggle={() => setPinnedOpen((v) => !v)}
+                actions={
+                  bothSections ? (
+                    <SectionActions
+                      onClear={() => onClearSection("pinned")}
+                      onExport={() => onExportSection("pinned")}
+                    />
+                  ) : undefined
+                }
+              >
+                {pinnedEntries.map((entry) => (
+                  <HistoryEntry
+                    key={entry.id}
+                    entry={entry}
+                    isPinned={true}
+                    isListExpanded={!compact}
+                    onReplay={() => onReplay(entry.id)}
+                    onTogglePin={() => onTogglePin(entry.id)}
+                  />
+                ))}
+              </CollapsibleSection>
             )}
 
             {unpinnedEntries.length > 0 && (
-              <Stack gap="md">
-                <SectionToggle
-                  bg={
-                    historyOpen
-                      ? "var(--mantine-primary-color-light)"
-                      : undefined
-                  }
-                  aria-expanded={historyOpen}
-                  onClick={() => setHistoryOpen((v) => !v)}
-                >
-                  <SectionTitle>
-                    {formatHistoryTitle(unpinnedEntries.length)}
-                  </SectionTitle>
-                </SectionToggle>
-                <Collapse in={historyOpen}>
-                  <Stack gap="md">
-                    {unpinnedEntries.map((entry) => (
-                      <HistoryEntry
-                        key={entry.id}
-                        entry={entry}
-                        isPinned={false}
-                        isListExpanded={!compact}
-                        onReplay={() => onReplay(entry.id)}
-                        onTogglePin={() => onTogglePin(entry.id)}
-                      />
-                    ))}
-                  </Stack>
-                </Collapse>
-              </Stack>
+              <CollapsibleSection
+                title={formatHistoryTitle(unpinnedEntries.length)}
+                open={historyOpen}
+                onToggle={() => setHistoryOpen((v) => !v)}
+                actions={
+                  bothSections ? (
+                    <SectionActions
+                      onClear={() => onClearSection("history")}
+                      onExport={() => onExportSection("history")}
+                    />
+                  ) : undefined
+                }
+              >
+                {unpinnedEntries.map((entry) => (
+                  <HistoryEntry
+                    key={entry.id}
+                    entry={entry}
+                    isPinned={false}
+                    isListExpanded={!compact}
+                    onReplay={() => onReplay(entry.id)}
+                    onTogglePin={() => onTogglePin(entry.id)}
+                  />
+                ))}
+              </CollapsibleSection>
             )}
           </Stack>
         </ScrollArea.Autosize>

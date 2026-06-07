@@ -1715,6 +1715,38 @@ function App() {
     );
   }, [messages, activeServerId]);
 
+  // Clear just one section: remove its entries from the log by pin membership.
+  // Clearing the pinned section also drops the (now-stale) pinned id set.
+  const onClearHistorySection = useCallback(
+    (section: "pinned" | "history") => {
+      const isPinned = section === "pinned";
+      messageLogState?.clearMessages((m) =>
+        isPinned ? pinnedHistoryIds.has(m.id) : !pinnedHistoryIds.has(m.id),
+      );
+      if (isPinned) setPinnedHistoryIds(new Set());
+    },
+    [messageLogState, pinnedHistoryIds],
+  );
+
+  // Export just one section's entries (by pin membership) to a JSON file.
+  const onExportHistorySection = useCallback(
+    (section: "pinned" | "history") => {
+      const isPinned = section === "pinned";
+      const subset = messages.filter((m) =>
+        isPinned ? pinnedHistoryIds.has(m.id) : !pinnedHistoryIds.has(m.id),
+      );
+      if (subset.length === 0) return;
+      downloadJsonFile(
+        buildExportFilename(
+          isPinned ? "history-pinned" : "history-unpinned",
+          activeServerId,
+        ),
+        JSON.stringify(subset, null, 2),
+      );
+    },
+    [messages, pinnedHistoryIds, activeServerId],
+  );
+
   // Pin/unpin a history entry by id. HistoryListPanel sorts pinned entries to
   // the top; the set is session-scoped (see resetSessionScopedUiState).
   const onTogglePinHistory = useCallback((id: string) => {
@@ -2123,6 +2155,8 @@ function App() {
         onHistoryUiChange={setHistoryUi}
         onClearHistory={onClearHistory}
         onExportHistory={onExportHistory}
+        onClearHistorySection={onClearHistorySection}
+        onExportHistorySection={onExportHistorySection}
         onReplayHistory={onReplayHistory}
         onTogglePinHistory={onTogglePinHistory}
         pinnedHistoryIds={pinnedHistoryIds}

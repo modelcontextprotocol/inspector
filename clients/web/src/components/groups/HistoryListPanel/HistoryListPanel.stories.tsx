@@ -11,6 +11,8 @@ const meta: Meta<typeof HistoryListPanel> = {
     pinnedIds: new Set<string>(),
     onClearAll: fn(),
     onExport: fn(),
+    onClearSection: fn(),
+    onExportSection: fn(),
     onReplay: fn(),
     onTogglePin: fn(),
     sortDirection: "newest-first",
