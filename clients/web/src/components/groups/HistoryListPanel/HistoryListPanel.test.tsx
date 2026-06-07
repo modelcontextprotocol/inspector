@@ -119,15 +119,57 @@ describe("HistoryListPanel", () => {
 
   it("toggles a section's expanded state when its header is clicked", async () => {
     const user = userEvent.setup();
+    // Both sections present so the headers are collapsible toggles.
     renderWithMantine(
-      <HistoryListPanel {...baseProps} entries={sampleEntries} />,
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        pinnedIds={new Set(["req-1"])}
+      />,
     );
-    const header = screen.getByRole("button", { name: "History (3)" });
+    const header = screen.getByRole("button", { name: "History (2)" });
     expect(header).toHaveAttribute("aria-expanded", "true");
     await user.click(header);
     expect(header).toHaveAttribute("aria-expanded", "false");
     await user.click(header);
     expect(header).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("renders a lone section as a plain (non-collapsible) header with its entries shown", () => {
+    // Only the unpinned section → no accordion toggle, entries always visible.
+    renderWithMantine(
+      <HistoryListPanel {...baseProps} entries={sampleEntries} />,
+    );
+    expect(screen.getByText("History (3)")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "History (3)" }),
+    ).not.toBeInTheDocument();
+    // An entry's method badge is visible (content shown, not collapsed).
+    expect(screen.getByText("resources/read")).toBeInTheDocument();
+  });
+
+  it("shows the surviving section's entries after the other is removed, even if it was collapsed", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        pinnedIds={new Set(["req-1"])}
+      />,
+    );
+    // Collapse the History section while both sections are present.
+    await user.click(screen.getByRole("button", { name: "History (2)" }));
+    expect(screen.getByRole("button", { name: "History (2)" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    // Remove the pinned section → History is now the only section. Its entries
+    // must show despite the stale collapsed state, and the header is plain.
+    rerender(<HistoryListPanel {...baseProps} entries={sampleEntries} />);
+    expect(
+      screen.queryByRole("button", { name: "History (3)" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("resources/read")).toBeInTheDocument();
   });
 
   it("collapses the Pinned and History sections independently", async () => {

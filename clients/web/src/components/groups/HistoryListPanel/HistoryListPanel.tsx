@@ -111,21 +111,34 @@ function SectionActions({
   );
 }
 
-// A collapsible History section: a `listItem` toggle header (with an optional
-// actions slot on the right) over a `Collapse` of the entries.
+// A History section. When `collapsible` (both sections are on screen) the header
+// is a `listItem` toggle — with an optional actions slot on the right — over a
+// `Collapse` of the entries. When it's the only section, the accordion makes no
+// sense: the header is a plain title and the entries always show (so a stale
+// collapsed state from when both sections were present can't hide them).
 function CollapsibleSection({
   title,
+  collapsible,
   open,
   onToggle,
   actions,
   children,
 }: {
   title: string;
+  collapsible: boolean;
   open: boolean;
   onToggle: () => void;
   actions?: ReactNode;
   children: ReactNode;
 }) {
+  if (!collapsible) {
+    return (
+      <Stack gap="md">
+        <Title order={5}>{title}</Title>
+        <Stack gap="md">{children}</Stack>
+      </Stack>
+    );
+  }
   return (
     <Stack gap="md">
       <Group gap="sm" wrap="nowrap">
@@ -251,6 +264,7 @@ export function HistoryListPanel({
             {pinnedEntries.length > 0 && (
               <CollapsibleSection
                 title={formatPinnedTitle(pinnedEntries.length)}
+                collapsible={bothSections}
                 open={pinnedOpen}
                 onToggle={() => setPinnedOpen((v) => !v)}
                 actions={
@@ -278,6 +292,7 @@ export function HistoryListPanel({
             {unpinnedEntries.length > 0 && (
               <CollapsibleSection
                 title={formatHistoryTitle(unpinnedEntries.length)}
+                collapsible={bothSections}
                 open={historyOpen}
                 onToggle={() => setHistoryOpen((v) => !v)}
                 actions={
