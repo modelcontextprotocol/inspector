@@ -1691,9 +1691,13 @@ function App() {
     );
   }, [messageLogState]);
 
+  // Panel-level Clear clears the (unpinned) history and keeps pinned entries —
+  // pinning is the way to protect an entry from Clear. This matches the button's
+  // `disabled={unpinnedEntries.length === 0}` gating and the per-section model,
+  // and leaves pinnedHistoryIds valid (the pins it references still exist).
   const onClearHistory = useCallback(() => {
-    messageLogState?.clearMessages();
-  }, [messageLogState]);
+    messageLogState?.clearMessages((m) => !pinnedHistoryIds.has(m.id));
+  }, [messageLogState, pinnedHistoryIds]);
 
   const onClearNetwork = useCallback(() => {
     fetchRequestLogState?.clearFetchRequests();

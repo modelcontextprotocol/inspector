@@ -24,6 +24,10 @@ vi.mock("@mantine/notifications", () => ({
   notifications: notificationsMock,
 }));
 
+// Shared spy for MessageLogState.clearMessages so a test can inspect the
+// predicate the panel Clear passes (keep-pinned vs clear-all).
+const { messageLogClear } = vi.hoisted(() => ({ messageLogClear: vi.fn() }));
+
 // App is a wiring component: it owns session-scoped UI state (the per-call
 // result panels and the optimistic log level) and resets it when the active
 // InspectorClient emits `disconnect`. These tests exercise that reset in
@@ -112,7 +116,7 @@ vi.mock("@inspector/core/mcp/state/resourceSubscriptionsState.js", () => ({
 }));
 vi.mock("@inspector/core/mcp/state/messageLogState.js", () => ({
   MessageLogState: vi.fn(function () {
-    return { destroy: vi.fn() };
+    return { destroy: vi.fn(), clearMessages: messageLogClear };
   }),
 }));
 vi.mock("@inspector/core/mcp/state/fetchRequestLogState.js", () => ({
@@ -258,6 +262,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
     onClearCompletedTasks: () => void;
     onRefreshTasks: () => void;
     onServerSettings: (id: string) => void;
+    onClearHistory: () => void;
     onReplayHistory: (id: string) => void;
     onTogglePinHistory: (id: string) => void;
     pinnedHistoryIds?: Set<string>;
@@ -367,6 +372,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
       <button onClick={() => props.onReplayHistory("hist-1")}>
         replay-history
       </button>
+      <button onClick={() => props.onClearHistory()}>clear-history</button>
     </div>
   ),
 }));
@@ -1063,6 +1069,28 @@ describe("App history pin/replay", () => {
     expect(screen.getByTestId("pinned-history")).toHaveTextContent("hist-1");
     await user.click(screen.getByText("toggle-pin"));
     expect(screen.getByTestId("pinned-history")).toHaveTextContent("");
+  });
+
+  it("panel Clear removes unpinned history but keeps pinned entries", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("toggle-pin"));
+    expect(screen.getByTestId("pinned-history")).toHaveTextContent("hist-1");
+
+    messageLogClear.mockClear();
+    await user.click(screen.getByText("clear-history"));
+
+    expect(messageLogClear).toHaveBeenCalledTimes(1);
+    const predicate = messageLogClear.mock.calls[0][0] as (m: {
+      id: string;
+    }) => boolean;
+    // The predicate is "should remove?" — pinned survives (false), unpinned is
+    // removed (true).
+    expect(predicate({ id: "hist-1" })).toBe(false);
+    expect(predicate({ id: "other" })).toBe(true);
   });
 
   it("replays a tools/call entry by re-issuing callTool with the recorded args", async () => {

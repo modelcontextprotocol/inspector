@@ -33,8 +33,9 @@ export interface MessageDirectionFilterProps {
 
 /**
  * "Filter by Message Direction" section — a Select/Deselect All control plus a
- * listItem toggle per direction (client → server / client ← server). Shared by
- * the History and Network controls so the two stay identical.
+ * listItem toggle per direction (client → server / client ← server). Used by the
+ * History controls. (Kept as its own component so the section is testable in
+ * isolation and reusable if another screen ever needs a direction filter.)
  */
 export function MessageDirectionFilter({
   visibleDirections,
