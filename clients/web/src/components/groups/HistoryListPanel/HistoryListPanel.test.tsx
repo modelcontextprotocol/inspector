@@ -62,6 +62,7 @@ const sampleEntries: MessageEntry[] = [
 const baseProps = {
   pinnedIds: new Set<string>(),
   searchText: "",
+  visibleDirections: { client: true, server: true },
   onClearAll: vi.fn(),
   onExport: vi.fn(),
   onClearSection: vi.fn(),
@@ -189,6 +190,22 @@ describe("HistoryListPanel", () => {
     expect(onClearSection).toHaveBeenCalledWith("pinned");
     await user.click(exports[2]);
     expect(onExportSection).toHaveBeenCalledWith("history");
+  });
+
+  it("hides entries whose message direction is toggled off", () => {
+    const directional: MessageEntry[] = [
+      { ...sampleEntries[0], id: "from-client", origin: "client" },
+      { ...sampleEntries[1], id: "from-server", origin: "server" },
+    ];
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={directional}
+        visibleDirections={{ client: true, server: false }}
+      />,
+    );
+    // The server-origin entry is filtered out, leaving one.
+    expect(screen.getByText("History (1)")).toBeInTheDocument();
   });
 
   it("filters entries by searchText (case-insensitive)", () => {

@@ -1,20 +1,50 @@
-import { Select, Stack, TextInput, Title } from "@mantine/core";
-import type { MessageMethod } from "@inspector/core/mcp/types.js";
+import {
+  Button,
+  Group,
+  Select,
+  Stack,
+  Text,
+  TextInput,
+  Title,
+  UnstyledButton,
+} from "@mantine/core";
+import type {
+  MessageMethod,
+  MessageOrigin,
+} from "@inspector/core/mcp/types.js";
+
+const SubtleButton = Button.withProps({
+  variant: "subtle",
+  size: "xs",
+});
+
+// The two message directions, in display order, with the labels used by the
+// MessageDirectionBadge (client → server = outgoing; client ← server = incoming).
+const MESSAGE_DIRECTIONS: { origin: MessageOrigin; label: string }[] = [
+  { origin: "client", label: "client → server" },
+  { origin: "server", label: "client ← server" },
+];
 
 export interface HistoryControlsProps {
   searchText: string;
   methodFilter?: MessageMethod;
   availableMethods: MessageMethod[];
+  visibleDirections: Record<MessageOrigin, boolean>;
   onSearchChange: (text: string) => void;
   onMethodFilterChange: (method: MessageMethod | undefined) => void;
+  onToggleDirection: (direction: MessageOrigin, visible: boolean) => void;
+  onToggleAllDirections: () => void;
 }
 
 export function HistoryControls({
   searchText,
   methodFilter,
   availableMethods,
+  visibleDirections,
   onSearchChange,
   onMethodFilterChange,
+  onToggleDirection,
+  onToggleAllDirections,
 }: HistoryControlsProps) {
   return (
     <Stack gap="md">
@@ -35,6 +65,34 @@ export function HistoryControls({
         }
         clearable
       />
+
+      <Group justify="space-between">
+        <Title order={6}>Filter by Message Direction</Title>
+        <SubtleButton onClick={onToggleAllDirections}>
+          {Object.values(visibleDirections).every(Boolean)
+            ? "Deselect All"
+            : "Select All"}
+        </SubtleButton>
+      </Group>
+      <Stack gap="xs">
+        {MESSAGE_DIRECTIONS.map(({ origin, label }) => {
+          const active = visibleDirections[origin];
+          return (
+            <UnstyledButton
+              key={origin}
+              w="100%"
+              p="sm"
+              variant="listItem"
+              bg={active ? "var(--mantine-primary-color-light)" : undefined}
+              onClick={() => onToggleDirection(origin, !active)}
+            >
+              <Text ta="center" fw={500}>
+                {label}
+              </Text>
+            </UnstyledButton>
+          );
+        })}
+      </Stack>
     </Stack>
   );
 }

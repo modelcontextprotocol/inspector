@@ -11,7 +11,11 @@ import {
   Title,
   UnstyledButton,
 } from "@mantine/core";
-import type { MessageEntry, MessageMethod } from "@inspector/core/mcp/types.js";
+import type {
+  MessageEntry,
+  MessageMethod,
+  MessageOrigin,
+} from "@inspector/core/mcp/types.js";
 import { HistoryEntry } from "../HistoryEntry/HistoryEntry";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import {
@@ -26,6 +30,8 @@ export interface HistoryListPanelProps {
   pinnedIds: Set<string>;
   searchText: string;
   methodFilter?: MessageMethod;
+  /** Which message directions to show, keyed by entry origin. */
+  visibleDirections: Record<MessageOrigin, boolean>;
   onClearAll: () => void;
   onExport: () => void;
   /** Clear just one section's entries (pinned vs unpinned history). */
@@ -140,8 +146,12 @@ function CollapsibleSection({
 function matchesFilters(
   entry: MessageEntry,
   searchText: string,
+  visibleDirections: Record<MessageOrigin, boolean>,
   methodFilter?: MessageMethod,
 ): boolean {
+  // Hide a direction when its toggle is off. Entries with no recorded origin
+  // (legacy / pre-origin logs) are never filtered out by direction.
+  if (entry.origin && !visibleDirections[entry.origin]) return false;
   const method = extractMethod(entry);
   if (methodFilter && method !== methodFilter) return false;
   if (searchText) {
@@ -159,6 +169,7 @@ export function HistoryListPanel({
   pinnedIds,
   searchText,
   methodFilter,
+  visibleDirections,
   onClearAll,
   onExport,
   onClearSection,
@@ -178,11 +189,13 @@ export function HistoryListPanel({
   const filteredEntries = useMemo(() => {
     // `.filter()` returns a fresh array, so sorting in-place is safe.
     const sorted = entries
-      .filter((e) => matchesFilters(e, searchText, methodFilter))
+      .filter((e) =>
+        matchesFilters(e, searchText, visibleDirections, methodFilter),
+      )
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     if (sortDirection === "newest-first") sorted.reverse();
     return sorted;
-  }, [entries, searchText, methodFilter, sortDirection]);
+  }, [entries, searchText, visibleDirections, methodFilter, sortDirection]);
 
   const pinnedEntries = useMemo(
     () => filteredEntries.filter((e) => pinnedIds.has(e.id)),

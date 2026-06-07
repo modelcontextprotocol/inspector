@@ -68,6 +68,30 @@ describe("HistoryScreen", () => {
     );
   });
 
+  it("toggles a single message direction through onUiChange", async () => {
+    const user = userEvent.setup();
+    const onUiChange = vi.fn();
+    renderWithMantine(<HistoryScreen {...baseProps} onUiChange={onUiChange} />);
+    await user.click(screen.getByRole("button", { name: "client ← server" }));
+    expect(onUiChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        visibleDirections: { client: true, server: false },
+      }),
+    );
+  });
+
+  it("toggles all message directions off through onUiChange", async () => {
+    const user = userEvent.setup();
+    const onUiChange = vi.fn();
+    renderWithMantine(<HistoryScreen {...baseProps} onUiChange={onUiChange} />);
+    await user.click(screen.getByRole("button", { name: "Deselect All" }));
+    expect(onUiChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        visibleDirections: { client: false, server: false },
+      }),
+    );
+  });
+
   it("emits the cleared method filter through onUiChange", async () => {
     const user = userEvent.setup();
     const onUiChange = vi.fn();

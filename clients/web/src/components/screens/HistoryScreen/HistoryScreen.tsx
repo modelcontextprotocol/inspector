@@ -1,6 +1,10 @@
 import { useCallback, useMemo } from "react";
 import { Card, Flex, Stack } from "@mantine/core";
-import type { MessageEntry, MessageMethod } from "@inspector/core/mcp/types.js";
+import type {
+  MessageEntry,
+  MessageMethod,
+  MessageOrigin,
+} from "@inspector/core/mcp/types.js";
 import { HistoryControls } from "../../groups/HistoryControls/HistoryControls";
 import { HistoryListPanel } from "../../groups/HistoryListPanel/HistoryListPanel.js";
 import { extractMethod } from "../../groups/historyUtils.js";
@@ -23,11 +27,14 @@ export interface HistoryScreenProps {
   onToggleCompact: () => void;
 }
 
-// Search text + method filter — controlled by the parent (App) as one object so
-// they persist across tab navigation within a live session (#1417).
+// Search text, method filter, and per-direction visibility — controlled by the
+// parent (App) as one object so they persist across tab navigation within a
+// live session (#1417).
 export interface HistoryUiState {
   search: string;
   methodFilter?: MessageMethod;
+  /** Which message directions are shown, keyed by entry origin. */
+  visibleDirections: Record<MessageOrigin, boolean>;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -63,7 +70,7 @@ export function HistoryScreen({
   compact,
   onToggleCompact,
 }: HistoryScreenProps) {
-  const { search, methodFilter } = ui;
+  const { search, methodFilter, visibleDirections } = ui;
 
   const availableMethods = useMemo(
     () => Array.from(new Set(entries.map(extractMethod))).sort(),
@@ -75,6 +82,24 @@ export function HistoryScreen({
     onClearAll();
   }, [ui, onUiChange, onClearAll]);
 
+  const handleToggleDirection = useCallback(
+    (direction: MessageOrigin, visible: boolean) => {
+      onUiChange({
+        ...ui,
+        visibleDirections: { ...visibleDirections, [direction]: visible },
+      });
+    },
+    [ui, visibleDirections, onUiChange],
+  );
+
+  const handleToggleAllDirections = useCallback(() => {
+    const next = !Object.values(visibleDirections).every(Boolean);
+    onUiChange({
+      ...ui,
+      visibleDirections: { client: next, server: next },
+    });
+  }, [ui, visibleDirections, onUiChange]);
+
   return (
     <ScreenLayout>
       <Sidebar>
@@ -83,10 +108,13 @@ export function HistoryScreen({
             searchText={search}
             methodFilter={methodFilter}
             availableMethods={availableMethods}
+            visibleDirections={visibleDirections}
             onSearchChange={(value) => onUiChange({ ...ui, search: value })}
             onMethodFilterChange={(value) =>
               onUiChange({ ...ui, methodFilter: value })
             }
+            onToggleDirection={handleToggleDirection}
+            onToggleAllDirections={handleToggleAllDirections}
           />
         </SidebarCard>
       </Sidebar>
@@ -95,6 +123,7 @@ export function HistoryScreen({
         pinnedIds={pinnedIds}
         searchText={search}
         methodFilter={methodFilter}
+        visibleDirections={visibleDirections}
         onClearAll={handleClearAll}
         onExport={onExport}
         onClearSection={onClearSection}

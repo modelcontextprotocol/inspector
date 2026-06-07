@@ -20,8 +20,11 @@ const meta: Meta<typeof HistoryControls> = {
   args: {
     searchText: "",
     availableMethods: SAMPLE_METHODS,
+    visibleDirections: { client: true, server: true },
     onSearchChange: fn(),
     onMethodFilterChange: fn(),
+    onToggleDirection: fn(),
+    onToggleAllDirections: fn(),
   },
 };
 
