@@ -61,4 +61,5 @@ export const EMPTY_HISTORY_UI: HistoryUiState = {
 export const EMPTY_NETWORK_UI: NetworkUiState = {
   filterText: "",
   visibleCategories: ALL_CATEGORIES_VISIBLE,
+  visibleDirections: { client: true, server: true },
 };

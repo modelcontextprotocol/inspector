@@ -122,8 +122,40 @@ describe("NetworkScreen", () => {
   it("Deselect All hides every entry; Select All restores them", async () => {
     const user = userEvent.setup();
     renderWithMantine(<ControlledNetworkScreen />);
-    await user.click(screen.getByRole("button", { name: "Deselect All" }));
+    // The category section's "Deselect All" is the first of the two (direction
+    // section renders the other).
+    await user.click(
+      screen.getAllByRole("button", { name: "Deselect All" })[0],
+    );
     expect(screen.getByText("No network requests")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Select All" }));
+    expect(
+      screen.getByText("https://example.com/oauth/token"),
+    ).toBeInTheDocument();
+  });
+
+  it("hides every entry when the client → server direction is toggled off", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledNetworkScreen />);
+    expect(
+      screen.getByText("https://example.com/oauth/token"),
+    ).toBeInTheDocument();
+    // All network fetches are outgoing, so turning off client → server clears
+    // the list.
+    await user.click(screen.getByRole("button", { name: "client → server" }));
+    expect(screen.getByText("No network requests")).toBeInTheDocument();
+  });
+
+  it("clears the list via the direction Deselect All, then restores it", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledNetworkScreen />);
+    // The direction section's "Deselect All" is the second one (category first).
+    await user.click(
+      screen.getAllByRole("button", { name: "Deselect All" })[1],
+    );
+    expect(screen.getByText("No network requests")).toBeInTheDocument();
+    // Only the direction control now reads "Select All" (category is still all
+    // on); re-enabling restores the entries.
     await user.click(screen.getByRole("button", { name: "Select All" }));
     expect(
       screen.getByText("https://example.com/oauth/token"),

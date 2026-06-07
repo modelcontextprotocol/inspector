@@ -6,9 +6,12 @@ import { NetworkControls } from "./NetworkControls";
 const baseProps = {
   filterText: "",
   visibleCategories: { auth: true, transport: true } as const,
+  visibleDirections: { client: true, server: true } as const,
   onFilterChange: vi.fn(),
   onToggleCategory: vi.fn(),
   onToggleAllCategories: vi.fn(),
+  onToggleDirection: vi.fn(),
+  onToggleAllDirections: vi.fn(),
 };
 
 describe("NetworkControls", () => {
@@ -61,8 +64,10 @@ describe("NetworkControls", () => {
 
   it("toggles between Select All and Deselect All", () => {
     const { rerender } = renderWithMantine(<NetworkControls {...baseProps} />);
+    // The category section's control is the first "Deselect All" (the direction
+    // section renders a second one).
     expect(
-      screen.getByRole("button", { name: "Deselect All" }),
+      screen.getAllByRole("button", { name: "Deselect All" })[0],
     ).toBeInTheDocument();
     rerender(
       <NetworkControls
@@ -70,6 +75,7 @@ describe("NetworkControls", () => {
         visibleCategories={{ auth: false, transport: false }}
       />,
     );
+    // Now only the category control reads "Select All".
     expect(
       screen.getByRole("button", { name: "Select All" }),
     ).toBeInTheDocument();
@@ -84,7 +90,27 @@ describe("NetworkControls", () => {
         onToggleAllCategories={onToggleAllCategories}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Deselect All" }));
+    await user.click(
+      screen.getAllByRole("button", { name: "Deselect All" })[0],
+    );
     expect(onToggleAllCategories).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the Filter by Message Direction section", () => {
+    renderWithMantine(<NetworkControls {...baseProps} />);
+    expect(screen.getByText("Filter by Message Direction")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "client → server" }),
+    ).toBeInTheDocument();
+  });
+
+  it("fires onToggleDirection when a direction is clicked", async () => {
+    const user = userEvent.setup();
+    const onToggleDirection = vi.fn();
+    renderWithMantine(
+      <NetworkControls {...baseProps} onToggleDirection={onToggleDirection} />,
+    );
+    await user.click(screen.getByRole("button", { name: "client ← server" }));
+    expect(onToggleDirection).toHaveBeenCalledWith("server", false);
   });
 });

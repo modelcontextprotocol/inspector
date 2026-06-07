@@ -2,6 +2,7 @@ import { Card, Flex, Stack } from "@mantine/core";
 import type {
   FetchRequestCategory,
   FetchRequestEntry,
+  MessageOrigin,
 } from "@inspector/core/mcp/types.js";
 import { NetworkControls } from "../../groups/NetworkControls/NetworkControls";
 import { NetworkStreamPanel } from "../../groups/NetworkStreamPanel/NetworkStreamPanel";
@@ -23,11 +24,18 @@ export interface NetworkScreenProps {
   onToggleCompact: () => void;
 }
 
-// Filter text + visible-category set — controlled by the parent (App) as one
-// object so they persist across tab navigation within a live session (#1417).
+// Filter text + visible-category set + visible-direction set — controlled by
+// the parent (App) as one object so they persist across tab navigation within a
+// live session (#1417).
 export interface NetworkUiState {
   filterText: string;
   visibleCategories: Record<FetchRequestCategory, boolean>;
+  /**
+   * Which message directions are shown. Network fetches are always
+   * inspector-originated (client → server), so toggling "client ← server" off
+   * hides nothing — the section mirrors the History one for parity.
+   */
+  visibleDirections: Record<MessageOrigin, boolean>;
 }
 
 const ScreenLayout = Flex.withProps({
@@ -58,7 +66,7 @@ export function NetworkScreen({
   compact,
   onToggleCompact,
 }: NetworkScreenProps) {
-  const { filterText, visibleCategories } = ui;
+  const { filterText, visibleCategories, visibleDirections } = ui;
 
   function handleToggleCategory(
     category: FetchRequestCategory,
@@ -80,6 +88,21 @@ export function NetworkScreen({
     });
   }
 
+  function handleToggleDirection(direction: MessageOrigin, visible: boolean) {
+    onUiChange({
+      ...ui,
+      visibleDirections: { ...visibleDirections, [direction]: visible },
+    });
+  }
+
+  function handleToggleAllDirections() {
+    const next = !Object.values(visibleDirections).every(Boolean);
+    onUiChange({
+      ...ui,
+      visibleDirections: { client: next, server: next },
+    });
+  }
+
   return (
     <ScreenLayout>
       <Sidebar>
@@ -87,9 +110,12 @@ export function NetworkScreen({
           <NetworkControls
             filterText={filterText}
             visibleCategories={visibleCategories}
+            visibleDirections={visibleDirections}
             onFilterChange={(value) => onUiChange({ ...ui, filterText: value })}
             onToggleCategory={handleToggleCategory}
             onToggleAllCategories={handleToggleAllCategories}
+            onToggleDirection={handleToggleDirection}
+            onToggleAllDirections={handleToggleAllDirections}
           />
         </SidebarCard>
       </Sidebar>
@@ -97,6 +123,7 @@ export function NetworkScreen({
         entries={entries}
         filterText={filterText}
         visibleCategories={visibleCategories}
+        visibleDirections={visibleDirections}
         onClear={onClear}
         onExport={onExport}
         sortDirection={sortDirection}

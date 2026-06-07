@@ -25,6 +25,7 @@ const baseProps = {
   entries: [entry],
   filterText: "",
   visibleCategories: { auth: true, transport: true } as const,
+  visibleDirections: { client: true, server: true } as const,
   onClear: vi.fn(),
   onExport: vi.fn(),
   sortDirection: "newest-first" as const,
@@ -45,6 +46,18 @@ describe("NetworkStreamPanel", () => {
       <NetworkStreamPanel
         {...baseProps}
         visibleCategories={{ auth: false, transport: false }}
+      />,
+    );
+    expect(screen.getByText("No network requests")).toBeInTheDocument();
+  });
+
+  it("hides all entries when the client direction is toggled off", () => {
+    // Every fetch is inspector-originated (client → server), so turning the
+    // client direction off hides them all.
+    renderWithMantine(
+      <NetworkStreamPanel
+        {...baseProps}
+        visibleDirections={{ client: false, server: true }}
       />,
     );
     expect(screen.getByText("No network requests")).toBeInTheDocument();

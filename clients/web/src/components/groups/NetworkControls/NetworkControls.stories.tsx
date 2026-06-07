@@ -8,9 +8,12 @@ const meta: Meta<typeof NetworkControls> = {
   args: {
     filterText: "",
     visibleCategories: { auth: true, transport: true },
+    visibleDirections: { client: true, server: true },
     onFilterChange: fn(),
     onToggleCategory: fn(),
     onToggleAllCategories: fn(),
+    onToggleDirection: fn(),
+    onToggleAllDirections: fn(),
   },
 };
 
