@@ -1,5 +1,5 @@
 import { ActionIcon } from "@mantine/core";
-import { LuArrowDownToLine, LuArrowUpFromLine } from "react-icons/lu";
+import { RiCollapseVerticalLine, RiExpandVerticalLine } from "react-icons/ri";
 
 export interface ExpandToggleProps {
   /** Whether the owning entry is currently expanded. */
@@ -9,13 +9,13 @@ export interface ExpandToggleProps {
 
 /**
  * Icon toggle for a per-entry expand/collapse control (History, Network, and
- * Task cards). Collapsed shows a down-to-line arrow ("pull the details down" =
- * expand); expanded shows an up-from-line arrow ("push them back up" =
- * collapse). The aria-label stays "Expand"/"Collapse" so it reads the same as
- * the text button it replaces.
+ * Task cards). Uses the same expand/collapse-vertical icons as the list-level
+ * ListToggle: collapsed shows the expand icon, expanded shows the collapse
+ * icon. The aria-label stays "Expand"/"Collapse" so it reads the same as the
+ * text button it replaced.
  */
 export function ExpandToggle({ expanded, onToggle }: ExpandToggleProps) {
-  const Icon = expanded ? LuArrowUpFromLine : LuArrowDownToLine;
+  const Icon = expanded ? RiCollapseVerticalLine : RiExpandVerticalLine;
   const label = expanded ? "Collapse" : "Expand";
   return (
     <ActionIcon
