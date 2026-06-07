@@ -1,6 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
 import {
-  Anchor,
   Button,
   Collapse,
   Group,
@@ -78,6 +77,13 @@ const SectionActionGroup = Group.withProps({
   wrap: "nowrap",
 });
 
+// Subtle link-style button, matching the Select/Deselect All control in
+// HistoryControls.
+const SectionLinkButton = Button.withProps({
+  variant: "subtle",
+  size: "xs",
+});
+
 function formatPinnedTitle(count: number): string {
   return `Pinned Requests (${count})`;
 }
@@ -99,12 +105,8 @@ function SectionActions({
 }) {
   return (
     <SectionActionGroup>
-      <Anchor component="button" type="button" size="sm" onClick={onClear}>
-        Clear
-      </Anchor>
-      <Anchor component="button" type="button" size="sm" onClick={onExport}>
-        Export
-      </Anchor>
+      <SectionLinkButton onClick={onClear}>Clear</SectionLinkButton>
+      <SectionLinkButton onClick={onExport}>Export</SectionLinkButton>
     </SectionActionGroup>
   );
 }
