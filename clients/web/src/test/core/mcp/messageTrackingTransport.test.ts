@@ -63,12 +63,17 @@ describe("MessageTrackingTransport.send", () => {
     );
   });
 
-  it("does not track an outgoing notification (no id)", async () => {
+  it("tracks an outgoing notification as a client notification", async () => {
     const { callbacks, tracked } = makeTracked();
-    await tracked.send({
+    const notification = {
       jsonrpc: "2.0",
       method: "notifications/roots/list_changed",
-    });
+    } as const;
+    await tracked.send(notification);
+    expect(callbacks.trackNotification).toHaveBeenCalledWith(
+      notification,
+      "client",
+    );
     expect(callbacks.trackRequest).not.toHaveBeenCalled();
     expect(callbacks.trackResponse).not.toHaveBeenCalled();
   });
