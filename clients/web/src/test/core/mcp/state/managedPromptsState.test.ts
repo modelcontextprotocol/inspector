@@ -124,13 +124,15 @@ describe("ManagedPromptsState", () => {
     expect(next.map((p) => p.name)).toEqual(["a"]);
   });
 
-  it("promptsListChanged event triggers a refresh", async () => {
+  it("promptsListChanged does NOT auto-refresh (the user pulls via Refresh)", async () => {
     client.setStatus("connected");
     client.queuePromptPages({ prompts: [prompt("a"), prompt("b")] });
-    const changePromise = waitForPromptsChange(state);
     client.dispatchTypedEvent("promptsListChanged");
-    const next = await changePromise;
-    expect(next.map((p) => p.name)).toEqual(["a", "b"]);
+    // Yield so a stray refresh would have landed.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(client.listPrompts).not.toHaveBeenCalled();
+    expect(state.getPrompts()).toEqual([]);
   });
 
   it("statusChange to disconnected clears prompts and dispatches promptsChange", async () => {

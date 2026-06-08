@@ -122,13 +122,15 @@ describe("ManagedToolsState", () => {
     expect(next.map((t) => t.name)).toEqual(["a"]);
   });
 
-  it("toolsListChanged event triggers a refresh", async () => {
+  it("toolsListChanged does NOT auto-refresh (the user pulls via Refresh)", async () => {
     client.setStatus("connected");
     client.queueToolPages({ tools: [tool("a"), tool("b")] });
-    const changePromise = waitForToolsChange(state);
     client.dispatchTypedEvent("toolsListChanged");
-    const next = await changePromise;
-    expect(next.map((t) => t.name)).toEqual(["a", "b"]);
+    // Yield so a stray refresh would have landed.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(client.listTools).not.toHaveBeenCalled();
+    expect(state.getTools()).toEqual([]);
   });
 
   it("statusChange to disconnected clears tools and dispatches toolsChange", async () => {

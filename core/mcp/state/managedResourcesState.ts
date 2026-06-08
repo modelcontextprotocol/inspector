@@ -41,11 +41,10 @@ export class ManagedResourcesState extends TypedEventTarget<ManagedResourcesStat
       void this.refresh();
     };
     const onResourcesListChanged = (): void => {
-      // Mark the list as changed for the indicator, then auto-refresh. The
-      // refresh deliberately does NOT clear the flag — only a user-initiated
-      // refresh (clearListChanged) or a disconnect does (#1402).
+      // Flag the change for the indicator but do NOT auto-refresh — the list
+      // stays as-is until the user pulls the new one via the Refresh
+      // affordance, which is what makes the indicator meaningful (#1402).
       this.setListChanged(true);
-      void this.refresh();
     };
     const onStatusChange = (): void => {
       if (this.client?.getStatus() === "disconnected") {

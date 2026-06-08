@@ -131,15 +131,17 @@ describe("ManagedResourcesState", () => {
     expect(next.map((r) => r.uri)).toEqual(["a://1"]);
   });
 
-  it("resourcesListChanged event triggers a refresh", async () => {
+  it("resourcesListChanged does NOT auto-refresh (the user pulls via Refresh)", async () => {
     client.setStatus("connected");
     client.queueResourcePages({
       resources: [resource("a://1"), resource("a://2")],
     });
-    const changePromise = waitForResourcesChange(state);
     client.dispatchTypedEvent("resourcesListChanged");
-    const next = await changePromise;
-    expect(next.map((r) => r.uri)).toEqual(["a://1", "a://2"]);
+    // Yield so a stray refresh would have landed.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(client.listResources).not.toHaveBeenCalled();
+    expect(state.getResources()).toEqual([]);
   });
 
   it("statusChange to disconnected clears resources and dispatches resourcesChange", async () => {

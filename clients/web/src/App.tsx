@@ -617,10 +617,8 @@ function App() {
     listChanged: resourcesListChanged,
     refresh: refreshResources,
   } = useManagedResources(inspectorClient, managedResourcesState);
-  const { resourceTemplates } = useManagedResourceTemplates(
-    inspectorClient,
-    managedResourceTemplatesState,
-  );
+  const { resourceTemplates, refresh: refreshResourceTemplates } =
+    useManagedResourceTemplates(inspectorClient, managedResourceTemplatesState);
   const {
     tasks,
     refresh: refreshTasks,
@@ -1680,8 +1678,12 @@ function App() {
     void refreshPrompts();
   }, [refreshPrompts]);
   const onRefreshResources = useCallback(() => {
+    // Refresh both lists shown on the Resources screen. A single
+    // `notifications/resources/list_changed` covers resources and templates,
+    // and neither auto-refreshes anymore, so the user's Refresh pulls both.
     void refreshResources();
-  }, [refreshResources]);
+    void refreshResourceTemplates();
+  }, [refreshResources, refreshResourceTemplates]);
   const onRefreshTasks = useCallback(() => {
     // Surface list failures (e.g. the MAX_PAGES guard or a tasks/list error)
     // instead of letting the rejected promise go unhandled.

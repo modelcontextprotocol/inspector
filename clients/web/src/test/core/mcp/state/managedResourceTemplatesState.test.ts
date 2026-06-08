@@ -136,15 +136,17 @@ describe("ManagedResourceTemplatesState", () => {
     expect(next.map((t) => t.name)).toEqual(["a"]);
   });
 
-  it("resourceTemplatesListChanged event triggers a refresh", async () => {
+  it("resourceTemplatesListChanged does NOT auto-refresh (refreshed via the Resources Refresh)", async () => {
     client.setStatus("connected");
     client.queueResourceTemplatePages({
       resourceTemplates: [template("a"), template("b")],
     });
-    const changePromise = waitForChange(state);
     client.dispatchTypedEvent("resourceTemplatesListChanged");
-    const next = await changePromise;
-    expect(next.map((t) => t.name)).toEqual(["a", "b"]);
+    // Yield so a stray refresh would have landed.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(client.listResourceTemplates).not.toHaveBeenCalled();
+    expect(state.getResourceTemplates()).toEqual([]);
   });
 
   it("statusChange to disconnected clears templates and dispatches change", async () => {

@@ -183,7 +183,10 @@ vi.mock("@inspector/core/react/useManagedResources.js", () => ({
   useManagedResources: vi.fn(() => ({ resources: [], refresh: vi.fn() })),
 }));
 vi.mock("@inspector/core/react/useManagedResourceTemplates.js", () => ({
-  useManagedResourceTemplates: vi.fn(() => ({ resourceTemplates: [] })),
+  useManagedResourceTemplates: vi.fn(() => ({
+    resourceTemplates: [],
+    refresh: vi.fn(),
+  })),
 }));
 vi.mock("@inspector/core/react/useManagedRequestorTasks.js", () => ({
   useManagedRequestorTasks: vi.fn(() => ({
