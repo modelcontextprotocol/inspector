@@ -1,11 +1,22 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { Resource } from "@modelcontextprotocol/sdk/types.js";
+import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { ManagedResourcesState } from "@inspector/core/mcp/state/managedResourcesState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 
 function resource(uri: string): Resource {
   return { uri, name: uri };
 }
+
+const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
+  headers: [],
+  metadata: [],
+  connectionTimeout: 0,
+  requestTimeout: 0,
+  taskTtl: 60000,
+  autoRefreshOnListChanged: true,
+  roots: [],
+};
 
 function waitForResourcesChange(
   state: ManagedResourcesState,
@@ -131,15 +142,31 @@ describe("ManagedResourcesState", () => {
     expect(next.map((r) => r.uri)).toEqual(["a://1"]);
   });
 
-  it("resourcesListChanged event triggers a refresh", async () => {
+  it("resourcesListChanged does NOT auto-refresh by default (the user pulls via Refresh)", async () => {
     client.setStatus("connected");
     client.queueResourcePages({
       resources: [resource("a://1"), resource("a://2")],
     });
-    const changePromise = waitForResourcesChange(state);
     client.dispatchTypedEvent("resourcesListChanged");
-    const next = await changePromise;
-    expect(next.map((r) => r.uri)).toEqual(["a://1", "a://2"]);
+    // Yield so a stray refresh would have landed.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(client.listResources).not.toHaveBeenCalled();
+    expect(state.getResources()).toEqual([]);
+  });
+
+  it("resourcesListChanged auto-refreshes when the server opts in", async () => {
+    const autoClient = new FakeInspectorClient({
+      capabilities: { resources: {} },
+      serverSettings: AUTO_REFRESH_SETTINGS,
+    });
+    autoClient.setStatus("connected");
+    const autoState = new ManagedResourcesState(autoClient);
+    autoClient.queueResourcePages({ resources: [resource("a://1")] });
+    const changed = waitForResourcesChange(autoState);
+    autoClient.dispatchTypedEvent("resourcesListChanged");
+    expect((await changed).map((r) => r.uri)).toEqual(["a://1"]);
+    expect(autoClient.listResources).toHaveBeenCalled();
   });
 
   it("statusChange to disconnected clears resources and dispatches resourcesChange", async () => {
@@ -185,6 +212,62 @@ describe("ManagedResourcesState", () => {
     client.dispatchTypedEvent("resourcesListChanged");
     await Promise.resolve();
     expect(state.getResources()).toEqual([]);
+  });
+
+  describe("listChanged (#1402)", () => {
+    function waitForListChanged(s: ManagedResourcesState): Promise<boolean> {
+      return new Promise((resolve) => {
+        s.addEventListener("listChangedChange", (e) => resolve(e.detail), {
+          once: true,
+        });
+      });
+    }
+
+    it("starts cleared", () => {
+      expect(state.getListChanged()).toBe(false);
+    });
+
+    it("resourcesListChanged sets the flag and dispatches listChangedChange", async () => {
+      client.setStatus("connected");
+      client.queueResourcePages({ resources: [resource("a://1")] });
+      const changed = waitForListChanged(state);
+      client.dispatchTypedEvent("resourcesListChanged");
+      expect(await changed).toBe(true);
+      expect(state.getListChanged()).toBe(true);
+    });
+
+    it("clearListChanged resets the flag and dispatches false", async () => {
+      client.setStatus("connected");
+      client.queueResourcePages({ resources: [resource("a://1")] });
+      client.dispatchTypedEvent("resourcesListChanged");
+      expect(state.getListChanged()).toBe(true);
+
+      const changed = waitForListChanged(state);
+      state.clearListChanged();
+      expect(await changed).toBe(false);
+      expect(state.getListChanged()).toBe(false);
+    });
+
+    it("clearListChanged is a no-op (no event) when already cleared", () => {
+      let fired = false;
+      state.addEventListener("listChangedChange", () => {
+        fired = true;
+      });
+      state.clearListChanged();
+      expect(fired).toBe(false);
+    });
+
+    it("disconnect clears the flag", async () => {
+      client.setStatus("connected");
+      client.queueResourcePages({ resources: [resource("a://1")] });
+      client.dispatchTypedEvent("resourcesListChanged");
+      expect(state.getListChanged()).toBe(true);
+
+      const changed = waitForListChanged(state);
+      client.setStatus("disconnected");
+      expect(await changed).toBe(false);
+      expect(state.getListChanged()).toBe(false);
+    });
   });
 
   it("destroy is idempotent", () => {

@@ -119,33 +119,28 @@ describe("AppControls", () => {
     expect(onSelectApp).not.toHaveBeenCalled();
   });
 
-  it("invokes onRefreshList when the toolbar Refresh button is clicked", async () => {
-    const user = userEvent.setup();
-    const onRefreshList = vi.fn();
-    renderWithMantine(
-      <AppControls {...baseProps} onRefreshList={onRefreshList} />,
-    );
-    await user.click(screen.getByRole("button", { name: "Refresh" }));
-    expect(onRefreshList).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not show the list-changed indicator when listChanged is false", () => {
+  it("does not show the list-changed indicator (and no Refresh) when listChanged is false", () => {
     renderWithMantine(<AppControls {...baseProps} />);
     expect(screen.queryByText("List updated")).not.toBeInTheDocument();
+    // The indicator is the sole refresh affordance, so there's no standalone
+    // toolbar Refresh button to duplicate it.
+    expect(
+      screen.queryByRole("button", { name: "Refresh" }),
+    ).not.toBeInTheDocument();
   });
 
-  it("shows the list-changed indicator when listChanged is true", async () => {
+  it("shows a single Refresh via the list-changed indicator when listChanged is true", async () => {
     const user = userEvent.setup();
     const onRefreshList = vi.fn();
     renderWithMantine(
       <AppControls {...baseProps} listChanged onRefreshList={onRefreshList} />,
     );
     expect(screen.getByText("List updated")).toBeInTheDocument();
-    // Both the toolbar button and the list-changed indicator's button render
-    // as "Refresh"; either one should drive onRefreshList.
+    // Exactly one Refresh button — the indicator's — not a duplicate alongside
+    // a standalone toolbar button.
     const refreshButtons = screen.getAllByRole("button", { name: "Refresh" });
-    expect(refreshButtons).toHaveLength(2);
-    await user.click(refreshButtons[1]);
+    expect(refreshButtons).toHaveLength(1);
+    await user.click(refreshButtons[0]);
     expect(onRefreshList).toHaveBeenCalledTimes(1);
   });
 });

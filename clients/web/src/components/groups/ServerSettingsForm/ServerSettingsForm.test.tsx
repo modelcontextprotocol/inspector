@@ -45,6 +45,7 @@ const baseHandlers = {
   onRemoveMetadata: vi.fn(),
   onMetadataChange: vi.fn(),
   onTimeoutChange: vi.fn(),
+  onAutoRefreshChange: vi.fn(),
   onOAuthChange: vi.fn(),
   onAddRoot: vi.fn(),
   onRemoveRoot: vi.fn(),
@@ -234,6 +235,54 @@ describe("ServerSettingsForm", () => {
       />,
     );
     expect(screen.getByLabelText(/Task TTL/)).toHaveValue("45000 ms");
+  });
+
+  it("renders the Options section with the Auto Refresh checkbox unchecked by default", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["options"]}
+      />,
+    );
+    const checkbox = screen.getByRole("checkbox", {
+      name: /Auto Refresh on List Changed Notifications/,
+    });
+    expect(checkbox).not.toBeChecked();
+  });
+
+  it("reflects autoRefreshOnListChanged=true as a checked box", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, autoRefreshOnListChanged: true }}
+        expandedSections={["options"]}
+      />,
+    );
+    expect(
+      screen.getByRole("checkbox", {
+        name: /Auto Refresh on List Changed Notifications/,
+      }),
+    ).toBeChecked();
+  });
+
+  it("invokes onAutoRefreshChange when the Auto Refresh checkbox is toggled", async () => {
+    const user = userEvent.setup();
+    const onAutoRefreshChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onAutoRefreshChange={onAutoRefreshChange}
+        settings={emptySettings}
+        expandedSections={["options"]}
+      />,
+    );
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /Auto Refresh on List Changed Notifications/,
+      }),
+    );
+    expect(onAutoRefreshChange).toHaveBeenCalledWith(true);
   });
 
   it("invokes onOAuthChange when typing in client id", async () => {

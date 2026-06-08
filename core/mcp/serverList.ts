@@ -92,6 +92,7 @@ type StoredInspectorFields = Pick<
   | "connectionTimeout"
   | "requestTimeout"
   | "taskTtl"
+  | "autoRefreshOnListChanged"
   | "oauth"
   | "roots"
 >;
@@ -117,6 +118,7 @@ export function storedFieldsToInspectorSettings(
     stored.connectionTimeout !== undefined ||
     stored.requestTimeout !== undefined ||
     stored.taskTtl !== undefined ||
+    stored.autoRefreshOnListChanged !== undefined ||
     stored.oauth !== undefined ||
     stored.roots !== undefined;
   if (!hasAny) return undefined;
@@ -133,6 +135,7 @@ export function storedFieldsToInspectorSettings(
     // Unlike the timeouts (0 = "SDK default"), task TTL has a concrete product
     // default so the form shows it and "Run as task" has a value to send.
     taskTtl: stored.taskTtl ?? DEFAULT_TASK_TTL_MS,
+    autoRefreshOnListChanged: stored.autoRefreshOnListChanged ?? false,
     // Defaults to an empty list so the form always has a concrete array to
     // render controlled rows from. An absent on-disk `roots` reads back as
     // `[]`, which `inspectorSettingsToStoredFields` then omits on write.
@@ -194,6 +197,12 @@ export function inspectorSettingsToStoredFields(
     out.taskTtl = settings.taskTtl;
   }
 
+  // Persist only when enabled — absent reads back as false (above), keeping the
+  // diff minimal for the common (default-off) case.
+  if (settings.autoRefreshOnListChanged) {
+    out.autoRefreshOnListChanged = true;
+  }
+
   const oauthFields: {
     clientId?: string;
     clientSecret?: string;
@@ -238,6 +247,7 @@ const INSPECTOR_FIELD_KEY_MAP = {
   connectionTimeout: true,
   requestTimeout: true,
   taskTtl: true,
+  autoRefreshOnListChanged: true,
   oauth: true,
   roots: true,
 } as const satisfies Record<keyof StoredInspectorFields, true>;

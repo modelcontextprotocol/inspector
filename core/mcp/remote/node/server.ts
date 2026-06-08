@@ -1109,6 +1109,17 @@ export function createRemoteApp(
         error: "settings.taskTtl must be a non-negative number",
       };
     }
+    // Optional on the wire (older clients won't send it); when present it must
+    // be a boolean. Absent reads back as false below.
+    if (
+      obj.autoRefreshOnListChanged !== undefined &&
+      typeof obj.autoRefreshOnListChanged !== "boolean"
+    ) {
+      return {
+        ok: false,
+        error: "settings.autoRefreshOnListChanged must be a boolean",
+      };
+    }
     for (const optional of [
       "oauthClientId",
       "oauthClientSecret",
@@ -1146,6 +1157,9 @@ export function createRemoteApp(
       // to disk for a client that didn't send one.
       taskTtl:
         typeof obj.taskTtl === "number" ? obj.taskTtl : DEFAULT_TASK_TTL_MS,
+      // Absent → false, matching the read side. The omit-on-false logic lives
+      // in inspectorSettingsToStoredFields, so a false value writes nothing.
+      autoRefreshOnListChanged: obj.autoRefreshOnListChanged === true,
       // Absent → empty list, matching the read side
       // (storedFieldsToInspectorSettings). Empty rows are dropped on the way
       // to disk by inspectorSettingsToStoredFields, so an empty array here

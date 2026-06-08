@@ -1,5 +1,4 @@
 import {
-  Button,
   Group,
   ScrollArea,
   Stack,
@@ -26,11 +25,6 @@ export interface AppControlsProps {
 
 const LIST_MAX_HEIGHT =
   "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2 - 220px)";
-
-const ToolbarButton = Button.withProps({
-  variant: "subtle",
-  size: "sm",
-});
 
 const EmptyState = Text.withProps({
   c: "dimmed",
@@ -61,9 +55,8 @@ export function AppControls({
     <Stack gap="sm">
       <Group justify="space-between">
         <Title order={4}>MCP Apps ({tools.length})</Title>
-        <ToolbarButton onClick={onRefreshList}>Refresh</ToolbarButton>
+        <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
       </Group>
-      <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
       <TextInput
         placeholder="Search apps..."
         value={searchText}

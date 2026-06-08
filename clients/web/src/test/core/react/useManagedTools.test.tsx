@@ -101,4 +101,82 @@ describe("useManagedTools", () => {
     // observed value is the empty snapshot captured before the refresh.
     expect(result.current.tools).toEqual([]);
   });
+
+  describe("listChanged (#1402)", () => {
+    it("starts false and reflects listChangedChange from the state", async () => {
+      const { result } = renderHook(() => useManagedTools(client, state));
+      expect(result.current.listChanged).toBe(false);
+
+      client.queueToolPages({ tools: [tool("a")] });
+      act(() => {
+        client.dispatchTypedEvent("toolsListChanged");
+      });
+      await waitFor(() => {
+        expect(result.current.listChanged).toBe(true);
+      });
+    });
+
+    it("refresh() clears the indicator", async () => {
+      const { result } = renderHook(() => useManagedTools(client, state));
+      client.queueToolPages({ tools: [tool("a")] });
+      act(() => {
+        client.dispatchTypedEvent("toolsListChanged");
+      });
+      await waitFor(() => expect(result.current.listChanged).toBe(true));
+
+      client.queueToolPages({ tools: [tool("a")] });
+      await act(async () => {
+        await result.current.refresh();
+      });
+      await waitFor(() => {
+        expect(result.current.listChanged).toBe(false);
+      });
+    });
+
+    it("defaults to false when state is null", () => {
+      const { result } = renderHook(() => useManagedTools(client, null));
+      expect(result.current.listChanged).toBe(false);
+    });
+
+    it("keeps a change that fires during the awaited refresh (race regression)", async () => {
+      const { result } = renderHook(() => useManagedTools(client, state));
+
+      // Indicator starts set from an initial change.
+      client.queueToolPages({ tools: [tool("a")] });
+      act(() => {
+        client.dispatchTypedEvent("toolsListChanged");
+      });
+      await waitFor(() => expect(result.current.listChanged).toBe(true));
+
+      // Hang the user-refresh's fetch so a new change can land mid-flight.
+      let releaseRefresh: (value: { tools: Tool[] }) => void = () => {};
+      client.listTools.mockImplementationOnce(
+        () =>
+          new Promise<{ tools: Tool[] }>((resolve) => {
+            releaseRefresh = resolve;
+          }),
+      );
+
+      let refreshPromise!: Promise<Tool[]>;
+      act(() => {
+        refreshPromise = result.current.refresh();
+      });
+      // The hook clears BEFORE awaiting, so the indicator is already off.
+      await waitFor(() => expect(result.current.listChanged).toBe(false));
+
+      // A genuinely-new change arrives while the refresh is still in flight.
+      client.queueToolPages({ tools: [tool("a"), tool("b")] });
+      act(() => {
+        client.dispatchTypedEvent("toolsListChanged");
+      });
+      await waitFor(() => expect(result.current.listChanged).toBe(true));
+
+      // Completing the user refresh must NOT wipe the mid-flight change.
+      await act(async () => {
+        releaseRefresh({ tools: [tool("a")] });
+        await refreshPromise;
+      });
+      expect(result.current.listChanged).toBe(true);
+    });
+  });
 });

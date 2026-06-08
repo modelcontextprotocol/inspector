@@ -288,27 +288,26 @@ describe("AppsScreen", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders the ListChangedIndicator when listChanged is true", async () => {
+  it("renders a single Refresh via the ListChangedIndicator when listChanged is true", async () => {
     const user = userEvent.setup();
     const onRefreshList = vi.fn();
     renderWithMantine(
       <AppsScreen {...buildProps({ listChanged: true, onRefreshList })} />,
     );
-    // The indicator and toolbar both render "Refresh" buttons; the indicator
-    // is a sibling of the "List updated" label, so target it via that label.
+    // The indicator's Refresh is the only refresh affordance — no standalone
+    // toolbar button duplicating it.
     expect(screen.getByText("List updated")).toBeInTheDocument();
     const refreshButtons = screen.getAllByRole("button", { name: "Refresh" });
-    expect(refreshButtons).toHaveLength(2);
+    expect(refreshButtons).toHaveLength(1);
     await user.click(refreshButtons[0]);
     expect(onRefreshList).toHaveBeenCalledTimes(1);
   });
 
-  it("invokes onRefreshList when the toolbar Refresh button is clicked", async () => {
-    const user = userEvent.setup();
-    const onRefreshList = vi.fn();
-    renderWithMantine(<AppsScreen {...buildProps({ onRefreshList })} />);
-    await user.click(screen.getByRole("button", { name: "Refresh" }));
-    expect(onRefreshList).toHaveBeenCalledTimes(1);
+  it("shows no Refresh button when listChanged is false", () => {
+    renderWithMantine(<AppsScreen {...buildProps()} />);
+    expect(
+      screen.queryByRole("button", { name: "Refresh" }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders the tool icon next to the header title when present", async () => {

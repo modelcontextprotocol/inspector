@@ -452,6 +452,87 @@ describe("/api/servers routes", () => {
       expect(stored).not.toHaveProperty("connectionTimeout");
     });
 
+    it("persists autoRefreshOnListChanged: true through the PUT write path", async () => {
+      // Regression: validateSettings rebuilds the value from named fields, so a
+      // new field is silently dropped unless it's explicitly handled there.
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            delta: { type: "streamable-http", url: "https://x.test/mcp" },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/delta`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            autoRefreshOnListChanged: true,
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers
+        .delta as unknown as Record<string, unknown>;
+      expect(stored.autoRefreshOnListChanged).toBe(true);
+    });
+
+    it("omits autoRefreshOnListChanged from disk when false", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            delta: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              autoRefreshOnListChanged: true,
+            },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/delta`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            autoRefreshOnListChanged: false,
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers
+        .delta as unknown as Record<string, unknown>;
+      expect(stored).not.toHaveProperty("autoRefreshOnListChanged");
+    });
+
+    it("rejects a non-boolean autoRefreshOnListChanged", async () => {
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "bad-autorefresh",
+          config: { type: "stdio", command: "node" },
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            autoRefreshOnListChanged: "yes",
+          },
+        }),
+      });
+      expect(res.status).toBe(400);
+    });
+
     it("rejects a non-object settings field", async () => {
       const res = await fetch(`${h.baseUrl}/api/servers`, {
         method: "POST",

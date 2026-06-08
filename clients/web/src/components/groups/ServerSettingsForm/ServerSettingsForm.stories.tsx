@@ -90,6 +90,12 @@ function InteractiveRender(args: ServerSettingsFormProps) {
           settings: { ...args.settings, [field]: value },
         });
       }}
+      onAutoRefreshChange={(value) => {
+        args.onAutoRefreshChange(value);
+        updateArgs({
+          settings: { ...args.settings, autoRefreshOnListChanged: value },
+        });
+      }}
       onOAuthChange={(oauth) => {
         args.onOAuthChange(oauth);
         updateArgs({
@@ -110,7 +116,7 @@ const meta: Meta<typeof ServerSettingsForm> = {
   component: ServerSettingsForm,
   render: InteractiveRender,
   args: {
-    expandedSections: ["headers"],
+    expandedSections: ["options"],
     onExpandedSectionsChange: fn(),
     onAddHeader: fn(),
     onRemoveHeader: fn(),
@@ -119,6 +125,7 @@ const meta: Meta<typeof ServerSettingsForm> = {
     onRemoveMetadata: fn(),
     onMetadataChange: fn(),
     onTimeoutChange: fn(),
+    onAutoRefreshChange: fn(),
     onOAuthChange: fn(),
   },
 };
@@ -134,6 +141,7 @@ export const DefaultSettings: Story = {
 
 export const WithHeaders: Story = {
   args: {
+    expandedSections: ["headers"],
     settings: {
       ...defaultSettings,
       headers: [

@@ -209,6 +209,44 @@ describe("serverEntriesToMcpConfig", () => {
     expect(round).toEqual(original);
   });
 
+  it("round-trips autoRefreshOnListChanged: lifts true to settings and back to disk", () => {
+    const original: MCPConfig = {
+      mcpServers: {
+        delta: {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          autoRefreshOnListChanged: true,
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.autoRefreshOnListChanged).toBe(true);
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect(round).toEqual(original);
+  });
+
+  it("omits autoRefreshOnListChanged from disk when false (the default)", () => {
+    // Absent on disk lifts to false in memory; writing it back must NOT inject
+    // the field, keeping the diff minimal for the default-off case. A benign
+    // inspector field (connectionTimeout) is present so `settings` is built.
+    const original: MCPConfig = {
+      mcpServers: {
+        epsilon: {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          connectionTimeout: 5000,
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.autoRefreshOnListChanged).toBe(false);
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect("autoRefreshOnListChanged" in (round.mcpServers.epsilon ?? {})).toBe(
+      false,
+    );
+    expect(round).toEqual(original);
+  });
+
   it("lifts top-level Inspector-extension fields onto ServerEntry.settings (form shape)", () => {
     const cfg: MCPConfig = {
       mcpServers: {
@@ -229,6 +267,8 @@ describe("serverEntriesToMcpConfig", () => {
       requestTimeout: 0,
       // Absent taskTtl on disk → product default in memory (for the form)
       taskTtl: 60000,
+      // Absent autoRefreshOnListChanged on disk → false in memory (for the form)
+      autoRefreshOnListChanged: false,
       // Absent roots on disk → empty list in memory (for the form)
       roots: [],
       // Nested oauth on disk → flat oauthClientId in memory

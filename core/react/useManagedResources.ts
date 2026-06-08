@@ -9,6 +9,10 @@ import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
 
 export interface UseManagedResourcesResult {
   resources: Resource[];
+  /**
+   * True when a `resources/list_changed` arrived since the last user refresh.
+   */
+  listChanged: boolean;
   refresh: () => Promise<Resource[]>;
 }
 
@@ -22,13 +26,18 @@ export function useManagedResources(
   const [resources, setResources] = useState<Resource[]>(
     managedResourcesState?.getResources() ?? [],
   );
+  const [listChanged, setListChanged] = useState<boolean>(
+    managedResourcesState?.getListChanged() ?? false,
+  );
 
   useEffect(() => {
     if (!managedResourcesState) {
       setResources([]);
+      setListChanged(false);
       return;
     }
     setResources(managedResourcesState.getResources());
+    setListChanged(managedResourcesState.getListChanged());
     const onResourcesChange = (
       event: TypedEventGeneric<
         ManagedResourcesStateEventMap,
@@ -37,24 +46,46 @@ export function useManagedResources(
     ) => {
       setResources(event.detail);
     };
+    const onListChangedChange = (
+      event: TypedEventGeneric<
+        ManagedResourcesStateEventMap,
+        "listChangedChange"
+      >,
+    ) => {
+      setListChanged(event.detail);
+    };
     managedResourcesState.addEventListener(
       "resourcesChange",
       onResourcesChange,
+    );
+    managedResourcesState.addEventListener(
+      "listChangedChange",
+      onListChangedChange,
     );
     return () => {
       managedResourcesState.removeEventListener(
         "resourcesChange",
         onResourcesChange,
       );
+      managedResourcesState.removeEventListener(
+        "listChangedChange",
+        onListChangedChange,
+      );
     };
   }, [managedResourcesState]);
 
   const refresh = useCallback(async (): Promise<Resource[]> => {
     if (!managedResourcesState || !client) return [];
+    // A user-initiated refresh acknowledges the change — clear the indicator
+    // BEFORE awaiting the fetch, not after. If a `resources/list_changed`
+    // arrives mid-fetch, the state re-sets the flag (and auto-refreshes);
+    // clearing afterward would wipe that genuinely-new signal and the user
+    // would miss it. Clearing up front acknowledges only the change in hand.
+    managedResourcesState.clearListChanged();
     const next = await managedResourcesState.refresh();
     setResources(next);
     return next;
   }, [client, managedResourcesState]);
 
-  return { resources, refresh };
+  return { resources, listChanged, refresh };
 }

@@ -56,6 +56,9 @@ function makeProps(
     prompts: [],
     resources: [],
     resourceTemplates: [],
+    toolsListChanged: false,
+    promptsListChanged: false,
+    resourcesListChanged: false,
     subscriptions: [],
     logs: [],
     tasks: [],
@@ -584,5 +587,105 @@ describe("InspectorView", () => {
     expect(
       await screen.findByRole("button", { name: "Expand all" }),
     ).toBeInTheDocument();
+  });
+
+  describe("listChanged indicator wiring (#1402)", () => {
+    // The indicator only mounts on the active screen, so each case connects,
+    // navigates to the target tab, and asserts the "List updated" affordance.
+    async function gotoTab(tab: string) {
+      const user = userEvent.setup();
+      const tabSelect = await screen.findByDisplayValue("Servers");
+      await user.click(tabSelect);
+      await user.click(await screen.findByText(tab));
+      return user;
+    }
+
+    it("routes toolsListChanged to the Tools screen indicator", async () => {
+      renderWithMantine(
+        <InspectorView
+          {...makeProps({
+            servers: [sampleServer],
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+            toolsListChanged: true,
+          })}
+        />,
+      );
+      await gotoTab("Tools");
+      expect(await screen.findByText("List updated")).toBeInTheDocument();
+    });
+
+    it("shares the tools flag with the Apps screen (apps are filtered tools)", async () => {
+      renderWithMantine(
+        <InspectorView
+          {...makeProps({
+            servers: [sampleServer],
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+            toolsListChanged: true,
+          })}
+        />,
+      );
+      await gotoTab("Apps");
+      expect(await screen.findByText("List updated")).toBeInTheDocument();
+    });
+
+    it("routes promptsListChanged to the Prompts screen indicator", async () => {
+      renderWithMantine(
+        <InspectorView
+          {...makeProps({
+            servers: [sampleServer],
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+            promptsListChanged: true,
+          })}
+        />,
+      );
+      await gotoTab("Prompts");
+      expect(await screen.findByText("List updated")).toBeInTheDocument();
+    });
+
+    it("routes resourcesListChanged to the Resources screen indicator", async () => {
+      renderWithMantine(
+        <InspectorView
+          {...makeProps({
+            servers: [sampleServer],
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+            resourcesListChanged: true,
+          })}
+        />,
+      );
+      await gotoTab("Resources");
+      expect(await screen.findByText("List updated")).toBeInTheDocument();
+    });
+
+    it("does not show the indicator on a screen whose flag is false (no cross-wiring)", async () => {
+      renderWithMantine(
+        <InspectorView
+          {...makeProps({
+            servers: [sampleServer],
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+            // Tools changed, but Prompts did not — the Prompts screen must
+            // stay quiet.
+            toolsListChanged: true,
+            promptsListChanged: false,
+          })}
+        />,
+      );
+      await gotoTab("Prompts");
+      // The Prompts screen has mounted (its heading is present)...
+      expect(
+        await screen.findByRole("heading", { name: "Prompts" }),
+      ).toBeInTheDocument();
+      // ...but the indicator is not, since promptsListChanged is false.
+      expect(screen.queryByText("List updated")).not.toBeInTheDocument();
+    });
   });
 });

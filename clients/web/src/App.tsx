@@ -277,6 +277,7 @@ const EMPTY_SETTINGS: InspectorServerSettings = {
   connectionTimeout: 0,
   requestTimeout: 0,
   taskTtl: DEFAULT_TASK_TTL_MS,
+  autoRefreshOnListChanged: false,
   roots: [],
 };
 
@@ -602,22 +603,23 @@ function App() {
     instructions,
     protocolVersion,
   } = useInspectorClient(inspectorClient);
-  const { tools, refresh: refreshTools } = useManagedTools(
-    inspectorClient,
-    managedToolsState,
-  );
-  const { prompts, refresh: refreshPrompts } = useManagedPrompts(
-    inspectorClient,
-    managedPromptsState,
-  );
-  const { resources, refresh: refreshResources } = useManagedResources(
-    inspectorClient,
-    managedResourcesState,
-  );
-  const { resourceTemplates } = useManagedResourceTemplates(
-    inspectorClient,
-    managedResourceTemplatesState,
-  );
+  const {
+    tools,
+    listChanged: toolsListChanged,
+    refresh: refreshTools,
+  } = useManagedTools(inspectorClient, managedToolsState);
+  const {
+    prompts,
+    listChanged: promptsListChanged,
+    refresh: refreshPrompts,
+  } = useManagedPrompts(inspectorClient, managedPromptsState);
+  const {
+    resources,
+    listChanged: resourcesListChanged,
+    refresh: refreshResources,
+  } = useManagedResources(inspectorClient, managedResourcesState);
+  const { resourceTemplates, refresh: refreshResourceTemplates } =
+    useManagedResourceTemplates(inspectorClient, managedResourceTemplatesState);
   const {
     tasks,
     refresh: refreshTasks,
@@ -1677,8 +1679,12 @@ function App() {
     void refreshPrompts();
   }, [refreshPrompts]);
   const onRefreshResources = useCallback(() => {
+    // Refresh both lists shown on the Resources screen. A single
+    // `notifications/resources/list_changed` covers resources and templates,
+    // and neither auto-refreshes anymore, so the user's Refresh pulls both.
     void refreshResources();
-  }, [refreshResources]);
+    void refreshResourceTemplates();
+  }, [refreshResources, refreshResourceTemplates]);
   const onRefreshTasks = useCallback(() => {
     // Surface list failures (e.g. the MAX_PAGES guard or a tasks/list error)
     // instead of letting the rejected promise go unhandled.
@@ -2095,6 +2101,9 @@ function App() {
         prompts={prompts}
         resources={resources}
         resourceTemplates={resourceTemplates}
+        toolsListChanged={toolsListChanged}
+        promptsListChanged={promptsListChanged}
+        resourcesListChanged={resourcesListChanged}
         subscriptions={subscriptions}
         logs={logs}
         tasks={tasks}

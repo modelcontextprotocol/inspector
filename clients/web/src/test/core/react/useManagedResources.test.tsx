@@ -107,4 +107,41 @@ describe("useManagedResources", () => {
 
     expect(result.current.resources).toEqual([]);
   });
+
+  describe("listChanged (#1402)", () => {
+    it("starts false and reflects listChangedChange from the state", async () => {
+      const { result } = renderHook(() => useManagedResources(client, state));
+      expect(result.current.listChanged).toBe(false);
+
+      client.queueResourcePages({ resources: [resource("a://1")] });
+      act(() => {
+        client.dispatchTypedEvent("resourcesListChanged");
+      });
+      await waitFor(() => {
+        expect(result.current.listChanged).toBe(true);
+      });
+    });
+
+    it("refresh() clears the indicator", async () => {
+      const { result } = renderHook(() => useManagedResources(client, state));
+      client.queueResourcePages({ resources: [resource("a://1")] });
+      act(() => {
+        client.dispatchTypedEvent("resourcesListChanged");
+      });
+      await waitFor(() => expect(result.current.listChanged).toBe(true));
+
+      client.queueResourcePages({ resources: [resource("a://1")] });
+      await act(async () => {
+        await result.current.refresh();
+      });
+      await waitFor(() => {
+        expect(result.current.listChanged).toBe(false);
+      });
+    });
+
+    it("defaults to false when state is null", () => {
+      const { result } = renderHook(() => useManagedResources(client, null));
+      expect(result.current.listChanged).toBe(false);
+    });
+  });
 });

@@ -2,6 +2,7 @@ import {
   Accordion,
   ActionIcon,
   Button,
+  Checkbox,
   Group,
   NumberInput,
   Stack,
@@ -15,6 +16,7 @@ import type {
 import type { Root } from "@modelcontextprotocol/sdk/types.js";
 
 export type ServerSettingsSection =
+  | "options"
   | "headers"
   | "metadata"
   | "timeouts"
@@ -35,6 +37,7 @@ export interface ServerSettingsFormProps {
     field: "connectionTimeout" | "requestTimeout" | "taskTtl",
     value: number,
   ) => void;
+  onAutoRefreshChange: (value: boolean) => void;
   onOAuthChange: (oauth: OAuthSettings) => void;
   onAddRoot: () => void;
   onRemoveRoot: (index: number) => void;
@@ -143,6 +146,7 @@ export function ServerSettingsForm({
   onRemoveMetadata,
   onMetadataChange,
   onTimeoutChange,
+  onAutoRefreshChange,
   onOAuthChange,
   onAddRoot,
   onRemoveRoot,
@@ -173,6 +177,20 @@ export function ServerSettingsForm({
       }
       variant="separated"
     >
+      <Accordion.Item value="options">
+        <Accordion.Control>Options</Accordion.Control>
+        <Accordion.Panel>
+          <Stack gap="md">
+            <Checkbox
+              label="Auto Refresh on List Changed Notifications"
+              description="When checked, tool/prompt/resource lists refresh automatically when the server sends a */list_changed notification. When unchecked, the list-changed indicator appears and you refresh on demand."
+              checked={settings.autoRefreshOnListChanged ?? false}
+              onChange={(e) => onAutoRefreshChange(e.currentTarget.checked)}
+            />
+          </Stack>
+        </Accordion.Panel>
+      </Accordion.Item>
+
       <Accordion.Item value="headers">
         <Accordion.Control>Custom Headers</Accordion.Control>
         <Accordion.Panel>

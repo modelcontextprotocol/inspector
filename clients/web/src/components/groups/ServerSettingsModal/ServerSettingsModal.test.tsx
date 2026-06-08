@@ -71,7 +71,7 @@ describe("ServerSettingsModal", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("calls onSettingsChange when adding a header", async () => {
+  it("calls onSettingsChange when adding a header after expanding the section", async () => {
     const user = userEvent.setup();
     const onSettingsChange = vi.fn();
     renderWithMantine(
@@ -82,6 +82,7 @@ describe("ServerSettingsModal", () => {
         onSettingsChange={onSettingsChange}
       />,
     );
+    await user.click(screen.getByRole("button", { name: "Custom Headers" }));
     await user.click(screen.getByRole("button", { name: "+ Add Header" }));
     expect(onSettingsChange).toHaveBeenCalledWith({
       ...emptySettings,
@@ -100,6 +101,7 @@ describe("ServerSettingsModal", () => {
         onSettingsChange={onSettingsChange}
       />,
     );
+    await user.click(screen.getByRole("button", { name: "Custom Headers" }));
     const removeButtons = screen.getAllByRole("button", { name: "X" });
     await user.click(removeButtons[0]);
     expect(onSettingsChange).toHaveBeenCalledWith({
@@ -119,6 +121,7 @@ describe("ServerSettingsModal", () => {
         onSettingsChange={onSettingsChange}
       />,
     );
+    await user.click(screen.getByRole("button", { name: "Custom Headers" }));
     const valueInput = screen.getByDisplayValue("Bearer abc");
     await user.type(valueInput, "1");
     expect(onSettingsChange).toHaveBeenCalled();
@@ -298,6 +301,7 @@ describe("ServerSettingsModal", () => {
         onSettingsChange={vi.fn()}
       />,
     );
+    const optionsControl = screen.getByRole("button", { name: "Options" });
     const headersControl = screen.getByRole("button", {
       name: "Custom Headers",
     });
@@ -308,14 +312,15 @@ describe("ServerSettingsModal", () => {
     const oauthControl = screen.getByRole("button", { name: "OAuth Settings" });
     const rootsControl = screen.getByRole("button", { name: "Roots" });
 
-    // Initially only "headers" is expanded.
-    expect(headersControl.getAttribute("aria-expanded")).toBe("true");
-    expect(metadataControl.getAttribute("aria-expanded")).toBe("false");
+    // Initially only "options" is expanded.
+    expect(optionsControl.getAttribute("aria-expanded")).toBe("true");
+    expect(headersControl.getAttribute("aria-expanded")).toBe("false");
 
     // Not every section is expanded → ListToggle starts in compact mode
     // and exposes "Expand all" as its aria-label.
     await user.click(screen.getByRole("button", { name: "Expand all" }));
 
+    expect(headersControl.getAttribute("aria-expanded")).toBe("true");
     expect(metadataControl.getAttribute("aria-expanded")).toBe("true");
     expect(timeoutsControl.getAttribute("aria-expanded")).toBe("true");
     expect(oauthControl.getAttribute("aria-expanded")).toBe("true");
@@ -323,7 +328,7 @@ describe("ServerSettingsModal", () => {
 
     // After expanding every section the toggle flips to "Collapse all".
     await user.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(optionsControl.getAttribute("aria-expanded")).toBe("false");
     expect(headersControl.getAttribute("aria-expanded")).toBe("false");
-    expect(metadataControl.getAttribute("aria-expanded")).toBe("false");
   });
 });

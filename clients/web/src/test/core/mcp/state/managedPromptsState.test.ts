@@ -1,11 +1,22 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
+import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { ManagedPromptsState } from "@inspector/core/mcp/state/managedPromptsState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 
 function prompt(name: string): Prompt {
   return { name };
 }
+
+const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
+  headers: [],
+  metadata: [],
+  connectionTimeout: 0,
+  requestTimeout: 0,
+  taskTtl: 60000,
+  autoRefreshOnListChanged: true,
+  roots: [],
+};
 
 function waitForPromptsChange(state: ManagedPromptsState): Promise<Prompt[]> {
   return new Promise((resolve) => {
@@ -124,13 +135,29 @@ describe("ManagedPromptsState", () => {
     expect(next.map((p) => p.name)).toEqual(["a"]);
   });
 
-  it("promptsListChanged event triggers a refresh", async () => {
+  it("promptsListChanged does NOT auto-refresh by default (the user pulls via Refresh)", async () => {
     client.setStatus("connected");
     client.queuePromptPages({ prompts: [prompt("a"), prompt("b")] });
-    const changePromise = waitForPromptsChange(state);
     client.dispatchTypedEvent("promptsListChanged");
-    const next = await changePromise;
-    expect(next.map((p) => p.name)).toEqual(["a", "b"]);
+    // Yield so a stray refresh would have landed.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(client.listPrompts).not.toHaveBeenCalled();
+    expect(state.getPrompts()).toEqual([]);
+  });
+
+  it("promptsListChanged auto-refreshes when the server opts in", async () => {
+    const autoClient = new FakeInspectorClient({
+      capabilities: { prompts: {} },
+      serverSettings: AUTO_REFRESH_SETTINGS,
+    });
+    autoClient.setStatus("connected");
+    const autoState = new ManagedPromptsState(autoClient);
+    autoClient.queuePromptPages({ prompts: [prompt("a")] });
+    const changed = waitForPromptsChange(autoState);
+    autoClient.dispatchTypedEvent("promptsListChanged");
+    expect((await changed).map((p) => p.name)).toEqual(["a"]);
+    expect(autoClient.listPrompts).toHaveBeenCalled();
   });
 
   it("statusChange to disconnected clears prompts and dispatches promptsChange", async () => {
@@ -176,6 +203,62 @@ describe("ManagedPromptsState", () => {
     client.dispatchTypedEvent("promptsListChanged");
     await Promise.resolve();
     expect(state.getPrompts()).toEqual([]);
+  });
+
+  describe("listChanged (#1402)", () => {
+    function waitForListChanged(s: ManagedPromptsState): Promise<boolean> {
+      return new Promise((resolve) => {
+        s.addEventListener("listChangedChange", (e) => resolve(e.detail), {
+          once: true,
+        });
+      });
+    }
+
+    it("starts cleared", () => {
+      expect(state.getListChanged()).toBe(false);
+    });
+
+    it("promptsListChanged sets the flag and dispatches listChangedChange", async () => {
+      client.setStatus("connected");
+      client.queuePromptPages({ prompts: [prompt("a")] });
+      const changed = waitForListChanged(state);
+      client.dispatchTypedEvent("promptsListChanged");
+      expect(await changed).toBe(true);
+      expect(state.getListChanged()).toBe(true);
+    });
+
+    it("clearListChanged resets the flag and dispatches false", async () => {
+      client.setStatus("connected");
+      client.queuePromptPages({ prompts: [prompt("a")] });
+      client.dispatchTypedEvent("promptsListChanged");
+      expect(state.getListChanged()).toBe(true);
+
+      const changed = waitForListChanged(state);
+      state.clearListChanged();
+      expect(await changed).toBe(false);
+      expect(state.getListChanged()).toBe(false);
+    });
+
+    it("clearListChanged is a no-op (no event) when already cleared", () => {
+      let fired = false;
+      state.addEventListener("listChangedChange", () => {
+        fired = true;
+      });
+      state.clearListChanged();
+      expect(fired).toBe(false);
+    });
+
+    it("disconnect clears the flag", async () => {
+      client.setStatus("connected");
+      client.queuePromptPages({ prompts: [prompt("a")] });
+      client.dispatchTypedEvent("promptsListChanged");
+      expect(state.getListChanged()).toBe(true);
+
+      const changed = waitForListChanged(state);
+      client.setStatus("disconnected");
+      expect(await changed).toBe(false);
+      expect(state.getListChanged()).toBe(false);
+    });
   });
 
   it("destroy is idempotent", () => {

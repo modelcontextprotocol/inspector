@@ -13,6 +13,13 @@ const MAX_PAGES = 100;
 
 export interface ManagedResourcesStateEventMap {
   resourcesChange: Resource[];
+  /**
+   * Fires when the "list changed since last refresh" flag flips. True when a
+   * `resources/list_changed` notification arrives, false once the user
+   * refreshes or the connection drops. Drives the list-changed indicator
+   * (#1402).
+   */
+  listChangedChange: boolean;
 }
 
 /**
@@ -25,6 +32,7 @@ export class ManagedResourcesState extends TypedEventTarget<ManagedResourcesStat
   private client: InspectorClientProtocol | null = null;
   private unsubscribe: (() => void) | null = null;
   private _metadata: Record<string, string> | undefined = undefined;
+  private listChanged = false;
 
   constructor(client: InspectorClientProtocol) {
     super();
@@ -33,12 +41,21 @@ export class ManagedResourcesState extends TypedEventTarget<ManagedResourcesStat
       void this.refresh();
     };
     const onResourcesListChanged = (): void => {
-      void this.refresh();
+      // When the server opts into auto-refresh (per-server setting), pull the
+      // new list immediately. Otherwise just flag the change for the indicator
+      // and let the user pull via Refresh, which is what makes the indicator
+      // meaningful (#1402).
+      if (this.client?.getServerSettings()?.autoRefreshOnListChanged) {
+        void this.refresh();
+      } else {
+        this.setListChanged(true);
+      }
     };
     const onStatusChange = (): void => {
       if (this.client?.getStatus() === "disconnected") {
         this.resources = [];
         this.dispatchTypedEvent("resourcesChange", []);
+        this.setListChanged(false);
       }
     };
     this.client.addEventListener("connect", onConnect);
@@ -62,6 +79,26 @@ export class ManagedResourcesState extends TypedEventTarget<ManagedResourcesStat
 
   getResources(): Resource[] {
     return [...this.resources];
+  }
+
+  /** Whether a `resources/list_changed` arrived since the last user refresh. */
+  getListChanged(): boolean {
+    return this.listChanged;
+  }
+
+  /**
+   * Clear the list-changed flag — called when the user refreshes the list
+   * (the auto-refresh on the notification leaves it set so the indicator
+   * stays visible until acknowledged).
+   */
+  clearListChanged(): void {
+    this.setListChanged(false);
+  }
+
+  private setListChanged(value: boolean): void {
+    if (this.listChanged === value) return;
+    this.listChanged = value;
+    this.dispatchTypedEvent("listChangedChange", value);
   }
 
   setMetadata(metadata?: Record<string, string>): void {
