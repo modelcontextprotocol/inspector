@@ -76,10 +76,14 @@ export function useManagedResources(
 
   const refresh = useCallback(async (): Promise<Resource[]> => {
     if (!managedResourcesState || !client) return [];
+    // A user-initiated refresh acknowledges the change — clear the indicator
+    // BEFORE awaiting the fetch, not after. If a `resources/list_changed`
+    // arrives mid-fetch, the state re-sets the flag (and auto-refreshes);
+    // clearing afterward would wipe that genuinely-new signal and the user
+    // would miss it. Clearing up front acknowledges only the change in hand.
+    managedResourcesState.clearListChanged();
     const next = await managedResourcesState.refresh();
     setResources(next);
-    // A user-initiated refresh acknowledges the change — clear the indicator.
-    managedResourcesState.clearListChanged();
     return next;
   }, [client, managedResourcesState]);
 

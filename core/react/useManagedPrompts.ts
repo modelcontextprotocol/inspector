@@ -68,10 +68,14 @@ export function useManagedPrompts(
 
   const refresh = useCallback(async (): Promise<Prompt[]> => {
     if (!managedPromptsState || !client) return [];
+    // A user-initiated refresh acknowledges the change — clear the indicator
+    // BEFORE awaiting the fetch, not after. If a `prompts/list_changed` arrives
+    // mid-fetch, the state re-sets the flag (and auto-refreshes); clearing
+    // afterward would wipe that genuinely-new signal and the user would miss
+    // it. Clearing up front acknowledges only the change in hand.
+    managedPromptsState.clearListChanged();
     const next = await managedPromptsState.refresh();
     setPrompts(next);
-    // A user-initiated refresh acknowledges the change — clear the indicator.
-    managedPromptsState.clearListChanged();
     return next;
   }, [client, managedPromptsState]);
 
