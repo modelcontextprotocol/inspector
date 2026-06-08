@@ -49,6 +49,12 @@ const ModeText = Text.withProps({
   c: "dimmed",
 });
 
+const ProtocolText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+  ml: "auto",
+});
+
 const SubtleButton = Button.withProps({
   variant: "subtle",
   size: "xs",
@@ -102,6 +108,8 @@ export function ServerCard({
   const transport = getTransport(config);
   const commandOrUrl = getCommandOrUrl(config);
   const version = info?.version;
+  const protocolVersion =
+    connection.status === "connected" ? connection.protocolVersion : undefined;
 
   return (
     <Card
@@ -134,6 +142,9 @@ export function ServerCard({
               {version && <Badge variant="outline">{version}</Badge>}
               <TransportBadge transport={transport} />
               <ModeText>{TRANSPORT_DESCRIPTION[transport]}</ModeText>
+              {protocolVersion && (
+                <ProtocolText>MCP {protocolVersion}</ProtocolText>
+              )}
             </Group>
 
             <ContentViewer

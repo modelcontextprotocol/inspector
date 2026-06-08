@@ -15,7 +15,10 @@ const httpConfig: MCPServerConfig = {
   url: "https://api.example.com/mcp",
 };
 
-const connected: ConnectionState = { status: "connected" };
+const connected: ConnectionState = {
+  status: "connected",
+  protocolVersion: "2025-06-18",
+};
 const disconnected: ConnectionState = { status: "disconnected" };
 const connecting: ConnectionState = { status: "connecting" };
 const failed: ConnectionState = {
