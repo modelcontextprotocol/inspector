@@ -41,13 +41,13 @@ export class ManagedToolsState extends TypedEventTarget<ManagedToolsStateEventMa
     };
     const onToolsListChanged = (): void => {
       // When the server opts into auto-refresh (per-server setting), pull the
-      // new list immediately. Otherwise just flag the change for the indicator
-      // and let the user pull via Refresh, which is what makes the indicator
-      // meaningful (#1402).
+      // new list immediately. Otherwise peek: fetch and compare, lighting the
+      // indicator only when the list actually changed — many servers re-send an
+      // identical list on `list_changed` (#1402, #1444).
       if (this.client?.getServerSettings()?.autoRefreshOnListChanged) {
         void this.refresh();
       } else {
-        this.setListChanged(true);
+        void this.peekForChange();
       }
     };
     const onStatusChange = (): void => {
@@ -99,27 +99,33 @@ export class ManagedToolsState extends TypedEventTarget<ManagedToolsStateEventMa
   }
 
   async refresh(metadata?: Record<string, string>): Promise<Tool[]> {
+    const next = await this.fetchTools(metadata);
+    // `null` means not connected — leave the current list untouched.
+    if (next === null) return this.getTools();
+    this.applyTools(next);
+    return this.getTools();
+  }
+
+  /**
+   * Fetch all pages without mutating state or dispatching — used by both
+   * refresh (apply) and peek (compare). Returns `null` when not connected, or
+   * `[]` when the server doesn't advertise the `tools` capability (calling
+   * tools/list there returns -32601 "Method not found", which would spam the
+   * console; empty list is the right semantics).
+   */
+  private async fetchTools(
+    metadata?: Record<string, string>,
+  ): Promise<Tool[] | null> {
     const client = this.client;
-    if (!client || client.getStatus() !== "connected") {
-      return this.getTools();
-    }
-    // Gate on the server's `tools` capability — calling tools/list against a
-    // server that doesn't advertise it returns -32601 "Method not found",
-    // which then surfaces in the console for every connect against a
-    // tools-less server. Empty list is the right semantics for "this server
-    // doesn't support tools."
-    if (!client.getCapabilities()?.tools) {
-      this.tools = [];
-      this.dispatchTypedEvent("toolsChange", this.tools);
-      return this.getTools();
-    }
+    if (!client || client.getStatus() !== "connected") return null;
+    if (!client.getCapabilities()?.tools) return [];
     const effectiveMetadata = metadata ?? this._metadata;
-    this.tools = [];
+    let tools: Tool[] = [];
     let cursor: string | undefined;
     let pageCount = 0;
     do {
       const result = await client.listTools(cursor, effectiveMetadata);
-      this.tools = cursor ? [...this.tools, ...result.tools] : result.tools;
+      tools = cursor ? [...tools, ...result.tools] : result.tools;
       cursor = result.nextCursor;
       pageCount++;
       if (pageCount >= MAX_PAGES) {
@@ -128,8 +134,28 @@ export class ManagedToolsState extends TypedEventTarget<ManagedToolsStateEventMa
         );
       }
     } while (cursor);
+    return tools;
+  }
+
+  /** Commit a fetched list as the current one and notify subscribers. */
+  private applyTools(tools: Tool[]): void {
+    this.tools = tools;
     this.dispatchTypedEvent("toolsChange", this.tools);
-    return this.getTools();
+  }
+
+  /**
+   * Fetch on `list_changed` and light the indicator only when the list
+   * actually differs from what's displayed. The displayed list is left
+   * untouched — the user still pulls the new one via Refresh (pull-on-demand).
+   * Many servers re-send an identical list on `list_changed`; this suppresses
+   * the indicator in that case (#1444).
+   */
+  private async peekForChange(): Promise<void> {
+    const next = await this.fetchTools();
+    if (next === null) return;
+    if (JSON.stringify(next) !== JSON.stringify(this.tools)) {
+      this.setListChanged(true);
+    }
   }
 
   destroy(): void {

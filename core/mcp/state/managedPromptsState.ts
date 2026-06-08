@@ -41,13 +41,13 @@ export class ManagedPromptsState extends TypedEventTarget<ManagedPromptsStateEve
     };
     const onPromptsListChanged = (): void => {
       // When the server opts into auto-refresh (per-server setting), pull the
-      // new list immediately. Otherwise just flag the change for the indicator
-      // and let the user pull via Refresh, which is what makes the indicator
-      // meaningful (#1402).
+      // new list immediately. Otherwise peek: fetch and compare, lighting the
+      // indicator only when the list actually changed — many servers re-send an
+      // identical list on `list_changed` (#1402, #1444).
       if (this.client?.getServerSettings()?.autoRefreshOnListChanged) {
         void this.refresh();
       } else {
-        this.setListChanged(true);
+        void this.peekForChange();
       }
     };
     const onStatusChange = (): void => {
@@ -102,27 +102,33 @@ export class ManagedPromptsState extends TypedEventTarget<ManagedPromptsStateEve
   }
 
   async refresh(metadata?: Record<string, string>): Promise<Prompt[]> {
+    const next = await this.fetchPrompts(metadata);
+    // `null` means not connected — leave the current list untouched.
+    if (next === null) return this.getPrompts();
+    this.applyPrompts(next);
+    return this.getPrompts();
+  }
+
+  /**
+   * Fetch all pages without mutating state or dispatching — used by both
+   * refresh (apply) and peek (compare). Returns `null` when not connected, or
+   * `[]` when the server doesn't advertise the `prompts` capability (calling
+   * prompts/list there returns -32601 "Method not found", which would spam the
+   * console; empty list is the right semantics).
+   */
+  private async fetchPrompts(
+    metadata?: Record<string, string>,
+  ): Promise<Prompt[] | null> {
     const client = this.client;
-    if (!client || client.getStatus() !== "connected") {
-      return this.getPrompts();
-    }
-    // Gate on the server's `prompts` capability — calling prompts/list against
-    // a server that doesn't advertise it returns -32601 "Method not found",
-    // which then surfaces in the console for every connect against a
-    // prompts-less server. Empty list is the right semantics for "this server
-    // doesn't support prompts."
-    if (!client.getCapabilities()?.prompts) {
-      this.prompts = [];
-      this.dispatchTypedEvent("promptsChange", this.prompts);
-      return this.getPrompts();
-    }
+    if (!client || client.getStatus() !== "connected") return null;
+    if (!client.getCapabilities()?.prompts) return [];
     const effectiveMetadata = metadata ?? this._metadata;
-    this.prompts = [];
+    let prompts: Prompt[] = [];
     let cursor: string | undefined;
     let pageCount = 0;
     do {
       const result = await client.listPrompts(cursor, effectiveMetadata);
-      this.prompts = cursor ? [...this.prompts, ...result.prompts] : result.prompts;
+      prompts = cursor ? [...prompts, ...result.prompts] : result.prompts;
       cursor = result.nextCursor;
       pageCount++;
       if (pageCount >= MAX_PAGES) {
@@ -131,8 +137,28 @@ export class ManagedPromptsState extends TypedEventTarget<ManagedPromptsStateEve
         );
       }
     } while (cursor);
+    return prompts;
+  }
+
+  /** Commit a fetched list as the current one and notify subscribers. */
+  private applyPrompts(prompts: Prompt[]): void {
+    this.prompts = prompts;
     this.dispatchTypedEvent("promptsChange", this.prompts);
-    return this.getPrompts();
+  }
+
+  /**
+   * Fetch on `list_changed` and light the indicator only when the list
+   * actually differs from what's displayed. The displayed list is left
+   * untouched — the user still pulls the new one via Refresh (pull-on-demand).
+   * Many servers re-send an identical list on `list_changed`; this suppresses
+   * the indicator in that case (#1444).
+   */
+  private async peekForChange(): Promise<void> {
+    const next = await this.fetchPrompts();
+    if (next === null) return;
+    if (JSON.stringify(next) !== JSON.stringify(this.prompts)) {
+      this.setListChanged(true);
+    }
   }
 
   destroy(): void {

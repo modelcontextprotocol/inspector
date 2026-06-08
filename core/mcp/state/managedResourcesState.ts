@@ -42,13 +42,13 @@ export class ManagedResourcesState extends TypedEventTarget<ManagedResourcesStat
     };
     const onResourcesListChanged = (): void => {
       // When the server opts into auto-refresh (per-server setting), pull the
-      // new list immediately. Otherwise just flag the change for the indicator
-      // and let the user pull via Refresh, which is what makes the indicator
-      // meaningful (#1402).
+      // new list immediately. Otherwise peek: fetch and compare, lighting the
+      // indicator only when the list actually changed — many servers re-send an
+      // identical list on `list_changed` (#1402, #1444).
       if (this.client?.getServerSettings()?.autoRefreshOnListChanged) {
         void this.refresh();
       } else {
-        this.setListChanged(true);
+        void this.peekForChange();
       }
     };
     const onStatusChange = (): void => {
@@ -106,29 +106,33 @@ export class ManagedResourcesState extends TypedEventTarget<ManagedResourcesStat
   }
 
   async refresh(metadata?: Record<string, string>): Promise<Resource[]> {
+    const next = await this.fetchResources(metadata);
+    // `null` means not connected — leave the current list untouched.
+    if (next === null) return this.getResources();
+    this.applyResources(next);
+    return this.getResources();
+  }
+
+  /**
+   * Fetch all pages without mutating state or dispatching — used by both
+   * refresh (apply) and peek (compare). Returns `null` when not connected, or
+   * `[]` when the server doesn't advertise the `resources` capability (calling
+   * resources/list there returns -32601 "Method not found", which would spam
+   * the console; empty list is the right semantics).
+   */
+  private async fetchResources(
+    metadata?: Record<string, string>,
+  ): Promise<Resource[] | null> {
     const client = this.client;
-    if (!client || client.getStatus() !== "connected") {
-      return this.getResources();
-    }
-    // Gate on the server's `resources` capability — calling resources/list
-    // against a server that doesn't advertise it returns -32601 "Method not
-    // found", which then surfaces in the console for every connect against a
-    // resources-less server. Empty list is the right semantics for "this
-    // server doesn't support resources."
-    if (!client.getCapabilities()?.resources) {
-      this.resources = [];
-      this.dispatchTypedEvent("resourcesChange", this.resources);
-      return this.getResources();
-    }
+    if (!client || client.getStatus() !== "connected") return null;
+    if (!client.getCapabilities()?.resources) return [];
     const effectiveMetadata = metadata ?? this._metadata;
-    this.resources = [];
+    let resources: Resource[] = [];
     let cursor: string | undefined;
     let pageCount = 0;
     do {
       const result = await client.listResources(cursor, effectiveMetadata);
-      this.resources = cursor
-        ? [...this.resources, ...result.resources]
-        : result.resources;
+      resources = cursor ? [...resources, ...result.resources] : result.resources;
       cursor = result.nextCursor;
       pageCount++;
       if (pageCount >= MAX_PAGES) {
@@ -137,8 +141,28 @@ export class ManagedResourcesState extends TypedEventTarget<ManagedResourcesStat
         );
       }
     } while (cursor);
+    return resources;
+  }
+
+  /** Commit a fetched list as the current one and notify subscribers. */
+  private applyResources(resources: Resource[]): void {
+    this.resources = resources;
     this.dispatchTypedEvent("resourcesChange", this.resources);
-    return this.getResources();
+  }
+
+  /**
+   * Fetch on `list_changed` and light the indicator only when the list
+   * actually differs from what's displayed. The displayed list is left
+   * untouched — the user still pulls the new one via Refresh (pull-on-demand).
+   * Many servers re-send an identical list on `list_changed`; this suppresses
+   * the indicator in that case (#1444).
+   */
+  private async peekForChange(): Promise<void> {
+    const next = await this.fetchResources();
+    if (next === null) return;
+    if (JSON.stringify(next) !== JSON.stringify(this.resources)) {
+      this.setListChanged(true);
+    }
   }
 
   destroy(): void {

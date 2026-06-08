@@ -69,6 +69,7 @@ vi.mock("@inspector/core/mcp/index.js", () => {
     getPendingElicitations = vi.fn().mockReturnValue([]);
     getRoots = vi.fn().mockReturnValue([]);
     setRoots = vi.fn().mockResolvedValue(undefined);
+    setServerSettings = vi.fn();
   }
   const instances: FakeInspectorClient[] = [];
   return {

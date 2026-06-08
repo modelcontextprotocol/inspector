@@ -1989,6 +1989,11 @@ function App() {
       settingsModalTargetId === activeServerId &&
       settingsDraft
     ) {
+      // Push the edited settings onto the live client so settings the managed
+      // state reads at notification time (auto-refresh-on-list-changed) take
+      // effect without a reconnect (#1444). Connection-time inputs (transport,
+      // OAuth, timeouts) still only apply on the next connect.
+      inspectorClient.setServerSettings(settingsDraft);
       const nextRoots = cleanRoots(settingsDraft.roots);
       const currentRoots = cleanRoots(inspectorClient.getRoots());
       if (JSON.stringify(nextRoots) !== JSON.stringify(currentRoots)) {
