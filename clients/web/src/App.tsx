@@ -881,15 +881,19 @@ function App() {
     };
   }, [inspectorClient]);
 
-  // Build the InitializeResult the connected ViewHeader expects from the
-  // hook's split fields. `protocolVersion` is the value the InspectorClient
-  // negotiated during initialize (#1324); it's dispatched alongside
-  // serverInfo, so it's present whenever we're connected with serverInfo.
+  // Build the InitializeResult the connected ViewHeader / Connection Info
+  // modal expect from the hook's split fields. `protocolVersion` is the value
+  // the InspectorClient negotiated during initialize (#1324); it's dispatched
+  // alongside serverInfo, so in practice it's present whenever we're connected.
+  // We deliberately gate only on serverInfo (not protocolVersion): this object
+  // also drives the connected header and Connection Info modal, so a
+  // missing/edge-case version must not hide those. It flows through as the
+  // optional field it is everywhere downstream (the ServerCard label and the
+  // modal value both tolerate an empty string), so "" reads as "unknown".
   const initializeResult = useMemo<InitializeResult | undefined>(() => {
-    if (connectionStatus !== "connected" || !serverInfo || !protocolVersion)
-      return undefined;
+    if (connectionStatus !== "connected" || !serverInfo) return undefined;
     return {
-      protocolVersion,
+      protocolVersion: protocolVersion ?? "",
       capabilities: capabilities ?? {},
       serverInfo,
       ...(instructions ? { instructions } : {}),

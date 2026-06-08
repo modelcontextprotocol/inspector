@@ -230,6 +230,29 @@ describe("InspectorView", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps the connected surface and hides the label when the version is unknown", () => {
+    // App emits initializeResult with protocolVersion "" when the negotiated
+    // version is somehow absent — the connected header/modal must still render
+    // (gated on serverInfo, not the version), and the card label stays hidden.
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: { ...connectedInit, protocolVersion: "" },
+        })}
+      />,
+    );
+    // Connected: the card toggle is on (connected surface is alive).
+    expect(screen.getByRole("switch")).toBeChecked();
+    // ...but no "MCP <version>" label, since the version is empty. (The
+    // date-shaped matcher avoids matching the "MCP Inspector" header title.)
+    expect(
+      screen.queryByText(/^MCP \d{4}-\d{2}-\d{2}$/),
+    ).not.toBeInTheDocument();
+  });
+
   it("snaps activeTab back to Servers when connection drops", async () => {
     const { rerender } = renderWithMantine(
       <InspectorView

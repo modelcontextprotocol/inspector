@@ -491,8 +491,10 @@ export function InspectorView({
             status: connectionStatus,
             // Surface the negotiated protocol version on the active card once
             // connected; initializeResult carries it (App builds it from the
-            // InspectorClient handshake, #1324).
-            ...(connectionStatus === "connected" && initializeResult
+            // InspectorClient handshake, #1324). App uses "" for an unknown
+            // version, so only set the field when it's actually present.
+            ...(connectionStatus === "connected" &&
+            initializeResult?.protocolVersion
               ? { protocolVersion: initializeResult.protocolVersion }
               : {}),
           },
