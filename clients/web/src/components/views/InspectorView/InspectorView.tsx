@@ -489,12 +489,13 @@ export function InspectorView({
           ...s,
           connection: {
             status: connectionStatus,
-            // Surface the negotiated protocol version on the active card once
-            // connected; initializeResult carries it (App builds it from the
-            // InspectorClient handshake, #1324). App uses "" for an unknown
-            // version, so only set the field when it's actually present.
-            ...(connectionStatus === "connected" &&
-            initializeResult?.protocolVersion
+            // Surface the negotiated protocol version on the active card.
+            // initializeResult carries it (App builds it from the
+            // InspectorClient handshake, #1324) and is only ever truthy when
+            // connected — it's derived from connectionStatus in the same memo
+            // — so its presence already implies a live connection. App uses ""
+            // for an unknown version, so only set the field when it's present.
+            ...(initializeResult?.protocolVersion
               ? { protocolVersion: initializeResult.protocolVersion }
               : {}),
           },
