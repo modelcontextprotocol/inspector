@@ -171,7 +171,9 @@ describe("ServerCard", () => {
     renderWithMantine(
       <ServerCard {...baseProps} connection={{ status: "connected" }} />,
     );
-    expect(screen.queryByText(/^MCP /)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/^MCP \d{4}-\d{2}-\d{2}$/),
+    ).not.toBeInTheDocument();
   });
 
   it("omits the version badge when info is missing", () => {

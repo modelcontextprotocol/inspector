@@ -485,9 +485,20 @@ export function InspectorView({
         if (s.id !== activeServer) {
           return { ...s, connection: { status: "disconnected" } };
         }
-        return { ...s, connection: { status: connectionStatus } };
+        return {
+          ...s,
+          connection: {
+            status: connectionStatus,
+            // Surface the negotiated protocol version on the active card once
+            // connected; initializeResult carries it (App builds it from the
+            // InspectorClient handshake, #1324).
+            ...(connectionStatus === "connected" && initializeResult
+              ? { protocolVersion: initializeResult.protocolVersion }
+              : {}),
+          },
+        };
       }),
-    [serversInput, activeServer, connectionStatus],
+    [serversInput, activeServer, connectionStatus, initializeResult],
   );
 
   return (

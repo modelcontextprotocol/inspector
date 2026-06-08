@@ -30,6 +30,7 @@ export interface MessageTrackingCallbacks {
 export class MessageTrackingTransport implements Transport {
   private baseTransport: Transport;
   private callbacks: MessageTrackingCallbacks;
+  private negotiatedProtocolVersion?: string;
 
   constructor(
     baseTransport: Transport,
@@ -146,7 +147,19 @@ export class MessageTrackingTransport implements Transport {
     return this.baseTransport.sessionId;
   }
 
-  get setProtocolVersion(): ((version: string) => void) | undefined {
-    return this.baseTransport.setProtocolVersion;
+  // Implemented as a concrete method (rather than delegating the base
+  // transport's optional `setProtocolVersion`) so the SDK Client always
+  // invokes it after the initialize handshake — including for stdio, whose
+  // base transport has no `setProtocolVersion`. We capture the negotiated
+  // version for the UI here, then forward to the base transport when it
+  // cares (HTTP transports stamp it into subsequent request headers).
+  setProtocolVersion(version: string): void {
+    this.negotiatedProtocolVersion = version;
+    this.baseTransport.setProtocolVersion?.(version);
+  }
+
+  /** MCP protocol version negotiated during initialize, once connected. */
+  get protocolVersion(): string | undefined {
+    return this.negotiatedProtocolVersion;
   }
 }

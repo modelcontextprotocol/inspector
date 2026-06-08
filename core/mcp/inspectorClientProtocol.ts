@@ -54,6 +54,7 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   getClientCapabilities(): ClientCapabilities;
   getServerInfo(): Implementation | undefined;
   getInstructions(): string | undefined;
+  getProtocolVersion(): string | undefined;
   getAppRendererClient(): AppRendererClient | null;
 
   // Connection control

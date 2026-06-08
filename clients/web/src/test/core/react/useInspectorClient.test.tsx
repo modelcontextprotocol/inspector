@@ -19,12 +19,14 @@ describe("useInspectorClient", () => {
       capabilities: CAPABILITIES,
       serverInfo: SERVER_INFO,
       instructions: "hello",
+      protocolVersion: "2025-06-18",
     });
     const { result } = renderHook(() => useInspectorClient(client));
     expect(result.current.status).toBe("connected");
     expect(result.current.capabilities).toEqual(CAPABILITIES);
     expect(result.current.serverInfo).toEqual(SERVER_INFO);
     expect(result.current.instructions).toBe("hello");
+    expect(result.current.protocolVersion).toBe("2025-06-18");
     expect(result.current.appRendererClient).toBeNull();
   });
 
@@ -34,6 +36,7 @@ describe("useInspectorClient", () => {
     expect(result.current.capabilities).toBeUndefined();
     expect(result.current.serverInfo).toBeUndefined();
     expect(result.current.instructions).toBeUndefined();
+    expect(result.current.protocolVersion).toBeUndefined();
     expect(result.current.appRendererClient).toBeNull();
   });
 
@@ -62,6 +65,16 @@ describe("useInspectorClient", () => {
     expect(result.current.capabilities).toEqual(CAPABILITIES);
     expect(result.current.serverInfo).toEqual(SERVER_INFO);
     expect(result.current.instructions).toBe("after");
+  });
+
+  it("subscribes to protocolVersionChange and updates", () => {
+    const client = new FakeInspectorClient();
+    const { result } = renderHook(() => useInspectorClient(client));
+    expect(result.current.protocolVersion).toBeUndefined();
+    act(() => {
+      client.setProtocolVersion("2025-06-18");
+    });
+    expect(result.current.protocolVersion).toBe("2025-06-18");
   });
 
   it("connect() and disconnect() proxy to the client and update status", async () => {

@@ -9,6 +9,8 @@ class FakeTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
   onclose?: () => void;
   onerror?: (error: Error) => void;
+  // Optional on the SDK Transport interface; stdio omits it, HTTP defines it.
+  setProtocolVersion?: (version: string) => void;
   async start(): Promise<void> {}
   async send(message: JSONRPCMessage): Promise<void> {
     this.sent.push(message);
@@ -118,5 +120,34 @@ describe("MessageTrackingTransport.onmessage", () => {
     );
     // The wrapped handler still receives every message.
     expect(handler).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("MessageTrackingTransport.setProtocolVersion", () => {
+  it("captures the negotiated version and exposes it via protocolVersion", () => {
+    const { tracked } = makeTracked();
+    expect(tracked.protocolVersion).toBeUndefined();
+    tracked.setProtocolVersion("2025-06-18");
+    expect(tracked.protocolVersion).toBe("2025-06-18");
+  });
+
+  it("forwards to the base transport's setProtocolVersion when present", () => {
+    const base = new FakeTransport();
+    const baseSet = vi.fn();
+    // stdio-style transports omit setProtocolVersion; HTTP transports define
+    // it to stamp the version into later request headers — forward to those.
+    base.setProtocolVersion = baseSet;
+    const tracked = new MessageTrackingTransport(base, {});
+    tracked.setProtocolVersion("2025-06-18");
+    expect(baseSet).toHaveBeenCalledWith("2025-06-18");
+    expect(tracked.protocolVersion).toBe("2025-06-18");
+  });
+
+  it("captures even when the base transport has no setProtocolVersion", () => {
+    // FakeTransport (like stdio) has no setProtocolVersion — must not throw.
+    const { tracked, base } = makeTracked();
+    expect(base.setProtocolVersion).toBeUndefined();
+    expect(() => tracked.setProtocolVersion("2025-06-18")).not.toThrow();
+    expect(tracked.protocolVersion).toBe("2025-06-18");
   });
 });
