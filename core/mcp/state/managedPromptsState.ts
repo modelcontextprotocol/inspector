@@ -5,7 +5,10 @@
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
-import { ManagedListState } from "./managedListState.js";
+import {
+  ManagedListState,
+  DEFAULT_LIST_CHANGED_DEBOUNCE_MS,
+} from "./managedListState.js";
 
 export interface ManagedPromptsStateEventMap {
   promptsChange: Prompt[];
@@ -22,13 +25,17 @@ export class ManagedPromptsState extends ManagedListState<
   Prompt,
   ManagedPromptsStateEventMap
 > {
-  constructor(client: InspectorClientProtocol) {
+  constructor(
+    client: InspectorClientProtocol,
+    debounceMs = DEFAULT_LIST_CHANGED_DEBOUNCE_MS,
+  ) {
     super(client, {
       changeEvent: "promptsChange",
       listChangedEvent: "promptsListChanged",
       capabilityKey: "prompts",
       itemLabel: "prompts",
       supportsIndicator: true,
+      debounceMs,
       fetchPage: async (c, cursor, metadata) => {
         const result = await c.listPrompts(cursor, metadata);
         return { items: result.prompts, nextCursor: result.nextCursor };

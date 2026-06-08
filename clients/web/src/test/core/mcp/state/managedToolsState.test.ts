@@ -43,7 +43,7 @@ describe("ManagedToolsState", () => {
     // exercise the live `listTools` path; capability-absent tests below
     // override this.
     client = new FakeInspectorClient({ capabilities: { tools: {} } });
-    state = new ManagedToolsState(client);
+    state = new ManagedToolsState(client, 0);
   });
 
   it("starts with empty tools", () => {
@@ -69,7 +69,7 @@ describe("ManagedToolsState", () => {
       capabilities: { prompts: {}, resources: {} },
     });
     toolless.setStatus("connected");
-    const toollessState = new ManagedToolsState(toolless);
+    const toollessState = new ManagedToolsState(toolless, 0);
 
     const result = await toollessState.refresh();
     expect(result).toEqual([]);
@@ -81,7 +81,7 @@ describe("ManagedToolsState", () => {
     // there, not only the publicly-callable refresh().
     const toolless = new FakeInspectorClient({ capabilities: { prompts: {} } });
     toolless.setStatus("connected");
-    const toollessState = new ManagedToolsState(toolless);
+    const toollessState = new ManagedToolsState(toolless, 0);
 
     toolless.dispatchTypedEvent("connect");
     // Yield so the async refresh chained off connect runs.
@@ -175,10 +175,23 @@ describe("ManagedToolsState", () => {
     expect(state.getListChanged()).toBe(false);
   });
 
-  it("coalesces a burst of list_changed into sequential peeks, not N concurrent fetches (#1444)", async () => {
+  it("debounces a burst of list_changed into a single fetch (#1444)", async () => {
+    // The everything-server case: a rapid burst of notifications must collapse
+    // into one list call once it settles, not one per notification.
     client.setStatus("connected");
-    // Hang the first peek's fetch so the rest of the burst lands while it's in
-    // flight; queue a page for the single coalesced re-run.
+    client.queueToolPages({ tools: [tool("a")] });
+    const changed = waitForListChanged(state);
+    client.dispatchTypedEvent("toolsListChanged");
+    client.dispatchTypedEvent("toolsListChanged");
+    client.dispatchTypedEvent("toolsListChanged");
+    expect(await changed).toBe(true);
+    expect(client.listTools).toHaveBeenCalledTimes(1); // one debounced fetch
+  });
+
+  it("coalesces a peek that fires while an earlier one is still fetching (#1444)", async () => {
+    // Defense beyond the debounce: a post-debounce notification landing during
+    // an in-flight peek queues a single re-run instead of a concurrent fetch.
+    client.setStatus("connected");
     let release: (value: { tools: Tool[] }) => void = () => {};
     client.listTools.mockImplementationOnce(
       () =>
@@ -188,14 +201,17 @@ describe("ManagedToolsState", () => {
     );
     client.queueToolPages({ tools: [tool("a")] });
 
+    // First notification → debounced peek starts and hangs.
     client.dispatchTypedEvent("toolsListChanged");
-    client.dispatchTypedEvent("toolsListChanged");
-    client.dispatchTypedEvent("toolsListChanged");
-    // While the first peek's fetch is hung, only one fetch has started.
-    await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 0));
     expect(client.listTools).toHaveBeenCalledTimes(1);
 
-    // Releasing it runs exactly one coalesced re-run, not two more.
+    // Second notification while the peek is hung → coalesced, no concurrent fetch.
+    client.dispatchTypedEvent("toolsListChanged");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(client.listTools).toHaveBeenCalledTimes(1);
+
+    // Releasing the first peek runs exactly one coalesced re-run.
     release({ tools: [tool("a")] });
     await new Promise((r) => setTimeout(r, 0));
     expect(client.listTools).toHaveBeenCalledTimes(2);
@@ -226,7 +242,7 @@ describe("ManagedToolsState", () => {
       serverSettings: AUTO_REFRESH_SETTINGS,
     });
     autoClient.setStatus("connected");
-    const autoState = new ManagedToolsState(autoClient);
+    const autoState = new ManagedToolsState(autoClient, 0);
     autoClient.queueToolPages({ tools: [tool("a")] });
     const changed = waitForToolsChange(autoState);
     autoClient.dispatchTypedEvent("toolsListChanged");

@@ -45,7 +45,7 @@ describe("ManagedResourcesState", () => {
     // tests exercise the live `listResources` path; capability-absent tests
     // below override this.
     client = new FakeInspectorClient({ capabilities: { resources: {} } });
-    state = new ManagedResourcesState(client);
+    state = new ManagedResourcesState(client, 0);
   });
 
   it("starts with empty resources", () => {
@@ -72,7 +72,7 @@ describe("ManagedResourcesState", () => {
       capabilities: { tools: {}, prompts: {} },
     });
     resourceless.setStatus("connected");
-    const resourcelessState = new ManagedResourcesState(resourceless);
+    const resourcelessState = new ManagedResourcesState(resourceless, 0);
 
     const result = await resourcelessState.refresh();
     expect(result).toEqual([]);
@@ -86,7 +86,7 @@ describe("ManagedResourcesState", () => {
       capabilities: { tools: {} },
     });
     resourceless.setStatus("connected");
-    const resourcelessState = new ManagedResourcesState(resourceless);
+    const resourcelessState = new ManagedResourcesState(resourceless, 0);
 
     resourceless.dispatchTypedEvent("connect");
     // Yield so the async refresh chained off connect runs.
@@ -188,7 +188,7 @@ describe("ManagedResourcesState", () => {
       serverSettings: AUTO_REFRESH_SETTINGS,
     });
     autoClient.setStatus("connected");
-    const autoState = new ManagedResourcesState(autoClient);
+    const autoState = new ManagedResourcesState(autoClient, 0);
     autoClient.queueResourcePages({ resources: [resource("a://1")] });
     const changed = waitForResourcesChange(autoState);
     autoClient.dispatchTypedEvent("resourcesListChanged");

@@ -18,7 +18,7 @@ describe("useManagedPrompts", () => {
       status: "connected",
       capabilities: { prompts: {} },
     });
-    state = new ManagedPromptsState(client);
+    state = new ManagedPromptsState(client, 0);
   });
 
   it("returns the initial prompts snapshot from the state", async () => {

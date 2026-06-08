@@ -12,7 +12,10 @@
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { ResourceTemplate } from "@modelcontextprotocol/sdk/types.js";
-import { ManagedListState } from "./managedListState.js";
+import {
+  ManagedListState,
+  DEFAULT_LIST_CHANGED_DEBOUNCE_MS,
+} from "./managedListState.js";
 
 export interface ManagedResourceTemplatesStateEventMap {
   resourceTemplatesChange: ResourceTemplate[];
@@ -27,7 +30,10 @@ export class ManagedResourceTemplatesState extends ManagedListState<
   ResourceTemplate,
   ManagedResourceTemplatesStateEventMap
 > {
-  constructor(client: InspectorClientProtocol) {
+  constructor(
+    client: InspectorClientProtocol,
+    debounceMs = DEFAULT_LIST_CHANGED_DEBOUNCE_MS,
+  ) {
     super(client, {
       changeEvent: "resourceTemplatesChange",
       listChangedEvent: "resourceTemplatesListChanged",
@@ -35,6 +41,7 @@ export class ManagedResourceTemplatesState extends ManagedListState<
       capabilityKey: "resources",
       itemLabel: "resource templates",
       supportsIndicator: false,
+      debounceMs,
       fetchPage: async (c, cursor, metadata) => {
         const result = await c.listResourceTemplates(cursor, metadata);
         return {

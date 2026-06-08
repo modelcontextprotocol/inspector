@@ -18,6 +18,14 @@ import { TypedEventTarget } from "../typedEventTarget.js";
 
 const MAX_PAGES = 100;
 
+/**
+ * Default delay (ms) for debouncing `list_changed` notifications. Servers
+ * (e.g. the everything server) can emit a rapid burst; debouncing collapses the
+ * burst into a single refresh/peek once it settles instead of one list call per
+ * notification (#1444).
+ */
+export const DEFAULT_LIST_CHANGED_DEBOUNCE_MS = 250;
+
 /** Every managed-list event map carries the list-changed indicator event. */
 export interface ManagedListEventMap {
   listChangedChange: boolean;
@@ -52,6 +60,8 @@ export interface ManagedListConfig<T, M extends ManagedListEventMap> {
    * pulled via the screen's Refresh instead.
    */
   supportsIndicator: boolean;
+  /** Debounce delay (ms) for `list_changed` bursts. */
+  debounceMs: number;
 }
 
 export abstract class ManagedListState<
@@ -64,9 +74,12 @@ export abstract class ManagedListState<
   private _metadata: Record<string, string> | undefined = undefined;
   private listChanged = false;
   private readonly config: ManagedListConfig<T, M>;
-  // Coalesce a burst of `list_changed` notifications: while a peek is fetching,
-  // a new notification just queues a single re-run instead of firing another
-  // concurrent paginated fetch.
+  // Debounce a burst of `list_changed` notifications into a single
+  // refresh/peek once it settles.
+  private listChangedTimer: ReturnType<typeof setTimeout> | null = null;
+  // Second line of defense beyond the debounce: while a peek is fetching, a new
+  // (post-debounce) notification queues a single re-run instead of firing
+  // another concurrent paginated fetch.
   private peeking = false;
   private peekQueued = false;
 
@@ -81,18 +94,20 @@ export abstract class ManagedListState<
       void this.refresh();
     };
     const onListChanged = (): void => {
-      // When the server opts into auto-refresh (per-server setting), pull the
-      // new list immediately. Otherwise, for lists with an indicator, peek and
-      // diff so the indicator lights only on a real change; lists without an
-      // indicator simply wait for the user's Refresh (#1402, #1444).
-      if (this.client?.getServerSettings()?.autoRefreshOnListChanged) {
-        void this.refresh();
-      } else if (config.supportsIndicator) {
-        void this.peekForChange();
-      }
+      // Debounce: collapse a burst of notifications into one refresh/peek once
+      // it settles, instead of one list call per notification (#1444).
+      if (this.listChangedTimer !== null) clearTimeout(this.listChangedTimer);
+      this.listChangedTimer = setTimeout(() => {
+        this.listChangedTimer = null;
+        this.runListChanged();
+      }, config.debounceMs);
     };
     const onStatusChange = (): void => {
       if (this.client?.getStatus() === "disconnected") {
+        if (this.listChangedTimer !== null) {
+          clearTimeout(this.listChangedTimer);
+          this.listChangedTimer = null;
+        }
         this.items = [];
         this.dispatchChange();
         this.setListChanged(false);
@@ -102,6 +117,10 @@ export abstract class ManagedListState<
     this.client.addEventListener(config.listChangedEvent, onListChanged);
     this.client.addEventListener("statusChange", onStatusChange);
     this.unsubscribe = () => {
+      if (this.listChangedTimer !== null) {
+        clearTimeout(this.listChangedTimer);
+        this.listChangedTimer = null;
+      }
       if (this.client) {
         this.client.removeEventListener("connect", onConnect);
         this.client.removeEventListener(config.listChangedEvent, onListChanged);
@@ -109,6 +128,21 @@ export abstract class ManagedListState<
       }
       this.client = null;
     };
+  }
+
+  /**
+   * The debounced list-changed action. When the server opts into auto-refresh
+   * (per-server setting), pull the new list immediately. Otherwise, for lists
+   * with an indicator, peek and diff so the indicator lights only on a real
+   * change; lists without an indicator simply wait for the user's Refresh
+   * (#1402, #1444).
+   */
+  private runListChanged(): void {
+    if (this.client?.getServerSettings()?.autoRefreshOnListChanged) {
+      void this.refresh();
+    } else if (this.config.supportsIndicator) {
+      void this.peekForChange();
+    }
   }
 
   /** Defensive copy of the current list. */

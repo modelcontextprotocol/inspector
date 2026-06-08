@@ -5,7 +5,10 @@
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { ManagedListState } from "./managedListState.js";
+import {
+  ManagedListState,
+  DEFAULT_LIST_CHANGED_DEBOUNCE_MS,
+} from "./managedListState.js";
 
 export interface ManagedToolsStateEventMap {
   toolsChange: Tool[];
@@ -22,13 +25,17 @@ export class ManagedToolsState extends ManagedListState<
   Tool,
   ManagedToolsStateEventMap
 > {
-  constructor(client: InspectorClientProtocol) {
+  constructor(
+    client: InspectorClientProtocol,
+    debounceMs = DEFAULT_LIST_CHANGED_DEBOUNCE_MS,
+  ) {
     super(client, {
       changeEvent: "toolsChange",
       listChangedEvent: "toolsListChanged",
       capabilityKey: "tools",
       itemLabel: "tools",
       supportsIndicator: true,
+      debounceMs,
       fetchPage: async (c, cursor, metadata) => {
         const result = await c.listTools(cursor, metadata);
         return { items: result.tools, nextCursor: result.nextCursor };

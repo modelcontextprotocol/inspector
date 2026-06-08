@@ -43,7 +43,7 @@ describe("ManagedPromptsState", () => {
     // exercise the live `listPrompts` path; capability-absent tests below
     // override this.
     client = new FakeInspectorClient({ capabilities: { prompts: {} } });
-    state = new ManagedPromptsState(client);
+    state = new ManagedPromptsState(client, 0);
   });
 
   it("starts with empty prompts", () => {
@@ -69,7 +69,7 @@ describe("ManagedPromptsState", () => {
       capabilities: { tools: {}, resources: {} },
     });
     promptless.setStatus("connected");
-    const promptlessState = new ManagedPromptsState(promptless);
+    const promptlessState = new ManagedPromptsState(promptless, 0);
 
     const result = await promptlessState.refresh();
     expect(result).toEqual([]);
@@ -81,7 +81,7 @@ describe("ManagedPromptsState", () => {
     // there, not only the publicly-callable refresh().
     const promptless = new FakeInspectorClient({ capabilities: { tools: {} } });
     promptless.setStatus("connected");
-    const promptlessState = new ManagedPromptsState(promptless);
+    const promptlessState = new ManagedPromptsState(promptless, 0);
 
     promptless.dispatchTypedEvent("connect");
     // Yield so the async refresh chained off connect runs.
@@ -179,7 +179,7 @@ describe("ManagedPromptsState", () => {
       serverSettings: AUTO_REFRESH_SETTINGS,
     });
     autoClient.setStatus("connected");
-    const autoState = new ManagedPromptsState(autoClient);
+    const autoState = new ManagedPromptsState(autoClient, 0);
     autoClient.queuePromptPages({ prompts: [prompt("a")] });
     const changed = waitForPromptsChange(autoState);
     autoClient.dispatchTypedEvent("promptsListChanged");

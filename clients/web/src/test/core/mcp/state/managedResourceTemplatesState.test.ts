@@ -40,7 +40,7 @@ describe("ManagedResourceTemplatesState", () => {
     // tests below override this. (Templates are gated on the `resources`
     // capability — the spec defines no separate `resourceTemplates` one.)
     client = new FakeInspectorClient({ capabilities: { resources: {} } });
-    state = new ManagedResourceTemplatesState(client);
+    state = new ManagedResourceTemplatesState(client, 0);
   });
 
   it("starts with empty resource templates", () => {
@@ -67,7 +67,10 @@ describe("ManagedResourceTemplatesState", () => {
       capabilities: { tools: {}, prompts: {} },
     });
     resourceless.setStatus("connected");
-    const resourcelessState = new ManagedResourceTemplatesState(resourceless);
+    const resourcelessState = new ManagedResourceTemplatesState(
+      resourceless,
+      0,
+    );
 
     const result = await resourcelessState.refresh();
     expect(result).toEqual([]);
@@ -81,7 +84,10 @@ describe("ManagedResourceTemplatesState", () => {
       capabilities: { tools: {} },
     });
     resourceless.setStatus("connected");
-    const resourcelessState = new ManagedResourceTemplatesState(resourceless);
+    const resourcelessState = new ManagedResourceTemplatesState(
+      resourceless,
+      0,
+    );
 
     resourceless.dispatchTypedEvent("connect");
     // Yield so the async refresh chained off connect runs.
@@ -166,7 +172,7 @@ describe("ManagedResourceTemplatesState", () => {
       serverSettings: AUTO_REFRESH_SETTINGS,
     });
     autoClient.setStatus("connected");
-    const autoState = new ManagedResourceTemplatesState(autoClient);
+    const autoState = new ManagedResourceTemplatesState(autoClient, 0);
     autoClient.queueResourceTemplatePages({
       resourceTemplates: [template("a")],
     });
