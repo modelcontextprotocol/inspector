@@ -147,18 +147,19 @@ export class ManagedPromptsState extends TypedEventTarget<ManagedPromptsStateEve
   }
 
   /**
-   * Fetch on `list_changed` and light the indicator only when the list
-   * actually differs from what's displayed. The displayed list is left
-   * untouched — the user still pulls the new one via Refresh (pull-on-demand).
-   * Many servers re-send an identical list on `list_changed`; this suppresses
-   * the indicator in that case (#1444).
+   * Fetch on `list_changed` and track whether the server's list differs from
+   * what's displayed. The displayed list is left untouched — the user still
+   * pulls the new one via Refresh (pull-on-demand). Many servers re-send an
+   * identical list on `list_changed`; this keeps the indicator dark in that
+   * case, and also clears it if a later notification reverts the server back
+   * to the displayed list (nothing left to pull). The flag is order-sensitive:
+   * a reorder is a visible change the user would see on Refresh, so it counts
+   * (#1444).
    */
   private async peekForChange(): Promise<void> {
     const next = await this.fetchPrompts();
     if (next === null) return;
-    if (JSON.stringify(next) !== JSON.stringify(this.prompts)) {
-      this.setListChanged(true);
-    }
+    this.setListChanged(JSON.stringify(next) !== JSON.stringify(this.prompts));
   }
 
   destroy(): void {

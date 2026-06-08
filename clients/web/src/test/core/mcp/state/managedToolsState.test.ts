@@ -175,6 +175,25 @@ describe("ManagedToolsState", () => {
     expect(state.getListChanged()).toBe(false);
   });
 
+  it("clears the indicator when a later notification reverts the list to the displayed one (#1444)", async () => {
+    client.setStatus("connected");
+    client.queueToolPages({ tools: [tool("a")] });
+    await state.refresh(); // displayed = [a]
+
+    // Server adds a tool → indicator lights.
+    client.queueToolPages({ tools: [tool("a"), tool("b")] });
+    const lit = waitForListChanged(state);
+    client.dispatchTypedEvent("toolsListChanged");
+    expect(await lit).toBe(true);
+
+    // Server reverts to [a] (matches the displayed list) → indicator clears.
+    client.queueToolPages({ tools: [tool("a")] });
+    const cleared = waitForListChanged(state);
+    client.dispatchTypedEvent("toolsListChanged");
+    expect(await cleared).toBe(false);
+    expect(state.getListChanged()).toBe(false);
+  });
+
   it("toolsListChanged auto-refreshes when the server opts in", async () => {
     const autoClient = new FakeInspectorClient({
       capabilities: { tools: {} },
