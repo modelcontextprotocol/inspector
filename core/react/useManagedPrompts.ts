@@ -9,6 +9,8 @@ import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
 
 export interface UseManagedPromptsResult {
   prompts: Prompt[];
+  /** True when a `prompts/list_changed` arrived since the last user refresh. */
+  listChanged: boolean;
   refresh: () => Promise<Prompt[]>;
 }
 
@@ -22,23 +24,44 @@ export function useManagedPrompts(
   const [prompts, setPrompts] = useState<Prompt[]>(
     managedPromptsState?.getPrompts() ?? [],
   );
+  const [listChanged, setListChanged] = useState<boolean>(
+    managedPromptsState?.getListChanged() ?? false,
+  );
 
   useEffect(() => {
     if (!managedPromptsState) {
       setPrompts([]);
+      setListChanged(false);
       return;
     }
     setPrompts(managedPromptsState.getPrompts());
+    setListChanged(managedPromptsState.getListChanged());
     const onPromptsChange = (
       event: TypedEventGeneric<ManagedPromptsStateEventMap, "promptsChange">,
     ) => {
       setPrompts(event.detail);
     };
+    const onListChangedChange = (
+      event: TypedEventGeneric<
+        ManagedPromptsStateEventMap,
+        "listChangedChange"
+      >,
+    ) => {
+      setListChanged(event.detail);
+    };
     managedPromptsState.addEventListener("promptsChange", onPromptsChange);
+    managedPromptsState.addEventListener(
+      "listChangedChange",
+      onListChangedChange,
+    );
     return () => {
       managedPromptsState.removeEventListener(
         "promptsChange",
         onPromptsChange,
+      );
+      managedPromptsState.removeEventListener(
+        "listChangedChange",
+        onListChangedChange,
       );
     };
   }, [managedPromptsState]);
@@ -47,8 +70,10 @@ export function useManagedPrompts(
     if (!managedPromptsState || !client) return [];
     const next = await managedPromptsState.refresh();
     setPrompts(next);
+    // A user-initiated refresh acknowledges the change — clear the indicator.
+    managedPromptsState.clearListChanged();
     return next;
   }, [client, managedPromptsState]);
 
-  return { prompts, refresh };
+  return { prompts, listChanged, refresh };
 }

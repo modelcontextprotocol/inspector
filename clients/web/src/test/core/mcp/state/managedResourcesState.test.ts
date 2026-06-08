@@ -187,6 +187,62 @@ describe("ManagedResourcesState", () => {
     expect(state.getResources()).toEqual([]);
   });
 
+  describe("listChanged (#1402)", () => {
+    function waitForListChanged(s: ManagedResourcesState): Promise<boolean> {
+      return new Promise((resolve) => {
+        s.addEventListener("listChangedChange", (e) => resolve(e.detail), {
+          once: true,
+        });
+      });
+    }
+
+    it("starts cleared", () => {
+      expect(state.getListChanged()).toBe(false);
+    });
+
+    it("resourcesListChanged sets the flag and dispatches listChangedChange", async () => {
+      client.setStatus("connected");
+      client.queueResourcePages({ resources: [resource("a://1")] });
+      const changed = waitForListChanged(state);
+      client.dispatchTypedEvent("resourcesListChanged");
+      expect(await changed).toBe(true);
+      expect(state.getListChanged()).toBe(true);
+    });
+
+    it("clearListChanged resets the flag and dispatches false", async () => {
+      client.setStatus("connected");
+      client.queueResourcePages({ resources: [resource("a://1")] });
+      client.dispatchTypedEvent("resourcesListChanged");
+      expect(state.getListChanged()).toBe(true);
+
+      const changed = waitForListChanged(state);
+      state.clearListChanged();
+      expect(await changed).toBe(false);
+      expect(state.getListChanged()).toBe(false);
+    });
+
+    it("clearListChanged is a no-op (no event) when already cleared", () => {
+      let fired = false;
+      state.addEventListener("listChangedChange", () => {
+        fired = true;
+      });
+      state.clearListChanged();
+      expect(fired).toBe(false);
+    });
+
+    it("disconnect clears the flag", async () => {
+      client.setStatus("connected");
+      client.queueResourcePages({ resources: [resource("a://1")] });
+      client.dispatchTypedEvent("resourcesListChanged");
+      expect(state.getListChanged()).toBe(true);
+
+      const changed = waitForListChanged(state);
+      client.setStatus("disconnected");
+      expect(await changed).toBe(false);
+      expect(state.getListChanged()).toBe(false);
+    });
+  });
+
   it("destroy is idempotent", () => {
     state.destroy();
     expect(() => state.destroy()).not.toThrow();

@@ -602,18 +602,21 @@ function App() {
     instructions,
     protocolVersion,
   } = useInspectorClient(inspectorClient);
-  const { tools, refresh: refreshTools } = useManagedTools(
-    inspectorClient,
-    managedToolsState,
-  );
-  const { prompts, refresh: refreshPrompts } = useManagedPrompts(
-    inspectorClient,
-    managedPromptsState,
-  );
-  const { resources, refresh: refreshResources } = useManagedResources(
-    inspectorClient,
-    managedResourcesState,
-  );
+  const {
+    tools,
+    listChanged: toolsListChanged,
+    refresh: refreshTools,
+  } = useManagedTools(inspectorClient, managedToolsState);
+  const {
+    prompts,
+    listChanged: promptsListChanged,
+    refresh: refreshPrompts,
+  } = useManagedPrompts(inspectorClient, managedPromptsState);
+  const {
+    resources,
+    listChanged: resourcesListChanged,
+    refresh: refreshResources,
+  } = useManagedResources(inspectorClient, managedResourcesState);
   const { resourceTemplates } = useManagedResourceTemplates(
     inspectorClient,
     managedResourceTemplatesState,
@@ -2095,6 +2098,9 @@ function App() {
         prompts={prompts}
         resources={resources}
         resourceTemplates={resourceTemplates}
+        toolsListChanged={toolsListChanged}
+        promptsListChanged={promptsListChanged}
+        resourcesListChanged={resourcesListChanged}
         subscriptions={subscriptions}
         logs={logs}
         tasks={tasks}

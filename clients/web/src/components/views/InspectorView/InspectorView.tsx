@@ -201,6 +201,13 @@ export interface InspectorViewProps {
   resources: Resource[];
   resourceTemplates: ResourceTemplate[];
   subscriptions: InspectorResourceSubscription[];
+
+  // "List changed since last refresh" flags, sourced from the managed-state
+  // layer (#1402). They light the per-screen list-changed indicator. Apps is a
+  // filtered view of tools, so it shares the tools flag.
+  toolsListChanged: boolean;
+  promptsListChanged: boolean;
+  resourcesListChanged: boolean;
   logs: LogEntryData[];
   tasks: Task[];
   progressByTaskId?: Record<string, TaskProgress>;
@@ -336,6 +343,9 @@ export function InspectorView({
   prompts,
   resources,
   resourceTemplates,
+  toolsListChanged,
+  promptsListChanged,
+  resourcesListChanged,
   subscriptions,
   logs,
   tasks,
@@ -548,7 +558,7 @@ export function InspectorView({
               tools={tools}
               callState={toolCallState}
               ui={toolsUi}
-              listChanged={false}
+              listChanged={toolsListChanged}
               serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
               onUiChange={onToolsUiChange}
               onRefreshList={onRefreshTools}
@@ -560,7 +570,7 @@ export function InspectorView({
           <ScreenStage active={activeTab === "Apps"}>
             <AppsScreen
               tools={appTools}
-              listChanged={false}
+              listChanged={toolsListChanged}
               sandboxPath={sandboxPath}
               bridgeFactory={bridgeFactory}
               rendererRef={appRendererRef}
@@ -578,7 +588,7 @@ export function InspectorView({
               prompts={prompts}
               getPromptState={getPromptState}
               ui={promptsUi}
-              listChanged={false}
+              listChanged={promptsListChanged}
               completionsSupported={completionsSupported}
               onUiChange={onPromptsUiChange}
               onRefreshList={onRefreshPrompts}
@@ -594,7 +604,7 @@ export function InspectorView({
               subscriptions={subscriptions}
               readState={readResourceState}
               ui={resourcesUi}
-              listChanged={false}
+              listChanged={resourcesListChanged}
               completionsSupported={completionsSupported}
               onUiChange={onResourcesUiChange}
               onRefreshList={onRefreshResources}

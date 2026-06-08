@@ -102,4 +102,41 @@ describe("useManagedPrompts", () => {
 
     expect(result.current.prompts).toEqual([]);
   });
+
+  describe("listChanged (#1402)", () => {
+    it("starts false and reflects listChangedChange from the state", async () => {
+      const { result } = renderHook(() => useManagedPrompts(client, state));
+      expect(result.current.listChanged).toBe(false);
+
+      client.queuePromptPages({ prompts: [prompt("a")] });
+      act(() => {
+        client.dispatchTypedEvent("promptsListChanged");
+      });
+      await waitFor(() => {
+        expect(result.current.listChanged).toBe(true);
+      });
+    });
+
+    it("refresh() clears the indicator", async () => {
+      const { result } = renderHook(() => useManagedPrompts(client, state));
+      client.queuePromptPages({ prompts: [prompt("a")] });
+      act(() => {
+        client.dispatchTypedEvent("promptsListChanged");
+      });
+      await waitFor(() => expect(result.current.listChanged).toBe(true));
+
+      client.queuePromptPages({ prompts: [prompt("a")] });
+      await act(async () => {
+        await result.current.refresh();
+      });
+      await waitFor(() => {
+        expect(result.current.listChanged).toBe(false);
+      });
+    });
+
+    it("defaults to false when state is null", () => {
+      const { result } = renderHook(() => useManagedPrompts(client, null));
+      expect(result.current.listChanged).toBe(false);
+    });
+  });
 });

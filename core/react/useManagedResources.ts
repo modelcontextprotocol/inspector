@@ -9,6 +9,10 @@ import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
 
 export interface UseManagedResourcesResult {
   resources: Resource[];
+  /**
+   * True when a `resources/list_changed` arrived since the last user refresh.
+   */
+  listChanged: boolean;
   refresh: () => Promise<Resource[]>;
 }
 
@@ -22,13 +26,18 @@ export function useManagedResources(
   const [resources, setResources] = useState<Resource[]>(
     managedResourcesState?.getResources() ?? [],
   );
+  const [listChanged, setListChanged] = useState<boolean>(
+    managedResourcesState?.getListChanged() ?? false,
+  );
 
   useEffect(() => {
     if (!managedResourcesState) {
       setResources([]);
+      setListChanged(false);
       return;
     }
     setResources(managedResourcesState.getResources());
+    setListChanged(managedResourcesState.getListChanged());
     const onResourcesChange = (
       event: TypedEventGeneric<
         ManagedResourcesStateEventMap,
@@ -37,14 +46,30 @@ export function useManagedResources(
     ) => {
       setResources(event.detail);
     };
+    const onListChangedChange = (
+      event: TypedEventGeneric<
+        ManagedResourcesStateEventMap,
+        "listChangedChange"
+      >,
+    ) => {
+      setListChanged(event.detail);
+    };
     managedResourcesState.addEventListener(
       "resourcesChange",
       onResourcesChange,
+    );
+    managedResourcesState.addEventListener(
+      "listChangedChange",
+      onListChangedChange,
     );
     return () => {
       managedResourcesState.removeEventListener(
         "resourcesChange",
         onResourcesChange,
+      );
+      managedResourcesState.removeEventListener(
+        "listChangedChange",
+        onListChangedChange,
       );
     };
   }, [managedResourcesState]);
@@ -53,8 +78,10 @@ export function useManagedResources(
     if (!managedResourcesState || !client) return [];
     const next = await managedResourcesState.refresh();
     setResources(next);
+    // A user-initiated refresh acknowledges the change — clear the indicator.
+    managedResourcesState.clearListChanged();
     return next;
   }, [client, managedResourcesState]);
 
-  return { resources, refresh };
+  return { resources, listChanged, refresh };
 }
