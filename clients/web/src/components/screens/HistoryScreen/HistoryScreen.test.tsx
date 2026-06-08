@@ -27,6 +27,8 @@ const baseProps = {
   onUiChange: vi.fn(),
   onClearAll: vi.fn(),
   onExport: vi.fn(),
+  onClearSection: vi.fn(),
+  onExportSection: vi.fn(),
   onReplay: vi.fn(),
   onTogglePin: vi.fn(),
   sortDirection: "newest-first" as const,
@@ -63,6 +65,30 @@ describe("HistoryScreen", () => {
     await user.type(screen.getByPlaceholderText("Search..."), "t");
     expect(onUiChange).toHaveBeenCalledWith(
       expect.objectContaining({ search: "t" }),
+    );
+  });
+
+  it("toggles a single message direction through onUiChange", async () => {
+    const user = userEvent.setup();
+    const onUiChange = vi.fn();
+    renderWithMantine(<HistoryScreen {...baseProps} onUiChange={onUiChange} />);
+    await user.click(screen.getByRole("button", { name: "client ← server" }));
+    expect(onUiChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        visibleDirections: { client: true, server: false },
+      }),
+    );
+  });
+
+  it("toggles all message directions off through onUiChange", async () => {
+    const user = userEvent.setup();
+    const onUiChange = vi.fn();
+    renderWithMantine(<HistoryScreen {...baseProps} onUiChange={onUiChange} />);
+    await user.click(screen.getByRole("button", { name: "Deselect All" }));
+    expect(onUiChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        visibleDirections: { client: false, server: false },
+      }),
     );
   });
 

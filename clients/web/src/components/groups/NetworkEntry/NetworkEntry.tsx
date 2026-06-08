@@ -13,6 +13,7 @@ import {
 import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
 import { isLongLivedStreamResponse } from "@inspector/core/mcp/fetchTracking.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { maskSecretsInBody } from "../../../utils/maskSecrets";
 
 export interface NetworkEntryProps {
@@ -45,11 +46,6 @@ const UrlText = Text.withProps({
 const DurationText = Text.withProps({
   size: "sm",
   c: "dimmed",
-});
-
-const SubtleButton = Button.withProps({
-  variant: "subtle",
-  size: "xs",
 });
 
 // Cap is in JS string `.length` units (UTF-16 code units), not bytes — for
@@ -235,10 +231,11 @@ export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
           </Group>
         </HeaderRow>
 
-        <Group gap="xs">
-          <SubtleButton onClick={() => setIsExpanded((v) => !v)} ml="auto">
-            {isExpanded ? "Collapse" : "Expand"}
-          </SubtleButton>
+        <Group gap="xs" justify="flex-end">
+          <ExpandToggle
+            expanded={isExpanded}
+            onToggle={() => setIsExpanded((v) => !v)}
+          />
         </Group>
 
         <Collapse in={isExpanded}>

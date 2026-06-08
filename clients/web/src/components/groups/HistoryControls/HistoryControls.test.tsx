@@ -7,8 +7,11 @@ import { HistoryControls } from "./HistoryControls";
 const baseProps = {
   searchText: "",
   availableMethods: ["tools/list", "prompts/list"] as MessageMethod[],
+  visibleDirections: { client: true, server: true },
   onSearchChange: vi.fn(),
   onMethodFilterChange: vi.fn(),
+  onToggleDirection: vi.fn(),
+  onToggleAllDirections: vi.fn(),
 };
 
 describe("HistoryControls", () => {
@@ -57,5 +60,41 @@ describe("HistoryControls", () => {
     expect(clearButton).not.toBeNull();
     await user.click(clearButton!);
     expect(onMethodFilterChange).toHaveBeenCalledWith(undefined);
+  });
+
+  it("renders the Filter by Message Direction section with both directions", () => {
+    renderWithMantine(<HistoryControls {...baseProps} />);
+    expect(screen.getByText("Filter by Message Direction")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "client → server" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "client ← server" }),
+    ).toBeInTheDocument();
+  });
+
+  it("toggles a direction's visibility when its button is clicked", async () => {
+    const user = userEvent.setup();
+    const onToggleDirection = vi.fn();
+    renderWithMantine(
+      <HistoryControls {...baseProps} onToggleDirection={onToggleDirection} />,
+    );
+    // Currently visible → clicking turns it off.
+    await user.click(screen.getByRole("button", { name: "client ← server" }));
+    expect(onToggleDirection).toHaveBeenCalledWith("server", false);
+  });
+
+  it("invokes onToggleAllDirections from the Deselect/Select All control", async () => {
+    const user = userEvent.setup();
+    const onToggleAllDirections = vi.fn();
+    renderWithMantine(
+      <HistoryControls
+        {...baseProps}
+        onToggleAllDirections={onToggleAllDirections}
+      />,
+    );
+    // Both visible → the control reads "Deselect All".
+    await user.click(screen.getByRole("button", { name: "Deselect All" }));
+    expect(onToggleAllDirections).toHaveBeenCalledTimes(1);
   });
 });

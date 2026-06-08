@@ -108,6 +108,8 @@ function makeProps(
     onHistoryUiChange: vi.fn(),
     onClearHistory: vi.fn(),
     onExportHistory: vi.fn(),
+    onClearHistorySection: vi.fn(),
+    onExportHistorySection: vi.fn(),
     onReplayHistory: vi.fn(),
     onTogglePinHistory: vi.fn(),
     onNetworkUiChange: vi.fn(),

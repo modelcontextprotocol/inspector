@@ -103,6 +103,7 @@ import { ServerSettingsModal } from "./components/groups/ServerSettingsModal/Ser
 import { ConnectionInfoModal } from "./components/groups/ConnectionInfoModal/ConnectionInfoModal";
 import { OutputValidationModal } from "./components/groups/OutputValidationModal/OutputValidationModal";
 import { UrlElicitationErrorModal } from "./components/groups/UrlElicitationErrorModal/UrlElicitationErrorModal";
+import { isReplayableHistoryMethod } from "./components/groups/historyUtils.js";
 import type { OAuthDetails } from "./components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
 import {
@@ -191,6 +192,77 @@ function messagesToLogEntries(messages: MessageEntry[]): LogEntryData[] {
     });
   }
   return out;
+}
+
+// Re-issue the original request behind a History entry. The call goes through
+// InspectorClient → tracked transport → message log, so the replayed
+// request+response surface as a fresh History entry (history-local) — it
+// intentionally does NOT touch the Tools/Prompts/Resources panels. Returns a
+// human-readable reason when the entry can't be replayed (unsupported method,
+// or a tool that's no longer present), or null on a dispatched replay.
+async function replayHistoryRequest(
+  client: InspectorClient,
+  method: string,
+  params: Record<string, unknown> | undefined,
+  tools: Tool[],
+): Promise<string | null> {
+  // Gate on the shared replayable-method set (the same one HistoryEntry uses to
+  // show/hide the Replay button) so the two can't drift.
+  if (!isReplayableHistoryMethod(method)) {
+    return `Replay isn't supported for "${method}".`;
+  }
+  // Pagination cursor carried by the */list requests; replaying the same page
+  // reproduces the original call.
+  const cursor = typeof params?.cursor === "string" ? params.cursor : undefined;
+  switch (method) {
+    case "tools/call": {
+      const name = typeof params?.name === "string" ? params.name : undefined;
+      const tool = tools.find((t) => t.name === name);
+      if (!tool) {
+        return `Tool "${name ?? "?"}" is no longer available to replay.`;
+      }
+      await client.callTool(
+        tool,
+        (params?.arguments ?? {}) as Record<string, JsonValue>,
+      );
+      return null;
+    }
+    case "prompts/get": {
+      const name = typeof params?.name === "string" ? params.name : undefined;
+      if (!name) return "Prompt name is missing; cannot replay.";
+      await client.getPrompt(
+        name,
+        (params?.arguments ?? {}) as Record<string, JsonValue>,
+      );
+      return null;
+    }
+    case "resources/read": {
+      const uri = typeof params?.uri === "string" ? params.uri : undefined;
+      if (!uri) return "Resource URI is missing; cannot replay.";
+      await client.readResource(uri);
+      return null;
+    }
+    case "tools/list":
+      await client.listTools(cursor);
+      return null;
+    case "prompts/list":
+      await client.listPrompts(cursor);
+      return null;
+    case "resources/list":
+      await client.listResources(cursor);
+      return null;
+    case "resources/templates/list":
+      await client.listResourceTemplates(cursor);
+      return null;
+    case "tasks/list":
+      await client.listRequestorTasks(cursor);
+      return null;
+    case "ping":
+      await client.ping();
+      return null;
+    default:
+      return `Replay isn't supported for "${method}".`;
+  }
 }
 
 // Stable empty-shell for `InspectorServerSettings`. Used both as the
@@ -482,6 +554,12 @@ function App() {
   const [tasksUi, setTasksUi] = useState(EMPTY_TASKS_UI);
   const [logsUi, setLogsUi] = useState(EMPTY_LOGS_UI);
   const [historyUi, setHistoryUi] = useState(EMPTY_HISTORY_UI);
+  // History entries the user pinned (by entry id). Session-scoped — the ids
+  // reference message-log entries, which clear on disconnect, so this resets
+  // with the rest of the per-screen state.
+  const [pinnedHistoryIds, setPinnedHistoryIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [networkUi, setNetworkUi] = useState(EMPTY_NETWORK_UI);
 
   // Handshake telemetry. `connectStartRef` is set at the "connecting" edge
@@ -606,6 +684,7 @@ function App() {
     setTasksUi(EMPTY_TASKS_UI);
     setLogsUi(EMPTY_LOGS_UI);
     setHistoryUi(EMPTY_HISTORY_UI);
+    setPinnedHistoryIds(new Set());
     setNetworkUi(EMPTY_NETWORK_UI);
     setProgressByTaskId({});
     setCurrentLogLevel("info");
@@ -1612,9 +1691,13 @@ function App() {
     );
   }, [messageLogState]);
 
+  // Panel-level Clear clears the (unpinned) history and keeps pinned entries —
+  // pinning is the way to protect an entry from Clear. This matches the button's
+  // `disabled={unpinnedEntries.length === 0}` gating and the per-section model,
+  // and leaves pinnedHistoryIds valid (the pins it references still exist).
   const onClearHistory = useCallback(() => {
-    messageLogState?.clearMessages();
-  }, [messageLogState]);
+    messageLogState?.clearMessages((m) => !pinnedHistoryIds.has(m.id));
+  }, [messageLogState, pinnedHistoryIds]);
 
   const onClearNetwork = useCallback(() => {
     fetchRequestLogState?.clearFetchRequests();
@@ -1635,6 +1718,88 @@ function App() {
       JSON.stringify(messages, null, 2),
     );
   }, [messages, activeServerId]);
+
+  // Clear just one section: remove its entries from the log by pin membership.
+  // Clearing the pinned section also drops the (now-stale) pinned id set.
+  const onClearHistorySection = useCallback(
+    (section: "pinned" | "history") => {
+      const isPinned = section === "pinned";
+      messageLogState?.clearMessages((m) =>
+        isPinned ? pinnedHistoryIds.has(m.id) : !pinnedHistoryIds.has(m.id),
+      );
+      if (isPinned) setPinnedHistoryIds(new Set());
+    },
+    [messageLogState, pinnedHistoryIds],
+  );
+
+  // Export just one section's entries (by pin membership) to a JSON file.
+  const onExportHistorySection = useCallback(
+    (section: "pinned" | "history") => {
+      const isPinned = section === "pinned";
+      const subset = messages.filter((m) =>
+        isPinned ? pinnedHistoryIds.has(m.id) : !pinnedHistoryIds.has(m.id),
+      );
+      if (subset.length === 0) return;
+      downloadJsonFile(
+        buildExportFilename(
+          isPinned ? "history-pinned" : "history-unpinned",
+          activeServerId,
+        ),
+        JSON.stringify(subset, null, 2),
+      );
+    },
+    [messages, pinnedHistoryIds, activeServerId],
+  );
+
+  // Pin/unpin a history entry by id. HistoryListPanel sorts pinned entries to
+  // the top; the set is session-scoped (see resetSessionScopedUiState).
+  const onTogglePinHistory = useCallback((id: string) => {
+    setPinnedHistoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  // Replay a history entry: re-issue its original request so the fresh
+  // request+response appear as a new History entry (history-local). A reason
+  // string (unsupported method / missing tool) surfaces as a toast; a genuine
+  // call error already shows up as the replayed entry's Error status, so only a
+  // pre-flight failure (nothing logged) needs the fallback toast.
+  const onReplayHistory = useCallback(
+    (id: string) => {
+      if (!inspectorClient) return;
+      const entry = messages.find((m) => m.id === id);
+      if (!entry || !("method" in entry.message)) return;
+      const { method } = entry.message;
+      const params =
+        "params" in entry.message
+          ? (entry.message.params as Record<string, unknown> | undefined)
+          : undefined;
+      void replayHistoryRequest(inspectorClient, method, params, tools)
+        .then((reason) => {
+          if (reason) {
+            notifications.show({
+              title: "Can't replay",
+              message: reason,
+              color: "yellow",
+            });
+          }
+        })
+        .catch((err: unknown) => {
+          notifications.show({
+            title: "Replay failed",
+            message: err instanceof Error ? err.message : String(err),
+            color: "red",
+          });
+        });
+    },
+    [inspectorClient, messages, tools],
+  );
 
   const onExportLogs = useCallback(() => {
     if (logs.length === 0) return;
@@ -1994,8 +2159,11 @@ function App() {
         onHistoryUiChange={setHistoryUi}
         onClearHistory={onClearHistory}
         onExportHistory={onExportHistory}
-        onReplayHistory={todoNoop}
-        onTogglePinHistory={todoNoop}
+        onClearHistorySection={onClearHistorySection}
+        onExportHistorySection={onExportHistorySection}
+        onReplayHistory={onReplayHistory}
+        onTogglePinHistory={onTogglePinHistory}
+        pinnedHistoryIds={pinnedHistoryIds}
         onNetworkUiChange={setNetworkUi}
         onClearNetwork={onClearNetwork}
         onExportNetwork={onExportNetwork}

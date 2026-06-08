@@ -11,7 +11,10 @@ import {
 } from "@mantine/core";
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
-import { extractMethod } from "../historyUtils.js";
+import { MessageDirectionBadge } from "../../elements/MessageDirectionBadge/MessageDirectionBadge";
+import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
+import { PinToggle } from "../../elements/PinToggle/PinToggle";
+import { extractMethod, isReplayableHistoryMethod } from "../historyUtils.js";
 
 export interface HistoryEntryProps {
   entry: MessageEntry;
@@ -60,10 +63,6 @@ function formatTimestamp(date: Date): string {
   return date.toISOString();
 }
 
-function formatPinLabel(isPinned: boolean): string {
-  return isPinned ? "Unpin" : "Pin";
-}
-
 function extractTarget(entry: MessageEntry): string | undefined {
   const msg = entry.message;
   if (!("params" in msg) || !msg.params) return undefined;
@@ -73,7 +72,15 @@ function extractTarget(entry: MessageEntry): string | undefined {
   return undefined;
 }
 
-function extractStatus(entry: MessageEntry): "success" | "error" | "pending" {
+// The pending → OK/Error lifecycle only applies to requests: messageLogState
+// attaches a `response` to request entries by JSON-RPC id. A notification is
+// fire-and-forget (no id, no response, ever) and an unmatched standalone
+// response has none either — so those carry no request-style status ("none")
+// and render no badge, rather than a misleading permanent "Pending".
+function extractStatus(
+  entry: MessageEntry,
+): "success" | "error" | "pending" | "none" {
+  if (entry.direction !== "request") return "none";
   if (!entry.response) return "pending";
   if ("error" in entry.response) return "error";
   return "success";
@@ -106,6 +113,7 @@ export function HistoryEntry({
   const method = extractMethod(entry);
   const target = extractTarget(entry);
   const status = extractStatus(entry);
+  const canReplay = isReplayableHistoryMethod(method);
 
   useEffect(() => {
     setIsExpanded(isListExpanded);
@@ -116,6 +124,11 @@ export function HistoryEntry({
       <Stack gap="sm">
         <HeaderRow>
           <Group gap="sm">
+            {entry.origin && (
+              <MessageDirectionBadge
+                direction={entry.origin === "client" ? "outgoing" : "incoming"}
+              />
+            )}
             <TimestampText>{formatTimestamp(entry.timestamp)}</TimestampText>
             <Badge color="dark">{method}</Badge>
             {target && <TargetText>{target}</TargetText>}
@@ -124,18 +137,25 @@ export function HistoryEntry({
             {entry.duration != null && (
               <DurationText>{formatDuration(entry.duration)}</DurationText>
             )}
-            <Badge color={statusColor(status)}>{statusLabel(status)}</Badge>
+            {status !== "none" && (
+              <Badge color={statusColor(status)}>{statusLabel(status)}</Badge>
+            )}
           </Group>
         </HeaderRow>
 
-        <Group gap="xs">
-          <SubtleButton onClick={onReplay}>Replay</SubtleButton>
-          <SubtleButton onClick={onTogglePin}>
-            {formatPinLabel(isPinned)}
-          </SubtleButton>
-          <SubtleButton onClick={() => setIsExpanded((v) => !v)} ml="auto">
-            {isExpanded ? "Collapse" : "Expand"}
-          </SubtleButton>
+        <Group gap="xs" justify="space-between">
+          <Group gap="xs">
+            {canReplay && (
+              <SubtleButton onClick={onReplay}>Replay</SubtleButton>
+            )}
+          </Group>
+          <Group gap="xs">
+            <PinToggle pinned={isPinned} onToggle={onTogglePin} />
+            <ExpandToggle
+              expanded={isExpanded}
+              onToggle={() => setIsExpanded((v) => !v)}
+            />
+          </Group>
         </Group>
 
         <Collapse in={isExpanded}>

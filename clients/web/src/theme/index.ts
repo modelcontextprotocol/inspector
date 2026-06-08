@@ -7,6 +7,7 @@ export { ThemeButton } from "./Button";
 export { ThemeCard } from "./Card";
 export { ThemeCode } from "./Code";
 export { ThemeFlex } from "./Flex";
+export { ThemeGroup } from "./Group";
 export { ThemeInput } from "./Input";
 export { ThemePaper } from "./Paper";
 export { ThemeSelect } from "./Select";

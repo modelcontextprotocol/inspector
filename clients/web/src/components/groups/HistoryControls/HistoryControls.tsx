@@ -1,20 +1,30 @@
 import { Select, Stack, TextInput, Title } from "@mantine/core";
-import type { MessageMethod } from "@inspector/core/mcp/types.js";
+import type {
+  MessageMethod,
+  MessageOrigin,
+} from "@inspector/core/mcp/types.js";
+import { MessageDirectionFilter } from "../MessageDirectionFilter/MessageDirectionFilter";
 
 export interface HistoryControlsProps {
   searchText: string;
   methodFilter?: MessageMethod;
   availableMethods: MessageMethod[];
+  visibleDirections: Record<MessageOrigin, boolean>;
   onSearchChange: (text: string) => void;
   onMethodFilterChange: (method: MessageMethod | undefined) => void;
+  onToggleDirection: (direction: MessageOrigin, visible: boolean) => void;
+  onToggleAllDirections: () => void;
 }
 
 export function HistoryControls({
   searchText,
   methodFilter,
   availableMethods,
+  visibleDirections,
   onSearchChange,
   onMethodFilterChange,
+  onToggleDirection,
+  onToggleAllDirections,
 }: HistoryControlsProps) {
   return (
     <Stack gap="md">
@@ -34,6 +44,12 @@ export function HistoryControls({
           onMethodFilterChange((value as MessageMethod | null) ?? undefined)
         }
         clearable
+      />
+
+      <MessageDirectionFilter
+        visibleDirections={visibleDirections}
+        onToggleDirection={onToggleDirection}
+        onToggleAllDirections={onToggleAllDirections}
       />
     </Stack>
   );

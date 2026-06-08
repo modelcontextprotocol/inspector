@@ -55,6 +55,7 @@ export const EMPTY_LOGS_UI: LogsUiState = {
 export const EMPTY_HISTORY_UI: HistoryUiState = {
   search: "",
   methodFilter: undefined,
+  visibleDirections: { client: true, server: true },
 };
 
 export const EMPTY_NETWORK_UI: NetworkUiState = {

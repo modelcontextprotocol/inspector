@@ -62,8 +62,11 @@ const sampleEntries: MessageEntry[] = [
 const baseProps = {
   pinnedIds: new Set<string>(),
   searchText: "",
+  visibleDirections: { client: true, server: true },
   onClearAll: vi.fn(),
   onExport: vi.fn(),
+  onClearSection: vi.fn(),
+  onExportSection: vi.fn(),
   onReplay: vi.fn(),
   onTogglePin: vi.fn(),
   sortDirection: "newest-first" as const,
@@ -112,6 +115,139 @@ describe("HistoryListPanel", () => {
     );
     expect(screen.getByText("Pinned Requests (1)")).toBeInTheDocument();
     expect(screen.getByText("History (2)")).toBeInTheDocument();
+  });
+
+  it("toggles a section's expanded state when its header is clicked", async () => {
+    const user = userEvent.setup();
+    // Both sections present so the headers are collapsible toggles.
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        pinnedIds={new Set(["req-1"])}
+      />,
+    );
+    const header = screen.getByRole("button", { name: "History (2)" });
+    expect(header).toHaveAttribute("aria-expanded", "true");
+    await user.click(header);
+    expect(header).toHaveAttribute("aria-expanded", "false");
+    await user.click(header);
+    expect(header).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("renders a lone section as a plain (non-collapsible) header with its entries shown", () => {
+    // Only the unpinned section → no accordion toggle, entries always visible.
+    renderWithMantine(
+      <HistoryListPanel {...baseProps} entries={sampleEntries} />,
+    );
+    expect(screen.getByText("History (3)")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "History (3)" }),
+    ).not.toBeInTheDocument();
+    // An entry's method badge is visible (content shown, not collapsed).
+    expect(screen.getByText("resources/read")).toBeInTheDocument();
+  });
+
+  it("shows the surviving section's entries after the other is removed, even if it was collapsed", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        pinnedIds={new Set(["req-1"])}
+      />,
+    );
+    // Collapse the History section while both sections are present.
+    await user.click(screen.getByRole("button", { name: "History (2)" }));
+    expect(screen.getByRole("button", { name: "History (2)" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    // Remove the pinned section → History is now the only section. Its entries
+    // must show despite the stale collapsed state, and the header is plain.
+    rerender(<HistoryListPanel {...baseProps} entries={sampleEntries} />);
+    expect(
+      screen.queryByRole("button", { name: "History (3)" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("resources/read")).toBeInTheDocument();
+  });
+
+  it("collapses the Pinned and History sections independently", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        pinnedIds={new Set(["req-1"])}
+      />,
+    );
+    const pinned = screen.getByRole("button", {
+      name: "Pinned Requests (1)",
+    });
+    const history = screen.getByRole("button", { name: "History (2)" });
+    await user.click(pinned);
+    expect(pinned).toHaveAttribute("aria-expanded", "false");
+    // Collapsing Pinned leaves History untouched.
+    expect(history).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("shows per-section Clear/Export only when both sections are present", () => {
+    // Only an unpinned section → just the panel-level Clear/Export.
+    const { unmount } = renderWithMantine(
+      <HistoryListPanel {...baseProps} entries={sampleEntries} />,
+    );
+    expect(screen.getAllByRole("button", { name: "Clear" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Export" })).toHaveLength(1);
+    unmount();
+
+    // Both sections → panel-level plus one Clear/Export per section.
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        pinnedIds={new Set(["req-1"])}
+      />,
+    );
+    expect(screen.getAllByRole("button", { name: "Clear" })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: "Export" })).toHaveLength(3);
+  });
+
+  it("invokes onClearSection/onExportSection for the clicked section", async () => {
+    const user = userEvent.setup();
+    const onClearSection = vi.fn();
+    const onExportSection = vi.fn();
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        pinnedIds={new Set(["req-1"])}
+        onClearSection={onClearSection}
+        onExportSection={onExportSection}
+      />,
+    );
+    // [0] = panel-level, [1] = Pinned section, [2] = History section.
+    const clears = screen.getAllByRole("button", { name: "Clear" });
+    const exports = screen.getAllByRole("button", { name: "Export" });
+    await user.click(clears[1]);
+    expect(onClearSection).toHaveBeenCalledWith("pinned");
+    await user.click(exports[2]);
+    expect(onExportSection).toHaveBeenCalledWith("history");
+  });
+
+  it("hides entries whose message direction is toggled off", () => {
+    const directional: MessageEntry[] = [
+      { ...sampleEntries[0], id: "from-client", origin: "client" },
+      { ...sampleEntries[1], id: "from-server", origin: "server" },
+    ];
+    renderWithMantine(
+      <HistoryListPanel
+        {...baseProps}
+        entries={directional}
+        visibleDirections={{ client: true, server: false }}
+      />,
+    );
+    // The server-origin entry is filtered out, leaving one.
+    expect(screen.getByText("History (1)")).toBeInTheDocument();
   });
 
   it("filters entries by searchText (case-insensitive)", () => {

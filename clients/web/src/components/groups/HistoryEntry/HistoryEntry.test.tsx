@@ -8,6 +8,7 @@ const successEntry: MessageEntry = {
   id: "req-1",
   timestamp: new Date("2026-03-17T10:30:00Z"),
   direction: "request",
+  origin: "client",
   message: {
     jsonrpc: "2.0",
     id: 1,
@@ -90,6 +91,22 @@ const noParamsEntry: MessageEntry = {
   },
 };
 
+const notificationEntry: MessageEntry = {
+  id: "note-1",
+  timestamp: new Date("2026-03-17T10:36:00Z"),
+  direction: "notification",
+  origin: "server",
+  message: {
+    jsonrpc: "2.0",
+    method: "notifications/message",
+    params: {
+      level: "info",
+      logger: "everything-server",
+      data: "Roots updated: 2 root(s) received from client",
+    },
+  },
+};
+
 const baseProps = {
   isPinned: false,
   isListExpanded: false,
@@ -124,6 +141,30 @@ describe("HistoryEntry", () => {
     expect(screen.getByText("Pending")).toBeInTheDocument();
   });
 
+  it("renders no request-style status badge for a notification", () => {
+    renderWithMantine(
+      <HistoryEntry {...baseProps} entry={notificationEntry} />,
+    );
+    // The method badge still labels it; there is no Pending/OK/Error badge,
+    // since a fire-and-forget notification has no request lifecycle.
+    expect(screen.getByText("notifications/message")).toBeInTheDocument();
+    expect(screen.queryByText("Pending")).not.toBeInTheDocument();
+    expect(screen.queryByText("OK")).not.toBeInTheDocument();
+    expect(screen.queryByText("Error")).not.toBeInTheDocument();
+  });
+
+  it("shows client → server for a client-originated entry", () => {
+    renderWithMantine(<HistoryEntry {...baseProps} entry={successEntry} />);
+    expect(screen.getByText("client → server")).toBeInTheDocument();
+  });
+
+  it("shows client ← server for a server-originated entry", () => {
+    renderWithMantine(
+      <HistoryEntry {...baseProps} entry={notificationEntry} />,
+    );
+    expect(screen.getByText("client ← server")).toBeInTheDocument();
+  });
+
   it("renders Pin label when not pinned", () => {
     renderWithMantine(<HistoryEntry {...baseProps} entry={successEntry} />);
     expect(screen.getByRole("button", { name: "Pin" })).toBeInTheDocument();
@@ -144,6 +185,27 @@ describe("HistoryEntry", () => {
     );
     await user.click(screen.getByRole("button", { name: "Replay" }));
     expect(onReplay).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the Replay button for a method that can't be replayed", () => {
+    // A notification isn't a replayable client→server request.
+    renderWithMantine(
+      <HistoryEntry {...baseProps} entry={notificationEntry} />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Replay" }),
+    ).not.toBeInTheDocument();
+    // Pin stays available.
+    expect(screen.getByRole("button", { name: "Pin" })).toBeInTheDocument();
+  });
+
+  it("orders the actions Replay, then Pin, then the expand toggle on the right", () => {
+    renderWithMantine(<HistoryEntry {...baseProps} entry={successEntry} />);
+    const names = screen
+      .getAllByRole("button")
+      .map((b) => b.getAttribute("aria-label") ?? b.textContent);
+    expect(names.indexOf("Replay")).toBeLessThan(names.indexOf("Pin"));
+    expect(names.indexOf("Pin")).toBeLessThan(names.indexOf("Expand"));
   });
 
   it("invokes onTogglePin when Pin button is clicked", async () => {

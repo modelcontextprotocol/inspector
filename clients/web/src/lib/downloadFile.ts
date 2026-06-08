@@ -36,7 +36,12 @@ export function downloadJsonFile(filename: string, json: string): void {
  * `kind` to this union catches typos at call sites and documents the
  * stable on-disk filename prefix.
  */
-export type ExportKind = "history" | "logs" | "network";
+export type ExportKind =
+  | "history"
+  | "history-pinned"
+  | "history-unpinned"
+  | "logs"
+  | "network";
 
 /**
  * Build a sortable export filename in the shape
