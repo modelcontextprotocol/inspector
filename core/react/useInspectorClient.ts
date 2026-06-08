@@ -21,6 +21,7 @@ export interface UseInspectorClientResult {
   clientCapabilities: ClientCapabilities;
   serverInfo?: Implementation;
   instructions?: string;
+  protocolVersion?: string;
   appRendererClient: AppRendererClient | null;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
@@ -54,6 +55,9 @@ export function useInspectorClient(
   const [instructions, setInstructions] = useState<string | undefined>(
     inspectorClient?.getInstructions(),
   );
+  const [protocolVersion, setProtocolVersion] = useState<string | undefined>(
+    inspectorClient?.getProtocolVersion(),
+  );
 
   useEffect(() => {
     if (!inspectorClient) {
@@ -61,6 +65,7 @@ export function useInspectorClient(
       setCapabilities(undefined);
       setServerInfo(undefined);
       setInstructions(undefined);
+      setProtocolVersion(undefined);
       return;
     }
 
@@ -68,6 +73,7 @@ export function useInspectorClient(
     setCapabilities(inspectorClient.getCapabilities());
     setServerInfo(inspectorClient.getServerInfo());
     setInstructions(inspectorClient.getInstructions());
+    setProtocolVersion(inspectorClient.getProtocolVersion());
 
     const onStatusChange = (event: TypedEvent<"statusChange">) => {
       setStatus(event.detail);
@@ -81,6 +87,11 @@ export function useInspectorClient(
     const onInstructionsChange = (event: TypedEvent<"instructionsChange">) => {
       setInstructions(event.detail);
     };
+    const onProtocolVersionChange = (
+      event: TypedEvent<"protocolVersionChange">,
+    ) => {
+      setProtocolVersion(event.detail);
+    };
 
     inspectorClient.addEventListener("statusChange", onStatusChange);
     inspectorClient.addEventListener(
@@ -91,6 +102,10 @@ export function useInspectorClient(
     inspectorClient.addEventListener(
       "instructionsChange",
       onInstructionsChange,
+    );
+    inspectorClient.addEventListener(
+      "protocolVersionChange",
+      onProtocolVersionChange,
     );
 
     return () => {
@@ -106,6 +121,10 @@ export function useInspectorClient(
       inspectorClient.removeEventListener(
         "instructionsChange",
         onInstructionsChange,
+      );
+      inspectorClient.removeEventListener(
+        "protocolVersionChange",
+        onProtocolVersionChange,
       );
     };
   }, [inspectorClient]);
@@ -132,6 +151,7 @@ export function useInspectorClient(
       inspectorClient?.getClientCapabilities() ?? EMPTY_CLIENT_CAPABILITIES,
     serverInfo,
     instructions,
+    protocolVersion,
     appRendererClient: inspectorClient?.getAppRendererClient() ?? null,
     connect,
     disconnect,

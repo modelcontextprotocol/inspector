@@ -170,6 +170,7 @@ export class InspectorClient extends InspectorClientEventTarget {
   private capabilities?: ServerCapabilities;
   private serverInfo?: Implementation;
   private instructions?: string;
+  private protocolVersion?: string;
   // The capabilities this Inspector client advertises to the server during the
   // initialize handshake. Built once in setupClient() and snapshotted here so
   // UI surfaces (Server Info modal) can display them without poking at the
@@ -1050,11 +1051,13 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.capabilities = undefined;
     this.serverInfo = undefined;
     this.instructions = undefined;
+    this.protocolVersion = undefined;
     this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
     this.dispatchTypedEvent("pendingElicitationsChange", this.pendingElicitations);
     this.dispatchTypedEvent("capabilitiesChange", this.capabilities);
     this.dispatchTypedEvent("serverInfoChange", this.serverInfo);
     this.dispatchTypedEvent("instructionsChange", this.instructions);
+    this.dispatchTypedEvent("protocolVersionChange", this.protocolVersion);
   }
 
   /**
@@ -1293,6 +1296,14 @@ export class InspectorClient extends InspectorClientEventTarget {
    */
   getInstructions(): string | undefined {
     return this.instructions;
+  }
+
+  /**
+   * Get the MCP protocol version negotiated with the server during the
+   * initialize handshake (e.g. "2025-06-18"). Undefined when not connected.
+   */
+  getProtocolVersion(): string | undefined {
+    return this.protocolVersion;
   }
 
   /**
@@ -2192,6 +2203,14 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.dispatchTypedEvent("serverInfoChange", this.serverInfo);
       if (this.instructions !== undefined) {
         this.dispatchTypedEvent("instructionsChange", this.instructions);
+      }
+
+      // The negotiated protocol version isn't exposed by the SDK Client; it's
+      // stamped onto the transport during initialize. MessageTrackingTransport
+      // captures it (see its setProtocolVersion) so we can surface it here.
+      if (this.transport instanceof MessageTrackingTransport) {
+        this.protocolVersion = this.transport.protocolVersion;
+        this.dispatchTypedEvent("protocolVersionChange", this.protocolVersion);
       }
     } catch {
       // Ignore errors in fetching server info

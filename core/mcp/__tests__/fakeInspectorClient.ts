@@ -43,6 +43,7 @@ export interface FakeInspectorClientOptions {
   clientCapabilities?: ClientCapabilities;
   serverInfo?: Implementation;
   instructions?: string;
+  protocolVersion?: string;
 }
 
 export class FakeInspectorClient
@@ -54,6 +55,7 @@ export class FakeInspectorClient
   private clientCapabilities: ClientCapabilities;
   private serverInfo: Implementation | undefined;
   private instructions: string | undefined;
+  private protocolVersion: string | undefined;
   private appRendererClient: AppRendererClient | null = null;
   private sessionId: string | undefined;
   private pendingSamples: SamplingCreateMessage[] = [];
@@ -147,6 +149,7 @@ export class FakeInspectorClient
     this.clientCapabilities = options.clientCapabilities ?? {};
     this.serverInfo = options.serverInfo;
     this.instructions = options.instructions;
+    this.protocolVersion = options.protocolVersion;
   }
 
   getStatus(): ConnectionStatus {
@@ -167,6 +170,10 @@ export class FakeInspectorClient
 
   getInstructions(): string | undefined {
     return this.instructions;
+  }
+
+  getProtocolVersion(): string | undefined {
+    return this.protocolVersion;
   }
 
   getAppRendererClient(): AppRendererClient | null {
@@ -233,6 +240,11 @@ export class FakeInspectorClient
   setInstructions(instructions: string | undefined): void {
     this.instructions = instructions;
     this.dispatchTypedEvent("instructionsChange", instructions);
+  }
+
+  setProtocolVersion(protocolVersion: string | undefined): void {
+    this.protocolVersion = protocolVersion;
+    this.dispatchTypedEvent("protocolVersionChange", protocolVersion);
   }
 
   setAppRendererClient(client: AppRendererClient | null): void {

@@ -673,6 +673,28 @@ describe("InspectorClient", () => {
       expect(client.getServerInfo()).toBeDefined();
     });
 
+    it("exposes the negotiated protocol version after connect (stdio)", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+        },
+      );
+
+      expect(client.getProtocolVersion()).toBeUndefined();
+      await client.connect();
+      // stdio transports don't store the version themselves; the capture
+      // happens in MessageTrackingTransport, so this also guards that path.
+      expect(client.getProtocolVersion()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+      await client.disconnect();
+      expect(client.getProtocolVersion()).toBeUndefined();
+    });
+
     it("should not auto-fetch server contents when disabled", async () => {
       client = new InspectorClient(
         {

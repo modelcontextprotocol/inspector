@@ -21,7 +21,10 @@ const sseConfig: MCPServerConfig = {
   url: "https://api.example.com/sse",
 };
 
-const connected: ConnectionState = { status: "connected" };
+const connected: ConnectionState = {
+  status: "connected",
+  protocolVersion: "2025-06-18",
+};
 const disconnected: ConnectionState = { status: "disconnected" };
 const connecting: ConnectionState = { status: "connecting" };
 const errored: ConnectionState = {
@@ -147,6 +150,30 @@ describe("ServerCard", () => {
       <ServerCard {...baseProps} activeServer="srv-1" />,
     );
     expect(container.querySelector('[aria-disabled="true"]')).toBeNull();
+  });
+
+  it("renders the negotiated protocol version when connected", () => {
+    renderWithMantine(<ServerCard {...baseProps} connection={connected} />);
+    expect(screen.getByText("MCP 2025-06-18")).toBeInTheDocument();
+  });
+
+  it("omits the protocol version when not connected", () => {
+    renderWithMantine(
+      <ServerCard
+        {...baseProps}
+        connection={{ status: "disconnected", protocolVersion: "2025-06-18" }}
+      />,
+    );
+    expect(screen.queryByText("MCP 2025-06-18")).not.toBeInTheDocument();
+  });
+
+  it("omits the protocol version when connected but none was negotiated", () => {
+    renderWithMantine(
+      <ServerCard {...baseProps} connection={{ status: "connected" }} />,
+    );
+    expect(
+      screen.queryByText(/^MCP \d{4}-\d{2}-\d{2}$/),
+    ).not.toBeInTheDocument();
   });
 
   it("omits the version badge when info is missing", () => {

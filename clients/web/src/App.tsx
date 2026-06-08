@@ -600,6 +600,7 @@ function App() {
     clientCapabilities,
     serverInfo,
     instructions,
+    protocolVersion,
   } = useInspectorClient(inspectorClient);
   const { tools, refresh: refreshTools } = useManagedTools(
     inspectorClient,
@@ -880,19 +881,30 @@ function App() {
     };
   }, [inspectorClient]);
 
-  // Build the InitializeResult the connected ViewHeader expects from the
-  // hook's split fields. `protocolVersion` is hard-coded for now — the
-  // useInspectorClient hook doesn't expose it. TODO(#1324): consume the
-  // negotiated value once the hook surfaces it.
+  // Build the InitializeResult the connected ViewHeader / Connection Info
+  // modal expect from the hook's split fields. `protocolVersion` is the value
+  // the InspectorClient negotiated during initialize (#1324); it's dispatched
+  // alongside serverInfo, so in practice it's present whenever we're connected.
+  // We deliberately gate only on serverInfo (not protocolVersion): this object
+  // also drives the connected header and Connection Info modal, so a
+  // missing/edge-case version must not hide those. It flows through as the
+  // optional field it is everywhere downstream (the ServerCard label and the
+  // modal value both tolerate an empty string), so "" reads as "unknown".
   const initializeResult = useMemo<InitializeResult | undefined>(() => {
     if (connectionStatus !== "connected" || !serverInfo) return undefined;
     return {
-      protocolVersion: "2025-06-18",
+      protocolVersion: protocolVersion ?? "",
       capabilities: capabilities ?? {},
       serverInfo,
       ...(instructions ? { instructions } : {}),
     };
-  }, [connectionStatus, capabilities, serverInfo, instructions]);
+  }, [
+    connectionStatus,
+    capabilities,
+    serverInfo,
+    instructions,
+    protocolVersion,
+  ]);
 
   // The Server Info modal needs the active server's transport and (optional)
   // OAuth details — both are co-located here so the modal opens against the

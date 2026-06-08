@@ -143,6 +143,13 @@ export interface ConnectionState {
   status: ConnectionStatus;
   retryCount?: number;
   error?: { message: string; details?: string };
+  /**
+   * MCP protocol version negotiated with the server during initialize
+   * (e.g. "2025-06-18"). Only present once connected; surfaced in the
+   * ServerCard transport row. Populated when #1324 plumbs the value
+   * through `useInspectorClient`.
+   */
+  protocolVersion?: string;
 }
 
 export interface ServerEntry {
