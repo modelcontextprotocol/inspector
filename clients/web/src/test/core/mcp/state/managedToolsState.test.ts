@@ -175,6 +175,32 @@ describe("ManagedToolsState", () => {
     expect(state.getListChanged()).toBe(false);
   });
 
+  it("coalesces a burst of list_changed into sequential peeks, not N concurrent fetches (#1444)", async () => {
+    client.setStatus("connected");
+    // Hang the first peek's fetch so the rest of the burst lands while it's in
+    // flight; queue a page for the single coalesced re-run.
+    let release: (value: { tools: Tool[] }) => void = () => {};
+    client.listTools.mockImplementationOnce(
+      () =>
+        new Promise<{ tools: Tool[] }>((resolve) => {
+          release = resolve;
+        }),
+    );
+    client.queueToolPages({ tools: [tool("a")] });
+
+    client.dispatchTypedEvent("toolsListChanged");
+    client.dispatchTypedEvent("toolsListChanged");
+    client.dispatchTypedEvent("toolsListChanged");
+    // While the first peek's fetch is hung, only one fetch has started.
+    await Promise.resolve();
+    expect(client.listTools).toHaveBeenCalledTimes(1);
+
+    // Releasing it runs exactly one coalesced re-run, not two more.
+    release({ tools: [tool("a")] });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(client.listTools).toHaveBeenCalledTimes(2);
+  });
+
   it("clears the indicator when a later notification reverts the list to the displayed one (#1444)", async () => {
     client.setStatus("connected");
     client.queueToolPages({ tools: [tool("a")] });

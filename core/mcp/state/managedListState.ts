@@ -64,6 +64,11 @@ export abstract class ManagedListState<
   private _metadata: Record<string, string> | undefined = undefined;
   private listChanged = false;
   private readonly config: ManagedListConfig<T, M>;
+  // Coalesce a burst of `list_changed` notifications: while a peek is fetching,
+  // a new notification just queues a single re-run instead of firing another
+  // concurrent paginated fetch.
+  private peeking = false;
+  private peekQueued = false;
 
   constructor(
     client: InspectorClientProtocol,
@@ -211,9 +216,26 @@ export abstract class ManagedListState<
    * (#1444).
    */
   private async peekForChange(): Promise<void> {
-    const next = await this.fetchAll();
-    if (next === null) return;
-    this.setListChanged(JSON.stringify(next) !== JSON.stringify(this.items));
+    // A peek is already fetching — queue a single re-run rather than launching
+    // a concurrent paginated fetch. The in-flight peek loops once more on
+    // completion to capture the latest server state.
+    if (this.peeking) {
+      this.peekQueued = true;
+      return;
+    }
+    this.peeking = true;
+    try {
+      do {
+        this.peekQueued = false;
+        const next = await this.fetchAll();
+        if (next === null) return;
+        this.setListChanged(
+          JSON.stringify(next) !== JSON.stringify(this.items),
+        );
+      } while (this.peekQueued);
+    } finally {
+      this.peeking = false;
+    }
   }
 
   destroy(): void {
