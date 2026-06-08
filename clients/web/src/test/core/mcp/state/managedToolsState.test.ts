@@ -141,80 +141,32 @@ describe("ManagedToolsState", () => {
     expect(next.map((t) => t.name)).toEqual(["a"]);
   });
 
-  it("toolsListChanged peeks but does NOT replace the displayed list by default", async () => {
-    // Diff-aware (#1444): the notification fetches to compare, but the
-    // displayed list stays put until the user pulls via Refresh.
+  it("toolsListChanged lights the indicator without fetching by default (#1444)", async () => {
+    // Auto-refresh off: a list_changed lights the indicator with NO list call;
+    // the user pulls the new list via Refresh.
     client.setStatus("connected");
-    client.queueToolPages({ tools: [tool("a"), tool("b")] });
     const changed = waitForListChanged(state);
-    client.dispatchTypedEvent("toolsListChanged");
-    expect(await changed).toBe(true); // the peeked list differs from []
-    expect(client.listTools).toHaveBeenCalled(); // it fetched to compare
-    expect(state.getTools()).toEqual([]); // ...but did not replace the display
-  });
-
-  it("toolsListChanged does NOT light the indicator when the list is unchanged", async () => {
-    // The everything-server case: a list_changed that re-sends an identical
-    // list must not light the indicator.
-    client.setStatus("connected");
-    client.queueToolPages({ tools: [tool("a")] });
-    await state.refresh();
-    expect(state.getTools().map((t) => t.name)).toEqual(["a"]);
-
-    let fired = false;
-    state.addEventListener("listChangedChange", () => {
-      fired = true;
-    });
-    // Re-send the same single-tool page on the next peek.
-    client.queueToolPages({ tools: [tool("a")] });
-    client.dispatchTypedEvent("toolsListChanged");
-    // Let the async peek (fetch + compare) settle.
-    await new Promise((r) => setTimeout(r, 0));
-    expect(client.listTools).toHaveBeenCalledTimes(2); // refresh + peek
-    expect(fired).toBe(false);
-    expect(state.getListChanged()).toBe(false);
-  });
-
-  it("debounces a burst of list_changed into a single fetch (#1444)", async () => {
-    // The everything-server case: a rapid burst of notifications must collapse
-    // into one list call once it settles, not one per notification.
-    client.setStatus("connected");
-    client.queueToolPages({ tools: [tool("a")] });
-    const changed = waitForListChanged(state);
-    client.dispatchTypedEvent("toolsListChanged");
-    client.dispatchTypedEvent("toolsListChanged");
     client.dispatchTypedEvent("toolsListChanged");
     expect(await changed).toBe(true);
-    expect(client.listTools).toHaveBeenCalledTimes(1); // one debounced fetch
+    expect(client.listTools).not.toHaveBeenCalled(); // no automatic fetch
+    expect(state.getTools()).toEqual([]); // displayed list untouched
   });
 
-  it("coalesces a peek that fires while an earlier one is still fetching (#1444)", async () => {
-    // Defense beyond the debounce: a post-debounce notification landing during
-    // an in-flight peek queues a single re-run instead of a concurrent fetch.
+  it("debounces a burst of list_changed into a single indicator light, no fetch (#1444)", async () => {
+    // The everything-server case: a rapid burst collapses to one indicator
+    // light once it settles, and never fetches in flag-only mode.
     client.setStatus("connected");
-    let release: (value: { tools: Tool[] }) => void = () => {};
-    client.listTools.mockImplementationOnce(
-      () =>
-        new Promise<{ tools: Tool[] }>((resolve) => {
-          release = resolve;
-        }),
-    );
-    client.queueToolPages({ tools: [tool("a")] });
-
-    // First notification → debounced peek starts and hangs.
+    let fired = 0;
+    state.addEventListener("listChangedChange", () => {
+      fired++;
+    });
+    client.dispatchTypedEvent("toolsListChanged");
+    client.dispatchTypedEvent("toolsListChanged");
     client.dispatchTypedEvent("toolsListChanged");
     await new Promise((r) => setTimeout(r, 0));
-    expect(client.listTools).toHaveBeenCalledTimes(1);
-
-    // Second notification while the peek is hung → coalesced, no concurrent fetch.
-    client.dispatchTypedEvent("toolsListChanged");
-    await new Promise((r) => setTimeout(r, 0));
-    expect(client.listTools).toHaveBeenCalledTimes(1);
-
-    // Releasing the first peek runs exactly one coalesced re-run.
-    release({ tools: [tool("a")] });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(client.listTools).toHaveBeenCalledTimes(2);
+    expect(fired).toBe(1); // one debounced flip
+    expect(state.getListChanged()).toBe(true);
+    expect(client.listTools).not.toHaveBeenCalled();
   });
 
   it("coalesces an auto-refresh that fires while an earlier one is still fetching (#1444)", async () => {
@@ -248,25 +200,6 @@ describe("ManagedToolsState", () => {
     expect(autoClient.listTools).toHaveBeenCalledTimes(2);
     // The (coalesced) auto-refresh applied the new list.
     expect(autoState.getTools().map((t) => t.name)).toEqual(["a"]);
-  });
-
-  it("clears the indicator when a later notification reverts the list to the displayed one (#1444)", async () => {
-    client.setStatus("connected");
-    client.queueToolPages({ tools: [tool("a")] });
-    await state.refresh(); // displayed = [a]
-
-    // Server adds a tool → indicator lights.
-    client.queueToolPages({ tools: [tool("a"), tool("b")] });
-    const lit = waitForListChanged(state);
-    client.dispatchTypedEvent("toolsListChanged");
-    expect(await lit).toBe(true);
-
-    // Server reverts to [a] (matches the displayed list) → indicator clears.
-    client.queueToolPages({ tools: [tool("a")] });
-    const cleared = waitForListChanged(state);
-    client.dispatchTypedEvent("toolsListChanged");
-    expect(await cleared).toBe(false);
-    expect(state.getListChanged()).toBe(false);
   });
 
   it("toolsListChanged auto-refreshes when the server opts in", async () => {

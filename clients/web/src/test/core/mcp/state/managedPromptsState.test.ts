@@ -143,34 +143,15 @@ describe("ManagedPromptsState", () => {
     expect(next.map((p) => p.name)).toEqual(["a"]);
   });
 
-  it("promptsListChanged peeks but does NOT replace the displayed list by default", async () => {
-    // Diff-aware (#1444): the notification fetches to compare, but the
-    // displayed list stays put until the user pulls via Refresh.
+  it("promptsListChanged lights the indicator without fetching by default (#1444)", async () => {
+    // Auto-refresh off: a list_changed lights the indicator with NO list call;
+    // the user pulls the new list via Refresh.
     client.setStatus("connected");
-    client.queuePromptPages({ prompts: [prompt("a"), prompt("b")] });
     const changed = waitForListChanged(state);
     client.dispatchTypedEvent("promptsListChanged");
-    expect(await changed).toBe(true); // the peeked list differs from []
-    expect(client.listPrompts).toHaveBeenCalled(); // it fetched to compare
-    expect(state.getPrompts()).toEqual([]); // ...but did not replace the display
-  });
-
-  it("promptsListChanged does NOT light the indicator when the list is unchanged", async () => {
-    client.setStatus("connected");
-    client.queuePromptPages({ prompts: [prompt("a")] });
-    await state.refresh();
-    expect(state.getPrompts().map((p) => p.name)).toEqual(["a"]);
-
-    let fired = false;
-    state.addEventListener("listChangedChange", () => {
-      fired = true;
-    });
-    client.queuePromptPages({ prompts: [prompt("a")] });
-    client.dispatchTypedEvent("promptsListChanged");
-    await new Promise((r) => setTimeout(r, 0));
-    expect(client.listPrompts).toHaveBeenCalledTimes(2); // refresh + peek
-    expect(fired).toBe(false);
-    expect(state.getListChanged()).toBe(false);
+    expect(await changed).toBe(true);
+    expect(client.listPrompts).not.toHaveBeenCalled(); // no automatic fetch
+    expect(state.getPrompts()).toEqual([]); // displayed list untouched
   });
 
   it("promptsListChanged auto-refreshes when the server opts in", async () => {

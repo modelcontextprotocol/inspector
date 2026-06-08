@@ -14,9 +14,9 @@ export interface ManagedToolsStateEventMap {
   toolsChange: Tool[];
   /**
    * Fires when the "list changed since last refresh" flag flips. True when a
-   * `tools/list_changed` brings a list that differs from what's displayed,
-   * false once the user refreshes, the change reverts, or the connection
-   * drops. Drives the sidebar list-changed indicator (#1402).
+   * `tools/list_changed` arrives (auto-refresh off), false once the user
+   * refreshes or the connection drops. Drives the sidebar list-changed
+   * indicator (#1402).
    */
   listChangedChange: boolean;
 }

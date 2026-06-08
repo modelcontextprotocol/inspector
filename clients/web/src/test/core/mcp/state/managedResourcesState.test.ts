@@ -150,36 +150,15 @@ describe("ManagedResourcesState", () => {
     expect(next.map((r) => r.uri)).toEqual(["a://1"]);
   });
 
-  it("resourcesListChanged peeks but does NOT replace the displayed list by default", async () => {
-    // Diff-aware (#1444): the notification fetches to compare, but the
-    // displayed list stays put until the user pulls via Refresh.
+  it("resourcesListChanged lights the indicator without fetching by default (#1444)", async () => {
+    // Auto-refresh off: a list_changed lights the indicator with NO list call;
+    // the user pulls the new list via Refresh.
     client.setStatus("connected");
-    client.queueResourcePages({
-      resources: [resource("a://1"), resource("a://2")],
-    });
     const changed = waitForListChanged(state);
     client.dispatchTypedEvent("resourcesListChanged");
-    expect(await changed).toBe(true); // the peeked list differs from []
-    expect(client.listResources).toHaveBeenCalled(); // it fetched to compare
-    expect(state.getResources()).toEqual([]); // ...but did not replace display
-  });
-
-  it("resourcesListChanged does NOT light the indicator when the list is unchanged", async () => {
-    client.setStatus("connected");
-    client.queueResourcePages({ resources: [resource("a://1")] });
-    await state.refresh();
-    expect(state.getResources().map((r) => r.uri)).toEqual(["a://1"]);
-
-    let fired = false;
-    state.addEventListener("listChangedChange", () => {
-      fired = true;
-    });
-    client.queueResourcePages({ resources: [resource("a://1")] });
-    client.dispatchTypedEvent("resourcesListChanged");
-    await new Promise((r) => setTimeout(r, 0));
-    expect(client.listResources).toHaveBeenCalledTimes(2); // refresh + peek
-    expect(fired).toBe(false);
-    expect(state.getListChanged()).toBe(false);
+    expect(await changed).toBe(true);
+    expect(client.listResources).not.toHaveBeenCalled(); // no automatic fetch
+    expect(state.getResources()).toEqual([]); // displayed list untouched
   });
 
   it("resourcesListChanged auto-refreshes when the server opts in", async () => {

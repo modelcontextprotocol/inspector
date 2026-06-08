@@ -75,10 +75,11 @@ export abstract class ManagedListState<
   private listChanged = false;
   private readonly config: ManagedListConfig<T, M>;
   // Debounce a burst of `list_changed` notifications into a single
-  // refresh/peek once it settles.
+  // refresh (or one indicator light) once it settles.
   private listChangedTimer: ReturnType<typeof setTimeout> | null = null;
-  // Second line of defense beyond the debounce: while a list-changed action is
-  // fetching, a new (post-debounce) notification queues a single re-run instead
+  // Second line of defense beyond the debounce, for the auto-refresh path:
+  // while a refresh is fetching, a new (post-debounce) notification queues a
+  // single re-run instead
   // of firing another concurrent paginated fetch.
   private running = false;
   private runQueued = false;
@@ -131,11 +132,12 @@ export abstract class ManagedListState<
   }
 
   /**
-   * The debounced list-changed action, guarded against overlap: if one is
-   * already fetching, a new (post-debounce) notification queues a single re-run
-   * rather than launching a concurrent paginated fetch. This covers both the
-   * auto-refresh path (whose last-write-wins `applyItems` could otherwise let a
-   * slow older fetch clobber a newer list) and the peek path (#1444).
+   * The debounced list-changed action. With auto-refresh on, pull the new list
+   * (guarded against overlap so a slow older fetch can't clobber a newer list
+   * via last-write-wins `applyItems`). With auto-refresh off, lights the
+   * indicator without any network — the user pulls the new list via Refresh
+   * (#1402, #1444). Lists without an indicator (resource templates) do nothing
+   * in the off case.
    */
   private runListChanged(): void {
     if (this.running) {
@@ -155,7 +157,7 @@ export abstract class ManagedListState<
         if (this.client?.getServerSettings()?.autoRefreshOnListChanged) {
           await this.refresh();
         } else if (this.config.supportsIndicator) {
-          await this.peekForChange();
+          this.setListChanged(true);
         }
       } while (this.runQueued);
     } finally {
@@ -168,7 +170,7 @@ export abstract class ManagedListState<
     return [...this.items];
   }
 
-  /** Whether a `list_changed` since the last refresh actually changed the list. */
+  /** Whether a `list_changed` arrived since the last refresh (indicator on). */
   getListChanged(): boolean {
     return this.listChanged;
   }
@@ -267,14 +269,6 @@ export abstract class ManagedListState<
    * a reorder is a visible change the user would see on Refresh, so it counts
    * (#1444).
    */
-  private async peekForChange(): Promise<void> {
-    // Overlap is handled by the runListChanged guard, so this just fetches and
-    // diffs against the displayed list.
-    const next = await this.fetchAll();
-    if (next === null) return;
-    this.setListChanged(JSON.stringify(next) !== JSON.stringify(this.items));
-  }
-
   destroy(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
