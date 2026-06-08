@@ -177,8 +177,8 @@ export abstract class ManagedListState<
 
   /**
    * Clear the list-changed flag — called when the user refreshes the list. The
-   * peek/auto-refresh on the notification leaves the indicator set until the
-   * user acknowledges by pulling.
+   * blind light on the notification leaves the indicator set until the user
+   * acknowledges by pulling.
    */
   clearListChanged(): void {
     this.setListChanged(false);
@@ -259,16 +259,7 @@ export abstract class ManagedListState<
     this.emit(this.config.changeEvent, this.getItems());
   }
 
-  /**
-   * Fetch on `list_changed` and track whether the server's list differs from
-   * what's displayed. The displayed list is left untouched — the user still
-   * pulls the new one via Refresh (pull-on-demand). Many servers re-send an
-   * identical list on `list_changed`; this keeps the indicator dark in that
-   * case, and also clears it if a later notification reverts the server back
-   * to the displayed list (nothing left to pull). The flag is order-sensitive:
-   * a reorder is a visible change the user would see on Refresh, so it counts
-   * (#1444).
-   */
+  /** Unsubscribe from the client and drop the list; idempotent. */
   destroy(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
