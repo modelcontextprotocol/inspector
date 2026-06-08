@@ -116,7 +116,7 @@ const meta: Meta<typeof ServerSettingsForm> = {
   component: ServerSettingsForm,
   render: InteractiveRender,
   args: {
-    expandedSections: ["headers"],
+    expandedSections: ["options"],
     onExpandedSectionsChange: fn(),
     onAddHeader: fn(),
     onRemoveHeader: fn(),
@@ -141,6 +141,7 @@ export const DefaultSettings: Story = {
 
 export const WithHeaders: Story = {
   args: {
+    expandedSections: ["headers"],
     settings: {
       ...defaultSettings,
       headers: [

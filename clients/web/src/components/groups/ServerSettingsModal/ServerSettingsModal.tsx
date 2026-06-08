@@ -34,7 +34,7 @@ export function ServerSettingsModal({
 }: ServerSettingsModalProps) {
   const [expandedSections, setExpandedSections] = useState<
     ServerSettingsSection[]
-  >(["headers"]);
+  >(["options"]);
 
   const allExpanded = expandedSections.length === ALL_SECTIONS.length;
 
