@@ -77,11 +77,11 @@ export abstract class ManagedListState<
   // Debounce a burst of `list_changed` notifications into a single
   // refresh/peek once it settles.
   private listChangedTimer: ReturnType<typeof setTimeout> | null = null;
-  // Second line of defense beyond the debounce: while a peek is fetching, a new
-  // (post-debounce) notification queues a single re-run instead of firing
-  // another concurrent paginated fetch.
-  private peeking = false;
-  private peekQueued = false;
+  // Second line of defense beyond the debounce: while a list-changed action is
+  // fetching, a new (post-debounce) notification queues a single re-run instead
+  // of firing another concurrent paginated fetch.
+  private running = false;
+  private runQueued = false;
 
   constructor(
     client: InspectorClientProtocol,
@@ -131,17 +131,35 @@ export abstract class ManagedListState<
   }
 
   /**
-   * The debounced list-changed action. When the server opts into auto-refresh
-   * (per-server setting), pull the new list immediately. Otherwise, for lists
-   * with an indicator, peek and diff so the indicator lights only on a real
-   * change; lists without an indicator simply wait for the user's Refresh
-   * (#1402, #1444).
+   * The debounced list-changed action, guarded against overlap: if one is
+   * already fetching, a new (post-debounce) notification queues a single re-run
+   * rather than launching a concurrent paginated fetch. This covers both the
+   * auto-refresh path (whose last-write-wins `applyItems` could otherwise let a
+   * slow older fetch clobber a newer list) and the peek path (#1444).
    */
   private runListChanged(): void {
-    if (this.client?.getServerSettings()?.autoRefreshOnListChanged) {
-      void this.refresh();
-    } else if (this.config.supportsIndicator) {
-      void this.peekForChange();
+    if (this.running) {
+      this.runQueued = true;
+      return;
+    }
+    void this.runListChangedOnce();
+  }
+
+  private async runListChangedOnce(): Promise<void> {
+    this.running = true;
+    try {
+      do {
+        this.runQueued = false;
+        // Read the setting at fire time so a `setServerSettings` toggle that
+        // lands mid-burst is honored on the settled action.
+        if (this.client?.getServerSettings()?.autoRefreshOnListChanged) {
+          await this.refresh();
+        } else if (this.config.supportsIndicator) {
+          await this.peekForChange();
+        }
+      } while (this.runQueued);
+    } finally {
+      this.running = false;
     }
   }
 
@@ -250,26 +268,11 @@ export abstract class ManagedListState<
    * (#1444).
    */
   private async peekForChange(): Promise<void> {
-    // A peek is already fetching — queue a single re-run rather than launching
-    // a concurrent paginated fetch. The in-flight peek loops once more on
-    // completion to capture the latest server state.
-    if (this.peeking) {
-      this.peekQueued = true;
-      return;
-    }
-    this.peeking = true;
-    try {
-      do {
-        this.peekQueued = false;
-        const next = await this.fetchAll();
-        if (next === null) return;
-        this.setListChanged(
-          JSON.stringify(next) !== JSON.stringify(this.items),
-        );
-      } while (this.peekQueued);
-    } finally {
-      this.peeking = false;
-    }
+    // Overlap is handled by the runListChanged guard, so this just fetches and
+    // diffs against the displayed list.
+    const next = await this.fetchAll();
+    if (next === null) return;
+    this.setListChanged(JSON.stringify(next) !== JSON.stringify(this.items));
   }
 
   destroy(): void {

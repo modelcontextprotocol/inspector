@@ -217,6 +217,39 @@ describe("ManagedToolsState", () => {
     expect(client.listTools).toHaveBeenCalledTimes(2);
   });
 
+  it("coalesces an auto-refresh that fires while an earlier one is still fetching (#1444)", async () => {
+    // The guard covers the auto-refresh path too, so a slow refresh can't be
+    // clobbered by an overlapping one from a later notification.
+    const autoClient = new FakeInspectorClient({
+      capabilities: { tools: {} },
+      serverSettings: AUTO_REFRESH_SETTINGS,
+    });
+    autoClient.setStatus("connected");
+    const autoState = new ManagedToolsState(autoClient, 0);
+    let release: (value: { tools: Tool[] }) => void = () => {};
+    autoClient.listTools.mockImplementationOnce(
+      () =>
+        new Promise<{ tools: Tool[] }>((resolve) => {
+          release = resolve;
+        }),
+    );
+    autoClient.queueToolPages({ tools: [tool("a")] });
+
+    autoClient.dispatchTypedEvent("toolsListChanged");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(autoClient.listTools).toHaveBeenCalledTimes(1);
+
+    autoClient.dispatchTypedEvent("toolsListChanged");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(autoClient.listTools).toHaveBeenCalledTimes(1); // coalesced
+
+    release({ tools: [tool("a")] });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(autoClient.listTools).toHaveBeenCalledTimes(2);
+    // The (coalesced) auto-refresh applied the new list.
+    expect(autoState.getTools().map((t) => t.name)).toEqual(["a"]);
+  });
+
   it("clears the indicator when a later notification reverts the list to the displayed one (#1444)", async () => {
     client.setStatus("connected");
     client.queueToolPages({ tools: [tool("a")] });
