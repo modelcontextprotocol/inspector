@@ -21,8 +21,9 @@ const MAX_PAGES = 100;
 /**
  * Default delay (ms) for debouncing `list_changed` notifications. Servers
  * (e.g. the everything server) can emit a rapid burst; debouncing collapses the
- * burst into a single refresh/peek once it settles instead of one list call per
- * notification (#1444).
+ * burst into a single action once it settles (one indicator light when
+ * auto-refresh is off, or one fetch when on) instead of one per notification
+ * (#1444).
  */
 export const DEFAULT_LIST_CHANGED_DEBOUNCE_MS = 250;
 
@@ -54,8 +55,8 @@ export interface ManagedListConfig<T, M extends ManagedListEventMap> {
   ) => Promise<ListPage<T>>;
   /**
    * Whether this list drives a list-changed indicator. When true, a
-   * `list_changed` in non-auto-refresh mode peeks-and-diffs to light the
-   * indicator; when false (resource templates, which have no indicator of
+   * `list_changed` in non-auto-refresh mode lights the indicator blindly (no
+   * list call); when false (resource templates, which have no indicator of
    * their own), a `list_changed` in non-auto mode does nothing — the list is
    * pulled via the screen's Refresh instead.
    */
@@ -95,8 +96,9 @@ export abstract class ManagedListState<
       void this.refresh();
     };
     const onListChanged = (): void => {
-      // Debounce: collapse a burst of notifications into one refresh/peek once
-      // it settles, instead of one list call per notification (#1444).
+      // Debounce: collapse a burst of notifications into one settled action
+      // (indicator light when off, fetch when on) instead of one per
+      // notification (#1444).
       if (this.listChangedTimer !== null) clearTimeout(this.listChangedTimer);
       this.listChangedTimer = setTimeout(() => {
         this.listChangedTimer = null;
@@ -215,8 +217,8 @@ export abstract class ManagedListState<
   }
 
   /**
-   * Fetch all pages without mutating state or dispatching — used by both
-   * refresh (apply) and peek (compare). Returns `null` when not connected, or
+   * Fetch all pages, then `applyItems` commits them (see `refresh`). Returns
+   * `null` when not connected, or
    * `[]` when the server doesn't advertise the gating capability (calling the
    * list method there returns -32601 "Method not found", which would spam the
    * console; empty list is the right semantics).

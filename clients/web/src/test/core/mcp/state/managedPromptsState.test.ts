@@ -232,7 +232,7 @@ describe("ManagedPromptsState", () => {
       client.queuePromptPages({ prompts: [prompt("a")] });
       const set = waitForListChanged(state);
       client.dispatchTypedEvent("promptsListChanged");
-      await set; // wait for the async peek to set the flag
+      await set; // wait for the debounced notification to set the flag
       expect(state.getListChanged()).toBe(true);
 
       const changed = waitForListChanged(state);
@@ -255,7 +255,7 @@ describe("ManagedPromptsState", () => {
       client.queuePromptPages({ prompts: [prompt("a")] });
       const set = waitForListChanged(state);
       client.dispatchTypedEvent("promptsListChanged");
-      await set; // wait for the async peek to set the flag
+      await set; // wait for the debounced notification to set the flag
       expect(state.getListChanged()).toBe(true);
 
       const changed = waitForListChanged(state);

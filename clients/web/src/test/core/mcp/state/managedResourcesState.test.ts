@@ -239,7 +239,7 @@ describe("ManagedResourcesState", () => {
       client.queueResourcePages({ resources: [resource("a://1")] });
       const set = waitForListChanged(state);
       client.dispatchTypedEvent("resourcesListChanged");
-      await set; // wait for the async peek to set the flag
+      await set; // wait for the debounced notification to set the flag
       expect(state.getListChanged()).toBe(true);
 
       const changed = waitForListChanged(state);
@@ -262,7 +262,7 @@ describe("ManagedResourcesState", () => {
       client.queueResourcePages({ resources: [resource("a://1")] });
       const set = waitForListChanged(state);
       client.dispatchTypedEvent("resourcesListChanged");
-      await set; // wait for the async peek to set the flag
+      await set; // wait for the debounced notification to set the flag
       expect(state.getListChanged()).toBe(true);
 
       const changed = waitForListChanged(state);

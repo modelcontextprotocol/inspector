@@ -295,7 +295,7 @@ describe("ManagedToolsState", () => {
       client.queueToolPages({ tools: [tool("a")] });
       const set = waitForListChanged(state);
       client.dispatchTypedEvent("toolsListChanged");
-      await set; // wait for the async peek to set the flag
+      await set; // wait for the debounced notification to set the flag
       expect(state.getListChanged()).toBe(true);
 
       const changed = waitForListChanged(state);
@@ -318,7 +318,7 @@ describe("ManagedToolsState", () => {
       client.queueToolPages({ tools: [tool("a")] });
       const set = waitForListChanged(state);
       client.dispatchTypedEvent("toolsListChanged");
-      await set; // wait for the async peek to set the flag
+      await set; // wait for the debounced notification to set the flag
       expect(state.getListChanged()).toBe(true);
 
       const changed = waitForListChanged(state);
