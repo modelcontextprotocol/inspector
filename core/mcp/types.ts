@@ -105,6 +105,13 @@ export type StoredMCPServer = MCPServerConfig & {
   /** Inspector-specific TTL (ms) for tasks created via "Run as task". */
   taskTtl?: number;
   /**
+   * When true, the managed list state auto-refreshes on `list_changed`
+   * notifications instead of only flagging the list-changed indicator and
+   * waiting for the user to pull. Inspector-specific. Omitted on disk when
+   * false (the default). (#1402)
+   */
+  autoRefreshOnListChanged?: boolean;
+  /**
    * Pre-configured OAuth client credentials for HTTP transports. Nested to
    * match Claude Code's `.mcp.json` shape; lifted into the flat `oauthClientId`
    * / `oauthClientSecret` / `oauthScopes` fields on `InspectorServerSettings`
@@ -389,6 +396,12 @@ export interface InspectorServerSettings {
   oauthClientId?: string;
   oauthClientSecret?: string;
   oauthScopes?: string;
+  /**
+   * When true, lists auto-refresh on `list_changed` notifications; when
+   * false (default), the notification only lights the list-changed indicator
+   * and the user pulls the new list via Refresh. (#1402)
+   */
+  autoRefreshOnListChanged?: boolean;
   /**
    * Roots advertised to the server via the `roots` client capability. Each
    * root carries a required `uri` and an optional `name` (SDK `Root`). The

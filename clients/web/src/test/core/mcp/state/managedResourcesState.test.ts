@@ -1,11 +1,22 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { Resource } from "@modelcontextprotocol/sdk/types.js";
+import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { ManagedResourcesState } from "@inspector/core/mcp/state/managedResourcesState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 
 function resource(uri: string): Resource {
   return { uri, name: uri };
 }
+
+const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
+  headers: [],
+  metadata: [],
+  connectionTimeout: 0,
+  requestTimeout: 0,
+  taskTtl: 60000,
+  autoRefreshOnListChanged: true,
+  roots: [],
+};
 
 function waitForResourcesChange(
   state: ManagedResourcesState,
@@ -131,7 +142,7 @@ describe("ManagedResourcesState", () => {
     expect(next.map((r) => r.uri)).toEqual(["a://1"]);
   });
 
-  it("resourcesListChanged does NOT auto-refresh (the user pulls via Refresh)", async () => {
+  it("resourcesListChanged does NOT auto-refresh by default (the user pulls via Refresh)", async () => {
     client.setStatus("connected");
     client.queueResourcePages({
       resources: [resource("a://1"), resource("a://2")],
@@ -142,6 +153,20 @@ describe("ManagedResourcesState", () => {
     await Promise.resolve();
     expect(client.listResources).not.toHaveBeenCalled();
     expect(state.getResources()).toEqual([]);
+  });
+
+  it("resourcesListChanged auto-refreshes when the server opts in", async () => {
+    const autoClient = new FakeInspectorClient({
+      capabilities: { resources: {} },
+      serverSettings: AUTO_REFRESH_SETTINGS,
+    });
+    autoClient.setStatus("connected");
+    const autoState = new ManagedResourcesState(autoClient);
+    autoClient.queueResourcePages({ resources: [resource("a://1")] });
+    const changed = waitForResourcesChange(autoState);
+    autoClient.dispatchTypedEvent("resourcesListChanged");
+    expect((await changed).map((r) => r.uri)).toEqual(["a://1"]);
+    expect(autoClient.listResources).toHaveBeenCalled();
   });
 
   it("statusChange to disconnected clears resources and dispatches resourcesChange", async () => {

@@ -19,9 +19,11 @@ export interface ManagedResourceTemplatesStateEventMap {
 /**
  * State manager that keeps a full resource template list. Subscribes to connect
  * (initial load) and statusChange (clear on disconnect); fetches all pages on
- * refresh. It deliberately does NOT subscribe to `resourceTemplatesListChanged`
- * — templates are pulled on demand via the Resources screen's Refresh, not
- * auto-refreshed out from under the user (#1402).
+ * refresh. Templates have no list-changed indicator of their own — the
+ * Resources screen's indicator (driven by `resourcesListChanged`) covers them,
+ * and its Refresh re-fetches templates too. So on `resourceTemplatesListChanged`
+ * it auto-refreshes ONLY when the server opts in via `autoRefreshOnListChanged`;
+ * otherwise it does nothing and the user pulls via the Resources Refresh (#1402).
  */
 export class ManagedResourceTemplatesState extends TypedEventTarget<ManagedResourceTemplatesStateEventMap> {
   private resourceTemplates: ResourceTemplate[] = [];
@@ -35,12 +37,15 @@ export class ManagedResourceTemplatesState extends TypedEventTarget<ManagedResou
     const onConnect = (): void => {
       void this.refresh();
     };
-    // No `resourceTemplatesListChanged` subscription: templates are part of the
-    // Resources screen, whose list-changed indicator (driven by
-    // `resourcesListChanged`, fired by the same `notifications/resources/
-    // list_changed`) prompts the user to refresh. That refresh re-fetches
-    // templates too, so they're never auto-pulled out from under the user
-    // (#1402).
+    const onResourceTemplatesListChanged = (): void => {
+      // Auto-refresh only when the server opts in. With auto-refresh off,
+      // templates stay as-is until the user pulls via the Resources Refresh —
+      // templates have no indicator of their own (the Resources indicator,
+      // driven by `resourcesListChanged`, covers this same notification).
+      if (this.client?.getServerSettings()?.autoRefreshOnListChanged) {
+        void this.refresh();
+      }
+    };
     const onStatusChange = (): void => {
       if (this.client?.getStatus() === "disconnected") {
         this.resourceTemplates = [];
@@ -48,10 +53,18 @@ export class ManagedResourceTemplatesState extends TypedEventTarget<ManagedResou
       }
     };
     this.client.addEventListener("connect", onConnect);
+    this.client.addEventListener(
+      "resourceTemplatesListChanged",
+      onResourceTemplatesListChanged,
+    );
     this.client.addEventListener("statusChange", onStatusChange);
     this.unsubscribe = () => {
       if (this.client) {
         this.client.removeEventListener("connect", onConnect);
+        this.client.removeEventListener(
+          "resourceTemplatesListChanged",
+          onResourceTemplatesListChanged,
+        );
         this.client.removeEventListener("statusChange", onStatusChange);
       }
       this.client = null;

@@ -1,11 +1,22 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { ResourceTemplate } from "@modelcontextprotocol/sdk/types.js";
+import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { ManagedResourceTemplatesState } from "@inspector/core/mcp/state/managedResourceTemplatesState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 
 function template(name: string): ResourceTemplate {
   return { uriTemplate: `tpl://{${name}}`, name };
 }
+
+const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
+  headers: [],
+  metadata: [],
+  connectionTimeout: 0,
+  requestTimeout: 0,
+  taskTtl: 60000,
+  autoRefreshOnListChanged: true,
+  roots: [],
+};
 
 function waitForChange(
   state: ManagedResourceTemplatesState,
@@ -136,7 +147,7 @@ describe("ManagedResourceTemplatesState", () => {
     expect(next.map((t) => t.name)).toEqual(["a"]);
   });
 
-  it("resourceTemplatesListChanged does NOT auto-refresh (refreshed via the Resources Refresh)", async () => {
+  it("resourceTemplatesListChanged does NOT auto-refresh by default (refreshed via the Resources Refresh)", async () => {
     client.setStatus("connected");
     client.queueResourceTemplatePages({
       resourceTemplates: [template("a"), template("b")],
@@ -147,6 +158,22 @@ describe("ManagedResourceTemplatesState", () => {
     await Promise.resolve();
     expect(client.listResourceTemplates).not.toHaveBeenCalled();
     expect(state.getResourceTemplates()).toEqual([]);
+  });
+
+  it("resourceTemplatesListChanged auto-refreshes when the server opts in", async () => {
+    const autoClient = new FakeInspectorClient({
+      capabilities: { resources: {} },
+      serverSettings: AUTO_REFRESH_SETTINGS,
+    });
+    autoClient.setStatus("connected");
+    const autoState = new ManagedResourceTemplatesState(autoClient);
+    autoClient.queueResourceTemplatePages({
+      resourceTemplates: [template("a")],
+    });
+    const changed = waitForChange(autoState);
+    autoClient.dispatchTypedEvent("resourceTemplatesListChanged");
+    expect((await changed).map((t) => t.name)).toEqual(["a"]);
+    expect(autoClient.listResourceTemplates).toHaveBeenCalled();
   });
 
   it("statusChange to disconnected clears templates and dispatches change", async () => {

@@ -90,6 +90,12 @@ function InteractiveRender(args: ServerSettingsFormProps) {
           settings: { ...args.settings, [field]: value },
         });
       }}
+      onAutoRefreshChange={(value) => {
+        args.onAutoRefreshChange(value);
+        updateArgs({
+          settings: { ...args.settings, autoRefreshOnListChanged: value },
+        });
+      }}
       onOAuthChange={(oauth) => {
         args.onOAuthChange(oauth);
         updateArgs({
@@ -119,6 +125,7 @@ const meta: Meta<typeof ServerSettingsForm> = {
     onRemoveMetadata: fn(),
     onMetadataChange: fn(),
     onTimeoutChange: fn(),
+    onAutoRefreshChange: fn(),
     onOAuthChange: fn(),
   },
 };

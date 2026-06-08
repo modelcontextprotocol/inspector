@@ -1307,6 +1307,16 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * The per-server settings this client was constructed with (headers,
+   * timeouts, roots, OAuth, the auto-refresh-on-list-changed option, etc.).
+   * Read by the managed list state to decide whether to auto-refresh on
+   * `list_changed` notifications (#1402).
+   */
+  getServerSettings(): InspectorServerSettings | undefined {
+    return this.serverSettings;
+  }
+
+  /**
    * Set the logging level for the MCP server
    * @param level Logging level to set
    * @throws Error if client is not connected or server doesn't support logging

@@ -26,6 +26,7 @@ import type { SamplingCreateMessage } from "../samplingCreateMessage.js";
 import type { ElicitationCreateMessage } from "../elicitationCreateMessage.js";
 import type {
   ConnectionStatus,
+  InspectorServerSettings,
   PromptGetInvocation,
   ResourceReadInvocation,
   ResourceTemplateReadInvocation,
@@ -44,6 +45,7 @@ export interface FakeInspectorClientOptions {
   serverInfo?: Implementation;
   instructions?: string;
   protocolVersion?: string;
+  serverSettings?: InspectorServerSettings;
 }
 
 export class FakeInspectorClient
@@ -56,6 +58,7 @@ export class FakeInspectorClient
   private serverInfo: Implementation | undefined;
   private instructions: string | undefined;
   private protocolVersion: string | undefined;
+  private serverSettings: InspectorServerSettings | undefined;
   private appRendererClient: AppRendererClient | null = null;
   private sessionId: string | undefined;
   private pendingSamples: SamplingCreateMessage[] = [];
@@ -150,6 +153,7 @@ export class FakeInspectorClient
     this.serverInfo = options.serverInfo;
     this.instructions = options.instructions;
     this.protocolVersion = options.protocolVersion;
+    this.serverSettings = options.serverSettings;
   }
 
   getStatus(): ConnectionStatus {
@@ -174,6 +178,10 @@ export class FakeInspectorClient
 
   getProtocolVersion(): string | undefined {
     return this.protocolVersion;
+  }
+
+  getServerSettings(): InspectorServerSettings | undefined {
+    return this.serverSettings;
   }
 
   getAppRendererClient(): AppRendererClient | null {

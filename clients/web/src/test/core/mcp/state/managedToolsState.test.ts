@@ -1,11 +1,22 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { ManagedToolsState } from "@inspector/core/mcp/state/managedToolsState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 
 function tool(name: string): Tool {
   return { name, inputSchema: { type: "object" } };
 }
+
+const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
+  headers: [],
+  metadata: [],
+  connectionTimeout: 0,
+  requestTimeout: 0,
+  taskTtl: 60000,
+  autoRefreshOnListChanged: true,
+  roots: [],
+};
 
 function waitForToolsChange(state: ManagedToolsState): Promise<Tool[]> {
   return new Promise((resolve) => {
@@ -122,7 +133,7 @@ describe("ManagedToolsState", () => {
     expect(next.map((t) => t.name)).toEqual(["a"]);
   });
 
-  it("toolsListChanged does NOT auto-refresh (the user pulls via Refresh)", async () => {
+  it("toolsListChanged does NOT auto-refresh by default (the user pulls via Refresh)", async () => {
     client.setStatus("connected");
     client.queueToolPages({ tools: [tool("a"), tool("b")] });
     client.dispatchTypedEvent("toolsListChanged");
@@ -131,6 +142,20 @@ describe("ManagedToolsState", () => {
     await Promise.resolve();
     expect(client.listTools).not.toHaveBeenCalled();
     expect(state.getTools()).toEqual([]);
+  });
+
+  it("toolsListChanged auto-refreshes when the server opts in", async () => {
+    const autoClient = new FakeInspectorClient({
+      capabilities: { tools: {} },
+      serverSettings: AUTO_REFRESH_SETTINGS,
+    });
+    autoClient.setStatus("connected");
+    const autoState = new ManagedToolsState(autoClient);
+    autoClient.queueToolPages({ tools: [tool("a")] });
+    const changed = waitForToolsChange(autoState);
+    autoClient.dispatchTypedEvent("toolsListChanged");
+    expect((await changed).map((t) => t.name)).toEqual(["a"]);
+    expect(autoClient.listTools).toHaveBeenCalled();
   });
 
   it("statusChange to disconnected clears tools and dispatches toolsChange", async () => {

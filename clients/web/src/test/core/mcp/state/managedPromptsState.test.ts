@@ -1,11 +1,22 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
+import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { ManagedPromptsState } from "@inspector/core/mcp/state/managedPromptsState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 
 function prompt(name: string): Prompt {
   return { name };
 }
+
+const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
+  headers: [],
+  metadata: [],
+  connectionTimeout: 0,
+  requestTimeout: 0,
+  taskTtl: 60000,
+  autoRefreshOnListChanged: true,
+  roots: [],
+};
 
 function waitForPromptsChange(state: ManagedPromptsState): Promise<Prompt[]> {
   return new Promise((resolve) => {
@@ -124,7 +135,7 @@ describe("ManagedPromptsState", () => {
     expect(next.map((p) => p.name)).toEqual(["a"]);
   });
 
-  it("promptsListChanged does NOT auto-refresh (the user pulls via Refresh)", async () => {
+  it("promptsListChanged does NOT auto-refresh by default (the user pulls via Refresh)", async () => {
     client.setStatus("connected");
     client.queuePromptPages({ prompts: [prompt("a"), prompt("b")] });
     client.dispatchTypedEvent("promptsListChanged");
@@ -133,6 +144,20 @@ describe("ManagedPromptsState", () => {
     await Promise.resolve();
     expect(client.listPrompts).not.toHaveBeenCalled();
     expect(state.getPrompts()).toEqual([]);
+  });
+
+  it("promptsListChanged auto-refreshes when the server opts in", async () => {
+    const autoClient = new FakeInspectorClient({
+      capabilities: { prompts: {} },
+      serverSettings: AUTO_REFRESH_SETTINGS,
+    });
+    autoClient.setStatus("connected");
+    const autoState = new ManagedPromptsState(autoClient);
+    autoClient.queuePromptPages({ prompts: [prompt("a")] });
+    const changed = waitForPromptsChange(autoState);
+    autoClient.dispatchTypedEvent("promptsListChanged");
+    expect((await changed).map((p) => p.name)).toEqual(["a"]);
+    expect(autoClient.listPrompts).toHaveBeenCalled();
   });
 
   it("statusChange to disconnected clears prompts and dispatches promptsChange", async () => {

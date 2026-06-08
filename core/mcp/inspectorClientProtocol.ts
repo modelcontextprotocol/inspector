@@ -14,6 +14,7 @@
 
 import type {
   ConnectionStatus,
+  InspectorServerSettings,
   ResourceReadInvocation,
   ResourceTemplateReadInvocation,
   PromptGetInvocation,
@@ -55,6 +56,7 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   getServerInfo(): Implementation | undefined;
   getInstructions(): string | undefined;
   getProtocolVersion(): string | undefined;
+  getServerSettings(): InspectorServerSettings | undefined;
   getAppRendererClient(): AppRendererClient | null;
 
   // Connection control

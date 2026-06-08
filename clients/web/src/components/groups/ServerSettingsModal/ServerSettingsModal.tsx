@@ -11,6 +11,7 @@ import {
 } from "../ServerSettingsForm/ServerSettingsForm";
 
 const ALL_SECTIONS: ServerSettingsSection[] = [
+  "options",
   "headers",
   "metadata",
   "timeouts",
@@ -99,6 +100,10 @@ export function ServerSettingsModal({
     });
   }
 
+  function handleAutoRefreshChange(value: boolean) {
+    onSettingsChange({ ...settings, autoRefreshOnListChanged: value });
+  }
+
   function handleAddRoot() {
     onSettingsChange({
       ...settings,
@@ -153,6 +158,7 @@ export function ServerSettingsModal({
           onRemoveMetadata={handleRemoveMetadata}
           onMetadataChange={handleMetadataChange}
           onTimeoutChange={handleTimeoutChange}
+          onAutoRefreshChange={handleAutoRefreshChange}
           onOAuthChange={handleOAuthChange}
           onAddRoot={handleAddRoot}
           onRemoveRoot={handleRemoveRoot}

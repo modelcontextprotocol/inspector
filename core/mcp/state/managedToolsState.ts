@@ -40,10 +40,15 @@ export class ManagedToolsState extends TypedEventTarget<ManagedToolsStateEventMa
       void this.refresh();
     };
     const onToolsListChanged = (): void => {
-      // Flag the change for the indicator but do NOT auto-refresh — the list
-      // stays as-is until the user pulls the new one via the Refresh
-      // affordance, which is what makes the indicator meaningful (#1402).
-      this.setListChanged(true);
+      // When the server opts into auto-refresh (per-server setting), pull the
+      // new list immediately. Otherwise just flag the change for the indicator
+      // and let the user pull via Refresh, which is what makes the indicator
+      // meaningful (#1402).
+      if (this.client?.getServerSettings()?.autoRefreshOnListChanged) {
+        void this.refresh();
+      } else {
+        this.setListChanged(true);
+      }
     };
     const onStatusChange = (): void => {
       if (this.client?.getStatus() === "disconnected") {

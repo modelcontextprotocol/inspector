@@ -277,6 +277,7 @@ const EMPTY_SETTINGS: InspectorServerSettings = {
   connectionTimeout: 0,
   requestTimeout: 0,
   taskTtl: DEFAULT_TASK_TTL_MS,
+  autoRefreshOnListChanged: false,
   roots: [],
 };
 
