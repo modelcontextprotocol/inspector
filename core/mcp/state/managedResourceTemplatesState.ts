@@ -1,6 +1,6 @@
 /**
- * ManagedResourceTemplatesState: holds full resource template list, syncs on
- * resourceTemplatesListChanged.
+ * ManagedResourceTemplatesState: holds the full resource template list, loaded
+ * on connect and on demand via refresh().
  *
  * Ported from v1.5/main. v2 substitutes `InspectorClientProtocol` for the
  * concrete `InspectorClient` since the runtime class is not yet ported.
@@ -17,9 +17,11 @@ export interface ManagedResourceTemplatesStateEventMap {
 }
 
 /**
- * State manager that keeps a full resource template list in sync with the server.
- * Subscribes to connect, resourceTemplatesListChanged, and statusChange;
- * fetches all pages on refresh.
+ * State manager that keeps a full resource template list. Subscribes to connect
+ * (initial load) and statusChange (clear on disconnect); fetches all pages on
+ * refresh. It deliberately does NOT subscribe to `resourceTemplatesListChanged`
+ * — templates are pulled on demand via the Resources screen's Refresh, not
+ * auto-refreshed out from under the user (#1402).
  */
 export class ManagedResourceTemplatesState extends TypedEventTarget<ManagedResourceTemplatesStateEventMap> {
   private resourceTemplates: ResourceTemplate[] = [];
