@@ -268,6 +268,8 @@ export interface InspectorViewProps {
   onServerEdit: (id: string) => void;
   onServerClone: (id: string) => void;
   onServerRemove: (id: string) => void;
+  /** Persist a new server ordering (drag-and-drop / keyboard reorder). */
+  onServerReorder: (orderedIds: string[]) => void;
 
   // Per-primitive actions (route to `inspectorClient` methods / hook refresh).
   // Each `on{Screen}UiChange` persists that screen's lifted UI state (#1417).
@@ -380,6 +382,7 @@ export function InspectorView({
   onServerEdit,
   onServerClone,
   onServerRemove,
+  onServerReorder,
   serverSupportsTaskToolCalls,
   onToolsUiChange,
   onCallTool,
@@ -549,6 +552,7 @@ export function InspectorView({
               onEdit={onServerEdit}
               onClone={onServerClone}
               onRemove={onServerRemove}
+              onReorder={onServerReorder}
               compact={serversCompact}
               onToggleCompact={() => setServersCompact((c) => !c)}
             />

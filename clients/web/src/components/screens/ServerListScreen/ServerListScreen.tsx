@@ -1,7 +1,25 @@
 import { ScrollArea, SimpleGrid, Stack, Text } from "@mantine/core";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+} from "@dnd-kit/sortable";
 import type { ServerEntry } from "@inspector/core/mcp/types.js";
 import { ServerCard } from "../../groups/ServerCard/ServerCard";
 import { ServerListControls } from "../../groups/ServerListControls/ServerListControls";
+import { SortableServerCard } from "../../groups/SortableServerCard/SortableServerCard";
+import {
+  buildReorderAnnouncements,
+  makeServerDragEndHandler,
+} from "./serverReorder";
 
 export interface ServerListScreenProps {
   servers: ServerEntry[];
@@ -18,6 +36,11 @@ export interface ServerListScreenProps {
   onEdit: (id: string) => void;
   onClone: (id: string) => void;
   onRemove: (id: string) => void;
+  /**
+   * Persist a new server ordering. Receives the complete set of server ids in
+   * the desired order. Omit to render the list without reorder affordances.
+   */
+  onReorder?: (orderedIds: string[]) => void;
   compact: boolean;
   onToggleCompact: () => void;
 }
@@ -45,9 +68,63 @@ export function ServerListScreen({
   onEdit,
   onClone,
   onRemove,
+  onReorder,
   compact,
   onToggleCompact,
 }: ServerListScreenProps) {
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  const ids = servers.map((s) => s.id);
+
+  // `reorderable` only when a persistence callback is wired. Without it we
+  // render plain `ServerCard`s (no grip, no DndContext) so the screen stays
+  // usable as a pure display — the SortableServerCard's grip would otherwise
+  // be a dead affordance.
+  const reorderable = onReorder !== undefined;
+
+  // Built only when reorderable — the drag-end handler and the fresh
+  // announcements object (four closures) are otherwise allocated every render
+  // for nothing.
+  const handleDragEnd = reorderable
+    ? makeServerDragEndHandler(servers, onReorder)
+    : undefined;
+  const announcements = reorderable
+    ? buildReorderAnnouncements(servers)
+    : undefined;
+
+  const cardProps = (server: ServerEntry) => ({
+    compact,
+    activeServer,
+    onToggleConnection,
+    onConnectionInfo,
+    onSettings,
+    onEdit,
+    onClone,
+    onRemove,
+    ...server,
+  });
+
+  const grid = (
+    <SimpleGrid
+      cols={{ base: 1, sm: 2, lg: 3 }}
+      spacing="lg"
+      className="grid-align-start"
+    >
+      {servers.map((server) =>
+        reorderable ? (
+          <SortableServerCard key={server.id} {...cardProps(server)} />
+        ) : (
+          <ServerCard key={server.id} {...cardProps(server)} />
+        ),
+      )}
+    </SimpleGrid>
+  );
+
   return (
     <PageContainer>
       <ServerListControls
@@ -65,27 +142,19 @@ export function ServerListScreen({
           <EmptyState>
             No servers configured. Add a server to get started.
           </EmptyState>
-        ) : (
-          <SimpleGrid
-            cols={{ base: 1, sm: 2, lg: 3 }}
-            spacing="lg"
-            className="grid-align-start"
+        ) : reorderable ? (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+            accessibility={{ announcements }}
           >
-            {servers.map((server) => (
-              <ServerCard
-                key={server.id}
-                compact={compact}
-                activeServer={activeServer}
-                onToggleConnection={onToggleConnection}
-                onConnectionInfo={onConnectionInfo}
-                onSettings={onSettings}
-                onEdit={onEdit}
-                onClone={onClone}
-                onRemove={onRemove}
-                {...server}
-              />
-            ))}
-          </SimpleGrid>
+            <SortableContext items={ids} strategy={rectSortingStrategy}>
+              {grid}
+            </SortableContext>
+          </DndContext>
+        ) : (
+          grid
         )}
       </ScrollArea.Autosize>
     </PageContainer>

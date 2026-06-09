@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Badge, Button, Card, Group, Stack, Text } from "@mantine/core";
 import type {
   MCPServerConfig,
@@ -18,6 +19,14 @@ export interface ServerCardProps extends ServerEntry {
   onClone: (id: string) => void;
   onRemove: (id: string) => void;
   compact?: boolean;
+  /**
+   * Optional drag-handle affordance rendered at the start of the card header,
+   * before the server name. Supplied by the sortable wrapper
+   * (`SortableServerCard`); omitted when the card is rendered outside a reorder
+   * context, so the card stays a dumb display component with no knowledge of
+   * drag-and-drop.
+   */
+  dragHandle?: ReactNode;
 }
 
 const HeaderLeft = Group.withProps({
@@ -103,6 +112,7 @@ export function ServerCard({
   onClone,
   onRemove,
   compact = false,
+  dragHandle,
 }: ServerCardProps) {
   const isDimmed = activeServer !== undefined && activeServer !== id;
   const transport = getTransport(config);
@@ -121,6 +131,7 @@ export function ServerCard({
       <Stack gap="sm">
         <Group justify="space-between" wrap="nowrap">
           <HeaderLeft>
+            {dragHandle}
             <ServerName>{name}</ServerName>
           </HeaderLeft>
           <HeaderRight>

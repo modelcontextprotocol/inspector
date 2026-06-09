@@ -356,6 +356,7 @@ const meta: Meta<typeof InspectorView> = {
     onServerEdit: fn(),
     onServerClone: fn(),
     onServerRemove: fn(),
+    onServerReorder: fn(),
     serverSupportsTaskToolCalls: false,
     onToolsUiChange: fn(),
     onCallTool: fn(),

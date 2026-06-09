@@ -433,6 +433,7 @@ function App() {
     updateServer,
     updateServerSettings,
     removeServer,
+    reorderServers,
   } = useServers({
     baseUrl:
       typeof window !== "undefined"
@@ -2148,6 +2149,20 @@ function App() {
         onServerRemove={(id) => {
           const target = servers.find((s) => s.id === id);
           if (target) setRemoveTarget(target);
+        }}
+        onServerReorder={(orderedIds) => {
+          // reorderServers reverts the optimistic order via an internal
+          // refresh() and re-throws on failure (409 from a racing external
+          // edit, or a network error). Surface that to the user so the drag
+          // doesn't silently bounce back — matching the toast pattern every
+          // other mutation here uses.
+          reorderServers(orderedIds).catch((err: unknown) => {
+            notifications.show({
+              title: "Failed to reorder servers",
+              message: err instanceof Error ? err.message : String(err),
+              color: "red",
+            });
+          });
         }}
         serverSupportsTaskToolCalls={
           !!capabilities?.tasks?.requests?.tools?.call

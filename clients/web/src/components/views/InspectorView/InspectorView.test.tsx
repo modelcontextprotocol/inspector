@@ -88,6 +88,7 @@ function makeProps(
     onServerEdit: vi.fn(),
     onServerClone: vi.fn(),
     onServerRemove: vi.fn(),
+    onServerReorder: vi.fn(),
     serverSupportsTaskToolCalls: false,
     onToolsUiChange: vi.fn(),
     onCallTool: vi.fn(),

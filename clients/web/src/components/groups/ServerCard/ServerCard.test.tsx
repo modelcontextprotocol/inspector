@@ -215,4 +215,36 @@ describe("ServerCard", () => {
     renderWithMantine(<ServerCard {...baseProps} connection={errored} />);
     expect(screen.queryByText("Connection refused")).not.toBeInTheDocument();
   });
+
+  it("renders the dragHandle slot when provided", () => {
+    renderWithMantine(
+      <ServerCard
+        {...baseProps}
+        dragHandle={<button type="button">grip</button>}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "grip" })).toBeInTheDocument();
+  });
+
+  it("renders no drag handle by default", () => {
+    renderWithMantine(<ServerCard {...baseProps} />);
+    expect(
+      screen.queryByRole("button", { name: "grip" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders the dragHandle before the server name in the header", () => {
+    renderWithMantine(
+      <ServerCard
+        {...baseProps}
+        dragHandle={<button type="button">grip</button>}
+      />,
+    );
+    const grip = screen.getByRole("button", { name: "grip" });
+    const name = screen.getByText("My MCP Server");
+    // DOM order: the grip precedes the name (left of it in the header row).
+    expect(grip.compareDocumentPosition(name)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
 });
