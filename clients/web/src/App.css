@@ -194,3 +194,17 @@
   max-width: 100%;
   height: auto;
 }
+
+/*
+ * Reorder grip on ServerCard. The grab/grabbing cursor is a draggability
+ * affordance that can't be expressed as a Mantine prop (and the active-press
+ * state is a pseudo-selector), so the whole grab-cursor unit lives here rather
+ * than split across the theme.
+ */
+.server-drag-handle {
+  cursor: grab;
+}
+
+.server-drag-handle:active {
+  cursor: grabbing;
+}

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fn } from "storybook/test";
+import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import type { ServerEntry } from "@inspector/core/mcp/types.js";
 import { ServerListScreen } from "./ServerListScreen";
 
@@ -18,6 +18,7 @@ const meta: Meta<typeof ServerListScreen> = {
     onEdit: fn(),
     onClone: fn(),
     onRemove: fn(),
+    onReorder: fn(),
     compact: false,
     onToggleCompact: fn(),
   },
@@ -107,5 +108,44 @@ export const WithActiveServer: Story = {
   args: {
     servers: [connectedStdioServer, disconnectedStdioServer, failedHttpServer],
     activeServer: connectedStdioServer.id,
+  },
+};
+
+/**
+ * Accessible keyboard reorder: focus a card's grip, press Space to pick it up,
+ * an arrow key to move it, and Space again to drop. Runs in a real browser
+ * (via the storybook test runner) where layout rects exist for the `@dnd-kit`
+ * keyboard sensor — the path that's unreliable under happy-dom. At the default
+ * 1280px viewport the grid is three columns wide, so ArrowRight moves the
+ * first card one position to the right.
+ */
+export const KeyboardReorder: Story = {
+  args: {
+    servers: [connectedStdioServer, disconnectedStdioServer, failedHttpServer],
+  },
+  play: async ({ canvasElement, args, step }) => {
+    const canvas = within(canvasElement);
+    const handle = await canvas.findByRole("button", {
+      name: "Reorder Local Dev Server",
+    });
+
+    await step("pick up the first card", async () => {
+      handle.focus();
+      await userEvent.keyboard("[Space]");
+    });
+    await step("move it one position to the right", async () => {
+      await userEvent.keyboard("[ArrowRight]");
+    });
+    await step("drop it", async () => {
+      await userEvent.keyboard("[Space]");
+    });
+
+    await waitFor(() => expect(args.onReorder).toHaveBeenCalled());
+    // The first card swapped places with the second; the third is unmoved.
+    expect(args.onReorder).toHaveBeenCalledWith([
+      disconnectedStdioServer.id,
+      connectedStdioServer.id,
+      failedHttpServer.id,
+    ]);
   },
 };

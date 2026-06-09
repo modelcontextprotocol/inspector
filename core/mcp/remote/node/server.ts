@@ -1514,6 +1514,67 @@ export function createRemoteApp(
     }
   });
 
+  // Reorder the on-disk `mcpServers` map. Registered before
+  // `PUT /api/servers/:id` so the literal `/order` segment isn't captured
+  // as an `:id` param ("order" would otherwise be a valid store id). The
+  // request body is `{ order: string[] }` — the complete set of server ids
+  // in the desired iteration order. We reject (409) unless that set matches
+  // the on-disk set exactly, so a reorder racing an external add/remove
+  // can't silently drop or duplicate an entry. Reordering touches no secret
+  // values, so we just permute the existing stripped entries and reuse the
+  // same atomic-write + watcher-notify path as the other mutators.
+  app.put("/api/servers/order", async (c) => {
+    let body: { order?: unknown };
+    try {
+      body = (await c.req.json()) as { order?: unknown };
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    if (
+      !Array.isArray(body.order) ||
+      !body.order.every((id): id is string => typeof id === "string")
+    ) {
+      return c.json({ error: "order must be an array of strings" }, 400);
+    }
+    const order = body.order;
+    if (new Set(order).size !== order.length) {
+      return c.json({ error: "order contains duplicate ids" }, 400);
+    }
+
+    try {
+      return await withWriteLock(async () => {
+        const current = await readMcpConfig();
+        const currentIds = Object.keys(current.mcpServers);
+        // Exact-set match: same size and every requested id present on disk.
+        // The duplicate check above plus equal sizes guarantees this is a
+        // permutation, never a partial reorder that would drop an entry.
+        const currentSet = new Set(currentIds);
+        const sameSet =
+          currentIds.length === order.length &&
+          order.every((id) => currentSet.has(id));
+        if (!sameSet) {
+          return c.json(
+            {
+              error:
+                "order does not match the current server set (it may have changed on disk)",
+            },
+            409,
+          );
+        }
+        const next: MCPConfig = { mcpServers: {} };
+        for (const id of order) {
+          // Non-null: `sameSet` proves every `id` is a key of the map.
+          next.mcpServers[id] = current.mcpServers[id]!;
+        }
+        await writeMcpAndTrackMtime(serializeStore(next));
+        return c.json({ ok: true });
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return c.json({ error: `Failed to reorder servers: ${msg}` }, 500);
+    }
+  });
+
   app.put("/api/servers/:id", async (c) => {
     const originalId = c.req.param("id");
     if (!originalId || !validateStoreId(originalId)) {

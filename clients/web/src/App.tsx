@@ -433,6 +433,7 @@ function App() {
     updateServer,
     updateServerSettings,
     removeServer,
+    reorderServers,
   } = useServers({
     baseUrl:
       typeof window !== "undefined"
@@ -2148,6 +2149,9 @@ function App() {
         onServerRemove={(id) => {
           const target = servers.find((s) => s.id === id);
           if (target) setRemoveTarget(target);
+        }}
+        onServerReorder={(orderedIds) => {
+          void reorderServers(orderedIds);
         }}
         serverSupportsTaskToolCalls={
           !!capabilities?.tasks?.requests?.tools?.call

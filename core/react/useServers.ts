@@ -44,6 +44,14 @@ export interface UseServersResult {
     settings: InspectorServerSettings,
   ) => Promise<void>;
   removeServer: (id: string) => Promise<void>;
+  /**
+   * Persist a new ordering for the server list. `orderedIds` must be the
+   * complete set of current server ids in the desired order. The local list
+   * is reordered optimistically so the grid reflows instantly; on backend
+   * failure (e.g. the on-disk set changed underneath us) we re-fetch to snap
+   * back to disk truth. Routes through `PUT /api/servers/order`.
+   */
+  reorderServers: (orderedIds: string[]) => Promise<void>;
 }
 
 function buildHeaders(
@@ -252,6 +260,45 @@ export function useServers(opts: UseServersOptions): UseServersResult {
     [base, authToken, doFetch, refresh],
   );
 
+  const reorderServers = useCallback(
+    async (orderedIds: string[]): Promise<void> => {
+      // Optimistic reorder: rebuild the local list in the requested order so
+      // the grid reflows immediately, before the round-trip resolves. Built
+      // from a lookup off the previous state (inside the setter) so we never
+      // capture a stale snapshot, and any id not currently present is simply
+      // skipped rather than producing an `undefined` hole.
+      setServers((prev) => {
+        const byId = new Map(prev.map((s) => [s.id, s]));
+        const reordered = orderedIds
+          .map((id) => byId.get(id))
+          .filter((s): s is ServerEntry => s !== undefined);
+        // Defensive: if the requested order dropped any entries (shouldn't
+        // happen — callers pass the full set), keep the strays at the end so
+        // nothing vanishes from the UI before the refresh reconciles.
+        if (reordered.length !== prev.length) {
+          const seen = new Set(orderedIds);
+          for (const s of prev) if (!seen.has(s.id)) reordered.push(s);
+        }
+        return reordered;
+      });
+      try {
+        const res = await doFetch(`${base}/api/servers/order`, {
+          method: "PUT",
+          headers: buildHeaders(authToken, true),
+          body: JSON.stringify({ order: orderedIds }),
+        });
+        if (!res.ok) {
+          throw new Error(await readErrorMessage(res));
+        }
+      } catch (err) {
+        // Revert to disk truth — the optimistic order may not have landed.
+        await refresh();
+        throw err instanceof Error ? err : new Error(String(err));
+      }
+    },
+    [base, authToken, doFetch, refresh],
+  );
+
   return {
     servers,
     loading,
@@ -261,5 +308,6 @@ export function useServers(opts: UseServersOptions): UseServersResult {
     updateServer,
     updateServerSettings,
     removeServer,
+    reorderServers,
   };
 }

@@ -492,6 +492,142 @@ describe("useServers", () => {
     });
   });
 
+  it("reorderServers persists the new order to disk and updates the list", async () => {
+    writeFileSync(
+      h.configPath,
+      JSON.stringify({
+        mcpServers: {
+          alpha: { type: "stdio", command: "a" },
+          beta: { type: "stdio", command: "b" },
+          gamma: { type: "stdio", command: "g" },
+        },
+      }),
+    );
+
+    const { result } = renderHook(() =>
+      useServers({ baseUrl: "http://test.local", fetchFn: h.fetchFn }),
+    );
+    await waitFor(() =>
+      expect(result.current.servers.map((s) => s.id)).toEqual([
+        "alpha",
+        "beta",
+        "gamma",
+      ]),
+    );
+
+    await act(async () => {
+      await result.current.reorderServers(["gamma", "alpha", "beta"]);
+    });
+
+    await waitFor(() => {
+      expect(result.current.servers.map((s) => s.id)).toEqual([
+        "gamma",
+        "alpha",
+        "beta",
+      ]);
+    });
+    // mcp.json map iteration order reflects the new order.
+    expect(Object.keys(readConfig(h.configPath).mcpServers)).toEqual([
+      "gamma",
+      "alpha",
+      "beta",
+    ]);
+  });
+
+  it("reorderServers updates the list optimistically before the round-trip resolves", async () => {
+    writeFileSync(
+      h.configPath,
+      JSON.stringify({
+        mcpServers: {
+          alpha: { type: "stdio", command: "a" },
+          beta: { type: "stdio", command: "b" },
+        },
+      }),
+    );
+
+    let resolvePut: (() => void) | undefined;
+    const gatedFetch: typeof fetch = async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (init?.method === "PUT" && url.endsWith("/api/servers/order")) {
+        // Hold the PUT response open so we can observe the optimistic state
+        // that must already be applied before the network settles.
+        await new Promise<void>((r) => {
+          resolvePut = r;
+        });
+      }
+      return h.fetchFn(input, init);
+    };
+
+    const { result } = renderHook(() =>
+      useServers({ baseUrl: "http://test.local", fetchFn: gatedFetch }),
+    );
+    await waitFor(() =>
+      expect(result.current.servers.map((s) => s.id)).toEqual([
+        "alpha",
+        "beta",
+      ]),
+    );
+
+    let pending: Promise<void>;
+    act(() => {
+      pending = result.current.reorderServers(["beta", "alpha"]);
+    });
+
+    // Optimistic reorder is visible while the PUT is still in flight.
+    await waitFor(() =>
+      expect(result.current.servers.map((s) => s.id)).toEqual([
+        "beta",
+        "alpha",
+      ]),
+    );
+
+    await act(async () => {
+      resolvePut?.();
+      await pending;
+    });
+  });
+
+  it("reorderServers reverts to disk truth and throws when the set no longer matches (409)", async () => {
+    writeFileSync(
+      h.configPath,
+      JSON.stringify({
+        mcpServers: {
+          alpha: { type: "stdio", command: "a" },
+          beta: { type: "stdio", command: "b" },
+        },
+      }),
+    );
+
+    const { result } = renderHook(() =>
+      useServers({ baseUrl: "http://test.local", fetchFn: h.fetchFn }),
+    );
+    await waitFor(() =>
+      expect(result.current.servers.map((s) => s.id)).toEqual([
+        "alpha",
+        "beta",
+      ]),
+    );
+
+    // Incomplete set (missing `beta`) — the backend rejects with 409 and the
+    // hook re-fetches, snapping the list back to the on-disk order.
+    await expect(
+      act(async () => {
+        await result.current.reorderServers(["alpha"]);
+      }),
+    ).rejects.toThrow(/does not match/);
+
+    await waitFor(() => {
+      expect(result.current.servers.map((s) => s.id)).toEqual([
+        "alpha",
+        "beta",
+      ]);
+    });
+    expect(Object.keys(readConfig(h.configPath).mcpServers)).toEqual([
+      "alpha",
+      "beta",
+    ]);
+  });
+
   it("uses DEFAULT_SEED_CONFIG keys on the first load (seed-write contract)", async () => {
     const { result } = renderHook(() =>
       useServers({ baseUrl: "http://test.local", fetchFn: h.fetchFn }),
