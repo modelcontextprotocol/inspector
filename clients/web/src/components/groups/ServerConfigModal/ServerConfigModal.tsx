@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Button,
+  CloseButton,
   Group,
   Modal,
   Select,
@@ -275,6 +276,15 @@ export function ServerConfigModal({
             data-autofocus
             required
             disabled={submitting}
+            rightSectionPointerEvents="auto"
+            rightSection={
+              form.id ? (
+                <CloseButton
+                  aria-label="Clear"
+                  onClick={() => setForm((f) => ({ ...f, id: "" }))}
+                />
+              ) : null
+            }
           />
 
           <Select
@@ -307,6 +317,15 @@ export function ServerConfigModal({
                 }}
                 required
                 disabled={submitting}
+                rightSectionPointerEvents="auto"
+                rightSection={
+                  form.command ? (
+                    <CloseButton
+                      aria-label="Clear"
+                      onClick={() => setForm((f) => ({ ...f, command: "" }))}
+                    />
+                  ) : null
+                }
               />
               <Textarea
                 label="Arguments"
@@ -320,6 +339,15 @@ export function ServerConfigModal({
                 autosize
                 minRows={3}
                 disabled={submitting}
+                rightSectionPointerEvents="auto"
+                rightSection={
+                  form.argsText ? (
+                    <CloseButton
+                      aria-label="Clear"
+                      onClick={() => setForm((f) => ({ ...f, argsText: "" }))}
+                    />
+                  ) : null
+                }
               />
               <Textarea
                 label="Environment"
@@ -333,6 +361,15 @@ export function ServerConfigModal({
                 autosize
                 minRows={2}
                 disabled={submitting}
+                rightSectionPointerEvents="auto"
+                rightSection={
+                  form.envText ? (
+                    <CloseButton
+                      aria-label="Clear"
+                      onClick={() => setForm((f) => ({ ...f, envText: "" }))}
+                    />
+                  ) : null
+                }
               />
               <TextInput
                 label="Working directory"
@@ -343,6 +380,15 @@ export function ServerConfigModal({
                   setForm((f) => ({ ...f, cwd: next }));
                 }}
                 disabled={submitting}
+                rightSectionPointerEvents="auto"
+                rightSection={
+                  form.cwd ? (
+                    <CloseButton
+                      aria-label="Clear"
+                      onClick={() => setForm((f) => ({ ...f, cwd: "" }))}
+                    />
+                  ) : null
+                }
               />
             </>
           ) : (
@@ -356,6 +402,15 @@ export function ServerConfigModal({
               }}
               required
               disabled={submitting}
+              rightSectionPointerEvents="auto"
+              rightSection={
+                form.url ? (
+                  <CloseButton
+                    aria-label="Clear"
+                    onClick={() => setForm((f) => ({ ...f, url: "" }))}
+                  />
+                ) : null
+              }
             />
           )}
         </FieldGrid>

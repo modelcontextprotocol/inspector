@@ -1,9 +1,17 @@
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { waitFor } from "@testing-library/react";
+import { waitFor, within } from "@testing-library/react";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { ServerConfigModal } from "./ServerConfigModal";
+
+/** Find the "Clear" button living in the rightSection of `input`'s field. */
+function clearButtonFor(input: HTMLElement): HTMLElement {
+  const root =
+    input.closest('[class*="mantine-TextInput-root"]') ??
+    input.closest('[class*="Input-wrapper"]');
+  return within(root as HTMLElement).getByRole("button", { name: "Clear" });
+}
 
 describe("ServerConfigModal", () => {
   function base(overrides: Partial<{ existingIds: string[] }> = {}) {
@@ -272,6 +280,114 @@ describe("ServerConfigModal", () => {
       command: "node",
       cwd: "/tmp/cwd",
     });
+  });
+
+  it("clears the Server ID field via its Clear button", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ServerConfigModal
+        {...base()}
+        mode="edit"
+        initialId="alpha"
+        initialConfig={{ type: "stdio", command: "node" }}
+      />,
+    );
+    const idInput = screen.getByLabelText(/Server ID/i);
+    expect(idInput).toHaveValue("alpha");
+    await user.click(clearButtonFor(idInput));
+    expect(idInput).toHaveValue("");
+  });
+
+  it("clears the Command field via its Clear button", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ServerConfigModal
+        {...base()}
+        mode="edit"
+        initialId="alpha"
+        initialConfig={{ type: "stdio", command: "node" }}
+      />,
+    );
+    const cmdInput = screen.getByLabelText(/Command/i);
+    expect(cmdInput).toHaveValue("node");
+    await user.click(clearButtonFor(cmdInput));
+    expect(cmdInput).toHaveValue("");
+  });
+
+  it("clears the URL field via its Clear button", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ServerConfigModal
+        {...base()}
+        mode="edit"
+        initialId="remote"
+        initialConfig={{ type: "sse", url: "https://x.test/sse" }}
+      />,
+    );
+    const urlInput = screen.getByLabelText(/^URL/);
+    expect(urlInput).toHaveValue("https://x.test/sse");
+    await user.click(clearButtonFor(urlInput));
+    expect(urlInput).toHaveValue("");
+  });
+
+  it("clears the Arguments field via its Clear button", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ServerConfigModal
+        {...base()}
+        mode="edit"
+        initialId="alpha"
+        initialConfig={{
+          type: "stdio",
+          command: "node",
+          args: ["server.js", "--port=3000"],
+        }}
+      />,
+    );
+    const argsInput = screen.getByLabelText(/Arguments/i);
+    expect(argsInput).toHaveValue("server.js\n--port=3000");
+    await user.click(clearButtonFor(argsInput));
+    expect(argsInput).toHaveValue("");
+  });
+
+  it("clears the Environment field via its Clear button", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ServerConfigModal
+        {...base()}
+        mode="edit"
+        initialId="alpha"
+        initialConfig={{
+          type: "stdio",
+          command: "node",
+          env: { DEBUG: "1" },
+        }}
+      />,
+    );
+    const envInput = screen.getByLabelText(/Environment/i);
+    expect(envInput).toHaveValue("DEBUG=1");
+    await user.click(clearButtonFor(envInput));
+    expect(envInput).toHaveValue("");
+  });
+
+  it("clears the Working directory field via its Clear button", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ServerConfigModal
+        {...base()}
+        mode="edit"
+        initialId="alpha"
+        initialConfig={{
+          type: "stdio",
+          command: "node",
+          cwd: "/tmp/here",
+        }}
+      />,
+    );
+    const cwdInput = screen.getByLabelText(/Working directory/i);
+    expect(cwdInput).toHaveValue("/tmp/here");
+    await user.click(clearButtonFor(cwdInput));
+    expect(cwdInput).toHaveValue("");
   });
 
   it("calls onClose when Cancel is clicked", async () => {

@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Checkbox,
+  CloseButton,
   Divider,
   Group,
   Stack,
@@ -244,12 +245,30 @@ export function ExperimentalFeaturesPanel({
             onChange={(e) =>
               onHeaderChange(index, e.currentTarget.value, header.value)
             }
+            rightSectionPointerEvents="auto"
+            rightSection={
+              header.key ? (
+                <CloseButton
+                  aria-label="Clear"
+                  onClick={() => onHeaderChange(index, "", header.value)}
+                />
+              ) : null
+            }
           />
           <TextInput
             placeholder="Header value"
             value={header.value}
             onChange={(e) =>
               onHeaderChange(index, header.key, e.currentTarget.value)
+            }
+            rightSectionPointerEvents="auto"
+            rightSection={
+              header.value ? (
+                <CloseButton
+                  aria-label="Clear"
+                  onClick={() => onHeaderChange(index, header.key, "")}
+                />
+              ) : null
             }
           />
           <RemoveIcon onClick={() => onRemoveHeader(index)}>
@@ -269,6 +288,15 @@ export function ExperimentalFeaturesPanel({
         onChange={(e) => onRequestChange(e.currentTarget.value)}
         autosize
         minRows={6}
+        rightSectionPointerEvents="auto"
+        rightSection={
+          requestDraft ? (
+            <CloseButton
+              aria-label="Clear"
+              onClick={() => onRequestChange("")}
+            />
+          ) : null
+        }
       />
 
       <Button onClick={onSendRequest}>Send Request</Button>

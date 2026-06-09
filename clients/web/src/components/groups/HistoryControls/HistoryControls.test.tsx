@@ -31,6 +31,20 @@ describe("HistoryControls", () => {
     expect(onSearchChange).toHaveBeenCalledWith("a");
   });
 
+  it("clears the search input when the Clear button is clicked", async () => {
+    const user = userEvent.setup();
+    const onSearchChange = vi.fn();
+    renderWithMantine(
+      <HistoryControls
+        {...baseProps}
+        searchText="abc"
+        onSearchChange={onSearchChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(onSearchChange).toHaveBeenCalledWith("");
+  });
+
   it("renders the method filter placeholder", () => {
     renderWithMantine(<HistoryControls {...baseProps} />);
     expect(screen.getByPlaceholderText("All methods")).toBeInTheDocument();

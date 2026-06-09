@@ -1,5 +1,6 @@
 import {
   Checkbox,
+  CloseButton,
   JsonInput,
   MultiSelect,
   NumberInput,
@@ -114,6 +115,15 @@ export function SchemaForm({
           maxLength={fieldSchema.maxLength}
           onChange={(event) =>
             handleFieldChange(fieldName, event.currentTarget.value)
+          }
+          rightSectionPointerEvents="auto"
+          rightSection={
+            rawValue ? (
+              <CloseButton
+                aria-label="Clear"
+                onClick={() => handleFieldChange(fieldName, "")}
+              />
+            ) : null
           }
         />
       );

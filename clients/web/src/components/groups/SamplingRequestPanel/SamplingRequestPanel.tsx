@@ -1,6 +1,7 @@
 import {
   Badge,
   Button,
+  CloseButton,
   Divider,
   Group,
   Paper,
@@ -157,6 +158,20 @@ export function SamplingRequestPanel({
         }
         autosize
         minRows={3}
+        rightSectionPointerEvents="auto"
+        rightSection={
+          draftResult.content.type === "text" && draftResult.content.text ? (
+            <CloseButton
+              aria-label="Clear"
+              onClick={() =>
+                onResultChange({
+                  ...draftResult,
+                  content: { type: "text", text: "" },
+                })
+              }
+            />
+          ) : null
+        }
       />
       <Group>
         <TextInput
@@ -164,6 +179,15 @@ export function SamplingRequestPanel({
           value={draftResult.model}
           onChange={(event) =>
             onResultChange({ ...draftResult, model: event.currentTarget.value })
+          }
+          rightSectionPointerEvents="auto"
+          rightSection={
+            draftResult.model ? (
+              <CloseButton
+                aria-label="Clear"
+                onClick={() => onResultChange({ ...draftResult, model: "" })}
+              />
+            ) : null
           }
         />
         <Select

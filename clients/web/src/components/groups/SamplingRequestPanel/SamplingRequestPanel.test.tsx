@@ -224,6 +224,46 @@ describe("SamplingRequestPanel", () => {
     expect(onReject).toHaveBeenCalledTimes(1);
   });
 
+  it("clears the response textarea via its Clear button", async () => {
+    const user = userEvent.setup();
+    const onResultChange = vi.fn();
+    const filledDraft: CreateMessageResult = {
+      role: "assistant",
+      model: "",
+      content: { type: "text", text: "some response" },
+    };
+    renderWithMantine(
+      <SamplingRequestPanel
+        {...baseProps}
+        request={simpleRequest}
+        draftResult={filledDraft}
+        onResultChange={onResultChange}
+      />,
+    );
+    // Only the textarea is populated, so there is a single Clear button.
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(onResultChange).toHaveBeenCalledWith({
+      ...filledDraft,
+      content: { type: "text", text: "" },
+    });
+  });
+
+  it("clears the Model Used input via its Clear button", async () => {
+    const user = userEvent.setup();
+    const onResultChange = vi.fn();
+    // model populated, content empty → only the model Clear button renders.
+    renderWithMantine(
+      <SamplingRequestPanel
+        {...baseProps}
+        request={simpleRequest}
+        draftResult={blankDraft}
+        onResultChange={onResultChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(onResultChange).toHaveBeenCalledWith({ ...blankDraft, model: "" });
+  });
+
   it("displays the existing stopReason in the Select", () => {
     renderWithMantine(
       <SamplingRequestPanel

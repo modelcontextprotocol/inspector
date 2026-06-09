@@ -1,5 +1,6 @@
 import {
   Accordion,
+  CloseButton,
   Group,
   ScrollArea,
   Stack,
@@ -127,6 +128,15 @@ export function ResourceControls({
           placeholder="Search..."
           value={searchText}
           onChange={(e) => onSearchChange(e.currentTarget.value)}
+          rightSectionPointerEvents="auto"
+          rightSection={
+            searchText ? (
+              <CloseButton
+                aria-label="Clear"
+                onClick={() => onSearchChange("")}
+              />
+            ) : null
+          }
         />
         <ListToggle compact={!allExpanded} onToggle={handleToggleList} />
       </Group>
