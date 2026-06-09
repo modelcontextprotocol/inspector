@@ -28,6 +28,14 @@ function waitForResourcesChange(
   });
 }
 
+function waitForListChanged(state: ManagedResourcesState): Promise<boolean> {
+  return new Promise((resolve) => {
+    state.addEventListener("listChangedChange", (e) => resolve(e.detail), {
+      once: true,
+    });
+  });
+}
+
 describe("ManagedResourcesState", () => {
   let client: FakeInspectorClient;
   let state: ManagedResourcesState;
@@ -37,7 +45,7 @@ describe("ManagedResourcesState", () => {
     // tests exercise the live `listResources` path; capability-absent tests
     // below override this.
     client = new FakeInspectorClient({ capabilities: { resources: {} } });
-    state = new ManagedResourcesState(client);
+    state = new ManagedResourcesState(client, 0);
   });
 
   it("starts with empty resources", () => {
@@ -64,7 +72,7 @@ describe("ManagedResourcesState", () => {
       capabilities: { tools: {}, prompts: {} },
     });
     resourceless.setStatus("connected");
-    const resourcelessState = new ManagedResourcesState(resourceless);
+    const resourcelessState = new ManagedResourcesState(resourceless, 0);
 
     const result = await resourcelessState.refresh();
     expect(result).toEqual([]);
@@ -78,7 +86,7 @@ describe("ManagedResourcesState", () => {
       capabilities: { tools: {} },
     });
     resourceless.setStatus("connected");
-    const resourcelessState = new ManagedResourcesState(resourceless);
+    const resourcelessState = new ManagedResourcesState(resourceless, 0);
 
     resourceless.dispatchTypedEvent("connect");
     // Yield so the async refresh chained off connect runs.
@@ -142,17 +150,15 @@ describe("ManagedResourcesState", () => {
     expect(next.map((r) => r.uri)).toEqual(["a://1"]);
   });
 
-  it("resourcesListChanged does NOT auto-refresh by default (the user pulls via Refresh)", async () => {
+  it("resourcesListChanged lights the indicator without fetching by default (#1444)", async () => {
+    // Auto-refresh off: a list_changed lights the indicator with NO list call;
+    // the user pulls the new list via Refresh.
     client.setStatus("connected");
-    client.queueResourcePages({
-      resources: [resource("a://1"), resource("a://2")],
-    });
+    const changed = waitForListChanged(state);
     client.dispatchTypedEvent("resourcesListChanged");
-    // Yield so a stray refresh would have landed.
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(client.listResources).not.toHaveBeenCalled();
-    expect(state.getResources()).toEqual([]);
+    expect(await changed).toBe(true);
+    expect(client.listResources).not.toHaveBeenCalled(); // no automatic fetch
+    expect(state.getResources()).toEqual([]); // displayed list untouched
   });
 
   it("resourcesListChanged auto-refreshes when the server opts in", async () => {
@@ -161,7 +167,7 @@ describe("ManagedResourcesState", () => {
       serverSettings: AUTO_REFRESH_SETTINGS,
     });
     autoClient.setStatus("connected");
-    const autoState = new ManagedResourcesState(autoClient);
+    const autoState = new ManagedResourcesState(autoClient, 0);
     autoClient.queueResourcePages({ resources: [resource("a://1")] });
     const changed = waitForResourcesChange(autoState);
     autoClient.dispatchTypedEvent("resourcesListChanged");
@@ -215,14 +221,6 @@ describe("ManagedResourcesState", () => {
   });
 
   describe("listChanged (#1402)", () => {
-    function waitForListChanged(s: ManagedResourcesState): Promise<boolean> {
-      return new Promise((resolve) => {
-        s.addEventListener("listChangedChange", (e) => resolve(e.detail), {
-          once: true,
-        });
-      });
-    }
-
     it("starts cleared", () => {
       expect(state.getListChanged()).toBe(false);
     });
@@ -239,7 +237,9 @@ describe("ManagedResourcesState", () => {
     it("clearListChanged resets the flag and dispatches false", async () => {
       client.setStatus("connected");
       client.queueResourcePages({ resources: [resource("a://1")] });
+      const set = waitForListChanged(state);
       client.dispatchTypedEvent("resourcesListChanged");
+      await set; // wait for the debounced notification to set the flag
       expect(state.getListChanged()).toBe(true);
 
       const changed = waitForListChanged(state);
@@ -260,7 +260,9 @@ describe("ManagedResourcesState", () => {
     it("disconnect clears the flag", async () => {
       client.setStatus("connected");
       client.queueResourcePages({ resources: [resource("a://1")] });
+      const set = waitForListChanged(state);
       client.dispatchTypedEvent("resourcesListChanged");
+      await set; // wait for the debounced notification to set the flag
       expect(state.getListChanged()).toBe(true);
 
       const changed = waitForListChanged(state);

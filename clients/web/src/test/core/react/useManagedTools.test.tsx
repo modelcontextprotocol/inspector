@@ -18,7 +18,7 @@ describe("useManagedTools", () => {
       status: "connected",
       capabilities: { tools: {} },
     });
-    state = new ManagedToolsState(client);
+    state = new ManagedToolsState(client, 0);
   });
 
   it("returns the initial tools snapshot from the state", async () => {

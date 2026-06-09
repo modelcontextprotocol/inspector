@@ -26,6 +26,14 @@ function waitForToolsChange(state: ManagedToolsState): Promise<Tool[]> {
   });
 }
 
+function waitForListChanged(state: ManagedToolsState): Promise<boolean> {
+  return new Promise((resolve) => {
+    state.addEventListener("listChangedChange", (e) => resolve(e.detail), {
+      once: true,
+    });
+  });
+}
+
 describe("ManagedToolsState", () => {
   let client: FakeInspectorClient;
   let state: ManagedToolsState;
@@ -35,7 +43,7 @@ describe("ManagedToolsState", () => {
     // exercise the live `listTools` path; capability-absent tests below
     // override this.
     client = new FakeInspectorClient({ capabilities: { tools: {} } });
-    state = new ManagedToolsState(client);
+    state = new ManagedToolsState(client, 0);
   });
 
   it("starts with empty tools", () => {
@@ -61,7 +69,7 @@ describe("ManagedToolsState", () => {
       capabilities: { prompts: {}, resources: {} },
     });
     toolless.setStatus("connected");
-    const toollessState = new ManagedToolsState(toolless);
+    const toollessState = new ManagedToolsState(toolless, 0);
 
     const result = await toollessState.refresh();
     expect(result).toEqual([]);
@@ -73,7 +81,7 @@ describe("ManagedToolsState", () => {
     // there, not only the publicly-callable refresh().
     const toolless = new FakeInspectorClient({ capabilities: { prompts: {} } });
     toolless.setStatus("connected");
-    const toollessState = new ManagedToolsState(toolless);
+    const toollessState = new ManagedToolsState(toolless, 0);
 
     toolless.dispatchTypedEvent("connect");
     // Yield so the async refresh chained off connect runs.
@@ -133,15 +141,65 @@ describe("ManagedToolsState", () => {
     expect(next.map((t) => t.name)).toEqual(["a"]);
   });
 
-  it("toolsListChanged does NOT auto-refresh by default (the user pulls via Refresh)", async () => {
+  it("toolsListChanged lights the indicator without fetching by default (#1444)", async () => {
+    // Auto-refresh off: a list_changed lights the indicator with NO list call;
+    // the user pulls the new list via Refresh.
     client.setStatus("connected");
-    client.queueToolPages({ tools: [tool("a"), tool("b")] });
+    const changed = waitForListChanged(state);
     client.dispatchTypedEvent("toolsListChanged");
-    // Yield so a stray refresh would have landed.
-    await Promise.resolve();
-    await Promise.resolve();
+    expect(await changed).toBe(true);
+    expect(client.listTools).not.toHaveBeenCalled(); // no automatic fetch
+    expect(state.getTools()).toEqual([]); // displayed list untouched
+  });
+
+  it("debounces a burst of list_changed into a single indicator light, no fetch (#1444)", async () => {
+    // The everything-server case: a rapid burst collapses to one indicator
+    // light once it settles, and never fetches in flag-only mode.
+    client.setStatus("connected");
+    let fired = 0;
+    state.addEventListener("listChangedChange", () => {
+      fired++;
+    });
+    client.dispatchTypedEvent("toolsListChanged");
+    client.dispatchTypedEvent("toolsListChanged");
+    client.dispatchTypedEvent("toolsListChanged");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fired).toBe(1); // one debounced flip
+    expect(state.getListChanged()).toBe(true);
     expect(client.listTools).not.toHaveBeenCalled();
-    expect(state.getTools()).toEqual([]);
+  });
+
+  it("coalesces an auto-refresh that fires while an earlier one is still fetching (#1444)", async () => {
+    // The guard covers the auto-refresh path too, so a slow refresh can't be
+    // clobbered by an overlapping one from a later notification.
+    const autoClient = new FakeInspectorClient({
+      capabilities: { tools: {} },
+      serverSettings: AUTO_REFRESH_SETTINGS,
+    });
+    autoClient.setStatus("connected");
+    const autoState = new ManagedToolsState(autoClient, 0);
+    let release: (value: { tools: Tool[] }) => void = () => {};
+    autoClient.listTools.mockImplementationOnce(
+      () =>
+        new Promise<{ tools: Tool[] }>((resolve) => {
+          release = resolve;
+        }),
+    );
+    autoClient.queueToolPages({ tools: [tool("a")] });
+
+    autoClient.dispatchTypedEvent("toolsListChanged");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(autoClient.listTools).toHaveBeenCalledTimes(1);
+
+    autoClient.dispatchTypedEvent("toolsListChanged");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(autoClient.listTools).toHaveBeenCalledTimes(1); // coalesced
+
+    release({ tools: [tool("a")] });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(autoClient.listTools).toHaveBeenCalledTimes(2);
+    // The (coalesced) auto-refresh applied the new list.
+    expect(autoState.getTools().map((t) => t.name)).toEqual(["a"]);
   });
 
   it("toolsListChanged auto-refreshes when the server opts in", async () => {
@@ -150,12 +208,24 @@ describe("ManagedToolsState", () => {
       serverSettings: AUTO_REFRESH_SETTINGS,
     });
     autoClient.setStatus("connected");
-    const autoState = new ManagedToolsState(autoClient);
+    const autoState = new ManagedToolsState(autoClient, 0);
     autoClient.queueToolPages({ tools: [tool("a")] });
     const changed = waitForToolsChange(autoState);
     autoClient.dispatchTypedEvent("toolsListChanged");
     expect((await changed).map((t) => t.name)).toEqual(["a"]);
     expect(autoClient.listTools).toHaveBeenCalled();
+  });
+
+  it("honors a live setServerSettings toggle without a reconnect (#1444)", async () => {
+    // Starts in flag-only mode (no settings); flip auto-refresh on live.
+    client.setStatus("connected");
+    client.setServerSettings(AUTO_REFRESH_SETTINGS);
+    client.queueToolPages({ tools: [tool("a")] });
+    const changed = waitForToolsChange(state);
+    client.dispatchTypedEvent("toolsListChanged");
+    // The list is applied (auto-refresh), proving the manager read the new
+    // setting at notification time rather than a connect-time snapshot.
+    expect((await changed).map((t) => t.name)).toEqual(["a"]);
   });
 
   it("statusChange to disconnected clears tools and dispatches toolsChange", async () => {
@@ -207,14 +277,6 @@ describe("ManagedToolsState", () => {
   });
 
   describe("listChanged (#1402)", () => {
-    function waitForListChanged(s: ManagedToolsState): Promise<boolean> {
-      return new Promise((resolve) => {
-        s.addEventListener("listChangedChange", (e) => resolve(e.detail), {
-          once: true,
-        });
-      });
-    }
-
     it("starts cleared", () => {
       expect(state.getListChanged()).toBe(false);
     });
@@ -231,7 +293,9 @@ describe("ManagedToolsState", () => {
     it("clearListChanged resets the flag and dispatches false", async () => {
       client.setStatus("connected");
       client.queueToolPages({ tools: [tool("a")] });
+      const set = waitForListChanged(state);
       client.dispatchTypedEvent("toolsListChanged");
+      await set; // wait for the debounced notification to set the flag
       expect(state.getListChanged()).toBe(true);
 
       const changed = waitForListChanged(state);
@@ -252,7 +316,9 @@ describe("ManagedToolsState", () => {
     it("disconnect clears the flag", async () => {
       client.setStatus("connected");
       client.queueToolPages({ tools: [tool("a")] });
+      const set = waitForListChanged(state);
       client.dispatchTypedEvent("toolsListChanged");
+      await set; // wait for the debounced notification to set the flag
       expect(state.getListChanged()).toBe(true);
 
       const changed = waitForListChanged(state);

@@ -60,7 +60,7 @@ describe("ResourceSubscriptionsState", () => {
   });
 
   it("resolves Resource references via ManagedResourcesState when provided", async () => {
-    const resourcesState = new ManagedResourcesState(client);
+    const resourcesState = new ManagedResourcesState(client, 0);
     client.queueResourcePages({
       resources: [resource("file:///a", { name: "Alpha", title: "Title A" })],
     });
@@ -154,7 +154,7 @@ describe("ResourceSubscriptionsState", () => {
   });
 
   it("re-resolves Resource references when ManagedResourcesState refreshes", async () => {
-    const resourcesState = new ManagedResourcesState(client);
+    const resourcesState = new ManagedResourcesState(client, 0);
     const state = new ResourceSubscriptionsState(client, resourcesState);
     client.dispatchTypedEvent("resourceSubscriptionsChange", ["file:///a"]);
     expect(state.getSubscriptions()[0].resource.name).toBe("file:///a");
@@ -169,7 +169,7 @@ describe("ResourceSubscriptionsState", () => {
   });
 
   it("does not re-emit on resourcesChange when no URIs are subscribed", async () => {
-    const resourcesState = new ManagedResourcesState(client);
+    const resourcesState = new ManagedResourcesState(client, 0);
     const state = new ResourceSubscriptionsState(client, resourcesState);
     const handler = vi.fn();
     state.addEventListener("subscriptionsChange", handler);
@@ -199,7 +199,7 @@ describe("ResourceSubscriptionsState", () => {
   });
 
   it("destroy unsubscribes from client and resources state events", () => {
-    const resourcesState = new ManagedResourcesState(client);
+    const resourcesState = new ManagedResourcesState(client, 0);
     const state = new ResourceSubscriptionsState(client, resourcesState);
     client.dispatchTypedEvent("resourceSubscriptionsChange", ["file:///a"]);
     expect(state.getSubscriptions()).toHaveLength(1);

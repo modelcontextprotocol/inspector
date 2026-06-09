@@ -654,6 +654,32 @@ describe("InspectorClient", () => {
   });
 
   describe("Server Data Management", () => {
+    it("getServerSettings returns the constructor settings; setServerSettings replaces them live (#1444)", () => {
+      const initial = {
+        headers: [],
+        metadata: [],
+        connectionTimeout: 0,
+        requestTimeout: 0,
+        taskTtl: 0,
+        autoRefreshOnListChanged: false,
+        roots: [],
+      };
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+          serverSettings: initial,
+        },
+      );
+      expect(client.getServerSettings()?.autoRefreshOnListChanged).toBe(false);
+      client.setServerSettings({ ...initial, autoRefreshOnListChanged: true });
+      expect(client.getServerSettings()?.autoRefreshOnListChanged).toBe(true);
+    });
+
     it("should auto-fetch server contents when enabled", async () => {
       client = new InspectorClient(
         {

@@ -18,7 +18,7 @@ describe("useManagedResources", () => {
       status: "connected",
       capabilities: { resources: {} },
     });
-    state = new ManagedResourcesState(client);
+    state = new ManagedResourcesState(client, 0);
   });
 
   it("returns the initial resources snapshot from the state", async () => {

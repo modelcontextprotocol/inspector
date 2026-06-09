@@ -1317,6 +1317,18 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Replace the in-memory per-server settings on a live client. Lets a settings
+   * edit (e.g. toggling auto-refresh-on-list-changed) take effect on the
+   * current connection without a reconnect — the managed list state reads
+   * `getServerSettings()` at notification time, so the next `list_changed`
+   * notification honors the new value (#1444). Connection-time inputs
+   * (transport, OAuth, timeouts) still only apply on the next connect.
+   */
+  setServerSettings(settings: InspectorServerSettings): void {
+    this.serverSettings = settings;
+  }
+
+  /**
    * Set the logging level for the MCP server
    * @param level Logging level to set
    * @throws Error if client is not connected or server doesn't support logging

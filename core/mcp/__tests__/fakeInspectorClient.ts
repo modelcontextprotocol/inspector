@@ -184,6 +184,10 @@ export class FakeInspectorClient
     return this.serverSettings;
   }
 
+  setServerSettings(settings: InspectorServerSettings): void {
+    this.serverSettings = settings;
+  }
+
   getAppRendererClient(): AppRendererClient | null {
     return this.appRendererClient;
   }

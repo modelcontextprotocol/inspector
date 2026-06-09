@@ -18,7 +18,7 @@ describe("useManagedResourceTemplates", () => {
       status: "connected",
       capabilities: { resources: {} },
     });
-    state = new ManagedResourceTemplatesState(client);
+    state = new ManagedResourceTemplatesState(client, 0);
   });
 
   it("returns the initial templates snapshot from the state", async () => {

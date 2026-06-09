@@ -26,6 +26,14 @@ function waitForPromptsChange(state: ManagedPromptsState): Promise<Prompt[]> {
   });
 }
 
+function waitForListChanged(state: ManagedPromptsState): Promise<boolean> {
+  return new Promise((resolve) => {
+    state.addEventListener("listChangedChange", (e) => resolve(e.detail), {
+      once: true,
+    });
+  });
+}
+
 describe("ManagedPromptsState", () => {
   let client: FakeInspectorClient;
   let state: ManagedPromptsState;
@@ -35,7 +43,7 @@ describe("ManagedPromptsState", () => {
     // exercise the live `listPrompts` path; capability-absent tests below
     // override this.
     client = new FakeInspectorClient({ capabilities: { prompts: {} } });
-    state = new ManagedPromptsState(client);
+    state = new ManagedPromptsState(client, 0);
   });
 
   it("starts with empty prompts", () => {
@@ -61,7 +69,7 @@ describe("ManagedPromptsState", () => {
       capabilities: { tools: {}, resources: {} },
     });
     promptless.setStatus("connected");
-    const promptlessState = new ManagedPromptsState(promptless);
+    const promptlessState = new ManagedPromptsState(promptless, 0);
 
     const result = await promptlessState.refresh();
     expect(result).toEqual([]);
@@ -73,7 +81,7 @@ describe("ManagedPromptsState", () => {
     // there, not only the publicly-callable refresh().
     const promptless = new FakeInspectorClient({ capabilities: { tools: {} } });
     promptless.setStatus("connected");
-    const promptlessState = new ManagedPromptsState(promptless);
+    const promptlessState = new ManagedPromptsState(promptless, 0);
 
     promptless.dispatchTypedEvent("connect");
     // Yield so the async refresh chained off connect runs.
@@ -135,15 +143,15 @@ describe("ManagedPromptsState", () => {
     expect(next.map((p) => p.name)).toEqual(["a"]);
   });
 
-  it("promptsListChanged does NOT auto-refresh by default (the user pulls via Refresh)", async () => {
+  it("promptsListChanged lights the indicator without fetching by default (#1444)", async () => {
+    // Auto-refresh off: a list_changed lights the indicator with NO list call;
+    // the user pulls the new list via Refresh.
     client.setStatus("connected");
-    client.queuePromptPages({ prompts: [prompt("a"), prompt("b")] });
+    const changed = waitForListChanged(state);
     client.dispatchTypedEvent("promptsListChanged");
-    // Yield so a stray refresh would have landed.
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(client.listPrompts).not.toHaveBeenCalled();
-    expect(state.getPrompts()).toEqual([]);
+    expect(await changed).toBe(true);
+    expect(client.listPrompts).not.toHaveBeenCalled(); // no automatic fetch
+    expect(state.getPrompts()).toEqual([]); // displayed list untouched
   });
 
   it("promptsListChanged auto-refreshes when the server opts in", async () => {
@@ -152,7 +160,7 @@ describe("ManagedPromptsState", () => {
       serverSettings: AUTO_REFRESH_SETTINGS,
     });
     autoClient.setStatus("connected");
-    const autoState = new ManagedPromptsState(autoClient);
+    const autoState = new ManagedPromptsState(autoClient, 0);
     autoClient.queuePromptPages({ prompts: [prompt("a")] });
     const changed = waitForPromptsChange(autoState);
     autoClient.dispatchTypedEvent("promptsListChanged");
@@ -206,14 +214,6 @@ describe("ManagedPromptsState", () => {
   });
 
   describe("listChanged (#1402)", () => {
-    function waitForListChanged(s: ManagedPromptsState): Promise<boolean> {
-      return new Promise((resolve) => {
-        s.addEventListener("listChangedChange", (e) => resolve(e.detail), {
-          once: true,
-        });
-      });
-    }
-
     it("starts cleared", () => {
       expect(state.getListChanged()).toBe(false);
     });
@@ -230,7 +230,9 @@ describe("ManagedPromptsState", () => {
     it("clearListChanged resets the flag and dispatches false", async () => {
       client.setStatus("connected");
       client.queuePromptPages({ prompts: [prompt("a")] });
+      const set = waitForListChanged(state);
       client.dispatchTypedEvent("promptsListChanged");
+      await set; // wait for the debounced notification to set the flag
       expect(state.getListChanged()).toBe(true);
 
       const changed = waitForListChanged(state);
@@ -251,7 +253,9 @@ describe("ManagedPromptsState", () => {
     it("disconnect clears the flag", async () => {
       client.setStatus("connected");
       client.queuePromptPages({ prompts: [prompt("a")] });
+      const set = waitForListChanged(state);
       client.dispatchTypedEvent("promptsListChanged");
+      await set; // wait for the debounced notification to set the flag
       expect(state.getListChanged()).toBe(true);
 
       const changed = waitForListChanged(state);
