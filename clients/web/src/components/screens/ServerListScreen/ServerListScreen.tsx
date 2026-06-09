@@ -80,14 +80,22 @@ export function ServerListScreen({
   );
 
   const ids = servers.map((s) => s.id);
-  const handleDragEnd = makeServerDragEndHandler(servers, onReorder);
-  const announcements = buildReorderAnnouncements(servers);
 
   // `reorderable` only when a persistence callback is wired. Without it we
   // render plain `ServerCard`s (no grip, no DndContext) so the screen stays
   // usable as a pure display — the SortableServerCard's grip would otherwise
   // be a dead affordance.
   const reorderable = onReorder !== undefined;
+
+  // Built only when reorderable — the drag-end handler and the fresh
+  // announcements object (four closures) are otherwise allocated every render
+  // for nothing.
+  const handleDragEnd = reorderable
+    ? makeServerDragEndHandler(servers, onReorder)
+    : undefined;
+  const announcements = reorderable
+    ? buildReorderAnnouncements(servers)
+    : undefined;
 
   const cardProps = (server: ServerEntry) => ({
     compact,
