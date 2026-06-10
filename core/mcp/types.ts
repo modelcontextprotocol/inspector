@@ -21,7 +21,7 @@ import type {
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { InspectorLogger } from "../logging/logger.js";
+import type pino from "pino";
 import type { JsonValue } from "../json/jsonUtils.js";
 import type {
   OAuthNavigation,
@@ -524,7 +524,7 @@ export interface InspectorClientEnvironment {
    * - Node: pino file logger
    * - Browser: createRemoteLogger
    */
-  logger?: InspectorLogger;
+  logger?: pino.Logger;
 
   /**
    * OAuth environment components

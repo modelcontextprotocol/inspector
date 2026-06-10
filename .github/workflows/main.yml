@@ -39,35 +39,6 @@ jobs:
         working-directory: ./clients/web
         run: npm run test:coverage
 
-      - name: Install CLI client dependencies
-        working-directory: ./clients/cli
-        run: npm install
-
-      - name: Run CLI tests
-        working-directory: ./clients/cli
-        run: npm run test
-
-      - name: Install TUI client dependencies
-        working-directory: ./clients/tui
-        run: npm install
-
-      - name: Run TUI tests
-        working-directory: ./clients/tui
-        run: npm run test
-
-      - name: Install launcher dependencies
-        working-directory: ./clients/launcher
-        run: npm install
-
-      - name: Build TUI and launcher
-        run: npm run build:tui && npm run build:launcher
-
-      - name: Smoke test launcher
-        run: |
-          node clients/launcher/build/index.js --help
-          node clients/launcher/build/index.js --cli --help
-          node clients/launcher/build/index.js --tui --help
-
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:

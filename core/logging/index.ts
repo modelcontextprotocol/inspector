@@ -1,1 +1,1 @@
-export { silentLogger, type InspectorLogger } from "./logger.js";
+export { silentLogger } from "./logger.js";

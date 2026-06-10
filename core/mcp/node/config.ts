@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
-import { getDefaultMcpConfigPath } from "../../storage/store-io.js";
 import type {
   MCPConfig,
   MCPServerConfig,
@@ -212,24 +211,6 @@ function applyOverrides(
 
 export type ResolveServerConfigsMode = "single" | "multi";
 
-export function hasAdHocServerOptions(options: ServerConfigOptions): boolean {
-  return (
-    (options.target != null && options.target.length > 0) ||
-    Boolean(options.transport) ||
-    Boolean(options.serverUrl?.trim())
-  );
-}
-
-/** When no --config and no ad-hoc target, use ~/.mcp-inspector/mcp.json (same as web). */
-export function withDefaultConfigPath(
-  options: ServerConfigOptions,
-): ServerConfigOptions {
-  if (options.configPath?.trim() || hasAdHocServerOptions(options)) {
-    return options;
-  }
-  return { ...options, configPath: getDefaultMcpConfigPath() };
-}
-
 /**
  * Resolves server config(s) from options and mode. Used by all runners.
  * Single mode: one config (from file + overrides, or from args).
@@ -239,9 +220,11 @@ export function resolveServerConfigs(
   options: ServerConfigOptions,
   mode: ResolveServerConfigsMode,
 ): MCPServerConfig[] {
-  options = withDefaultConfigPath(options);
   const hasConfigPath = Boolean(options.configPath?.trim());
-  const hasAdHoc = hasAdHocServerOptions(options);
+  const hasAdHoc =
+    (options.target && options.target.length > 0) ||
+    Boolean(options.transport) ||
+    Boolean(options.serverUrl);
 
   if (mode === "single") {
     if (hasConfigPath && options.serverName) {
