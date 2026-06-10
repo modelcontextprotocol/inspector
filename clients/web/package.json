@@ -1,11 +1,19 @@
 {
   "name": "@modelcontextprotocol/inspector-web",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.0.0",
   "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "mcp-inspector-web": "./build/index.js"
+  },
+  "exports": {
+    ".": "./build/index.js"
+  },
   "scripts": {
     "dev": "node --import ./server/quiet-config-warnings.mjs ./node_modules/vite/bin/vite.js",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && npm run build:runner",
+    "build:runner": "tsup --config tsup.runner.config.ts",
     "lint": "eslint .",
     "format": "prettier --write src",
     "format:check": "prettier --check src",
@@ -38,6 +46,7 @@
     "ajv": "^8.17.1",
     "atomically": "^2.1.1",
     "chokidar": "^4.0.3",
+    "commander": "^13.1.0",
     "hono": "^4.12.18",
     "open": "^10.2.0",
     "pino": "^9.14.0",
@@ -77,6 +86,7 @@
     "playwright": "^1.58.2",
     "prettier": "^3.8.1",
     "storybook": "^10.2.19",
+    "tsup": "^8.5.1",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^8.0.0",

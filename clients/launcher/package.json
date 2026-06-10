@@ -1,0 +1,26 @@
+{
+  "name": "@modelcontextprotocol/inspector-launcher",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Launcher for MCP Inspector (web, CLI, TUI)",
+  "license": "MIT",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "mcp-inspector": "./build/index.js"
+  },
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "postbuild": "node scripts/make-executable.js"
+  },
+  "dependencies": {
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.4",
+    "typescript": "~5.9.3"
+  }
+}

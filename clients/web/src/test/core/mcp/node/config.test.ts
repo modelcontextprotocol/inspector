@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -170,10 +170,16 @@ describe("resolveServerConfigs — single mode", () => {
     ).toThrow(/Only stdio transport can be used with local commands/);
   });
 
-  it("rejects an empty target with no URL", () => {
-    expect(() => resolveServerConfigs({ target: [] }, "single")).toThrow(
-      /Target is required/,
-    );
+  it("uses the default config path when no target or --config is given", () => {
+    const prevHome = process.env.HOME;
+    process.env.HOME = tempDir;
+    try {
+      expect(() => resolveServerConfigs({ target: [] }, "single")).toThrow(
+        /Config file not found/,
+      );
+    } finally {
+      process.env.HOME = prevHome;
+    }
   });
 
   it("loads a named server from config", () => {
@@ -356,6 +362,26 @@ describe("resolveServerConfigs — multi mode", () => {
     const configs = resolveServerConfigs({ target: ["cmd"] }, "multi");
     expect(configs).toHaveLength(1);
     expect(configs[0]?.type).toBe("stdio");
+  });
+
+  it("loads the default config path when no args are given", () => {
+    const prevHome = process.env.HOME;
+    const homeDir = join(tempDir, "home");
+    mkdirSync(homeDir, { recursive: true });
+    const defaultConfig = join(homeDir, ".mcp-inspector", "mcp.json");
+    mkdirSync(join(homeDir, ".mcp-inspector"), { recursive: true });
+    writeFileSync(
+      defaultConfig,
+      JSON.stringify({ mcpServers: { a: { command: "a" } } }),
+    );
+    process.env.HOME = homeDir;
+    try {
+      const configs = resolveServerConfigs({}, "multi");
+      expect(configs).toHaveLength(1);
+      expect(configs[0]).toMatchObject({ type: "stdio", command: "a" });
+    } finally {
+      process.env.HOME = prevHome;
+    }
   });
 
   it("rejects ad-hoc flags alongside a config path", () => {

@@ -20,9 +20,9 @@ inspector/
 │   │   │                               #   quiet-config-warnings.mjs (--import hook for `npm run dev`: drops benign
 │   │   │                               #     node-only UNRESOLVED_IMPORT warnings Rolldown prints at config load)
 │   │   └── static/                     # sandbox_proxy.html (served by sandbox-controller for MCP Apps tab)
-│   ├── cli/                            # CLI client
-│   ├── tui/                            # TUI client
-│   ├── launcher/                       # Shared launcher
+│   ├── cli/                            # CLI client (tsup bundle, @inspector/core alias)
+│   ├── tui/                            # TUI client (Ink + React, tsup bundle)
+│   ├── launcher/                       # Shared launcher (relative imports into sibling build/ outputs)
 ├── core/                               # Shared core code (no package.json — consumed via the `@inspector/core` vite alias)
 │   ├── auth/                           # OAuth: state machine, providers, discovery, storage
 │   │   ├── browser/                    # Browser-side OAuth (sessionStorage, BrowserNavigation)
@@ -110,6 +110,9 @@ All work should be driven by items on the project board.
 - Ensure test coverage for each file is at least 90%
 - In unit tests that expect error output, suppress it from the console
 - Run unit tests with `npm run test` (or `npm run test:watch` during development) from `clients/web/`
+- Run CLI tests with `npm run test` from `clients/cli/` (builds test-servers + CLI bin first via `pretest`)
+- Run TUI tests with `npm run test` from `clients/tui/`
+- From repo root, `npm run test` runs web unit tests, then CLI and TUI tests
 - Run `npm run test:coverage` to verify the per-file gate: lines ≥ 90, statements ≥ 85, functions ≥ 80, branches ≥ 50 (CI enforces this gate). Branches is intentionally relaxed because Mantine portal/media-query branches are not exercisable under happy-dom; new business-logic branches should still be covered.
 - Run `npm run test:integration` (also from `clients/web/`) for the v1.5-ported InspectorClient + transport + auth integration suite. It runs under a separate `integration` vitest project in node env (no happy-dom) with 30s timeouts. The script builds `test-servers/` first via `tsc -p ../../test-servers --noCheck` so the stdio MCP test server can be spawned as a real subprocess. CI runs it as its own step after unit tests.
 - Test files live alongside the source as `<Name>.test.tsx` (or `.test.ts` for non-React modules). v1.5-ported integration tests live under `clients/web/src/test/integration/`, mirroring the `core/` source layout (`mcp/`, `mcp/node/`, `mcp/remote/`, `auth/`, `auth/node/`, `storage/`). Any test file under that folder is automatically picked up by the `integration` vitest project (node env, 30s timeouts) via the folder glob in `vite.config.ts` — placement is the manifest, there is no enumeration to keep in sync. Tests outside the folder run in the `unit` project (happy-dom). When adding a new test for, e.g., `core/mcp/remote/foo.ts`, put it at `src/test/integration/mcp/remote/foo.test.ts`.
