@@ -128,15 +128,7 @@ export async function runTui(args?: string[]): Promise<void> {
     return { hostname, port, pathname };
   }
 
-  let callbackUrlConfig: CallbackUrlConfig;
-  try {
-    callbackUrlConfig = parseCallbackUrl(options.callbackUrl);
-  } catch (err) {
-    if (err instanceof Error) {
-      throw err;
-    }
-    throw err;
-  }
+  const callbackUrlConfig = parseCallbackUrl(options.callbackUrl);
 
   const ansiEraseSavedLines = new RegExp(
     String.fromCharCode(0x1b) + "\\[3J",
