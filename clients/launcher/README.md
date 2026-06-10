@@ -4,8 +4,8 @@ The launcher is the package that provides the global `mcp-inspector` binary (e.g
 
 ## Responsibility
 
-- Parse the mode flag: `--web` (default), `--cli`, or `--tui`.
-- Forward the rest of `process.argv` to the chosen app.
+- Parse mode from a leading prefix of `--web` (default), `--cli`, or `--tui` immediately after the script name.
+- Forward all following arguments unchanged (including tokens that look like mode flags).
 - Dynamically import that app’s runner from `clients/{web,cli,tui}/build/index.js` (relative to the launcher build output) and call it **in-process** (no `spawn()`).
 
 All configuration parsing, config-file loading, and server setup are handled by the app runners and by **core**; the launcher does not interpret config or env vars.

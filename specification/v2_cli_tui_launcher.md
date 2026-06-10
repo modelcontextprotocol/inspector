@@ -53,10 +53,10 @@ Root scripts `inspector`, `web`, and `web:dev` are thin wrappers around the laun
 
 ## Launcher
 
-`clients/launcher/src/index.ts` parses only mode flags (`--web`, `--cli`, `--tui`; default **web**), strips the mode flag from `process.argv`, and dynamically imports the selected client's `runWeb`, `runCli`, or `runTui`.
+`clients/launcher/src/index.ts` reads mode only from a **launcher prefix**: a contiguous run of `--web`, `--cli`, or `--tui` immediately after the script name (default **web** when omitted). Prefix mode flags are stripped; everything from the first non-mode token onward is forwarded unchanged. Later tokens equal to `--web`/`--cli`/`--tui` are treated as app args (e.g. stdio server config), not launcher mode. More than one mode flag in the prefix is an error.
 
 - **No core imports** — plain TypeScript compile is sufficient.
-- **Argv forwarding** — all other flags pass through unchanged so each client's Commander parser owns server and method options.
+- **Argv forwarding** — app flags and positionals pass through unchanged so each client's Commander parser owns server and method options.
 - **Help** — `mcp-inspector --help` shows launcher help; `mcp-inspector --cli --help` forwards to CLI help.
 
 **Production web caveat:** launcher `prebuild` chains `build:runner` for web, not a full `vite build`. Running `mcp-inspector --web` (without `--dev`) requires `clients/web/dist/` from a prior `cd clients/web && npm run build`. CI builds TUI and launcher but does not currently validate prod web startup end-to-end.

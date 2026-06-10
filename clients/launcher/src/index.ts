@@ -3,6 +3,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command } from "commander";
+import { parseLauncherArgv } from "./parse-launcher-argv.js";
 
 const launcherDir = dirname(fileURLToPath(import.meta.url));
 
@@ -19,27 +20,30 @@ program
   .description("MCP Inspector – run web UI, CLI, or TUI")
   .option("--web", "Run web UI (default)")
   .option("--cli", "Run CLI")
-  .option("--tui", "Run TUI")
-  .allowUnknownOption();
+  .option("--tui", "Run TUI");
 
-program.parseOptions(process.argv);
-const opts = program.opts() as { web?: boolean; cli?: boolean; tui?: boolean };
+let parsedArgv;
+try {
+  parsedArgv = parseLauncherArgv(process.argv);
+} catch (err) {
+  const message =
+    err instanceof Error ? err.message : "Invalid launcher arguments.";
+  console.error(`Error: ${message}`);
+  process.exit(1);
+}
 
-const helpOnly = process.argv.includes("-h") || process.argv.includes("--help");
-const modeFlagSet = opts.web || opts.cli || opts.tui;
+const { mode, forwardedArgv, hasPrefixModeFlag } = parsedArgv;
 
-if (helpOnly && !modeFlagSet) {
+const helpOnly =
+  process.argv.includes("-h") || process.argv.includes("--help");
+
+if (helpOnly && !hasPrefixModeFlag) {
   program.outputHelp();
   console.log(
-    "\nAll other arguments are forwarded to the selected app. Use --web, --cli, or --tui then pass app-specific options.",
+    "\nMode flags (--web, --cli, --tui) must appear before app options. All following arguments are forwarded unchanged.",
   );
   process.exit(0);
 }
-
-const mode = opts.tui ? "tui" : opts.cli ? "cli" : "web";
-const modeFlag = opts.tui ? "--tui" : opts.cli ? "--cli" : "--web";
-// Forward argv without the launcher's mode flag so the app's Commander doesn't see unknown option
-const forwardedArgv = process.argv.filter((arg) => arg !== modeFlag);
 
 async function run(): Promise<void> {
   if (mode === "web") {
