@@ -281,6 +281,7 @@ export function ServerConfigModal({
               form.id ? (
                 <CloseButton
                   aria-label="Clear"
+                  disabled={submitting}
                   onClick={() => setForm((f) => ({ ...f, id: "" }))}
                 />
               ) : null
@@ -322,6 +323,7 @@ export function ServerConfigModal({
                   form.command ? (
                     <CloseButton
                       aria-label="Clear"
+                      disabled={submitting}
                       onClick={() => setForm((f) => ({ ...f, command: "" }))}
                     />
                   ) : null
@@ -344,6 +346,7 @@ export function ServerConfigModal({
                   form.argsText ? (
                     <CloseButton
                       aria-label="Clear"
+                      disabled={submitting}
                       onClick={() => setForm((f) => ({ ...f, argsText: "" }))}
                     />
                   ) : null
@@ -366,6 +369,7 @@ export function ServerConfigModal({
                   form.envText ? (
                     <CloseButton
                       aria-label="Clear"
+                      disabled={submitting}
                       onClick={() => setForm((f) => ({ ...f, envText: "" }))}
                     />
                   ) : null
@@ -385,6 +389,7 @@ export function ServerConfigModal({
                   form.cwd ? (
                     <CloseButton
                       aria-label="Clear"
+                      disabled={submitting}
                       onClick={() => setForm((f) => ({ ...f, cwd: "" }))}
                     />
                   ) : null
@@ -407,6 +412,7 @@ export function ServerConfigModal({
                 form.url ? (
                   <CloseButton
                     aria-label="Clear"
+                    disabled={submitting}
                     onClick={() => setForm((f) => ({ ...f, url: "" }))}
                   />
                 ) : null
