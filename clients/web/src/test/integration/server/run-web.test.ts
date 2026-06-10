@@ -107,9 +107,7 @@ describe("runWeb", () => {
     expect(startViteDevServer).toHaveBeenCalledWith(
       expect.objectContaining({ initialMcpConfig: null }),
     );
-    expect(
-      logLines.some((l) => l.includes("development mode")),
-    ).toBe(true);
+    expect(logLines.some((l) => l.includes("development mode"))).toBe(true);
   });
 
   it("resolves an ad-hoc HTTP URL into initialMcpConfig", async () => {
