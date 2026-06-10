@@ -59,8 +59,8 @@ jobs:
         working-directory: ./clients/launcher
         run: npm install
 
-      - name: Build TUI and launcher
-        run: npm run build:tui && npm run build:launcher
+      - name: Build CLI, TUI, and launcher
+        run: npm run build:cli && npm run build:tui && npm run build:launcher
 
       - name: Smoke test launcher
         run: |

@@ -11,7 +11,7 @@ export default defineConfig({
   outDir: 'build',
   clean: true,
   sourcemap: true,
-  target: 'node20',
+  target: 'node22',
   platform: 'node',
   // Bundle core source; leave npm deps external.
   noExternal: [/^@inspector\/core/],

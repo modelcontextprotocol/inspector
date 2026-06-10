@@ -38,6 +38,8 @@ This document describes how those clients are built, wired, and tested today, an
 
 Root `package.json` (`@modelcontextprotocol/inspector` v2) publishes a **fat package**: merged runtime `dependencies`, `files` manifest listing each client's `build/` (and web `dist/`), and `prepack` → full `npm run build`. The launcher does not declare `file:` sibling dependencies; it dynamically imports `../web/build/index.js`, `../cli/build/index.js`, or `../tui/build/index.js` relative to its own `build/` directory.
 
+**Published runtime deps — Vite:** `vite` and `@vitejs/plugin-react` are production `dependencies` (not devDependencies) because `mcp-inspector --web --dev` starts an in-process Vite dev server at runtime (`start-vite-dev-server.ts`). A `npx @modelcontextprotocol/inspector` install therefore pulls the Vite toolchain even for CLI/TUI-only users; that install footprint is intentional so `--web --dev` works without a separate dev setup.
+
 **Typical invocations:**
 
 ```bash
@@ -59,7 +61,9 @@ Root scripts `inspector`, `web`, and `web:dev` are thin wrappers around the laun
 - **Argv forwarding** — app flags and positionals pass through unchanged so each client's Commander parser owns server and method options.
 - **Help** — `mcp-inspector --help` shows launcher help; `mcp-inspector --cli --help` forwards to CLI help.
 
-**Production web caveat:** launcher `prebuild` chains `build:runner` for web, not a full `vite build`. Running `mcp-inspector --web` (without `--dev`) requires `clients/web/dist/` from a prior `cd clients/web && npm run build`. CI builds TUI and launcher but does not currently validate prod web startup end-to-end.
+**Production web caveat:** launcher `prebuild` chains `build:runner` for web, not a full `vite build`. Running `mcp-inspector --web` (without `--dev`) requires `clients/web/dist/` from a prior `cd clients/web && npm run build`. CI builds CLI, TUI, and launcher before the launcher smoke step but does not currently validate prod web startup end-to-end.
+
+**Build targets:** client `tsup` bundles target `node22`, aligned with root `engines.node` (`>=22.7.5`).
 
 ---
 
