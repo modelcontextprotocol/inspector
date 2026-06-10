@@ -1,7 +1,9 @@
 export {
   parseKeyValuePair,
   parseHeaderPair,
+  withDefaultConfigPath,
   resolveServerConfigs,
+  resolveLaunchServerConfigs,
   getNamedServerConfigs,
   type ServerConfigOptions,
   type ResolveServerConfigsMode,

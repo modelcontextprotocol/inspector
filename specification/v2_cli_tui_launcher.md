@@ -13,7 +13,7 @@ This document describes how those clients are built, wired, and tested today, an
 ## Goals
 
 - One published entry binary (`mcp-inspector`) that forwards argv to the selected client.
-- CLI and TUI use the same `InspectorClient`, managed-state classes, and `resolveServerConfigs()` path as v1.5 — adapted to v2's `InspectorServerSettings` model (post-#1358).
+- CLI and TUI use the same `InspectorClient`, managed-state classes, and `resolveLaunchServerConfigs()` path as v1.5 — adapted to v2's `InspectorServerSettings` model (post-#1358).
 - Bundle `core/` into CLI/TUI Node artifacts with **tsup** (analogous to Vite bundling core for the browser).
 - Port v1.5 CLI integration tests (86 cases) and TUI smoke tests without duplicating `core/` unit tests (web suite remains canonical for core).
 - CI runs CLI and TUI tests plus a launcher `--help` smoke step on every PR.
@@ -82,7 +82,7 @@ All three clients import from `@inspector/core/...` (mapped to `../../core/` sou
 | Core package | No separate `inspector-core` npm package; source-only `core/` |
 | CLI/TUI build | tsup bundles `@inspector/core` into `build/index.js` |
 | Core tests | Not duplicated under cli/tui; web unit + integration suites cover `core/` |
-| Default config path | `resolveServerConfigs()` calls `withDefaultConfigPath()` → `~/.mcp-inspector/mcp.json` when no `--config` and no ad-hoc target |
+| Default config path | `resolveLaunchServerConfigs()` applies `withDefaultConfigPath()` → `~/.mcp-inspector/mcp.json` when no `--config` and no ad-hoc target |
 
 ---
 
@@ -95,7 +95,7 @@ All three clients import from `@inspector/core/...` (mapped to `../../core/` sou
 **Server resolution:**
 
 1. Positional `[target...]` (command/URL) and/or `--config` + `--server`, plus `-e`, `--cwd`, `--transport`, `--server-url`.
-2. `resolveServerConfigs(serverOptions, "single")` in `core/mcp/node/config.ts` — applies default catalog path when appropriate.
+2. `resolveLaunchServerConfigs(serverOptions, "single")` in `core/mcp/node/config.ts` — applies default catalog path when appropriate.
 3. Ad-hoc `--header` pairs map to `InspectorServerSettings` and pass into `InspectorClient` via `serverSettings` (not `MCPServerConfig.headers`).
 
 **Gap — config-file settings:** when loading from a config file, CLI uses `loadServerFromConfig()` / bare `MCPServerConfig` only. Persisted `headers`, timeouts, and OAuth fields on disk (post-#1358 flat entry shape) are **not** lifted into `serverSettings`. TUI uses `mcpConfigToServerEntries()` and does lift them. Ad-hoc `--header` on CLI works; file-backed settings do not.
@@ -113,8 +113,8 @@ All three clients import from `@inspector/core/...` (mapped to `../../core/` sou
 **Server resolution:** `loadTuiServers()` in `clients/tui/src/tui-servers.ts`:
 
 - **Config file path:** reads JSON, runs `mcpConfigToServerEntries()` — returns `{ config, settings }` per server (correct post-#1358 path; matches web `useServers`).
-- **Ad-hoc:** `resolveServerConfigs(..., "multi")` for a single inline server; merges launch-time `--header` into `settings`.
-- Applies `withDefaultConfigPath()` before resolution.
+- **Catalog file:** applies `withDefaultConfigPath()` before reading the file (default catalog when no `--config` or ad-hoc target).
+- **Ad-hoc:** `resolveLaunchServerConfigs(..., "multi")` for a single inline server; merges launch-time `--header` into `settings`.
 
 **Core hooks:** TUI uses the same managed-state and `useInspectorClient` patterns as web (`ManagedToolsState`, etc.) inside Ink components.
 
@@ -131,7 +131,7 @@ All three clients import from `@inspector/core/...` (mapped to `../../core/` sou
 The launcher `--web` path does not start Vite via the `npm run dev` script. It calls `runWeb(argv)` from `clients/web/server/run-web.ts`, which:
 
 1. Parses the same server-selection flags as CLI/TUI (`--config`, `--server`, positional target, `-e`, `--cwd`, `--transport`, `--server-url`, `--header`, `--dev`).
-2. Resolves one `MCPServerConfig` via `resolveServerConfigs()` when server input is present.
+2. Resolves one `MCPServerConfig` via `resolveServerConfigs()` (explicit options only — no default catalog injection) when server input is present.
 3. Passes `initialMcpConfig` into `buildWebServerConfig()` → `GET /api/config` legacy channel.
 4. Starts `startViteDevServer()` (`--dev`) or `startHonoServer()` (prod).
 
@@ -225,7 +225,7 @@ Root `npm run validate` currently runs web validate only; extending it to CLI/TU
 - `clients/cli/src/cli.ts` — CLI parsing, `InspectorClient` one-shot flow
 - `clients/tui/src/tui-servers.ts` — config + settings load path (correct for v2)
 - `clients/web/server/run-web.ts` — launcher web entry
-- `core/mcp/node/config.ts` — `resolveServerConfigs`, `withDefaultConfigPath`
+- `core/mcp/node/config.ts` — `resolveLaunchServerConfigs`, `resolveServerConfigs`, `withDefaultConfigPath`
 - `core/mcp/serverList.ts` — `mcpConfigToServerEntries`
 - `vitest.shared.mts` — shared Vitest aliases
 - [v2_catalog_launch_config.md](v2_catalog_launch_config.md) — catalog and launch config, import, UC1–UC5

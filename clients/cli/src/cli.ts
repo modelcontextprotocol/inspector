@@ -18,7 +18,7 @@ import {
 } from "@inspector/core/mcp/state/index.js";
 import {
   createTransportNode,
-  resolveServerConfigs,
+  resolveLaunchServerConfigs,
   parseKeyValuePair as parseEnvPair,
   parseHeaderPair,
 } from "@inspector/core/mcp/node/index.js";
@@ -392,7 +392,7 @@ function parseArgs(argv?: string[]): {
     env: options.e,
   };
 
-  const configs = resolveServerConfigs(serverOptions, "single");
+  const configs = resolveLaunchServerConfigs(serverOptions, "single");
   const serverConfig = configs[0];
   if (!serverConfig) {
     throw new Error(

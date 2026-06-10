@@ -31,7 +31,7 @@
 
 ## Summary
 
-v2 treats `~/.mcp-inspector/mcp.json` as the default **catalog** — a persistent, Inspector-owned grouping of MCP servers. The web client loads and mutates it via `/api/servers`. CLI and TUI resolve servers from that path when launch args omit both `--config` and ad-hoc targets (`withDefaultConfigPath()` in `core/mcp/node/config.ts`).
+v2 treats `~/.mcp-inspector/mcp.json` as the default **catalog** — a persistent, Inspector-owned grouping of MCP servers. The web client loads and mutates it via `/api/servers`. CLI and TUI resolve servers from that path when launch args omit both `--config` and ad-hoc targets (`resolveLaunchServerConfigs()` / `withDefaultConfigPath()` in `core/mcp/node/config.ts`).
 
 This specification defines **launch-time configuration** across web, CLI, and TUI: how `--catalog`, `--config`, `--server`, and ad-hoc flags select a server list; which paths are writable; and how import differs from session launch. On-disk catalog format and web CRUD are specified in [Server List File](v2_servers_file.md). CLI/TUI/launcher build and per-client implementation gaps are in [CLI, TUI, and Launcher](v2_cli_tui_launcher.md).
 
@@ -73,7 +73,7 @@ This specification defines **launch-time configuration** across web, CLI, and TU
 | **`--catalog`** | Selects the **active catalog** for this run (`writable: true`). Omitted → default path (UC1). |
 | **Alternate config file** | Any JSON passed via `--config <path>` without catalog intent. **Read-only, run-scoped** server set (UC3). Inspector does not write to this path. |
 | **Canonical catalog format** | Normalized `MCPConfig` / `ServerEntry[]` after `normalizeServerType`, `normalizeMcpServers`, and `mcpConfigToServerEntries` — the only shape written to a catalog. |
-| **Catalog lookup** | `--server <name>` with no `--config` and no ad-hoc target. `withDefaultConfigPath()` injects the catalog path, then the named entry is resolved. |
+| **Catalog lookup** | `--server <name>` with no `--config` and no ad-hoc target. `resolveLaunchServerConfigs()` injects the catalog path via `withDefaultConfigPath()`, then the named entry is resolved. |
 | **Ad-hoc / inline config** | Positional command/URL and/or `--transport`, `--server-url`, `-e`, `--cwd`, `--header` without `--config`. Ephemeral unless the user persists via CRUD or import. |
 | **Launch-time initial config (web)** | `initialMcpConfig` from `runWeb(argv)` → `GET /api/config`. Legacy v1.5 channel; largely unused by the v2 web UI today (G2). |
 
@@ -247,7 +247,7 @@ Optional import flags (target): `--on-conflict skip|error|replace`.
 
 ## Background (v1.5)
 
-v1.5 (`docs/mcp-server-configuration.md`) had no default catalog: omitting `--config` and positional args failed resolution. Config-file `headers` lived on `MCPServerConfig`. Web had no file-backed list — launcher argv became `initialMcpConfig` for form pre-fill only. v2 adds the persistent catalog ([Server List File](v2_servers_file.md)), flat on-disk settings (post-#1358), and `withDefaultConfigPath()` for CLI/TUI/web runners.
+v1.5 (`docs/mcp-server-configuration.md`) had no default catalog: omitting `--config` and positional args failed resolution. Config-file `headers` lived on `MCPServerConfig`. Web had no file-backed list — launcher argv became `initialMcpConfig` for form pre-fill only. v2 adds the persistent catalog ([Server List File](v2_servers_file.md)), flat on-disk settings (post-#1358), and `resolveLaunchServerConfigs()` for CLI/TUI launch resolution.
 
 ---
 
@@ -288,7 +288,7 @@ Centralization belongs in **core**, not the launcher. Today:
 | **Canonical conversion** | `mcpConfigToServerEntries` | Same |
 | **TUI** | `loadTuiServers` — full settings; no `writable` | `resolveServerList`; gate UI on `writable` |
 | **Web** | `useServers` → always default catalog; CRUD always on | `/api/servers` returns session or catalog list + `writable` |
-| **CLI** | Single server via `resolveServerConfigs` | `resolveSingleServer` from same normalizer |
+| **CLI** | Single server via `resolveLaunchServerConfigs` | `resolveSingleServer` from same normalizer |
 | **Launcher** | Forwards argv | Unchanged |
 
 Import is not a list-client concern — catalog mutation via UC2 or web CRUD when `writable`.
@@ -311,21 +311,33 @@ Import is not a list-client concern — catalog mutation via UC2 or web CRUD whe
 
 CLI connects to exactly one resolved config per invocation; TUI shows all entries from the resolved list. Resolution paths, settings lift, and port gaps are documented in [v2_cli_tui_launcher.md](v2_cli_tui_launcher.md). Key catalog-specific gaps: **G1** (CLI drops disk settings on catalog/file lookup), **G4** (web `runWeb --header` warns only).
 
-### Shared resolver (`resolveServerConfigs`)
+### Shared resolvers (`resolveLaunchServerConfigs` / `resolveServerConfigs`)
+
+CLI and TUI call `resolveLaunchServerConfigs()` at launch; it applies `withDefaultConfigPath()` then delegates to `resolveServerConfigs()`:
 
 ```
 withDefaultConfigPath(options)
   → if no --config and no ad-hoc target: configPath = ~/.mcp-inspector/mcp.json
 
-single mode (CLI):
-  configPath + serverName → loadServerFromConfig (MCPServerConfig only — G1)
-  configPath, no serverName → sole entry or error if multiple
-  ad-hoc → buildConfigFromOptions
-
-multi mode (TUI):
-  configPath → all entries via mcpConfigToServerEntries (settings lifted)
-  ad-hoc → one config
+resolveServerConfigs(options, mode)  — explicit options only; no default injection
 ```
+
+**single mode (CLI):**
+
+```
+configPath + serverName → loadServerFromConfig (MCPServerConfig only — G1)
+configPath, no serverName → sole entry or error if multiple
+ad-hoc → buildConfigFromOptions
+```
+
+**multi mode (TUI):**
+
+```
+configPath → all entries via mcpConfigToServerEntries (settings lifted) in loadTuiServers
+ad-hoc → resolveLaunchServerConfigs(..., "multi")
+```
+
+Web `runWeb` uses `resolveServerConfigs()` directly (explicit server argv only); catalog path is backend-owned until launch-config unification.
 
 `loadServerFromConfig` returns bare `MCPServerConfig`. Only `mcpConfigToServerEntries()` lifts flat disk fields into `InspectorServerSettings`.
 
@@ -494,7 +506,7 @@ G1, G4, and launcher details: [v2_cli_tui_launcher.md](v2_cli_tui_launcher.md).
 
 | Issue | Status | Relevance |
 |-------|--------|-----------|
-| [#1347](https://github.com/modelcontextprotocol/inspector/issues/1347) — default `--config` | Open (likely closable) | Implemented via `withDefaultConfigPath()` |
+| [#1347](https://github.com/modelcontextprotocol/inspector/issues/1347) — default `--config` | Open (likely closable) | Implemented via `resolveLaunchServerConfigs()` |
 | [#1246](https://github.com/modelcontextprotocol/inspector/issues/1246) — port CLI/TUI/launcher | Done in worktree | Parent of default-catalog behavior |
 | [#1183](https://github.com/modelcontextprotocol/inspector/issues/1183) — auto-connect | Open | UC5 web ergonomics |
 | [#1348](https://github.com/modelcontextprotocol/inspector/issues/1348) — import from other clients | Open | UC2 web UI |
@@ -510,7 +522,7 @@ G1, G4, and launcher details: [v2_cli_tui_launcher.md](v2_cli_tui_launcher.md).
 - [v2_servers_file.md](v2_servers_file.md) — catalog format, CRUD, settings on disk
 - [v2_cli_tui_launcher.md](v2_cli_tui_launcher.md) — CLI/TUI/launcher architecture and port gaps
 - [v2_ux.md](v2_ux.md) — Import config vs Import server.json UX
-- `core/mcp/node/config.ts` — `withDefaultConfigPath`, `resolveServerConfigs`
+- `core/mcp/node/config.ts` — `withDefaultConfigPath`, `resolveLaunchServerConfigs`, `resolveServerConfigs`
 - `core/mcp/serverList.ts` — `mcpConfigToServerEntries`
 - `clients/tui/src/tui-servers.ts` — TUI catalog + settings load path
 - `clients/cli/src/cli.ts` — single-config resolve; settings gap (G1)

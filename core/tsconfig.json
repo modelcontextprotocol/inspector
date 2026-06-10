@@ -1,0 +1,16 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "typeRoots": ["../clients/web/node_modules/@types"]
+  },
+  "include": [
+    "mcp/**/*.ts",
+    "storage/**/*.ts",
+    "auth/**/*.ts",
+    "json/**/*.ts",
+    "logging/**/*.ts"
+  ],
+  "exclude": ["node_modules", "**/__tests__/**", "react/**"]
+}

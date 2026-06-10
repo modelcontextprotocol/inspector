@@ -5,7 +5,9 @@ import { join } from "node:path";
 import {
   parseKeyValuePair,
   parseHeaderPair,
+  withDefaultConfigPath,
   resolveServerConfigs,
+  resolveLaunchServerConfigs,
   getNamedServerConfigs,
 } from "@inspector/core/mcp/node/config.js";
 
@@ -54,6 +56,86 @@ describe("parseHeaderPair", () => {
     expect(() => parseHeaderPair("X-Test")).toThrow(/Invalid header format/);
     expect(() => parseHeaderPair(": value")).toThrow(/Invalid header format/);
     expect(() => parseHeaderPair("X:")).toThrow(/Invalid header format/);
+  });
+});
+
+describe("withDefaultConfigPath", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "inspector-config-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("leaves options unchanged when --config or ad-hoc target is present", () => {
+    expect(withDefaultConfigPath({ configPath: "/tmp/mcp.json" })).toEqual({
+      configPath: "/tmp/mcp.json",
+    });
+    expect(withDefaultConfigPath({ target: ["node", "server.js"] })).toEqual({
+      target: ["node", "server.js"],
+    });
+  });
+
+  it("injects the default catalog path when no config or ad-hoc target is given", () => {
+    const prevHome = process.env.HOME;
+    const homeDir = join(tempDir, "home");
+    mkdirSync(homeDir, { recursive: true });
+    process.env.HOME = homeDir;
+    try {
+      const options = withDefaultConfigPath({});
+      expect(options.configPath).toBe(
+        join(homeDir, ".mcp-inspector", "mcp.json"),
+      );
+    } finally {
+      process.env.HOME = prevHome;
+    }
+  });
+});
+
+describe("resolveLaunchServerConfigs", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "inspector-config-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("uses the default catalog when no target or --config is given", () => {
+    const prevHome = process.env.HOME;
+    process.env.HOME = tempDir;
+    try {
+      expect(() =>
+        resolveLaunchServerConfigs({ target: [] }, "single"),
+      ).toThrow(/Config file not found/);
+    } finally {
+      process.env.HOME = prevHome;
+    }
+  });
+
+  it("loads all servers from the default catalog in multi mode", () => {
+    const prevHome = process.env.HOME;
+    const homeDir = join(tempDir, "home");
+    mkdirSync(homeDir, { recursive: true });
+    const defaultConfig = join(homeDir, ".mcp-inspector", "mcp.json");
+    mkdirSync(join(homeDir, ".mcp-inspector"), { recursive: true });
+    writeFileSync(
+      defaultConfig,
+      JSON.stringify({ mcpServers: { a: { command: "a" } } }),
+    );
+    process.env.HOME = homeDir;
+    try {
+      const configs = resolveLaunchServerConfigs({}, "multi");
+      expect(configs).toHaveLength(1);
+      expect(configs[0]).toMatchObject({ type: "stdio", command: "a" });
+    } finally {
+      process.env.HOME = prevHome;
+    }
   });
 });
 
@@ -170,16 +252,10 @@ describe("resolveServerConfigs — single mode", () => {
     ).toThrow(/Only stdio transport can be used with local commands/);
   });
 
-  it("uses the default config path when no target or --config is given", () => {
-    const prevHome = process.env.HOME;
-    process.env.HOME = tempDir;
-    try {
-      expect(() => resolveServerConfigs({ target: [] }, "single")).toThrow(
-        /Config file not found/,
-      );
-    } finally {
-      process.env.HOME = prevHome;
-    }
+  it("requires a target when no config path is given", () => {
+    expect(() => resolveServerConfigs({ target: [] }, "single")).toThrow(
+      /Target is required/,
+    );
   });
 
   it("loads a named server from config", () => {
@@ -364,24 +440,10 @@ describe("resolveServerConfigs — multi mode", () => {
     expect(configs[0]?.type).toBe("stdio");
   });
 
-  it("loads the default config path when no args are given", () => {
-    const prevHome = process.env.HOME;
-    const homeDir = join(tempDir, "home");
-    mkdirSync(homeDir, { recursive: true });
-    const defaultConfig = join(homeDir, ".mcp-inspector", "mcp.json");
-    mkdirSync(join(homeDir, ".mcp-inspector"), { recursive: true });
-    writeFileSync(
-      defaultConfig,
-      JSON.stringify({ mcpServers: { a: { command: "a" } } }),
+  it("requires a target when no config path is given", () => {
+    expect(() => resolveServerConfigs({}, "multi")).toThrow(
+      /Target is required/,
     );
-    process.env.HOME = homeDir;
-    try {
-      const configs = resolveServerConfigs({}, "multi");
-      expect(configs).toHaveLength(1);
-      expect(configs[0]).toMatchObject({ type: "stdio", command: "a" });
-    } finally {
-      process.env.HOME = prevHome;
-    }
   });
 
   it("rejects ad-hoc flags alongside a config path", () => {

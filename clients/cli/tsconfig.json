@@ -1,8 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "./build",
-    "rootDir": "./src",
+    "noEmit": true,
     "baseUrl": ".",
     "paths": {
       "@inspector/core/*": ["../../core/*"]

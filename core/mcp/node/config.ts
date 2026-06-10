@@ -231,7 +231,7 @@ export function withDefaultConfigPath(
 }
 
 /**
- * Resolves server config(s) from options and mode. Used by all runners.
+ * Resolves server config(s) from explicit options and mode.
  * Single mode: one config (from file + overrides, or from args).
  * Multi mode: all servers from file (with optional env/cwd/headers overrides), or one from args; errors if config path + transport/serverUrl/positional.
  */
@@ -239,7 +239,6 @@ export function resolveServerConfigs(
   options: ServerConfigOptions,
   mode: ResolveServerConfigsMode,
 ): MCPServerConfig[] {
-  options = withDefaultConfigPath(options);
   const hasConfigPath = Boolean(options.configPath?.trim());
   const hasAdHoc = hasAdHocServerOptions(options);
 
@@ -301,6 +300,17 @@ export function resolveServerConfigs(
   }
 
   return [];
+}
+
+/**
+ * Launch-time resolver for CLI/TUI: applies the default catalog path when no
+ * `--config` or ad-hoc target is given, then delegates to `resolveServerConfigs`.
+ */
+export function resolveLaunchServerConfigs(
+  options: ServerConfigOptions,
+  mode: ResolveServerConfigsMode,
+): MCPServerConfig[] {
+  return resolveServerConfigs(withDefaultConfigPath(options), mode);
 }
 
 /**
