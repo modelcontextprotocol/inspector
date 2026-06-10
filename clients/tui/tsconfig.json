@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "outDir": "./build",
+    "rootDir": ".",
+    "baseUrl": ".",
+    "paths": {
+      "@inspector/core/*": ["../../core/*"]
+    }
+  },
+  "include": ["index.ts", "tui.tsx", "src/**/*"],
+  "exclude": ["node_modules", "**/*.test.ts", "build"]
+}

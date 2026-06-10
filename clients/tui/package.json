@@ -1,0 +1,51 @@
+{
+  "name": "@modelcontextprotocol/inspector-tui",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Terminal User Interface (TUI) for the Model Context Protocol inspector",
+  "license": "MIT",
+  "type": "module",
+  "main": "build/index.js",
+  "exports": {
+    ".": "./build/index.js"
+  },
+  "bin": {
+    "mcp-inspector-tui": "./build/index.js"
+  },
+  "files": [
+    "build",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "vite-node --config vitest.config.ts dev.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "ajv": "^8.17.1",
+    "atomically": "^2.1.1",
+    "commander": "^13.1.0",
+    "ink": "^6.0.0",
+    "ink-form": "^2.0.1",
+    "ink-scroll-view": "^0.3.6",
+    "open": "^10.2.0",
+    "pino": "^9.14.0",
+    "react": "^19.2.4",
+    "zod": "^4.3.6",
+    "zustand": "^5.0.13"
+  },
+  "overrides": {
+    "ink-select-input": "^6.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.4",
+    "@types/react": "^19.2.14",
+    "tsup": "^8.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.16",
+    "vite-node": "^6.0.0",
+    "vitest": "^4.1.0"
+  }
+}

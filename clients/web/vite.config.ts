@@ -10,70 +10,10 @@ import { playwright } from '@vitest/browser-playwright';
 import { honoMiddlewarePlugin } from './server/vite-hono-plugin';
 import { getViteBaseConfig } from './server/vite-base-config';
 import { buildWebServerConfigFromEnv } from './server/web-server-config';
+import { vitestSharedPaths } from '../../vitest.shared.mts';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(dirname, '../..');
-
-// Aliases shared between the top-level resolve and the vitest projects.
-// Vitest projects don't inherit `resolve` from the parent, so the unit and
-// integration projects redeclare them — keeping a single source here prevents
-// them from drifting (e.g. if a new core/* alias is added).
-const sharedAliases = {
-  '@inspector/core': path.resolve(dirname, '../../core'),
-  // Point at the BUILT test-servers entry, not src/, so that any test which
-  // calls `getTestMcpServerPath()` (via `fileURLToPath(import.meta.url)`)
-  // resolves to a `.js` path Node can spawn directly as a subprocess. The
-  // integration tests build test-servers via `npm run test:integration`
-  // (or `npm run test-servers:build`) before running.
-  '@modelcontextprotocol/inspector-test-server': path.resolve(dirname, '../../test-servers/build/index.js'),
-};
-const sharedDedupe = [
-  'react',
-  'react-dom',
-  // The SDK is installed under both clients/web/node_modules and the repo
-  // root's node_modules (hoisted by npm). Without dedupe, source files in
-  // core/ (no local node_modules) resolve to the root copy while test files
-  // resolve to the clients/web copy — splitting class identity and breaking
-  // vi.mock() / instanceof checks (see #1307).
-  '@modelcontextprotocol/sdk',
-];
-
-// Bare-module aliases needed when running tests from repoRoot (which has no
-// node_modules of its own). Shared between the unit and integration projects.
-// Use anchored regex `find` patterns so each package's own `exports` field
-// handles subpath resolution.
-const nodeModulesAliases = [
-  { find: /^react$/, replacement: path.resolve(dirname, 'node_modules/react') },
-  { find: /^pino$/, replacement: path.resolve(dirname, 'node_modules/pino') },
-  { find: /^pino\/browser\.js$/, replacement: path.resolve(dirname, 'node_modules/pino/browser.js') },
-  { find: /^zustand$/, replacement: path.resolve(dirname, 'node_modules/zustand') },
-  { find: /^zustand\/middleware$/, replacement: path.resolve(dirname, 'node_modules/zustand/middleware.js') },
-  { find: /^zustand\/vanilla$/, replacement: path.resolve(dirname, 'node_modules/zustand/vanilla.js') },
-  { find: /^hono$/, replacement: path.resolve(dirname, 'node_modules/hono/dist/index.js') },
-  { find: /^hono\/streaming$/, replacement: path.resolve(dirname, 'node_modules/hono/dist/helper/streaming/index.js') },
-  { find: /^@hono\/node-server$/, replacement: path.resolve(dirname, 'node_modules/@hono/node-server') },
-  { find: /^atomically$/, replacement: path.resolve(dirname, 'node_modules/atomically') },
-  { find: /^chokidar$/, replacement: path.resolve(dirname, 'node_modules/chokidar') },
-  { find: /^@napi-rs\/keyring$/, replacement: path.resolve(dirname, 'node_modules/@napi-rs/keyring') },
-  { find: /^express$/, replacement: path.resolve(dirname, 'node_modules/express') },
-  { find: /^yaml$/, replacement: path.resolve(dirname, 'node_modules/yaml') },
-  // Pin the SDK auth subpath so test and source resolve to the exact same
-  // module ID. Without this, the source's `import` from core/auth/*.ts and
-  // the test's `vi.mock(...)` can resolve through different cache keys in
-  // Vitest's transformer pipeline — the mock then fails to intercept the
-  // source-side import (see #1307).
-  { find: /^@modelcontextprotocol\/sdk\/client\/auth\.js$/, replacement: path.resolve(dirname, 'node_modules/@modelcontextprotocol/sdk/dist/esm/client/auth.js') },
-];
-
-// Project resolve config shared between the unit and integration projects.
-// sharedAliases come first as exact-match entries, then the bare-module
-// regex aliases that node-style imports from core/ rely on.
-const projectResolve = {
-  alias: [
-    ...Object.entries(sharedAliases).map(([find, replacement]) => ({ find, replacement })),
-    ...nodeModulesAliases,
-  ],
-  dedupe: sharedDedupe,
-};
+const { repoRoot, sharedDedupe, nodeModulesAliases, projectResolve, sharedAliases } =
+  vitestSharedPaths(dirname);
 
 // Integration tests live under clients/web/src/test/integration/ and run in
 // the node-env vitest project below. The folder is the manifest: anything

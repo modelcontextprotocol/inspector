@@ -119,8 +119,7 @@ import {
 } from "./urlElicitation.js";
 import type { AuthGuidedState, OAuthStep } from "../auth/types.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
-import type pino from "pino";
-import { silentLogger } from "../logging/logger.js";
+import { silentLogger, type InspectorLogger } from "../logging/logger.js";
 import { createFetchTracker } from "./fetchTracking.js";
 import { OAuthManager, type OAuthManagerConfig } from "./oauthManager.js";
 
@@ -197,7 +196,7 @@ export class InspectorClient extends InspectorClientEventTarget {
   private receiverTaskRecords: Map<string, ReceiverTaskRecord> = new Map();
   // OAuth support (config owned by oauthManager; client delegates and uses !!oauthManager for "is OAuth configured")
   private oauthManager: OAuthManager | null = null;
-  private logger: pino.Logger;
+  private logger: InspectorLogger;
   private transportClientFactory: CreateTransport;
   private fetchFn?: typeof fetch;
   private effectiveAuthFetch: typeof fetch;

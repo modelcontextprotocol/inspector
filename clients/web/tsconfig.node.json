@@ -46,5 +46,5 @@
       "@napi-rs/keyring": ["./node_modules/@napi-rs/keyring"]
     }
   },
-  "include": ["vite.config.ts", "server/**/*.ts"]
+  "include": ["vite.config.ts", "tsup.runner.config.ts", "server/**/*.ts"]
 }
