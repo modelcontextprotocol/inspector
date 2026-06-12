@@ -10,7 +10,7 @@ import {
   Title,
   useComputedColorScheme,
 } from "@mantine/core";
-import { useMediaQuery } from "@mantine/hooks";
+import { useElementSize, useMediaQuery } from "@mantine/hooks";
 import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
 import { MdLightMode, MdDarkMode, MdLinkOff } from "react-icons/md";
 import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
@@ -124,11 +124,22 @@ function toFadingTabData(tabs: string[]) {
   return tabs.map((tab) => ({ value: tab, label: <TabLabel>{tab}</TabLabel> }));
 }
 
+// Clips the SegmentedControl to an animated width (theme `tabBar` variant,
+// #1450). The runtime `width` is supplied per-render from the measured
+// control size; the static `display`/`overflow`/`transition` live in the
+// variant.
+const TabBarClip = Group.withProps({ variant: "tabBar" });
+
 export function ViewHeader(props: ViewHeaderProps) {
   const colorScheme = useComputedColorScheme();
   const ThemeIcon = colorScheme === "dark" ? MdLightMode : MdDarkMode;
   const showSegmented = useMediaQuery("(min-width: 992px)");
   const showDisconnectLabel = useMediaQuery("(min-width: 768px)");
+  // Measures the SegmentedControl's border-box width so the clip wrapper can
+  // animate between sizes when a tab is added or removed (#1450). Falls back
+  // to auto width until the observer first reports (e.g. environments without
+  // ResizeObserver), so the bar still renders at its natural size.
+  const { ref: tabBarRef, width: tabBarWidth } = useElementSize();
 
   if (!props.connected) {
     return (
@@ -155,12 +166,20 @@ export function ViewHeader(props: ViewHeaderProps) {
 
       <CenterSection>
         {showSegmented ? (
-          <SegmentedControl
-            value={props.activeTab}
-            onChange={props.onTabChange}
-            data={toFadingTabData(props.availableTabs)}
-            size="sm"
-          />
+          // `style={{ width }}` is the runtime measured size driving the
+          // width transition — the static clip styles live in the `tabBar`
+          // variant. `w="max-content"` keeps the control at its natural width
+          // so the measurement (and clip) reflect the true content size.
+          <TabBarClip style={{ width: tabBarWidth || undefined }}>
+            <SegmentedControl
+              ref={tabBarRef}
+              w="max-content"
+              value={props.activeTab}
+              onChange={props.onTabChange}
+              data={toFadingTabData(props.availableTabs)}
+              size="sm"
+            />
+          </TabBarClip>
         ) : (
           <Select
             value={props.activeTab}
