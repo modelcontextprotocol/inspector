@@ -5,6 +5,7 @@ import type {
   InitializeResult,
   Prompt,
   Resource,
+  Task,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
@@ -167,13 +168,20 @@ const sampleAppTool: Tool = {
   _meta: { ui: { resourceUri: "ui://apps/ops" } },
 };
 
-// Prompts and Resources tabs are content-gated like Apps (#1450): each is
-// hidden until its list has an entry. These fixtures populate the lists so the
-// associated tab is available.
+// Prompts, Resources, and Tasks tabs are content-gated like Apps (#1450):
+// each is hidden until its list has an entry. These fixtures populate the
+// lists so the associated tab is available.
 const samplePrompt: Prompt = { name: "greet" };
 const sampleResource: Resource = {
   uri: "file:///readme.md",
   name: "README",
+};
+const sampleTask: Task = {
+  taskId: "d0b22eba71fa36229ce5c4dfadeaa7de",
+  status: "working",
+  ttl: 300000,
+  createdAt: "2026-03-29T20:18:20Z",
+  lastUpdatedAt: "2026-03-29T20:18:22Z",
 };
 
 describe("InspectorView", () => {
@@ -645,6 +653,72 @@ describe("InspectorView", () => {
     await waitFor(async () => {
       radios = await screen.findAllByRole("radio");
       expect(radios.map((r) => r.getAttribute("value"))).toContain("Resources");
+    });
+  });
+
+  it("hides the Tasks tab when the server has created no tasks", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tasks: [],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Tools");
+    expect(labels).not.toContain("Tasks");
+  });
+
+  it("shows the Tasks tab when at least one task exists", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tasks: [sampleTask],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).toContain("Tasks");
+  });
+
+  it("reveals the Tasks tab live when a task is created", async () => {
+    const { rerender } = renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tasks: [],
+        })}
+      />,
+    );
+    let radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).not.toContain("Tasks");
+
+    rerender(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tasks: [sampleTask],
+        })}
+      />,
+    );
+    await waitFor(async () => {
+      radios = await screen.findAllByRole("radio");
+      expect(radios.map((r) => r.getAttribute("value"))).toContain("Tasks");
     });
   });
 
