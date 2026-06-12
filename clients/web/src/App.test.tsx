@@ -659,7 +659,7 @@ describe("App pending server-initiated request modal", () => {
 
     // Resolving via the modal calls the queued request's respond() — this is
     // what unblocks the originating call (the "spinner clears" criterion).
-    await user.click(screen.getByRole("button", { name: "Auto-respond" }));
+    await user.click(screen.getByRole("button", { name: "Send Response" }));
     expect(respond).toHaveBeenCalledTimes(1);
 
     // The client clearing its queue (empty event) closes the modal.

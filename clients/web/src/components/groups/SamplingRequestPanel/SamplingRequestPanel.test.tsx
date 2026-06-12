@@ -50,7 +50,6 @@ const imageDraft: CreateMessageResult = {
 
 const baseProps = {
   onResultChange: vi.fn(),
-  onAutoRespond: vi.fn(),
   onSend: vi.fn(),
   onReject: vi.fn(),
 };
@@ -201,9 +200,8 @@ describe("SamplingRequestPanel", () => {
     expect(onResultChange).toHaveBeenCalled();
   });
 
-  it("invokes onAutoRespond, onSend, and onReject when their buttons are clicked", async () => {
+  it("invokes onSend and onReject when their buttons are clicked", async () => {
     const user = userEvent.setup();
-    const onAutoRespond = vi.fn();
     const onSend = vi.fn();
     const onReject = vi.fn();
     renderWithMantine(
@@ -211,15 +209,12 @@ describe("SamplingRequestPanel", () => {
         {...baseProps}
         request={simpleRequest}
         draftResult={blankDraft}
-        onAutoRespond={onAutoRespond}
         onSend={onSend}
         onReject={onReject}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Auto-respond" }));
     await user.click(screen.getByRole("button", { name: "Send Response" }));
     await user.click(screen.getByRole("button", { name: "Reject" }));
-    expect(onAutoRespond).toHaveBeenCalledTimes(1);
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(onReject).toHaveBeenCalledTimes(1);
   });

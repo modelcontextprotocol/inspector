@@ -238,7 +238,6 @@ export const WithSamplingModal: Story = {
             model: "claude-sonnet-4-20250514",
           }}
           onResultChange={fn()}
-          onAutoRespond={fn()}
           onSend={fn()}
           onReject={fn()}
         />

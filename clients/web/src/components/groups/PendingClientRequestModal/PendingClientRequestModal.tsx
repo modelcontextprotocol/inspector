@@ -55,8 +55,8 @@ const TitleText = Text.withProps({ fw: 600 });
 const QueueLabel = Text.withProps({ size: "xs", c: "dimmed" });
 
 /**
- * The stub result pre-filled into a sampling draft. "Auto-respond" sends this
- * as-is; "Send Response" sends whatever the user edited it into.
+ * The stub result pre-filled into a sampling draft. "Send Response" sends this
+ * as-is when untouched, or whatever the user edited it into.
  */
 function createDefaultSamplingResult(): CreateMessageResult {
   return {
@@ -119,7 +119,6 @@ function SamplingModalBody({
       request={request}
       draftResult={draftResult}
       onResultChange={setDraftResult}
-      onAutoRespond={once(() => onRespond(createDefaultSamplingResult()))}
       onSend={once(() => onRespond(draftResult))}
       onReject={once(onReject)}
       busy={responded}
