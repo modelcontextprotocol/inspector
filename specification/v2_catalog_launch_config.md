@@ -334,7 +334,7 @@ ad-hoc → buildConfigFromOptions
 
 ```
 configPath → all entries via mcpConfigToServerEntries (settings lifted) in loadTuiServers
-ad-hoc → resolveLaunchServerConfigs(..., "multi")
+ad-hoc → resolveServerConfigs(..., "multi") in loadTuiServers
 ```
 
 Web `runWeb` uses `resolveServerConfigs()` directly (explicit server argv only); catalog path is backend-owned until launch-config unification.

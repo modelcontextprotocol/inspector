@@ -118,7 +118,7 @@ All three clients import from `@inspector/core/...` (mapped to `../../core/` sou
 
 - **Config file path:** reads JSON, runs `mcpConfigToServerEntries()` — returns `{ config, settings }` per server (correct post-#1358 path; matches web `useServers`).
 - **Catalog file:** applies `withDefaultConfigPath()` before reading the file (default catalog when no `--config` or ad-hoc target).
-- **Ad-hoc:** `resolveLaunchServerConfigs(..., "multi")` for a single inline server; merges launch-time `--header` into `settings`.
+- **Ad-hoc:** `resolveServerConfigs(..., "multi")` for a single inline server (default catalog already applied above); merges launch-time `--header` into `settings`.
 
 **Core hooks:** TUI uses the same managed-state and `useInspectorClient` patterns as web (`ManagedToolsState`, etc.) inside Ink components.
 

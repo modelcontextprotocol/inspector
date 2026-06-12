@@ -9,7 +9,7 @@ import type {
 import { DEFAULT_TASK_TTL_MS } from "@inspector/core/mcp/types.js";
 import { mcpConfigToServerEntries } from "@inspector/core/mcp/serverList.js";
 import {
-  resolveLaunchServerConfigs,
+  resolveServerConfigs,
   withDefaultConfigPath,
   type ServerConfigOptions,
 } from "@inspector/core/mcp/node/config.js";
@@ -85,7 +85,7 @@ export function loadTuiServers(
     return result;
   }
 
-  const configs = resolveLaunchServerConfigs(serverOptions, "multi");
+  const configs = resolveServerConfigs(serverOptions, "multi");
   if (configs.length === 0) {
     throw new Error(
       "At least one server is required. Use --config <path> or ad-hoc target (command/URL).",
