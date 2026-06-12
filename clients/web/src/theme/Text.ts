@@ -17,7 +17,7 @@ export const ThemeText = Text.extend({
     if (props.variant === "tabLabel") {
       return {
         root: {
-          animation: "inspector-fade-in 325ms ease",
+          animation: "inspector-fade-in 450ms ease",
         },
       };
     }

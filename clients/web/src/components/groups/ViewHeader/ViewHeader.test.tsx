@@ -133,7 +133,9 @@ describe("ViewHeader", () => {
 
     it("wraps the SegmentedControl in a width-animating clip (#1450)", () => {
       mediaQueryMock.value = true;
-      const { container } = renderWithMantine(<ViewHeader {...connectedProps} />);
+      const { container } = renderWithMantine(
+        <ViewHeader {...connectedProps} />,
+      );
       // The `tabBar` Group variant carries the width transition so the bar
       // grows/shrinks smoothly when a tab is added or removed. (The runtime
       // width itself is driven by ResizeObserver, which doesn't fire under
