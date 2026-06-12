@@ -156,6 +156,15 @@ const connectedInit: InitializeResult = {
   serverInfo: { name: "Alpha", version: "1.0.0" },
 };
 
+// A tool the `isAppTool` filter recognizes (it carries `_meta.ui.resourceUri`),
+// so its presence in the tool list makes the Apps tab available (#1450).
+const sampleAppTool: Tool = {
+  name: "ops",
+  title: "Ops Dashboard",
+  inputSchema: { type: "object" },
+  _meta: { ui: { resourceUri: "ui://apps/ops" } },
+};
+
 describe("InspectorView", () => {
   it("renders the empty-server-list placeholder when no servers are configured", () => {
     renderWithMantine(<InspectorView {...makeProps()} />);
@@ -353,12 +362,6 @@ describe("InspectorView", () => {
 
   it("filters tools to apps and auto-launches a no-fields app on the Apps tab", async () => {
     const user = userEvent.setup();
-    const opsApp: Tool = {
-      name: "ops",
-      title: "Ops Dashboard",
-      inputSchema: { type: "object" },
-      _meta: { ui: { resourceUri: "ui://apps/ops" } },
-    };
     // Plain (non-app) tool plus a tool with a malformed UI resource URI
     // exercise both branches of the appTools filter: the non-app drop and
     // the try/catch around `isAppTool` for malformed metadata.
@@ -381,7 +384,7 @@ describe("InspectorView", () => {
           connectionStatus: "connected",
           initializeResult: connectedInit,
           latencyMs: 50,
-          tools: [opsApp, plainTool, malformedAppTool],
+          tools: [sampleAppTool, plainTool, malformedAppTool],
         })}
       />,
     );
@@ -391,6 +394,125 @@ describe("InspectorView", () => {
     expect(screen.getByText("MCP Apps (1)")).toBeInTheDocument();
     await user.click(screen.getByText("Ops Dashboard"));
     expect(screen.getByTitle("Ops Dashboard")).toBeInTheDocument();
+  });
+
+  it("hides the Apps tab when the server exposes no MCP App tools", async () => {
+    const plainTool: Tool = {
+      name: "shell.exec",
+      title: "Run Shell",
+      inputSchema: { type: "object" },
+    };
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          // Only a non-app tool — no `_meta.ui.resourceUri`, so appTools is empty.
+          tools: [plainTool],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Tools");
+    expect(labels).not.toContain("Apps");
+  });
+
+  it("shows the Apps tab when the server exposes one or more MCP App tools", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tools: [sampleAppTool],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Apps");
+  });
+
+  it("reveals the Apps tab live when an app tool arrives via list-changed refresh", async () => {
+    const plainTool: Tool = {
+      name: "shell.exec",
+      title: "Run Shell",
+      inputSchema: { type: "object" },
+    };
+    const { rerender } = renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tools: [plainTool],
+        })}
+      />,
+    );
+    // Initially no app tools → no Apps tab.
+    let radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).not.toContain("Apps");
+
+    // A tools/list_changed refresh adds an app tool — the tab appears reactively.
+    rerender(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tools: [plainTool, sampleAppTool],
+        })}
+      />,
+    );
+    await waitFor(async () => {
+      radios = await screen.findAllByRole("radio");
+      expect(radios.map((r) => r.getAttribute("value"))).toContain("Apps");
+    });
+  });
+
+  it("snaps activeTab back to Servers when the Apps tab disappears after a refresh", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tools: [sampleAppTool],
+        })}
+      />,
+    );
+    const tabSelect = await screen.findByDisplayValue("Servers");
+    await user.click(tabSelect);
+    await user.click(await screen.findByText("Apps"));
+    await waitFor(() =>
+      expect(screen.queryByDisplayValue("Apps")).toBeInTheDocument(),
+    );
+
+    // The app tool goes away (server switch / list-changed) — the Apps tab is
+    // pulled from availableTabs and the activeTab fallback lands on Servers.
+    rerender(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tools: [],
+        })}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.queryByDisplayValue("Apps")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByDisplayValue("Servers")).toBeInTheDocument();
   });
 
   it("dispatches onSetLogLevel through to the Logs screen", async () => {
@@ -625,6 +747,8 @@ describe("InspectorView", () => {
             activeServer: "alpha",
             connectionStatus: "connected",
             initializeResult: connectedInit,
+            // An app tool is required for the Apps tab to be available (#1450).
+            tools: [sampleAppTool],
             toolsListChanged: true,
           })}
         />,

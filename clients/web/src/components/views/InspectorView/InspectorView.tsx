@@ -452,28 +452,6 @@ export function InspectorView({
     false,
   );
 
-  // Only show the non-Servers tabs when actually connected. Network is
-  // additionally hidden for stdio servers — there is no HTTP traffic to
-  // surface there, so the tab would always be empty. Capability-aware
-  // tab gating (hide Tools when the server doesn't advertise `tools`, etc.)
-  // can layer in later once the parent passes capabilities through.
-  const availableTabs = useMemo<string[]>(() => {
-    if (connectionStatus !== "connected") return [SERVERS_TAB];
-    const active = serversInput.find((s) => s.id === activeServer);
-    const isStdio = active ? getServerType(active.config) === "stdio" : false;
-    return isStdio ? ALL_TABS.filter((t) => t !== NETWORK_TAB) : ALL_TABS;
-  }, [connectionStatus, serversInput, activeServer]);
-
-  // Clamp the rendered tab to whatever's currently available. If the user
-  // had "Tools" selected and the connection drops, `availableTabs` becomes
-  // `[Servers]` and the view renders Servers without us having to imperatively
-  // reset the state (and trip the `set-state-in-effect` lint). When the
-  // connection comes back, the previous selection pops in again because
-  // `selectedTab` is preserved.
-  const activeTab = availableTabs.includes(selectedTab)
-    ? selectedTab
-    : SERVERS_TAB;
-
   const appTools = useMemo<Tool[]>(() => {
     return tools.filter((tool) => {
       try {
@@ -486,6 +464,38 @@ export function InspectorView({
       }
     });
   }, [tools]);
+
+  // Only show the non-Servers tabs when actually connected. Network is
+  // additionally hidden for stdio servers — there is no HTTP traffic to
+  // surface there, so the tab would always be empty. The Apps tab is hidden
+  // unless the tool list contains at least one MCP App tool (#1450); the
+  // memo depends on `appTools`, so the tab appears/disappears live as the
+  // tool list changes (list-changed refresh, server switch). When app tools
+  // exist but the sandbox is unavailable the tab stays visible so the Apps
+  // screen's "unavailable" message remains reachable. Capability-aware tab
+  // gating (hide Tools when the server doesn't advertise `tools`, etc.) can
+  // layer in later once the parent passes capabilities through.
+  const availableTabs = useMemo<string[]>(() => {
+    if (connectionStatus !== "connected") return [SERVERS_TAB];
+    const active = serversInput.find((s) => s.id === activeServer);
+    const isStdio = active ? getServerType(active.config) === "stdio" : false;
+    const hasApps = appTools.length > 0;
+    return ALL_TABS.filter((t) => {
+      if (t === NETWORK_TAB && isStdio) return false;
+      if (t === "Apps" && !hasApps) return false;
+      return true;
+    });
+  }, [connectionStatus, serversInput, activeServer, appTools]);
+
+  // Clamp the rendered tab to whatever's currently available. If the user
+  // had "Tools" selected and the connection drops, `availableTabs` becomes
+  // `[Servers]` and the view renders Servers without us having to imperatively
+  // reset the state (and trip the `set-state-in-effect` lint). When the
+  // connection comes back, the previous selection pops in again because
+  // `selectedTab` is preserved.
+  const activeTab = availableTabs.includes(selectedTab)
+    ? selectedTab
+    : SERVERS_TAB;
 
   // Merge the parent's `serversInput` (static config) with the runtime
   // connection state owned by the parent — only the active server reflects
