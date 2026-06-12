@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import {
+  renderWithMantine,
+  screen,
+  waitFor,
+} from "../../../test/renderWithMantine";
 import { ViewHeader } from "./ViewHeader";
 
 // Mock @mantine/hooks so we can control useMediaQuery results per test.
@@ -116,6 +120,28 @@ describe("ViewHeader", () => {
       // SegmentedControl exposes its options as radios.
       const radios = screen.getAllByRole("radio");
       expect(radios.length).toBeGreaterThan(0);
+    });
+
+    it("keeps the tab bar mounted on disconnect so it can collapse to 0, then unmounts (#1450)", async () => {
+      mediaQueryMock.value = true;
+      const { rerender } = renderWithMantine(
+        <ViewHeader {...connectedProps} />,
+      );
+      expect(screen.getAllByRole("radio").length).toBeGreaterThan(0);
+
+      // Disconnect: the connected header is replaced, but the tab bar stays in
+      // the DOM (collapsing toward width 0) until the keep-alive Transition's
+      // exit window elapses — so it isn't removed synchronously.
+      rerender(<ViewHeader connected={false} onToggleTheme={vi.fn()} />);
+      expect(screen.queryAllByRole("radio").length).toBeGreaterThan(0);
+      // The clip's width target is now 0 (the CSS transition animates it there).
+      const clip = document.querySelector('[style*="width 325ms ease-in"]');
+      expect(clip?.getAttribute("style")).toMatch(/width:\s*0/);
+
+      // After the exit transition the bar is removed from the DOM entirely.
+      await waitFor(() =>
+        expect(screen.queryAllByRole("radio").length).toBe(0),
+      );
     });
 
     it("wraps the SegmentedControl in a width-animating clip (#1450)", () => {
