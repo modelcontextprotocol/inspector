@@ -7,6 +7,7 @@ interface ResourceLinkViewProps {
   description?: string;
   mimeType?: string;
   resourceContent: string;
+  resourceError?: string;
   onReadResource?: (uri: string) => void;
 }
 
@@ -17,6 +18,7 @@ const ResourceLinkView = memo(
     description,
     mimeType,
     resourceContent,
+    resourceError,
     onReadResource,
   }: ResourceLinkViewProps) => {
     const [{ expanded, loading }, setState] = useState({
@@ -24,18 +26,32 @@ const ResourceLinkView = memo(
       loading: false,
     });
 
-    const expandedContent = useMemo(
-      () =>
-        expanded && resourceContent ? (
+    const expandedContent = useMemo(() => {
+      if (!expanded) return null;
+      if (resourceError !== undefined) {
+        return (
+          <div className="mt-2">
+            <div className="flex justify-between items-center mb-1">
+              <span className="font-semibold text-red-600">Error:</span>
+            </div>
+            <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 p-2 rounded break-all">
+              {resourceError}
+            </div>
+          </div>
+        );
+      }
+      if (resourceContent) {
+        return (
           <div className="mt-2">
             <div className="flex justify-between items-center mb-1">
               <span className="font-semibold text-green-600">Resource:</span>
             </div>
             <JsonView data={resourceContent} className="bg-background" />
           </div>
-        ) : null,
-      [expanded, resourceContent],
-    );
+        );
+      }
+      return null;
+    }, [expanded, resourceContent, resourceError]);
 
     const handleClick = useCallback(() => {
       if (!onReadResource) return;
