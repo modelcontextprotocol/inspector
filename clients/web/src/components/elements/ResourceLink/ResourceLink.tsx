@@ -93,7 +93,10 @@ const ExpandedSection = Stack.withProps({
 
 // Caps the inline read result so a large resource scrolls within the card
 // instead of pushing the page down — mirrors V1's bounded resource view.
-const ResultScroll = ScrollArea.withProps({
+// `Autosize` sizes to the content up to `mah`, then scrolls; a plain
+// ScrollArea would need a definite height to scroll, which this card (sized to
+// its content) does not provide.
+const ResultScroll = ScrollArea.Autosize.withProps({
   mah: 400,
   type: "auto",
   scrollbars: "y",
