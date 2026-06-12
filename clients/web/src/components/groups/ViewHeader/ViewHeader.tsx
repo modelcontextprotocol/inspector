@@ -54,6 +54,12 @@ const SELECT_WIDTH = 140;
 // connection; without this window they'd be mistaken for mid-session additions
 // and glow on initial load. Tabs that resolve within this window are treated as
 // part of the initial set and don't glow.
+//
+// This keys on time-since-connect, not on lists having settled, so it's a
+// heuristic: a server whose lists resolve slower than this still glows on its
+// slow tail, and a fast server pays a small arming delay. 1s is a reasonable
+// middle ground; if the InspectorClient ever exposes an "initial fetches done"
+// signal, gating on that would be more robust than a fixed timer.
 const GLOW_GRACE_MS = 1000;
 
 // Tab names are single words, so newline is a safe join separator for the
