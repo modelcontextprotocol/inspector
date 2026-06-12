@@ -59,6 +59,29 @@ function tabKey(activeTab: string, availableTabs: string[]): string {
   return `${activeTab} ${availableTabs.join(" ")}`;
 }
 
+// Tab names are single words, so newline is a safe join separator for the
+// "tabs seen last render" key.
+const TAB_SEP = "\n";
+
+// Tab label that can pulse a red glow when it newly appears (#1450). The glow
+// fires only while `data-glow="on"`; the `tabGlow` variant supplies the class
+// and the keyframe/trigger live in App.css.
+const TabGlowLabel = Text.withProps({ span: true, variant: "tabGlow" });
+
+// SegmentedControl data with each label wrapped so the freshly-added tabs
+// (`glowing`) pulse on mount. `value` (used for selection and by tests) stays
+// the plain tab string.
+function toGlowingTabData(tabs: string[], glowing: string[]) {
+  return tabs.map((tab) => ({
+    value: tab,
+    label: (
+      <TabGlowLabel data-glow={glowing.includes(tab) ? "on" : undefined}>
+        {tab}
+      </TabGlowLabel>
+    ),
+  }));
+}
+
 const HeaderBar = Group.withProps({
   h: "100%",
   px: "md",
@@ -152,6 +175,21 @@ export function ViewHeader(props: ViewHeaderProps) {
   const tabData: TabSnapshot | null = props.connected ? props : tabSnapshot;
   const handleTabChange = props.connected ? props.onTabChange : undefined;
 
+  // Track which tabs newly appeared so their labels pulse a red glow (#1450).
+  // Compared against the previous shown set via adjust-state-during-render, so
+  // only tabs added mid-session glow — not the initial set on connect (previous
+  // set empty) nor anything on disconnect. `glowing` persists in committed state
+  // (it isn't cleared in the same render) so the class survives to the DOM.
+  const liveTabs = props.connected ? props.availableTabs : [];
+  const liveTabsKey = liveTabs.join(TAB_SEP);
+  const [seenTabsKey, setSeenTabsKey] = useState(liveTabsKey);
+  const [glowing, setGlowing] = useState<string[]>([]);
+  if (liveTabsKey !== seenTabsKey) {
+    const prev = seenTabsKey ? seenTabsKey.split(TAB_SEP) : [];
+    setSeenTabsKey(liveTabsKey);
+    setGlowing(prev.length ? liveTabs.filter((t) => !prev.includes(t)) : []);
+  }
+
   const logoSrc = colorScheme === "dark" ? mcpLogoDark : mcpLogo;
 
   return (
@@ -191,7 +229,7 @@ export function ViewHeader(props: ViewHeaderProps) {
                   <SegmentedControl
                     value={tabData.activeTab}
                     onChange={handleTabChange}
-                    data={tabData.availableTabs}
+                    data={toGlowingTabData(tabData.availableTabs, glowing)}
                     size="sm"
                   />
                 ) : (

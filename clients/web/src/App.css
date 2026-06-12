@@ -42,6 +42,9 @@
   --inspector-status-disconnected: var(--mantine-color-gray-5);
   --inspector-status-error: var(--mantine-color-red-6);
 
+  /* Red glow pulsed around a newly appearing tab's label (#1450) */
+  --inspector-glow-red: var(--mantine-color-red-6);
+
   /* ── Log levels (RFC 5424) ─────────────────────────────── */
   --inspector-log-debug: var(--mantine-color-gray-6);
   --inspector-log-info: var(--mantine-color-blue-6);
@@ -117,6 +120,20 @@
   }
 }
 
+/* A single in-then-out red glow pulse around a tab label's text, played when a
+   content-gated tab newly appears (#1450). */
+@keyframes inspector-tab-glow {
+  0%,
+  100% {
+    text-shadow: none;
+  }
+  50% {
+    text-shadow:
+      0 0 6px var(--inspector-glow-red),
+      0 0 12px var(--inspector-glow-red);
+  }
+}
+
 /* ── Status dot animations ───────────────────────────────── */
 
 .inspector-pulse {
@@ -125,6 +142,12 @@
 
 .inspector-spin {
   animation: inspector-spin 1s linear infinite;
+}
+
+/* Applied (via the `tabGlow` Text variant) to a tab label; the one-shot pulse
+   runs only while `data-glow="on"` is set on a freshly-appeared tab (#1450). */
+.tab-glow[data-glow="on"] {
+  animation: inspector-tab-glow 325ms ease-in-out;
 }
 
 /* ── Header center crossfade (#1450) ─────────────────────── */

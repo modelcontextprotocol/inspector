@@ -158,6 +158,26 @@ describe("ViewHeader", () => {
       );
     });
 
+    it("pulses a red glow on a tab that newly appears mid-session, not on initial connect (#1450)", () => {
+      mediaQueryMock.value = true;
+      const { rerender } = renderWithMantine(
+        <ViewHeader {...connectedProps} />,
+      );
+      // Nothing glows on the initial connected render.
+      expect(document.querySelector('[data-glow="on"]')).toBeNull();
+
+      // A list change adds the "Apps" tab — only its label is marked to glow.
+      rerender(
+        <ViewHeader
+          {...connectedProps}
+          availableTabs={["Tools", "Apps", "Resources", "Prompts"]}
+        />,
+      );
+      const glowing = document.querySelectorAll('[data-glow="on"]');
+      expect(glowing.length).toBe(1);
+      expect(glowing[0]?.textContent).toBe("Apps");
+    });
+
     it("invokes onTabChange when a different tab is picked from the Select", async () => {
       const user = userEvent.setup();
       const onTabChange = vi.fn();
