@@ -40,23 +40,35 @@ interface UnconnectedProps {
 
 export type ViewHeaderProps = ConnectedProps | UnconnectedProps;
 
-// Keep-alive window for the header center crossfade (#1450): on connect/
-// disconnect the title and tab bar swap with a fade + slide-down, staggered by
-// half this duration. The motion itself is CSS (`.header-stack-cell`); keep the
-// 300ms / 150ms-stagger there in sync with this value.
+// Keep-alive window for the header connect/disconnect animations (#1450): the
+// center title↔tab-bar crossfade plus the server name (left) and status +
+// Disconnect controls (right) all fade + slide-down, staggered by half this
+// duration. The motion itself is CSS (`.header-anim`); keep the 300ms /
+// 150ms-stagger there in sync with this value.
 const HEADER_ANIM_MS = 300;
 // Fixed Select width on narrow viewports (fits the longest tab label).
 const SELECT_WIDTH = 140;
 
-interface TabSnapshot {
+// Connected-header display data retained so each region can keep rendering while
+// it animates out after disconnect (the live props are gone by then).
+interface HeaderSnapshot {
+  serverName: string;
+  status: ConnectionStatus;
+  latencyMs?: number;
   activeTab: string;
   availableTabs: string[];
 }
 
-// Value-key for a tab snapshot, so re-snapshotting compares by content (a fresh
-// `availableTabs` array reference each render won't trigger an update loop).
-function tabKey(activeTab: string, availableTabs: string[]): string {
-  return `${activeTab} ${availableTabs.join(" ")}`;
+// Value-key for a snapshot, so re-snapshotting compares by content (fresh array
+// references each render won't trigger an update loop).
+function snapshotKey(s: HeaderSnapshot): string {
+  return [
+    s.serverName,
+    s.status,
+    s.latencyMs ?? "",
+    s.activeTab,
+    s.availableTabs.join(" "),
+  ].join("");
 }
 
 // Tab names are single words, so newline is a safe join separator for the
@@ -109,7 +121,10 @@ const LogoImage = Image.withProps({
   fit: "contain",
 });
 
+// Server name carries the `header-anim` class so it fades + slides on
+// connect/disconnect (the `data-anim` direction is set per render).
 const ServerName = Text.withProps({
+  className: "header-anim",
   fw: 600,
   size: "lg",
   truncate: "end",
@@ -123,6 +138,14 @@ const RightSection = Group.withProps({
   flex: 1,
   miw: 0,
   justify: "flex-end",
+});
+
+// The status indicator + Disconnect control animate as one unit on
+// connect/disconnect (the theme toggle stays put outside it).
+const RightConnectedGroup = Group.withProps({
+  className: "header-anim",
+  gap: "sm",
+  wrap: "nowrap",
 });
 
 const DisconnectButton = Button.withProps({
@@ -150,30 +173,30 @@ export function ViewHeader(props: ViewHeaderProps) {
   const showSegmented = useMediaQuery("(min-width: 992px)");
   const showDisconnectLabel = useMediaQuery("(min-width: 768px)");
 
-  // Retain the latest connected tab list/selection so the bar can keep
-  // rendering them while it animates out after disconnect (#1450). Uses React's
-  // "adjust state during render" pattern, re-set only when the values change so
-  // stable inputs don't loop. Tab callbacks aren't snapshotted — an exiting bar
-  // isn't interactive.
-  const [tabSnapshot, setTabSnapshot] = useState<TabSnapshot | null>(() =>
-    props.connected
-      ? { activeTab: props.activeTab, availableTabs: props.availableTabs }
-      : null,
-  );
+  // Retain the latest connected display data so each region can keep rendering
+  // it while animating out after disconnect (#1450). Uses React's "adjust state
+  // during render" pattern, re-set only when the values change (compared by key)
+  // so stable inputs don't loop. Callbacks aren't snapshotted — an exiting
+  // header isn't interactive.
+  const liveSnapshot: HeaderSnapshot | null = props.connected
+    ? {
+        serverName: props.serverInfo.name,
+        status: props.status,
+        latencyMs: props.latencyMs,
+        activeTab: props.activeTab,
+        availableTabs: props.availableTabs,
+      }
+    : null;
+  const [snapshot, setSnapshot] = useState<HeaderSnapshot | null>(liveSnapshot);
   if (
-    props.connected &&
-    tabKey(props.activeTab, props.availableTabs) !==
-      (tabSnapshot
-        ? tabKey(tabSnapshot.activeTab, tabSnapshot.availableTabs)
-        : "")
+    liveSnapshot &&
+    snapshotKey(liveSnapshot) !== (snapshot ? snapshotKey(snapshot) : "")
   ) {
-    setTabSnapshot({
-      activeTab: props.activeTab,
-      availableTabs: props.availableTabs,
-    });
+    setSnapshot(liveSnapshot);
   }
-  const tabData: TabSnapshot | null = props.connected ? props : tabSnapshot;
+  const headerData = props.connected ? liveSnapshot : snapshot;
   const handleTabChange = props.connected ? props.onTabChange : undefined;
+  const handleDisconnect = props.connected ? props.onDisconnect : undefined;
 
   // Track which tabs newly appeared so their labels pulse a red glow (#1450).
   // Compared against the previous shown set via adjust-state-during-render, so
@@ -190,6 +213,10 @@ export function ViewHeader(props: ViewHeaderProps) {
     setGlowing(prev.length ? liveTabs.filter((t) => !prev.includes(t)) : []);
   }
 
+  // `in` while present/entering, `out` while exiting — drives the slide-down
+  // direction for every connect/disconnect-animated region.
+  const connectedAnim = props.connected ? "in" : "out";
+
   const logoSrc = colorScheme === "dark" ? mcpLogoDark : mcpLogo;
 
   return (
@@ -198,9 +225,22 @@ export function ViewHeader(props: ViewHeaderProps) {
         <LogoLink>
           <LogoImage src={logoSrc} />
         </LogoLink>
-        {props.connected ? (
-          <ServerName>{props.serverInfo.name}</ServerName>
-        ) : null}
+        <Transition
+          mounted={props.connected}
+          transition="fade"
+          duration={HEADER_ANIM_MS}
+          exitDuration={HEADER_ANIM_MS}
+        >
+          {() =>
+            headerData ? (
+              <ServerName data-anim={connectedAnim}>
+                {headerData.serverName}
+              </ServerName>
+            ) : (
+              <></>
+            )
+          }
+        </Transition>
       </LeftSection>
 
       {/* CSS grid stack: the title and tab bar cells share one cell (grid-area
@@ -220,23 +260,23 @@ export function ViewHeader(props: ViewHeaderProps) {
           exitDuration={HEADER_ANIM_MS}
         >
           {() =>
-            tabData ? (
+            headerData ? (
               <Box
-                className="header-stack-cell"
-                data-anim={props.connected ? "in" : "out"}
+                className="header-anim header-stack-cell"
+                data-anim={connectedAnim}
               >
                 {showSegmented ? (
                   <SegmentedControl
-                    value={tabData.activeTab}
+                    value={headerData.activeTab}
                     onChange={handleTabChange}
-                    data={toGlowingTabData(tabData.availableTabs, glowing)}
+                    data={toGlowingTabData(headerData.availableTabs, glowing)}
                     size="sm"
                   />
                 ) : (
                   <Select
-                    value={tabData.activeTab}
+                    value={headerData.activeTab}
                     onChange={(value) => value && handleTabChange?.(value)}
-                    data={tabData.availableTabs}
+                    data={headerData.availableTabs}
                     size="sm"
                     allowDeselect={false}
                     w={SELECT_WIDTH}
@@ -259,7 +299,7 @@ export function ViewHeader(props: ViewHeaderProps) {
         >
           {() => (
             <Box
-              className="header-stack-cell"
+              className="header-anim header-stack-cell"
               data-anim={props.connected ? "out" : "in"}
             >
               <Title order={2}>MCP Inspector</Title>
@@ -269,23 +309,34 @@ export function ViewHeader(props: ViewHeaderProps) {
       </Box>
 
       <RightSection>
-        {props.connected ? (
-          <>
-            <ServerStatusIndicator
-              status={props.status}
-              latencyMs={props.latencyMs}
-            />
-            {showDisconnectLabel ? (
-              <DisconnectButton onClick={props.onDisconnect}>
-                Disconnect
-              </DisconnectButton>
+        <Transition
+          mounted={props.connected}
+          transition="fade"
+          duration={HEADER_ANIM_MS}
+          exitDuration={HEADER_ANIM_MS}
+        >
+          {() =>
+            headerData ? (
+              <RightConnectedGroup data-anim={connectedAnim}>
+                <ServerStatusIndicator
+                  status={headerData.status}
+                  latencyMs={headerData.latencyMs}
+                />
+                {showDisconnectLabel ? (
+                  <DisconnectButton onClick={handleDisconnect}>
+                    Disconnect
+                  </DisconnectButton>
+                ) : (
+                  <DisconnectIcon onClick={handleDisconnect} title="Disconnect">
+                    <MdLinkOff size={20} />
+                  </DisconnectIcon>
+                )}
+              </RightConnectedGroup>
             ) : (
-              <DisconnectIcon onClick={props.onDisconnect} title="Disconnect">
-                <MdLinkOff size={20} />
-              </DisconnectIcon>
-            )}
-          </>
-        ) : null}
+              <></>
+            )
+          }
+        </Transition>
         <ThemeToggle onClick={props.onToggleTheme}>
           <ThemeIcon size={20} />
         </ThemeToggle>

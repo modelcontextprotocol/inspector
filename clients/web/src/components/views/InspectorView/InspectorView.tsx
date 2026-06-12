@@ -128,8 +128,8 @@ const NETWORK_TAB = "Network";
 
 const ALL_TABS: string[] = [
   SERVERS_TAB,
-  "Tools",
   "Apps",
+  "Tools",
   "Prompts",
   "Resources",
   "Tasks",

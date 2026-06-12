@@ -178,6 +178,49 @@ describe("ViewHeader", () => {
       expect(glowing[0]?.textContent).toBe("Apps");
     });
 
+    it("animates the server name and disconnect controls in on connect, out on disconnect (#1450)", async () => {
+      mediaQueryMock.value = true;
+      const { rerender } = renderWithMantine(
+        <ViewHeader {...connectedProps} />,
+      );
+      // Connected: the server name and the Disconnect control are in their
+      // enter cells.
+      expect(
+        screen
+          .getByText("my-mcp-server")
+          .closest("[data-anim]")
+          ?.getAttribute("data-anim"),
+      ).toBe("in");
+      expect(
+        screen
+          .getByRole("button", { name: "Disconnect" })
+          .closest("[data-anim]")
+          ?.getAttribute("data-anim"),
+      ).toBe("in");
+
+      // Disconnect: both stay mounted (animating out) before unmounting.
+      rerender(<ViewHeader connected={false} onToggleTheme={vi.fn()} />);
+      expect(
+        screen
+          .getByText("my-mcp-server")
+          .closest("[data-anim]")
+          ?.getAttribute("data-anim"),
+      ).toBe("out");
+      expect(
+        screen
+          .getByRole("button", { name: "Disconnect" })
+          .closest("[data-anim]")
+          ?.getAttribute("data-anim"),
+      ).toBe("out");
+
+      await waitFor(() =>
+        expect(screen.queryByText("my-mcp-server")).not.toBeInTheDocument(),
+      );
+      expect(
+        screen.queryByRole("button", { name: "Disconnect" }),
+      ).not.toBeInTheDocument();
+    });
+
     it("invokes onTabChange when a different tab is picked from the Select", async () => {
       const user = userEvent.setup();
       const onTabChange = vi.fn();

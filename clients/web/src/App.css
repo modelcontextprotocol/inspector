@@ -149,23 +149,26 @@
   animation: inspector-tab-glow 325ms ease-in;
 }
 
-/* ── Header center crossfade (#1450) ─────────────────────── */
-/* The disconnected title and the connected tab bar share one grid cell so one
-   replaces the other in place. The outgoing element ([data-anim="out"]) slides
-   down + fades out immediately; the incoming one ([data-anim="in"]) is delayed
-   by half the duration so the two are staggered. Keep the 300ms/150ms here in
-   sync with HEADER_ANIM_MS in ViewHeader.tsx. */
-.header-stack-cell {
-  grid-area: 1 / 1;
-  place-self: center;
-}
-
-.header-stack-cell[data-anim="in"] {
+/* ── Header connect/disconnect animations (#1450) ────────── */
+/* Any header region that appears on connect / leaves on disconnect — the
+   center title↔tab-bar crossfade, the server name (left), and the status +
+   Disconnect controls (right). The element leaving ([data-anim="out"]) slides
+   down + fades out immediately; the appearing one ([data-anim="in"]) is delayed
+   by half the duration so they're staggered. Keep the 300ms/150ms here in sync
+   with HEADER_ANIM_MS in ViewHeader.tsx. */
+.header-anim[data-anim="in"] {
   animation: inspector-fade-slide-in 300ms ease 150ms both;
 }
 
-.header-stack-cell[data-anim="out"] {
+.header-anim[data-anim="out"] {
   animation: inspector-fade-slide-out 300ms ease both;
+}
+
+/* The title and tab bar additionally share one grid cell so one replaces the
+   other in place during the center crossfade. */
+.header-stack-cell {
+  grid-area: 1 / 1;
+  place-self: center;
 }
 
 /* ── List item hover ────────────────────────────────────── */
