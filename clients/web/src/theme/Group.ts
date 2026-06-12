@@ -23,7 +23,7 @@ export const ThemeGroup = Group.extend({
         root: {
           display: "block",
           overflow: "hidden",
-          transition: "width 325ms ease-in",
+          transition: "width 300ms ease-in",
         },
       };
     }

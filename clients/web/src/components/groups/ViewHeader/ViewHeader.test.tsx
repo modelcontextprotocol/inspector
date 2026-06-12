@@ -135,7 +135,7 @@ describe("ViewHeader", () => {
       rerender(<ViewHeader connected={false} onToggleTheme={vi.fn()} />);
       expect(screen.queryAllByRole("radio").length).toBeGreaterThan(0);
       // The clip's width target is now 0 (the CSS transition animates it there).
-      const clip = document.querySelector('[style*="width 325ms ease-in"]');
+      const clip = document.querySelector('[style*="width 300ms ease-in"]');
       expect(clip?.getAttribute("style")).toMatch(/width:\s*0/);
 
       // After the exit transition the bar is removed from the DOM entirely.
@@ -172,7 +172,7 @@ describe("ViewHeader", () => {
       // grows/shrinks smoothly when a tab is added or removed. (The runtime
       // width itself is driven by ResizeObserver, which doesn't fire under
       // happy-dom — this asserts the static transition wiring.)
-      const clip = container.querySelector('[style*="width 325ms ease-in"]');
+      const clip = container.querySelector('[style*="width 300ms ease-in"]');
       expect(clip).not.toBeNull();
     });
 
