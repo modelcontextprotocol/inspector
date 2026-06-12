@@ -1,6 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
-import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import {
+  renderWithMantine,
+  screen,
+  waitFor,
+} from "../../../test/renderWithMantine";
 import { ContentViewer } from "./ContentViewer";
 
 describe("ContentViewer", () => {
@@ -97,6 +102,26 @@ describe("ContentViewer", () => {
     } as unknown as ContentBlock;
     renderWithMantine(<ContentViewer block={block} />);
     expect(screen.getByText("ui://app")).toBeInTheDocument();
+  });
+
+  it("makes a resource_link expandable and reads on demand", async () => {
+    const user = userEvent.setup();
+    const onReadResource = vi.fn().mockResolvedValue({
+      contents: [{ uri: "ui://app", text: "linked body" }],
+    });
+    const block: ContentBlock = {
+      type: "resource_link",
+      uri: "ui://app",
+      name: "Cool App",
+    };
+    renderWithMantine(
+      <ContentViewer block={block} onReadResource={onReadResource} />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(onReadResource).toHaveBeenCalledWith("ui://app");
+    await waitFor(() =>
+      expect(screen.getByText(/"linked body"/)).toBeInTheDocument(),
+    );
   });
 
   it("renders nothing for unknown block types", () => {

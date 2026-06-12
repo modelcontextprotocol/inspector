@@ -7,12 +7,20 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  CallToolResult,
+  ReadResourceResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 
 export interface ToolResultPanelProps {
   result: CallToolResult;
   onClear: () => void;
+  /**
+   * Read-on-demand handler passed through to {@link ContentViewer} so
+   * `resource_link` blocks in the result can fetch and inline their contents.
+   */
+  onReadResource?: (uri: string) => Promise<ReadResourceResult>;
 }
 
 const ClearButton = Button.withProps({
@@ -49,7 +57,11 @@ const ResultStack = Stack.withProps({
   gap: "md",
 });
 
-export function ToolResultPanel({ result, onClear }: ToolResultPanelProps) {
+export function ToolResultPanel({
+  result,
+  onClear,
+  onReadResource,
+}: ToolResultPanelProps) {
   return (
     <PanelStack>
       <HeaderRow>
@@ -73,6 +85,7 @@ export function ToolResultPanel({ result, onClear }: ToolResultPanelProps) {
                 key={index}
                 block={block}
                 copyable={block.type === "text"}
+                onReadResource={onReadResource}
               />
             ))
           )}

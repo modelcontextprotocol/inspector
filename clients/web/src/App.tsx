@@ -1604,6 +1604,19 @@ function App() {
     [inspectorClient],
   );
 
+  // Read-on-demand handler for `resource_link` blocks in a tool result. Unlike
+  // `onReadResource` (which drives the Resources screen's preview panel via
+  // shared state), this returns the contents directly so each ResourceLink can
+  // own and inline its own fetched content.
+  const onReadResourceContents = useCallback(
+    async (uri: string) => {
+      if (!inspectorClient) throw new Error("Client is not connected");
+      const invocation = await inspectorClient.readResource(uri);
+      return invocation.result;
+    },
+    [inspectorClient],
+  );
+
   const onSubscribeResource = useCallback(
     (uri: string) => {
       if (!inspectorClient) return;
@@ -2172,6 +2185,7 @@ function App() {
           void onCallTool(name, args, runAsTask);
         }}
         onClearToolResult={onClearToolResult}
+        onReadResourceContents={onReadResourceContents}
         onRefreshTools={onRefreshTools}
         onPromptsUiChange={setPromptsUi}
         onGetPrompt={(name, args) => {

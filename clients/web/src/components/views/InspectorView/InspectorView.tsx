@@ -5,6 +5,7 @@ import type {
   InitializeResult,
   LoggingLevel,
   Prompt,
+  ReadResourceResult,
   Resource,
   ResourceTemplate,
   Task,
@@ -284,6 +285,11 @@ export interface InspectorViewProps {
   onCancelToolCall?: () => void;
   onClearToolResult?: () => void;
   onRefreshTools: () => void;
+  /**
+   * Read-on-demand handler for `resource_link` blocks in a tool result.
+   * Returns the linked resource's contents so the result panel can inline them.
+   */
+  onReadResourceContents?: (uri: string) => Promise<ReadResourceResult>;
 
   onPromptsUiChange: (next: PromptsUiState) => void;
   onGetPrompt: (name: string, args: Record<string, string>) => void;
@@ -388,6 +394,7 @@ export function InspectorView({
   onCallTool,
   onCancelToolCall,
   onClearToolResult,
+  onReadResourceContents,
   onRefreshTools,
   onPromptsUiChange,
   onGetPrompt,
@@ -598,6 +605,7 @@ export function InspectorView({
               onCallTool={onCallTool}
               onCancelCall={onCancelToolCall}
               onClearResult={onClearToolResult}
+              onReadResource={onReadResourceContents}
             />
           </ScreenStage>
           <ScreenStage active={activeTab === "Apps"}>

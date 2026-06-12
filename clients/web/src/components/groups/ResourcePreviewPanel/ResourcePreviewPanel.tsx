@@ -10,7 +10,6 @@ import {
 } from "@mantine/core";
 import type {
   BlobResourceContents,
-  ContentBlock,
   Resource,
   TextResourceContents,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -18,6 +17,7 @@ import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge"
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { SubscribeButton } from "../../elements/SubscribeButton/SubscribeButton";
+import { resourceContentsToBlock } from "../../../utils/resourceContents";
 
 export interface ResourcePreviewPanelProps {
   resource: Resource;
@@ -33,25 +33,6 @@ export interface ResourcePreviewPanelProps {
    * originating template form or the empty state.
    */
   onClose?: () => void;
-}
-
-function toContentBlock(
-  item: TextResourceContents | BlobResourceContents,
-): ContentBlock {
-  if ("text" in item) {
-    return { type: "text", text: item.text };
-  }
-  const mimeType = item.mimeType ?? "application/octet-stream";
-  if (mimeType.startsWith("image/")) {
-    return { type: "image", data: item.blob, mimeType };
-  }
-  if (mimeType.startsWith("audio/")) {
-    return { type: "audio", data: item.blob, mimeType };
-  }
-  return {
-    type: "text",
-    text: `[Binary content (${mimeType}) — preview not supported]`,
-  };
 }
 
 function formatLastUpdated(date: Date): string {
@@ -195,7 +176,7 @@ export function ResourcePreviewPanel({
           {contents.map((item, index) => (
             <ContentViewer
               key={index}
-              block={toContentBlock(item)}
+              block={resourceContentsToBlock(item)}
               mimeType={effectiveMime(item.mimeType, resource)}
               copyable
             />
