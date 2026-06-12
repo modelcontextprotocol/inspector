@@ -146,7 +146,7 @@
 /* Applied (via the `tabGlow` Text variant) to a tab label; the glow starts full
    and fades, running only while `data-glow="on"` on a freshly-appeared tab. */
 .tab-glow[data-glow="on"] {
-  animation: inspector-tab-glow 325ms ease-out;
+  animation: inspector-tab-glow 325ms ease-in;
 }
 
 /* ── Header center crossfade (#1450) ─────────────────────── */
