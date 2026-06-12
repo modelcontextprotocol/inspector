@@ -467,25 +467,39 @@ export function InspectorView({
 
   // Only show the non-Servers tabs when actually connected. Network is
   // additionally hidden for stdio servers — there is no HTTP traffic to
-  // surface there, so the tab would always be empty. The Apps tab is hidden
-  // unless the tool list contains at least one MCP App tool (#1450); the
-  // memo depends on `appTools`, so the tab appears/disappears live as the
-  // tool list changes (list-changed refresh, server switch). When app tools
-  // exist but the sandbox is unavailable the tab stays visible so the Apps
-  // screen's "unavailable" message remains reachable. Capability-aware tab
-  // gating (hide Tools when the server doesn't advertise `tools`, etc.) can
-  // layer in later once the parent passes capabilities through.
+  // surface there, so the tab would always be empty. Apps, Prompts, and
+  // Resources are content-gated (#1450): each is hidden unless its list has
+  // at least one entry, so an empty screen is never reachable. Resources is
+  // gated on resources OR templates, since a server may expose only
+  // templates. These memo dependencies make the tabs appear/disappear live
+  // as the lists change (list-changed refresh, server switch) — when app
+  // tools exist but the sandbox is unavailable the Apps tab stays visible so
+  // its "unavailable" message remains reachable. Capability-aware tab gating
+  // (hide Tools when the server doesn't advertise `tools`, etc.) can layer in
+  // later once the parent passes capabilities through.
   const availableTabs = useMemo<string[]>(() => {
     if (connectionStatus !== "connected") return [SERVERS_TAB];
     const active = serversInput.find((s) => s.id === activeServer);
     const isStdio = active ? getServerType(active.config) === "stdio" : false;
     const hasApps = appTools.length > 0;
+    const hasPrompts = prompts.length > 0;
+    const hasResources = resources.length > 0 || resourceTemplates.length > 0;
     return ALL_TABS.filter((t) => {
       if (t === NETWORK_TAB && isStdio) return false;
       if (t === "Apps" && !hasApps) return false;
+      if (t === "Prompts" && !hasPrompts) return false;
+      if (t === "Resources" && !hasResources) return false;
       return true;
     });
-  }, [connectionStatus, serversInput, activeServer, appTools]);
+  }, [
+    connectionStatus,
+    serversInput,
+    activeServer,
+    appTools,
+    prompts,
+    resources,
+    resourceTemplates,
+  ]);
 
   // Clamp the rendered tab to whatever's currently available. If the user
   // had "Tools" selected and the connection drops, `availableTabs` becomes

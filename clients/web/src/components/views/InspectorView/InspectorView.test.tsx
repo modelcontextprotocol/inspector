@@ -3,6 +3,8 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type {
   InitializeResult,
+  Prompt,
+  Resource,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
@@ -163,6 +165,15 @@ const sampleAppTool: Tool = {
   title: "Ops Dashboard",
   inputSchema: { type: "object" },
   _meta: { ui: { resourceUri: "ui://apps/ops" } },
+};
+
+// Prompts and Resources tabs are content-gated like Apps (#1450): each is
+// hidden until its list has an entry. These fixtures populate the lists so the
+// associated tab is available.
+const samplePrompt: Prompt = { name: "greet" };
+const sampleResource: Resource = {
+  uri: "file:///readme.md",
+  name: "README",
 };
 
 describe("InspectorView", () => {
@@ -515,6 +526,128 @@ describe("InspectorView", () => {
     expect(screen.getByDisplayValue("Servers")).toBeInTheDocument();
   });
 
+  it("hides the Prompts tab when the server exposes no prompts", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          prompts: [],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Tools");
+    expect(labels).not.toContain("Prompts");
+  });
+
+  it("reveals the Prompts tab live when a prompt arrives via list-changed refresh", async () => {
+    const { rerender } = renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          prompts: [],
+        })}
+      />,
+    );
+    let radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).not.toContain("Prompts");
+
+    rerender(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          prompts: [samplePrompt],
+        })}
+      />,
+    );
+    await waitFor(async () => {
+      radios = await screen.findAllByRole("radio");
+      expect(radios.map((r) => r.getAttribute("value"))).toContain("Prompts");
+    });
+  });
+
+  it("hides the Resources tab when the server exposes no resources or templates", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          resources: [],
+          resourceTemplates: [],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Tools");
+    expect(labels).not.toContain("Resources");
+  });
+
+  it("shows the Resources tab when the server exposes only resource templates", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          resources: [],
+          resourceTemplates: [{ uriTemplate: "file:///{path}", name: "Files" }],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).toContain("Resources");
+  });
+
+  it("reveals the Resources tab live when a resource arrives via list-changed refresh", async () => {
+    const { rerender } = renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          resources: [],
+          resourceTemplates: [],
+        })}
+      />,
+    );
+    let radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).not.toContain(
+      "Resources",
+    );
+
+    rerender(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          resources: [sampleResource],
+          resourceTemplates: [],
+        })}
+      />,
+    );
+    await waitFor(async () => {
+      radios = await screen.findAllByRole("radio");
+      expect(radios.map((r) => r.getAttribute("value"))).toContain("Resources");
+    });
+  });
+
   it("dispatches onSetLogLevel through to the Logs screen", async () => {
     const onSetLogLevel = vi.fn();
     const user = userEvent.setup();
@@ -765,6 +898,8 @@ describe("InspectorView", () => {
             activeServer: "alpha",
             connectionStatus: "connected",
             initializeResult: connectedInit,
+            // A prompt is required for the Prompts tab to be available (#1450).
+            prompts: [samplePrompt],
             promptsListChanged: true,
           })}
         />,
@@ -781,6 +916,8 @@ describe("InspectorView", () => {
             activeServer: "alpha",
             connectionStatus: "connected",
             initializeResult: connectedInit,
+            // A resource is required for the Resources tab to be available (#1450).
+            resources: [sampleResource],
             resourcesListChanged: true,
           })}
         />,
@@ -797,6 +934,8 @@ describe("InspectorView", () => {
             activeServer: "alpha",
             connectionStatus: "connected",
             initializeResult: connectedInit,
+            // A prompt is required for the Prompts tab to be available (#1450).
+            prompts: [samplePrompt],
             // Tools changed, but Prompts did not — the Prompts screen must
             // stay quiet.
             toolsListChanged: true,
