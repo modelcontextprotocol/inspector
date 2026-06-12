@@ -71,7 +71,7 @@ export const Sampling: Story = {
     expect(
       body.getByText("The server is requesting an LLM completion."),
     ).toBeInTheDocument();
-    await userEvent.click(body.getByRole("button", { name: "Auto-respond" }));
+    await userEvent.click(body.getByRole("button", { name: "Send Response" }));
     expect(args.onSamplingRespond).toHaveBeenCalled();
   },
 };

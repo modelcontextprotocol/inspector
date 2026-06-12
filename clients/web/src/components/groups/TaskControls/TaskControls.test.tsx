@@ -35,6 +35,20 @@ describe("TaskControls", () => {
     expect(onSearchChange).toHaveBeenCalledWith("x");
   });
 
+  it("clears the search input when the Clear button is clicked", async () => {
+    const user = userEvent.setup();
+    const onSearchChange = vi.fn();
+    renderWithMantine(
+      <TaskControls
+        {...baseProps}
+        searchText="abc"
+        onSearchChange={onSearchChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(onSearchChange).toHaveBeenCalledWith("");
+  });
+
   it("displays the active status filter", () => {
     renderWithMantine(<TaskControls {...baseProps} statusFilter="working" />);
     const inputs = screen.getAllByDisplayValue("working");

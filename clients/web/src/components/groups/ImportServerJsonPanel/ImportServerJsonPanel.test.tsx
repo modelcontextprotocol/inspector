@@ -196,6 +196,40 @@ describe("ImportServerJsonPanel", () => {
     expect(onServerNameChange).toHaveBeenCalledWith("X");
   });
 
+  it("clears the paste textarea, env-var, and name-override fields via Clear buttons", async () => {
+    const user = userEvent.setup();
+    const onJsonChange = vi.fn();
+    const onEnvVarChange = vi.fn();
+    const onServerNameChange = vi.fn();
+    const envVars: EnvVarInfo[] = [
+      { name: "DEBUG", required: false, value: "true" },
+    ];
+    renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        onJsonChange={onJsonChange}
+        onEnvVarChange={onEnvVarChange}
+        onServerNameChange={onServerNameChange}
+        draft={{
+          rawText: "{}",
+          envOverrides: {},
+          nameOverride: "Custom Name",
+        }}
+        validation={[]}
+        envVars={envVars}
+      />,
+    );
+    // DOM order: paste textarea, env-var input, name-override input.
+    const clearButtons = screen.getAllByRole("button", { name: "Clear" });
+    expect(clearButtons).toHaveLength(3);
+    await user.click(clearButtons[0]);
+    expect(onJsonChange).toHaveBeenCalledWith("");
+    await user.click(clearButtons[1]);
+    expect(onEnvVarChange).toHaveBeenCalledWith("DEBUG", "");
+    await user.click(clearButtons[2]);
+    expect(onServerNameChange).toHaveBeenCalledWith("");
+  });
+
   it("renders the existing nameOverride value", () => {
     renderWithMantine(
       <ImportServerJsonPanel

@@ -105,6 +105,22 @@ describe("ResourceTemplatePanel", () => {
     expect(screen.getByText("file:///users/bob/profile")).toBeInTheDocument();
   });
 
+  it("clears a variable via its Clear button (non-autocomplete branch)", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ResourceTemplatePanel
+        template={singleVarTemplate}
+        onReadResource={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText("userId");
+    await user.type(input, "alice");
+    expect(input).toHaveValue("alice");
+    // The Clear button only renders while the value is non-empty.
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(input).toHaveValue("");
+  });
+
   it("renders annotation badges when present", () => {
     renderWithMantine(
       <ResourceTemplatePanel

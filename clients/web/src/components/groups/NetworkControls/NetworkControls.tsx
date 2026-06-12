@@ -1,5 +1,6 @@
 import {
   Button,
+  CloseButton,
   Group,
   Stack,
   Text,
@@ -45,6 +46,15 @@ export function NetworkControls({
         placeholder="Search..."
         value={filterText}
         onChange={(e) => onFilterChange(e.currentTarget.value)}
+        rightSectionPointerEvents="auto"
+        rightSection={
+          filterText ? (
+            <CloseButton
+              aria-label="Clear"
+              onClick={() => onFilterChange("")}
+            />
+          ) : null
+        }
       />
 
       <Group justify="space-between">

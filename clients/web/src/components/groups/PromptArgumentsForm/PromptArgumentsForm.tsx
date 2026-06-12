@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Autocomplete,
   Button,
+  CloseButton,
   Group,
   Stack,
   Text,
@@ -220,6 +221,15 @@ export function PromptArgumentsForm({
                   value={argumentValues[arg.name] || ""}
                   onChange={(event) =>
                     handleChange(arg.name, event.currentTarget.value)
+                  }
+                  rightSectionPointerEvents="auto"
+                  rightSection={
+                    argumentValues[arg.name] ? (
+                      <CloseButton
+                        aria-label="Clear"
+                        onClick={() => handleChange(arg.name, "")}
+                      />
+                    ) : null
                   }
                 />
               ),

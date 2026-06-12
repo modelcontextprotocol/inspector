@@ -97,6 +97,31 @@ describe("RootsTable", () => {
     expect(onNewRootDraftChange).toHaveBeenCalledWith({ name: "", uri: "y" });
   });
 
+  it("clears the Name and URI inputs via their Clear buttons", async () => {
+    const user = userEvent.setup();
+    const onNewRootDraftChange = vi.fn();
+    renderWithMantine(
+      <RootsTable
+        {...baseProps}
+        newRootDraft={{ name: "n", uri: "u" }}
+        onNewRootDraftChange={onNewRootDraftChange}
+      />,
+    );
+    const clearButtons = screen.getAllByRole("button", { name: "Clear" });
+    expect(clearButtons).toHaveLength(2);
+    await user.click(clearButtons[0]);
+    expect(onNewRootDraftChange).toHaveBeenCalledWith({ name: "", uri: "u" });
+    await user.click(clearButtons[1]);
+    expect(onNewRootDraftChange).toHaveBeenCalledWith({ name: "n", uri: "" });
+  });
+
+  it("renders no Clear buttons when the draft fields are empty", () => {
+    renderWithMantine(<RootsTable {...baseProps} />);
+    expect(
+      screen.queryByRole("button", { name: "Clear" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders the current draft values in the inputs", () => {
     renderWithMantine(
       <RootsTable

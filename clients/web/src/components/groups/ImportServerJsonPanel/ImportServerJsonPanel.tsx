@@ -1,5 +1,6 @@
 import {
   Button,
+  CloseButton,
   Divider,
   Group,
   Radio,
@@ -88,6 +89,12 @@ export function ImportServerJsonPanel({
         autosize
         minRows={8}
         maxRows={15}
+        rightSectionPointerEvents="auto"
+        rightSection={
+          draft.rawText ? (
+            <CloseButton aria-label="Clear" onClick={() => onJsonChange("")} />
+          ) : null
+        }
       />
 
       <Divider />
@@ -139,6 +146,15 @@ export function ImportServerJsonPanel({
               onChange={(e) =>
                 onEnvVarChange(envVar.name, e.currentTarget.value)
               }
+              rightSectionPointerEvents="auto"
+              rightSection={
+                envVar.value ? (
+                  <CloseButton
+                    aria-label="Clear"
+                    onClick={() => onEnvVarChange(envVar.name, "")}
+                  />
+                ) : null
+              }
             />
           ))}
         </>
@@ -150,6 +166,15 @@ export function ImportServerJsonPanel({
         label="Server Name (optional override)"
         value={draft.nameOverride ?? ""}
         onChange={(e) => onServerNameChange(e.currentTarget.value)}
+        rightSectionPointerEvents="auto"
+        rightSection={
+          draft.nameOverride ? (
+            <CloseButton
+              aria-label="Clear"
+              onClick={() => onServerNameChange("")}
+            />
+          ) : null
+        }
       />
 
       <Group justify="flex-end">

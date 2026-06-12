@@ -1,4 +1,4 @@
-import { Select, Stack, TextInput, Title } from "@mantine/core";
+import { CloseButton, Select, Stack, TextInput, Title } from "@mantine/core";
 import type {
   MessageMethod,
   MessageOrigin,
@@ -33,6 +33,15 @@ export function HistoryControls({
         placeholder="Search..."
         value={searchText}
         onChange={(event) => onSearchChange(event.currentTarget.value)}
+        rightSectionPointerEvents="auto"
+        rightSection={
+          searchText ? (
+            <CloseButton
+              aria-label="Clear"
+              onClick={() => onSearchChange("")}
+            />
+          ) : null
+        }
       />
 
       <Title order={6}>Filter by Method</Title>

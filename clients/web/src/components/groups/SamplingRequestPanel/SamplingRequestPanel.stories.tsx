@@ -18,7 +18,6 @@ const meta: Meta<typeof SamplingRequestPanel> = {
   args: {
     draftResult: defaultDraftResult,
     onResultChange: fn(),
-    onAutoRespond: fn(),
     onSend: fn(),
     onReject: fn(),
   },
