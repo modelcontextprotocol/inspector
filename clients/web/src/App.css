@@ -171,6 +171,17 @@
   place-self: center;
 }
 
+/* Honor reduced-motion for the header animations this PR adds (#1450): skip the
+   fade/slide and the new-tab glow, leaving the elements at their resting state.
+   Selectors match the originals' specificity so they win inside the query. */
+@media (prefers-reduced-motion: reduce) {
+  .header-anim[data-anim="in"],
+  .header-anim[data-anim="out"],
+  .tab-glow[data-glow="on"] {
+    animation: none;
+  }
+}
+
 /* ── List item hover ────────────────────────────────────── */
 
 .list-item:hover {
