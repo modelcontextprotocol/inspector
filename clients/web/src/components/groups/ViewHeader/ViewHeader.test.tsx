@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import {
+  act,
+  renderWithMantine,
+  screen,
+  waitFor,
+} from "../../../test/renderWithMantine";
 import { ViewHeader } from "./ViewHeader";
 
 // Mock @mantine/hooks so we can control useMediaQuery results per test.
@@ -116,6 +121,120 @@ describe("ViewHeader", () => {
       // SegmentedControl exposes its options as radios.
       const radios = screen.getAllByRole("radio");
       expect(radios.length).toBeGreaterThan(0);
+    });
+
+    it("animates the connected tab bar in with the slide-down enter (#1450)", () => {
+      mediaQueryMock.value = true;
+      renderWithMantine(<ViewHeader {...connectedProps} />);
+      // The tab bar lives in a crossfade cell marked for the enter animation.
+      const cell = screen.getAllByRole("radio")[0]!.closest("[data-anim]");
+      expect(cell?.getAttribute("data-anim")).toBe("in");
+    });
+
+    it("crossfades on disconnect: tab bar exits while the title enters, then the bar unmounts (#1450)", async () => {
+      mediaQueryMock.value = true;
+      const { rerender } = renderWithMantine(
+        <ViewHeader {...connectedProps} />,
+      );
+      expect(screen.getAllByRole("radio").length).toBeGreaterThan(0);
+
+      // Disconnect: the connected header is replaced, but the tab bar stays in
+      // the DOM (now marked for the exit animation) until the keep-alive
+      // Transition's exit window elapses — so it isn't removed synchronously.
+      rerender(<ViewHeader connected={false} onToggleTheme={vi.fn()} />);
+      const exitingCell = screen
+        .getAllByRole("radio")[0]!
+        .closest("[data-anim]");
+      expect(exitingCell?.getAttribute("data-anim")).toBe("out");
+
+      // The title enters (staggered) in its own cell.
+      const title = await screen.findByText("MCP Inspector");
+      expect(title.closest("[data-anim]")?.getAttribute("data-anim")).toBe(
+        "in",
+      );
+
+      // After the exit transition the tab bar is removed from the DOM entirely.
+      await waitFor(() =>
+        expect(screen.queryAllByRole("radio").length).toBe(0),
+      );
+    });
+
+    it("glows a tab added after the connect grace window, not during it (#1450)", () => {
+      vi.useFakeTimers();
+      try {
+        mediaQueryMock.value = true;
+        const { rerender } = renderWithMantine(
+          <ViewHeader {...connectedProps} />,
+        );
+        // During the post-connect grace window an async-resolved list (adding
+        // "Apps") counts as part of the initial set and does not glow.
+        rerender(
+          <ViewHeader
+            {...connectedProps}
+            availableTabs={["Tools", "Apps", "Resources", "Prompts"]}
+          />,
+        );
+        expect(document.querySelector('[data-glow="on"]')).toBeNull();
+
+        // Once the grace window elapses, a genuine mid-session addition glows.
+        act(() => {
+          vi.advanceTimersByTime(2000);
+        });
+        rerender(
+          <ViewHeader
+            {...connectedProps}
+            availableTabs={["Tools", "Apps", "Resources", "Prompts", "Tasks"]}
+          />,
+        );
+        const glowing = document.querySelectorAll('[data-glow="on"]');
+        expect(glowing.length).toBe(1);
+        expect(glowing[0]?.textContent).toBe("Tasks");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("animates the server name and disconnect controls in on connect, out on disconnect (#1450)", async () => {
+      mediaQueryMock.value = true;
+      const { rerender } = renderWithMantine(
+        <ViewHeader {...connectedProps} />,
+      );
+      // Connected: the server name and the Disconnect control are in their
+      // enter cells.
+      expect(
+        screen
+          .getByText("my-mcp-server")
+          .closest("[data-anim]")
+          ?.getAttribute("data-anim"),
+      ).toBe("in");
+      expect(
+        screen
+          .getByRole("button", { name: "Disconnect" })
+          .closest("[data-anim]")
+          ?.getAttribute("data-anim"),
+      ).toBe("in");
+
+      // Disconnect: both stay mounted (animating out) before unmounting.
+      rerender(<ViewHeader connected={false} onToggleTheme={vi.fn()} />);
+      expect(
+        screen
+          .getByText("my-mcp-server")
+          .closest("[data-anim]")
+          ?.getAttribute("data-anim"),
+      ).toBe("out");
+      expect(
+        screen
+          .getByRole("button", { name: "Disconnect" })
+          .closest("[data-anim]")
+          ?.getAttribute("data-anim"),
+      ).toBe("out");
+
+      await waitFor(() =>
+        expect(screen.queryByText("my-mcp-server")).not.toBeInTheDocument(),
+      );
+      expect(
+        screen.queryByRole("button", { name: "Disconnect" }),
+      ).not.toBeInTheDocument();
     });
 
     it("invokes onTabChange when a different tab is picked from the Select", async () => {
