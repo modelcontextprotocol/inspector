@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
 import {
+  act,
   renderWithMantine,
   screen,
   waitFor,
@@ -158,24 +159,39 @@ describe("ViewHeader", () => {
       );
     });
 
-    it("pulses a red glow on a tab that newly appears mid-session, not on initial connect (#1450)", () => {
-      mediaQueryMock.value = true;
-      const { rerender } = renderWithMantine(
-        <ViewHeader {...connectedProps} />,
-      );
-      // Nothing glows on the initial connected render.
-      expect(document.querySelector('[data-glow="on"]')).toBeNull();
+    it("glows a tab added after the connect grace window, not during it (#1450)", () => {
+      vi.useFakeTimers();
+      try {
+        mediaQueryMock.value = true;
+        const { rerender } = renderWithMantine(
+          <ViewHeader {...connectedProps} />,
+        );
+        // During the post-connect grace window an async-resolved list (adding
+        // "Apps") counts as part of the initial set and does not glow.
+        rerender(
+          <ViewHeader
+            {...connectedProps}
+            availableTabs={["Tools", "Apps", "Resources", "Prompts"]}
+          />,
+        );
+        expect(document.querySelector('[data-glow="on"]')).toBeNull();
 
-      // A list change adds the "Apps" tab — only its label is marked to glow.
-      rerender(
-        <ViewHeader
-          {...connectedProps}
-          availableTabs={["Tools", "Apps", "Resources", "Prompts"]}
-        />,
-      );
-      const glowing = document.querySelectorAll('[data-glow="on"]');
-      expect(glowing.length).toBe(1);
-      expect(glowing[0]?.textContent).toBe("Apps");
+        // Once the grace window elapses, a genuine mid-session addition glows.
+        act(() => {
+          vi.advanceTimersByTime(2000);
+        });
+        rerender(
+          <ViewHeader
+            {...connectedProps}
+            availableTabs={["Tools", "Apps", "Resources", "Prompts", "Tasks"]}
+          />,
+        );
+        const glowing = document.querySelectorAll('[data-glow="on"]');
+        expect(glowing.length).toBe(1);
+        expect(glowing[0]?.textContent).toBe("Tasks");
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("animates the server name and disconnect controls in on connect, out on disconnect (#1450)", async () => {

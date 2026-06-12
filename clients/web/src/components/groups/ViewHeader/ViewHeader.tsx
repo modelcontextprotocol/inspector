@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActionIcon,
   Anchor,
@@ -48,6 +48,21 @@ export type ViewHeaderProps = ConnectedProps | UnconnectedProps;
 const HEADER_ANIM_MS = 300;
 // Fixed Select width on narrow viewports (fits the longest tab label).
 const SELECT_WIDTH = 140;
+// Grace window after a connection is established before the new-tab glow arms
+// (#1450). Primitive lists (prompts/resources/tasks) are fetched asynchronously
+// just after the handshake, so their tabs appear a few renders into the
+// connection; without this window they'd be mistaken for mid-session additions
+// and glow on initial load. Tabs that resolve within this window are treated as
+// part of the initial set and don't glow.
+const GLOW_GRACE_MS = 1000;
+
+// Tab names are single words, so newline is a safe join separator for the
+// "tabs seen / shown" keys.
+const TAB_SEP = "\n";
+
+function tabsKey(tabs: string[]): string {
+  return tabs.join(TAB_SEP);
+}
 
 // Connected-header display data retained so each region can keep rendering while
 // it animates out after disconnect (the live props are gone by then).
@@ -67,13 +82,9 @@ function snapshotKey(s: HeaderSnapshot): string {
     s.status,
     s.latencyMs ?? "",
     s.activeTab,
-    s.availableTabs.join(" "),
-  ].join("");
+    tabsKey(s.availableTabs),
+  ].join(TAB_SEP);
 }
-
-// Tab names are single words, so newline is a safe join separator for the
-// "tabs seen last render" key.
-const TAB_SEP = "\n";
 
 // Tab label that can pulse a red glow when it newly appears (#1450). The glow
 // fires only while `data-glow="on"`; the `tabGlow` variant supplies the class
@@ -198,19 +209,36 @@ export function ViewHeader(props: ViewHeaderProps) {
   const handleTabChange = props.connected ? props.onTabChange : undefined;
   const handleDisconnect = props.connected ? props.onDisconnect : undefined;
 
+  // The glow only arms once the connection has settled (GLOW_GRACE_MS after
+  // connect), so tabs whose lists resolve asynchronously just after the
+  // handshake count as the initial set and don't glow. Reset on disconnect via
+  // adjust-state-during-render; armed by the timer effect below.
+  const [glowArmed, setGlowArmed] = useState(false);
+  if (!props.connected && glowArmed) {
+    setGlowArmed(false);
+  }
+  useEffect(() => {
+    if (!props.connected) return;
+    const id = setTimeout(() => setGlowArmed(true), GLOW_GRACE_MS);
+    return () => clearTimeout(id);
+  }, [props.connected]);
+
   // Track which tabs newly appeared so their labels pulse a red glow (#1450).
   // Compared against the previous shown set via adjust-state-during-render, so
-  // only tabs added mid-session glow — not the initial set on connect (previous
-  // set empty) nor anything on disconnect. `glowing` persists in committed state
-  // (it isn't cleared in the same render) so the class survives to the DOM.
+  // only tabs added mid-session glow — not the initial set on connect, the
+  // async-resolved lists during the grace window, nor anything on disconnect.
+  // `glowing` persists in committed state (it isn't cleared in the same render)
+  // so the class survives to the DOM.
   const liveTabs = props.connected ? props.availableTabs : [];
-  const liveTabsKey = liveTabs.join(TAB_SEP);
+  const liveTabsKey = tabsKey(liveTabs);
   const [seenTabsKey, setSeenTabsKey] = useState(liveTabsKey);
   const [glowing, setGlowing] = useState<string[]>([]);
   if (liveTabsKey !== seenTabsKey) {
     const prev = seenTabsKey ? seenTabsKey.split(TAB_SEP) : [];
     setSeenTabsKey(liveTabsKey);
-    setGlowing(prev.length ? liveTabs.filter((t) => !prev.includes(t)) : []);
+    setGlowing(
+      glowArmed && prev.length ? liveTabs.filter((t) => !prev.includes(t)) : [],
+    );
   }
 
   // `in` while present/entering, `out` while exiting — drives the slide-down
@@ -273,6 +301,9 @@ export function ViewHeader(props: ViewHeaderProps) {
                     size="sm"
                   />
                 ) : (
+                  // Narrow viewport: the new-tab glow doesn't apply to the
+                  // dropdown (a collapsed Select can't pulse a single option),
+                  // so the labels stay plain strings here.
                   <Select
                     value={headerData.activeTab}
                     onChange={(value) => value && handleTabChange?.(value)}
