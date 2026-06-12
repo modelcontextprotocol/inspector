@@ -144,6 +144,25 @@ describe("ViewHeader", () => {
       );
     });
 
+    it("fades the disconnected title in only after the tab bar has collapsed (#1450)", async () => {
+      mediaQueryMock.value = true;
+      const { rerender } = renderWithMantine(
+        <ViewHeader {...connectedProps} />,
+      );
+      // While connected there is no "MCP Inspector" title (the server name shows).
+      expect(screen.queryByText("MCP Inspector")).not.toBeInTheDocument();
+
+      rerender(<ViewHeader connected={false} onToggleTheme={vi.fn()} />);
+      // Immediately after disconnect the tab bar is still collapsing, so the
+      // title has not appeared yet.
+      expect(screen.queryByText("MCP Inspector")).not.toBeInTheDocument();
+
+      // Once the bar finishes exiting it unmounts and the title fades in.
+      await waitFor(() =>
+        expect(screen.getByText("MCP Inspector")).toBeInTheDocument(),
+      );
+    });
+
     it("wraps the SegmentedControl in a width-animating clip (#1450)", () => {
       mediaQueryMock.value = true;
       const { container } = renderWithMantine(
