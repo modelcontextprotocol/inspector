@@ -110,6 +110,20 @@ const UnconnectedBar = Group.withProps({
   justify: "space-between",
 });
 
+// Tab label with a brief fade-in (theme `tabLabel` variant, #1450). The label
+// only mounts when its tab enters `availableTabs`, and SegmentedControl keys
+// segments by value, so a tab that appears after a list change fades in to
+// draw attention while existing tabs stay put. `span` keeps it inline within
+// the segment without altering layout.
+const TabLabel = Text.withProps({ variant: "tabLabel", span: true });
+
+// SegmentedControl renders each `label` as-is; wrapping the tab name in the
+// fading `TabLabel` animates newly-appearing tabs. The `value` (used by tests
+// and selection) stays the plain tab string.
+function toFadingTabData(tabs: string[]) {
+  return tabs.map((tab) => ({ value: tab, label: <TabLabel>{tab}</TabLabel> }));
+}
+
 export function ViewHeader(props: ViewHeaderProps) {
   const colorScheme = useComputedColorScheme();
   const ThemeIcon = colorScheme === "dark" ? MdLightMode : MdDarkMode;
@@ -144,7 +158,7 @@ export function ViewHeader(props: ViewHeaderProps) {
           <SegmentedControl
             value={props.activeTab}
             onChange={props.onTabChange}
-            data={props.availableTabs}
+            data={toFadingTabData(props.availableTabs)}
             size="sm"
           />
         ) : (
