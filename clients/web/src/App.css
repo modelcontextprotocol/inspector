@@ -120,17 +120,16 @@
   }
 }
 
-/* A single in-then-out red glow pulse around a tab label's text, played when a
-   content-gated tab newly appears (#1450). */
+/* A red glow around a tab label's text that starts at full intensity the
+   moment a content-gated tab appears and fades out (#1450). */
 @keyframes inspector-tab-glow {
-  0%,
-  100% {
-    text-shadow: none;
-  }
-  50% {
+  from {
     text-shadow:
       0 0 6px var(--inspector-glow-red),
       0 0 12px var(--inspector-glow-red);
+  }
+  to {
+    text-shadow: none;
   }
 }
 
@@ -144,10 +143,10 @@
   animation: inspector-spin 1s linear infinite;
 }
 
-/* Applied (via the `tabGlow` Text variant) to a tab label; the one-shot pulse
-   runs only while `data-glow="on"` is set on a freshly-appeared tab (#1450). */
+/* Applied (via the `tabGlow` Text variant) to a tab label; the glow starts full
+   and fades, running only while `data-glow="on"` on a freshly-appeared tab. */
 .tab-glow[data-glow="on"] {
-  animation: inspector-tab-glow 325ms ease-in-out;
+  animation: inspector-tab-glow 325ms ease-out;
 }
 
 /* ── Header center crossfade (#1450) ─────────────────────── */
