@@ -122,7 +122,15 @@ describe("ViewHeader", () => {
       expect(radios.length).toBeGreaterThan(0);
     });
 
-    it("keeps the tab bar mounted on disconnect so it can collapse to 0, then unmounts (#1450)", async () => {
+    it("animates the connected tab bar in with the slide-down enter (#1450)", () => {
+      mediaQueryMock.value = true;
+      renderWithMantine(<ViewHeader {...connectedProps} />);
+      // The tab bar lives in a crossfade cell marked for the enter animation.
+      const cell = screen.getAllByRole("radio")[0]!.closest("[data-anim]");
+      expect(cell?.getAttribute("data-anim")).toBe("in");
+    });
+
+    it("crossfades on disconnect: tab bar exits while the title enters, then the bar unmounts (#1450)", async () => {
       mediaQueryMock.value = true;
       const { rerender } = renderWithMantine(
         <ViewHeader {...connectedProps} />,
@@ -130,50 +138,24 @@ describe("ViewHeader", () => {
       expect(screen.getAllByRole("radio").length).toBeGreaterThan(0);
 
       // Disconnect: the connected header is replaced, but the tab bar stays in
-      // the DOM (collapsing toward width 0) until the keep-alive Transition's
-      // exit window elapses — so it isn't removed synchronously.
+      // the DOM (now marked for the exit animation) until the keep-alive
+      // Transition's exit window elapses — so it isn't removed synchronously.
       rerender(<ViewHeader connected={false} onToggleTheme={vi.fn()} />);
-      expect(screen.queryAllByRole("radio").length).toBeGreaterThan(0);
-      // The clip's width target is now 0 (the CSS transition animates it there).
-      const clip = document.querySelector('[style*="width 300ms ease-in"]');
-      expect(clip?.getAttribute("style")).toMatch(/width:\s*0/);
+      const exitingCell = screen
+        .getAllByRole("radio")[0]!
+        .closest("[data-anim]");
+      expect(exitingCell?.getAttribute("data-anim")).toBe("out");
 
-      // After the exit transition the bar is removed from the DOM entirely.
+      // The title enters (staggered) in its own cell.
+      const title = await screen.findByText("MCP Inspector");
+      expect(title.closest("[data-anim]")?.getAttribute("data-anim")).toBe(
+        "in",
+      );
+
+      // After the exit transition the tab bar is removed from the DOM entirely.
       await waitFor(() =>
         expect(screen.queryAllByRole("radio").length).toBe(0),
       );
-    });
-
-    it("fades the disconnected title in only after the tab bar has collapsed (#1450)", async () => {
-      mediaQueryMock.value = true;
-      const { rerender } = renderWithMantine(
-        <ViewHeader {...connectedProps} />,
-      );
-      // While connected there is no "MCP Inspector" title (the server name shows).
-      expect(screen.queryByText("MCP Inspector")).not.toBeInTheDocument();
-
-      rerender(<ViewHeader connected={false} onToggleTheme={vi.fn()} />);
-      // Immediately after disconnect the tab bar is still collapsing, so the
-      // title has not appeared yet.
-      expect(screen.queryByText("MCP Inspector")).not.toBeInTheDocument();
-
-      // Once the bar finishes exiting it unmounts and the title fades in.
-      await waitFor(() =>
-        expect(screen.getByText("MCP Inspector")).toBeInTheDocument(),
-      );
-    });
-
-    it("wraps the SegmentedControl in a width-animating clip (#1450)", () => {
-      mediaQueryMock.value = true;
-      const { container } = renderWithMantine(
-        <ViewHeader {...connectedProps} />,
-      );
-      // The `tabBar` Group variant carries the width transition so the bar
-      // grows/shrinks smoothly when a tab is added or removed. (The runtime
-      // width itself is driven by ResizeObserver, which doesn't fire under
-      // happy-dom — this asserts the static transition wiring.)
-      const clip = container.querySelector('[style*="width 300ms ease-in"]');
-      expect(clip).not.toBeNull();
     });
 
     it("invokes onTabChange when a different tab is picked from the Select", async () => {

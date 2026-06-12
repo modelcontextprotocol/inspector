@@ -93,6 +93,30 @@
   }
 }
 
+/* Both motions travel downward: enter descends from above into place, exit
+   descends from place to below — used for the header crossfade (#1450). */
+@keyframes inspector-fade-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes inspector-fade-slide-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+}
+
 /* ── Status dot animations ───────────────────────────────── */
 
 .inspector-pulse {
@@ -101,6 +125,25 @@
 
 .inspector-spin {
   animation: inspector-spin 1s linear infinite;
+}
+
+/* ── Header center crossfade (#1450) ─────────────────────── */
+/* The disconnected title and the connected tab bar share one grid cell so one
+   replaces the other in place. The outgoing element ([data-anim="out"]) slides
+   down + fades out immediately; the incoming one ([data-anim="in"]) is delayed
+   by half the duration so the two are staggered. Keep the 300ms/150ms here in
+   sync with HEADER_ANIM_MS in ViewHeader.tsx. */
+.header-stack-cell {
+  grid-area: 1 / 1;
+  place-self: center;
+}
+
+.header-stack-cell[data-anim="in"] {
+  animation: inspector-fade-slide-in 300ms ease 150ms both;
+}
+
+.header-stack-cell[data-anim="out"] {
+  animation: inspector-fade-slide-out 300ms ease both;
 }
 
 /* ── List item hover ────────────────────────────────────── */
