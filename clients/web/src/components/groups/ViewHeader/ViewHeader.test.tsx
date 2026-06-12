@@ -118,19 +118,6 @@ describe("ViewHeader", () => {
       expect(radios.length).toBeGreaterThan(0);
     });
 
-    it("applies the fade-in animation to each SegmentedControl tab label (#1450)", () => {
-      mediaQueryMock.value = true;
-      renderWithMantine(<ViewHeader {...connectedProps} />);
-      // Each tab name is wrapped in the fading `tabLabel` Text variant, which
-      // Mantine applies as an inline animation on the label element. The
-      // label mounts only when its tab enters availableTabs, so a tab that
-      // appears after a list change fades in to draw attention.
-      for (const tab of connectedProps.availableTabs) {
-        const label = screen.getByText(tab);
-        expect(label.getAttribute("style")).toContain("inspector-fade-in");
-      }
-    });
-
     it("wraps the SegmentedControl in a width-animating clip (#1450)", () => {
       mediaQueryMock.value = true;
       const { container } = renderWithMantine(
