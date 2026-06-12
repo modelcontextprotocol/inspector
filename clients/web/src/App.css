@@ -120,19 +120,15 @@
   }
 }
 
-/* When a content-gated tab appears (#1450) its label text turns red and a glow
-   starts at full intensity; the text stays red for the whole animation while
-   the glow fades. With no `forwards` fill, `color` reverts to the label's
-   theme value the moment the animation ends. */
+/* A red glow around a tab label's text that starts at full intensity the
+   moment a content-gated tab appears and fades out (#1450). */
 @keyframes inspector-tab-glow {
   from {
-    color: var(--inspector-glow-red);
     text-shadow:
       0 0 6px var(--inspector-glow-red),
       0 0 12px var(--inspector-glow-red);
   }
   to {
-    color: var(--inspector-glow-red);
     text-shadow: none;
   }
 }
