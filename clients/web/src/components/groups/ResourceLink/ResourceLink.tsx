@@ -97,8 +97,12 @@ export function ResourceLink({
       return;
     }
     setExpanded(true);
-    // Already fetched (or previously errored) — just re-reveal the cache.
-    if (result !== null || error !== null) return;
+    // Only a successful result is cached; re-expanding after an error retries
+    // the read so a transient failure isn't permanent.
+    if (result !== null) return;
+    // Don't fire a second read if one is already in flight (rapid toggle).
+    if (loading) return;
+    setError(null);
     setLoading(true);
     try {
       setResult(await onReadResource(uri));

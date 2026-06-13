@@ -101,4 +101,70 @@ describe("ResourceLink", () => {
     );
     expect(screen.getByText("nope")).toBeInTheDocument();
   });
+
+  it("retries the read on re-expand after a failure", async () => {
+    const user = userEvent.setup();
+    const onReadResource = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("transient"))
+      .mockResolvedValueOnce(readResult("recovered body"));
+    renderWithMantine(
+      <ResourceLink uri={URI} onReadResource={onReadResource} />,
+    );
+
+    // First expand fails.
+    await user.click(
+      screen.getByRole("button", { name: `Expand resource ${URI}` }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Failed to read resource")).toBeInTheDocument(),
+    );
+
+    // Collapse, then re-expand — the read is retried (error is not cached).
+    await user.click(
+      screen.getByRole("button", { name: `Collapse resource ${URI}` }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: `Expand resource ${URI}` }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(/"recovered body"/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Failed to read resource")).not.toBeInTheDocument();
+    expect(onReadResource).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not fire a second read when toggled while a read is in flight", async () => {
+    const user = userEvent.setup();
+    let resolveRead: (value: ReadResourceResult) => void = () => {};
+    const onReadResource = vi.fn().mockImplementation(
+      () =>
+        new Promise<ReadResourceResult>((resolve) => {
+          resolveRead = resolve;
+        }),
+    );
+    renderWithMantine(
+      <ResourceLink uri={URI} onReadResource={onReadResource} />,
+    );
+
+    // Expand — read is in flight (loading), then collapse and re-expand.
+    await user.click(
+      screen.getByRole("button", { name: `Expand resource ${URI}` }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: `Collapse resource ${URI}` }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: `Expand resource ${URI}` }),
+    );
+
+    // Still only the original in-flight read — no redundant fetch.
+    expect(onReadResource).toHaveBeenCalledTimes(1);
+
+    resolveRead(readResult("in flight body"));
+    await waitFor(() =>
+      expect(screen.getByText(/"in flight body"/)).toBeInTheDocument(),
+    );
+  });
 });
