@@ -191,6 +191,14 @@ export class InspectorClient extends InspectorClientEventTarget {
   };
   // Resource subscriptions
   private subscribedResources: Set<string> = new Set();
+  // Task ids the user explicitly cancelled. A cancel makes the in-flight
+  // `callToolStream` reject with a generic -32603 error, which the stream's
+  // error path would otherwise report as a *failed* task — flashing "failed"
+  // in the UI until a refresh fetches the server's true "cancelled" state.
+  // Recording the id lets that path label the terminal task "cancelled"
+  // instead, so it lands in the right state immediately (#1455). Cleared on
+  // disconnect.
+  private cancelledTaskIds: Set<string> = new Set();
   // Receiver tasks (server-initiated: server sends createMessage/elicit with params.task, server polls us)
   private receiverTasks: boolean;
   private receiverTaskTtlMs: number | (() => number);
@@ -1040,6 +1048,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.pendingElicitations = [];
     // Clear resource subscriptions on disconnect
     this.subscribedResources.clear();
+    this.cancelledTaskIds.clear();
     // Clear receiver tasks: stop TTL timers and drop records
     for (const record of this.receiverTaskRecords.values()) {
       if (record.cleanupTimeoutId != null) {
@@ -1182,6 +1191,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
+    // Mark before awaiting: cancelling unblocks the in-flight callToolStream,
+    // whose error message may arrive before this resolves — the stream's error
+    // path reads this set to label the task "cancelled" rather than "failed".
+    this.cancelledTaskIds.add(taskId);
     await this.client.experimental.tasks.cancelTask(
       taskId,
       this.getRequestOptions(),
@@ -1826,21 +1839,28 @@ export class InspectorClient extends InspectorClientEventTarget {
               message.error.message || "Task execution failed";
             error = new Error(errorMessage);
             if (taskId) {
-              const failedTask: TaskWithOptionalCreatedAt = {
+              // A user-cancelled task surfaces here as a generic error; report
+              // it as "cancelled" (not "failed") so the UI lands on the true
+              // terminal state immediately, matching what a refresh would show
+              // (#1455).
+              const cancelled = this.cancelledTaskIds.has(taskId);
+              const terminalTask: TaskWithOptionalCreatedAt = {
                 taskId,
                 ttl: null,
-                status: "failed",
-                statusMessage: errorMessage,
+                status: cancelled ? "cancelled" : "failed",
+                statusMessage: cancelled
+                  ? "Client cancelled task execution."
+                  : errorMessage,
                 lastUpdatedAt: new Date().toISOString(),
               };
               this.dispatchTypedEvent("toolCallTaskUpdated", {
                 taskId,
-                task: failedTask,
+                task: terminalTask,
                 error: message.error,
               });
               this.dispatchTypedEvent("requestorTaskUpdated", {
                 taskId,
-                task: failedTask,
+                task: terminalTask,
                 error: message.error,
               });
             }
