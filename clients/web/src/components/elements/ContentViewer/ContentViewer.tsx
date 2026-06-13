@@ -1,8 +1,9 @@
-import { Code, Flex, Image, Stack, Text } from "@mantine/core";
+import { Code, Flex, Image, Stack } from "@mantine/core";
 import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CopyButton } from "../CopyButton/CopyButton";
+import { ResourceLinkInfo } from "../ResourceLinkInfo/ResourceLinkInfo";
 
 export interface ContentViewerProps {
   block: ContentBlock;
@@ -131,12 +132,16 @@ export function ContentViewer({
         </Stack>
       );
     case "resource_link":
+      // Static metadata only. The interactive, read-on-demand presentation
+      // lives in the `groups/ResourceLink` group, rendered by content-block
+      // hosts (e.g. ToolResultPanel) that can supply a read handler.
       return (
-        <Stack gap="xs">
-          <Text size="sm" c="blue">
-            {block.name ?? block.uri}
-          </Text>
-        </Stack>
+        <ResourceLinkInfo
+          uri={block.uri}
+          name={block.name}
+          description={block.description}
+          mimeType={block.mimeType}
+        />
       );
     default:
       return null;

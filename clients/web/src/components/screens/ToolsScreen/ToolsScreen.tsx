@@ -1,5 +1,9 @@
 import { Card, Flex, Stack, Text } from "@mantine/core";
-import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  CallToolResult,
+  ReadResourceResult,
+  Tool,
+} from "@modelcontextprotocol/sdk/types.js";
 import { ToolControls } from "../../groups/ToolControls/ToolControls";
 import {
   ToolDetailPanel,
@@ -46,6 +50,11 @@ export interface ToolsScreenProps {
   ) => void;
   onCancelCall?: () => void;
   onClearResult?: () => void;
+  /**
+   * Read-on-demand handler for `resource_link` blocks in a tool result.
+   * Passed through to the result panel so links can inline their contents.
+   */
+  onReadResource?: (uri: string) => Promise<ReadResourceResult>;
 }
 
 // Caps the detail/result columns at the screen's available height: full
@@ -110,6 +119,7 @@ export function ToolsScreen({
   onCallTool,
   onCancelCall,
   onClearResult,
+  onReadResource,
 }: ToolsScreenProps) {
   const { selectedToolName, formValues, search } = ui;
   const selectedTool = selectedToolName
@@ -177,6 +187,7 @@ export function ToolsScreen({
             <ToolResultPanel
               result={callState.result}
               onClear={() => onClearResult?.()}
+              onReadResource={onReadResource}
             />
           ) : (
             <EmptyState>Results will appear here</EmptyState>

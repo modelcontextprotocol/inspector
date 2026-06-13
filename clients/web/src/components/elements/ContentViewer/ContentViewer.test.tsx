@@ -99,6 +99,21 @@ describe("ContentViewer", () => {
     expect(screen.getByText("ui://app")).toBeInTheDocument();
   });
 
+  it("renders a resource_link statically (no expand control)", () => {
+    const block: ContentBlock = {
+      type: "resource_link",
+      uri: "ui://app",
+      name: "Cool App",
+      description: "An app",
+      mimeType: "text/html",
+    };
+    renderWithMantine(<ContentViewer block={block} />);
+    expect(screen.getByText("Cool App")).toBeInTheDocument();
+    expect(screen.getByText("An app")).toBeInTheDocument();
+    expect(screen.getByText("text/html")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
   it("renders nothing for unknown block types", () => {
     renderWithMantine(<ContentViewer block={{ type: "unknown" } as never} />);
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
