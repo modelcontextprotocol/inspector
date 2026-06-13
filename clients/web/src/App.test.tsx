@@ -783,6 +783,33 @@ describe("App task wiring", () => {
     expect(client.cancelRequestorTask).toHaveBeenCalledWith("task-42");
   });
 
+  it("does not re-cancel on a rapid second Cancel click", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    const client = clientInstances[0] as unknown as {
+      cancelRequestorTask: ReturnType<typeof vi.fn>;
+    };
+
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("toolCallTaskUpdated", {
+          detail: { taskId: "task-42", task: { taskId: "task-42" } },
+        }),
+      );
+    });
+
+    // Two clicks before the call resolves must cancel only once — the second
+    // finds the ref already cleared, avoiding a spurious cancel of a terminal
+    // task.
+    await user.click(screen.getByText("cancel-tool-call"));
+    await user.click(screen.getByText("cancel-tool-call"));
+
+    expect(client.cancelRequestorTask).toHaveBeenCalledTimes(1);
+  });
+
   it("does not cancel a task when an ordinary tool call is cancelled", async () => {
     const user = userEvent.setup();
     renderWithMantine(<App />);

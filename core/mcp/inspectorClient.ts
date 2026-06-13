@@ -1844,6 +1844,11 @@ export class InspectorClient extends InspectorClientEventTarget {
               // terminal state immediately, matching what a refresh would show
               // (#1455).
               const cancelled = this.cancelledTaskIds.has(taskId);
+              // Consume the marker — task ids are single-use, so this keeps the
+              // set from growing across a long session of cancellations (the
+              // disconnect-clear stays the backstop for cancels whose task
+              // completed before the cancel landed and never hit this path).
+              this.cancelledTaskIds.delete(taskId);
               const terminalTask: TaskWithOptionalCreatedAt = {
                 taskId,
                 ttl: null,

@@ -1759,6 +1759,10 @@ function App() {
   const onCancelToolCall = useCallback(() => {
     const taskId = activeToolCallTaskIdRef.current;
     if (taskId) {
+      // Clear the ref before the call resolves so a rapid second Cancel click
+      // doesn't re-cancel the now-terminating task (which would surface a
+      // spurious "Failed to cancel task" toast).
+      activeToolCallTaskIdRef.current = undefined;
       void onCancelTask(taskId);
     }
   }, [onCancelTask]);
