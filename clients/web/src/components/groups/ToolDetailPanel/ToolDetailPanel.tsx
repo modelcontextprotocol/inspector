@@ -1,5 +1,7 @@
 import {
+  ActionIcon,
   Button,
+  Collapse,
   Divider,
   Group,
   Image,
@@ -8,6 +10,8 @@ import {
   Switch,
   Text,
 } from "@mantine/core";
+import { useState } from "react";
+import { FaChevronDown, FaChevronRight } from "react-icons/fa";
 import type {
   ProgressNotification,
   Tool,
@@ -86,10 +90,21 @@ const ToolIcon = Image.withProps({
   fit: "contain",
 });
 
+// `flex: 1` lets the title absorb the row's slack so the chevron toggle pins
+// to the right edge of the (nowrap) TitleRow.
 const ToolTitle = Text.withProps({
   fw: 700,
   size: "lg",
   truncate: "end",
+  flex: 1,
+});
+
+// Chevron toggle for the collapsible description, pinned to the right of the
+// title row. `aria-label` is set per-render since it reflects the open state.
+const DescriptionToggle = ActionIcon.withProps({
+  variant: "subtle",
+  color: "gray",
+  size: "sm",
 });
 
 const DescriptionText = Text.withProps({
@@ -145,6 +160,17 @@ export function ToolDetailPanel({
   const { name, title, description, icons, annotations, inputSchema } = tool;
   const iconSrc = icons?.[0]?.src;
 
+  // Long descriptions are collapsed by default so the form and Execute footer
+  // stay visible. Reset to collapsed when switching tools (React's
+  // adjust-state-during-render pattern) so the prior tool's expanded state
+  // doesn't carry over — mirrors how ToolsScreen clears formValues on change.
+  const [descriptionOpen, setDescriptionOpen] = useState(false);
+  const [prevToolName, setPrevToolName] = useState(name);
+  if (name !== prevToolName) {
+    setPrevToolName(name);
+    setDescriptionOpen(false);
+  }
+
   // Show the toggle only when the server supports task tool calls and the tool
   // doesn't forbid them. `required` tools are forced on (checked + disabled);
   // `optional` tools follow the user's `runAsTask` choice.
@@ -166,6 +192,16 @@ export function ToolDetailPanel({
         <TitleRow>
           {iconSrc && <ToolIcon src={iconSrc} alt="" />}
           <ToolTitle>{resolveDisplayLabel(name, title)}</ToolTitle>
+          {description && (
+            <DescriptionToggle
+              aria-label={
+                descriptionOpen ? "Hide description" : "Show description"
+              }
+              onClick={() => setDescriptionOpen((open) => !open)}
+            >
+              {descriptionOpen ? <FaChevronDown /> : <FaChevronRight />}
+            </DescriptionToggle>
+          )}
         </TitleRow>
         {hasAnyAnnotation(annotations) && annotations && (
           <Group gap="xs">
@@ -187,7 +223,11 @@ export function ToolDetailPanel({
 
       <BodyScroll>
         <BodyStack>
-          {description && <DescriptionText>{description}</DescriptionText>}
+          {description && (
+            <Collapse in={descriptionOpen}>
+              <DescriptionText>{description}</DescriptionText>
+            </Collapse>
+          )}
 
           <Divider />
 

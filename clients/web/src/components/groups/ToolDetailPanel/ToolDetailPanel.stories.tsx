@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { fn } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
 import { ToolDetailPanel } from "./ToolDetailPanel";
 
 const meta: Meta<typeof ToolDetailPanel> = {
@@ -105,9 +105,67 @@ const batchProcessTool: Tool = {
   },
 };
 
+// Mirrors the gnarly `sequential-thinking-server` case from issue #1381: a very
+// long description that, when expanded, would otherwise push the form and
+// Execute footer off-screen. Collapsed by default keeps the form reachable.
+const longDescriptionTool: Tool = {
+  name: "sequentialthinking",
+  title: "Sequential Thinking",
+  description: [
+    "A detailed tool for dynamic and reflective problem-solving through thoughts.",
+    "This tool helps analyze problems through a flexible thinking process that can",
+    "adapt and evolve. Each thought can build on, question, or revise previous",
+    "insights as understanding deepens.",
+    "",
+    "When to use this tool: breaking down complex problems into steps, planning and",
+    "design with room for revision, analysis that might need course correction, and",
+    "problems where the full scope might not be clear initially.",
+  ].join(" "),
+  inputSchema: {
+    type: "object",
+    properties: {
+      thought: { type: "string", description: "Your current thinking step" },
+      nextThoughtNeeded: {
+        type: "boolean",
+        description: "Whether another thought step is needed",
+      },
+    },
+    required: ["thought", "nextThoughtNeeded"],
+  },
+};
+
 export const SimpleStringParam: Story = {
   args: {
     tool: sendMessageTool,
+  },
+};
+
+// Long description collapsed by default — only the chevron toggle is shown.
+export const LongDescription: Story = {
+  args: {
+    tool: longDescriptionTool,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(
+      await canvas.findByRole("button", { name: "Show description" }),
+    ).toBeInTheDocument();
+  },
+};
+
+// Clicking the chevron expands the description (toggle flips to "Hide").
+export const LongDescriptionExpanded: Story = {
+  args: {
+    tool: longDescriptionTool,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Show description" }),
+    );
+    await expect(
+      await canvas.findByRole("button", { name: "Hide description" }),
+    ).toBeInTheDocument();
   },
 };
 
