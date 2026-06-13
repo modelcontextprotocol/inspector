@@ -263,6 +263,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
     onReadResource: (uri: string) => void;
     onSetLogLevel: (level: string) => void;
     onCancelTask: (taskId: string) => void;
+    onCancelToolCall: () => void;
     onClearCompletedTasks: () => void;
     onRefreshTasks: () => void;
     onServerSettings: (id: string) => void;
@@ -357,6 +358,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
         call-as-task
       </button>
       <button onClick={() => props.onCancelTask("task-1")}>cancel-task</button>
+      <button onClick={() => props.onCancelToolCall()}>cancel-tool-call</button>
       <button onClick={() => props.onClearCompletedTasks()}>
         clear-completed
       </button>
@@ -756,6 +758,87 @@ describe("App task wiring", () => {
     );
   });
 
+  it("cancels the underlying task when a task-augmented tool call is cancelled", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    const client = clientInstances[0] as unknown as {
+      cancelRequestorTask: ReturnType<typeof vi.fn>;
+    };
+
+    // callToolStream surfaces the created task's id via `toolCallTaskUpdated`
+    // mid-call; App stashes it so Cancel knows which task to cancel (#1455).
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("toolCallTaskUpdated", {
+          detail: { taskId: "task-42", task: { taskId: "task-42" } },
+        }),
+      );
+    });
+
+    await user.click(screen.getByText("cancel-tool-call"));
+
+    expect(client.cancelRequestorTask).toHaveBeenCalledWith("task-42");
+  });
+
+  it("does not re-cancel on a rapid second Cancel click", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    const client = clientInstances[0] as unknown as {
+      cancelRequestorTask: ReturnType<typeof vi.fn>;
+    };
+
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("toolCallTaskUpdated", {
+          detail: { taskId: "task-42", task: { taskId: "task-42" } },
+        }),
+      );
+    });
+
+    // Two clicks before the call resolves must cancel only once — the second
+    // finds the ref already cleared, avoiding a spurious cancel of a terminal
+    // task.
+    await user.click(screen.getByText("cancel-tool-call"));
+    await user.click(screen.getByText("cancel-tool-call"));
+
+    expect(client.cancelRequestorTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not cancel a task when an ordinary tool call is cancelled", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    const client = clientInstances[0] as unknown as {
+      cancelRequestorTask: ReturnType<typeof vi.fn>;
+    };
+
+    // A stale task id from an earlier task call...
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("toolCallTaskUpdated", {
+          detail: { taskId: "old-task", task: { taskId: "old-task" } },
+        }),
+      );
+    });
+    // ...is cleared when a new ordinary call starts, so its Cancel is a no-op.
+    await user.click(screen.getByText("call"));
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-status")).toHaveTextContent("ok"),
+    );
+
+    await user.click(screen.getByText("cancel-tool-call"));
+
+    expect(client.cancelRequestorTask).not.toHaveBeenCalled();
+  });
+
   it("shows a URL-elicitation toast when a tool call fails with a no-list -32042", async () => {
     const user = userEvent.setup();
     renderWithMantine(<App />);
@@ -939,6 +1022,57 @@ describe("App task wiring", () => {
       expect(screen.getByTestId("task-progress-keys")).toHaveTextContent(
         "none",
       ),
+    );
+  });
+
+  it("shows a 'Task cancelled' toast when a task is cancelled", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    // No live status toast for this task — cancellation shows a fresh one.
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("taskCancelled", { detail: { taskId: "task-1" } }),
+      );
+    });
+
+    expect(notificationsMock.show).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Task cancelled", color: "gray" }),
+    );
+  });
+
+  it("converts a running task's live toast into the cancellation toast", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    // A running task has an open "Task working" toast...
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("taskStatusChange", {
+          detail: {
+            taskId: "task-1",
+            task: { status: "working", statusMessage: "Interpreting" },
+          },
+        }),
+      );
+    });
+    const liveId = notificationsMock.show.mock.calls[0][0].id;
+    notificationsMock.show.mockClear();
+
+    // ...which the cancel replaces in place (update), not a stacked toast.
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("taskCancelled", { detail: { taskId: "task-1" } }),
+      );
+    });
+
+    expect(notificationsMock.show).not.toHaveBeenCalled();
+    expect(notificationsMock.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: liveId, title: "Task cancelled" }),
     );
   });
 });

@@ -347,6 +347,10 @@ function formatErrorDetails(err: unknown): string {
 // progress stops (i.e. the call finished or went quiet).
 const PROGRESS_TOAST_AUTOCLOSE_MS = 5000;
 
+// A task cancellation is a one-shot confirmation (unlike the live status toast,
+// which stays open while the task runs), so it auto-dismisses after a moment.
+const TASK_CANCELLED_TOAST_AUTOCLOSE_MS = 5000;
+
 // Stable toast id for a progress stream. Notifications keyed by this id are
 // replaced (not stacked) so a chatty server updates one toast per stream
 // rather than flooding the corner. The injected `progressToken` correlates a
@@ -585,6 +589,15 @@ function App() {
   // `notifications/tasks/status` tick replaces the existing toast.
   const taskToastIdsRef = useRef<Set<string>>(new Set());
 
+  // The taskId of the in-flight task-augmented tool call, captured from the
+  // `toolCallTaskUpdated` event `callToolStream` dispatches. Lets the Tool
+  // detail panel's Cancel button cancel the underlying task on the server
+  // (#1455) instead of no-op'ing. Reset at the start of every call, so an
+  // ordinary (non-task) call leaves it undefined and its Cancel doesn't fire a
+  // stray task cancellation. A ref (not state) because it's only read at the
+  // moment Cancel is clicked and must not trigger re-renders.
+  const activeToolCallTaskIdRef = useRef<string | undefined>(undefined);
+
   // Per-task progress, keyed by taskId. Sourced from the core `requestorTaskProgress`
   // event (emitted by callToolStream, which owns the taskId), fed to the Tasks
   // screen so `TaskCard`'s progress bar renders for active tasks. Pruned on
@@ -805,6 +818,30 @@ function App() {
     };
   }, [inspectorClient]);
 
+  // Capture the in-flight task-augmented tool call's taskId so the detail
+  // panel's Cancel button can cancel the task on the server (#1455). The id
+  // only becomes known mid-call, when `callToolStream` dispatches
+  // `toolCallTaskUpdated`, so we stash the latest into the ref the cancel
+  // handler reads. `onCallTool` clears it at the start of each call.
+  useEffect(() => {
+    if (!inspectorClient) return;
+    const onToolCallTaskUpdated = (
+      event: TypedEventGeneric<InspectorClientEventMap, "toolCallTaskUpdated">,
+    ) => {
+      activeToolCallTaskIdRef.current = event.detail.taskId;
+    };
+    inspectorClient.addEventListener(
+      "toolCallTaskUpdated",
+      onToolCallTaskUpdated,
+    );
+    return () => {
+      inspectorClient.removeEventListener(
+        "toolCallTaskUpdated",
+        onToolCallTaskUpdated,
+      );
+    };
+  }, [inspectorClient]);
+
   // Surface live task status as per-task toasts — the v2 replacement for v1/v1.5's
   // inline "Task status: … Polling…" line under the Tool Result (#1422, consistent
   // with #1414). Subscribes to `taskStatusChange` (server `notifications/tasks/status`)
@@ -862,11 +899,47 @@ function App() {
     ) => {
       handleTaskUpdate(event.detail.taskId, event.detail.task);
     };
+    // A cancel goes out as `taskCancelled` (dispatched by cancelRequestorTask),
+    // not as a status notification, so it would otherwise leave the running
+    // task's live "Task <status>" toast hanging with no confirmation. Replace
+    // that toast (or show a fresh one) with a short "Task cancelled" toast, and
+    // prune the now-dead progress entry. Covers both cancel paths — the Tasks
+    // screen and the Tool detail panel — since both route through
+    // cancelRequestorTask (#1455).
+    const onTaskCancelled = (
+      event: TypedEventGeneric<InspectorClientEventMap, "taskCancelled">,
+    ) => {
+      const { taskId } = event.detail;
+      setProgressByTaskId((prev) => {
+        if (!(taskId in prev)) return prev;
+        const next = { ...prev };
+        delete next[taskId];
+        return next;
+      });
+      const id = taskToastId(taskId);
+      const toast = {
+        id,
+        title: "Task cancelled",
+        message: "The task was cancelled.",
+        color: taskToastColor("cancelled"),
+        autoClose: TASK_CANCELLED_TOAST_AUTOCLOSE_MS,
+      };
+      if (liveToastIds.has(id)) {
+        // Convert the open status toast into the auto-closing confirmation; drop
+        // it from the live set so a trailing "cancelled" status tick (if the
+        // server sends one) doesn't re-show it.
+        notifications.update(toast);
+        liveToastIds.delete(id);
+      } else {
+        notifications.show(toast);
+      }
+    };
     inspectorClient.addEventListener("taskStatusChange", onTaskStatusChange);
     inspectorClient.addEventListener(
       "requestorTaskUpdated",
       onRequestorTaskUpdated,
     );
+    inspectorClient.addEventListener("taskCancelled", onTaskCancelled);
     return () => {
       inspectorClient.removeEventListener(
         "taskStatusChange",
@@ -876,6 +949,7 @@ function App() {
         "requestorTaskUpdated",
         onRequestorTaskUpdated,
       );
+      inspectorClient.removeEventListener("taskCancelled", onTaskCancelled);
       // Hide any still-visible task toasts on client swap so they don't linger
       // into the next session, then drop the bookkeeping (mirrors the progress-
       // toast teardown above).
@@ -1378,6 +1452,10 @@ function App() {
       const asTask =
         serverSupportsTaskToolCalls &&
         (runAsTask || tool.execution?.taskSupport === "required");
+      // Drop any prior call's task id before starting; a task-augmented call
+      // repopulates it via the `toolCallTaskUpdated` listener below, an ordinary
+      // call leaves it cleared (#1455).
+      activeToolCallTaskIdRef.current = undefined;
       setToolCallState({ status: "pending" });
       try {
         // ToolsScreen types the args as `Record<string, unknown>` (it accepts
@@ -1672,6 +1750,22 @@ function App() {
     },
     [inspectorClient],
   );
+
+  // Cancel the in-flight tool call. A task-augmented call (run-as-task) has a
+  // server-side task, so cancel that via the tasks API (#1455) — the cancelled
+  // status then flows back through the managed task store and toasts, the same
+  // as cancelling from the Tasks screen. An ordinary call has no task (and no
+  // request-abort channel yet), so there is nothing to cancel server-side.
+  const onCancelToolCall = useCallback(() => {
+    const taskId = activeToolCallTaskIdRef.current;
+    if (taskId) {
+      // Clear the ref before the call resolves so a rapid second Cancel click
+      // doesn't re-cancel the now-terminating task (which would surface a
+      // spurious "Failed to cancel task" toast).
+      activeToolCallTaskIdRef.current = undefined;
+      void onCancelTask(taskId);
+    }
+  }, [onCancelTask]);
 
   const onClearCompletedTasks = useCallback(() => {
     clearCompletedTasks();
@@ -2184,6 +2278,7 @@ function App() {
         onCallTool={(name, args, runAsTask) => {
           void onCallTool(name, args, runAsTask);
         }}
+        onCancelToolCall={onCancelToolCall}
         onClearToolResult={onClearToolResult}
         onReadResourceContents={onReadResourceContents}
         onRefreshTools={onRefreshTools}

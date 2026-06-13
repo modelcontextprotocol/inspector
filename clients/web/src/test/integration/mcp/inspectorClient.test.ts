@@ -3956,6 +3956,21 @@ describe("InspectorClient", () => {
       const taskId = taskCreatedDetail.taskId;
       expect(taskId).toBeDefined();
 
+      // Collect the optimistic task updates the stream emits. The cancellation
+      // ends the stream with a generic error; the terminal update must report
+      // "cancelled" (not "failed") so the UI lands on the true state without
+      // waiting for a refresh (#1455).
+      const taskUpdates: TaskWithOptionalCreatedAt[] = [];
+      const onRequestorTaskUpdated = (
+        e: CustomEvent<{ taskId: string; task: TaskWithOptionalCreatedAt }>,
+      ) => {
+        taskUpdates.push(e.detail.task);
+      };
+      client!.addEventListener(
+        "requestorTaskUpdated",
+        onRequestorTaskUpdated as EventListener,
+      );
+
       const cancelledPromise = waitForEvent<{ taskId: string }>(
         client,
         "taskCancelled",
@@ -3967,12 +3982,22 @@ describe("InspectorClient", () => {
         cancelledPromise,
         taskPromise,
       ]);
+      client!.removeEventListener(
+        "requestorTaskUpdated",
+        onRequestorTaskUpdated as EventListener,
+      );
       expect(cancelledResult.status).toBe("fulfilled");
       const cancelledDetail = (
         cancelledResult as PromiseFulfilledResult<{ taskId: string }>
       ).value;
       expect(cancelledDetail.taskId).toBe(taskId);
       expect(taskResult.status).toBe("rejected");
+
+      // The terminal optimistic update is "cancelled", never "failed".
+      const terminalUpdate = taskUpdates.find((t) =>
+        ["completed", "failed", "cancelled"].includes(t.status),
+      );
+      expect(terminalUpdate?.status).toBe("cancelled");
 
       const task = await client!.getRequestorTask(taskId);
       expect(task.status).toBe("cancelled");
