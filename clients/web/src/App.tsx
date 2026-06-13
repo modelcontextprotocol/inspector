@@ -585,6 +585,15 @@ function App() {
   // `notifications/tasks/status` tick replaces the existing toast.
   const taskToastIdsRef = useRef<Set<string>>(new Set());
 
+  // The taskId of the in-flight task-augmented tool call, captured from the
+  // `toolCallTaskUpdated` event `callToolStream` dispatches. Lets the Tool
+  // detail panel's Cancel button cancel the underlying task on the server
+  // (#1455) instead of no-op'ing. Reset at the start of every call, so an
+  // ordinary (non-task) call leaves it undefined and its Cancel doesn't fire a
+  // stray task cancellation. A ref (not state) because it's only read at the
+  // moment Cancel is clicked and must not trigger re-renders.
+  const activeToolCallTaskIdRef = useRef<string | undefined>(undefined);
+
   // Per-task progress, keyed by taskId. Sourced from the core `requestorTaskProgress`
   // event (emitted by callToolStream, which owns the taskId), fed to the Tasks
   // screen so `TaskCard`'s progress bar renders for active tasks. Pruned on
@@ -801,6 +810,30 @@ function App() {
       inspectorClient.removeEventListener(
         "requestorTaskProgress",
         onTaskProgress,
+      );
+    };
+  }, [inspectorClient]);
+
+  // Capture the in-flight task-augmented tool call's taskId so the detail
+  // panel's Cancel button can cancel the task on the server (#1455). The id
+  // only becomes known mid-call, when `callToolStream` dispatches
+  // `toolCallTaskUpdated`, so we stash the latest into the ref the cancel
+  // handler reads. `onCallTool` clears it at the start of each call.
+  useEffect(() => {
+    if (!inspectorClient) return;
+    const onToolCallTaskUpdated = (
+      event: TypedEventGeneric<InspectorClientEventMap, "toolCallTaskUpdated">,
+    ) => {
+      activeToolCallTaskIdRef.current = event.detail.taskId;
+    };
+    inspectorClient.addEventListener(
+      "toolCallTaskUpdated",
+      onToolCallTaskUpdated,
+    );
+    return () => {
+      inspectorClient.removeEventListener(
+        "toolCallTaskUpdated",
+        onToolCallTaskUpdated,
       );
     };
   }, [inspectorClient]);
@@ -1378,6 +1411,10 @@ function App() {
       const asTask =
         serverSupportsTaskToolCalls &&
         (runAsTask || tool.execution?.taskSupport === "required");
+      // Drop any prior call's task id before starting; a task-augmented call
+      // repopulates it via the `toolCallTaskUpdated` listener below, an ordinary
+      // call leaves it cleared (#1455).
+      activeToolCallTaskIdRef.current = undefined;
       setToolCallState({ status: "pending" });
       try {
         // ToolsScreen types the args as `Record<string, unknown>` (it accepts
@@ -1672,6 +1709,18 @@ function App() {
     },
     [inspectorClient],
   );
+
+  // Cancel the in-flight tool call. A task-augmented call (run-as-task) has a
+  // server-side task, so cancel that via the tasks API (#1455) — the cancelled
+  // status then flows back through the managed task store and toasts, the same
+  // as cancelling from the Tasks screen. An ordinary call has no task (and no
+  // request-abort channel yet), so there is nothing to cancel server-side.
+  const onCancelToolCall = useCallback(() => {
+    const taskId = activeToolCallTaskIdRef.current;
+    if (taskId) {
+      void onCancelTask(taskId);
+    }
+  }, [onCancelTask]);
 
   const onClearCompletedTasks = useCallback(() => {
     clearCompletedTasks();
@@ -2184,6 +2233,7 @@ function App() {
         onCallTool={(name, args, runAsTask) => {
           void onCallTool(name, args, runAsTask);
         }}
+        onCancelToolCall={onCancelToolCall}
         onClearToolResult={onClearToolResult}
         onReadResourceContents={onReadResourceContents}
         onRefreshTools={onRefreshTools}
