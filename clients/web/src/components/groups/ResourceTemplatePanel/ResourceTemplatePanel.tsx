@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Autocomplete,
   Button,
+  CloseButton,
   Group,
   Stack,
   Text,
@@ -260,6 +261,15 @@ export function ResourceTemplatePanel({
               value={variables[varName] ?? ""}
               onChange={(e) =>
                 handleVariableChange(varName, e.currentTarget.value)
+              }
+              rightSectionPointerEvents="auto"
+              rightSection={
+                variables[varName] ? (
+                  <CloseButton
+                    aria-label="Clear"
+                    onClick={() => handleVariableChange(varName, "")}
+                  />
+                ) : null
               }
             />
           ),

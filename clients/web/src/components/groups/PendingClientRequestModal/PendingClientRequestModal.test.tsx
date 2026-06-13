@@ -79,12 +79,12 @@ describe("PendingClientRequestModal", () => {
     ).toBeInTheDocument();
   });
 
-  it("auto-responds with a stub sampling result", async () => {
+  it("sends the default stub sampling result when the draft is untouched", async () => {
     const user = userEvent.setup();
     renderWithMantine(
       <PendingClientRequestModal {...baseProps} request={samplingContent} />,
     );
-    await user.click(screen.getByRole("button", { name: "Auto-respond" }));
+    await user.click(screen.getByRole("button", { name: "Send Response" }));
     expect(baseProps.onSamplingRespond).toHaveBeenCalledWith({
       model: "stub-model",
       stopReason: "endTurn",
@@ -124,10 +124,10 @@ describe("PendingClientRequestModal", () => {
     renderWithMantine(
       <PendingClientRequestModal {...baseProps} request={samplingContent} />,
     );
-    const autoRespond = screen.getByRole("button", { name: "Auto-respond" });
-    await user.click(autoRespond);
+    const sendResponse = screen.getByRole("button", { name: "Send Response" });
+    await user.click(sendResponse);
     // After the first dispatch the actions lock (busy); a second click no-ops.
-    await user.click(autoRespond);
+    await user.click(sendResponse);
     expect(baseProps.onSamplingRespond).toHaveBeenCalledTimes(1);
     expect(
       screen.getByRole("button", { name: "Send Response" }),

@@ -1,6 +1,7 @@
 import {
   Badge,
   Button,
+  CloseButton,
   Divider,
   Group,
   Paper,
@@ -21,7 +22,6 @@ export interface SamplingRequestPanelProps {
   request: CreateMessageRequestParams;
   draftResult: CreateMessageResult;
   onResultChange: (result: CreateMessageResult) => void;
-  onAutoRespond: () => void;
   onSend: () => void;
   onReject: () => void;
   /**
@@ -64,7 +64,6 @@ export function SamplingRequestPanel({
   request,
   draftResult,
   onResultChange,
-  onAutoRespond,
   onSend,
   onReject,
   busy = false,
@@ -157,6 +156,20 @@ export function SamplingRequestPanel({
         }
         autosize
         minRows={3}
+        rightSectionPointerEvents="auto"
+        rightSection={
+          draftResult.content.type === "text" && draftResult.content.text ? (
+            <CloseButton
+              aria-label="Clear"
+              onClick={() =>
+                onResultChange({
+                  ...draftResult,
+                  content: { type: "text", text: "" },
+                })
+              }
+            />
+          ) : null
+        }
       />
       <Group>
         <TextInput
@@ -164,6 +177,15 @@ export function SamplingRequestPanel({
           value={draftResult.model}
           onChange={(event) =>
             onResultChange({ ...draftResult, model: event.currentTarget.value })
+          }
+          rightSectionPointerEvents="auto"
+          rightSection={
+            draftResult.model ? (
+              <CloseButton
+                aria-label="Clear"
+                onClick={() => onResultChange({ ...draftResult, model: "" })}
+              />
+            ) : null
           }
         />
         <Select
@@ -179,9 +201,6 @@ export function SamplingRequestPanel({
         />
       </Group>
       <Group justify="flex-end">
-        <Button variant="light" onClick={onAutoRespond} disabled={busy}>
-          Auto-respond
-        </Button>
         <RejectButton onClick={onReject} disabled={busy}>
           Reject
         </RejectButton>

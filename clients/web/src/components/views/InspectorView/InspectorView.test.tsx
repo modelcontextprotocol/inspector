@@ -3,6 +3,9 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type {
   InitializeResult,
+  Prompt,
+  Resource,
+  Task,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
@@ -154,6 +157,31 @@ const connectedInit: InitializeResult = {
   protocolVersion: "2025-06-18",
   capabilities: {},
   serverInfo: { name: "Alpha", version: "1.0.0" },
+};
+
+// A tool the `isAppTool` filter recognizes (it carries `_meta.ui.resourceUri`),
+// so its presence in the tool list makes the Apps tab available (#1450).
+const sampleAppTool: Tool = {
+  name: "ops",
+  title: "Ops Dashboard",
+  inputSchema: { type: "object" },
+  _meta: { ui: { resourceUri: "ui://apps/ops" } },
+};
+
+// Prompts, Resources, and Tasks tabs are content-gated like Apps (#1450):
+// each is hidden until its list has an entry. These fixtures populate the
+// lists so the associated tab is available.
+const samplePrompt: Prompt = { name: "greet" };
+const sampleResource: Resource = {
+  uri: "file:///readme.md",
+  name: "README",
+};
+const sampleTask: Task = {
+  taskId: "d0b22eba71fa36229ce5c4dfadeaa7de",
+  status: "working",
+  ttl: 300000,
+  createdAt: "2026-03-29T20:18:20Z",
+  lastUpdatedAt: "2026-03-29T20:18:22Z",
 };
 
 describe("InspectorView", () => {
@@ -353,12 +381,6 @@ describe("InspectorView", () => {
 
   it("filters tools to apps and auto-launches a no-fields app on the Apps tab", async () => {
     const user = userEvent.setup();
-    const opsApp: Tool = {
-      name: "ops",
-      title: "Ops Dashboard",
-      inputSchema: { type: "object" },
-      _meta: { ui: { resourceUri: "ui://apps/ops" } },
-    };
     // Plain (non-app) tool plus a tool with a malformed UI resource URI
     // exercise both branches of the appTools filter: the non-app drop and
     // the try/catch around `isAppTool` for malformed metadata.
@@ -381,7 +403,7 @@ describe("InspectorView", () => {
           connectionStatus: "connected",
           initializeResult: connectedInit,
           latencyMs: 50,
-          tools: [opsApp, plainTool, malformedAppTool],
+          tools: [sampleAppTool, plainTool, malformedAppTool],
         })}
       />,
     );
@@ -391,6 +413,313 @@ describe("InspectorView", () => {
     expect(screen.getByText("MCP Apps (1)")).toBeInTheDocument();
     await user.click(screen.getByText("Ops Dashboard"));
     expect(screen.getByTitle("Ops Dashboard")).toBeInTheDocument();
+  });
+
+  it("hides the Apps tab when the server exposes no MCP App tools", async () => {
+    const plainTool: Tool = {
+      name: "shell.exec",
+      title: "Run Shell",
+      inputSchema: { type: "object" },
+    };
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          // Only a non-app tool — no `_meta.ui.resourceUri`, so appTools is empty.
+          tools: [plainTool],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Tools");
+    expect(labels).not.toContain("Apps");
+  });
+
+  it("shows the Apps tab when the server exposes one or more MCP App tools", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tools: [sampleAppTool],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Apps");
+  });
+
+  it("reveals the Apps tab live when an app tool arrives via list-changed refresh", async () => {
+    const plainTool: Tool = {
+      name: "shell.exec",
+      title: "Run Shell",
+      inputSchema: { type: "object" },
+    };
+    const { rerender } = renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tools: [plainTool],
+        })}
+      />,
+    );
+    // Initially no app tools → no Apps tab.
+    let radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).not.toContain("Apps");
+
+    // A tools/list_changed refresh adds an app tool — the tab appears reactively.
+    rerender(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tools: [plainTool, sampleAppTool],
+        })}
+      />,
+    );
+    await waitFor(async () => {
+      radios = await screen.findAllByRole("radio");
+      expect(radios.map((r) => r.getAttribute("value"))).toContain("Apps");
+    });
+  });
+
+  it("snaps activeTab back to Servers when the Apps tab disappears after a refresh", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tools: [sampleAppTool],
+        })}
+      />,
+    );
+    const tabSelect = await screen.findByDisplayValue("Servers");
+    await user.click(tabSelect);
+    await user.click(await screen.findByText("Apps"));
+    await waitFor(() =>
+      expect(screen.queryByDisplayValue("Apps")).toBeInTheDocument(),
+    );
+
+    // The app tool goes away (server switch / list-changed) — the Apps tab is
+    // pulled from availableTabs and the activeTab fallback lands on Servers.
+    rerender(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tools: [],
+        })}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.queryByDisplayValue("Apps")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByDisplayValue("Servers")).toBeInTheDocument();
+  });
+
+  it("hides the Prompts tab when the server exposes no prompts", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          prompts: [],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Tools");
+    expect(labels).not.toContain("Prompts");
+  });
+
+  it("reveals the Prompts tab live when a prompt arrives via list-changed refresh", async () => {
+    const { rerender } = renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          prompts: [],
+        })}
+      />,
+    );
+    let radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).not.toContain("Prompts");
+
+    rerender(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          prompts: [samplePrompt],
+        })}
+      />,
+    );
+    await waitFor(async () => {
+      radios = await screen.findAllByRole("radio");
+      expect(radios.map((r) => r.getAttribute("value"))).toContain("Prompts");
+    });
+  });
+
+  it("hides the Resources tab when the server exposes no resources or templates", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          resources: [],
+          resourceTemplates: [],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Tools");
+    expect(labels).not.toContain("Resources");
+  });
+
+  it("shows the Resources tab when the server exposes only resource templates", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          resources: [],
+          resourceTemplates: [{ uriTemplate: "file:///{path}", name: "Files" }],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).toContain("Resources");
+  });
+
+  it("reveals the Resources tab live when a resource arrives via list-changed refresh", async () => {
+    const { rerender } = renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          resources: [],
+          resourceTemplates: [],
+        })}
+      />,
+    );
+    let radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).not.toContain(
+      "Resources",
+    );
+
+    rerender(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          resources: [sampleResource],
+          resourceTemplates: [],
+        })}
+      />,
+    );
+    await waitFor(async () => {
+      radios = await screen.findAllByRole("radio");
+      expect(radios.map((r) => r.getAttribute("value"))).toContain("Resources");
+    });
+  });
+
+  it("hides the Tasks tab when the server has created no tasks", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tasks: [],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Tools");
+    expect(labels).not.toContain("Tasks");
+  });
+
+  it("shows the Tasks tab when at least one task exists", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tasks: [sampleTask],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).toContain("Tasks");
+  });
+
+  it("reveals the Tasks tab live when a task is created", async () => {
+    const { rerender } = renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tasks: [],
+        })}
+      />,
+    );
+    let radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).not.toContain("Tasks");
+
+    rerender(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tasks: [sampleTask],
+        })}
+      />,
+    );
+    await waitFor(async () => {
+      radios = await screen.findAllByRole("radio");
+      expect(radios.map((r) => r.getAttribute("value"))).toContain("Tasks");
+    });
   });
 
   it("dispatches onSetLogLevel through to the Logs screen", async () => {
@@ -625,6 +954,8 @@ describe("InspectorView", () => {
             activeServer: "alpha",
             connectionStatus: "connected",
             initializeResult: connectedInit,
+            // An app tool is required for the Apps tab to be available (#1450).
+            tools: [sampleAppTool],
             toolsListChanged: true,
           })}
         />,
@@ -641,6 +972,8 @@ describe("InspectorView", () => {
             activeServer: "alpha",
             connectionStatus: "connected",
             initializeResult: connectedInit,
+            // A prompt is required for the Prompts tab to be available (#1450).
+            prompts: [samplePrompt],
             promptsListChanged: true,
           })}
         />,
@@ -657,6 +990,8 @@ describe("InspectorView", () => {
             activeServer: "alpha",
             connectionStatus: "connected",
             initializeResult: connectedInit,
+            // A resource is required for the Resources tab to be available (#1450).
+            resources: [sampleResource],
             resourcesListChanged: true,
           })}
         />,
@@ -673,6 +1008,8 @@ describe("InspectorView", () => {
             activeServer: "alpha",
             connectionStatus: "connected",
             initializeResult: connectedInit,
+            // A prompt is required for the Prompts tab to be available (#1450).
+            prompts: [samplePrompt],
             // Tools changed, but Prompts did not — the Prompts screen must
             // stay quiet.
             toolsListChanged: true,

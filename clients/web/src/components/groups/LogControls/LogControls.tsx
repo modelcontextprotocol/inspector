@@ -1,5 +1,6 @@
 import {
   Button,
+  CloseButton,
   Group,
   Select,
   Stack,
@@ -64,6 +65,15 @@ export function LogControls({
         placeholder="Search..."
         value={filterText}
         onChange={(e) => onFilterChange(e.currentTarget.value)}
+        rightSectionPointerEvents="auto"
+        rightSection={
+          filterText ? (
+            <CloseButton
+              aria-label="Clear"
+              onClick={() => onFilterChange("")}
+            />
+          ) : null
+        }
       />
 
       <Title order={5}>Set Active Level</Title>

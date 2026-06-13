@@ -2,6 +2,7 @@ import {
   ActionIcon,
   Alert,
   Button,
+  CloseButton,
   Divider,
   Group,
   Stack,
@@ -90,6 +91,17 @@ export function RootsTable({
             name: e.currentTarget.value,
           })
         }
+        rightSectionPointerEvents="auto"
+        rightSection={
+          newRootDraft.name ? (
+            <CloseButton
+              aria-label="Clear"
+              onClick={() =>
+                onNewRootDraftChange({ ...newRootDraft, name: "" })
+              }
+            />
+          ) : null
+        }
       />
       <TextInput
         label="URI"
@@ -99,6 +111,15 @@ export function RootsTable({
             ...newRootDraft,
             uri: e.currentTarget.value,
           })
+        }
+        rightSectionPointerEvents="auto"
+        rightSection={
+          newRootDraft.uri ? (
+            <CloseButton
+              aria-label="Clear"
+              onClick={() => onNewRootDraftChange({ ...newRootDraft, uri: "" })}
+            />
+          ) : null
         }
       />
       <Group justify="flex-end">

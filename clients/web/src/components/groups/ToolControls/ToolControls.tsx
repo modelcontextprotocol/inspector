@@ -1,4 +1,11 @@
-import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
+import {
+  CloseButton,
+  Group,
+  ScrollArea,
+  Stack,
+  TextInput,
+  Title,
+} from "@mantine/core";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { ToolListItem } from "../ToolListItem/ToolListItem";
@@ -48,6 +55,15 @@ export function ToolControls({
         placeholder="Search tools..."
         value={searchText}
         onChange={(e) => onSearchChange(e.currentTarget.value)}
+        rightSectionPointerEvents="auto"
+        rightSection={
+          searchText ? (
+            <CloseButton
+              aria-label="Clear"
+              onClick={() => onSearchChange("")}
+            />
+          ) : null
+        }
       />
       <ScrollArea.Autosize viewportRef={viewportRef} mah={LIST_MAX_HEIGHT}>
         <Stack gap="xs">

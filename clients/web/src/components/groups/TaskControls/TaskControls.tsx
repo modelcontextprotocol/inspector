@@ -1,4 +1,12 @@
-import { Button, Group, Select, Stack, TextInput, Title } from "@mantine/core";
+import {
+  Button,
+  CloseButton,
+  Group,
+  Select,
+  Stack,
+  TextInput,
+  Title,
+} from "@mantine/core";
 import type { TaskStatus } from "@modelcontextprotocol/sdk/types.js";
 
 const STATUS_OPTIONS: TaskStatus[] = [
@@ -40,6 +48,15 @@ export function TaskControls({
         placeholder="Search..."
         value={searchText}
         onChange={(event) => onSearchChange(event.currentTarget.value)}
+        rightSectionPointerEvents="auto"
+        rightSection={
+          searchText ? (
+            <CloseButton
+              aria-label="Clear"
+              onClick={() => onSearchChange("")}
+            />
+          ) : null
+        }
       />
 
       <Title order={6}>Filter by Status</Title>

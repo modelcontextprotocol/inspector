@@ -144,6 +144,23 @@ describe("PromptArgumentsForm", () => {
     expect(onArgumentChange).toHaveBeenCalledWith("text", "h");
   });
 
+  it("clears an argument via its Clear button (onArgumentChange with empty value)", async () => {
+    const user = userEvent.setup();
+    const onArgumentChange = vi.fn();
+    renderWithMantine(
+      <PromptArgumentsForm
+        prompt={promptWithArgs}
+        argumentValues={{ text: "Hello" }}
+        onArgumentChange={onArgumentChange}
+        onGetPrompt={vi.fn()}
+      />,
+    );
+    // Non-autocomplete branch (completions unsupported) renders a TextInput
+    // with a Clear button whenever the value is non-empty.
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(onArgumentChange).toHaveBeenCalledWith("text", "");
+  });
+
   it("invokes onGetPrompt when Get Prompt is clicked", async () => {
     const user = userEvent.setup();
     const onGetPrompt = vi.fn();

@@ -42,6 +42,9 @@
   --inspector-status-disconnected: var(--mantine-color-gray-5);
   --inspector-status-error: var(--mantine-color-red-6);
 
+  /* Red glow pulsed around a newly appearing tab's label (#1450) */
+  --inspector-glow-red: var(--mantine-color-red-6);
+
   /* ── Log levels (RFC 5424) ─────────────────────────────── */
   --inspector-log-debug: var(--mantine-color-gray-6);
   --inspector-log-info: var(--mantine-color-blue-6);
@@ -93,6 +96,43 @@
   }
 }
 
+/* Both motions travel downward: enter descends from above into place, exit
+   descends from place to below — used for the header crossfade (#1450). */
+@keyframes inspector-fade-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes inspector-fade-slide-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+}
+
+/* A red glow around a tab label's text that starts at full intensity the
+   moment a content-gated tab appears and fades out (#1450). */
+@keyframes inspector-tab-glow {
+  from {
+    text-shadow:
+      0 0 6px var(--inspector-glow-red),
+      0 0 12px var(--inspector-glow-red);
+  }
+  to {
+    text-shadow: none;
+  }
+}
+
 /* ── Status dot animations ───────────────────────────────── */
 
 .inspector-pulse {
@@ -101,6 +141,45 @@
 
 .inspector-spin {
   animation: inspector-spin 1s linear infinite;
+}
+
+/* Applied (via the `tabGlow` Text variant) to a tab label; the glow starts full
+   and fades, running only while `data-glow="on"` on a freshly-appeared tab. */
+.tab-glow[data-glow="on"] {
+  animation: inspector-tab-glow 325ms ease-in;
+}
+
+/* ── Header connect/disconnect animations (#1450) ────────── */
+/* Any header region that appears on connect / leaves on disconnect — the
+   center title↔tab-bar crossfade, the server name (left), and the status +
+   Disconnect controls (right). The element leaving ([data-anim="out"]) slides
+   down + fades out immediately; the appearing one ([data-anim="in"]) is delayed
+   by half the duration so they're staggered. Keep the 300ms/150ms here in sync
+   with HEADER_ANIM_MS in ViewHeader.tsx. */
+.header-anim[data-anim="in"] {
+  animation: inspector-fade-slide-in 300ms ease 150ms both;
+}
+
+.header-anim[data-anim="out"] {
+  animation: inspector-fade-slide-out 300ms ease both;
+}
+
+/* The title and tab bar additionally share one grid cell so one replaces the
+   other in place during the center crossfade. */
+.header-stack-cell {
+  grid-area: 1 / 1;
+  place-self: center;
+}
+
+/* Honor reduced-motion for the header animations this PR adds (#1450): skip the
+   fade/slide and the new-tab glow, leaving the elements at their resting state.
+   Selectors match the originals' specificity so they win inside the query. */
+@media (prefers-reduced-motion: reduce) {
+  .header-anim[data-anim="in"],
+  .header-anim[data-anim="out"],
+  .tab-glow[data-glow="on"] {
+    animation: none;
+  }
 }
 
 /* ── List item hover ────────────────────────────────────── */

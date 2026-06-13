@@ -1,4 +1,5 @@
 import {
+  CloseButton,
   Group,
   ScrollArea,
   Stack,
@@ -61,6 +62,15 @@ export function AppControls({
         placeholder="Search apps..."
         value={searchText}
         onChange={(e) => onSearchChange(e.currentTarget.value)}
+        rightSectionPointerEvents="auto"
+        rightSection={
+          searchText ? (
+            <CloseButton
+              aria-label="Clear"
+              onClick={() => onSearchChange("")}
+            />
+          ) : null
+        }
       />
       <ScrollArea.Autosize viewportRef={viewportRef} mah={LIST_MAX_HEIGHT}>
         <Stack gap="xs">

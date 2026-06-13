@@ -3,6 +3,7 @@ import {
   ActionIcon,
   Button,
   Checkbox,
+  CloseButton,
   Group,
   NumberInput,
   Stack,
@@ -86,11 +87,29 @@ function KeyValueRows({
             placeholder="Key"
             value={item.key}
             onChange={(e) => onChange(index, e.currentTarget.value, item.value)}
+            rightSectionPointerEvents="auto"
+            rightSection={
+              item.key ? (
+                <CloseButton
+                  aria-label="Clear"
+                  onClick={() => onChange(index, "", item.value)}
+                />
+              ) : null
+            }
           />
           <TextInput
             placeholder="Value"
             value={item.value}
             onChange={(e) => onChange(index, item.key, e.currentTarget.value)}
+            rightSectionPointerEvents="auto"
+            rightSection={
+              item.value ? (
+                <CloseButton
+                  aria-label="Clear"
+                  onClick={() => onChange(index, item.key, "")}
+                />
+              ) : null
+            }
           />
           <RemoveIcon onClick={() => onRemove(index)}>X</RemoveIcon>
         </Group>
@@ -122,11 +141,29 @@ function RootRows({
             onChange={(e) =>
               onChange(index, e.currentTarget.value, root.name ?? "")
             }
+            rightSectionPointerEvents="auto"
+            rightSection={
+              root.uri ? (
+                <CloseButton
+                  aria-label="Clear"
+                  onClick={() => onChange(index, "", root.name ?? "")}
+                />
+              ) : null
+            }
           />
           <TextInput
             placeholder="Name (optional)"
             value={root.name ?? ""}
             onChange={(e) => onChange(index, root.uri, e.currentTarget.value)}
+            rightSectionPointerEvents="auto"
+            rightSection={
+              root.name ? (
+                <CloseButton
+                  aria-label="Clear"
+                  onClick={() => onChange(index, root.uri, "")}
+                />
+              ) : null
+            }
           />
           <RemoveIcon onClick={() => onRemove(index)}>X</RemoveIcon>
         </Group>
@@ -307,6 +344,17 @@ export function ServerSettingsForm({
                   clientId: e.currentTarget.value,
                 })
               }
+              rightSectionPointerEvents="auto"
+              rightSection={
+                settings.oauthClientId ? (
+                  <CloseButton
+                    aria-label="Clear"
+                    onClick={() =>
+                      onOAuthChange({ ...currentOAuth(), clientId: "" })
+                    }
+                  />
+                ) : null
+              }
             />
             <TextInput
               label="Client Secret"
@@ -318,6 +366,17 @@ export function ServerSettingsForm({
                   clientSecret: e.currentTarget.value,
                 })
               }
+              rightSectionPointerEvents="auto"
+              rightSection={
+                settings.oauthClientSecret ? (
+                  <CloseButton
+                    aria-label="Clear"
+                    onClick={() =>
+                      onOAuthChange({ ...currentOAuth(), clientSecret: "" })
+                    }
+                  />
+                ) : null
+              }
             />
             <TextInput
               label="Scopes"
@@ -327,6 +386,17 @@ export function ServerSettingsForm({
                   ...currentOAuth(),
                   scopes: e.currentTarget.value,
                 })
+              }
+              rightSectionPointerEvents="auto"
+              rightSection={
+                settings.oauthScopes ? (
+                  <CloseButton
+                    aria-label="Clear"
+                    onClick={() =>
+                      onOAuthChange({ ...currentOAuth(), scopes: "" })
+                    }
+                  />
+                ) : null
               }
             />
           </Stack>

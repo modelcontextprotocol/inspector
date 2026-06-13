@@ -1,11 +1,20 @@
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
+import { within } from "@testing-library/react";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import {
   ServerSettingsForm,
   type ServerSettingsSection,
 } from "./ServerSettingsForm";
+
+/** Find the "Clear" button living in the rightSection of `input`'s field. */
+function clearButtonFor(input: HTMLElement): HTMLElement {
+  const root =
+    input.closest('[class*="mantine-TextInput-root"]') ??
+    input.closest('[class*="Input-wrapper"]');
+  return within(root as HTMLElement).getByRole("button", { name: "Clear" });
+}
 
 const emptySettings: InspectorServerSettings = {
   headers: [],
@@ -436,6 +445,149 @@ describe("ServerSettingsForm", () => {
     );
     expect(screen.getByLabelText("Client ID")).toBeInTheDocument();
     expect(screen.getByLabelText(/Connection Timeout/)).toBeInTheDocument();
+  });
+
+  it("clears a header value via its Clear button (onHeaderChange with empty value)", async () => {
+    const user = userEvent.setup();
+    const onHeaderChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onHeaderChange={onHeaderChange}
+        settings={populatedSettings}
+        expandedSections={["headers"]}
+      />,
+    );
+    // populatedSettings has one header { key: "Authorization", value: "Bearer abc" }
+    const valueInput = screen.getByDisplayValue("Bearer abc");
+    await user.click(clearButtonFor(valueInput));
+    expect(onHeaderChange).toHaveBeenCalledWith(0, "Authorization", "");
+  });
+
+  it("clears a header key via its Clear button (onHeaderChange with empty key)", async () => {
+    const user = userEvent.setup();
+    const onHeaderChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onHeaderChange={onHeaderChange}
+        settings={populatedSettings}
+        expandedSections={["headers"]}
+      />,
+    );
+    const keyInput = screen.getByDisplayValue("Authorization");
+    await user.click(clearButtonFor(keyInput));
+    expect(onHeaderChange).toHaveBeenCalledWith(0, "", "Bearer abc");
+  });
+
+  it("clears a root uri via its Clear button (onRootChange with empty uri)", async () => {
+    const user = userEvent.setup();
+    const onRootChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onRootChange={onRootChange}
+        settings={populatedSettings}
+        expandedSections={["roots"]}
+      />,
+    );
+    // populatedSettings has one root { uri: "file:///project", name: "Project" }
+    const uriInput = screen.getByDisplayValue("file:///project");
+    await user.click(clearButtonFor(uriInput));
+    expect(onRootChange).toHaveBeenCalledWith(0, "", "Project");
+  });
+
+  it("clears the OAuth Client ID via its Clear button (onOAuthChange with empty clientId)", async () => {
+    const user = userEvent.setup();
+    const onOAuthChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onOAuthChange={onOAuthChange}
+        settings={populatedSettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    const clientIdInput = screen.getByLabelText("Client ID");
+    await user.click(clearButtonFor(clientIdInput));
+    expect(onOAuthChange).toHaveBeenCalledTimes(1);
+    const arg = onOAuthChange.mock.calls[0][0];
+    expect(arg.clientId).toBe("");
+    expect(arg.clientSecret).toBe("secret");
+    expect(arg.scopes).toBe("read");
+  });
+
+  it("clears the OAuth Scopes via its Clear button (onOAuthChange with empty scopes)", async () => {
+    const user = userEvent.setup();
+    const onOAuthChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onOAuthChange={onOAuthChange}
+        settings={populatedSettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    const scopesInput = screen.getByLabelText("Scopes");
+    await user.click(clearButtonFor(scopesInput));
+    expect(onOAuthChange).toHaveBeenCalledTimes(1);
+    const arg = onOAuthChange.mock.calls[0][0];
+    expect(arg.scopes).toBe("");
+    expect(arg.clientId).toBe("cid");
+  });
+
+  it("clears a root name via its Clear button (onRootChange with empty name)", async () => {
+    const user = userEvent.setup();
+    const onRootChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onRootChange={onRootChange}
+        settings={populatedSettings}
+        expandedSections={["roots"]}
+      />,
+    );
+    // populatedSettings has one root { uri: "file:///project", name: "Project" }
+    const nameInput = screen.getByDisplayValue("Project");
+    await user.click(clearButtonFor(nameInput));
+    expect(onRootChange).toHaveBeenCalledWith(0, "file:///project", "");
+  });
+
+  it("clears the OAuth Client Secret via its Clear button (onOAuthChange with empty clientSecret)", async () => {
+    const user = userEvent.setup();
+    const onOAuthChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onOAuthChange={onOAuthChange}
+        settings={populatedSettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    const secretInput = screen.getByLabelText("Client Secret");
+    await user.click(clearButtonFor(secretInput));
+    expect(onOAuthChange).toHaveBeenCalledTimes(1);
+    const arg = onOAuthChange.mock.calls[0][0];
+    expect(arg.clientSecret).toBe("");
+    expect(arg.clientId).toBe("cid");
+    expect(arg.scopes).toBe("read");
+  });
+
+  it("clears a metadata value via its Clear button (onMetadataChange with empty value)", async () => {
+    const user = userEvent.setup();
+    const onMetadataChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onMetadataChange={onMetadataChange}
+        settings={populatedSettings}
+        expandedSections={["metadata"]}
+      />,
+    );
+    // populatedSettings has one metadata { key: "userId", value: "u-1" }
+    const valueInput = screen.getByDisplayValue("u-1");
+    await user.click(clearButtonFor(valueInput));
+    expect(onMetadataChange).toHaveBeenCalledWith(0, "userId", "");
   });
 
   it("invokes onTimeoutChange with 0 when a non-numeric string is provided", () => {
