@@ -131,7 +131,9 @@ describe("ResourceLink", () => {
     await waitFor(() =>
       expect(screen.getByText(/"recovered body"/)).toBeInTheDocument(),
     );
-    expect(screen.queryByText("Failed to read resource")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Failed to read resource"),
+    ).not.toBeInTheDocument();
     expect(onReadResource).toHaveBeenCalledTimes(2);
   });
 
