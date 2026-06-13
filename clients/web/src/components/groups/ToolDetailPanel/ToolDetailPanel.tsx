@@ -11,7 +11,7 @@ import {
   Text,
 } from "@mantine/core";
 import { useState } from "react";
-import { FaChevronDown, FaChevronRight } from "react-icons/fa";
+import { RiArrowDownSLine, RiArrowRightSLine } from "react-icons/ri";
 import type {
   ProgressNotification,
   Tool,
@@ -200,7 +200,7 @@ export function ToolDetailPanel({
               }
               onClick={() => setDescriptionOpen((open) => !open)}
             >
-              {descriptionOpen ? <FaChevronDown /> : <FaChevronRight />}
+              {descriptionOpen ? <RiArrowDownSLine /> : <RiArrowRightSLine />}
             </DescriptionToggle>
           )}
         </TitleRow>
