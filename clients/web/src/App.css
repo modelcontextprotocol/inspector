@@ -199,8 +199,14 @@
  * filled background. Keeping the two states distinct means toggling a button
  * off while the cursor is still over it is immediately visible, instead of the
  * hover background masking the removal of the active background (issue #1460).
- * The 1px transparent border is reserved in the `filterToggle` theme variant so
- * the hover border doesn't shift layout. */
+ * The 1px transparent border is reserved here (not as an inline style in the
+ * theme variant — inline styles outrank stylesheet `:hover` rules) so the hover
+ * border doesn't shift layout. */
+
+.filter-toggle {
+  border: 1px solid transparent;
+  border-radius: var(--mantine-radius-md);
+}
 
 .filter-toggle:hover {
   border-color: var(--inspector-brand-primary);

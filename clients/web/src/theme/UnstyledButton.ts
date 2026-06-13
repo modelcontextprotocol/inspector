@@ -10,16 +10,11 @@ export const ThemeUnstyledButton = UnstyledButton.extend({
     if (props.variant === "listItem") {
       return { root: { borderRadius: "var(--mantine-radius-md)" } };
     }
-    // A permanently-present transparent border reserves the space so the
-    // hover border (`.filter-toggle:hover` in App.css) doesn't shift layout.
-    if (props.variant === "filterToggle") {
-      return {
-        root: {
-          borderRadius: "var(--mantine-radius-md)",
-          border: "1px solid transparent",
-        },
-      };
-    }
+    // `filterToggle` is styled entirely via the `.filter-toggle` rules in
+    // App.css (border-radius, the reserved transparent border, the :hover
+    // border, and the active background). Crucially the border must NOT be set
+    // here as an inline style — inline styles outrank stylesheet `:hover`
+    // rules, which would stop the hover border from ever showing (see #1460).
     return { root: {} };
   },
 });
