@@ -10,7 +10,7 @@ import {
   Switch,
   Text,
 } from "@mantine/core";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { RiArrowDownSLine, RiArrowRightSLine } from "react-icons/ri";
 import type {
   ProgressNotification,
@@ -171,6 +171,9 @@ export function ToolDetailPanel({
     setPrevToolName(name);
     setDescriptionOpen(true);
   }
+  // Ties the toggle to the Collapse region so assistive tech announces it as a
+  // single expandable control (aria-expanded + aria-controls).
+  const descriptionRegionId = useId();
 
   // Show the toggle only when the server supports task tool calls and the tool
   // doesn't forbid them. `required` tools are forced on (checked + disabled);
@@ -198,6 +201,8 @@ export function ToolDetailPanel({
               aria-label={
                 descriptionOpen ? "Hide description" : "Show description"
               }
+              aria-expanded={descriptionOpen}
+              aria-controls={descriptionRegionId}
               onClick={() => setDescriptionOpen((open) => !open)}
             >
               {descriptionOpen ? <RiArrowDownSLine /> : <RiArrowRightSLine />}
@@ -225,7 +230,7 @@ export function ToolDetailPanel({
       <BodyScroll>
         <BodyStack>
           {description && (
-            <Collapse in={descriptionOpen}>
+            <Collapse in={descriptionOpen} id={descriptionRegionId}>
               <DescriptionText>{description}</DescriptionText>
             </Collapse>
           )}

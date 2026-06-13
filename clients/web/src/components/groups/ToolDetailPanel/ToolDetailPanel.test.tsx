@@ -156,6 +156,24 @@ describe("ToolDetailPanel", () => {
       ).toBeInTheDocument();
     });
 
+    it("wires the toggle as an expandable control (aria-expanded + aria-controls)", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(<ToolDetailPanel {...baseProps} tool={titledTool} />);
+      const toggle = screen.getByRole("button", { name: "Hide description" });
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      // aria-controls points at the Collapse region holding the description.
+      const regionId = toggle.getAttribute("aria-controls");
+      expect(regionId).toBeTruthy();
+      expect(document.getElementById(regionId as string)).toContainElement(
+        screen.getByText("Sends a message to the recipient"),
+      );
+
+      await user.click(toggle);
+      expect(
+        screen.getByRole("button", { name: "Show description" }),
+      ).toHaveAttribute("aria-expanded", "false");
+    });
+
     it("does not render a description toggle when the tool has no description", () => {
       renderWithMantine(<ToolDetailPanel {...baseProps} tool={simpleTool} />);
       expect(
