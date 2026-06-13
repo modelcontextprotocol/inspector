@@ -32,6 +32,20 @@ describe("NetworkControls", () => {
     expect(onFilterChange).toHaveBeenLastCalledWith("x");
   });
 
+  it("clears the filter text when the clear button is clicked", async () => {
+    const user = userEvent.setup();
+    const onFilterChange = vi.fn();
+    renderWithMantine(
+      <NetworkControls
+        {...baseProps}
+        filterText="auth"
+        onFilterChange={onFilterChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(onFilterChange).toHaveBeenCalledWith("");
+  });
+
   it("reflects category visibility via aria-pressed", () => {
     renderWithMantine(
       <NetworkControls

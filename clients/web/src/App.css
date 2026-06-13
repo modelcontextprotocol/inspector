@@ -192,6 +192,24 @@
   background-color: var(--mantine-primary-color-light);
 }
 
+/* ── Filter toggle buttons (Logging / History / Network) ─────────
+ *
+ * Shared by the FilterToggleButton element. Unlike `.list-item`, hover is a
+ * thin border rather than a background fill, and the active (on) state is the
+ * filled background. Keeping the two states distinct means toggling a button
+ * off while the cursor is still over it is immediately visible, instead of the
+ * hover background masking the removal of the active background (issue #1460).
+ * The 1px transparent border is reserved in the `filterToggle` theme variant so
+ * the hover border doesn't shift layout. */
+
+.filter-toggle:hover {
+  border-color: var(--inspector-brand-primary);
+}
+
+.filter-toggle[aria-pressed="true"] {
+  background-color: var(--mantine-primary-color-light);
+}
+
 /* ── Select / Autocomplete dropdown / option (dark mode) ─────────
  *
  * Select and Autocomplete each render with their own static selector

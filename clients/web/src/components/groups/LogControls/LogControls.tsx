@@ -4,12 +4,11 @@ import {
   Group,
   Select,
   Stack,
-  Text,
   TextInput,
   Title,
-  UnstyledButton,
 } from "@mantine/core";
 import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
+import { FilterToggleButton } from "../../elements/FilterToggleButton/FilterToggleButton";
 
 const LOG_LEVELS: LoggingLevel[] = [
   "debug",
@@ -102,24 +101,15 @@ export function LogControls({
         </SubtleButton>
       </Group>
       <Stack gap="xs">
-        {LOG_LEVELS.map((level) => {
-          const style = LEVEL_COLORS[level];
-          const active = visibleLevels[level];
-          return (
-            <UnstyledButton
-              key={level}
-              w="100%"
-              p="sm"
-              variant="listItem"
-              bg={active ? "var(--mantine-primary-color-light)" : undefined}
-              onClick={() => onToggleLevel(level, !active)}
-            >
-              <Text c={style.c} ta="center" fw={500}>
-                {level}
-              </Text>
-            </UnstyledButton>
-          );
-        })}
+        {LOG_LEVELS.map((level) => (
+          <FilterToggleButton
+            key={level}
+            label={level}
+            color={LEVEL_COLORS[level].c}
+            active={visibleLevels[level]}
+            onToggle={(visible) => onToggleLevel(level, visible)}
+          />
+        ))}
       </Stack>
     </Stack>
   );

@@ -1,12 +1,6 @@
-import {
-  Button,
-  Group,
-  Stack,
-  Text,
-  Title,
-  UnstyledButton,
-} from "@mantine/core";
+import { Button, Group, Stack, Title } from "@mantine/core";
 import type { MessageOrigin } from "@inspector/core/mcp/types.js";
+import { FilterToggleButton } from "../../elements/FilterToggleButton/FilterToggleButton";
 
 const SubtleButton = Button.withProps({
   variant: "subtle",
@@ -33,8 +27,8 @@ export interface MessageDirectionFilterProps {
 
 /**
  * "Filter by Message Direction" section — a Select/Deselect All control plus a
- * listItem toggle per direction (client → server / client ← server). Used by the
- * History controls. (Kept as its own component so the section is testable in
+ * FilterToggleButton per direction (client → server / client ← server). Used by
+ * the History controls. (Kept as its own component so the section is testable in
  * isolation and reusable if another screen ever needs a direction filter.)
  */
 export function MessageDirectionFilter({
@@ -53,24 +47,15 @@ export function MessageDirectionFilter({
         </SubtleButton>
       </Group>
       <Stack gap="xs">
-        {MESSAGE_DIRECTIONS.map(({ origin, label, color }) => {
-          const active = visibleDirections[origin];
-          return (
-            <UnstyledButton
-              key={origin}
-              w="100%"
-              p="sm"
-              variant="listItem"
-              aria-pressed={active}
-              bg={active ? "var(--mantine-primary-color-light)" : undefined}
-              onClick={() => onToggleDirection(origin, !active)}
-            >
-              <Text c={color} ta="center" fw={500}>
-                {label}
-              </Text>
-            </UnstyledButton>
-          );
-        })}
+        {MESSAGE_DIRECTIONS.map(({ origin, label, color }) => (
+          <FilterToggleButton
+            key={origin}
+            label={label}
+            color={color}
+            active={visibleDirections[origin]}
+            onToggle={(visible) => onToggleDirection(origin, visible)}
+          />
+        ))}
       </Stack>
     </>
   );
