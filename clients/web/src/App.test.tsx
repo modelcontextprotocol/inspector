@@ -997,6 +997,57 @@ describe("App task wiring", () => {
       ),
     );
   });
+
+  it("shows a 'Task cancelled' toast when a task is cancelled", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    // No live status toast for this task — cancellation shows a fresh one.
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("taskCancelled", { detail: { taskId: "task-1" } }),
+      );
+    });
+
+    expect(notificationsMock.show).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Task cancelled", color: "gray" }),
+    );
+  });
+
+  it("converts a running task's live toast into the cancellation toast", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    // A running task has an open "Task working" toast...
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("taskStatusChange", {
+          detail: {
+            taskId: "task-1",
+            task: { status: "working", statusMessage: "Interpreting" },
+          },
+        }),
+      );
+    });
+    const liveId = notificationsMock.show.mock.calls[0][0].id;
+    notificationsMock.show.mockClear();
+
+    // ...which the cancel replaces in place (update), not a stacked toast.
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("taskCancelled", { detail: { taskId: "task-1" } }),
+      );
+    });
+
+    expect(notificationsMock.show).not.toHaveBeenCalled();
+    expect(notificationsMock.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: liveId, title: "Task cancelled" }),
+    );
+  });
 });
 
 // Live-apply roots on settings-dialog close: the App diffs the final draft

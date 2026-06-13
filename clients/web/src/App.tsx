@@ -347,6 +347,10 @@ function formatErrorDetails(err: unknown): string {
 // progress stops (i.e. the call finished or went quiet).
 const PROGRESS_TOAST_AUTOCLOSE_MS = 5000;
 
+// A task cancellation is a one-shot confirmation (unlike the live status toast,
+// which stays open while the task runs), so it auto-dismisses after a moment.
+const TASK_CANCELLED_TOAST_AUTOCLOSE_MS = 5000;
+
 // Stable toast id for a progress stream. Notifications keyed by this id are
 // replaced (not stacked) so a chatty server updates one toast per stream
 // rather than flooding the corner. The injected `progressToken` correlates a
@@ -895,11 +899,47 @@ function App() {
     ) => {
       handleTaskUpdate(event.detail.taskId, event.detail.task);
     };
+    // A cancel goes out as `taskCancelled` (dispatched by cancelRequestorTask),
+    // not as a status notification, so it would otherwise leave the running
+    // task's live "Task <status>" toast hanging with no confirmation. Replace
+    // that toast (or show a fresh one) with a short "Task cancelled" toast, and
+    // prune the now-dead progress entry. Covers both cancel paths — the Tasks
+    // screen and the Tool detail panel — since both route through
+    // cancelRequestorTask (#1455).
+    const onTaskCancelled = (
+      event: TypedEventGeneric<InspectorClientEventMap, "taskCancelled">,
+    ) => {
+      const { taskId } = event.detail;
+      setProgressByTaskId((prev) => {
+        if (!(taskId in prev)) return prev;
+        const next = { ...prev };
+        delete next[taskId];
+        return next;
+      });
+      const id = taskToastId(taskId);
+      const toast = {
+        id,
+        title: "Task cancelled",
+        message: "The task was cancelled.",
+        color: taskToastColor("cancelled"),
+        autoClose: TASK_CANCELLED_TOAST_AUTOCLOSE_MS,
+      };
+      if (liveToastIds.has(id)) {
+        // Convert the open status toast into the auto-closing confirmation; drop
+        // it from the live set so a trailing "cancelled" status tick (if the
+        // server sends one) doesn't re-show it.
+        notifications.update(toast);
+        liveToastIds.delete(id);
+      } else {
+        notifications.show(toast);
+      }
+    };
     inspectorClient.addEventListener("taskStatusChange", onTaskStatusChange);
     inspectorClient.addEventListener(
       "requestorTaskUpdated",
       onRequestorTaskUpdated,
     );
+    inspectorClient.addEventListener("taskCancelled", onTaskCancelled);
     return () => {
       inspectorClient.removeEventListener(
         "taskStatusChange",
@@ -909,6 +949,7 @@ function App() {
         "requestorTaskUpdated",
         onRequestorTaskUpdated,
       );
+      inspectorClient.removeEventListener("taskCancelled", onTaskCancelled);
       // Hide any still-visible task toasts on client swap so they don't linger
       // into the next session, then drop the bookkeeping (mirrors the progress-
       // toast teardown above).
