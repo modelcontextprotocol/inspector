@@ -3,12 +3,11 @@ import {
   CloseButton,
   Group,
   Stack,
-  Text,
   TextInput,
   Title,
-  UnstyledButton,
 } from "@mantine/core";
 import type { FetchRequestCategory } from "@inspector/core/mcp/types.js";
+import { FilterToggleButton } from "../../elements/FilterToggleButton/FilterToggleButton";
 
 const NETWORK_CATEGORIES: FetchRequestCategory[] = ["auth", "transport"];
 
@@ -64,24 +63,15 @@ export function NetworkControls({
         </SubtleButton>
       </Group>
       <Stack gap="xs">
-        {NETWORK_CATEGORIES.map((category) => {
-          const active = visibleCategories[category];
-          return (
-            <UnstyledButton
-              key={category}
-              w="100%"
-              p="sm"
-              variant="listItem"
-              aria-pressed={active}
-              bg={active ? "var(--mantine-primary-color-light)" : undefined}
-              onClick={() => onToggleCategory(category, !active)}
-            >
-              <Text c={CATEGORY_COLORS[category]} ta="center" fw={500}>
-                {category}
-              </Text>
-            </UnstyledButton>
-          );
-        })}
+        {NETWORK_CATEGORIES.map((category) => (
+          <FilterToggleButton
+            key={category}
+            label={category}
+            color={CATEGORY_COLORS[category]}
+            active={visibleCategories[category]}
+            onToggle={(visible) => onToggleCategory(category, visible)}
+          />
+        ))}
       </Stack>
     </Stack>
   );
