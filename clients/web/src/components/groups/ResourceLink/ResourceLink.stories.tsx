@@ -30,7 +30,7 @@ const readLargeBlob = async (): Promise<ReadResourceResult> => ({
 });
 
 const meta: Meta<typeof ResourceLink> = {
-  title: "Elements/ResourceLink",
+  title: "Groups/ResourceLink",
   component: ResourceLink,
 };
 

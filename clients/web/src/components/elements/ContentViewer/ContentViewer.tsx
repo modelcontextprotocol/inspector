@@ -1,12 +1,9 @@
 import { Code, Flex, Image, Stack } from "@mantine/core";
-import type {
-  ContentBlock,
-  ReadResourceResult,
-} from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CopyButton } from "../CopyButton/CopyButton";
-import { ResourceLink } from "../ResourceLink/ResourceLink";
+import { ResourceLinkInfo } from "../ResourceLinkInfo/ResourceLinkInfo";
 
 export interface ContentViewerProps {
   block: ContentBlock;
@@ -17,12 +14,6 @@ export interface ContentViewerProps {
    * instead of as preformatted code.
    */
   mimeType?: string;
-  /**
-   * Read-on-demand handler for `resource_link` blocks. When provided, the
-   * rendered {@link ResourceLink} becomes expandable and fetches the linked
-   * resource via this callback. Omit for a static link.
-   */
-  onReadResource?: (uri: string) => Promise<ReadResourceResult>;
 }
 
 function formatJson(content: string): string {
@@ -75,7 +66,6 @@ export function ContentViewer({
   block,
   copyable = false,
   mimeType,
-  onReadResource,
 }: ContentViewerProps) {
   switch (block.type) {
     case "text": {
@@ -142,13 +132,15 @@ export function ContentViewer({
         </Stack>
       );
     case "resource_link":
+      // Static metadata only. The interactive, read-on-demand presentation
+      // lives in the `groups/ResourceLink` group, rendered by content-block
+      // hosts (e.g. ToolResultPanel) that can supply a read handler.
       return (
-        <ResourceLink
+        <ResourceLinkInfo
           uri={block.uri}
           name={block.name}
           description={block.description}
           mimeType={block.mimeType}
-          onReadResource={onReadResource}
         />
       );
     default:

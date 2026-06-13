@@ -84,14 +84,5 @@ export const ResourceLinkBlock: Story = {
       description: "Project documentation",
       mimeType: "text/markdown",
     },
-    onReadResource: async () => ({
-      contents: [
-        {
-          uri: "file:///docs/readme.md",
-          mimeType: "text/markdown",
-          text: "# Readme\n\nRead on demand.",
-        },
-      ],
-    }),
   },
 };

@@ -12,13 +12,14 @@ import type {
   ReadResourceResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { ResourceLink } from "../ResourceLink/ResourceLink";
 
 export interface ToolResultPanelProps {
   result: CallToolResult;
   onClear: () => void;
   /**
-   * Read-on-demand handler passed through to {@link ContentViewer} so
-   * `resource_link` blocks in the result can fetch and inline their contents.
+   * Read-on-demand handler so `resource_link` blocks in the result can fetch
+   * and inline their contents.
    */
   onReadResource?: (uri: string) => Promise<ReadResourceResult>;
 }
@@ -80,14 +81,24 @@ export function ToolResultPanel({
           ) : result.content.length === 0 ? (
             <Text c="dimmed">No results yet</Text>
           ) : (
-            result.content.map((block, index) => (
-              <ContentViewer
-                key={index}
-                block={block}
-                copyable={block.type === "text"}
-                onReadResource={onReadResource}
-              />
-            ))
+            result.content.map((block, index) =>
+              block.type === "resource_link" ? (
+                <ResourceLink
+                  key={index}
+                  uri={block.uri}
+                  name={block.name}
+                  description={block.description}
+                  mimeType={block.mimeType}
+                  onReadResource={onReadResource}
+                />
+              ) : (
+                <ContentViewer
+                  key={index}
+                  block={block}
+                  copyable={block.type === "text"}
+                />
+              ),
+            )
           )}
         </ResultStack>
       </ResultScroll>

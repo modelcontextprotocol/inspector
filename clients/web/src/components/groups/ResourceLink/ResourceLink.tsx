@@ -1,8 +1,6 @@
 import { useState } from "react";
 import {
   Alert,
-  Badge,
-  Group,
   Loader,
   Paper,
   ScrollArea,
@@ -12,7 +10,8 @@ import {
 } from "@mantine/core";
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
 import { RiArrowDownSLine, RiArrowRightSLine } from "react-icons/ri";
-import { ContentViewer } from "../ContentViewer/ContentViewer";
+import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { ResourceLinkInfo } from "../../elements/ResourceLinkInfo/ResourceLinkInfo";
 
 export interface ResourceLinkProps {
   /** The linked resource's URI (always shown). */
@@ -40,50 +39,6 @@ const LinkCard = Paper.withProps({
 const HeaderButton = UnstyledButton.withProps({
   w: "100%",
   ta: "left",
-});
-
-const HeaderStack = Stack.withProps({
-  gap: 4,
-});
-
-const UriRow = Group.withProps({
-  justify: "space-between",
-  wrap: "nowrap",
-  gap: "xs",
-  align: "flex-start",
-});
-
-const UriText = Text.withProps({
-  size: "sm",
-  c: "blue",
-  ff: "monospace",
-  variant: "monoBreak",
-  flex: 1,
-  miw: 0,
-});
-
-const MetaGroup = Group.withProps({
-  gap: "xs",
-  wrap: "nowrap",
-});
-
-const MimeBadge = Badge.withProps({
-  size: "sm",
-  variant: "light",
-  color: "blue",
-  // MIME types are conventionally lowercase; keep them as-is rather than
-  // letting Badge's default uppercase transform mangle them.
-  tt: "none",
-});
-
-const NameText = Text.withProps({
-  size: "sm",
-  fw: 600,
-});
-
-const DescriptionText = Text.withProps({
-  size: "sm",
-  c: "dimmed",
 });
 
 const ExpandedSection = Stack.withProps({
@@ -115,11 +70,11 @@ const LoadingText = Text.withProps({
 });
 
 /**
- * Expandable card for a `resource_link` content block. Shows the URI, optional
- * name / description / MIME badge, and — when `onReadResource` is supplied —
- * an expand affordance that reads the linked resource on demand and renders the
- * full read result inline as formatted JSON (via {@link ContentViewer}). The
- * fetched result is cached so collapsing and re-expanding does not re-read.
+ * Expandable card for a `resource_link` content block. Renders the link's
+ * metadata via {@link ResourceLinkInfo} and — when `onReadResource` is supplied
+ * — an expand affordance that reads the linked resource on demand and renders
+ * the full read result inline as formatted JSON (via {@link ContentViewer}).
+ * The fetched result is cached so collapsing and re-expanding does not re-read.
  */
 export function ResourceLink({
   uri,
@@ -155,24 +110,22 @@ export function ResourceLink({
   }
 
   const Chevron = expanded ? RiArrowDownSLine : RiArrowRightSLine;
+  const action = expandable ? (
+    loading ? (
+      <Loader size="xs" />
+    ) : (
+      <Chevron size={16} aria-hidden />
+    )
+  ) : undefined;
 
-  const header = (
-    <HeaderStack>
-      <UriRow>
-        <UriText>{uri}</UriText>
-        <MetaGroup>
-          {mimeType && <MimeBadge>{mimeType}</MimeBadge>}
-          {expandable &&
-            (loading ? (
-              <Loader size="xs" />
-            ) : (
-              <Chevron size={16} aria-hidden />
-            ))}
-        </MetaGroup>
-      </UriRow>
-      {name && <NameText>{name}</NameText>}
-      {description && <DescriptionText>{description}</DescriptionText>}
-    </HeaderStack>
+  const info = (
+    <ResourceLinkInfo
+      uri={uri}
+      name={name}
+      description={description}
+      mimeType={mimeType}
+      action={action}
+    />
   );
 
   return (
@@ -183,10 +136,10 @@ export function ResourceLink({
           aria-expanded={expanded}
           aria-label={`${expanded ? "Collapse" : "Expand"} resource ${uri}`}
         >
-          {header}
+          {info}
         </HeaderButton>
       ) : (
-        header
+        info
       )}
       {expanded && (
         <ExpandedSection>
