@@ -99,6 +99,92 @@ describe("ToolDetailPanel", () => {
     ).not.toBeInTheDocument();
   });
 
+  describe("Collapsible description", () => {
+    it("renders the description shown by default (Hide description toggle)", () => {
+      renderWithMantine(<ToolDetailPanel {...baseProps} tool={titledTool} />);
+      const toggle = screen.getByRole("button", { name: "Hide description" });
+      expect(toggle).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Show description" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("hides the description when the toggle is clicked", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(<ToolDetailPanel {...baseProps} tool={titledTool} />);
+      await user.click(
+        screen.getByRole("button", { name: "Hide description" }),
+      );
+      expect(
+        screen.getByRole("button", { name: "Show description" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Hide description" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("shows the description again when the collapsed toggle is clicked", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(<ToolDetailPanel {...baseProps} tool={titledTool} />);
+      await user.click(
+        screen.getByRole("button", { name: "Hide description" }),
+      );
+      await user.click(
+        screen.getByRole("button", { name: "Show description" }),
+      );
+      expect(
+        screen.getByRole("button", { name: "Hide description" }),
+      ).toBeInTheDocument();
+    });
+
+    it("resets to shown when switching to a different tool", async () => {
+      const user = userEvent.setup();
+      const { rerender } = renderWithMantine(
+        <ToolDetailPanel {...baseProps} tool={titledTool} />,
+      );
+      await user.click(
+        screen.getByRole("button", { name: "Hide description" }),
+      );
+      expect(
+        screen.getByRole("button", { name: "Show description" }),
+      ).toBeInTheDocument();
+
+      // Switching tools (different name) should reset the local hidden state.
+      rerender(<ToolDetailPanel {...baseProps} tool={annotatedTool} />);
+      expect(
+        screen.getByRole("button", { name: "Hide description" }),
+      ).toBeInTheDocument();
+    });
+
+    it("wires the toggle as an expandable control (aria-expanded + aria-controls)", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(<ToolDetailPanel {...baseProps} tool={titledTool} />);
+      const toggle = screen.getByRole("button", { name: "Hide description" });
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      // aria-controls points at the Collapse region holding the description.
+      const regionId = toggle.getAttribute("aria-controls");
+      expect(regionId).toBeTruthy();
+      expect(document.getElementById(regionId as string)).toContainElement(
+        screen.getByText("Sends a message to the recipient"),
+      );
+
+      await user.click(toggle);
+      expect(
+        screen.getByRole("button", { name: "Show description" }),
+      ).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("does not render a description toggle when the tool has no description", () => {
+      renderWithMantine(<ToolDetailPanel {...baseProps} tool={simpleTool} />);
+      expect(
+        screen.queryByRole("button", { name: "Show description" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Hide description" }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it("renders all annotation badges when annotations are present", () => {
     renderWithMantine(<ToolDetailPanel {...baseProps} tool={annotatedTool} />);
     expect(screen.getByText("read-only")).toBeInTheDocument();
