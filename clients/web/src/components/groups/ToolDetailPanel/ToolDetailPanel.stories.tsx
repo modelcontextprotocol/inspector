@@ -106,8 +106,8 @@ const batchProcessTool: Tool = {
 };
 
 // Mirrors the gnarly `sequential-thinking-server` case from issue #1381: a very
-// long description that, when expanded, would otherwise push the form and
-// Execute footer off-screen. Collapsed by default keeps the form reachable.
+// long description that pushes the form and Execute footer down. Descriptions
+// show by default; the chevron lets the user hide a long one to reclaim space.
 const longDescriptionTool: Tool = {
   name: "sequentialthinking",
   title: "Sequential Thinking",
@@ -140,7 +140,7 @@ export const SimpleStringParam: Story = {
   },
 };
 
-// Long description collapsed by default — only the chevron toggle is shown.
+// Long description shown by default — the chevron offers to hide it.
 export const LongDescription: Story = {
   args: {
     tool: longDescriptionTool,
@@ -148,23 +148,23 @@ export const LongDescription: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(
-      await canvas.findByRole("button", { name: "Show description" }),
+      await canvas.findByRole("button", { name: "Hide description" }),
     ).toBeInTheDocument();
   },
 };
 
-// Clicking the chevron expands the description (toggle flips to "Hide").
-export const LongDescriptionExpanded: Story = {
+// Clicking the chevron hides the description (toggle flips to "Show").
+export const LongDescriptionHidden: Story = {
   args: {
     tool: longDescriptionTool,
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(
-      await canvas.findByRole("button", { name: "Show description" }),
+      await canvas.findByRole("button", { name: "Hide description" }),
     );
     await expect(
-      await canvas.findByRole("button", { name: "Hide description" }),
+      await canvas.findByRole("button", { name: "Show description" }),
     ).toBeInTheDocument();
   },
 };

@@ -160,15 +160,16 @@ export function ToolDetailPanel({
   const { name, title, description, icons, annotations, inputSchema } = tool;
   const iconSrc = icons?.[0]?.src;
 
-  // Long descriptions are collapsed by default so the form and Execute footer
-  // stay visible. Reset to collapsed when switching tools (React's
-  // adjust-state-during-render pattern) so the prior tool's expanded state
-  // doesn't carry over — mirrors how ToolsScreen clears formValues on change.
-  const [descriptionOpen, setDescriptionOpen] = useState(false);
+  // Descriptions are shown by default (most are short); the chevron lets the
+  // user hide a long one to keep the form and Execute footer in view. Reset to
+  // shown when switching tools (React's adjust-state-during-render pattern) so
+  // a prior tool's hidden state doesn't carry over — mirrors how ToolsScreen
+  // clears formValues on change.
+  const [descriptionOpen, setDescriptionOpen] = useState(true);
   const [prevToolName, setPrevToolName] = useState(name);
   if (name !== prevToolName) {
     setPrevToolName(name);
-    setDescriptionOpen(false);
+    setDescriptionOpen(true);
   }
 
   // Show the toggle only when the server supports task tool calls and the tool

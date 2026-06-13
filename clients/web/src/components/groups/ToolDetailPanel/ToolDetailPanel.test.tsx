@@ -100,59 +100,59 @@ describe("ToolDetailPanel", () => {
   });
 
   describe("Collapsible description", () => {
-    it("renders the description collapsed by default (Show description toggle)", () => {
+    it("renders the description shown by default (Hide description toggle)", () => {
       renderWithMantine(<ToolDetailPanel {...baseProps} tool={titledTool} />);
-      const toggle = screen.getByRole("button", { name: "Show description" });
+      const toggle = screen.getByRole("button", { name: "Hide description" });
       expect(toggle).toBeInTheDocument();
-      expect(
-        screen.queryByRole("button", { name: "Hide description" }),
-      ).not.toBeInTheDocument();
-    });
-
-    it("expands the description when the toggle is clicked", async () => {
-      const user = userEvent.setup();
-      renderWithMantine(<ToolDetailPanel {...baseProps} tool={titledTool} />);
-      await user.click(
-        screen.getByRole("button", { name: "Show description" }),
-      );
-      expect(
-        screen.getByRole("button", { name: "Hide description" }),
-      ).toBeInTheDocument();
       expect(
         screen.queryByRole("button", { name: "Show description" }),
       ).not.toBeInTheDocument();
     });
 
-    it("collapses again when the expanded toggle is clicked", async () => {
+    it("hides the description when the toggle is clicked", async () => {
       const user = userEvent.setup();
       renderWithMantine(<ToolDetailPanel {...baseProps} tool={titledTool} />);
-      await user.click(
-        screen.getByRole("button", { name: "Show description" }),
-      );
       await user.click(
         screen.getByRole("button", { name: "Hide description" }),
       );
       expect(
         screen.getByRole("button", { name: "Show description" }),
       ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Hide description" }),
+      ).not.toBeInTheDocument();
     });
 
-    it("resets to collapsed when switching to a different tool", async () => {
+    it("shows the description again when the collapsed toggle is clicked", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(<ToolDetailPanel {...baseProps} tool={titledTool} />);
+      await user.click(
+        screen.getByRole("button", { name: "Hide description" }),
+      );
+      await user.click(
+        screen.getByRole("button", { name: "Show description" }),
+      );
+      expect(
+        screen.getByRole("button", { name: "Hide description" }),
+      ).toBeInTheDocument();
+    });
+
+    it("resets to shown when switching to a different tool", async () => {
       const user = userEvent.setup();
       const { rerender } = renderWithMantine(
         <ToolDetailPanel {...baseProps} tool={titledTool} />,
       );
       await user.click(
-        screen.getByRole("button", { name: "Show description" }),
+        screen.getByRole("button", { name: "Hide description" }),
       );
       expect(
-        screen.getByRole("button", { name: "Hide description" }),
+        screen.getByRole("button", { name: "Show description" }),
       ).toBeInTheDocument();
 
-      // Switching tools (different name) should reset the local expanded state.
+      // Switching tools (different name) should reset the local hidden state.
       rerender(<ToolDetailPanel {...baseProps} tool={annotatedTool} />);
       expect(
-        screen.getByRole("button", { name: "Show description" }),
+        screen.getByRole("button", { name: "Hide description" }),
       ).toBeInTheDocument();
     });
 
