@@ -597,6 +597,7 @@ function App() {
   // stray task cancellation. A ref (not state) because it's only read at the
   // moment Cancel is clicked and must not trigger re-renders.
   const activeToolCallTaskIdRef = useRef<string | undefined>(undefined);
+  const lastConnectionErrorToastRef = useRef<string | undefined>(undefined);
 
   // Per-task progress, keyed by taskId. Sourced from the core `requestorTaskProgress`
   // event (emitted by callToolStream, which owns the taskId), fed to the Tasks
@@ -616,6 +617,7 @@ function App() {
     serverInfo,
     instructions,
     protocolVersion,
+    lastError,
   } = useInspectorClient(inspectorClient);
   const {
     tools,
@@ -990,6 +992,23 @@ function App() {
     () => servers.find((s) => s.id === activeServerId),
     [servers, activeServerId],
   );
+
+  useEffect(() => {
+    if (connectionStatus !== "error") {
+      lastConnectionErrorToastRef.current = undefined;
+      return;
+    }
+    if (!lastError) return;
+    if (lastConnectionErrorToastRef.current === lastError) return;
+    lastConnectionErrorToastRef.current = lastError;
+    notifications.show({
+      title: activeServer
+        ? `Connection error for "${activeServer.name}"`
+        : "Connection error",
+      message: lastError,
+      color: "red",
+    });
+  }, [activeServer, connectionStatus, lastError]);
 
   // `config.type` is optional in the schema (a bare `command: ...`
   // entry implies stdio), so we materialize the default here rather
