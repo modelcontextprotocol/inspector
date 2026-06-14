@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import type { FetchRequestEntry } from "../../../../../../core/mcp/types.js";
 import { NetworkStreamPanel } from "./NetworkStreamPanel";
+import { expectScrollbarGutterIdleHidden } from "../../../test/scrollAreaStoryAssertions";
 
 const meta: Meta<typeof NetworkStreamPanel> = {
   title: "Groups/NetworkStreamPanel",
@@ -47,6 +48,10 @@ const sample: FetchRequestEntry[] = [
 
 export const WithEntries: Story = {
   args: { entries: sample },
+  // List scrollbar reserves a gutter and stays hidden when idle (#1474).
+  play: async ({ canvasElement }) => {
+    expectScrollbarGutterIdleHidden(canvasElement);
+  },
 };
 
 export const Empty: Story = {
