@@ -44,6 +44,20 @@ describe("FetchRequestLogState", () => {
   let client: FakeInspectorClient;
   let state: FetchRequestLogState;
 
+  // Build a state wired to a stub logger so the diagnostic debug() call on the
+  // rotated-out drop path can be asserted. Only `debug` is exercised, so the
+  // stub is narrowed to the FetchRequestLogStateOptions["logger"] type.
+  function makeLoggedState(
+    logger: NonNullable<
+      ConstructorParameters<typeof FetchRequestLogState>[1]
+    >["logger"],
+    extra: Partial<
+      NonNullable<ConstructorParameters<typeof FetchRequestLogState>[1]>
+    > = {},
+  ): FetchRequestLogState {
+    return new FetchRequestLogState(client, { logger, ...extra });
+  }
+
   beforeEach(() => {
     client = new FakeInspectorClient();
     state = new FetchRequestLogState(client);
@@ -120,15 +134,48 @@ describe("FetchRequestLogState", () => {
     expect(seen).toHaveLength(1);
   });
 
-  it("ignores fetchRequestBodyUpdate for unknown ids", () => {
+  it("ignores fetchRequestBodyUpdate for unknown ids and traces the drop", () => {
+    const debug = vi.fn();
+    const logger = { debug } as unknown as Parameters<
+      typeof makeLoggedState
+    >[0];
+    const logged = makeLoggedState(logger);
     client.dispatchTypedEvent("fetchRequest", entry("a"));
     let changes = 0;
-    state.addEventListener("fetchRequestsChange", () => changes++);
+    logged.addEventListener("fetchRequestsChange", () => changes++);
     client.dispatchTypedEvent("fetchRequestBodyUpdate", {
       id: "nonexistent",
       responseBody: "x",
     });
     expect(changes).toBe(0);
+    expect(debug).toHaveBeenCalledTimes(1);
+    expect(debug).toHaveBeenCalledWith(
+      expect.objectContaining({ fetchRequestId: "nonexistent" }),
+      expect.stringContaining("rotated out"),
+    );
+  });
+
+  it("traces the drop when the entry rotated out before the body arrived", () => {
+    const debug = vi.fn();
+    const logger = { debug } as unknown as Parameters<
+      typeof makeLoggedState
+    >[0];
+    const logged = makeLoggedState(logger, { maxFetchRequests: 1 });
+    client.dispatchTypedEvent("fetchRequest", entry("a"));
+    // A newer request evicts "a" before its deferred body update arrives.
+    client.dispatchTypedEvent("fetchRequest", entry("b"));
+    client.dispatchTypedEvent("fetchRequestBodyUpdate", {
+      id: "a",
+      responseBody: "late",
+    });
+    expect(logged.getFetchRequests().map((e) => e.id)).toEqual(["b"]);
+    expect(debug).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fetchRequestId: "a",
+        maxFetchRequests: 1,
+      }),
+      expect.stringContaining("rotated out"),
+    );
   });
 
   it("does NOT clear on connect or disconnect", () => {

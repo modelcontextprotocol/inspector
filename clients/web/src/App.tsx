@@ -1133,7 +1133,7 @@ function App() {
       fetchRequestLogState?.destroy();
       stderrLogState?.destroy();
 
-      const { environment } = createWebEnvironment(
+      const { environment, logger } = createWebEnvironment(
         getAuthToken(),
         redirectUrlProvider,
         onBeforeOAuthRedirect,
@@ -1221,6 +1221,7 @@ function App() {
       // reads the current log.
       const nextFetchLog = new FetchRequestLogState(client, {
         sessionStorage: sessionStorageAdapter,
+        logger,
         ...(sessionId && { sessionId }),
       });
       fetchLogRef.current = nextFetchLog;

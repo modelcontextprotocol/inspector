@@ -13,6 +13,8 @@
  * concrete `InspectorClient` since the runtime class is not yet ported.
  */
 
+import type pino from "pino";
+import { silentLogger } from "../../logging/logger.js";
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { FetchRequestEntry } from "../types.js";
 import type {
@@ -44,6 +46,11 @@ export interface FetchRequestLogStateOptions {
   sessionStorage?: InspectorClientStorage;
   /** Session ID for load/save; required for sessionStorage to have effect. */
   sessionId?: string;
+  /**
+   * Logger for diagnostic traces (e.g. a deferred body update arriving after
+   * its entry rotated out of the log). Defaults to the silent logger.
+   */
+  logger?: pino.Logger;
 }
 
 export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateEventMap> {
@@ -51,6 +58,7 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
   private client: InspectorClientProtocol | null = null;
   private unsubscribe: (() => void) | null = null;
   private readonly maxFetchRequests: number;
+  private readonly logger: pino.Logger;
 
   constructor(
     client: InspectorClientProtocol,
@@ -58,6 +66,7 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
   ) {
     super();
     this.maxFetchRequests = options.maxFetchRequests ?? 1000;
+    this.logger = options.logger ?? silentLogger;
     this.client = client;
 
     const onFetchRequest = (
@@ -87,7 +96,19 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
     ): void => {
       const { id, responseBody } = event.detail;
       const idx = this.fetchRequests.findIndex((e) => e.id === id);
-      if (idx === -1) return;
+      if (idx === -1) {
+        // The deferred body read (fire-and-forget tee'd stream in
+        // fetchTracking) arrived after its entry was evicted by rotation —
+        // i.e. >= maxFetchRequests newer requests appended in between. The
+        // body is unrecoverable (the entry is gone), but trace the drop so a
+        // missing Response Body in the Network UI is distinguishable from a
+        // body that never came back.
+        this.logger.debug(
+          { fetchRequestId: id, maxFetchRequests: this.maxFetchRequests },
+          "fetchRequestBodyUpdate dropped: entry rotated out before body arrived",
+        );
+        return;
+      }
       this.fetchRequests[idx] = {
         ...this.fetchRequests[idx]!,
         responseBody,
