@@ -48,15 +48,6 @@ export interface ResourceControlsProps {
   onCompactChange: (next: boolean) => void;
 }
 
-// A single viewport-bounded cap for the whole accordion (matches ToolControls /
-// PromptControls). The sections size to their content and share this space by
-// need — none scrolls until the open sections' combined height would exceed the
-// cap, at which point the one scroll region scrolls (issue #1462). Replaces the
-// old per-section `/ n` split that capped every open section at an equal share,
-// so a long section scrolled while sparse siblings left their share unused.
-const LIST_MAX_HEIGHT =
-  "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2 - 160px)";
-
 function formatSectionCount(label: string, count: number): string {
   return `${label} (${count})`;
 }
@@ -135,7 +126,10 @@ export function ResourceControls({
   }
 
   return (
-    <Stack gap="sm">
+    // Fills the full-height `sidebar` Card (flex column) so the scroll region
+    // below can claim the remaining space; `mih: 0` lets that child shrink and
+    // scroll instead of overflowing the card (#1462).
+    <Stack gap="sm" flex={1} mih={0}>
       <Group justify="space-between">
         <Title order={4}>Resources</Title>
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
@@ -158,7 +152,13 @@ export function ResourceControls({
         />
         <ListToggle compact={!allExpanded} onToggle={handleToggleList} />
       </Group>
-      <ScrollArea.Autosize viewportRef={viewportRef} mah={LIST_MAX_HEIGHT}>
+      <ScrollArea
+        viewportRef={viewportRef}
+        flex={1}
+        mih={0}
+        type="auto"
+        scrollbars="y"
+      >
         <Accordion
           multiple
           variant="disclosure"
@@ -230,7 +230,7 @@ export function ResourceControls({
             </Accordion.Panel>
           </Accordion.Item>
         </Accordion>
-      </ScrollArea.Autosize>
+      </ScrollArea>
     </Stack>
   );
 }

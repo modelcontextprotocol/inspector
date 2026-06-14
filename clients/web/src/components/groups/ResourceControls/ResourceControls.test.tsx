@@ -233,9 +233,10 @@ describe("ResourceControls", () => {
         openSections={["resources", "templates", "subscriptions"]}
       />,
     );
-    expect(
-      screen.getByRole("button", { name: /URIs \(2\)/ }),
-    ).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /URIs \(2\)/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
     expect(
       screen.getByRole("button", { name: /Templates \(1\)/ }),
     ).toHaveAttribute("aria-expanded", "true");

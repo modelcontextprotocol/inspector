@@ -6,7 +6,7 @@ import type {
   ResourceTemplate,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
-import { fn, userEvent, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
 import { ResourcesScreen } from "./ResourcesScreen";
 import type { ReadResourceState, ResourcesUiState } from "./ResourcesScreen";
 import { EMPTY_RESOURCES_UI } from "../screenUiState";
@@ -219,6 +219,39 @@ export const AllSections: Story = {
   },
   play: async ({ canvasElement }) => {
     await expandUserProfileTemplate(canvasElement);
+  },
+};
+
+const manyResources: Resource[] = Array.from({ length: 40 }, (_, i) => ({
+  name: `resource-${String(i + 1).padStart(2, "0")}.wav`,
+  uri: `file:///kit/resource-${i + 1}.wav`,
+}));
+
+// Enough URIs to overflow the panel. The sidebar card stays the same height as
+// the detail panel (no selection → full-height empty card), and only the inner
+// accordion scroll region scrolls — it doesn't scroll before the panel is full
+// (#1462).
+export const ManyResources: Story = {
+  args: {
+    resources: manyResources,
+    templates: sampleTemplates,
+  },
+  play: async ({ canvasElement }) => {
+    const [sidebarCard, detailCard] =
+      canvasElement.querySelectorAll(".mantine-Card-root");
+    const sidebar = sidebarCard.getBoundingClientRect();
+    const detail = detailCard.getBoundingClientRect();
+    // The sidebar matches the detail panel's height (same bottom baseline).
+    expect(Math.abs(sidebar.bottom - detail.bottom)).toBeLessThanOrEqual(1);
+    expect(Math.abs(sidebar.height - detail.height)).toBeLessThanOrEqual(1);
+    // The list overflows, so the single inner scroll region scrolls.
+    const viewport = canvasElement.querySelector(
+      ".mantine-ScrollArea-viewport",
+    );
+    if (!(viewport instanceof HTMLElement)) {
+      throw new Error("scroll viewport not found");
+    }
+    expect(viewport.scrollHeight).toBeGreaterThan(viewport.clientHeight);
   },
 };
 
