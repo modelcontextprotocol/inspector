@@ -203,7 +203,7 @@ export function buildWebServerConfig(
 }
 
 /**
- * Build WebServerConfig from process.env only. Used when running server as standalone (e.g. node dist/server.js) or via `vite dev`.
+ * Build WebServerConfig from process.env only. Used by `vite dev` (the Hono dev plugin reads env, not argv).
  */
 export function buildWebServerConfigFromEnv(): WebServerConfig {
   return buildWebServerConfig({ initialMcpConfig: null });

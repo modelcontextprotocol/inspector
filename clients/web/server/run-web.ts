@@ -1,7 +1,7 @@
 /**
  * Programmatic entry for the launcher and published `mcp-inspector --web`.
  * Day-to-day dev still uses `npm run dev` (Vite CLI + buildWebServerConfigFromEnv).
- * Standalone prod uses `node dist/server.js` (env-only, no argv).
+ * Prod (`--web`, no `--dev`) starts the Hono server in-process via `startHonoServer`.
  */
 
 import { resolve, join, dirname } from "node:path";

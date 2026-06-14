@@ -12,6 +12,7 @@ import react from "@vitejs/plugin-react";
 import type { WebServerConfig } from "./web-server-config.js";
 import { honoMiddlewarePlugin } from "./vite-hono-plugin.js";
 import { getViteBaseConfig } from "./vite-base-config.js";
+import { vitestSharedPaths } from "../../../vitest.shared.mts";
 import type { WebServerHandle } from "./types.js";
 
 export type { WebServerHandle };
@@ -27,13 +28,37 @@ export async function startViteDevServer(
   // Canonicalize so Vite's config hash is stable and matches the deps cache.
   const root = resolve(join(__dirname, ".."));
   const baseConfig = getViteBaseConfig();
+  // `configFile: false` means this in-process server never loads
+  // `vite.config.ts`, so it must reproduce that file's `resolve` block and
+  // `server.fs.allow` here. Without them, App.tsx's `@inspector/core/*`
+  // imports fail to resolve and the page 500s (#1452 smoke test). The aliases
+  // and dedupe are factored into `vitest.shared.mts` so both paths stay in
+  // sync — pass the client dir (`root`) so bare-module pins resolve against
+  // `clients/web/node_modules`.
+  const { repoRoot, sharedAliases, sharedDedupe, nodeModulesAliases } =
+    vitestSharedPaths(root);
   const inlineConfig: InlineConfig = {
     ...baseConfig,
     configFile: false,
     root,
+    resolve: {
+      alias: [
+        ...Object.entries(sharedAliases).map(([find, replacement]) => ({
+          find,
+          replacement,
+        })),
+        ...nodeModulesAliases,
+      ],
+      dedupe: sharedDedupe,
+    },
     server: {
       port: config.port,
       host: config.hostname,
+      // Allow Vite to serve source files from the repo root (core/ lives
+      // outside clients/web), matching `vite.config.ts`'s `server.fs.allow`.
+      fs: {
+        allow: [repoRoot],
+      },
     },
     plugins: [react(), honoMiddlewarePlugin(config)],
   };

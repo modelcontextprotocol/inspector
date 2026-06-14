@@ -13,8 +13,7 @@
  * concrete `InspectorClient` since the runtime class is not yet ported.
  */
 
-import type pino from "pino";
-import { silentLogger } from "../../logging/logger.js";
+import { silentLogger, type InspectorLogger } from "../../logging/logger.js";
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { FetchRequestEntry } from "../types.js";
 import type {
@@ -63,7 +62,7 @@ export interface FetchRequestLogStateOptions {
    * Logger for diagnostic traces (e.g. a deferred body update arriving after
    * its entry rotated out of the log). Defaults to the silent logger.
    */
-  logger?: pino.Logger;
+  logger?: InspectorLogger;
 }
 
 export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateEventMap> {
@@ -71,7 +70,7 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
   private client: InspectorClientProtocol | null = null;
   private unsubscribe: (() => void) | null = null;
   private maxFetchRequests: number;
-  private readonly logger: pino.Logger;
+  private readonly logger: InspectorLogger;
 
   constructor(
     client: InspectorClientProtocol,
