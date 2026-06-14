@@ -222,6 +222,51 @@ describe("ResourceControls", () => {
     expect(onCompactChange).toHaveBeenLastCalledWith(false);
   });
 
+  it("keeps an empty section collapsed even when it's in openSections", () => {
+    // All three sections requested open, but Subscriptions has no items: its
+    // control must render collapsed (aria-expanded=false) so the chevron points
+    // right, while the populated sections stay expanded (#1462).
+    renderWithMantine(
+      <ResourceControls
+        {...baseProps}
+        subscriptions={[]}
+        openSections={["resources", "templates", "subscriptions"]}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /URIs \(2\)/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: /Templates \(1\)/ }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByRole("button", { name: /Subscriptions \(0\)/ }),
+    ).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("preserves an open-but-empty section's intent when toggling another section", async () => {
+    // Subscriptions is open-in-intent but empty (excluded from the accordion's
+    // value). Collapsing a populated section must not drop subscriptions from
+    // the persisted intent, so it reopens once it has items again (#1462).
+    const user = userEvent.setup();
+    const onOpenSectionsChange = vi.fn();
+    renderWithMantine(
+      <ResourceControls
+        {...baseProps}
+        subscriptions={[]}
+        openSections={["resources", "templates", "subscriptions"]}
+        onOpenSectionsChange={onOpenSectionsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /Templates \(1\)/ }));
+    // Mantine emits ["resources"]; "subscriptions" is merged back in.
+    expect(onOpenSectionsChange).toHaveBeenCalledWith(
+      expect.arrayContaining(["resources", "subscriptions"]),
+    );
+    expect(onOpenSectionsChange.mock.calls[0][0]).not.toContain("templates");
+  });
+
   it("filters by resource title when title is set", async () => {
     const user = userEvent.setup();
     const resourcesWithTitle: Resource[] = [

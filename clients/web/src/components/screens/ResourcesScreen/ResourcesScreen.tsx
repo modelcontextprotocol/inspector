@@ -77,9 +77,14 @@ const Sidebar = Stack.withProps({
   flex: "0 0 auto",
 });
 
+// Card that grows with its content but is capped at the screen height by the
+// `sidebar` variant (`max-height: 100%`), like the Tools panel. The column
+// layout lets ResourceControls' accordion take over per-section scrolling once
+// the content would overflow that cap.
 const SidebarCard = Card.withProps({
   withBorder: true,
   padding: "lg",
+  variant: "sidebar",
 });
 
 const DetailCard = Card.withProps({

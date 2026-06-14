@@ -6,7 +6,7 @@ import type {
   ResourceTemplate,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
-import { fn, userEvent, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
 import { ResourcesScreen } from "./ResourcesScreen";
 import type { ReadResourceState, ResourcesUiState } from "./ResourcesScreen";
 import { EMPTY_RESOURCES_UI } from "../screenUiState";
@@ -219,6 +219,51 @@ export const AllSections: Story = {
   },
   play: async ({ canvasElement }) => {
     await expandUserProfileTemplate(canvasElement);
+  },
+};
+
+const manyResources: Resource[] = Array.from({ length: 40 }, (_, i) => ({
+  name: `resource-${String(i + 1).padStart(2, "0")}.wav`,
+  uri: `file:///kit/resource-${i + 1}.wav`,
+}));
+
+// Enough URIs to overflow the panel. The sidebar card stays the same height as
+// the detail panel (no selection → full-height empty card). The section headers
+// stay pinned and the long URIs section scrolls *within its own panel* — the
+// whole accordion doesn't scroll, and a section doesn't scroll until the panel
+// is full (#1462).
+export const ManyResources: Story = {
+  args: {
+    resources: manyResources,
+    templates: sampleTemplates,
+  },
+  play: async ({ canvasElement }) => {
+    const [sidebarCard, detailCard] =
+      canvasElement.querySelectorAll(".mantine-Card-root");
+    const sidebar = sidebarCard.getBoundingClientRect();
+    const detail = detailCard.getBoundingClientRect();
+    // The sidebar matches the detail panel's height (same bottom baseline).
+    expect(Math.abs(sidebar.bottom - detail.bottom)).toBeLessThanOrEqual(1);
+    expect(Math.abs(sidebar.height - detail.height)).toBeLessThanOrEqual(1);
+
+    // The section headers stay pinned (visible, in document order), so the
+    // whole accordion doesn't scroll as one block.
+    const controls = canvasElement.querySelectorAll(
+      ".disclosure-sections .mantine-Accordion-control",
+    );
+    expect(controls).toHaveLength(3);
+    const tops = [...controls].map((c) => c.getBoundingClientRect().top);
+    expect(tops[0]).toBeLessThan(tops[1]);
+    expect(tops[1]).toBeLessThan(tops[2]);
+
+    // The long URIs section scrolls within its own panel.
+    const urisPanel = canvasElement.querySelector(
+      ".disclosure-sections .mantine-Accordion-panel",
+    );
+    if (!(urisPanel instanceof HTMLElement)) {
+      throw new Error("URIs panel not found");
+    }
+    expect(urisPanel.scrollHeight).toBeGreaterThan(urisPanel.clientHeight);
   },
 };
 
