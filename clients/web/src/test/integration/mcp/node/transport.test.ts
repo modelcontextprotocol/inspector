@@ -217,6 +217,7 @@ describe("Transport", () => {
           connectionTimeout: 0,
           requestTimeout: 0,
           taskTtl: 0,
+          maxFetchRequests: 1000,
           roots: [],
         };
 
@@ -270,6 +271,7 @@ describe("Transport", () => {
           connectionTimeout: 0,
           requestTimeout: 0,
           taskTtl: 0,
+          maxFetchRequests: 1000,
           roots: [],
         };
 
@@ -313,6 +315,7 @@ describe("Transport", () => {
         connectionTimeout: 0,
         requestTimeout: 0,
         taskTtl: 0,
+        maxFetchRequests: 1000,
         roots: [],
       };
       const result = createTransportNode(config, { settings });

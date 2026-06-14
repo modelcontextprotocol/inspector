@@ -342,6 +342,7 @@ describe("RemoteClientTransport", () => {
       connectionTimeout: 0,
       requestTimeout: 0,
       taskTtl: 0,
+      maxFetchRequests: 1000,
       roots: [],
     };
     const transport = new RemoteClientTransport(

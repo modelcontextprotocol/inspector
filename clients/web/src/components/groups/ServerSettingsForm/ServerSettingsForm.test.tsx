@@ -22,6 +22,7 @@ const emptySettings: InspectorServerSettings = {
   connectionTimeout: 30000,
   requestTimeout: 60000,
   taskTtl: 60000,
+  maxFetchRequests: 1000,
   roots: [],
 };
 
@@ -31,6 +32,7 @@ const populatedSettings: InspectorServerSettings = {
   connectionTimeout: 30000,
   requestTimeout: 60000,
   taskTtl: 60000,
+  maxFetchRequests: 1000,
   oauthClientId: "cid",
   oauthClientSecret: "secret",
   oauthScopes: "read",
@@ -55,6 +57,7 @@ const baseHandlers = {
   onMetadataChange: vi.fn(),
   onTimeoutChange: vi.fn(),
   onAutoRefreshChange: vi.fn(),
+  onMaxFetchRequestsChange: vi.fn(),
   onOAuthChange: vi.fn(),
   onAddRoot: vi.fn(),
   onRemoveRoot: vi.fn(),
@@ -292,6 +295,54 @@ describe("ServerSettingsForm", () => {
       }),
     );
     expect(onAutoRefreshChange).toHaveBeenCalledWith(true);
+  });
+
+  it("renders the Network Log Size field reflecting maxFetchRequests", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, maxFetchRequests: 2500 }}
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.getByLabelText(/Network Log Size/)).toHaveValue("2500");
+  });
+
+  it("invokes onMaxFetchRequestsChange when the Network Log Size value changes", async () => {
+    const user = userEvent.setup();
+    const onMaxFetchRequestsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onMaxFetchRequestsChange={onMaxFetchRequestsChange}
+        settings={{ ...emptySettings, maxFetchRequests: 1000 }}
+        expandedSections={["options"]}
+      />,
+    );
+    const input = screen.getByLabelText(/Network Log Size/);
+    await user.type(input, "5");
+    // Appends to the existing value via the NumberInput; the handler receives a
+    // number, not the raw string.
+    expect(onMaxFetchRequestsChange).toHaveBeenCalled();
+    const lastArg = onMaxFetchRequestsChange.mock.calls.at(-1)?.[0];
+    expect(typeof lastArg).toBe("number");
+  });
+
+  it("keeps the current Network Log Size (not 0) when the field is cleared", async () => {
+    // Clearing the input must not silently mean "unlimited" (0) — it falls back
+    // to the current value so a clear-then-close doesn't change the cap.
+    const user = userEvent.setup();
+    const onMaxFetchRequestsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onMaxFetchRequestsChange={onMaxFetchRequestsChange}
+        settings={{ ...emptySettings, maxFetchRequests: 2500 }}
+        expandedSections={["options"]}
+      />,
+    );
+    await user.clear(screen.getByLabelText(/Network Log Size/));
+    expect(onMaxFetchRequestsChange).toHaveBeenLastCalledWith(2500);
   });
 
   it("invokes onOAuthChange when typing in client id", async () => {

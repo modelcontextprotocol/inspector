@@ -32,6 +32,11 @@ export function ServerSettingsModal({
   onClose,
   onSettingsChange,
 }: ServerSettingsModalProps) {
+  // Initial expansion is the first ("options") section — where Network Log
+  // Size lives, so a deep-link from the body-dropped toast lands on the
+  // relevant control. The parent remounts this modal per open (via `key`), so
+  // this initial state re-applies on each open rather than persisting a
+  // user's prior expand/collapse across opens.
   const [expandedSections, setExpandedSections] = useState<
     ServerSettingsSection[]
   >(["options"]);
@@ -104,6 +109,10 @@ export function ServerSettingsModal({
     onSettingsChange({ ...settings, autoRefreshOnListChanged: value });
   }
 
+  function handleMaxFetchRequestsChange(value: number) {
+    onSettingsChange({ ...settings, maxFetchRequests: value });
+  }
+
   function handleAddRoot() {
     onSettingsChange({
       ...settings,
@@ -159,6 +168,7 @@ export function ServerSettingsModal({
           onMetadataChange={handleMetadataChange}
           onTimeoutChange={handleTimeoutChange}
           onAutoRefreshChange={handleAutoRefreshChange}
+          onMaxFetchRequestsChange={handleMaxFetchRequestsChange}
           onOAuthChange={handleOAuthChange}
           onAddRoot={handleAddRoot}
           onRemoveRoot={handleRemoveRoot}

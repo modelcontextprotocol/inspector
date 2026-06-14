@@ -13,6 +13,7 @@ const defaultSettings: InspectorServerSettings = {
   connectionTimeout: 30000,
   requestTimeout: 60000,
   taskTtl: 60000,
+  maxFetchRequests: 1000,
   roots: [],
 };
 
@@ -96,6 +97,12 @@ function InteractiveRender(args: ServerSettingsFormProps) {
           settings: { ...args.settings, autoRefreshOnListChanged: value },
         });
       }}
+      onMaxFetchRequestsChange={(value) => {
+        args.onMaxFetchRequestsChange(value);
+        updateArgs({
+          settings: { ...args.settings, maxFetchRequests: value },
+        });
+      }}
       onOAuthChange={(oauth) => {
         args.onOAuthChange(oauth);
         updateArgs({
@@ -126,6 +133,7 @@ const meta: Meta<typeof ServerSettingsForm> = {
     onMetadataChange: fn(),
     onTimeoutChange: fn(),
     onAutoRefreshChange: fn(),
+    onMaxFetchRequestsChange: fn(),
     onOAuthChange: fn(),
   },
 };
@@ -177,6 +185,7 @@ export const AllConfigured: Story = {
       connectionTimeout: 15000,
       requestTimeout: 45000,
       taskTtl: 45000,
+      maxFetchRequests: 5000,
       oauthClientId: "my-client-id",
       oauthClientSecret: "super-secret-value",
       oauthScopes: "read write",

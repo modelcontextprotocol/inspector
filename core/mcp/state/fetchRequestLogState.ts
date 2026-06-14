@@ -13,6 +13,8 @@
  * concrete `InspectorClient` since the runtime class is not yet ported.
  */
 
+import type pino from "pino";
+import { silentLogger } from "../../logging/logger.js";
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { FetchRequestEntry } from "../types.js";
 import type {
@@ -25,9 +27,22 @@ import {
   type TypedEventGeneric,
 } from "../typedEventTarget.js";
 
+/**
+ * Detail for `fetchRequestBodyDropped`: a deferred response body arrived after
+ * its log entry had already rotated out (>= `maxFetchRequests` newer requests
+ * appended in between), so the body was unrecoverable. Carries the dropped
+ * request id and the cap that was in force, so the UI can explain the drop and
+ * offer to raise the limit.
+ */
+export interface FetchRequestBodyDropped {
+  id: string;
+  maxFetchRequests: number;
+}
+
 export interface FetchRequestLogStateEventMap {
   fetchRequest: FetchRequestEntry;
   fetchRequestsChange: FetchRequestEntry[];
+  fetchRequestBodyDropped: FetchRequestBodyDropped;
 }
 
 export interface FetchRequestLogStateOptions {
@@ -44,13 +59,19 @@ export interface FetchRequestLogStateOptions {
   sessionStorage?: InspectorClientStorage;
   /** Session ID for load/save; required for sessionStorage to have effect. */
   sessionId?: string;
+  /**
+   * Logger for diagnostic traces (e.g. a deferred body update arriving after
+   * its entry rotated out of the log). Defaults to the silent logger.
+   */
+  logger?: pino.Logger;
 }
 
 export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateEventMap> {
   private fetchRequests: FetchRequestEntry[] = [];
   private client: InspectorClientProtocol | null = null;
   private unsubscribe: (() => void) | null = null;
-  private readonly maxFetchRequests: number;
+  private maxFetchRequests: number;
+  private readonly logger: pino.Logger;
 
   constructor(
     client: InspectorClientProtocol,
@@ -58,6 +79,7 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
   ) {
     super();
     this.maxFetchRequests = options.maxFetchRequests ?? 1000;
+    this.logger = options.logger ?? silentLogger;
     this.client = client;
 
     const onFetchRequest = (
@@ -87,7 +109,33 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
     ): void => {
       const { id, responseBody } = event.detail;
       const idx = this.fetchRequests.findIndex((e) => e.id === id);
-      if (idx === -1) return;
+      if (idx === -1) {
+        // The deferred body read (fire-and-forget tee'd stream in
+        // fetchTracking) found no matching entry. Distinguish the two causes:
+        // a *rotation* drop — the entry was evicted because the log is at
+        // capacity (>= maxFetchRequests, with a finite cap) — versus a benign
+        // straggler whose entry was simply cleared (length below the cap, or
+        // an unlimited log where rotation can't happen). Only the rotation
+        // case is unexpected data loss worth surfacing; a post-clear straggler
+        // is expected and stays silent.
+        const rotatedOut =
+          this.maxFetchRequests > 0 &&
+          this.fetchRequests.length >= this.maxFetchRequests;
+        if (rotatedOut) {
+          // `warn` (not `debug`) so the trace clears the web remote logger's
+          // default `info` level and is observable without opt-in.
+          this.logger.warn(
+            { fetchRequestId: id, maxFetchRequests: this.maxFetchRequests },
+            "fetchRequestBodyUpdate dropped: entry rotated out before body arrived",
+          );
+          // Let the UI surface the drop (toast) and offer to raise the cap.
+          this.dispatchTypedEvent("fetchRequestBodyDropped", {
+            id,
+            maxFetchRequests: this.maxFetchRequests,
+          });
+        }
+        return;
+      }
       this.fetchRequests[idx] = {
         ...this.fetchRequests[idx]!,
         responseBody,
@@ -200,6 +248,21 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
 
   getFetchRequests(): FetchRequestEntry[] {
     return [...this.fetchRequests];
+  }
+
+  /**
+   * Adjust the retention cap live (e.g. when the user edits the per-server
+   * `maxFetchRequests` setting) without reconnecting. Shrinking the cap trims
+   * the oldest entries immediately and re-emits so the Network UI updates;
+   * growing it (or setting 0 = unlimited) just takes effect for future appends.
+   */
+  setMaxFetchRequests(max: number): void {
+    if (max === this.maxFetchRequests) return;
+    this.maxFetchRequests = max;
+    if (max > 0 && this.fetchRequests.length > max) {
+      this.fetchRequests = this.fetchRequests.slice(-max);
+      this.dispatchTypedEvent("fetchRequestsChange", this.getFetchRequests());
+    }
   }
 
   /**
