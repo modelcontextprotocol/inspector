@@ -92,25 +92,10 @@ export function createProxyFetch(config: InspectorConfig): typeof fetch {
     input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> => {
-    const url =
-      typeof input === "string"
-        ? input
-        : input instanceof Request
-          ? input.url
-          : input.toString();
-
-    // Serialize body for JSON transport. URLSearchParams and similar don't
-    // JSON-serialize (they become {}), so we must convert to string first.
-    let serializedBody: string | undefined;
-    if (init?.body != null) {
-      if (typeof init.body === "string") {
-        serializedBody = init.body;
-      } else if (init.body instanceof URLSearchParams) {
-        serializedBody = init.body.toString();
-      } else {
-        serializedBody = String(init.body);
-      }
-    }
+    const request = new Request(input, init);
+    const serializedBody = request.body
+      ? await request.clone().text()
+      : undefined;
 
     const proxyResponse = await fetch(`${proxyAddress}/fetch`, {
       method: "POST",
@@ -119,12 +104,10 @@ export function createProxyFetch(config: InspectorConfig): typeof fetch {
         [header]: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        url,
+        url: request.url,
         init: {
-          method: init?.method,
-          headers: init?.headers
-            ? Object.fromEntries(new Headers(init.headers))
-            : undefined,
+          method: request.method,
+          headers: Object.fromEntries(request.headers),
           body: serializedBody,
         },
       }),
