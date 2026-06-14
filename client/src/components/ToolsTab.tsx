@@ -300,7 +300,7 @@ const ToolsTab = ({
               <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400 mt-1" />
             </div>
           )}
-          title="Tools"
+          title={tools.length > 0 ? `Tools (${tools.length})` : "Tools"}
           buttonText={nextCursor ? "List More Tools" : "List Tools"}
           isButtonDisabled={!nextCursor && tools.length > 0}
         />
