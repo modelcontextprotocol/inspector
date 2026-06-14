@@ -14,6 +14,7 @@ const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
   connectionTimeout: 0,
   requestTimeout: 0,
   taskTtl: 60000,
+  maxFetchRequests: 1000,
   autoRefreshOnListChanged: true,
   roots: [],
 };

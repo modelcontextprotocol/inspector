@@ -138,10 +138,21 @@ describe("ResourcesScreen", () => {
     ).toBeInTheDocument();
   });
 
+  it("toggles a section's open state through the lifted openSections handler", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledResourcesScreen />);
+    const urisHeader = screen.getByRole("button", { name: /URIs \(2\)/ });
+    // Open by default (compact=false); clicking routes through ResourcesScreen's
+    // onOpenSectionsChange → onUiChange and collapses it.
+    expect(urisHeader).toHaveAttribute("aria-expanded", "true");
+    await user.click(urisHeader);
+    expect(urisHeader).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("renders the template panel when a template is selected", async () => {
     const user = userEvent.setup();
     renderWithMantine(<ControlledResourcesScreen />);
-    await user.click(screen.getByText("Templates (1)"));
+    // Templates section is open by default; select the template to open its form.
     await user.click(screen.getByText("files"));
     expect(
       screen.getByRole("button", { name: "Read Resource" }),
@@ -154,7 +165,6 @@ describe("ResourcesScreen", () => {
     renderWithMantine(
       <ControlledResourcesScreen onReadResource={onReadResource} />,
     );
-    await user.click(screen.getByText("Templates (1)"));
     await user.click(screen.getByText("files"));
     await user.type(screen.getByLabelText("path"), "alpha");
     await user.click(screen.getByRole("button", { name: "Read Resource" }));
@@ -210,8 +220,7 @@ describe("ResourcesScreen", () => {
         onReadResource={onReadResource}
       />,
     );
-    // Open the template form.
-    await user.click(screen.getByText("Templates (1)"));
+    // Templates is open by default; select the template to open its form.
     await user.click(screen.getByText("files"));
     // Submit it — the screen calls onReadResource and remembers the
     // template URI for the close handler.
@@ -249,7 +258,6 @@ describe("ResourcesScreen", () => {
     const { rerender } = renderWithMantine(
       <ControlledResourcesScreen templates={templates} />,
     );
-    await user.click(screen.getByText("Templates (1)"));
     await user.click(screen.getByText("Dynamic"));
     await user.type(screen.getByLabelText("id"), "asdf");
     await user.click(screen.getByRole("button", { name: "Read Resource" }));
@@ -308,5 +316,28 @@ describe("ResourcesScreen", () => {
     await user.click(screen.getByText("x.txt"));
     await user.click(screen.getByRole("button", { name: "Unsubscribe" }));
     expect(onUnsubscribeResource).toHaveBeenCalledWith("file:///x");
+  });
+
+  it("hides the Subscriptions section and Subscribe button when subscriptionsSupported is false", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ControlledResourcesScreen
+        subscriptionsSupported={false}
+        readState={{
+          status: "ok",
+          uri: "file:///x",
+          result: okResult,
+          isSubscribed: false,
+        }}
+      />,
+    );
+    // Sidebar Subscriptions accordion section is gone.
+    expect(screen.queryByText(/Subscriptions/)).not.toBeInTheDocument();
+    // Opening a resource preview shows Refresh but no Subscribe button.
+    await user.click(screen.getByText("x.txt"));
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Subscribe" }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -392,6 +392,7 @@ describe("useServers", () => {
         connectionTimeout: 5000,
         requestTimeout: 30000,
         taskTtl: 30000,
+        maxFetchRequests: 1000,
         roots: [],
       });
     });
@@ -403,6 +404,7 @@ describe("useServers", () => {
         connectionTimeout: 5000,
         requestTimeout: 30000,
         taskTtl: 30000,
+        maxFetchRequests: 1000,
         autoRefreshOnListChanged: false,
         roots: [],
       });
@@ -436,6 +438,7 @@ describe("useServers", () => {
           connectionTimeout: 0,
           requestTimeout: 0,
           taskTtl: 0,
+          maxFetchRequests: 1000,
           roots: [],
         });
       }),
@@ -485,6 +488,7 @@ describe("useServers", () => {
       requestTimeout: 0,
       // Absent taskTtl on disk reads back as the product default for the form.
       taskTtl: 60000,
+      maxFetchRequests: 1000,
       // Absent autoRefreshOnListChanged on disk reads back as false.
       autoRefreshOnListChanged: false,
       // Absent roots on disk reads back as an empty list for the form.

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Anchor,
+  List,
   Stack,
   Text,
   useComputedColorScheme,
@@ -27,6 +28,7 @@ import {
   getUrlElicitationsFromError,
   UrlElicitationLoopError,
 } from "@inspector/core/mcp/urlElicitation.js";
+import { ToolCallCancelledError } from "@inspector/core/mcp/toolCallCancelledError.js";
 import type { TypedEventGeneric } from "@inspector/core/mcp/typedEventTarget.js";
 import type {
   InspectorServerSettings,
@@ -35,7 +37,10 @@ import type {
   ServerEntry,
   ServerType,
 } from "@inspector/core/mcp/types.js";
-import { DEFAULT_TASK_TTL_MS } from "@inspector/core/mcp/types.js";
+import {
+  DEFAULT_MAX_FETCH_REQUESTS,
+  DEFAULT_TASK_TTL_MS,
+} from "@inspector/core/mcp/types.js";
 import {
   API_SERVER_ENV_VARS,
   INSPECTOR_API_TOKEN_GLOBAL,
@@ -52,6 +57,7 @@ import {
 } from "@inspector/core/mcp/serverList.js";
 import { MessageLogState } from "@inspector/core/mcp/state/messageLogState.js";
 import { FetchRequestLogState } from "@inspector/core/mcp/state/fetchRequestLogState.js";
+import type { FetchRequestLogStateEventMap } from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import { StderrLogState } from "@inspector/core/mcp/state/stderrLogState.js";
 import type { RedirectUrlProvider } from "@inspector/core/auth/index.js";
 import {
@@ -278,8 +284,52 @@ const EMPTY_SETTINGS: InspectorServerSettings = {
   requestTimeout: 0,
   taskTtl: DEFAULT_TASK_TTL_MS,
   autoRefreshOnListChanged: false,
+  maxFetchRequests: DEFAULT_MAX_FETCH_REQUESTS,
   roots: [],
 };
+
+// Stable toast id for the "response body dropped" warning, keyed per server so
+// a request storm updates one persistent toast rather than stacking thousands
+// (the drop event can fire rapidly). Mirrors the progress-toast dedupe pattern.
+function bodyDroppedToastId(serverId: string): string {
+  return `fetch-body-dropped-${serverId}`;
+}
+
+// Body of the "response body dropped" warning toast: a one-line summary of what
+// happened, the likely causes, and a link that opens this server's settings
+// (on the Options section) so the user can raise the Network Log Size if it's
+// just a high-traffic server. Surfaces the otherwise-invisible rotation drop
+// described in #1390.
+const FetchBodyDroppedToastMessage = ({
+  maxFetchRequests,
+  onAdjust,
+}: {
+  maxFetchRequests: number;
+  onAdjust: () => void;
+}) => (
+  <Stack gap={4}>
+    <Text size="sm">
+      A response body arrived after its Network log entry had already rotated
+      out (the log hit its {maxFetchRequests}-request limit), so the body
+      couldn&apos;t be shown. This usually indicates:
+    </Text>
+    <List size="sm" spacing={2}>
+      <List.Item>
+        a chatty or misbehaving server (notification storms, rapid polling)
+      </List.Item>
+      <List.Item>an SSE/transport reconnect or retry storm</List.Item>
+      <List.Item>
+        a slow streaming call racing against high request volume
+      </List.Item>
+      <List.Item>
+        the Network Log Size set too low for this server&apos;s traffic
+      </List.Item>
+    </List>
+    <Anchor component="button" type="button" size="sm" onClick={onAdjust}>
+      Adjust Network Log Size for this server
+    </Anchor>
+  </Stack>
+);
 
 // Body of the output-schema-mismatch warning toast: a one-line summary plus a
 // link that opens the full validation details in a modal (the raw error is far
@@ -346,6 +396,10 @@ function formatErrorDetails(err: unknown): string {
 // steady stream keeps one toast alive; the toast clears a few seconds after
 // progress stops (i.e. the call finished or went quiet).
 const PROGRESS_TOAST_AUTOCLOSE_MS = 5000;
+
+// A task cancellation is a one-shot confirmation (unlike the live status toast,
+// which stays open while the task runs), so it auto-dismisses after a moment.
+const TASK_CANCELLED_TOAST_AUTOCLOSE_MS = 5000;
 
 // Stable toast id for a progress stream. Notifications keyed by this id are
 // replaced (not stacked) so a chatty server updates one toast per stream
@@ -585,6 +639,15 @@ function App() {
   // `notifications/tasks/status` tick replaces the existing toast.
   const taskToastIdsRef = useRef<Set<string>>(new Set());
 
+  // The taskId of the in-flight task-augmented tool call, captured from the
+  // `toolCallTaskUpdated` event `callToolStream` dispatches. Lets the Tool
+  // detail panel's Cancel button cancel the underlying task on the server
+  // (#1455) instead of no-op'ing. Reset at the start of every call, so an
+  // ordinary (non-task) call leaves it undefined and its Cancel doesn't fire a
+  // stray task cancellation. A ref (not state) because it's only read at the
+  // moment Cancel is clicked and must not trigger re-renders.
+  const activeToolCallTaskIdRef = useRef<string | undefined>(undefined);
+
   // Per-task progress, keyed by taskId. Sourced from the core `requestorTaskProgress`
   // event (emitted by callToolStream, which owns the taskId), fed to the Tasks
   // screen so `TaskCard`'s progress bar renders for active tasks. Pruned on
@@ -631,6 +694,50 @@ function App() {
   );
   const { messages } = useMessageLog(messageLogState);
   const { fetchRequests } = useFetchRequestLog(fetchRequestLogState);
+
+  // Surface the otherwise-invisible "response body dropped after rotation" case
+  // (#1390) as a deduped toast that links to this server's Network Log Size
+  // setting. The state manager only emits this when the drop is genuinely due
+  // to rotation (log at capacity), not for benign post-clear stragglers.
+  useEffect(() => {
+    if (!fetchRequestLogState || activeServerId === undefined) return;
+    const onBodyDropped = (
+      event: TypedEventGeneric<
+        FetchRequestLogStateEventMap,
+        "fetchRequestBodyDropped"
+      >,
+    ) => {
+      notifications.show({
+        id: bodyDroppedToastId(activeServerId),
+        title: "Network log: response body dropped",
+        color: "yellow",
+        // Stays until dismissed (or the user opens settings via the link) so a
+        // single toast represents an ongoing condition rather than flashing per
+        // drop; the stable id dedupes a storm into this one toast.
+        autoClose: false,
+        message: (
+          <FetchBodyDroppedToastMessage
+            maxFetchRequests={event.detail.maxFetchRequests}
+            onAdjust={() => {
+              notifications.hide(bodyDroppedToastId(activeServerId));
+              setSettingsModalTargetId(activeServerId);
+            }}
+          />
+        ),
+      });
+    };
+    fetchRequestLogState.addEventListener(
+      "fetchRequestBodyDropped",
+      onBodyDropped,
+    );
+    return () => {
+      fetchRequestLogState.removeEventListener(
+        "fetchRequestBodyDropped",
+        onBodyDropped,
+      );
+    };
+  }, [fetchRequestLogState, activeServerId]);
+
   // Server-initiated sampling / elicitation requests. These arrive while a call
   // (e.g. a tool execution) is in flight and block it until the user responds.
   const { pendingSamples, pendingElicitations } =
@@ -805,6 +912,30 @@ function App() {
     };
   }, [inspectorClient]);
 
+  // Capture the in-flight task-augmented tool call's taskId so the detail
+  // panel's Cancel button can cancel the task on the server (#1455). The id
+  // only becomes known mid-call, when `callToolStream` dispatches
+  // `toolCallTaskUpdated`, so we stash the latest into the ref the cancel
+  // handler reads. `onCallTool` clears it at the start of each call.
+  useEffect(() => {
+    if (!inspectorClient) return;
+    const onToolCallTaskUpdated = (
+      event: TypedEventGeneric<InspectorClientEventMap, "toolCallTaskUpdated">,
+    ) => {
+      activeToolCallTaskIdRef.current = event.detail.taskId;
+    };
+    inspectorClient.addEventListener(
+      "toolCallTaskUpdated",
+      onToolCallTaskUpdated,
+    );
+    return () => {
+      inspectorClient.removeEventListener(
+        "toolCallTaskUpdated",
+        onToolCallTaskUpdated,
+      );
+    };
+  }, [inspectorClient]);
+
   // Surface live task status as per-task toasts — the v2 replacement for v1/v1.5's
   // inline "Task status: … Polling…" line under the Tool Result (#1422, consistent
   // with #1414). Subscribes to `taskStatusChange` (server `notifications/tasks/status`)
@@ -862,11 +993,47 @@ function App() {
     ) => {
       handleTaskUpdate(event.detail.taskId, event.detail.task);
     };
+    // A cancel goes out as `taskCancelled` (dispatched by cancelRequestorTask),
+    // not as a status notification, so it would otherwise leave the running
+    // task's live "Task <status>" toast hanging with no confirmation. Replace
+    // that toast (or show a fresh one) with a short "Task cancelled" toast, and
+    // prune the now-dead progress entry. Covers both cancel paths — the Tasks
+    // screen and the Tool detail panel — since both route through
+    // cancelRequestorTask (#1455).
+    const onTaskCancelled = (
+      event: TypedEventGeneric<InspectorClientEventMap, "taskCancelled">,
+    ) => {
+      const { taskId } = event.detail;
+      setProgressByTaskId((prev) => {
+        if (!(taskId in prev)) return prev;
+        const next = { ...prev };
+        delete next[taskId];
+        return next;
+      });
+      const id = taskToastId(taskId);
+      const toast = {
+        id,
+        title: "Task cancelled",
+        message: "The task was cancelled.",
+        color: taskToastColor("cancelled"),
+        autoClose: TASK_CANCELLED_TOAST_AUTOCLOSE_MS,
+      };
+      if (liveToastIds.has(id)) {
+        // Convert the open status toast into the auto-closing confirmation; drop
+        // it from the live set so a trailing "cancelled" status tick (if the
+        // server sends one) doesn't re-show it.
+        notifications.update(toast);
+        liveToastIds.delete(id);
+      } else {
+        notifications.show(toast);
+      }
+    };
     inspectorClient.addEventListener("taskStatusChange", onTaskStatusChange);
     inspectorClient.addEventListener(
       "requestorTaskUpdated",
       onRequestorTaskUpdated,
     );
+    inspectorClient.addEventListener("taskCancelled", onTaskCancelled);
     return () => {
       inspectorClient.removeEventListener(
         "taskStatusChange",
@@ -876,6 +1043,7 @@ function App() {
         "requestorTaskUpdated",
         onRequestorTaskUpdated,
       );
+      inspectorClient.removeEventListener("taskCancelled", onTaskCancelled);
       // Hide any still-visible task toasts on client swap so they don't linger
       // into the next session, then drop the bookkeeping (mirrors the progress-
       // toast teardown above).
@@ -1058,7 +1226,7 @@ function App() {
       fetchRequestLogState?.destroy();
       stderrLogState?.destroy();
 
-      const { environment } = createWebEnvironment(
+      const { environment, logger } = createWebEnvironment(
         getAuthToken(),
         redirectUrlProvider,
         onBeforeOAuthRedirect,
@@ -1146,6 +1314,9 @@ function App() {
       // reads the current log.
       const nextFetchLog = new FetchRequestLogState(client, {
         sessionStorage: sessionStorageAdapter,
+        logger,
+        maxFetchRequests:
+          savedSettings?.maxFetchRequests ?? DEFAULT_MAX_FETCH_REQUESTS,
         ...(sessionId && { sessionId }),
       });
       fetchLogRef.current = nextFetchLog;
@@ -1378,6 +1549,10 @@ function App() {
       const asTask =
         serverSupportsTaskToolCalls &&
         (runAsTask || tool.execution?.taskSupport === "required");
+      // Drop any prior call's task id before starting; a task-augmented call
+      // repopulates it via the `toolCallTaskUpdated` listener below, an ordinary
+      // call leaves it cleared (#1455).
+      activeToolCallTaskIdRef.current = undefined;
       setToolCallState({ status: "pending" });
       try {
         // ToolsScreen types the args as `Record<string, unknown>` (it accepts
@@ -1403,6 +1578,20 @@ function App() {
           error: invocation.error,
         });
       } catch (err) {
+        // The user cancelled the in-flight call (Cancel button → cancelToolCall).
+        // The cancellation notification was already sent to the server, so just
+        // clear the executing state — surfacing it as an error would read as a
+        // failure rather than the deliberate cancel it was (#1458).
+        if (err instanceof ToolCallCancelledError) {
+          setToolCallState(undefined);
+          notifications.show({
+            title: "Tool call cancelled",
+            message: "A cancellation request was sent to the server.",
+            color: "gray",
+            autoClose: 3000,
+          });
+          return;
+        }
         // The server kept asking for a URL the user already completed this call,
         // so callTool aborted to avoid an endless re-prompt loop. Surface that
         // explicitly rather than as a generic failure.
@@ -1604,6 +1793,19 @@ function App() {
     [inspectorClient],
   );
 
+  // Read-on-demand handler for `resource_link` blocks in a tool result. Unlike
+  // `onReadResource` (which drives the Resources screen's preview panel via
+  // shared state), this returns the contents directly so each ResourceLink can
+  // own and inline its own fetched content.
+  const onReadResourceContents = useCallback(
+    async (uri: string) => {
+      if (!inspectorClient) throw new Error("Client is not connected");
+      const invocation = await inspectorClient.readResource(uri);
+      return invocation.result;
+    },
+    [inspectorClient],
+  );
+
   const onSubscribeResource = useCallback(
     (uri: string) => {
       if (!inspectorClient) return;
@@ -1659,6 +1861,27 @@ function App() {
     },
     [inspectorClient],
   );
+
+  // Cancel the in-flight tool call. A task-augmented call (run-as-task) has a
+  // server-side task, so cancel that via the tasks API (#1455) — the cancelled
+  // status then flows back through the managed task store and toasts, the same
+  // as cancelling from the Tasks screen. An ordinary call has no task, so abort
+  // its request: the SDK sends a `notifications/cancelled` to the server (the
+  // MCP cancellation flow) and the pending call rejects with a
+  // ToolCallCancelledError that `onCallTool` clears as a cancellation (#1458).
+  const onCancelToolCall = useCallback(() => {
+    if (!inspectorClient) return;
+    const taskId = activeToolCallTaskIdRef.current;
+    if (taskId) {
+      // Clear the ref before the call resolves so a rapid second Cancel click
+      // doesn't re-cancel the now-terminating task (which would surface a
+      // spurious "Failed to cancel task" toast).
+      activeToolCallTaskIdRef.current = undefined;
+      void onCancelTask(taskId);
+      return;
+    }
+    inspectorClient.cancelToolCall();
+  }, [inspectorClient, onCancelTask]);
 
   const onClearCompletedTasks = useCallback(() => {
     clearCompletedTasks();
@@ -1995,6 +2218,11 @@ function App() {
       // effect without a reconnect (#1444). Connection-time inputs (transport,
       // OAuth, timeouts) still only apply on the next connect.
       inspectorClient.setServerSettings(settingsDraft);
+      // Resize the Network log buffer live so a maxFetchRequests edit takes
+      // effect without a reconnect (shrinking trims immediately). Connect-time
+      // construction also reads this, so a reconnect would apply it anyway —
+      // this just makes the toast→adjust flow responsive.
+      fetchLogRef.current?.setMaxFetchRequests(settingsDraft.maxFetchRequests);
       const nextRoots = cleanRoots(settingsDraft.roots);
       const currentRoots = cleanRoots(inspectorClient.getRoots());
       if (JSON.stringify(nextRoots) !== JSON.stringify(currentRoots)) {
@@ -2171,7 +2399,9 @@ function App() {
         onCallTool={(name, args, runAsTask) => {
           void onCallTool(name, args, runAsTask);
         }}
+        onCancelToolCall={onCancelToolCall}
         onClearToolResult={onClearToolResult}
+        onReadResourceContents={onReadResourceContents}
         onRefreshTools={onRefreshTools}
         onPromptsUiChange={setPromptsUi}
         onGetPrompt={(name, args) => {
@@ -2187,6 +2417,7 @@ function App() {
         onRefreshResources={onRefreshResources}
         onCompleteArgument={onCompleteArgument}
         completionsSupported={capabilities?.completions !== undefined}
+        subscriptionsSupported={capabilities?.resources?.subscribe === true}
         onTasksUiChange={setTasksUi}
         onCancelTask={(taskId) => {
           void onCancelTask(taskId);
@@ -2227,6 +2458,10 @@ function App() {
         onSubmit={onConfigSubmit}
       />
       <ServerSettingsModal
+        // Remount per open (and per target server) so the accordion resets to
+        // its initial "options" section — the body-dropped toast deep-links
+        // here expecting the Network Log Size control to be visible.
+        key={settingsModalTargetId ?? "closed"}
         opened={settingsModalTargetId !== undefined}
         settings={settingsModalValue}
         onClose={onSettingsModalClose}

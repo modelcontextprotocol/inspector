@@ -3,6 +3,7 @@
 .DS_Store
 .claude/
 node_modules
+dist
 clients/web/dist
 clients/**/build
 test-servers/build

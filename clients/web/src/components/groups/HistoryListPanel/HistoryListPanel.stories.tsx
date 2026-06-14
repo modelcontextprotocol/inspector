@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { fn } from "storybook/test";
 import { HistoryListPanel } from "./HistoryListPanel.js";
+import { expectScrollbarGutterIdleHidden } from "../../../test/scrollAreaStoryAssertions";
 
 const meta: Meta<typeof HistoryListPanel> = {
   title: "Groups/HistoryListPanel",
@@ -101,6 +102,12 @@ export const WithEntries: Story = {
   args: {
     entries: sampleEntries,
     pinnedIds: new Set(["req-4"]),
+  },
+  // The list ScrollArea reserves a scrollbar gutter (offsetScrollbars) so the
+  // bar never overlays the cards, and uses type="scroll" so it stays hidden
+  // when idle rather than appearing on hover (#1474).
+  play: async ({ canvasElement }) => {
+    expectScrollbarGutterIdleHidden(canvasElement);
   },
 };
 

@@ -7,12 +7,21 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  CallToolResult,
+  ReadResourceResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { ResourceLink } from "../ResourceLink/ResourceLink";
 
 export interface ToolResultPanelProps {
   result: CallToolResult;
   onClear: () => void;
+  /**
+   * Read-on-demand handler so `resource_link` blocks in the result can fetch
+   * and inline their contents.
+   */
+  onReadResource?: (uri: string) => Promise<ReadResourceResult>;
 }
 
 const ClearButton = Button.withProps({
@@ -49,7 +58,11 @@ const ResultStack = Stack.withProps({
   gap: "md",
 });
 
-export function ToolResultPanel({ result, onClear }: ToolResultPanelProps) {
+export function ToolResultPanel({
+  result,
+  onClear,
+  onReadResource,
+}: ToolResultPanelProps) {
   return (
     <PanelStack>
       <HeaderRow>
@@ -68,13 +81,24 @@ export function ToolResultPanel({ result, onClear }: ToolResultPanelProps) {
           ) : result.content.length === 0 ? (
             <Text c="dimmed">No results yet</Text>
           ) : (
-            result.content.map((block, index) => (
-              <ContentViewer
-                key={index}
-                block={block}
-                copyable={block.type === "text"}
-              />
-            ))
+            result.content.map((block, index) =>
+              block.type === "resource_link" ? (
+                <ResourceLink
+                  key={index}
+                  uri={block.uri}
+                  name={block.name}
+                  description={block.description}
+                  mimeType={block.mimeType}
+                  onReadResource={onReadResource}
+                />
+              ) : (
+                <ContentViewer
+                  key={index}
+                  block={block}
+                  copyable={block.type === "text"}
+                />
+              ),
+            )
           )}
         </ResultStack>
       </ResultScroll>

@@ -74,3 +74,15 @@ export const JsonWithCopy: Story = {
     copyable: true,
   },
 };
+
+export const ResourceLinkBlock: Story = {
+  args: {
+    block: {
+      type: "resource_link",
+      uri: "file:///docs/readme.md",
+      name: "Readme",
+      description: "Project documentation",
+      mimeType: "text/markdown",
+    },
+  },
+};

@@ -2,11 +2,11 @@ import {
   Accordion,
   CloseButton,
   Group,
-  ScrollArea,
   Stack,
   TextInput,
   Title,
 } from "@mantine/core";
+import { RiArrowRightSLine } from "react-icons/ri";
 import type {
   Resource,
   ResourceTemplate,
@@ -21,6 +21,13 @@ export interface ResourceControlsProps {
   resources: Resource[];
   templates: ResourceTemplate[];
   subscriptions: InspectorResourceSubscription[];
+  /**
+   * Whether the connected server advertises the `resources.subscribe`
+   * capability. When false, the Subscriptions accordion section is hidden
+   * entirely. Defaults to true so the section renders unless a caller
+   * explicitly marks subscriptions unsupported.
+   */
+  subscriptionsSupported?: boolean;
   selectedUri?: string;
   selectedTemplateUri?: string;
   // Search text + accordion open-sections are controlled by the parent (App,
@@ -46,21 +53,24 @@ export interface ResourceControlsProps {
   onCompactChange: (next: boolean) => void;
 }
 
-function panelMaxHeight(openCount: number): string {
-  const n = Math.max(openCount, 1);
-  const fixedChrome = 300;
-  const perPanelChrome = 20;
-  return `calc((100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2 - ${fixedChrome + perPanelChrome * n}px) / ${n})`;
-}
-
 function formatSectionCount(label: string, count: number): string {
   return `${label} (${count})`;
+}
+
+// Per-section flex for the full-height accordion. Open sections share the
+// remaining height; `flex-shrink` is weighted by item count (so a long section
+// gives up space to shorter ones before they have to scroll) and `flex-grow` is
+// 0 so nothing expands — or scrolls — until the combined content overflows the
+// panel. Closed/empty sections stay at their header height (#1462).
+function sectionFlex(open: boolean, count: number): string {
+  return open && count > 0 ? `0 ${count} auto` : "0 0 auto";
 }
 
 export function ResourceControls({
   resources,
   templates,
   subscriptions,
+  subscriptionsSupported = true,
   selectedUri,
   selectedTemplateUri,
   searchText = "",
@@ -95,16 +105,58 @@ export function ResourceControls({
       s.resource.uri.toLowerCase().includes(query),
   );
 
-  const allSections = ["resources", "templates", "subscriptions"];
+  // Subscriptions are only meaningful when the server advertises the
+  // `resources.subscribe` capability; otherwise the section is omitted
+  // entirely (no header, no panel) — see #1478.
+  const allSections = subscriptionsSupported
+    ? ["resources", "templates", "subscriptions"]
+    : ["resources", "templates"];
   // Open-sections is parent-controlled (persists across navigation). When the
   // parent hasn't set it yet (undefined), fall back to the persisted `compact`
-  // preference: empty when last left compact, all three open when expanded.
+  // preference: empty when last left compact, all sections open when expanded.
   // Per-section accordion clicks update the lifted value but don't change the
   // persisted preference.
   const openSections =
     controlledOpenSections ?? (initialCompact ? [] : [...allSections]);
-  const allExpanded = openSections.length === allSections.length;
-  const maxHeight = panelMaxHeight(openSections.length);
+  // Persisted open-sections may still carry "subscriptions" from a prior
+  // subscription-capable session, so compare only the sections we actually
+  // render when deciding whether everything is expanded.
+  const allExpanded =
+    openSections.filter((section) => allSections.includes(section)).length ===
+    allSections.length;
+
+  // Empty sections have a disabled control and nothing to show, so keep them
+  // out of the accordion's open set — they render collapsed (chevron points
+  // right) rather than as an open-but-empty panel (#1462). `openSections` still
+  // tracks the user's intent (and seeds the ListToggle), so a section re-opens
+  // on its own once it has items again.
+  const sectionItemCounts: Record<string, number> = {
+    resources: filteredResources.length,
+    templates: filteredTemplates.length,
+    subscriptions: filteredSubscriptions.length,
+  };
+  const visibleOpenSections = openSections.filter(
+    (section) =>
+      allSections.includes(section) && (sectionItemCounts[section] ?? 0) > 0,
+  );
+  // Open-in-intent but currently empty (so excluded from the accordion's
+  // `value`). Mantine derives the next open-array by toggling the clicked
+  // section against the `value` we hand it, which omits these — so without
+  // merging them back, toggling any populated section would silently drop an
+  // empty section's intent and it wouldn't reappear once it has items again.
+  // Restricted to `allSections` so a stale "subscriptions" entry persisted from
+  // a prior subscription-capable session isn't perpetually re-appended once the
+  // section is no longer rendered — it's dropped from persisted state instead.
+  const intendedButEmptySections = openSections.filter(
+    (section) =>
+      allSections.includes(section) && !visibleOpenSections.includes(section),
+  );
+  function handleOpenSectionsChange(next: string[]) {
+    // Safe to append unconditionally: empty-section controls are `disabled`, so
+    // the user can never toggle one and `next` never contains an empty section
+    // — no double-add, and a section the user just closed can't be resurrected.
+    onOpenSectionsChange([...next, ...intendedButEmptySections]);
+  }
 
   function handleToggleList() {
     // Compute the next compact value from what the click will produce so a
@@ -117,7 +169,10 @@ export function ResourceControls({
   }
 
   return (
-    <Stack gap="sm">
+    // Fills the full-height `sidebar` Card (flex column) so the scroll region
+    // below can claim the remaining space; `mih: 0` lets that child shrink and
+    // scroll instead of overflowing the card (#1462).
+    <Stack gap="sm" flex={1} mih={0}>
       <Group justify="space-between">
         <Title order={4}>Resources</Title>
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
@@ -140,59 +195,89 @@ export function ResourceControls({
         />
         <ListToggle compact={!allExpanded} onToggle={handleToggleList} />
       </Group>
-      <Accordion multiple value={openSections} onChange={onOpenSectionsChange}>
-        <Accordion.Item value="resources">
+      <Accordion
+        multiple
+        variant="disclosure"
+        chevron={<RiArrowRightSLine />}
+        value={visibleOpenSections}
+        onChange={handleOpenSectionsChange}
+        flex={1}
+        mih={0}
+        // Disable Mantine's panel height animation: its Collapse drives the
+        // open/close via an inline `height` that briefly jumps the panel to its
+        // full natural height, fighting the flex sizing (the panels are
+        // flex-distributed and scroll). With it off, flex controls the height
+        // cleanly. The chevron still rotates smoothly (CSS, in App.css). #1462
+        transitionDuration={0}
+      >
+        <Accordion.Item
+          value="resources"
+          flex={sectionFlex(
+            visibleOpenSections.includes("resources"),
+            filteredResources.length,
+          )}
+        >
           <Accordion.Control disabled={filteredResources.length === 0}>
             {formatSectionCount("URIs", filteredResources.length)}
           </Accordion.Control>
           <Accordion.Panel>
-            <ScrollArea.Autosize mah={maxHeight}>
-              <Stack gap="xs">
-                {filteredResources.map((resource) => (
-                  <ResourceListItem
-                    key={resource.uri}
-                    resource={resource}
-                    selected={resource.uri === selectedUri}
-                    onClick={() => {
-                      if (resource.uri !== selectedUri)
-                        onSelectUri(resource.uri);
-                    }}
-                  />
-                ))}
-              </Stack>
-            </ScrollArea.Autosize>
+            <Stack gap="xs">
+              {filteredResources.map((resource) => (
+                <ResourceListItem
+                  key={resource.uri}
+                  resource={resource}
+                  selected={resource.uri === selectedUri}
+                  onClick={() => {
+                    if (resource.uri !== selectedUri) onSelectUri(resource.uri);
+                  }}
+                />
+              ))}
+            </Stack>
           </Accordion.Panel>
         </Accordion.Item>
 
-        <Accordion.Item value="templates">
+        <Accordion.Item
+          value="templates"
+          flex={sectionFlex(
+            visibleOpenSections.includes("templates"),
+            filteredTemplates.length,
+          )}
+        >
           <Accordion.Control disabled={filteredTemplates.length === 0}>
             {formatSectionCount("Templates", filteredTemplates.length)}
           </Accordion.Control>
           <Accordion.Panel>
-            <ScrollArea.Autosize mah={maxHeight}>
-              <Stack gap="xs">
-                {filteredTemplates.map((template) => (
-                  <ResourceListItem
-                    key={template.uriTemplate}
-                    resource={template}
-                    selected={template.uriTemplate === selectedTemplateUri}
-                    onClick={() => {
-                      if (template.uriTemplate !== selectedTemplateUri)
-                        onSelectTemplate(template.uriTemplate);
-                    }}
-                  />
-                ))}
-              </Stack>
-            </ScrollArea.Autosize>
+            <Stack gap="xs">
+              {filteredTemplates.map((template) => (
+                <ResourceListItem
+                  key={template.uriTemplate}
+                  resource={template}
+                  selected={template.uriTemplate === selectedTemplateUri}
+                  onClick={() => {
+                    if (template.uriTemplate !== selectedTemplateUri)
+                      onSelectTemplate(template.uriTemplate);
+                  }}
+                />
+              ))}
+            </Stack>
           </Accordion.Panel>
         </Accordion.Item>
 
-        <Accordion.Item value="subscriptions">
-          <Accordion.Control disabled={filteredSubscriptions.length === 0}>
-            {formatSectionCount("Subscriptions", filteredSubscriptions.length)}
-          </Accordion.Control>
-          <Accordion.Panel>
-            <ScrollArea.Autosize mah={maxHeight}>
+        {subscriptionsSupported && (
+          <Accordion.Item
+            value="subscriptions"
+            flex={sectionFlex(
+              visibleOpenSections.includes("subscriptions"),
+              filteredSubscriptions.length,
+            )}
+          >
+            <Accordion.Control disabled={filteredSubscriptions.length === 0}>
+              {formatSectionCount(
+                "Subscriptions",
+                filteredSubscriptions.length,
+              )}
+            </Accordion.Control>
+            <Accordion.Panel>
               <Stack gap="xs">
                 {filteredSubscriptions.map((sub) => (
                   <ResourceSubscribedItem
@@ -204,9 +289,9 @@ export function ResourceControls({
                   />
                 ))}
               </Stack>
-            </ScrollArea.Autosize>
-          </Accordion.Panel>
-        </Accordion.Item>
+            </Accordion.Panel>
+          </Accordion.Item>
+        )}
       </Accordion>
     </Stack>
   );

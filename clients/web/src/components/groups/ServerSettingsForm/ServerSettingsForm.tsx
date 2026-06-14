@@ -39,6 +39,7 @@ export interface ServerSettingsFormProps {
     value: number,
   ) => void;
   onAutoRefreshChange: (value: boolean) => void;
+  onMaxFetchRequestsChange: (value: number) => void;
   onOAuthChange: (oauth: OAuthSettings) => void;
   onAddRoot: () => void;
   onRemoveRoot: (index: number) => void;
@@ -184,11 +185,27 @@ export function ServerSettingsForm({
   onMetadataChange,
   onTimeoutChange,
   onAutoRefreshChange,
+  onMaxFetchRequestsChange,
   onOAuthChange,
   onAddRoot,
   onRemoveRoot,
   onRootChange,
 }: ServerSettingsFormProps) {
+  const handleMaxFetchRequestsChange = (value: number | string) => {
+    if (typeof value === "number") {
+      onMaxFetchRequestsChange(value);
+      return;
+    }
+    // Mantine emits "" when the field is cleared. Don't coerce that to 0 — 0
+    // means "unlimited", and since the value applies live on modal close,
+    // clearing-to-retype-then-closing would silently switch the log to
+    // unlimited. Keep the current value on an empty/NaN parse; reserve 0 for an
+    // explicit numeric entry.
+    const parsed = parseInt(value, 10);
+    onMaxFetchRequestsChange(
+      Number.isNaN(parsed) ? settings.maxFetchRequests : parsed,
+    );
+  };
   const handleTimeoutChange =
     (field: "connectionTimeout" | "requestTimeout" | "taskTtl") =>
     (value: number | string) => {
@@ -223,6 +240,14 @@ export function ServerSettingsForm({
               description="When checked, tool/prompt/resource lists refresh automatically when the server sends a */list_changed notification. When unchecked, the list-changed indicator appears and you refresh on demand."
               checked={settings.autoRefreshOnListChanged ?? false}
               onChange={(e) => onAutoRefreshChange(e.currentTarget.checked)}
+            />
+            <NumberInput
+              label="Network Log Size"
+              description="Maximum number of HTTP requests kept in the Network log for this server. Older entries rotate out past this limit; a response body that arrives after its entry rotated out is dropped. Use 0 for unlimited (not recommended). Applies immediately to the active connection."
+              min={0}
+              step={100}
+              value={settings.maxFetchRequests}
+              onChange={handleMaxFetchRequestsChange}
             />
           </Stack>
         </Accordion.Panel>

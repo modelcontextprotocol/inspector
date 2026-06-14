@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import type { ServerEntry } from "@inspector/core/mcp/types.js";
+import { expectScrollbarGutterIdleHidden } from "../../../test/scrollAreaStoryAssertions";
 import { ServerListScreen } from "./ServerListScreen";
 
 const meta: Meta<typeof ServerListScreen> = {
@@ -78,6 +79,11 @@ const connectingHttpServer: ServerEntry = {
 export const MultipleServers: Story = {
   args: {
     servers: [connectedStdioServer, disconnectedStdioServer, failedHttpServer],
+  },
+  // The server grid scroll region reserves a scrollbar gutter and hides the
+  // bar when idle, matching the History/Network/Logging list panels (#1474).
+  play: async ({ canvasElement }) => {
+    expectScrollbarGutterIdleHidden(canvasElement);
   },
 };
 

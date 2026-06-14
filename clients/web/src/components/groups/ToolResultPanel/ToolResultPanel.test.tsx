@@ -1,7 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import {
+  renderWithMantine,
+  screen,
+  waitFor,
+} from "../../../test/renderWithMantine";
 import { ToolResultPanel } from "./ToolResultPanel";
 
 const okResult: CallToolResult = {
@@ -35,6 +39,34 @@ describe("ToolResultPanel", () => {
       <ToolResultPanel result={emptyResult} onClear={() => {}} />,
     );
     expect(screen.getByText("No results yet")).toBeInTheDocument();
+  });
+
+  it("renders a resource_link block as an expandable ResourceLink", async () => {
+    const user = userEvent.setup();
+    const onReadResource = vi.fn().mockResolvedValue({
+      contents: [{ uri: "demo://r/1", text: "linked body" }],
+    });
+    const result: CallToolResult = {
+      content: [
+        { type: "text", text: "ok" },
+        { type: "resource_link", uri: "demo://r/1", name: "Linked" },
+      ],
+    };
+    renderWithMantine(
+      <ToolResultPanel
+        result={result}
+        onClear={() => {}}
+        onReadResource={onReadResource}
+      />,
+    );
+    expect(screen.getByText("ok")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Expand resource demo://r/1" }),
+    );
+    expect(onReadResource).toHaveBeenCalledWith("demo://r/1");
+    await waitFor(() =>
+      expect(screen.getByText(/"linked body"/)).toBeInTheDocument(),
+    );
   });
 
   it("invokes onClear when Clear is clicked", async () => {

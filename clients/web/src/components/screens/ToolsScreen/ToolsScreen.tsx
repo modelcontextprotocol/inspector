@@ -1,5 +1,9 @@
 import { Card, Flex, Stack, Text } from "@mantine/core";
-import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  CallToolResult,
+  ReadResourceResult,
+  Tool,
+} from "@modelcontextprotocol/sdk/types.js";
 import { ToolControls } from "../../groups/ToolControls/ToolControls";
 import {
   ToolDetailPanel,
@@ -46,13 +50,18 @@ export interface ToolsScreenProps {
   ) => void;
   onCancelCall?: () => void;
   onClearResult?: () => void;
+  /**
+   * Read-on-demand handler for `resource_link` blocks in a tool result.
+   * Passed through to the result panel so links can inline their contents.
+   */
+  onReadResource?: (uri: string) => Promise<ReadResourceResult>;
 }
 
 // Caps the detail/result columns at the screen's available height: full
 // viewport minus the app-shell header and the screen's top+bottom xl padding,
 // leaving the bottom margin the overflow used to eat.
 const SCROLL_MAX_HEIGHT =
-  "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)";
+  "calc(100dvh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)";
 
 // No `align` override: children stretch to the row's full height, giving each
 // column pane a definite height. That definite height is what lets a column's
@@ -60,7 +69,7 @@ const SCROLL_MAX_HEIGHT =
 // see the Prompts/Resources preview panes this mirrors).
 const ScreenLayout = Flex.withProps({
   variant: "screen",
-  h: "calc(100vh - var(--app-shell-header-height, 0px))",
+  h: "calc(100dvh - var(--app-shell-header-height, 0px))",
   gap: "md",
   p: "xl",
 });
@@ -110,6 +119,7 @@ export function ToolsScreen({
   onCallTool,
   onCancelCall,
   onClearResult,
+  onReadResource,
 }: ToolsScreenProps) {
   const { selectedToolName, formValues, search } = ui;
   const selectedTool = selectedToolName
@@ -177,6 +187,7 @@ export function ToolsScreen({
             <ToolResultPanel
               result={callState.result}
               onClear={() => onClearResult?.()}
+              onReadResource={onReadResource}
             />
           ) : (
             <EmptyState>Results will appear here</EmptyState>

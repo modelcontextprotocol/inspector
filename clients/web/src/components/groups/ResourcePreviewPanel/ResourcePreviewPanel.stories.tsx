@@ -89,6 +89,25 @@ export const NotSubscribed: Story = {
   },
 };
 
+export const SubscriptionsUnsupported: Story = {
+  args: {
+    resource: {
+      name: "data.json",
+      uri: "file:///data.json",
+    },
+    contents: [
+      {
+        uri: "file:///data.json",
+        mimeType: "application/json",
+        text: JSON.stringify({ status: "active" }, null, 2),
+      },
+    ],
+    isSubscribed: false,
+    // Server does not advertise resources.subscribe — only Refresh shows.
+    subscriptionsSupported: false,
+  },
+};
+
 export const WithAnnotations: Story = {
   args: {
     resource: {

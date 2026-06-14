@@ -1,5 +1,7 @@
 import {
+  ActionIcon,
   Button,
+  Collapse,
   Divider,
   Group,
   Image,
@@ -8,6 +10,8 @@ import {
   Switch,
   Text,
 } from "@mantine/core";
+import { useId, useState } from "react";
+import { RiArrowDownSLine, RiArrowRightSLine } from "react-icons/ri";
 import type {
   ProgressNotification,
   Tool,
@@ -86,10 +90,21 @@ const ToolIcon = Image.withProps({
   fit: "contain",
 });
 
+// `flex: 1` lets the title absorb the row's slack so the chevron toggle pins
+// to the right edge of the (nowrap) TitleRow.
 const ToolTitle = Text.withProps({
   fw: 700,
   size: "lg",
   truncate: "end",
+  flex: 1,
+});
+
+// Chevron toggle for the collapsible description, pinned to the right of the
+// title row. `aria-label` is set per-render since it reflects the open state.
+const DescriptionToggle = ActionIcon.withProps({
+  variant: "subtle",
+  color: "gray",
+  size: "sm",
 });
 
 const DescriptionText = Text.withProps({
@@ -145,6 +160,21 @@ export function ToolDetailPanel({
   const { name, title, description, icons, annotations, inputSchema } = tool;
   const iconSrc = icons?.[0]?.src;
 
+  // Descriptions are shown by default (most are short); the chevron lets the
+  // user hide a long one to keep the form and Execute footer in view. Reset to
+  // shown when switching tools (React's adjust-state-during-render pattern) so
+  // a prior tool's hidden state doesn't carry over — mirrors how ToolsScreen
+  // clears formValues on change.
+  const [descriptionOpen, setDescriptionOpen] = useState(true);
+  const [prevToolName, setPrevToolName] = useState(name);
+  if (name !== prevToolName) {
+    setPrevToolName(name);
+    setDescriptionOpen(true);
+  }
+  // Ties the toggle to the Collapse region so assistive tech announces it as a
+  // single expandable control (aria-expanded + aria-controls).
+  const descriptionRegionId = useId();
+
   // Show the toggle only when the server supports task tool calls and the tool
   // doesn't forbid them. `required` tools are forced on (checked + disabled);
   // `optional` tools follow the user's `runAsTask` choice.
@@ -166,6 +196,18 @@ export function ToolDetailPanel({
         <TitleRow>
           {iconSrc && <ToolIcon src={iconSrc} alt="" />}
           <ToolTitle>{resolveDisplayLabel(name, title)}</ToolTitle>
+          {description && (
+            <DescriptionToggle
+              aria-label={
+                descriptionOpen ? "Hide description" : "Show description"
+              }
+              aria-expanded={descriptionOpen}
+              aria-controls={descriptionRegionId}
+              onClick={() => setDescriptionOpen((open) => !open)}
+            >
+              {descriptionOpen ? <RiArrowDownSLine /> : <RiArrowRightSLine />}
+            </DescriptionToggle>
+          )}
         </TitleRow>
         {hasAnyAnnotation(annotations) && annotations && (
           <Group gap="xs">
@@ -187,7 +229,11 @@ export function ToolDetailPanel({
 
       <BodyScroll>
         <BodyStack>
-          {description && <DescriptionText>{description}</DescriptionText>}
+          {description && (
+            <Collapse in={descriptionOpen} id={descriptionRegionId}>
+              <DescriptionText>{description}</DescriptionText>
+            </Collapse>
+          )}
 
           <Divider />
 

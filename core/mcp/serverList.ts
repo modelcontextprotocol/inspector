@@ -5,7 +5,7 @@
  * remote-server route handlers.
  */
 
-import { DEFAULT_TASK_TTL_MS } from "./types.js";
+import { DEFAULT_MAX_FETCH_REQUESTS, DEFAULT_TASK_TTL_MS } from "./types.js";
 import type { Root } from "@modelcontextprotocol/sdk/types.js";
 import type {
   InspectorServerSettings,
@@ -93,6 +93,7 @@ type StoredInspectorFields = Pick<
   | "requestTimeout"
   | "taskTtl"
   | "autoRefreshOnListChanged"
+  | "maxFetchRequests"
   | "oauth"
   | "roots"
 >;
@@ -119,6 +120,7 @@ export function storedFieldsToInspectorSettings(
     stored.requestTimeout !== undefined ||
     stored.taskTtl !== undefined ||
     stored.autoRefreshOnListChanged !== undefined ||
+    stored.maxFetchRequests !== undefined ||
     stored.oauth !== undefined ||
     stored.roots !== undefined;
   if (!hasAny) return undefined;
@@ -136,6 +138,10 @@ export function storedFieldsToInspectorSettings(
     // default so the form shows it and "Run as task" has a value to send.
     taskTtl: stored.taskTtl ?? DEFAULT_TASK_TTL_MS,
     autoRefreshOnListChanged: stored.autoRefreshOnListChanged ?? false,
+    // Concrete default like taskTtl (not a 0-sentinel): the form needs a value
+    // to render and the log state needs one to size its buffer. An absent
+    // on-disk field reads back as the default, which the write side then omits.
+    maxFetchRequests: stored.maxFetchRequests ?? DEFAULT_MAX_FETCH_REQUESTS,
     // Defaults to an empty list so the form always has a concrete array to
     // render controlled rows from. An absent on-disk `roots` reads back as
     // `[]`, which `inspectorSettingsToStoredFields` then omits on write.
@@ -203,6 +209,14 @@ export function inspectorSettingsToStoredFields(
     out.autoRefreshOnListChanged = true;
   }
 
+  // Persist only when it differs from the default. Unlike the timeouts, 0 is a
+  // meaningful value here (unlimited), so the omit-sentinel is the default
+  // itself rather than 0 — writing the default would inject the field into
+  // hand-edited files that never had it and break byte-stable round-trips.
+  if (settings.maxFetchRequests !== DEFAULT_MAX_FETCH_REQUESTS) {
+    out.maxFetchRequests = settings.maxFetchRequests;
+  }
+
   const oauthFields: {
     clientId?: string;
     clientSecret?: string;
@@ -248,6 +262,7 @@ const INSPECTOR_FIELD_KEY_MAP = {
   requestTimeout: true,
   taskTtl: true,
   autoRefreshOnListChanged: true,
+  maxFetchRequests: true,
   oauth: true,
   roots: true,
 } as const satisfies Record<keyof StoredInspectorFields, true>;

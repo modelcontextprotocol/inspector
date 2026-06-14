@@ -25,7 +25,7 @@ import { streamSSE } from "hono/streaming";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
 import type { RemoteConnectRequest, RemoteSendRequest } from "../types.js";
-import { DEFAULT_TASK_TTL_MS } from "../../types.js";
+import { DEFAULT_MAX_FETCH_REQUESTS, DEFAULT_TASK_TTL_MS } from "../../types.js";
 import type {
   InspectorServerSettings,
   MCPConfig,
@@ -962,6 +962,16 @@ export function createRemoteApp(
         );
         delete valObj.taskTtl;
       }
+      if (
+        "maxFetchRequests" in valObj &&
+        !isNonNegNumber(valObj.maxFetchRequests)
+      ) {
+        logWarn(
+          { route: "/api/servers", id, droppedKey: "maxFetchRequests" },
+          "Dropping malformed `maxFetchRequests` field — expected non-negative number.",
+        );
+        delete valObj.maxFetchRequests;
+      }
       if ("oauth" in valObj && !isOauthObject(valObj.oauth)) {
         logWarn(
           { route: "/api/servers", id, droppedKey: "oauth" },
@@ -1120,6 +1130,18 @@ export function createRemoteApp(
         error: "settings.autoRefreshOnListChanged must be a boolean",
       };
     }
+    // maxFetchRequests is optional on the wire (older clients won't send it);
+    // when present it must be a non-negative number (0 = unlimited), otherwise
+    // it defaults below.
+    if (
+      obj.maxFetchRequests !== undefined &&
+      (typeof obj.maxFetchRequests !== "number" || obj.maxFetchRequests < 0)
+    ) {
+      return {
+        ok: false,
+        error: "settings.maxFetchRequests must be a non-negative number",
+      };
+    }
     for (const optional of [
       "oauthClientId",
       "oauthClientSecret",
@@ -1160,6 +1182,13 @@ export function createRemoteApp(
       // Absent → false, matching the read side. The omit-on-false logic lives
       // in inspectorSettingsToStoredFields, so a false value writes nothing.
       autoRefreshOnListChanged: obj.autoRefreshOnListChanged === true,
+      // Absent → product default, matching the read side. The default is the
+      // omit-sentinel in inspectorSettingsToStoredFields, so a client that
+      // didn't send one writes no spurious maxFetchRequests to disk.
+      maxFetchRequests:
+        typeof obj.maxFetchRequests === "number"
+          ? obj.maxFetchRequests
+          : DEFAULT_MAX_FETCH_REQUESTS,
       // Absent → empty list, matching the read side
       // (storedFieldsToInspectorSettings). Empty rows are dropped on the way
       // to disk by inspectorSettingsToStoredFields, so an empty array here

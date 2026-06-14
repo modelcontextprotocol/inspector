@@ -132,6 +132,20 @@ describe("LogControls", () => {
     expect(onToggleAllLevels).toHaveBeenCalledTimes(1);
   });
 
+  it("reflects level visibility via aria-pressed", () => {
+    renderWithMantine(
+      <LogControls {...baseProps} visibleLevels={someVisible} />,
+    );
+    expect(screen.getByRole("button", { name: "debug" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "warning" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   it("invokes onToggleLevel when a level button is clicked", async () => {
     const user = userEvent.setup();
     const onToggleLevel = vi.fn();

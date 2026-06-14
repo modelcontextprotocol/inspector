@@ -14,7 +14,7 @@ import type {
   ServerEntry,
 } from "@inspector/core/mcp/types.js";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fn } from "storybook/test";
+import { expect, fn } from "storybook/test";
 import { InspectorView } from "./InspectorView";
 import {
   EMPTY_TOOLS_UI,
@@ -397,11 +397,64 @@ const meta: Meta<typeof InspectorView> = {
 export default meta;
 type Story = StoryObj<typeof InspectorView>;
 
-export const Default: Story = {};
+export const Default: Story = {
+  // The InspectorView shell must never scroll as a whole — only the inner
+  // ScrollArea regions within each screen do. Guard the structural invariant:
+  // AppShell.Main is clamped to the viewport height and clips its overflow, so
+  // no amount of screen content can surface a page-level scrollbar.
+  play: async ({ canvasElement }) => {
+    const main = canvasElement.querySelector(".mantine-AppShell-main");
+    if (!(main instanceof HTMLElement)) {
+      throw new Error("AppShell main not found");
+    }
+    expect(getComputedStyle(main).overflowY).toBe("hidden");
+    // Clamped to the viewport (within a pixel of rounding), so the shell can't
+    // grow past it and push the page into scrolling.
+    expect(main.getBoundingClientRect().height).toBeLessThanOrEqual(
+      window.innerHeight + 1,
+    );
+  },
+};
 
 export const NoServers: Story = {
   args: {
     servers: [],
+  },
+};
+
+// A server list long enough to overflow the viewport (as in the reported
+// screenshot). The shell stays clamped to the viewport and the overflow is
+// confined to the inner server-grid ScrollArea — the page never scrolls.
+const manyServers: ServerEntry[] = Array.from({ length: 24 }, (_, i) => ({
+  id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+  name: `Server ${i + 1}`,
+  config: { command: `npx -y @modelcontextprotocol/server-${i + 1}` },
+  info: { name: `Server ${i + 1}`, version: "1.0.0" },
+  connection: { status: "disconnected" },
+}));
+
+export const ManyServers: Story = {
+  args: {
+    servers: manyServers,
+  },
+  play: async ({ canvasElement }) => {
+    // Even under enough content to overflow, the shell stays viewport-clamped
+    // and clips — so the page can't scroll.
+    const main = canvasElement.querySelector(".mantine-AppShell-main");
+    if (!(main instanceof HTMLElement)) {
+      throw new Error("AppShell main not found");
+    }
+    expect(getComputedStyle(main).overflowY).toBe("hidden");
+    expect(main.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      window.innerHeight + 1,
+    );
+    // The overflow lives in the inner server-grid ScrollArea, which is actually
+    // scrollable here — confirming the grid (not the page) absorbs it.
+    const viewport = main.querySelector(".mantine-ScrollArea-viewport");
+    if (!(viewport instanceof HTMLElement)) {
+      throw new Error("server-grid scroll viewport not found");
+    }
+    expect(viewport.scrollHeight).toBeGreaterThan(viewport.clientHeight);
   },
 };
 

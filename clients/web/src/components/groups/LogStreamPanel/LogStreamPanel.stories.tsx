@@ -3,6 +3,7 @@ import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 import { fn } from "storybook/test";
 import { LogStreamPanel } from "./LogStreamPanel";
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
+import { expectScrollbarGutterIdleHidden } from "../../../test/scrollAreaStoryAssertions";
 
 const meta: Meta<typeof LogStreamPanel> = {
   title: "Groups/LogStreamPanel",
@@ -73,5 +74,9 @@ const entries: LogEntryData[] = Array.from({ length: 30 }, (_, i) => {
 export const WithEntries: Story = {
   args: {
     entries,
+  },
+  // List scrollbar reserves a gutter and stays hidden when idle (#1474).
+  play: async ({ canvasElement }) => {
+    expectScrollbarGutterIdleHidden(canvasElement);
   },
 };

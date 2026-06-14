@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { UrlElicitationLoopError } from "@inspector/core/mcp/urlElicitation.js";
+import { ToolCallCancelledError } from "@inspector/core/mcp/toolCallCancelledError.js";
 import {
   renderWithMantine,
   screen,
@@ -51,6 +52,7 @@ vi.mock("@inspector/core/mcp/index.js", () => {
       .fn()
       .mockResolvedValue({ success: true, result: { acts: [] } });
     cancelRequestorTask = vi.fn().mockResolvedValue(undefined);
+    cancelToolCall = vi.fn().mockReturnValue(true);
     getPrompt = vi.fn().mockResolvedValue({ result: { messages: [] } });
     readResource = vi
       .fn()
@@ -120,11 +122,25 @@ vi.mock("@inspector/core/mcp/state/messageLogState.js", () => ({
     return { destroy: vi.fn(), clearMessages: messageLogClear };
   }),
 }));
-vi.mock("@inspector/core/mcp/state/fetchRequestLogState.js", () => ({
-  FetchRequestLogState: vi.fn(function () {
-    return { destroy: vi.fn(), getFetchRequests: vi.fn(() => []) };
-  }),
-}));
+// Extends EventTarget so the App's `fetchRequestBodyDropped` subscription is
+// real; the test fires `dispatchEvent(new CustomEvent("fetchRequestBodyDropped",
+// { detail }))` on the tracked instance to drive the body-dropped toast.
+vi.mock("@inspector/core/mcp/state/fetchRequestLogState.js", () => {
+  class FakeFetchRequestLogState extends EventTarget {
+    destroy = vi.fn();
+    getFetchRequests = vi.fn(() => []);
+    setMaxFetchRequests = vi.fn();
+  }
+  const instances: FakeFetchRequestLogState[] = [];
+  return {
+    FetchRequestLogState: vi.fn(function () {
+      const inst = new FakeFetchRequestLogState();
+      instances.push(inst);
+      return inst;
+    }),
+    __fetchLogInstances: instances,
+  };
+});
 vi.mock("@inspector/core/mcp/state/stderrLogState.js", () => ({
   StderrLogState: vi.fn(function () {
     return { destroy: vi.fn() };
@@ -263,6 +279,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
     onReadResource: (uri: string) => void;
     onSetLogLevel: (level: string) => void;
     onCancelTask: (taskId: string) => void;
+    onCancelToolCall: () => void;
     onClearCompletedTasks: () => void;
     onRefreshTasks: () => void;
     onServerSettings: (id: string) => void;
@@ -357,6 +374,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
         call-as-task
       </button>
       <button onClick={() => props.onCancelTask("task-1")}>cancel-task</button>
+      <button onClick={() => props.onCancelToolCall()}>cancel-tool-call</button>
       <button onClick={() => props.onClearCompletedTasks()}>
         clear-completed
       </button>
@@ -383,6 +401,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
 
 import App from "./App";
 import * as McpIndex from "@inspector/core/mcp/index.js";
+import * as FetchLogModule from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useInspectorClient } from "@inspector/core/react/useInspectorClient.js";
@@ -408,6 +427,10 @@ const DEFAULT_USE_INSPECTOR_CLIENT: ReturnType<typeof useInspectorClient> = {
 const clientInstances = (
   McpIndex as unknown as { __clientInstances: EventTarget[] }
 ).__clientInstances;
+
+const fetchLogInstances = (
+  FetchLogModule as unknown as { __fetchLogInstances: EventTarget[] }
+).__fetchLogInstances;
 
 describe("App session-scoped state reset on disconnect", () => {
   beforeEach(() => {
@@ -619,6 +642,71 @@ describe("App tool progress toasts", () => {
   });
 });
 
+describe("App network-log body-dropped toast", () => {
+  beforeEach(() => {
+    clientInstances.length = 0;
+    fetchLogInstances.length = 0;
+    notificationsMock.show.mockClear();
+    notificationsMock.hide.mockClear();
+  });
+
+  it("shows a deduped toast when the fetch log emits fetchRequestBodyDropped", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(fetchLogInstances).toHaveLength(1));
+
+    act(() => {
+      fetchLogInstances[0].dispatchEvent(
+        new CustomEvent("fetchRequestBodyDropped", {
+          detail: { id: "req-1", maxFetchRequests: 1000 },
+        }),
+      );
+    });
+
+    expect(notificationsMock.show).toHaveBeenCalledTimes(1);
+    const shown = notificationsMock.show.mock.calls[0][0];
+    expect(shown.title).toBe("Network log: response body dropped");
+    // Stable per-server id + no auto-close so a storm dedupes into one toast.
+    expect(typeof shown.id).toBe("string");
+    expect(shown.autoClose).toBe(false);
+  });
+
+  it("opens the settings modal (Options/Network Log Size) from the toast link", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(fetchLogInstances).toHaveLength(1));
+
+    act(() => {
+      fetchLogInstances[0].dispatchEvent(
+        new CustomEvent("fetchRequestBodyDropped", {
+          detail: { id: "req-1", maxFetchRequests: 500 },
+        }),
+      );
+    });
+
+    // The toast message is a React node carrying the "Adjust" link; render it
+    // and click the link to exercise the onAdjust handler (hide toast + open
+    // settings modal for the active server).
+    const message = notificationsMock.show.mock.calls[0][0].message;
+    renderWithMantine(message);
+    await user.click(
+      screen.getByRole("button", {
+        name: /Adjust Network Log Size for this server/,
+      }),
+    );
+
+    expect(notificationsMock.hide).toHaveBeenCalled();
+    // The settings modal is now open on the Options section, showing the field.
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Network Log Size/)).toBeInTheDocument(),
+    );
+  });
+});
+
 describe("App pending server-initiated request modal", () => {
   beforeEach(() => {
     clientInstances.length = 0;
@@ -753,6 +841,116 @@ describe("App task wiring", () => {
           color: "red",
         }),
       ),
+    );
+  });
+
+  it("cancels the underlying task when a task-augmented tool call is cancelled", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    const client = clientInstances[0] as unknown as {
+      cancelRequestorTask: ReturnType<typeof vi.fn>;
+    };
+
+    // callToolStream surfaces the created task's id via `toolCallTaskUpdated`
+    // mid-call; App stashes it so Cancel knows which task to cancel (#1455).
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("toolCallTaskUpdated", {
+          detail: { taskId: "task-42", task: { taskId: "task-42" } },
+        }),
+      );
+    });
+
+    await user.click(screen.getByText("cancel-tool-call"));
+
+    expect(client.cancelRequestorTask).toHaveBeenCalledWith("task-42");
+  });
+
+  it("does not re-cancel on a rapid second Cancel click", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    const client = clientInstances[0] as unknown as {
+      cancelRequestorTask: ReturnType<typeof vi.fn>;
+    };
+
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("toolCallTaskUpdated", {
+          detail: { taskId: "task-42", task: { taskId: "task-42" } },
+        }),
+      );
+    });
+
+    // Two clicks before the call resolves must cancel only once — the second
+    // finds the ref already cleared, avoiding a spurious cancel of a terminal
+    // task.
+    await user.click(screen.getByText("cancel-tool-call"));
+    await user.click(screen.getByText("cancel-tool-call"));
+
+    expect(client.cancelRequestorTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts the request (not a task) when an ordinary tool call is cancelled", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    const client = clientInstances[0] as unknown as {
+      cancelRequestorTask: ReturnType<typeof vi.fn>;
+      cancelToolCall: ReturnType<typeof vi.fn>;
+    };
+
+    // A stale task id from an earlier task call...
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("toolCallTaskUpdated", {
+          detail: { taskId: "old-task", task: { taskId: "old-task" } },
+        }),
+      );
+    });
+    // ...is cleared when a new ordinary call starts, so Cancel routes to the
+    // request-abort path (notifications/cancelled), not the task API (#1458).
+    await user.click(screen.getByText("call"));
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-status")).toHaveTextContent("ok"),
+    );
+
+    await user.click(screen.getByText("cancel-tool-call"));
+
+    expect(client.cancelToolCall).toHaveBeenCalledTimes(1);
+    expect(client.cancelRequestorTask).not.toHaveBeenCalled();
+  });
+
+  it("clears the executing state and toasts when a cancelled call rejects", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    // The aborted call rejects with ToolCallCancelledError (the SDK already sent
+    // notifications/cancelled). App treats that as a clean cancel, not a failure.
+    (
+      clientInstances[0] as unknown as {
+        callTool: ReturnType<typeof vi.fn>;
+      }
+    ).callTool.mockRejectedValueOnce(new ToolCallCancelledError("get_acts"));
+
+    await user.click(screen.getByText("call"));
+
+    // The result panel returns to idle (no error state)...
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-status")).toHaveTextContent("none"),
+    );
+    // ...and a confirmation toast acknowledges the cancellation.
+    expect(notificationsMock.show).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Tool call cancelled" }),
     );
   });
 
@@ -941,6 +1139,57 @@ describe("App task wiring", () => {
       ),
     );
   });
+
+  it("shows a 'Task cancelled' toast when a task is cancelled", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    // No live status toast for this task — cancellation shows a fresh one.
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("taskCancelled", { detail: { taskId: "task-1" } }),
+      );
+    });
+
+    expect(notificationsMock.show).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Task cancelled", color: "gray" }),
+    );
+  });
+
+  it("converts a running task's live toast into the cancellation toast", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    // A running task has an open "Task working" toast...
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("taskStatusChange", {
+          detail: {
+            taskId: "task-1",
+            task: { status: "working", statusMessage: "Interpreting" },
+          },
+        }),
+      );
+    });
+    const liveId = notificationsMock.show.mock.calls[0][0].id;
+    notificationsMock.show.mockClear();
+
+    // ...which the cancel replaces in place (update), not a stacked toast.
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("taskCancelled", { detail: { taskId: "task-1" } }),
+      );
+    });
+
+    expect(notificationsMock.show).not.toHaveBeenCalled();
+    expect(notificationsMock.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: liveId, title: "Task cancelled" }),
+    );
+  });
 });
 
 // Live-apply roots on settings-dialog close: the App diffs the final draft
@@ -962,6 +1211,7 @@ const settingsWithRoots = (
   connectionTimeout: 0,
   requestTimeout: 0,
   taskTtl: 60000,
+  maxFetchRequests: 1000,
   roots,
 });
 

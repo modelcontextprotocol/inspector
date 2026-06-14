@@ -35,6 +35,13 @@ export interface ResourcesScreenProps {
   ui: ResourcesUiState;
   listChanged: boolean;
   completionsSupported?: boolean;
+  /**
+   * Whether the connected server advertises the `resources.subscribe`
+   * capability. When false, the Subscribe/Unsubscribe button and the
+   * Subscriptions accordion section are hidden. Defaults to true so the
+   * controls render unless a caller explicitly marks them unsupported.
+   */
+  subscriptionsSupported?: boolean;
   onUiChange: (next: ResourcesUiState) => void;
   onRefreshList: () => void;
   onReadResource: (uri: string) => void;
@@ -67,7 +74,7 @@ export interface ResourcesUiState {
 
 const ScreenLayout = Flex.withProps({
   variant: "screen",
-  h: "calc(100vh - var(--app-shell-header-height, 0px))",
+  h: "calc(100dvh - var(--app-shell-header-height, 0px))",
   gap: "md",
   p: "xl",
 });
@@ -77,9 +84,14 @@ const Sidebar = Stack.withProps({
   flex: "0 0 auto",
 });
 
+// Card that grows with its content but is capped at the screen height by the
+// `sidebar` variant (`max-height: 100%`), like the Tools panel. The column
+// layout lets ResourceControls' accordion take over per-section scrolling once
+// the content would overflow that cap.
 const SidebarCard = Card.withProps({
   withBorder: true,
   padding: "lg",
+  variant: "sidebar",
 });
 
 const DetailCard = Card.withProps({
@@ -114,7 +126,7 @@ const EmptyState = Text.withProps({
 });
 
 const SCROLL_MAX_HEIGHT =
-  "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)";
+  "calc(100dvh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)";
 
 export function ResourcesScreen({
   resources,
@@ -124,6 +136,7 @@ export function ResourcesScreen({
   ui,
   listChanged,
   completionsSupported,
+  subscriptionsSupported = true,
   onUiChange,
   onRefreshList,
   onReadResource,
@@ -250,6 +263,7 @@ export function ResourcesScreen({
             contents={readState.result.contents}
             lastUpdated={readState.lastUpdated}
             isSubscribed={readState.isSubscribed ?? false}
+            subscriptionsSupported={subscriptionsSupported}
             onRefresh={() => handleReadResource(readResource.uri)}
             onSubscribe={() => onSubscribeResource(readResource.uri)}
             onUnsubscribe={() => onUnsubscribeResource(readResource.uri)}
@@ -270,6 +284,7 @@ export function ResourcesScreen({
             resources={resources}
             templates={templates}
             subscriptions={subscriptions}
+            subscriptionsSupported={subscriptionsSupported}
             selectedUri={selectedResourceUri}
             selectedTemplateUri={selectedTemplateUri}
             searchText={search}
