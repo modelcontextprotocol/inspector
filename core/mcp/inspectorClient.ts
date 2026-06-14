@@ -117,6 +117,7 @@ import {
   getUrlElicitationsFromError,
   UrlElicitationLoopError,
 } from "./urlElicitation.js";
+import { ToolCallCancelledError } from "./toolCallCancelledError.js";
 import type { AuthGuidedState, OAuthStep } from "../auth/types.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type pino from "pino";
@@ -199,6 +200,13 @@ export class InspectorClient extends InspectorClientEventTarget {
   // instead, so it lands in the right state immediately (#1455). Cleared on
   // disconnect.
   private cancelledTaskIds: Set<string> = new Set();
+  // Abort controller for the in-flight ordinary (non-task) tool call. Aborting
+  // it makes the SDK send a `notifications/cancelled` for that request (the MCP
+  // cancellation flow) and reject the pending call, which `callTool` surfaces as
+  // a `ToolCallCancelledError`. Undefined when no ordinary call is in flight.
+  // Task-augmented calls have a server-side task and are cancelled via
+  // `cancelRequestorTask` instead, so they don't use this (#1458).
+  private activeToolCallAbortController?: AbortController;
   // Receiver tasks (server-initiated: server sends createMessage/elicit with params.task, server polls us)
   private receiverTasks: boolean;
   private receiverTaskTtlMs: number | (() => number);
@@ -441,12 +449,20 @@ export class InspectorClient extends InspectorClientEventTarget {
     return { ...(defaults ?? {}), ...(callMetadata ?? {}) };
   }
 
-  private getRequestOptions(progressToken?: ProgressToken): RequestOptions {
+  private getRequestOptions(
+    progressToken?: ProgressToken,
+    signal?: AbortSignal,
+  ): RequestOptions {
     const opts: RequestOptions = {
       resetTimeoutOnProgress: this.resetTimeoutOnProgress,
     };
     if (this.requestTimeout !== undefined) {
       opts.timeout = this.requestTimeout;
+    }
+    // When provided, aborting this signal makes the SDK send a
+    // `notifications/cancelled` for the request and reject it (#1458).
+    if (signal) {
+      opts.signal = signal;
     }
     if (this.progress) {
       const token = progressToken;
@@ -1049,6 +1065,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Clear resource subscriptions on disconnect
     this.subscribedResources.clear();
     this.cancelledTaskIds.clear();
+    // Abort any in-flight ordinary tool call so its promise settles instead of
+    // hanging past teardown; drop the controller reference either way.
+    this.activeToolCallAbortController?.abort("Disconnected");
+    this.activeToolCallAbortController = undefined;
     // Clear receiver tasks: stop TTL timers and drop records
     for (const record of this.receiverTaskRecords.values()) {
       if (record.cleanupTimeoutId != null) {
@@ -1202,6 +1222,33 @@ export class InspectorClient extends InspectorClientEventTarget {
 
     // Dispatch event
     this.dispatchTypedEvent("taskCancelled", { taskId });
+  }
+
+  /**
+   * Cancel the in-flight ordinary (non-task) tool call started by
+   * {@link callTool}. Aborting its request makes the SDK send a
+   * `notifications/cancelled` to the server (the MCP cancellation flow) and
+   * reject the pending call, which `callTool` surfaces as a
+   * {@link ToolCallCancelledError}.
+   *
+   * Task-augmented calls have a server-side task and are cancelled via
+   * {@link cancelRequestorTask} instead — this is a no-op for them (and whenever
+   * no ordinary call is in flight).
+   *
+   * @returns `true` if a call was in flight to cancel, `false` otherwise.
+   */
+  cancelToolCall(): boolean {
+    const controller = this.activeToolCallAbortController;
+    if (!controller) {
+      return false;
+    }
+    // Drop the reference up front so a rapid second cancel is a clean no-op and
+    // can't re-abort a call that's already terminating.
+    this.activeToolCallAbortController = undefined;
+    // The reason string rides along on the `notifications/cancelled` the SDK
+    // sends to the server, so keep it human-readable.
+    controller.abort("Tool call cancelled by user");
+    return true;
   }
 
   /**
@@ -1417,6 +1464,51 @@ export class InspectorClient extends InspectorClientEventTarget {
     // completing it again can't make progress (the server isn't advancing), so
     // we abort with a UrlElicitationLoopError rather than re-prompt the user.
     const presentedUrls = new Set<string>();
+    // Track this call so `cancelToolCall()` can abort it. Aborting makes the SDK
+    // send a `notifications/cancelled` to the server (the MCP cancellation flow)
+    // and reject the pending request, which we surface below as a
+    // `ToolCallCancelledError`. The controller spans the whole call (it survives
+    // URL-elicitation retries). Cleared in `finally`, but only if still ours so a
+    // later overlapping call's controller isn't clobbered (#1458).
+    const abortController = new AbortController();
+    this.activeToolCallAbortController = abortController;
+    try {
+      return await this.callToolWithRetries(
+        tool,
+        args,
+        generalMetadata,
+        toolSpecificMetadata,
+        taskOptions,
+        options,
+        abortController,
+        presentedUrls,
+        urlElicitationAttempt,
+      );
+    } finally {
+      if (this.activeToolCallAbortController === abortController) {
+        this.activeToolCallAbortController = undefined;
+      }
+    }
+  }
+
+  /**
+   * The URL-elicitation retry loop for {@link callTool}, factored out so the
+   * caller can wrap it in the abort-controller lifecycle (`try`/`finally`). On a
+   * user cancellation (the call's abort signal fired) the SDK has already sent
+   * `notifications/cancelled`, so we throw a {@link ToolCallCancelledError}
+   * without recording a failed call — the cancel was intentional, not a failure.
+   */
+  private async callToolWithRetries(
+    tool: Tool,
+    args: Record<string, JsonValue>,
+    generalMetadata: Record<string, string> | undefined,
+    toolSpecificMetadata: Record<string, string> | undefined,
+    taskOptions: { ttl?: number } | undefined,
+    options: { skipOutputValidation?: boolean } | undefined,
+    abortController: AbortController,
+    presentedUrls: Set<string>,
+    urlElicitationAttempt: number,
+  ): Promise<ToolCallInvocation> {
     while (true) {
       try {
         return await this.attemptToolCall(
@@ -1426,8 +1518,16 @@ export class InspectorClient extends InspectorClientEventTarget {
           toolSpecificMetadata,
           taskOptions,
           options,
+          abortController.signal,
         );
       } catch (error) {
+        // The user cancelled via `cancelToolCall()`: the abort fired, the SDK
+        // already sent `notifications/cancelled`, and the request rejected.
+        // Surface a clean cancellation rather than a generic failure, and don't
+        // record it in history — the cancel was intentional (#1458).
+        if (abortController.signal.aborted) {
+          throw new ToolCallCancelledError(tool.name);
+        }
         const urlElicitations = getUrlElicitationsFromError(error);
         if (
           urlElicitations &&
@@ -1513,6 +1613,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     toolSpecificMetadata?: Record<string, string>,
     taskOptions?: { ttl?: number },
     options?: { skipOutputValidation?: boolean },
+    signal?: AbortSignal,
   ): Promise<ToolCallInvocation> {
     const client = this.client;
     if (!client) {
@@ -1562,7 +1663,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     // returned (and that legacy hosts render fine). For those passthrough
     // calls go through request() directly, which skips that host-side
     // validation. Regular Tools-screen calls keep validating.
-    const requestOptions = this.getRequestOptions(metadata?.progressToken);
+    const requestOptions = this.getRequestOptions(
+      metadata?.progressToken,
+      signal,
+    );
     // Both branches yield a CallToolResult: request() parsed it with
     // CallToolResultSchema above, callTool() returns the same shape — so the
     // `as CallToolResult` casts below are safe.

@@ -13,6 +13,7 @@ import {
   ManagedToolsState,
 } from "@inspector/core/mcp/state/index.js";
 import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
+import { ToolCallCancelledError } from "@inspector/core/mcp/toolCallCancelledError.js";
 import { SamplingCreateMessage } from "@inspector/core/mcp/samplingCreateMessage.js";
 import { ElicitationCreateMessage } from "@inspector/core/mcp/elicitationCreateMessage.js";
 import {
@@ -948,6 +949,52 @@ describe("InspectorClient", () => {
         expect(content[0]).toHaveProperty("text");
         expect((content[0] as { text: string }).text).toContain("not found");
       }
+    });
+
+    it("cancelToolCall() is a no-op (returns false) when no call is in flight", () => {
+      expect(client!.cancelToolCall()).toBe(false);
+    });
+
+    it("ToolCallCancelledError carries the tool name when known, and reads generically without one", () => {
+      expect(new ToolCallCancelledError("echo").message).toContain('"echo"');
+      expect(new ToolCallCancelledError().message).toBe(
+        "Tool call was cancelled.",
+      );
+    });
+
+    it("cancelToolCall() aborts the in-flight call: sends notifications/cancelled, rejects with ToolCallCancelledError, and records no failed call", async () => {
+      const tool = await getTool(client!, "echo");
+
+      const messages: MessageEntry[] = [];
+      client!.addEventListener("message", (event) => {
+        messages.push(event.detail);
+      });
+      let failedCallCount = 0;
+      client!.addEventListener("toolCallResultChange", (event) => {
+        if (!event.detail.success) failedCallCount++;
+      });
+
+      // Start the call, then cancel synchronously — before the response can be
+      // processed — so the abort always wins the race regardless of tool speed.
+      const promise = client!.callTool(tool, { message: "hello world" });
+      expect(client!.cancelToolCall()).toBe(true);
+
+      await expect(promise).rejects.toBeInstanceOf(ToolCallCancelledError);
+
+      // The MCP cancellation flow: a notifications/cancelled reaches the server.
+      const cancelled = messages.find(
+        (m) =>
+          m.direction === "notification" &&
+          "method" in m.message &&
+          m.message.method === "notifications/cancelled",
+      );
+      expect(cancelled).toBeDefined();
+
+      // Cancelling is intentional, so it is not recorded as a failed tool call.
+      expect(failedCallCount).toBe(0);
+
+      // The controller was cleared, so a second cancel is a no-op.
+      expect(client!.cancelToolCall()).toBe(false);
     });
 
     it("should paginate tools when maxPageSize is set", async () => {

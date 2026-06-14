@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { UrlElicitationLoopError } from "@inspector/core/mcp/urlElicitation.js";
+import { ToolCallCancelledError } from "@inspector/core/mcp/toolCallCancelledError.js";
 import {
   renderWithMantine,
   screen,
@@ -51,6 +52,7 @@ vi.mock("@inspector/core/mcp/index.js", () => {
       .fn()
       .mockResolvedValue({ success: true, result: { acts: [] } });
     cancelRequestorTask = vi.fn().mockResolvedValue(undefined);
+    cancelToolCall = vi.fn().mockReturnValue(true);
     getPrompt = vi.fn().mockResolvedValue({ result: { messages: [] } });
     readResource = vi
       .fn()
@@ -810,7 +812,7 @@ describe("App task wiring", () => {
     expect(client.cancelRequestorTask).toHaveBeenCalledTimes(1);
   });
 
-  it("does not cancel a task when an ordinary tool call is cancelled", async () => {
+  it("aborts the request (not a task) when an ordinary tool call is cancelled", async () => {
     const user = userEvent.setup();
     renderWithMantine(<App />);
     await user.click(screen.getByText("connect"));
@@ -818,6 +820,7 @@ describe("App task wiring", () => {
 
     const client = clientInstances[0] as unknown as {
       cancelRequestorTask: ReturnType<typeof vi.fn>;
+      cancelToolCall: ReturnType<typeof vi.fn>;
     };
 
     // A stale task id from an earlier task call...
@@ -828,7 +831,8 @@ describe("App task wiring", () => {
         }),
       );
     });
-    // ...is cleared when a new ordinary call starts, so its Cancel is a no-op.
+    // ...is cleared when a new ordinary call starts, so Cancel routes to the
+    // request-abort path (notifications/cancelled), not the task API (#1458).
     await user.click(screen.getByText("call"));
     await waitFor(() =>
       expect(screen.getByTestId("tool-status")).toHaveTextContent("ok"),
@@ -836,7 +840,34 @@ describe("App task wiring", () => {
 
     await user.click(screen.getByText("cancel-tool-call"));
 
+    expect(client.cancelToolCall).toHaveBeenCalledTimes(1);
     expect(client.cancelRequestorTask).not.toHaveBeenCalled();
+  });
+
+  it("clears the executing state and toasts when a cancelled call rejects", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    // The aborted call rejects with ToolCallCancelledError (the SDK already sent
+    // notifications/cancelled). App treats that as a clean cancel, not a failure.
+    (
+      clientInstances[0] as unknown as {
+        callTool: ReturnType<typeof vi.fn>;
+      }
+    ).callTool.mockRejectedValueOnce(new ToolCallCancelledError("get_acts"));
+
+    await user.click(screen.getByText("call"));
+
+    // The result panel returns to idle (no error state)...
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-status")).toHaveTextContent("none"),
+    );
+    // ...and a confirmation toast acknowledges the cancellation.
+    expect(notificationsMock.show).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Tool call cancelled" }),
+    );
   });
 
   it("shows a URL-elicitation toast when a tool call fails with a no-list -32042", async () => {

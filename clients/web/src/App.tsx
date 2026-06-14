@@ -27,6 +27,7 @@ import {
   getUrlElicitationsFromError,
   UrlElicitationLoopError,
 } from "@inspector/core/mcp/urlElicitation.js";
+import { ToolCallCancelledError } from "@inspector/core/mcp/toolCallCancelledError.js";
 import type { TypedEventGeneric } from "@inspector/core/mcp/typedEventTarget.js";
 import type {
   InspectorServerSettings,
@@ -1481,6 +1482,20 @@ function App() {
           error: invocation.error,
         });
       } catch (err) {
+        // The user cancelled the in-flight call (Cancel button → cancelToolCall).
+        // The cancellation notification was already sent to the server, so just
+        // clear the executing state — surfacing it as an error would read as a
+        // failure rather than the deliberate cancel it was (#1458).
+        if (err instanceof ToolCallCancelledError) {
+          setToolCallState(undefined);
+          notifications.show({
+            title: "Tool call cancelled",
+            message: "A cancellation request was sent to the server.",
+            color: "gray",
+            autoClose: 3000,
+          });
+          return;
+        }
         // The server kept asking for a URL the user already completed this call,
         // so callTool aborted to avoid an endless re-prompt loop. Surface that
         // explicitly rather than as a generic failure.
@@ -1754,9 +1769,12 @@ function App() {
   // Cancel the in-flight tool call. A task-augmented call (run-as-task) has a
   // server-side task, so cancel that via the tasks API (#1455) — the cancelled
   // status then flows back through the managed task store and toasts, the same
-  // as cancelling from the Tasks screen. An ordinary call has no task (and no
-  // request-abort channel yet), so there is nothing to cancel server-side.
+  // as cancelling from the Tasks screen. An ordinary call has no task, so abort
+  // its request: the SDK sends a `notifications/cancelled` to the server (the
+  // MCP cancellation flow) and the pending call rejects with a
+  // ToolCallCancelledError that `onCallTool` clears as a cancellation (#1458).
   const onCancelToolCall = useCallback(() => {
+    if (!inspectorClient) return;
     const taskId = activeToolCallTaskIdRef.current;
     if (taskId) {
       // Clear the ref before the call resolves so a rapid second Cancel click
@@ -1764,8 +1782,10 @@ function App() {
       // spurious "Failed to cancel task" toast).
       activeToolCallTaskIdRef.current = undefined;
       void onCancelTask(taskId);
+      return;
     }
-  }, [onCancelTask]);
+    inspectorClient.cancelToolCall();
+  }, [inspectorClient, onCancelTask]);
 
   const onClearCompletedTasks = useCallback(() => {
     clearCompletedTasks();
