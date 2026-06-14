@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -75,6 +76,8 @@ interface SidebarProps {
   setConfig: (config: InspectorConfig) => void;
   connectionType: "direct" | "proxy";
   setConnectionType: (type: "direct" | "proxy") => void;
+  includeCookies: boolean;
+  setIncludeCookies: (includeCookies: boolean) => void;
   serverImplementation?:
     | (WithIcons & { name?: string; version?: string; websiteUrl?: string })
     | null;
@@ -109,6 +112,8 @@ const Sidebar = ({
   setConfig,
   connectionType,
   setConnectionType,
+  includeCookies,
+  setIncludeCookies,
   serverImplementation,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
@@ -361,6 +366,38 @@ const Sidebar = ({
                 </TooltipTrigger>
                 <TooltipContent>{connectionTypeTip}</TooltipContent>
               </Tooltip>
+
+              {transportType === "streamable-http" &&
+                connectionType === "direct" && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-start space-x-2 rounded-md border p-3">
+                        <Checkbox
+                          id="include-cookies-checkbox"
+                          checked={includeCookies}
+                          onCheckedChange={(checked: boolean) =>
+                            setIncludeCookies(Boolean(checked))
+                          }
+                        />
+                        <label
+                          htmlFor="include-cookies-checkbox"
+                          className="text-sm leading-snug"
+                        >
+                          Send cookies
+                          <span className="block text-xs text-muted-foreground">
+                            Uses credentials: include for direct Streamable HTTP
+                            requests.
+                          </span>
+                        </label>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Target servers must allow credentials with a non-wildcard
+                      Access-Control-Allow-Origin and
+                      Access-Control-Allow-Credentials: true.
+                    </TooltipContent>
+                  </Tooltip>
+                )}
             </>
           )}
 

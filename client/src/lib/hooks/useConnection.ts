@@ -91,6 +91,7 @@ interface UseConnectionOptions {
   oauthScope?: string;
   config: InspectorConfig;
   connectionType?: "direct" | "proxy";
+  includeCookies?: boolean;
   onNotification?: (notification: Notification) => void;
   onStdErrNotification?: (notification: Notification) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -116,6 +117,7 @@ export function useConnection({
   oauthScope,
   config,
   connectionType = "proxy",
+  includeCookies = false,
   onNotification,
   onPendingRequest,
   onElicitationRequest,
@@ -604,6 +606,9 @@ export function useConnection({
             break;
 
           case "streamable-http":
+            const credentialsInit = includeCookies
+              ? { credentials: "include" as RequestCredentials }
+              : {};
             transportOptions = {
               authProvider: serverAuthProvider,
               fetch: async (
@@ -616,6 +621,7 @@ export function useConnection({
                 const response = await fetch(url, {
                   headers: requestHeaders,
                   ...init,
+                  ...credentialsInit,
                 });
 
                 // Capture protocol-related headers from response
@@ -625,6 +631,7 @@ export function useConnection({
               },
               requestInit: {
                 headers: requestHeaders,
+                ...credentialsInit,
               },
               // TODO these should be configurable...
               reconnectionOptions: {

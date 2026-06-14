@@ -186,6 +186,9 @@ const App = () => {
       );
     },
   );
+  const [includeCookies, setIncludeCookies] = useState<boolean>(() => {
+    return localStorage.getItem("lastIncludeCookies") === "true";
+  });
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [roots, setRoots] = useState<Root[]>([]);
@@ -401,6 +404,7 @@ const App = () => {
     oauthScope,
     config,
     connectionType,
+    includeCookies,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
 
@@ -549,6 +553,10 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastConnectionType", connectionType);
   }, [connectionType]);
+
+  useEffect(() => {
+    localStorage.setItem("lastIncludeCookies", String(includeCookies));
+  }, [includeCookies]);
 
   useEffect(() => {
     if (bearerToken) {
@@ -1406,6 +1414,8 @@ const App = () => {
           loggingSupported={!!serverCapabilities?.logging || false}
           connectionType={connectionType}
           setConnectionType={setConnectionType}
+          includeCookies={includeCookies}
+          setIncludeCookies={setIncludeCookies}
           serverImplementation={serverImplementation}
         />
         <div
