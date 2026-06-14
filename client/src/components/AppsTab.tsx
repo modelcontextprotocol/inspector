@@ -21,6 +21,7 @@ import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge"
 import AppRenderer from "./AppRenderer";
 import ListPane from "./ListPane";
 import IconDisplay, { WithIcons } from "./IconDisplay";
+import SchemaFieldDescription from "./SchemaFieldDescription";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -411,6 +412,12 @@ const AppsTab = ({
                               key,
                               inputSchema,
                             );
+                            const descriptionId = `${key}-description`;
+                            const showFieldDescription =
+                              !!prop.description &&
+                              (prop.type === "string" ||
+                                prop.type === "number" ||
+                                prop.type === "integer");
 
                             return (
                               <div key={key} className="space-y-2">
@@ -496,7 +503,14 @@ const AppsTab = ({
                                         });
                                       }}
                                     >
-                                      <SelectTrigger id={key}>
+                                      <SelectTrigger
+                                        id={key}
+                                        aria-describedby={
+                                          showFieldDescription
+                                            ? descriptionId
+                                            : undefined
+                                        }
+                                      >
                                         <SelectValue
                                           placeholder={
                                             prop.description ||
@@ -519,6 +533,11 @@ const AppsTab = ({
                                     <Textarea
                                       id={key}
                                       placeholder={prop.description}
+                                      aria-describedby={
+                                        showFieldDescription
+                                          ? descriptionId
+                                          : undefined
+                                      }
                                       value={
                                         params[key] === undefined
                                           ? ""
@@ -564,6 +583,11 @@ const AppsTab = ({
                                       type="number"
                                       id={key}
                                       placeholder={prop.description}
+                                      aria-describedby={
+                                        showFieldDescription
+                                          ? descriptionId
+                                          : undefined
+                                      }
                                       value={
                                         params[key] === undefined
                                           ? ""
@@ -604,6 +628,12 @@ const AppsTab = ({
                                         });
                                         setTimeout(checkValidationErrors, 100);
                                       }}
+                                    />
+                                  )}
+                                  {showFieldDescription && (
+                                    <SchemaFieldDescription
+                                      id={descriptionId}
+                                      description={prop.description}
                                     />
                                   )}
                                 </div>

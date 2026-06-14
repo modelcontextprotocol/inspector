@@ -1015,6 +1015,36 @@ describe("ToolsTab", () => {
       expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
       expect(screen.getByRole("textbox")).toBeInTheDocument();
     });
+
+    it("should keep string parameter descriptions visible after input is filled", () => {
+      const toolWithStringParam: Tool = {
+        name: "stringTool",
+        description: "Tool with regular string parameter",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            text: {
+              type: "string" as const,
+              description: "Some text input",
+            },
+          },
+        },
+      };
+
+      renderToolsTab({
+        tools: [toolWithStringParam],
+        selectedTool: toolWithStringParam,
+      });
+
+      const input = screen.getByRole("textbox");
+      expect(input).toHaveAttribute("aria-describedby", "text-description");
+      expect(screen.getByText("Some text input")).toBeVisible();
+
+      fireEvent.change(input, { target: { value: "filled value" } });
+
+      expect(input).toHaveValue("filled value");
+      expect(screen.getByText("Some text input")).toBeVisible();
+    });
   });
 
   describe("JSON Validation Integration", () => {
