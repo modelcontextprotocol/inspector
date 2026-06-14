@@ -265,7 +265,12 @@ export const ManyResources: Story = {
       throw new Error("URIs panel not found");
     }
     expect(urisPanel.scrollHeight).toBeGreaterThan(urisPanel.clientHeight);
-    expect(getComputedStyle(urisPanel).scrollbarWidth).toBe("thin");
+    const panelStyle = getComputedStyle(urisPanel);
+    expect(panelStyle.scrollbarWidth).toBe("thin");
+    // The themed translucent thumb resolves (the `--inspector-scrollbar-thumb`
+    // token, an rgba value, vs. a transparent track). WebKit pseudo-element
+    // styles aren't queryable, so `scrollbar-color` is the assertable proxy.
+    expect(panelStyle.scrollbarColor).toContain("rgba");
   },
 };
 
