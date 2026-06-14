@@ -13,6 +13,7 @@ import {
   ManagedToolsState,
 } from "@inspector/core/mcp/state/index.js";
 import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
+import { ToolCallCancelledError } from "@inspector/core/mcp/toolCallCancelledError.js";
 import { SamplingCreateMessage } from "@inspector/core/mcp/samplingCreateMessage.js";
 import { ElicitationCreateMessage } from "@inspector/core/mcp/elicitationCreateMessage.js";
 import {
@@ -29,6 +30,7 @@ import {
   createCollectUrlElicitationTool,
   createUrlElicitationFormTool,
   createSendNotificationTool,
+  createSendProgressTool,
   createListRootsTool,
   createArgsPrompt,
   createNumberedTools,
@@ -948,6 +950,89 @@ describe("InspectorClient", () => {
         expect(content[0]).toHaveProperty("text");
         expect((content[0] as { text: string }).text).toContain("not found");
       }
+    });
+
+    it("cancelToolCall() is a no-op (returns false) when no call is in flight", () => {
+      expect(client!.cancelToolCall()).toBe(false);
+    });
+
+    it("ToolCallCancelledError carries the tool name when known, and reads generically without one", () => {
+      expect(new ToolCallCancelledError("echo").message).toContain('"echo"');
+      expect(new ToolCallCancelledError().message).toBe(
+        "Tool call was cancelled.",
+      );
+    });
+
+    it("cancelToolCall() aborts the in-flight call: sends notifications/cancelled, rejects with ToolCallCancelledError, and records no failed call", async () => {
+      const tool = await getTool(client!, "echo");
+
+      const messages: MessageEntry[] = [];
+      client!.addEventListener("message", (event) => {
+        messages.push(event.detail);
+      });
+      let failedCallCount = 0;
+      client!.addEventListener("toolCallResultChange", (event) => {
+        if (!event.detail.success) failedCallCount++;
+      });
+
+      // Start the call, then cancel synchronously — before the response can be
+      // processed — so the abort always wins the race regardless of tool speed.
+      const promise = client!.callTool(tool, { message: "hello world" });
+      expect(client!.cancelToolCall()).toBe(true);
+
+      await expect(promise).rejects.toBeInstanceOf(ToolCallCancelledError);
+
+      // The MCP cancellation flow: a notifications/cancelled reaches the server.
+      const cancelled = messages.find(
+        (m) =>
+          m.direction === "notification" &&
+          "method" in m.message &&
+          m.message.method === "notifications/cancelled",
+      );
+      expect(cancelled).toBeDefined();
+
+      // Cancelling is intentional, so it is not recorded as a failed tool call.
+      expect(failedCallCount).toBe(0);
+
+      // The controller was cleared, so a second cancel is a no-op.
+      expect(client!.cancelToolCall()).toBe(false);
+    });
+
+    it("a disconnect mid-call does not surface as a ToolCallCancelledError", async () => {
+      // disconnect() aborts the same in-flight controller, but with a different
+      // reason than cancelToolCall(). The call must reject as an ordinary error,
+      // not a user-cancel — so App doesn't show a misleading "cancelled" toast.
+      // Use a genuinely slow tool (over HTTP) so the call is still in flight when
+      // we disconnect; echo would complete before teardown.
+      await client!.disconnect();
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createSendProgressTool()],
+      });
+      await server.start();
+      client = new InspectorClient(
+        { type: "streamable-http", url: server.url },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+        },
+      );
+      await client.connect();
+      const tool = await getTool(client, "send_progress");
+
+      // 20 units * 200ms ≈ 4s — comfortably still running when we disconnect.
+      const promise = client.callTool(tool, { units: 20, delayMs: 200 });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      await client.disconnect();
+
+      let caught: unknown;
+      try {
+        await promise;
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeDefined();
+      expect(caught).not.toBeInstanceOf(ToolCallCancelledError);
     });
 
     it("should paginate tools when maxPageSize is set", async () => {

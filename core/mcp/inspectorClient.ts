@@ -117,6 +117,7 @@ import {
   getUrlElicitationsFromError,
   UrlElicitationLoopError,
 } from "./urlElicitation.js";
+import { ToolCallCancelledError } from "./toolCallCancelledError.js";
 import type { AuthGuidedState, OAuthStep } from "../auth/types.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type pino from "pino";
@@ -140,6 +141,29 @@ interface ReceiverTaskRecord {
  * returning the error.
  */
 const MAX_URL_ELICITATION_RETRIES = 5;
+
+/**
+ * The abort reason used by `cancelToolCall()`. It rides along on the
+ * `notifications/cancelled` sent to the server and lets `callToolWithRetries`
+ * tell a deliberate user cancel apart from other aborts of the same controller
+ * (e.g. a disconnect, which aborts with a different reason and should surface as
+ * an ordinary error, not a "Tool call cancelled" — #1458).
+ */
+const TOOL_CALL_CANCELLED_REASON = "Tool call cancelled by user";
+
+/**
+ * The descriptor for a single tools/call, threaded through the retry loop and
+ * each attempt. Bundled into one object so `callToolWithRetries`/`attemptToolCall`
+ * don't take a long, transposition-prone positional parameter list.
+ */
+interface ToolCallRequest {
+  tool: Tool;
+  args: Record<string, JsonValue>;
+  generalMetadata?: Record<string, string>;
+  toolSpecificMetadata?: Record<string, string>;
+  taskOptions?: { ttl?: number };
+  options?: { skipOutputValidation?: boolean };
+}
 
 /**
  * InspectorClient wraps an MCP Client and provides:
@@ -199,6 +223,13 @@ export class InspectorClient extends InspectorClientEventTarget {
   // instead, so it lands in the right state immediately (#1455). Cleared on
   // disconnect.
   private cancelledTaskIds: Set<string> = new Set();
+  // Abort controller for the in-flight ordinary (non-task) tool call. Aborting
+  // it makes the SDK send a `notifications/cancelled` for that request (the MCP
+  // cancellation flow) and reject the pending call, which `callTool` surfaces as
+  // a `ToolCallCancelledError`. Undefined when no ordinary call is in flight.
+  // Task-augmented calls have a server-side task and are cancelled via
+  // `cancelRequestorTask` instead, so they don't use this (#1458).
+  private activeToolCallAbortController?: AbortController;
   // Receiver tasks (server-initiated: server sends createMessage/elicit with params.task, server polls us)
   private receiverTasks: boolean;
   private receiverTaskTtlMs: number | (() => number);
@@ -441,12 +472,20 @@ export class InspectorClient extends InspectorClientEventTarget {
     return { ...(defaults ?? {}), ...(callMetadata ?? {}) };
   }
 
-  private getRequestOptions(progressToken?: ProgressToken): RequestOptions {
+  private getRequestOptions(
+    progressToken?: ProgressToken,
+    signal?: AbortSignal,
+  ): RequestOptions {
     const opts: RequestOptions = {
       resetTimeoutOnProgress: this.resetTimeoutOnProgress,
     };
     if (this.requestTimeout !== undefined) {
       opts.timeout = this.requestTimeout;
+    }
+    // When provided, aborting this signal makes the SDK send a
+    // `notifications/cancelled` for the request and reject it (#1458).
+    if (signal) {
+      opts.signal = signal;
     }
     if (this.progress) {
       const token = progressToken;
@@ -1049,6 +1088,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Clear resource subscriptions on disconnect
     this.subscribedResources.clear();
     this.cancelledTaskIds.clear();
+    // Abort any in-flight ordinary tool call so its promise settles instead of
+    // hanging past teardown; drop the controller reference either way.
+    this.activeToolCallAbortController?.abort("Disconnected");
+    this.activeToolCallAbortController = undefined;
     // Clear receiver tasks: stop TTL timers and drop records
     for (const record of this.receiverTaskRecords.values()) {
       if (record.cleanupTimeoutId != null) {
@@ -1202,6 +1245,34 @@ export class InspectorClient extends InspectorClientEventTarget {
 
     // Dispatch event
     this.dispatchTypedEvent("taskCancelled", { taskId });
+  }
+
+  /**
+   * Cancel the in-flight ordinary (non-task) tool call started by
+   * {@link callTool}. Aborting its request makes the SDK send a
+   * `notifications/cancelled` to the server (the MCP cancellation flow) and
+   * reject the pending call, which `callTool` surfaces as a
+   * {@link ToolCallCancelledError}.
+   *
+   * Task-augmented calls have a server-side task and are cancelled via
+   * {@link cancelRequestorTask} instead — this is a no-op for them (and whenever
+   * no ordinary call is in flight).
+   *
+   * @returns `true` if a call was in flight to cancel, `false` otherwise.
+   */
+  cancelToolCall(): boolean {
+    const controller = this.activeToolCallAbortController;
+    if (!controller) {
+      return false;
+    }
+    // Drop the reference up front so a rapid second cancel is a clean no-op and
+    // can't re-abort a call that's already terminating.
+    this.activeToolCallAbortController = undefined;
+    // The reason string rides along on the `notifications/cancelled` the SDK
+    // sends to the server (and lets the call's catch distinguish this deliberate
+    // cancel from other aborts of the same controller, e.g. a disconnect).
+    controller.abort(TOOL_CALL_CANCELLED_REASON);
+    return true;
   }
 
   /**
@@ -1406,28 +1477,71 @@ export class InspectorClient extends InspectorClientEventTarget {
       );
     }
 
-    // Retry loop for the URL-elicitation error path: a `-32042`
+    const request: ToolCallRequest = {
+      tool,
+      args,
+      generalMetadata,
+      toolSpecificMetadata,
+      taskOptions,
+      options,
+    };
+    // Track this call so `cancelToolCall()` can abort it. Aborting makes the SDK
+    // send a `notifications/cancelled` to the server (the MCP cancellation flow)
+    // and reject the pending request, which we surface as a
+    // `ToolCallCancelledError`. This single slot is shared by *every* `callTool`
+    // caller (last-writer-wins), so `cancelToolCall()` targets the most recently
+    // started ordinary call — fine today since the Cancel button only surfaces
+    // for the single Tools-screen call. Cleared in `finally`, but only if still
+    // ours so a later overlapping call's controller isn't clobbered (#1458).
+    const abortController = new AbortController();
+    this.activeToolCallAbortController = abortController;
+    try {
+      return await this.callToolWithRetries(request, abortController);
+    } finally {
+      if (this.activeToolCallAbortController === abortController) {
+        this.activeToolCallAbortController = undefined;
+      }
+    }
+  }
+
+  /**
+   * The URL-elicitation retry loop for {@link callTool}, factored out so the
+   * caller can wrap it in the abort-controller lifecycle (`try`/`finally`). On a
+   * user cancellation (the call's abort signal fired with the cancel reason) the
+   * SDK has already sent `notifications/cancelled`, so we throw a
+   * {@link ToolCallCancelledError} without recording a failed call — the cancel
+   * was intentional, not a failure.
+   */
+  private async callToolWithRetries(
+    request: ToolCallRequest,
+    abortController: AbortController,
+  ): Promise<ToolCallInvocation> {
+    const { tool, args, generalMetadata, toolSpecificMetadata } = request;
+    // Retry-loop state for the URL-elicitation error path: a `-32042`
     // (UrlElicitationRequired) response means the server needs the user to
     // complete one or more URL elicitations before the call can succeed. We
     // surface them, wait for completion, then re-issue the same call. The
     // counter bounds a server that keeps returning `-32042` so we can't spin
-    // forever (each accepted round is one attempt).
+    // forever (each accepted round is one attempt). `presentedUrls` guards the
+    // loop: a retry that re-requests a URL we already handled can't progress, so
+    // we abort with a UrlElicitationLoopError rather than re-prompt.
     let urlElicitationAttempt = 0;
-    // URLs already presented in this call. If a retry's error re-requests one,
-    // completing it again can't make progress (the server isn't advancing), so
-    // we abort with a UrlElicitationLoopError rather than re-prompt the user.
     const presentedUrls = new Set<string>();
     while (true) {
       try {
-        return await this.attemptToolCall(
-          tool,
-          args,
-          generalMetadata,
-          toolSpecificMetadata,
-          taskOptions,
-          options,
-        );
+        return await this.attemptToolCall(request, abortController.signal);
       } catch (error) {
+        // The controller was aborted. A deliberate `cancelToolCall()` (matched
+        // by reason) means the SDK already sent `notifications/cancelled` — so
+        // surface a clean cancellation, not a generic failure, and don't record
+        // it in history. Any other abort (e.g. a disconnect, which aborts with a
+        // different reason) falls through to the normal error path (#1458).
+        if (
+          abortController.signal.aborted &&
+          abortController.signal.reason === TOOL_CALL_CANCELLED_REASON
+        ) {
+          throw new ToolCallCancelledError(tool.name);
+        }
         const urlElicitations = getUrlElicitationsFromError(error);
         if (
           urlElicitations &&
@@ -1507,13 +1621,17 @@ export class InspectorClient extends InspectorClientEventTarget {
    * retry loop owns the elicitation handling and failure bookkeeping.
    */
   private async attemptToolCall(
-    tool: Tool,
-    args: Record<string, JsonValue>,
-    generalMetadata?: Record<string, string>,
-    toolSpecificMetadata?: Record<string, string>,
-    taskOptions?: { ttl?: number },
-    options?: { skipOutputValidation?: boolean },
+    request: ToolCallRequest,
+    signal?: AbortSignal,
   ): Promise<ToolCallInvocation> {
+    const {
+      tool,
+      args,
+      generalMetadata,
+      toolSpecificMetadata,
+      taskOptions,
+      options,
+    } = request;
     const client = this.client;
     if (!client) {
       throw new Error("Client is not connected");
@@ -1562,7 +1680,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     // returned (and that legacy hosts render fine). For those passthrough
     // calls go through request() directly, which skips that host-side
     // validation. Regular Tools-screen calls keep validating.
-    const requestOptions = this.getRequestOptions(metadata?.progressToken);
+    const requestOptions = this.getRequestOptions(
+      metadata?.progressToken,
+      signal,
+    );
     // Both branches yield a CallToolResult: request() parsed it with
     // CallToolResultSchema above, callTool() returns the same shape — so the
     // `as CallToolResult` casts below are safe.
