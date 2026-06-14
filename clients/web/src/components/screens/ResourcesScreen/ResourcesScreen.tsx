@@ -35,6 +35,13 @@ export interface ResourcesScreenProps {
   ui: ResourcesUiState;
   listChanged: boolean;
   completionsSupported?: boolean;
+  /**
+   * Whether the connected server advertises the `resources.subscribe`
+   * capability. When false, the Subscribe/Unsubscribe button and the
+   * Subscriptions accordion section are hidden. Defaults to true so the
+   * controls render unless a caller explicitly marks them unsupported.
+   */
+  subscriptionsSupported?: boolean;
   onUiChange: (next: ResourcesUiState) => void;
   onRefreshList: () => void;
   onReadResource: (uri: string) => void;
@@ -129,6 +136,7 @@ export function ResourcesScreen({
   ui,
   listChanged,
   completionsSupported,
+  subscriptionsSupported = true,
   onUiChange,
   onRefreshList,
   onReadResource,
@@ -255,6 +263,7 @@ export function ResourcesScreen({
             contents={readState.result.contents}
             lastUpdated={readState.lastUpdated}
             isSubscribed={readState.isSubscribed ?? false}
+            subscriptionsSupported={subscriptionsSupported}
             onRefresh={() => handleReadResource(readResource.uri)}
             onSubscribe={() => onSubscribeResource(readResource.uri)}
             onUnsubscribe={() => onUnsubscribeResource(readResource.uri)}
@@ -275,6 +284,7 @@ export function ResourcesScreen({
             resources={resources}
             templates={templates}
             subscriptions={subscriptions}
+            subscriptionsSupported={subscriptionsSupported}
             selectedUri={selectedResourceUri}
             selectedTemplateUri={selectedTemplateUri}
             searchText={search}

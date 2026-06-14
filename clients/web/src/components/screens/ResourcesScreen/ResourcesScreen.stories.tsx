@@ -222,6 +222,21 @@ export const AllSections: Story = {
   },
 };
 
+// Server without the resources.subscribe capability: the Subscriptions
+// accordion section is omitted and no Subscribe button appears (#1478).
+export const SubscriptionsUnsupported: Story = {
+  args: {
+    resources: sampleResources,
+    templates: sampleTemplates,
+    subscriptions: sampleSubscriptions,
+    subscriptionsSupported: false,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(canvas.queryByText(/Subscriptions/)).not.toBeInTheDocument();
+  },
+};
+
 const manyResources: Resource[] = Array.from({ length: 40 }, (_, i) => ({
   name: `resource-${String(i + 1).padStart(2, "0")}.wav`,
   uri: `file:///kit/resource-${i + 1}.wav`,

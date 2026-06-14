@@ -2316,6 +2316,7 @@ function App() {
         onRefreshResources={onRefreshResources}
         onCompleteArgument={onCompleteArgument}
         completionsSupported={capabilities?.completions !== undefined}
+        subscriptionsSupported={capabilities?.resources?.subscribe === true}
         onTasksUiChange={setTasksUi}
         onCancelTask={(taskId) => {
           void onCancelTask(taskId);

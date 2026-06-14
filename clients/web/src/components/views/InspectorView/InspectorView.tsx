@@ -310,6 +310,12 @@ export interface InspectorViewProps {
     context: Record<string, string>,
   ) => Promise<string[]>;
   completionsSupported?: boolean;
+  /**
+   * Whether the connected server advertises the `resources.subscribe`
+   * capability. When false, the Resources screen hides the Subscribe/
+   * Unsubscribe button and the Subscriptions accordion section.
+   */
+  subscriptionsSupported?: boolean;
 
   onTasksUiChange: (next: TasksUiState) => void;
   onCancelTask: (taskId: string) => void;
@@ -407,6 +413,7 @@ export function InspectorView({
   onRefreshResources,
   onCompleteArgument,
   completionsSupported,
+  subscriptionsSupported,
   onTasksUiChange,
   onCancelTask,
   onClearCompletedTasks,
@@ -647,6 +654,7 @@ export function InspectorView({
               ui={resourcesUi}
               listChanged={resourcesListChanged}
               completionsSupported={completionsSupported}
+              subscriptionsSupported={subscriptionsSupported}
               onUiChange={onResourcesUiChange}
               onRefreshList={onRefreshResources}
               onReadResource={onReadResource}

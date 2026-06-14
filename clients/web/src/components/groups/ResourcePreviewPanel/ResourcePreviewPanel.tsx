@@ -24,6 +24,12 @@ export interface ResourcePreviewPanelProps {
   contents: (TextResourceContents | BlobResourceContents)[];
   lastUpdated?: Date;
   isSubscribed: boolean;
+  /**
+   * Whether the connected server advertises the `resources.subscribe`
+   * capability. When false, the Subscribe/Unsubscribe button is hidden.
+   * Defaults to true so the button renders unless explicitly unsupported.
+   */
+  subscriptionsSupported?: boolean;
   onRefresh: () => void;
   onSubscribe: () => void;
   onUnsubscribe: () => void;
@@ -168,6 +174,7 @@ export function ResourcePreviewPanel({
   contents,
   lastUpdated,
   isSubscribed,
+  subscriptionsSupported = true,
   onRefresh,
   onSubscribe,
   onUnsubscribe,
@@ -223,10 +230,12 @@ export function ResourcePreviewPanel({
           <Button variant="subtle" size="sm" onClick={onRefresh}>
             Refresh
           </Button>
-          <SubscribeButton
-            subscribed={isSubscribed}
-            onToggle={isSubscribed ? onUnsubscribe : onSubscribe}
-          />
+          {subscriptionsSupported && (
+            <SubscribeButton
+              subscribed={isSubscribed}
+              onToggle={isSubscribed ? onUnsubscribe : onSubscribe}
+            />
+          )}
         </ActionGroup>
       </FooterRow>
     </PanelStack>

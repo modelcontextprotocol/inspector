@@ -317,4 +317,27 @@ describe("ResourcesScreen", () => {
     await user.click(screen.getByRole("button", { name: "Unsubscribe" }));
     expect(onUnsubscribeResource).toHaveBeenCalledWith("file:///x");
   });
+
+  it("hides the Subscriptions section and Subscribe button when subscriptionsSupported is false", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ControlledResourcesScreen
+        subscriptionsSupported={false}
+        readState={{
+          status: "ok",
+          uri: "file:///x",
+          result: okResult,
+          isSubscribed: false,
+        }}
+      />,
+    );
+    // Sidebar Subscriptions accordion section is gone.
+    expect(screen.queryByText(/Subscriptions/)).not.toBeInTheDocument();
+    // Opening a resource preview shows Refresh but no Subscribe button.
+    await user.click(screen.getByText("x.txt"));
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Subscribe" }),
+    ).not.toBeInTheDocument();
+  });
 });

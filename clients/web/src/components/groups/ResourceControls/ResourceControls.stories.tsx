@@ -145,6 +145,25 @@ export const EmptySectionCollapsed: Story = {
   },
 };
 
+// Server does not advertise resources.subscribe: the Subscriptions section is
+// omitted entirely, leaving only URIs and Templates (#1478).
+export const SubscriptionsUnsupported: Story = {
+  args: {
+    resources: sampleResources,
+    templates: sampleTemplates,
+    subscriptions: sampleSubscriptions,
+    subscriptionsSupported: false,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(canvas.queryByText(/Subscriptions/)).not.toBeInTheDocument();
+    // Only the two remaining sections render, both open → both chevrons down.
+    const transforms = chevronTransforms(canvasElement);
+    expect(transforms).toHaveLength(2);
+    for (const t of transforms) expect(t).toBe(ROTATED_DOWN);
+  },
+};
+
 // Many URIs with sparse Templates/Subscriptions: under the old equal `/ n`
 // height split, URIs scrolled while the others left their share unused. Now the
 // sections size to content inside one bounded scroll region.
