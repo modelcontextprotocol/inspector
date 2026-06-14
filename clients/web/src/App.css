@@ -195,6 +195,40 @@
   transform: rotate(90deg);
 }
 
+/* ── Full-height sectioned accordion (Resources) ─────────────────
+ *
+ * The `disclosure` Accordion fills its full-height card as a flex column. The
+ * section controls (headers) stay pinned while each OPEN section's panel scrolls
+ * within its own share of the remaining height — the per-item `flex` weight
+ * (set in ResourceControls) hands space from long sections to short ones. With
+ * `flex-grow: 0`, nothing expands or scrolls until the combined content
+ * overflows the panel, so sections never scroll while the panel has free space
+ * (issue #1462). Closed sections collapse to their header height. */
+
+.disclosure-sections {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.disclosure-sections > .mantine-Accordion-item[data-active] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.disclosure-sections .mantine-Accordion-control {
+  flex: 0 0 auto;
+}
+
+.disclosure-sections
+  > .mantine-Accordion-item[data-active]
+  .mantine-Accordion-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 /* ── List item hover ────────────────────────────────────── */
 
 .list-item:hover {

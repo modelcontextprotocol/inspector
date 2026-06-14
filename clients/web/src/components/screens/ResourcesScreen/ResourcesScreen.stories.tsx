@@ -228,9 +228,10 @@ const manyResources: Resource[] = Array.from({ length: 40 }, (_, i) => ({
 }));
 
 // Enough URIs to overflow the panel. The sidebar card stays the same height as
-// the detail panel (no selection → full-height empty card), and only the inner
-// accordion scroll region scrolls — it doesn't scroll before the panel is full
-// (#1462).
+// the detail panel (no selection → full-height empty card). The section headers
+// stay pinned and the long URIs section scrolls *within its own panel* — the
+// whole accordion doesn't scroll, and a section doesn't scroll until the panel
+// is full (#1462).
 export const ManyResources: Story = {
   args: {
     resources: manyResources,
@@ -244,14 +245,25 @@ export const ManyResources: Story = {
     // The sidebar matches the detail panel's height (same bottom baseline).
     expect(Math.abs(sidebar.bottom - detail.bottom)).toBeLessThanOrEqual(1);
     expect(Math.abs(sidebar.height - detail.height)).toBeLessThanOrEqual(1);
-    // The list overflows, so the single inner scroll region scrolls.
-    const viewport = canvasElement.querySelector(
-      ".mantine-ScrollArea-viewport",
+
+    // The section headers stay pinned (visible, in document order), so the
+    // whole accordion doesn't scroll as one block.
+    const controls = canvasElement.querySelectorAll(
+      ".disclosure-sections .mantine-Accordion-control",
     );
-    if (!(viewport instanceof HTMLElement)) {
-      throw new Error("scroll viewport not found");
+    expect(controls).toHaveLength(3);
+    const tops = [...controls].map((c) => c.getBoundingClientRect().top);
+    expect(tops[0]).toBeLessThan(tops[1]);
+    expect(tops[1]).toBeLessThan(tops[2]);
+
+    // The long URIs section scrolls within its own panel.
+    const urisPanel = canvasElement.querySelector(
+      ".disclosure-sections .mantine-Accordion-panel",
+    );
+    if (!(urisPanel instanceof HTMLElement)) {
+      throw new Error("URIs panel not found");
     }
-    expect(viewport.scrollHeight).toBeGreaterThan(viewport.clientHeight);
+    expect(urisPanel.scrollHeight).toBeGreaterThan(urisPanel.clientHeight);
   },
 };
 

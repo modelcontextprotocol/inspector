@@ -2,7 +2,6 @@ import {
   Accordion,
   CloseButton,
   Group,
-  ScrollArea,
   Stack,
   TextInput,
   Title,
@@ -17,7 +16,6 @@ import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListCh
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { ResourceListItem } from "../ResourceListItem/ResourceListItem";
 import { ResourceSubscribedItem } from "../ResourceSubscribedItem/ResourceSubscribedItem";
-import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
 export interface ResourceControlsProps {
   resources: Resource[];
@@ -50,6 +48,15 @@ export interface ResourceControlsProps {
 
 function formatSectionCount(label: string, count: number): string {
   return `${label} (${count})`;
+}
+
+// Per-section flex for the full-height accordion. Open sections share the
+// remaining height; `flex-shrink` is weighted by item count (so a long section
+// gives up space to shorter ones before they have to scroll) and `flex-grow` is
+// 0 so nothing expands — or scrolls — until the combined content overflows the
+// panel. Closed/empty sections stay at their header height (#1462).
+function sectionFlex(open: boolean, count: number): string {
+  return open && count > 0 ? `0 ${count} auto` : "0 0 auto";
 }
 
 export function ResourceControls({
@@ -99,7 +106,6 @@ export function ResourceControls({
   const openSections =
     controlledOpenSections ?? (initialCompact ? [] : [...allSections]);
   const allExpanded = openSections.length === allSections.length;
-  const viewportRef = useScrollMemory("resources-sidebar");
 
   // Empty sections have a disabled control and nothing to show, so keep them
   // out of the accordion's open set — they render collapsed (chevron points
@@ -152,85 +158,91 @@ export function ResourceControls({
         />
         <ListToggle compact={!allExpanded} onToggle={handleToggleList} />
       </Group>
-      <ScrollArea
-        viewportRef={viewportRef}
+      <Accordion
+        multiple
+        variant="disclosure"
+        chevron={<RiArrowRightSLine />}
+        value={visibleOpenSections}
+        onChange={onOpenSectionsChange}
         flex={1}
         mih={0}
-        type="auto"
-        scrollbars="y"
       >
-        <Accordion
-          multiple
-          variant="disclosure"
-          chevron={<RiArrowRightSLine />}
-          value={visibleOpenSections}
-          onChange={onOpenSectionsChange}
+        <Accordion.Item
+          value="resources"
+          flex={sectionFlex(
+            visibleOpenSections.includes("resources"),
+            filteredResources.length,
+          )}
         >
-          <Accordion.Item value="resources">
-            <Accordion.Control disabled={filteredResources.length === 0}>
-              {formatSectionCount("URIs", filteredResources.length)}
-            </Accordion.Control>
-            <Accordion.Panel>
-              <Stack gap="xs">
-                {filteredResources.map((resource) => (
-                  <ResourceListItem
-                    key={resource.uri}
-                    resource={resource}
-                    selected={resource.uri === selectedUri}
-                    onClick={() => {
-                      if (resource.uri !== selectedUri)
-                        onSelectUri(resource.uri);
-                    }}
-                  />
-                ))}
-              </Stack>
-            </Accordion.Panel>
-          </Accordion.Item>
+          <Accordion.Control disabled={filteredResources.length === 0}>
+            {formatSectionCount("URIs", filteredResources.length)}
+          </Accordion.Control>
+          <Accordion.Panel>
+            <Stack gap="xs">
+              {filteredResources.map((resource) => (
+                <ResourceListItem
+                  key={resource.uri}
+                  resource={resource}
+                  selected={resource.uri === selectedUri}
+                  onClick={() => {
+                    if (resource.uri !== selectedUri) onSelectUri(resource.uri);
+                  }}
+                />
+              ))}
+            </Stack>
+          </Accordion.Panel>
+        </Accordion.Item>
 
-          <Accordion.Item value="templates">
-            <Accordion.Control disabled={filteredTemplates.length === 0}>
-              {formatSectionCount("Templates", filteredTemplates.length)}
-            </Accordion.Control>
-            <Accordion.Panel>
-              <Stack gap="xs">
-                {filteredTemplates.map((template) => (
-                  <ResourceListItem
-                    key={template.uriTemplate}
-                    resource={template}
-                    selected={template.uriTemplate === selectedTemplateUri}
-                    onClick={() => {
-                      if (template.uriTemplate !== selectedTemplateUri)
-                        onSelectTemplate(template.uriTemplate);
-                    }}
-                  />
-                ))}
-              </Stack>
-            </Accordion.Panel>
-          </Accordion.Item>
+        <Accordion.Item
+          value="templates"
+          flex={sectionFlex(
+            visibleOpenSections.includes("templates"),
+            filteredTemplates.length,
+          )}
+        >
+          <Accordion.Control disabled={filteredTemplates.length === 0}>
+            {formatSectionCount("Templates", filteredTemplates.length)}
+          </Accordion.Control>
+          <Accordion.Panel>
+            <Stack gap="xs">
+              {filteredTemplates.map((template) => (
+                <ResourceListItem
+                  key={template.uriTemplate}
+                  resource={template}
+                  selected={template.uriTemplate === selectedTemplateUri}
+                  onClick={() => {
+                    if (template.uriTemplate !== selectedTemplateUri)
+                      onSelectTemplate(template.uriTemplate);
+                  }}
+                />
+              ))}
+            </Stack>
+          </Accordion.Panel>
+        </Accordion.Item>
 
-          <Accordion.Item value="subscriptions">
-            <Accordion.Control disabled={filteredSubscriptions.length === 0}>
-              {formatSectionCount(
-                "Subscriptions",
-                filteredSubscriptions.length,
-              )}
-            </Accordion.Control>
-            <Accordion.Panel>
-              <Stack gap="xs">
-                {filteredSubscriptions.map((sub) => (
-                  <ResourceSubscribedItem
-                    key={sub.resource.uri}
-                    subscription={sub}
-                    onUnsubscribe={() =>
-                      onUnsubscribeResource(sub.resource.uri)
-                    }
-                  />
-                ))}
-              </Stack>
-            </Accordion.Panel>
-          </Accordion.Item>
-        </Accordion>
-      </ScrollArea>
+        <Accordion.Item
+          value="subscriptions"
+          flex={sectionFlex(
+            visibleOpenSections.includes("subscriptions"),
+            filteredSubscriptions.length,
+          )}
+        >
+          <Accordion.Control disabled={filteredSubscriptions.length === 0}>
+            {formatSectionCount("Subscriptions", filteredSubscriptions.length)}
+          </Accordion.Control>
+          <Accordion.Panel>
+            <Stack gap="xs">
+              {filteredSubscriptions.map((sub) => (
+                <ResourceSubscribedItem
+                  key={sub.resource.uri}
+                  subscription={sub}
+                  onUnsubscribe={() => onUnsubscribeResource(sub.resource.uri)}
+                />
+              ))}
+            </Stack>
+          </Accordion.Panel>
+        </Accordion.Item>
+      </Accordion>
     </Stack>
   );
 }
