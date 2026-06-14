@@ -241,4 +241,87 @@ describe("createProxyFetch", () => {
     const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(callBody.url).toBe("https://example.com/from-request");
   });
+
+  it("preserves method, headers, and body from Request input", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          body: "",
+        }),
+    });
+
+    const fetchFn = createProxyFetch(configWithProxy);
+    await fetchFn(
+      new Request("https://example.com/oauth/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-Test": "1",
+        },
+        body: "grant_type=authorization_code&code=abc",
+      }),
+    );
+
+    const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(callBody).toEqual({
+      url: "https://example.com/oauth/token",
+      init: {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "x-test": "1",
+        },
+        body: "grant_type=authorization_code&code=abc",
+      },
+    });
+  });
+
+  it("lets explicit init override Request defaults", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          body: "",
+        }),
+    });
+
+    const fetchFn = createProxyFetch(configWithProxy);
+    await fetchFn(
+      new Request("https://example.com/oauth/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-Request": "request",
+        },
+        body: "from=request",
+      }),
+      {
+        method: "PUT",
+        headers: { "X-Init": "init" },
+        body: "from=init",
+      },
+    );
+
+    const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(callBody).toEqual({
+      url: "https://example.com/oauth/token",
+      init: {
+        method: "PUT",
+        headers: {
+          "content-type": "text/plain;charset=UTF-8",
+          "x-init": "init",
+        },
+        body: "from=init",
+      },
+    });
+  });
 });
