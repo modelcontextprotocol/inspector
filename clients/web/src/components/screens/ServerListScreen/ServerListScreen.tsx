@@ -137,7 +137,15 @@ export function ServerListScreen({
         onExport={onExport}
       />
 
-      <ScrollArea.Autosize mah="calc(100vh - var(--app-shell-header-height, 60px) - var(--mantine-spacing-xl) * 2 - 60px)">
+      <ScrollArea.Autosize
+        mah="calc(100vh - var(--app-shell-header-height, 60px) - var(--mantine-spacing-xl) * 2 - 60px)"
+        // Same scrollbar treatment as the History/Network/Logging list panels
+        // (#1474): reserve a gutter so the bar never overlays the right edge of
+        // the server cards (occluding their action icons / status badges), and
+        // only show it while actively scrolling rather than popping in on hover.
+        type="scroll"
+        offsetScrollbars
+      >
         {servers.length === 0 ? (
           <EmptyState>
             No servers configured. Add a server to get started.
