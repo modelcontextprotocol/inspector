@@ -561,7 +561,7 @@ export function InspectorView({
   );
 
   return (
-    // padding={0}: each screen fills `calc(100vh - header)` and supplies its
+    // padding={0}: each screen fills `calc(100dvh - header)` and supplies its
     // own `xl` padding, so Main must contribute only the fixed-header offset.
     // Mantine's default `padding="md"` added an extra inset that pushed content
     // past the viewport and made the whole InspectorView scroll — the theme's

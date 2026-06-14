@@ -12,6 +12,9 @@ export const ThemeAppShell = AppShell.extend({
     // as padding-top) and clip overflow so the InspectorView as a whole never
     // scrolls — only the inner ScrollArea regions within each screen do. Guards
     // against sub-pixel rounding that could otherwise surface a page scrollbar.
+    // `dvh` matches the unit the screens size themselves with (`calc(100dvh -
+    // header)`), so a dynamic mobile toolbar can't make a screen taller than
+    // this clipped box and lose its bottom edge.
     main: {
       height: "100dvh",
       overflow: "hidden",

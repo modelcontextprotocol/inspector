@@ -59,7 +59,7 @@ export interface PromptsUiState {
 
 const ScreenLayout = Flex.withProps({
   variant: "screen",
-  h: "calc(100vh - var(--app-shell-header-height, 0px))",
+  h: "calc(100dvh - var(--app-shell-header-height, 0px))",
   gap: "md",
   p: "xl",
 });
@@ -104,7 +104,7 @@ const EmptyState = Text.withProps({
 });
 
 const SCROLL_MAX_HEIGHT =
-  "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)";
+  "calc(100dvh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)";
 
 function hasArguments(prompt: Prompt): boolean {
   return !!prompt.arguments && prompt.arguments.length > 0;

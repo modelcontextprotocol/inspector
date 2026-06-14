@@ -144,8 +144,12 @@ export function ResourceControls({
   // section against the `value` we hand it, which omits these — so without
   // merging them back, toggling any populated section would silently drop an
   // empty section's intent and it wouldn't reappear once it has items again.
+  // Restricted to `allSections` so a stale "subscriptions" entry persisted from
+  // a prior subscription-capable session isn't perpetually re-appended once the
+  // section is no longer rendered — it's dropped from persisted state instead.
   const intendedButEmptySections = openSections.filter(
-    (section) => !visibleOpenSections.includes(section),
+    (section) =>
+      allSections.includes(section) && !visibleOpenSections.includes(section),
   );
   function handleOpenSectionsChange(next: string[]) {
     // Safe to append unconditionally: empty-section controls are `disabled`, so

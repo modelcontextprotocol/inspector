@@ -39,7 +39,7 @@ export interface HistoryUiState {
 
 const ScreenLayout = Flex.withProps({
   variant: "screen",
-  h: "calc(100vh - var(--app-shell-header-height, 0px))",
+  h: "calc(100dvh - var(--app-shell-header-height, 0px))",
   gap: "md",
   p: "xl",
 });

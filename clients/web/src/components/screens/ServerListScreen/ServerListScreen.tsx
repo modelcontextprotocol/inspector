@@ -138,7 +138,7 @@ export function ServerListScreen({
       />
 
       <ScrollArea.Autosize
-        mah="calc(100vh - var(--app-shell-header-height, 60px) - var(--mantine-spacing-xl) * 2 - 60px)"
+        mah="calc(100dvh - var(--app-shell-header-height, 60px) - var(--mantine-spacing-xl) * 2 - 60px)"
         // Same scrollbar treatment as the History/Network/Logging list panels
         // (#1474): reserve a gutter so the bar never overlays the right edge of
         // the server cards (occluding their action icons / status badges), and
