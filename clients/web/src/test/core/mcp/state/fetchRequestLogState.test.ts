@@ -146,27 +146,33 @@ describe("FetchRequestLogState", () => {
     expect(seen).toHaveLength(1);
   });
 
-  it("ignores fetchRequestBodyUpdate for unknown ids and traces the drop", () => {
+  it("silently ignores a body update for an unknown id when the log is not full (benign straggler)", () => {
+    // Below capacity, an idx === -1 means the entry was cleared or never
+    // existed — not a rotation drop — so it must NOT warn or emit the dropped
+    // event (which would mislead the user into raising the log size).
     const { logger, warn } = makeWarnLogger();
-    const logged = makeLoggedState(logger);
+    const logged = makeLoggedState(logger, { maxFetchRequests: 1000 });
     client.dispatchTypedEvent("fetchRequest", entry("a"));
     let changes = 0;
+    let dropped = 0;
     logged.addEventListener("fetchRequestsChange", () => changes++);
+    logged.addEventListener("fetchRequestBodyDropped", () => dropped++);
     client.dispatchTypedEvent("fetchRequestBodyUpdate", {
       id: "nonexistent",
       responseBody: "x",
     });
     expect(changes).toBe(0);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith(
-      expect.objectContaining({ fetchRequestId: "nonexistent" }),
-      expect.stringContaining("rotated out"),
-    );
+    expect(dropped).toBe(0);
+    expect(warn).not.toHaveBeenCalled();
   });
 
-  it("traces the drop when the entry rotated out before the body arrived", () => {
+  it("traces and emits when the entry rotated out before the body arrived", () => {
     const { logger, warn } = makeWarnLogger();
     const logged = makeLoggedState(logger, { maxFetchRequests: 1 });
+    const dropped: { id: string; maxFetchRequests: number }[] = [];
+    logged.addEventListener("fetchRequestBodyDropped", (e) =>
+      dropped.push(e.detail),
+    );
     client.dispatchTypedEvent("fetchRequest", entry("a"));
     // A newer request evicts "a" before its deferred body update arrives.
     client.dispatchTypedEvent("fetchRequest", entry("b"));
@@ -182,6 +188,50 @@ describe("FetchRequestLogState", () => {
       }),
       expect.stringContaining("rotated out"),
     );
+    expect(dropped).toEqual([{ id: "a", maxFetchRequests: 1 }]);
+  });
+
+  it("does not flag a rotation drop when the log is unlimited (maxFetchRequests = 0)", () => {
+    // With no cap, entries never rotate out, so an unknown id is always a
+    // benign straggler — never a data-loss event.
+    const { logger, warn } = makeWarnLogger();
+    const logged = makeLoggedState(logger, { maxFetchRequests: 0 });
+    let dropped = 0;
+    logged.addEventListener("fetchRequestBodyDropped", () => dropped++);
+    client.dispatchTypedEvent("fetchRequest", entry("a"));
+    client.dispatchTypedEvent("fetchRequestBodyUpdate", {
+      id: "gone",
+      responseBody: "x",
+    });
+    expect(warn).not.toHaveBeenCalled();
+    expect(dropped).toBe(0);
+  });
+
+  it("setMaxFetchRequests trims live when shrunk and re-emits", () => {
+    const sized = new FetchRequestLogState(client, { maxFetchRequests: 5 });
+    for (let i = 0; i < 5; i++) {
+      client.dispatchTypedEvent("fetchRequest", entry(`e${i}`));
+    }
+    const seen: string[][] = [];
+    sized.addEventListener("fetchRequestsChange", (e) =>
+      seen.push(e.detail.map((x) => x.id)),
+    );
+    sized.setMaxFetchRequests(2);
+    // Trims to the newest 2 and emits once.
+    expect(sized.getFetchRequests().map((e) => e.id)).toEqual(["e3", "e4"]);
+    expect(seen).toEqual([["e3", "e4"]]);
+  });
+
+  it("setMaxFetchRequests is a no-op when unchanged or when growing within bounds", () => {
+    const sized = new FetchRequestLogState(client, { maxFetchRequests: 2 });
+    client.dispatchTypedEvent("fetchRequest", entry("a"));
+    client.dispatchTypedEvent("fetchRequest", entry("b"));
+    let changes = 0;
+    sized.addEventListener("fetchRequestsChange", () => changes++);
+    sized.setMaxFetchRequests(2); // unchanged
+    sized.setMaxFetchRequests(10); // grown — nothing to trim
+    expect(changes).toBe(0);
+    expect(sized.getFetchRequests().map((e) => e.id)).toEqual(["a", "b"]);
   });
 
   it("does NOT clear on connect or disconnect", () => {

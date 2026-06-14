@@ -533,6 +533,113 @@ describe("/api/servers routes", () => {
       expect(res.status).toBe(400);
     });
 
+    it("persists a non-default maxFetchRequests through the PUT write path", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            delta: { type: "streamable-http", url: "https://x.test/mcp" },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/delta`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            maxFetchRequests: 5000,
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers
+        .delta as unknown as Record<string, unknown>;
+      expect(stored.maxFetchRequests).toBe(5000);
+    });
+
+    it("persists maxFetchRequests: 0 (unlimited) — a meaningful non-default value", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            delta: { type: "streamable-http", url: "https://x.test/mcp" },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/delta`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            maxFetchRequests: 0,
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers
+        .delta as unknown as Record<string, unknown>;
+      expect(stored.maxFetchRequests).toBe(0);
+    });
+
+    it("omits maxFetchRequests from disk when it equals the default (1000)", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            delta: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              maxFetchRequests: 5000,
+            },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/delta`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            maxFetchRequests: 1000,
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers
+        .delta as unknown as Record<string, unknown>;
+      expect(stored).not.toHaveProperty("maxFetchRequests");
+    });
+
+    it("rejects a negative maxFetchRequests", async () => {
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "bad-maxfetch",
+          config: { type: "stdio", command: "node" },
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            maxFetchRequests: -5,
+          },
+        }),
+      });
+      expect(res.status).toBe(400);
+    });
+
     it("rejects a non-object settings field", async () => {
       const res = await fetch(`${h.baseUrl}/api/servers`, {
         method: "POST",

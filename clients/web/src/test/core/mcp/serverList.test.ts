@@ -247,6 +247,58 @@ describe("serverEntriesToMcpConfig", () => {
     expect(round).toEqual(original);
   });
 
+  it("round-trips maxFetchRequests: lifts a non-default value to settings and back to disk", () => {
+    const original: MCPConfig = {
+      mcpServers: {
+        zeta: {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          maxFetchRequests: 5000,
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.maxFetchRequests).toBe(5000);
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect(round).toEqual(original);
+  });
+
+  it("round-trips maxFetchRequests: 0 (unlimited) — a meaningful non-default value", () => {
+    const original: MCPConfig = {
+      mcpServers: {
+        eta: {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          maxFetchRequests: 0,
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.maxFetchRequests).toBe(0);
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect(round).toEqual(original);
+  });
+
+  it("omits maxFetchRequests from disk when it equals the default", () => {
+    // Absent on disk lifts to the product default (1000) in memory; writing it
+    // back must NOT inject the field, keeping the diff minimal. A benign
+    // inspector field (connectionTimeout) is present so `settings` is built.
+    const original: MCPConfig = {
+      mcpServers: {
+        theta: {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          connectionTimeout: 5000,
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.maxFetchRequests).toBe(1000);
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect("maxFetchRequests" in (round.mcpServers.theta ?? {})).toBe(false);
+    expect(round).toEqual(original);
+  });
+
   it("lifts top-level Inspector-extension fields onto ServerEntry.settings (form shape)", () => {
     const cfg: MCPConfig = {
       mcpServers: {
@@ -269,6 +321,8 @@ describe("serverEntriesToMcpConfig", () => {
       taskTtl: 60000,
       // Absent autoRefreshOnListChanged on disk → false in memory (for the form)
       autoRefreshOnListChanged: false,
+      // Absent maxFetchRequests on disk → product default in memory (for the form)
+      maxFetchRequests: 1000,
       // Absent roots on disk → empty list in memory (for the form)
       roots: [],
       // Nested oauth on disk → flat oauthClientId in memory
@@ -343,6 +397,7 @@ describe("serverEntriesToMcpConfig", () => {
           connectionTimeout: 0,
           requestTimeout: 0,
           taskTtl: 0,
+          maxFetchRequests: 1000,
           roots: [],
         },
         connection: { status: "disconnected" },
@@ -368,6 +423,7 @@ describe("serverEntriesToMcpConfig", () => {
           connectionTimeout: 0,
           requestTimeout: 0,
           taskTtl: 0,
+          maxFetchRequests: 1000,
           roots: [],
         },
         connection: { status: "disconnected" },
@@ -395,6 +451,7 @@ describe("serverEntriesToMcpConfig", () => {
           connectionTimeout: 0,
           requestTimeout: 0,
           taskTtl: 0,
+          maxFetchRequests: 1000,
           roots: [
             { uri: "file:///project", name: "Project" },
             { uri: "file:///tmp" },
@@ -432,6 +489,7 @@ describe("serverEntriesToMcpConfig", () => {
           connectionTimeout: 0,
           requestTimeout: 0,
           taskTtl: 0,
+          maxFetchRequests: 1000,
           roots: [
             { uri: "file:///keep", name: "  " },
             { uri: "   " },
@@ -457,6 +515,7 @@ describe("serverEntriesToMcpConfig", () => {
           connectionTimeout: 0,
           requestTimeout: 0,
           taskTtl: 0,
+          maxFetchRequests: 1000,
           roots: [{ uri: "" }],
         },
         connection: { status: "disconnected" },

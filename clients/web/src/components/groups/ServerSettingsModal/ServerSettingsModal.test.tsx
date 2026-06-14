@@ -13,6 +13,7 @@ const initialSettings: InspectorServerSettings = {
   oauthClientId: "cid",
   oauthClientSecret: "secret",
   oauthScopes: "read",
+  maxFetchRequests: 1000,
   roots: [{ uri: "file:///project", name: "Project" }],
 };
 
@@ -22,6 +23,7 @@ const emptySettings: InspectorServerSettings = {
   connectionTimeout: 30000,
   requestTimeout: 60000,
   taskTtl: 60000,
+  maxFetchRequests: 1000,
   roots: [],
 };
 

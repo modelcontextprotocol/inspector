@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Anchor,
+  List,
   Stack,
   Text,
   useComputedColorScheme,
@@ -36,7 +37,10 @@ import type {
   ServerEntry,
   ServerType,
 } from "@inspector/core/mcp/types.js";
-import { DEFAULT_TASK_TTL_MS } from "@inspector/core/mcp/types.js";
+import {
+  DEFAULT_MAX_FETCH_REQUESTS,
+  DEFAULT_TASK_TTL_MS,
+} from "@inspector/core/mcp/types.js";
 import {
   API_SERVER_ENV_VARS,
   INSPECTOR_API_TOKEN_GLOBAL,
@@ -53,6 +57,7 @@ import {
 } from "@inspector/core/mcp/serverList.js";
 import { MessageLogState } from "@inspector/core/mcp/state/messageLogState.js";
 import { FetchRequestLogState } from "@inspector/core/mcp/state/fetchRequestLogState.js";
+import type { FetchRequestLogStateEventMap } from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import { StderrLogState } from "@inspector/core/mcp/state/stderrLogState.js";
 import type { RedirectUrlProvider } from "@inspector/core/auth/index.js";
 import {
@@ -279,8 +284,52 @@ const EMPTY_SETTINGS: InspectorServerSettings = {
   requestTimeout: 0,
   taskTtl: DEFAULT_TASK_TTL_MS,
   autoRefreshOnListChanged: false,
+  maxFetchRequests: DEFAULT_MAX_FETCH_REQUESTS,
   roots: [],
 };
+
+// Stable toast id for the "response body dropped" warning, keyed per server so
+// a request storm updates one persistent toast rather than stacking thousands
+// (the drop event can fire rapidly). Mirrors the progress-toast dedupe pattern.
+function bodyDroppedToastId(serverId: string): string {
+  return `fetch-body-dropped-${serverId}`;
+}
+
+// Body of the "response body dropped" warning toast: a one-line summary of what
+// happened, the likely causes, and a link that opens this server's settings
+// (on the Options section) so the user can raise the Network Log Size if it's
+// just a high-traffic server. Surfaces the otherwise-invisible rotation drop
+// described in #1390.
+const FetchBodyDroppedToastMessage = ({
+  maxFetchRequests,
+  onAdjust,
+}: {
+  maxFetchRequests: number;
+  onAdjust: () => void;
+}) => (
+  <Stack gap={4}>
+    <Text size="sm">
+      A response body arrived after its Network log entry had already rotated
+      out (the log hit its {maxFetchRequests}-request limit), so the body
+      couldn&apos;t be shown. This usually indicates:
+    </Text>
+    <List size="sm" spacing={2}>
+      <List.Item>
+        a chatty or misbehaving server (notification storms, rapid polling)
+      </List.Item>
+      <List.Item>an SSE/transport reconnect or retry storm</List.Item>
+      <List.Item>
+        a slow streaming call racing against high request volume
+      </List.Item>
+      <List.Item>
+        the Network Log Size set too low for this server&apos;s traffic
+      </List.Item>
+    </List>
+    <Anchor component="button" type="button" size="sm" onClick={onAdjust}>
+      Adjust Network Log Size for this server
+    </Anchor>
+  </Stack>
+);
 
 // Body of the output-schema-mismatch warning toast: a one-line summary plus a
 // link that opens the full validation details in a modal (the raw error is far
@@ -645,6 +694,50 @@ function App() {
   );
   const { messages } = useMessageLog(messageLogState);
   const { fetchRequests } = useFetchRequestLog(fetchRequestLogState);
+
+  // Surface the otherwise-invisible "response body dropped after rotation" case
+  // (#1390) as a deduped toast that links to this server's Network Log Size
+  // setting. The state manager only emits this when the drop is genuinely due
+  // to rotation (log at capacity), not for benign post-clear stragglers.
+  useEffect(() => {
+    if (!fetchRequestLogState || activeServerId === undefined) return;
+    const onBodyDropped = (
+      event: TypedEventGeneric<
+        FetchRequestLogStateEventMap,
+        "fetchRequestBodyDropped"
+      >,
+    ) => {
+      notifications.show({
+        id: bodyDroppedToastId(activeServerId),
+        title: "Network log: response body dropped",
+        color: "yellow",
+        // Stays until dismissed (or the user opens settings via the link) so a
+        // single toast represents an ongoing condition rather than flashing per
+        // drop; the stable id dedupes a storm into this one toast.
+        autoClose: false,
+        message: (
+          <FetchBodyDroppedToastMessage
+            maxFetchRequests={event.detail.maxFetchRequests}
+            onAdjust={() => {
+              notifications.hide(bodyDroppedToastId(activeServerId));
+              setSettingsModalTargetId(activeServerId);
+            }}
+          />
+        ),
+      });
+    };
+    fetchRequestLogState.addEventListener(
+      "fetchRequestBodyDropped",
+      onBodyDropped,
+    );
+    return () => {
+      fetchRequestLogState.removeEventListener(
+        "fetchRequestBodyDropped",
+        onBodyDropped,
+      );
+    };
+  }, [fetchRequestLogState, activeServerId]);
+
   // Server-initiated sampling / elicitation requests. These arrive while a call
   // (e.g. a tool execution) is in flight and block it until the user responds.
   const { pendingSamples, pendingElicitations } =
@@ -1222,6 +1315,8 @@ function App() {
       const nextFetchLog = new FetchRequestLogState(client, {
         sessionStorage: sessionStorageAdapter,
         logger,
+        maxFetchRequests:
+          savedSettings?.maxFetchRequests ?? DEFAULT_MAX_FETCH_REQUESTS,
         ...(sessionId && { sessionId }),
       });
       fetchLogRef.current = nextFetchLog;
@@ -2123,6 +2218,11 @@ function App() {
       // effect without a reconnect (#1444). Connection-time inputs (transport,
       // OAuth, timeouts) still only apply on the next connect.
       inspectorClient.setServerSettings(settingsDraft);
+      // Resize the Network log buffer live so a maxFetchRequests edit takes
+      // effect without a reconnect (shrinking trims immediately). Connect-time
+      // construction also reads this, so a reconnect would apply it anyway —
+      // this just makes the toast→adjust flow responsive.
+      fetchLogRef.current?.setMaxFetchRequests(settingsDraft.maxFetchRequests);
       const nextRoots = cleanRoots(settingsDraft.roots);
       const currentRoots = cleanRoots(inspectorClient.getRoots());
       if (JSON.stringify(nextRoots) !== JSON.stringify(currentRoots)) {
@@ -2358,6 +2458,10 @@ function App() {
         onSubmit={onConfigSubmit}
       />
       <ServerSettingsModal
+        // Remount per open (and per target server) so the accordion resets to
+        // its initial "options" section — the body-dropped toast deep-links
+        // here expecting the Network Log Size control to be visible.
+        key={settingsModalTargetId ?? "closed"}
         opened={settingsModalTargetId !== undefined}
         settings={settingsModalValue}
         onClose={onSettingsModalClose}

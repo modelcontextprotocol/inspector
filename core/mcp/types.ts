@@ -112,6 +112,13 @@ export type StoredMCPServer = MCPServerConfig & {
    */
   autoRefreshOnListChanged?: boolean;
   /**
+   * Maximum number of HTTP fetch requests retained in the Network log for this
+   * server (oldest rotate out past the cap). Inspector-specific. Omitted on
+   * disk when it equals `DEFAULT_MAX_FETCH_REQUESTS` (the default), keeping the
+   * file diff minimal for servers that never tuned it. `0` means unlimited.
+   */
+  maxFetchRequests?: number;
+  /**
    * Pre-configured OAuth client credentials for HTTP transports. Nested to
    * match Claude Code's `.mcp.json` shape; lifted into the flat `oauthClientId`
    * / `oauthClientSecret` / `oauthScopes` fields on `InspectorServerSettings`
@@ -382,6 +389,15 @@ export interface OAuthSettings {
 export const DEFAULT_TASK_TTL_MS = 60000;
 
 /**
+ * Default maximum number of HTTP fetch requests retained in the Network log
+ * (per server). When exceeded, the oldest entries rotate out. A larger value
+ * keeps more history at the cost of memory; `0` means unlimited (not
+ * recommended). Mirrors `FetchRequestLogState`'s built-in default so the form
+ * and the log state agree on the omit-sentinel.
+ */
+export const DEFAULT_MAX_FETCH_REQUESTS = 1000;
+
+/**
  * Runtime settings for a configured server. A subset of
  * InspectorClientOptions (v1.5) relevant to the settings form:
  * headers, metadata, timeouts, and OAuth credentials.
@@ -402,6 +418,14 @@ export interface InspectorServerSettings {
    * and the user pulls the new list via Refresh. (#1402)
    */
   autoRefreshOnListChanged?: boolean;
+  /**
+   * Maximum number of HTTP fetch requests retained in the Network log for this
+   * server. When exceeded, the oldest entries rotate out (and any deferred
+   * response body that arrives after its entry rotated out is dropped — see
+   * `FetchRequestLogState`). Concrete value so the form always has something to
+   * render; defaults to `DEFAULT_MAX_FETCH_REQUESTS`. `0` means unlimited.
+   */
+  maxFetchRequests: number;
   /**
    * Roots advertised to the server via the `roots` client capability. Each
    * root carries a required `uri` and an optional `name` (SDK `Root`). The

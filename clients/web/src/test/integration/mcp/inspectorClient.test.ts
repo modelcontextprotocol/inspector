@@ -322,6 +322,7 @@ describe("InspectorClient", () => {
             connectionTimeout: 50,
             requestTimeout: 0,
             taskTtl: 0,
+            maxFetchRequests: 1000,
             roots: [],
           },
         },
@@ -663,6 +664,7 @@ describe("InspectorClient", () => {
         connectionTimeout: 0,
         requestTimeout: 0,
         taskTtl: 0,
+        maxFetchRequests: 1000,
         autoRefreshOnListChanged: false,
         roots: [],
       };

@@ -39,6 +39,7 @@ export interface ServerSettingsFormProps {
     value: number,
   ) => void;
   onAutoRefreshChange: (value: boolean) => void;
+  onMaxFetchRequestsChange: (value: number) => void;
   onOAuthChange: (oauth: OAuthSettings) => void;
   onAddRoot: () => void;
   onRemoveRoot: (index: number) => void;
@@ -184,11 +185,17 @@ export function ServerSettingsForm({
   onMetadataChange,
   onTimeoutChange,
   onAutoRefreshChange,
+  onMaxFetchRequestsChange,
   onOAuthChange,
   onAddRoot,
   onRemoveRoot,
   onRootChange,
 }: ServerSettingsFormProps) {
+  const handleMaxFetchRequestsChange = (value: number | string) => {
+    const numValue =
+      typeof value === "string" ? parseInt(value, 10) || 0 : value;
+    onMaxFetchRequestsChange(numValue);
+  };
   const handleTimeoutChange =
     (field: "connectionTimeout" | "requestTimeout" | "taskTtl") =>
     (value: number | string) => {
@@ -223,6 +230,14 @@ export function ServerSettingsForm({
               description="When checked, tool/prompt/resource lists refresh automatically when the server sends a */list_changed notification. When unchecked, the list-changed indicator appears and you refresh on demand."
               checked={settings.autoRefreshOnListChanged ?? false}
               onChange={(e) => onAutoRefreshChange(e.currentTarget.checked)}
+            />
+            <NumberInput
+              label="Network Log Size"
+              description="Maximum number of HTTP requests kept in the Network log for this server. Older entries rotate out past this limit; a response body that arrives after its entry rotated out is dropped. Use 0 for unlimited (not recommended). Applies immediately to the active connection."
+              min={0}
+              step={100}
+              value={settings.maxFetchRequests}
+              onChange={handleMaxFetchRequestsChange}
             />
           </Stack>
         </Accordion.Panel>
