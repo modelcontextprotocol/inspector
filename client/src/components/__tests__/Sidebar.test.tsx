@@ -23,9 +23,15 @@ jest.mock("@/lib/hooks/useToast", () => ({
 // Mock navigator clipboard
 const mockClipboardWrite = jest.fn(() => Promise.resolve());
 Object.defineProperty(navigator, "clipboard", {
+  configurable: true,
   value: {
     writeText: mockClipboardWrite,
   },
+});
+const mockExecCommand = jest.fn(() => true);
+Object.defineProperty(document, "execCommand", {
+  configurable: true,
+  value: mockExecCommand,
 });
 
 // Setup fake timers
@@ -76,6 +82,8 @@ describe("Sidebar", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.clearAllTimers();
+    mockClipboardWrite.mockResolvedValue(undefined);
+    mockExecCommand.mockReturnValue(true);
   });
 
   describe("Command and arguments", () => {
@@ -490,6 +498,34 @@ describe("Sidebar", () => {
         4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
+    });
+
+    it("should fall back when clipboard write is rejected for servers file export", async () => {
+      mockClipboardWrite.mockRejectedValueOnce(new Error("NotAllowedError"));
+      const command = "node";
+      const args = "server.js";
+
+      renderSidebar({
+        transportType: "stdio",
+        command,
+        args,
+      });
+
+      await act(async () => {
+        const { serversFile } = getCopyButtons();
+        fireEvent.click(serversFile);
+        await Promise.resolve();
+        jest.runAllTimers();
+      });
+
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      expect(mockExecCommand).toHaveBeenCalledWith("copy");
+      expect(document.querySelector("textarea")).toBeNull();
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Servers file copied",
+        description:
+          "Servers configuration has been copied to clipboard. Add this to your mcp.json file. Current testing server will be added as 'default-server'",
+      });
     });
 
     it("should copy server entry configuration to clipboard for SSE transport", async () => {
