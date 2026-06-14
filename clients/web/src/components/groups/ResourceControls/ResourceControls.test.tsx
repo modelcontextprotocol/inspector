@@ -222,6 +222,28 @@ describe("ResourceControls", () => {
     expect(onCompactChange).toHaveBeenLastCalledWith(false);
   });
 
+  it("keeps an empty section collapsed even when it's in openSections", () => {
+    // All three sections requested open, but Subscriptions has no items: its
+    // control must render collapsed (aria-expanded=false) so the chevron points
+    // right, while the populated sections stay expanded (#1462).
+    renderWithMantine(
+      <ResourceControls
+        {...baseProps}
+        subscriptions={[]}
+        openSections={["resources", "templates", "subscriptions"]}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: /URIs \(2\)/ }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByRole("button", { name: /Templates \(1\)/ }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByRole("button", { name: /Subscriptions \(0\)/ }),
+    ).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("filters by resource title when title is set", async () => {
     const user = userEvent.setup();
     const resourcesWithTitle: Resource[] = [
