@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
-import { expect, fn } from "storybook/test";
+import { fn } from "storybook/test";
 import { HistoryListPanel } from "./HistoryListPanel.js";
+import { expectScrollbarGutterIdleHidden } from "../../../test/scrollAreaStoryAssertions";
 
 const meta: Meta<typeof HistoryListPanel> = {
   title: "Groups/HistoryListPanel",
@@ -106,22 +107,7 @@ export const WithEntries: Story = {
   // bar never overlays the cards, and uses type="scroll" so it stays hidden
   // when idle rather than appearing on hover (#1474).
   play: async ({ canvasElement }) => {
-    const viewport = canvasElement.querySelector(
-      ".mantine-ScrollArea-viewport",
-    );
-    if (!(viewport instanceof HTMLElement)) {
-      throw new Error("scroll viewport not found");
-    }
-    // offsetScrollbars reserves a non-zero inline-end gutter for the scrollbar.
-    const pad = parseFloat(getComputedStyle(viewport).paddingInlineEnd);
-    expect(pad).toBeGreaterThan(0);
-    // type="scroll" → scrollbars are hidden until the user scrolls.
-    const scrollbars = canvasElement.querySelectorAll(
-      ".mantine-ScrollArea-scrollbar",
-    );
-    for (const bar of scrollbars) {
-      expect(bar.getAttribute("data-state")).toBe("hidden");
-    }
+    expectScrollbarGutterIdleHidden(canvasElement);
   },
 };
 
