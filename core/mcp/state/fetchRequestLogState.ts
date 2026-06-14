@@ -100,10 +100,13 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
         // The deferred body read (fire-and-forget tee'd stream in
         // fetchTracking) arrived after its entry was evicted by rotation —
         // i.e. >= maxFetchRequests newer requests appended in between. The
-        // body is unrecoverable (the entry is gone), but trace the drop so a
+        // body is unrecoverable (the entry is gone), but surface the drop so a
         // missing Response Body in the Network UI is distinguishable from a
-        // body that never came back.
-        this.logger.debug(
+        // body that never came back. `warn` (not `debug`) so the trace clears
+        // the web remote logger's default `info` level and is observable
+        // without opt-in — a response body lost to rotation is unexpected
+        // data loss, not routine diagnostic noise.
+        this.logger.warn(
           { fetchRequestId: id, maxFetchRequests: this.maxFetchRequests },
           "fetchRequestBodyUpdate dropped: entry rotated out before body arrived",
         );
