@@ -22,6 +22,7 @@ export interface UseInspectorClientResult {
   serverInfo?: Implementation;
   instructions?: string;
   protocolVersion?: string;
+  lastError?: string;
   appRendererClient: AppRendererClient | null;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
@@ -58,6 +59,7 @@ export function useInspectorClient(
   const [protocolVersion, setProtocolVersion] = useState<string | undefined>(
     inspectorClient?.getProtocolVersion(),
   );
+  const [lastError, setLastError] = useState<string | undefined>();
 
   useEffect(() => {
     if (!inspectorClient) {
@@ -66,6 +68,7 @@ export function useInspectorClient(
       setServerInfo(undefined);
       setInstructions(undefined);
       setProtocolVersion(undefined);
+      setLastError(undefined);
       return;
     }
 
@@ -74,9 +77,16 @@ export function useInspectorClient(
     setServerInfo(inspectorClient.getServerInfo());
     setInstructions(inspectorClient.getInstructions());
     setProtocolVersion(inspectorClient.getProtocolVersion());
+    setLastError(undefined);
 
     const onStatusChange = (event: TypedEvent<"statusChange">) => {
       setStatus(event.detail);
+      if (event.detail !== "error") {
+        setLastError(undefined);
+      }
+    };
+    const onError = (event: TypedEvent<"error">) => {
+      setLastError(event.detail.message);
     };
     const onCapabilitiesChange = (event: TypedEvent<"capabilitiesChange">) => {
       setCapabilities(event.detail);
@@ -94,6 +104,7 @@ export function useInspectorClient(
     };
 
     inspectorClient.addEventListener("statusChange", onStatusChange);
+    inspectorClient.addEventListener("error", onError);
     inspectorClient.addEventListener(
       "capabilitiesChange",
       onCapabilitiesChange,
@@ -110,6 +121,7 @@ export function useInspectorClient(
 
     return () => {
       inspectorClient.removeEventListener("statusChange", onStatusChange);
+      inspectorClient.removeEventListener("error", onError);
       inspectorClient.removeEventListener(
         "capabilitiesChange",
         onCapabilitiesChange,
@@ -152,6 +164,7 @@ export function useInspectorClient(
     serverInfo,
     instructions,
     protocolVersion,
+    lastError,
     appRendererClient: inspectorClient?.getAppRendererClient() ?? null,
     connect,
     disconnect,

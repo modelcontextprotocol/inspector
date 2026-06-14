@@ -27,6 +27,7 @@ describe("useInspectorClient", () => {
     expect(result.current.serverInfo).toEqual(SERVER_INFO);
     expect(result.current.instructions).toBe("hello");
     expect(result.current.protocolVersion).toBe("2025-06-18");
+    expect(result.current.lastError).toBeUndefined();
     expect(result.current.appRendererClient).toBeNull();
   });
 
@@ -37,6 +38,7 @@ describe("useInspectorClient", () => {
     expect(result.current.serverInfo).toBeUndefined();
     expect(result.current.instructions).toBeUndefined();
     expect(result.current.protocolVersion).toBeUndefined();
+    expect(result.current.lastError).toBeUndefined();
     expect(result.current.appRendererClient).toBeNull();
   });
 
@@ -52,6 +54,25 @@ describe("useInspectorClient", () => {
       client.setStatus("connected");
     });
     expect(result.current.status).toBe("connected");
+  });
+
+  it("subscribes to error events and clears lastError after recovery", () => {
+    const client = new FakeInspectorClient();
+    const { result } = renderHook(() => useInspectorClient(client));
+    expect(result.current.lastError).toBeUndefined();
+
+    act(() => {
+      client.setStatus("error");
+      client.dispatchTypedEvent("error", new Error("stream died"));
+    });
+    expect(result.current.status).toBe("error");
+    expect(result.current.lastError).toBe("stream died");
+
+    act(() => {
+      client.setStatus("connected");
+    });
+    expect(result.current.status).toBe("connected");
+    expect(result.current.lastError).toBeUndefined();
   });
 
   it("subscribes to capabilities/serverInfo/instructions changes", () => {
@@ -111,6 +132,7 @@ describe("useInspectorClient", () => {
     rerender({ c: null });
     expect(result.current.status).toBe("disconnected");
     expect(result.current.capabilities).toBeUndefined();
+    expect(result.current.lastError).toBeUndefined();
   });
 
   it("re-subscribes when the client prop changes", () => {

@@ -167,6 +167,7 @@ vi.mock("@inspector/core/react/useInspectorClient.js", () => ({
     status: "connected",
     capabilities: {},
     clientCapabilities: {},
+    lastError: undefined,
     // Left undefined so `initializeResult` stays undefined and the
     // ConnectionInfoModal (gated on it) never mounts during the test.
     serverInfo: undefined,
@@ -404,6 +405,7 @@ const DEFAULT_USE_INSPECTOR_CLIENT: ReturnType<typeof useInspectorClient> = {
   clientCapabilities: {},
   serverInfo: undefined,
   instructions: undefined,
+  lastError: undefined,
   appRendererClient: null,
   connect: vi.fn().mockResolvedValue(undefined),
   disconnect: vi.fn().mockResolvedValue(undefined),
@@ -620,6 +622,35 @@ describe("App tool progress toasts", () => {
     // session, rather than waiting out its auto-close window.
     unmount();
     expect(notificationsMock.hide).toHaveBeenCalledWith(id);
+  });
+});
+
+describe("App connection error toasts", () => {
+  beforeEach(() => {
+    notificationsMock.show.mockClear();
+    vi.mocked(useInspectorClient).mockReturnValue({
+      ...DEFAULT_USE_INSPECTOR_CLIENT,
+      status: "error",
+      lastError: "stream closed",
+    });
+  });
+
+  afterEach(() => {
+    vi.mocked(useInspectorClient).mockReturnValue(DEFAULT_USE_INSPECTOR_CLIENT);
+  });
+
+  it("shows the current InspectorClient error reason", async () => {
+    renderWithMantine(<App />);
+
+    await waitFor(() =>
+      expect(notificationsMock.show).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Connection error",
+          message: "stream closed",
+          color: "red",
+        }),
+      ),
+    );
   });
 });
 

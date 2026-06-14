@@ -62,6 +62,17 @@ const nodeModulesAliases = [
   // Vitest's transformer pipeline — the mock then fails to intercept the
   // source-side import (see #1307).
   { find: /^@modelcontextprotocol\/sdk\/client\/auth\.js$/, replacement: path.resolve(dirname, 'node_modules/@modelcontextprotocol/sdk/dist/esm/client/auth.js') },
+  { find: /^@modelcontextprotocol\/sdk\/client\/index\.js$/, replacement: path.resolve(dirname, 'node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js') },
+  // Unit tests run from repoRoot, which has no node_modules. Core modules that
+  // import SDK subpaths need the same clients/web-pinned resolution as auth.js
+  // above.
+  { find: /^@modelcontextprotocol\/sdk\/shared\/auth\.js$/, replacement: path.resolve(dirname, 'node_modules/@modelcontextprotocol/sdk/dist/esm/shared/auth.js') },
+  { find: /^@modelcontextprotocol\/sdk\/shared\/protocol\.js$/, replacement: path.resolve(dirname, 'node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js') },
+  { find: /^@modelcontextprotocol\/sdk\/shared\/transport\.js$/, replacement: path.resolve(dirname, 'node_modules/@modelcontextprotocol/sdk/dist/esm/shared/transport.js') },
+  { find: /^@modelcontextprotocol\/sdk\/shared\/uriTemplate\.js$/, replacement: path.resolve(dirname, 'node_modules/@modelcontextprotocol/sdk/dist/esm/shared/uriTemplate.js') },
+  { find: /^@modelcontextprotocol\/sdk\/types\.js$/, replacement: path.resolve(dirname, 'node_modules/@modelcontextprotocol/sdk/dist/esm/types.js') },
+  { find: /^@modelcontextprotocol\/sdk\/validation$/, replacement: path.resolve(dirname, 'node_modules/@modelcontextprotocol/sdk/dist/esm/validation/index.js') },
+  { find: /^@modelcontextprotocol\/sdk\/validation\/ajv$/, replacement: path.resolve(dirname, 'node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js') },
 ];
 
 // Project resolve config shared between the unit and integration projects.
