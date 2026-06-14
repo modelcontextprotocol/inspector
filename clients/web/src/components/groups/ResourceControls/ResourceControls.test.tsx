@@ -245,6 +245,28 @@ describe("ResourceControls", () => {
     ).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("preserves an open-but-empty section's intent when toggling another section", async () => {
+    // Subscriptions is open-in-intent but empty (excluded from the accordion's
+    // value). Collapsing a populated section must not drop subscriptions from
+    // the persisted intent, so it reopens once it has items again (#1462).
+    const user = userEvent.setup();
+    const onOpenSectionsChange = vi.fn();
+    renderWithMantine(
+      <ResourceControls
+        {...baseProps}
+        subscriptions={[]}
+        openSections={["resources", "templates", "subscriptions"]}
+        onOpenSectionsChange={onOpenSectionsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /Templates \(1\)/ }));
+    // Mantine emits ["resources"]; "subscriptions" is merged back in.
+    expect(onOpenSectionsChange).toHaveBeenCalledWith(
+      expect.arrayContaining(["resources", "subscriptions"]),
+    );
+    expect(onOpenSectionsChange.mock.calls[0][0]).not.toContain("templates");
+  });
+
   it("filters by resource title when title is set", async () => {
     const user = userEvent.setup();
     const resourcesWithTitle: Resource[] = [

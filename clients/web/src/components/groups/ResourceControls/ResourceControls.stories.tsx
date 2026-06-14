@@ -10,11 +10,16 @@ import { ResourceControls } from "./ResourceControls";
 // rotate(90deg) — Mantine sets `data-rotate` on the chevron slot of an open
 // section; App.css rotates the right-pointing arrow 90° so it points down.
 const ROTATED_DOWN = "matrix(0, 1, -1, 0, 0, 0)";
+// Identity — a closed section's right-pointing chevron at its natural 0°.
+const NOT_ROTATED = "matrix(1, 0, 0, 1, 0, 0)";
 
 function chevronTransforms(canvasElement: HTMLElement): string[] {
-  return [...canvasElement.querySelectorAll(".disclosure-chevron")].map(
-    (c) => getComputedStyle(c).transform,
-  );
+  // Scoped to the accordion root so it still works if a story ever renders more
+  // than one disclosure accordion on the canvas.
+  const root = canvasElement.querySelector(".disclosure-sections");
+  return [
+    ...(root ?? canvasElement).querySelectorAll(".disclosure-chevron"),
+  ].map((c) => getComputedStyle(c).transform);
 }
 
 const meta: Meta<typeof ResourceControls> = {
@@ -116,8 +121,8 @@ export const Collapsed: Story = {
   play: async ({ canvasElement }) => {
     const transforms = chevronTransforms(canvasElement);
     expect(transforms).toHaveLength(3);
-    // `none` (or an identity matrix) = the right-pointing arrow's natural 0°.
-    for (const t of transforms) expect(t).not.toBe(ROTATED_DOWN);
+    // Identity matrix = the right-pointing arrow's natural 0° (not rotated).
+    for (const t of transforms) expect(t).toBe(NOT_ROTATED);
   },
 };
 

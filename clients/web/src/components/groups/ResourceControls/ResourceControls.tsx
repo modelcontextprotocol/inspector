@@ -120,6 +120,17 @@ export function ResourceControls({
   const visibleOpenSections = openSections.filter(
     (section) => (sectionItemCounts[section] ?? 0) > 0,
   );
+  // Open-in-intent but currently empty (so excluded from the accordion's
+  // `value`). Mantine derives the next open-array by toggling the clicked
+  // section against the `value` we hand it, which omits these — so without
+  // merging them back, toggling any populated section would silently drop an
+  // empty section's intent and it wouldn't reappear once it has items again.
+  const intendedButEmptySections = openSections.filter(
+    (section) => !visibleOpenSections.includes(section),
+  );
+  function handleOpenSectionsChange(next: string[]) {
+    onOpenSectionsChange([...next, ...intendedButEmptySections]);
+  }
 
   function handleToggleList() {
     // Compute the next compact value from what the click will produce so a
@@ -163,9 +174,15 @@ export function ResourceControls({
         variant="disclosure"
         chevron={<RiArrowRightSLine />}
         value={visibleOpenSections}
-        onChange={onOpenSectionsChange}
+        onChange={handleOpenSectionsChange}
         flex={1}
         mih={0}
+        // Disable Mantine's panel height animation: its Collapse drives the
+        // open/close via an inline `height` that briefly jumps the panel to its
+        // full natural height, fighting the flex sizing (the panels are
+        // flex-distributed and scroll). With it off, flex controls the height
+        // cleanly. The chevron still rotates smoothly (CSS, in App.css). #1462
+        transitionDuration={0}
       >
         <Accordion.Item
           value="resources"

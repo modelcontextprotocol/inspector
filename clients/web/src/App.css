@@ -191,6 +191,13 @@
  * `[data-rotate]` is set by Mantine on the chevron slot when the item is open;
  * the class+attribute selector outranks Mantine's `:where()`-wrapped default. */
 
+/* Restore a smooth rotation: the accordion sets `transitionDuration={0}` to
+ * disable its panel height animation (which fights the flex layout), and that
+ * zeroes the shared `--accordion-transition-duration` the chevron would use. */
+.disclosure-chevron {
+  transition: transform 200ms ease;
+}
+
 .disclosure-chevron[data-rotate] {
   transform: rotate(90deg);
 }
