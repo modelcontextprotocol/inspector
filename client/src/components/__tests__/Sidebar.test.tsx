@@ -63,6 +63,8 @@ describe("Sidebar", () => {
     setConfig: jest.fn(),
     connectionType: "proxy" as const,
     setConnectionType: jest.fn(),
+    includeCookies: false,
+    setIncludeCookies: jest.fn(),
   };
 
   const renderSidebar = (props = {}) => {
@@ -629,6 +631,42 @@ describe("Sidebar", () => {
         4,
       );
       expect(mockClipboardWrite).toHaveBeenCalledWith(expectedConfig);
+    });
+  });
+
+  describe("Connection settings", () => {
+    it("shows the cookie toggle for direct Streamable HTTP connections", () => {
+      renderSidebar({
+        transportType: "streamable-http",
+        connectionType: "direct",
+      });
+
+      expect(screen.getByText("Send cookies")).toBeInTheDocument();
+      expect(
+        screen.getByRole("checkbox", { name: /send cookies/i }),
+      ).toHaveAttribute("aria-checked", "false");
+    });
+
+    it("does not show the cookie toggle for proxy connections", () => {
+      renderSidebar({
+        transportType: "streamable-http",
+        connectionType: "proxy",
+      });
+
+      expect(screen.queryByText("Send cookies")).not.toBeInTheDocument();
+    });
+
+    it("updates the cookie toggle when clicked", () => {
+      const setIncludeCookies = jest.fn();
+      renderSidebar({
+        transportType: "streamable-http",
+        connectionType: "direct",
+        setIncludeCookies,
+      });
+
+      fireEvent.click(screen.getByRole("checkbox", { name: /send cookies/i }));
+
+      expect(setIncludeCookies).toHaveBeenCalledWith(true);
     });
   });
 

@@ -1414,6 +1414,59 @@ describe("useConnection", () => {
       expect(mockSSETransport.url?.toString()).toBe("http://localhost:8080/");
     });
 
+    test("includes browser cookies for direct streamable-http when enabled", async () => {
+      const directProps = {
+        ...defaultProps,
+        transportType: "streamable-http" as const,
+        connectionType: "direct" as const,
+        includeCookies: true,
+      };
+
+      const { result } = renderHook(() => useConnection(directProps));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      expect(mockStreamableHTTPTransport.options?.requestInit).toHaveProperty(
+        "credentials",
+        "include",
+      );
+
+      const mockFetch = mockStreamableHTTPTransport.options?.fetch;
+      await mockFetch?.("http://test.com/mcp", { cache: "no-store" });
+
+      expect((global.fetch as jest.Mock).mock.calls[0][1]).toHaveProperty(
+        "credentials",
+        "include",
+      );
+    });
+
+    test("does not include browser cookies for direct streamable-http by default", async () => {
+      const directProps = {
+        ...defaultProps,
+        transportType: "streamable-http" as const,
+        connectionType: "direct" as const,
+      };
+
+      const { result } = renderHook(() => useConnection(directProps));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      expect(
+        mockStreamableHTTPTransport.options?.requestInit,
+      ).not.toHaveProperty("credentials");
+
+      const mockFetch = mockStreamableHTTPTransport.options?.fetch;
+      await mockFetch?.("http://test.com/mcp", { cache: "no-store" });
+
+      expect((global.fetch as jest.Mock).mock.calls[0][1]).not.toHaveProperty(
+        "credentials",
+      );
+    });
+
     test("uses proxy server URL when connectionType is 'proxy'", async () => {
       const proxyProps = {
         ...defaultProps,
