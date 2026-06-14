@@ -36,6 +36,11 @@
   --inspector-border-default: var(--mantine-color-default-border);
   --inspector-border-subtle: var(--mantine-color-gray-3);
 
+  /* ── Scrollbar ─────────────────────────────────────────── */
+  /* Matches Mantine ScrollArea's thumb so native scrollbars (used where a
+     ScrollArea would break flex sizing, e.g. the Resources accordion) blend in. */
+  --inspector-scrollbar-thumb: rgba(0, 0, 0, 0.4);
+
   /* ── Connection status ─────────────────────────────────── */
   --inspector-status-connected: var(--mantine-color-green-6);
   --inspector-status-connecting: var(--mantine-color-yellow-6);
@@ -73,6 +78,7 @@
   --inspector-surface-code: var(--mantine-color-dark-9);
   --inspector-border-subtle: var(--mantine-color-gray-4);
   --inspector-input-background: var(--mantine-color-dark-9);
+  --inspector-scrollbar-thumb: rgba(255, 255, 255, 0.4);
 }
 
 /* ── Animations ──────────────────────────────────────────── */
@@ -212,7 +218,13 @@
  * (set in ResourceControls) hands space from long sections to short ones. With
  * `flex-grow: 0`, nothing expands or scrolls until the combined content
  * overflows the panel, so sections never scroll while the panel has free space
- * (issue #1462). Closed sections collapse to their header height. */
+ * (issue #1462). Closed sections collapse to their header height.
+ *
+ * The per-section scroll uses a NATIVE scrollbar, styled below to match
+ * Mantine's ScrollArea thumb (#1466). A Mantine `ScrollArea` component can't be
+ * used here: its viewport has no intrinsic height, which would collapse the
+ * panel's content-based `flex-basis` that the per-section sizing above depends
+ * on, so the sections would no longer size to their content. */
 
 .disclosure-sections {
   display: flex;
@@ -236,6 +248,27 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--inspector-scrollbar-thumb) transparent;
+}
+
+.disclosure-sections
+  > .mantine-Accordion-item[data-active]
+  .mantine-Accordion-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.disclosure-sections
+  > .mantine-Accordion-item[data-active]
+  .mantine-Accordion-panel::-webkit-scrollbar-thumb {
+  background-color: var(--inspector-scrollbar-thumb);
+  border-radius: 8px;
+}
+
+.disclosure-sections
+  > .mantine-Accordion-item[data-active]
+  .mantine-Accordion-panel::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* ── List item hover ────────────────────────────────────── */

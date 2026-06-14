@@ -256,7 +256,8 @@ export const ManyResources: Story = {
     expect(tops[0]).toBeLessThan(tops[1]);
     expect(tops[1]).toBeLessThan(tops[2]);
 
-    // The long URIs section scrolls within its own panel.
+    // The long URIs section scrolls within its own panel, with a thin styled
+    // scrollbar matching the Mantine ScrollArea look (#1466).
     const urisPanel = canvasElement.querySelector(
       ".disclosure-sections .mantine-Accordion-panel",
     );
@@ -264,6 +265,12 @@ export const ManyResources: Story = {
       throw new Error("URIs panel not found");
     }
     expect(urisPanel.scrollHeight).toBeGreaterThan(urisPanel.clientHeight);
+    const panelStyle = getComputedStyle(urisPanel);
+    expect(panelStyle.scrollbarWidth).toBe("thin");
+    // The themed translucent thumb resolves (the `--inspector-scrollbar-thumb`
+    // token, an rgba value, vs. a transparent track). WebKit pseudo-element
+    // styles aren't queryable, so `scrollbar-color` is the assertable proxy.
+    expect(panelStyle.scrollbarColor).toContain("rgba");
   },
 };
 
