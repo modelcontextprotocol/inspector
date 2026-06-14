@@ -192,9 +192,19 @@ export function ServerSettingsForm({
   onRootChange,
 }: ServerSettingsFormProps) {
   const handleMaxFetchRequestsChange = (value: number | string) => {
-    const numValue =
-      typeof value === "string" ? parseInt(value, 10) || 0 : value;
-    onMaxFetchRequestsChange(numValue);
+    if (typeof value === "number") {
+      onMaxFetchRequestsChange(value);
+      return;
+    }
+    // Mantine emits "" when the field is cleared. Don't coerce that to 0 — 0
+    // means "unlimited", and since the value applies live on modal close,
+    // clearing-to-retype-then-closing would silently switch the log to
+    // unlimited. Keep the current value on an empty/NaN parse; reserve 0 for an
+    // explicit numeric entry.
+    const parsed = parseInt(value, 10);
+    onMaxFetchRequestsChange(
+      Number.isNaN(parsed) ? settings.maxFetchRequests : parsed,
+    );
   };
   const handleTimeoutChange =
     (field: "connectionTimeout" | "requestTimeout" | "taskTtl") =>

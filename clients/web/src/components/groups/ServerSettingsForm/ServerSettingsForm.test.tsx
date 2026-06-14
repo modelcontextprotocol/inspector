@@ -328,6 +328,23 @@ describe("ServerSettingsForm", () => {
     expect(typeof lastArg).toBe("number");
   });
 
+  it("keeps the current Network Log Size (not 0) when the field is cleared", async () => {
+    // Clearing the input must not silently mean "unlimited" (0) — it falls back
+    // to the current value so a clear-then-close doesn't change the cap.
+    const user = userEvent.setup();
+    const onMaxFetchRequestsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onMaxFetchRequestsChange={onMaxFetchRequestsChange}
+        settings={{ ...emptySettings, maxFetchRequests: 2500 }}
+        expandedSections={["options"]}
+      />,
+    );
+    await user.clear(screen.getByLabelText(/Network Log Size/));
+    expect(onMaxFetchRequestsChange).toHaveBeenLastCalledWith(2500);
+  });
+
   it("invokes onOAuthChange when typing in client id", async () => {
     const user = userEvent.setup();
     const onOAuthChange = vi.fn();
