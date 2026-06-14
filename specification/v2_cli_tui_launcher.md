@@ -21,7 +21,9 @@ This document describes how those clients are built, wired, and tested today, an
 ## Non-goals
 
 - **CLI v2 sessions** (connect once, many subcommands) — tracked separately in [#1432](https://github.com/modelcontextprotocol/inspector/issues/1432).
-- **npm workspaces** — v2 uses a fat root package plus per-client `package.json` for dev dependencies; launcher resolves sibling `build/` outputs via relative paths, not workspace hoisting.
+- **npm workspaces** — v2 uses a fat root package plus per-client `package.json` for dev dependencies; the launcher resolves sibling `build/` outputs via relative paths, not workspace hoisting.
+  - _Why not workspaces:_ `core/` is consumed by **bundling** — a Vite alias for the browser, tsup inlining for the Node clients — not by symlinked package resolution, so workspaces' main benefit (cross-package linking) does not apply. Each client also pins `react` / `zustand` / `@modelcontextprotocol/sdk` to its own `node_modules` (see `vitest.shared.mts`) to avoid dual-package-instance hazards, which hoisting works against. And the published `@modelcontextprotocol/inspector` is a single flat fat package that workspaces would complicate rather than simplify.
+  - _Cost (from-source dev only):_ there is no single hoisted install, so a source checkout needs `npm install` in each client directory, and a client whose deps change does not re-sync on a pull — see the [install friction](#known-gaps) gap. End users of the published package are unaffected (it ships pre-built with merged runtime deps).
 - **Per-client coverage gates** — `core/` coverage stays on the web suite; CLI/TUI source gates are follow-up work (see [Known gaps](#known-gaps)).
 - **Catalog CRUD in TUI** — TUI loads and connects; persistent catalog editing remains web-first today.
 
@@ -219,7 +221,7 @@ Root `npm run validate` currently runs web validate only; extending it to CLI/TU
 | **Import / `--catalog`** | `servers/import`, `--catalog` not implemented | [catalog doc](v2_catalog_launch_config.md); [#1348](https://github.com/modelcontextprotocol/inspector/issues/1348) |
 | **README refresh** | Client READMEs may lag v2 install/build commands | `clients/*/README.md`, `AGENTS.md` |
 | **Root validate** | Does not build/test CLI/TUI | Root `package.json` |
-| **Root postinstall** | Optional one-shot `npm install` in all clients | Declined workspaces; lighter alternative |
+| **Install friction (from source)** | Each client needs its own `npm install` (no hoisted install); a client whose deps change does not re-sync on pull. Mitigation: optional root `postinstall` that cascades `npm install` into every client | [Declined workspaces](#non-goals); lighter alternative |
 
 ---
 
