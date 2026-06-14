@@ -23,7 +23,7 @@ This document describes how those clients are built, wired, and tested today, an
 - **CLI v2 sessions** (connect once, many subcommands) — tracked separately in [#1432](https://github.com/modelcontextprotocol/inspector/issues/1432).
 - **npm workspaces** — v2 uses a fat root package plus per-client `package.json` for dev dependencies; the launcher resolves sibling `build/` outputs via relative paths, not workspace hoisting.
   - _Why not workspaces:_ `core/` is consumed by **bundling** — a Vite alias for the browser, tsup inlining for the Node clients — not by symlinked package resolution, so workspaces' main benefit (cross-package linking) does not apply. Each client also pins `react` / `zustand` / `@modelcontextprotocol/sdk` to its own `node_modules` (see `vitest.shared.mts`) to avoid dual-package-instance hazards, which hoisting works against. And the published `@modelcontextprotocol/inspector` is a single flat fat package that workspaces would complicate rather than simplify.
-  - _Cost (from-source dev only):_ there is no single hoisted install, so a source checkout needs `npm install` in each client directory, and a client whose deps change does not re-sync on a pull — see the [install friction](#known-gaps) gap. End users of the published package are unaffected (it ships pre-built with merged runtime deps).
+  - _Cost (from-source dev only):_ there is no hoisting, so each client keeps its own `node_modules`. A root `postinstall` (`scripts/install-clients.mjs`) cascades `npm install` into every client, so a single `npm install` at the repo root populates them all — re-run it after a pull that changes a client's dependencies. The cascade no-ops outside a source checkout (it exits early when running from `node_modules`, and the published tarball ships only each client's `build/`, no client `package.json`), so end users of the published package are unaffected. Set `INSPECTOR_SKIP_CLIENT_INSTALL=1` to skip the cascade (e.g. CI that installs each client itself).
 - **Per-client coverage gates** — `core/` coverage stays on the web suite; CLI/TUI source gates are follow-up work (see [Known gaps](#known-gaps)).
 - **Catalog CRUD in TUI** — TUI loads and connects; persistent catalog editing remains web-first today.
 
@@ -38,7 +38,7 @@ This document describes how those clients are built, wired, and tested today, an
 | TUI | `clients/tui/` | `tsup` → `build/index.js` | `mcp-inspector-tui` (client package only) |
 | Web runner | `clients/web/server/run-web.ts` | `tsup` (`build:runner`) → `clients/web/build/index.js` | `mcp-inspector-web` (client package only) |
 
-Root `package.json` (`@modelcontextprotocol/inspector` v2) publishes a **fat package**: merged runtime `dependencies`, `files` manifest listing each client's `build/` (and web `dist/`), and `prepack` → full `npm run build`. The launcher does not declare `file:` sibling dependencies; it dynamically imports `../web/build/index.js`, `../cli/build/index.js`, or `../tui/build/index.js` relative to its own `build/` directory.
+Root `package.json` (`@modelcontextprotocol/inspector` v2) publishes a **fat package**: merged runtime `dependencies`, `files` manifest listing each client's `build/` (and web `dist/`), and `prepack` → full `npm run build`. On the dev side, a `postinstall` runs `scripts/install-clients.mjs`, which cascades `npm install` into each client so one `npm install` at the repo root sets up every client (also exposed as `npm run install:clients`); it no-ops when the package is installed as a dependency. The launcher does not declare `file:` sibling dependencies; it dynamically imports `../web/build/index.js`, `../cli/build/index.js`, or `../tui/build/index.js` relative to its own `build/` directory.
 
 **Published runtime deps — Vite:** `vite` and `@vitejs/plugin-react` are production `dependencies` (not devDependencies) because `mcp-inspector --web --dev` starts an in-process Vite dev server at runtime (`start-vite-dev-server.ts`). A `npx @modelcontextprotocol/inspector` install therefore pulls the Vite toolchain even for CLI/TUI-only users; that install footprint is intentional so `--web --dev` works without a separate dev setup.
 
@@ -221,7 +221,6 @@ Root `npm run validate` currently runs web validate only; extending it to CLI/TU
 | **Import / `--catalog`** | `servers/import`, `--catalog` not implemented | [catalog doc](v2_catalog_launch_config.md); [#1348](https://github.com/modelcontextprotocol/inspector/issues/1348) |
 | **README refresh** | Client READMEs may lag v2 install/build commands | `clients/*/README.md`, `AGENTS.md` |
 | **Root validate** | Does not build/test CLI/TUI | Root `package.json` |
-| **Install friction (from source)** | Each client needs its own `npm install` (no hoisted install); a client whose deps change does not re-sync on pull. Mitigation: optional root `postinstall` that cascades `npm install` into every client | [Declined workspaces](#non-goals); lighter alternative |
 
 ---
 

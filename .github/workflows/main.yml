@@ -17,7 +17,12 @@ jobs:
           cache: 'npm'
 
       - name: Install root dependencies
+        # CI installs each client explicitly below, so skip the root
+        # postinstall cascade (scripts/install-clients.mjs) to avoid a
+        # redundant install pass.
         run: npm install
+        env:
+          INSPECTOR_SKIP_CLIENT_INSTALL: '1'
 
       - name: Install web client dependencies
         working-directory: ./clients/web
