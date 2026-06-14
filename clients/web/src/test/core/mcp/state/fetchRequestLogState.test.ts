@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import type pino from "pino";
 import type { FetchRequestEntry } from "@inspector/core/mcp/types";
 import { FetchRequestLogState } from "@inspector/core/mcp/state/fetchRequestLogState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
@@ -121,6 +122,9 @@ describe("FetchRequestLogState", () => {
   });
 
   it("ignores fetchRequestBodyUpdate for unknown ids", () => {
+    const logger = { debug: vi.fn() } as unknown as pino.Logger;
+    state.destroy();
+    state = new FetchRequestLogState(client, { logger });
     client.dispatchTypedEvent("fetchRequest", entry("a"));
     let changes = 0;
     state.addEventListener("fetchRequestsChange", () => changes++);
@@ -129,6 +133,14 @@ describe("FetchRequestLogState", () => {
       responseBody: "x",
     });
     expect(changes).toBe(0);
+    expect(logger.debug).toHaveBeenCalledWith(
+      {
+        id: "nonexistent",
+        storedFetchRequestCount: 1,
+        maxFetchRequests: 1000,
+      },
+      "Dropped fetch request body update because request entry is no longer in log",
+    );
   });
 
   it("does NOT clear on connect or disconnect", () => {
