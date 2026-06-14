@@ -84,6 +84,20 @@ describe("ToolsTab", () => {
     );
   };
 
+  it("should show the loaded tool count in the tools list title", () => {
+    renderToolsTab();
+
+    expect(
+      screen.getByRole("heading", { name: "Tools (4)" }),
+    ).toBeInTheDocument();
+  });
+
+  it("should omit the tool count before tools are loaded", () => {
+    renderToolsTab({ tools: [] });
+
+    expect(screen.getByRole("heading", { name: "Tools" })).toBeInTheDocument();
+  });
+
   it("should reset input values when switching tools", async () => {
     const { rerender } = renderToolsTab({
       selectedTool: mockTools[0],
