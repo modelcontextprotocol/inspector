@@ -129,6 +129,9 @@ export function ResourceControls({
     (section) => !visibleOpenSections.includes(section),
   );
   function handleOpenSectionsChange(next: string[]) {
+    // Safe to append unconditionally: empty-section controls are `disabled`, so
+    // the user can never toggle one and `next` never contains an empty section
+    // — no double-add, and a section the user just closed can't be resurrected.
     onOpenSectionsChange([...next, ...intendedButEmptySections]);
   }
 

@@ -193,7 +193,9 @@
 
 /* Restore a smooth rotation: the accordion sets `transitionDuration={0}` to
  * disable its panel height animation (which fights the flex layout), and that
- * zeroes the shared `--accordion-transition-duration` the chevron would use. */
+ * zeroes the shared `--accordion-transition-duration` the chevron would use.
+ * The 200ms restates Mantine's default accordion duration — keep it in sync if
+ * accordion timing is ever themed. */
 .disclosure-chevron {
   transition: transform 200ms ease;
 }
