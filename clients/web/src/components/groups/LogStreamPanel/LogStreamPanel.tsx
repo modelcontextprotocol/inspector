@@ -110,6 +110,8 @@ export function LogStreamPanel({
         <ScrollArea.Autosize
           viewportRef={viewportRef}
           mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)"
+          offsetScrollbars
+          type="scroll"
         >
           <Stack gap="xs">
             {filteredEntries.map((entry, index) => (
