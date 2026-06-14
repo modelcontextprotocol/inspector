@@ -16,16 +16,10 @@ jobs:
           node-version: '20.x'
           cache: 'npm'
 
-      - name: Install root dependencies
-        # CI installs each client explicitly below, so skip the root
-        # postinstall cascade (scripts/install-clients.mjs) to avoid a
-        # redundant install pass.
-        run: npm install
-        env:
-          INSPECTOR_SKIP_CLIENT_INSTALL: '1'
-
-      - name: Install web client dependencies
-        working-directory: ./clients/web
+      - name: Install dependencies (root + all clients)
+        # The root postinstall (scripts/install-clients.mjs) cascades
+        # `npm install` into clients/web, clients/cli, clients/tui, and
+        # clients/launcher, so this single step sets up every client.
         run: npm install
 
       - name: Check formatting
@@ -44,25 +38,13 @@ jobs:
         working-directory: ./clients/web
         run: npm run test:coverage
 
-      - name: Install CLI client dependencies
-        working-directory: ./clients/cli
-        run: npm install
-
       - name: Run CLI tests
         working-directory: ./clients/cli
         run: npm run test
 
-      - name: Install TUI client dependencies
-        working-directory: ./clients/tui
-        run: npm install
-
       - name: Run TUI tests
         working-directory: ./clients/tui
         run: npm run test
-
-      - name: Install launcher dependencies
-        working-directory: ./clients/launcher
-        run: npm install
 
       - name: Build CLI, TUI, and launcher
         run: npm run build:cli && npm run build:tui && npm run build:launcher
