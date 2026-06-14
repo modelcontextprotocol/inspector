@@ -1,5 +1,6 @@
 import { createTheme, type MantineColorsTuple } from "@mantine/core";
 import {
+  ThemeAccordion,
   ThemeActionIcon,
   ThemeAlert,
   ThemeAppShell,
@@ -56,6 +57,7 @@ export const theme = createTheme({
 
   /* ── Component overrides ────────────────────────────────── */
   components: {
+    Accordion: ThemeAccordion,
     ActionIcon: ThemeActionIcon,
     Alert: ThemeAlert,
     AppShell: ThemeAppShell,

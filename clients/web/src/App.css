@@ -182,6 +182,19 @@
   }
 }
 
+/* ── Accordion disclosure chevron (right when closed, down when open) ──
+ *
+ * Mantine's default chevron rotation flips 180° on open (e.g. down → up). For
+ * the `disclosure` Accordion variant we use a right-pointing chevron and rotate
+ * it only 90° so closed sections point right and open sections point down — the
+ * standard disclosure direction, matching ResourceLink's chevron (issue #1462).
+ * `[data-rotate]` is set by Mantine on the chevron slot when the item is open;
+ * the class+attribute selector outranks Mantine's `:where()`-wrapped default. */
+
+.disclosure-chevron[data-rotate] {
+  transform: rotate(90deg);
+}
+
 /* ── List item hover ────────────────────────────────────── */
 
 .list-item:hover {

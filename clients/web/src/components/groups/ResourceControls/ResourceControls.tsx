@@ -7,6 +7,7 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
+import { RiArrowRightSLine } from "react-icons/ri";
 import type {
   Resource,
   ResourceTemplate,
@@ -16,6 +17,7 @@ import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListCh
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { ResourceListItem } from "../ResourceListItem/ResourceListItem";
 import { ResourceSubscribedItem } from "../ResourceSubscribedItem/ResourceSubscribedItem";
+import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
 export interface ResourceControlsProps {
   resources: Resource[];
@@ -46,12 +48,14 @@ export interface ResourceControlsProps {
   onCompactChange: (next: boolean) => void;
 }
 
-function panelMaxHeight(openCount: number): string {
-  const n = Math.max(openCount, 1);
-  const fixedChrome = 300;
-  const perPanelChrome = 20;
-  return `calc((100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2 - ${fixedChrome + perPanelChrome * n}px) / ${n})`;
-}
+// A single viewport-bounded cap for the whole accordion (matches ToolControls /
+// PromptControls). The sections size to their content and share this space by
+// need — none scrolls until the open sections' combined height would exceed the
+// cap, at which point the one scroll region scrolls (issue #1462). Replaces the
+// old per-section `/ n` split that capped every open section at an equal share,
+// so a long section scrolled while sparse siblings left their share unused.
+const LIST_MAX_HEIGHT =
+  "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2 - 160px)";
 
 function formatSectionCount(label: string, count: number): string {
   return `${label} (${count})`;
@@ -104,7 +108,21 @@ export function ResourceControls({
   const openSections =
     controlledOpenSections ?? (initialCompact ? [] : [...allSections]);
   const allExpanded = openSections.length === allSections.length;
-  const maxHeight = panelMaxHeight(openSections.length);
+  const viewportRef = useScrollMemory("resources-sidebar");
+
+  // Empty sections have a disabled control and nothing to show, so keep them
+  // out of the accordion's open set — they render collapsed (chevron points
+  // right) rather than as an open-but-empty panel (#1462). `openSections` still
+  // tracks the user's intent (and seeds the ListToggle), so a section re-opens
+  // on its own once it has items again.
+  const sectionItemCounts: Record<string, number> = {
+    resources: filteredResources.length,
+    templates: filteredTemplates.length,
+    subscriptions: filteredSubscriptions.length,
+  };
+  const visibleOpenSections = openSections.filter(
+    (section) => (sectionItemCounts[section] ?? 0) > 0,
+  );
 
   function handleToggleList() {
     // Compute the next compact value from what the click will produce so a
@@ -140,13 +158,19 @@ export function ResourceControls({
         />
         <ListToggle compact={!allExpanded} onToggle={handleToggleList} />
       </Group>
-      <Accordion multiple value={openSections} onChange={onOpenSectionsChange}>
-        <Accordion.Item value="resources">
-          <Accordion.Control disabled={filteredResources.length === 0}>
-            {formatSectionCount("URIs", filteredResources.length)}
-          </Accordion.Control>
-          <Accordion.Panel>
-            <ScrollArea.Autosize mah={maxHeight}>
+      <ScrollArea.Autosize viewportRef={viewportRef} mah={LIST_MAX_HEIGHT}>
+        <Accordion
+          multiple
+          variant="disclosure"
+          chevron={<RiArrowRightSLine />}
+          value={visibleOpenSections}
+          onChange={onOpenSectionsChange}
+        >
+          <Accordion.Item value="resources">
+            <Accordion.Control disabled={filteredResources.length === 0}>
+              {formatSectionCount("URIs", filteredResources.length)}
+            </Accordion.Control>
+            <Accordion.Panel>
               <Stack gap="xs">
                 {filteredResources.map((resource) => (
                   <ResourceListItem
@@ -160,16 +184,14 @@ export function ResourceControls({
                   />
                 ))}
               </Stack>
-            </ScrollArea.Autosize>
-          </Accordion.Panel>
-        </Accordion.Item>
+            </Accordion.Panel>
+          </Accordion.Item>
 
-        <Accordion.Item value="templates">
-          <Accordion.Control disabled={filteredTemplates.length === 0}>
-            {formatSectionCount("Templates", filteredTemplates.length)}
-          </Accordion.Control>
-          <Accordion.Panel>
-            <ScrollArea.Autosize mah={maxHeight}>
+          <Accordion.Item value="templates">
+            <Accordion.Control disabled={filteredTemplates.length === 0}>
+              {formatSectionCount("Templates", filteredTemplates.length)}
+            </Accordion.Control>
+            <Accordion.Panel>
               <Stack gap="xs">
                 {filteredTemplates.map((template) => (
                   <ResourceListItem
@@ -183,16 +205,17 @@ export function ResourceControls({
                   />
                 ))}
               </Stack>
-            </ScrollArea.Autosize>
-          </Accordion.Panel>
-        </Accordion.Item>
+            </Accordion.Panel>
+          </Accordion.Item>
 
-        <Accordion.Item value="subscriptions">
-          <Accordion.Control disabled={filteredSubscriptions.length === 0}>
-            {formatSectionCount("Subscriptions", filteredSubscriptions.length)}
-          </Accordion.Control>
-          <Accordion.Panel>
-            <ScrollArea.Autosize mah={maxHeight}>
+          <Accordion.Item value="subscriptions">
+            <Accordion.Control disabled={filteredSubscriptions.length === 0}>
+              {formatSectionCount(
+                "Subscriptions",
+                filteredSubscriptions.length,
+              )}
+            </Accordion.Control>
+            <Accordion.Panel>
               <Stack gap="xs">
                 {filteredSubscriptions.map((sub) => (
                   <ResourceSubscribedItem
@@ -204,10 +227,10 @@ export function ResourceControls({
                   />
                 ))}
               </Stack>
-            </ScrollArea.Autosize>
-          </Accordion.Panel>
-        </Accordion.Item>
-      </Accordion>
+            </Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>
+      </ScrollArea.Autosize>
     </Stack>
   );
 }
