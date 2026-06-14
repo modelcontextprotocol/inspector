@@ -30,6 +30,7 @@ import {
   createCollectUrlElicitationTool,
   createUrlElicitationFormTool,
   createSendNotificationTool,
+  createSendProgressTool,
   createListRootsTool,
   createArgsPrompt,
   createNumberedTools,
@@ -995,6 +996,43 @@ describe("InspectorClient", () => {
 
       // The controller was cleared, so a second cancel is a no-op.
       expect(client!.cancelToolCall()).toBe(false);
+    });
+
+    it("a disconnect mid-call does not surface as a ToolCallCancelledError", async () => {
+      // disconnect() aborts the same in-flight controller, but with a different
+      // reason than cancelToolCall(). The call must reject as an ordinary error,
+      // not a user-cancel — so App doesn't show a misleading "cancelled" toast.
+      // Use a genuinely slow tool (over HTTP) so the call is still in flight when
+      // we disconnect; echo would complete before teardown.
+      await client!.disconnect();
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createSendProgressTool()],
+      });
+      await server.start();
+      client = new InspectorClient(
+        { type: "streamable-http", url: server.url },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+        },
+      );
+      await client.connect();
+      const tool = await getTool(client, "send_progress");
+
+      // 20 units * 200ms ≈ 4s — comfortably still running when we disconnect.
+      const promise = client.callTool(tool, { units: 20, delayMs: 200 });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      await client.disconnect();
+
+      let caught: unknown;
+      try {
+        await promise;
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeDefined();
+      expect(caught).not.toBeInstanceOf(ToolCallCancelledError);
     });
 
     it("should paginate tools when maxPageSize is set", async () => {

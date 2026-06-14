@@ -143,6 +143,29 @@ interface ReceiverTaskRecord {
 const MAX_URL_ELICITATION_RETRIES = 5;
 
 /**
+ * The abort reason used by `cancelToolCall()`. It rides along on the
+ * `notifications/cancelled` sent to the server and lets `callToolWithRetries`
+ * tell a deliberate user cancel apart from other aborts of the same controller
+ * (e.g. a disconnect, which aborts with a different reason and should surface as
+ * an ordinary error, not a "Tool call cancelled" — #1458).
+ */
+const TOOL_CALL_CANCELLED_REASON = "Tool call cancelled by user";
+
+/**
+ * The descriptor for a single tools/call, threaded through the retry loop and
+ * each attempt. Bundled into one object so `callToolWithRetries`/`attemptToolCall`
+ * don't take a long, transposition-prone positional parameter list.
+ */
+interface ToolCallRequest {
+  tool: Tool;
+  args: Record<string, JsonValue>;
+  generalMetadata?: Record<string, string>;
+  toolSpecificMetadata?: Record<string, string>;
+  taskOptions?: { ttl?: number };
+  options?: { skipOutputValidation?: boolean };
+}
+
+/**
  * InspectorClient wraps an MCP Client and provides:
  * - Message tracking and storage
  * - Stderr log tracking and storage (for stdio transports)
@@ -1246,8 +1269,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     // can't re-abort a call that's already terminating.
     this.activeToolCallAbortController = undefined;
     // The reason string rides along on the `notifications/cancelled` the SDK
-    // sends to the server, so keep it human-readable.
-    controller.abort("Tool call cancelled by user");
+    // sends to the server (and lets the call's catch distinguish this deliberate
+    // cancel from other aborts of the same controller, e.g. a disconnect).
+    controller.abort(TOOL_CALL_CANCELLED_REASON);
     return true;
   }
 
@@ -1453,37 +1477,26 @@ export class InspectorClient extends InspectorClientEventTarget {
       );
     }
 
-    // Retry loop for the URL-elicitation error path: a `-32042`
-    // (UrlElicitationRequired) response means the server needs the user to
-    // complete one or more URL elicitations before the call can succeed. We
-    // surface them, wait for completion, then re-issue the same call. The
-    // counter bounds a server that keeps returning `-32042` so we can't spin
-    // forever (each accepted round is one attempt).
-    let urlElicitationAttempt = 0;
-    // URLs already presented in this call. If a retry's error re-requests one,
-    // completing it again can't make progress (the server isn't advancing), so
-    // we abort with a UrlElicitationLoopError rather than re-prompt the user.
-    const presentedUrls = new Set<string>();
+    const request: ToolCallRequest = {
+      tool,
+      args,
+      generalMetadata,
+      toolSpecificMetadata,
+      taskOptions,
+      options,
+    };
     // Track this call so `cancelToolCall()` can abort it. Aborting makes the SDK
     // send a `notifications/cancelled` to the server (the MCP cancellation flow)
-    // and reject the pending request, which we surface below as a
-    // `ToolCallCancelledError`. The controller spans the whole call (it survives
-    // URL-elicitation retries). Cleared in `finally`, but only if still ours so a
-    // later overlapping call's controller isn't clobbered (#1458).
+    // and reject the pending request, which we surface as a
+    // `ToolCallCancelledError`. This single slot is shared by *every* `callTool`
+    // caller (last-writer-wins), so `cancelToolCall()` targets the most recently
+    // started ordinary call — fine today since the Cancel button only surfaces
+    // for the single Tools-screen call. Cleared in `finally`, but only if still
+    // ours so a later overlapping call's controller isn't clobbered (#1458).
     const abortController = new AbortController();
     this.activeToolCallAbortController = abortController;
     try {
-      return await this.callToolWithRetries(
-        tool,
-        args,
-        generalMetadata,
-        toolSpecificMetadata,
-        taskOptions,
-        options,
-        abortController,
-        presentedUrls,
-        urlElicitationAttempt,
-      );
+      return await this.callToolWithRetries(request, abortController);
     } finally {
       if (this.activeToolCallAbortController === abortController) {
         this.activeToolCallAbortController = undefined;
@@ -1494,38 +1507,39 @@ export class InspectorClient extends InspectorClientEventTarget {
   /**
    * The URL-elicitation retry loop for {@link callTool}, factored out so the
    * caller can wrap it in the abort-controller lifecycle (`try`/`finally`). On a
-   * user cancellation (the call's abort signal fired) the SDK has already sent
-   * `notifications/cancelled`, so we throw a {@link ToolCallCancelledError}
-   * without recording a failed call — the cancel was intentional, not a failure.
+   * user cancellation (the call's abort signal fired with the cancel reason) the
+   * SDK has already sent `notifications/cancelled`, so we throw a
+   * {@link ToolCallCancelledError} without recording a failed call — the cancel
+   * was intentional, not a failure.
    */
   private async callToolWithRetries(
-    tool: Tool,
-    args: Record<string, JsonValue>,
-    generalMetadata: Record<string, string> | undefined,
-    toolSpecificMetadata: Record<string, string> | undefined,
-    taskOptions: { ttl?: number } | undefined,
-    options: { skipOutputValidation?: boolean } | undefined,
+    request: ToolCallRequest,
     abortController: AbortController,
-    presentedUrls: Set<string>,
-    urlElicitationAttempt: number,
   ): Promise<ToolCallInvocation> {
+    const { tool, args, generalMetadata, toolSpecificMetadata } = request;
+    // Retry-loop state for the URL-elicitation error path: a `-32042`
+    // (UrlElicitationRequired) response means the server needs the user to
+    // complete one or more URL elicitations before the call can succeed. We
+    // surface them, wait for completion, then re-issue the same call. The
+    // counter bounds a server that keeps returning `-32042` so we can't spin
+    // forever (each accepted round is one attempt). `presentedUrls` guards the
+    // loop: a retry that re-requests a URL we already handled can't progress, so
+    // we abort with a UrlElicitationLoopError rather than re-prompt.
+    let urlElicitationAttempt = 0;
+    const presentedUrls = new Set<string>();
     while (true) {
       try {
-        return await this.attemptToolCall(
-          tool,
-          args,
-          generalMetadata,
-          toolSpecificMetadata,
-          taskOptions,
-          options,
-          abortController.signal,
-        );
+        return await this.attemptToolCall(request, abortController.signal);
       } catch (error) {
-        // The user cancelled via `cancelToolCall()`: the abort fired, the SDK
-        // already sent `notifications/cancelled`, and the request rejected.
-        // Surface a clean cancellation rather than a generic failure, and don't
-        // record it in history — the cancel was intentional (#1458).
-        if (abortController.signal.aborted) {
+        // The controller was aborted. A deliberate `cancelToolCall()` (matched
+        // by reason) means the SDK already sent `notifications/cancelled` — so
+        // surface a clean cancellation, not a generic failure, and don't record
+        // it in history. Any other abort (e.g. a disconnect, which aborts with a
+        // different reason) falls through to the normal error path (#1458).
+        if (
+          abortController.signal.aborted &&
+          abortController.signal.reason === TOOL_CALL_CANCELLED_REASON
+        ) {
           throw new ToolCallCancelledError(tool.name);
         }
         const urlElicitations = getUrlElicitationsFromError(error);
@@ -1607,14 +1621,17 @@ export class InspectorClient extends InspectorClientEventTarget {
    * retry loop owns the elicitation handling and failure bookkeeping.
    */
   private async attemptToolCall(
-    tool: Tool,
-    args: Record<string, JsonValue>,
-    generalMetadata?: Record<string, string>,
-    toolSpecificMetadata?: Record<string, string>,
-    taskOptions?: { ttl?: number },
-    options?: { skipOutputValidation?: boolean },
+    request: ToolCallRequest,
     signal?: AbortSignal,
   ): Promise<ToolCallInvocation> {
+    const {
+      tool,
+      args,
+      generalMetadata,
+      toolSpecificMetadata,
+      taskOptions,
+      options,
+    } = request;
     const client = this.client;
     if (!client) {
       throw new Error("Client is not connected");
