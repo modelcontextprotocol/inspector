@@ -29,8 +29,6 @@
     "scripts/install-clients.mjs"
   ],
   "scripts": {
-    "postinstall": "node scripts/install-clients.mjs",
-    "install:clients": "node scripts/install-clients.mjs",
     "build": "npm run build:web && npm run build:cli && npm run build:tui && npm run build:launcher",
     "build:web": "cd clients/web && npm run build",
     "build:cli": "cd clients/cli && npm run build",
@@ -45,7 +43,9 @@
     "test:storybook": "cd ./clients/web/ && npm run test:storybook",
     "inspector": "node clients/launcher/build/index.js",
     "web": "node clients/launcher/build/index.js --web",
-    "web:dev": "node clients/launcher/build/index.js --web --dev"
+    "web:dev": "node clients/launcher/build/index.js --web --dev",
+    "postinstall": "node scripts/install-clients.mjs",
+    "install:clients": "node scripts/install-clients.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.14",
