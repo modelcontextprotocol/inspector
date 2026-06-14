@@ -310,6 +310,12 @@ export interface InspectorViewProps {
     context: Record<string, string>,
   ) => Promise<string[]>;
   completionsSupported?: boolean;
+  /**
+   * Whether the connected server advertises the `resources.subscribe`
+   * capability. When false, the Resources screen hides the Subscribe/
+   * Unsubscribe button and the Subscriptions accordion section.
+   */
+  subscriptionsSupported?: boolean;
 
   onTasksUiChange: (next: TasksUiState) => void;
   onCancelTask: (taskId: string) => void;
@@ -407,6 +413,7 @@ export function InspectorView({
   onRefreshResources,
   onCompleteArgument,
   completionsSupported,
+  subscriptionsSupported,
   onTasksUiChange,
   onCancelTask,
   onClearCompletedTasks,
@@ -554,7 +561,13 @@ export function InspectorView({
   );
 
   return (
-    <AppShell header={{ height: 60 }} padding="md">
+    // padding={0}: each screen fills `calc(100dvh - header)` and supplies its
+    // own `xl` padding, so Main must contribute only the fixed-header offset.
+    // Mantine's default `padding="md"` added an extra inset that pushed content
+    // past the viewport and made the whole InspectorView scroll — the theme's
+    // Main-slot height clamp + overflow:hidden keep that scroll on the inner
+    // ScrollArea regions only.
+    <AppShell header={{ height: 60 }} padding={0}>
       <AppShell.Header>
         {connectionStatus === "connected" && initializeResult ? (
           <ViewHeader
@@ -647,6 +660,7 @@ export function InspectorView({
               ui={resourcesUi}
               listChanged={resourcesListChanged}
               completionsSupported={completionsSupported}
+              subscriptionsSupported={subscriptionsSupported}
               onUiChange={onResourcesUiChange}
               onRefreshList={onRefreshResources}
               onReadResource={onReadResource}

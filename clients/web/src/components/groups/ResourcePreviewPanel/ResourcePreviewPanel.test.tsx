@@ -109,6 +109,30 @@ describe("ResourcePreviewPanel", () => {
     expect(onUnsubscribe).toHaveBeenCalledTimes(1);
   });
 
+  it("hides the Subscribe button when subscriptionsSupported is false", () => {
+    renderWithMantine(
+      <ResourcePreviewPanel {...baseProps} subscriptionsSupported={false} />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Subscribe" }),
+    ).not.toBeInTheDocument();
+    // Refresh stays available regardless of subscription support.
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+  });
+
+  it("hides the Unsubscribe button when subscriptionsSupported is false even if subscribed", () => {
+    renderWithMantine(
+      <ResourcePreviewPanel
+        {...baseProps}
+        isSubscribed
+        subscriptionsSupported={false}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Unsubscribe" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("invokes onRefresh when Refresh is clicked", async () => {
     const user = userEvent.setup();
     const onRefresh = vi.fn();

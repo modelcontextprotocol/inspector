@@ -267,6 +267,58 @@ describe("ResourceControls", () => {
     expect(onOpenSectionsChange.mock.calls[0][0]).not.toContain("templates");
   });
 
+  it("hides the Subscriptions section when subscriptionsSupported is false", () => {
+    renderWithMantine(
+      <ResourceControls {...baseProps} subscriptionsSupported={false} />,
+    );
+    expect(screen.getByText("URIs (2)")).toBeInTheDocument();
+    expect(screen.getByText("Templates (1)")).toBeInTheDocument();
+    expect(screen.queryByText(/Subscriptions/)).not.toBeInTheDocument();
+  });
+
+  it("shows the Subscriptions section by default (subscriptionsSupported omitted)", () => {
+    renderWithMantine(<ResourceControls {...baseProps} />);
+    expect(screen.getByText("Subscriptions (1)")).toBeInTheDocument();
+  });
+
+  it("reads 'Collapse all' with subscriptions hidden when the two visible sections are open", () => {
+    // allSections drops "subscriptions", so the remaining two open sections
+    // must still count as fully expanded — even if persisted openSections
+    // still carries a stale "subscriptions" entry.
+    renderWithMantine(
+      <ResourceControls
+        {...baseProps}
+        subscriptionsSupported={false}
+        compact={false}
+        openSections={["resources", "templates", "subscriptions"]}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Collapse all" }),
+    ).toBeInTheDocument();
+  });
+
+  it("drops a stale 'subscriptions' entry from persisted state when subscriptions are unsupported", async () => {
+    // A "subscriptions" value persisted from a prior subscription-capable
+    // session must not be perpetually re-appended once the section is no longer
+    // rendered — toggling a visible section should emit it out of the open set.
+    const user = userEvent.setup();
+    const onOpenSectionsChange = vi.fn();
+    renderWithMantine(
+      <ResourceControls
+        {...baseProps}
+        subscriptionsSupported={false}
+        openSections={["resources", "templates", "subscriptions"]}
+        onOpenSectionsChange={onOpenSectionsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /Templates \(1\)/ }));
+    expect(onOpenSectionsChange).toHaveBeenCalledTimes(1);
+    expect(onOpenSectionsChange.mock.calls[0][0]).not.toContain(
+      "subscriptions",
+    );
+  });
+
   it("filters by resource title when title is set", async () => {
     const user = userEvent.setup();
     const resourcesWithTitle: Resource[] = [
