@@ -14,6 +14,7 @@
  */
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
+import type pino from "pino";
 import type { FetchRequestEntry } from "../types.js";
 import type {
   InspectorClientStorage,
@@ -24,6 +25,7 @@ import {
   TypedEventTarget,
   type TypedEventGeneric,
 } from "../typedEventTarget.js";
+import { silentLogger } from "../../logging/logger.js";
 
 export interface FetchRequestLogStateEventMap {
   fetchRequest: FetchRequestEntry;
@@ -44,6 +46,8 @@ export interface FetchRequestLogStateOptions {
   sessionStorage?: InspectorClientStorage;
   /** Session ID for load/save; required for sessionStorage to have effect. */
   sessionId?: string;
+  /** Logger used for diagnostic events that do not affect UI state. */
+  logger?: pino.Logger;
 }
 
 export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateEventMap> {
@@ -51,6 +55,7 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
   private client: InspectorClientProtocol | null = null;
   private unsubscribe: (() => void) | null = null;
   private readonly maxFetchRequests: number;
+  private readonly logger: pino.Logger;
 
   constructor(
     client: InspectorClientProtocol,
@@ -58,6 +63,7 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
   ) {
     super();
     this.maxFetchRequests = options.maxFetchRequests ?? 1000;
+    this.logger = options.logger ?? silentLogger;
     this.client = client;
 
     const onFetchRequest = (
@@ -87,7 +93,17 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
     ): void => {
       const { id, responseBody } = event.detail;
       const idx = this.fetchRequests.findIndex((e) => e.id === id);
-      if (idx === -1) return;
+      if (idx === -1) {
+        this.logger.debug(
+          {
+            id,
+            storedFetchRequestCount: this.fetchRequests.length,
+            maxFetchRequests: this.maxFetchRequests,
+          },
+          "Dropped fetch request body update because request entry is no longer in log",
+        );
+        return;
+      }
       this.fetchRequests[idx] = {
         ...this.fetchRequests[idx]!,
         responseBody,
@@ -192,9 +208,7 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
     if (restored.length === 0) return;
     const merged = [...restored, ...this.fetchRequests];
     this.fetchRequests =
-      this.maxFetchRequests > 0
-        ? merged.slice(-this.maxFetchRequests)
-        : merged;
+      this.maxFetchRequests > 0 ? merged.slice(-this.maxFetchRequests) : merged;
     this.dispatchTypedEvent("fetchRequestsChange", this.getFetchRequests());
   }
 
