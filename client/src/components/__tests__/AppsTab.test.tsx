@@ -198,6 +198,37 @@ describe("AppsTab", () => {
     expect(screen.getByText("Tool: fieldsApp")).toBeInTheDocument();
   });
 
+  it("should keep input field descriptions visible after values are filled", () => {
+    const toolWithDescription: Tool = {
+      name: "describedApp",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Search phrase to render",
+          },
+        },
+      },
+      _meta: { ui: { resourceUri: "ui://described" } },
+    } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+
+    renderAppsTab({
+      tools: [toolWithDescription],
+    });
+
+    fireEvent.click(screen.getByText("describedApp"));
+
+    const input = screen.getByLabelText("query");
+    expect(input).toHaveAttribute("aria-describedby", "query-description");
+    expect(screen.getByText("Search phrase to render")).toBeVisible();
+
+    fireEvent.change(input, { target: { value: "filled value" } });
+
+    expect(input).toHaveValue("filled value");
+    expect(screen.getByText("Search phrase to render")).toBeVisible();
+  });
+
   it("should close app renderer when close button is clicked", async () => {
     renderAppsTab({
       tools: [mockAppTool],

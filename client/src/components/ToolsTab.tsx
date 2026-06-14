@@ -40,6 +40,7 @@ import { useEffect, useState, useRef } from "react";
 import ListPane from "./ListPane";
 import JsonView from "./JsonView";
 import ToolResults from "./ToolResults";
+import SchemaFieldDescription from "./SchemaFieldDescription";
 import { useToast } from "@/lib/hooks/useToast";
 import useCopy from "@/lib/hooks/useCopy";
 import IconDisplay, { WithIcons } from "./IconDisplay";
@@ -354,6 +355,12 @@ const ToolsTab = ({
                     const inputSchema =
                       selectedTool.inputSchema as JsonSchemaType;
                     const required = isPropertyRequired(key, inputSchema);
+                    const descriptionId = `${key}-description`;
+                    const showFieldDescription =
+                      !!prop.description &&
+                      (prop.type === "string" ||
+                        prop.type === "number" ||
+                        prop.type === "integer");
                     return (
                       <div key={key}>
                         <div className="flex justify-between">
@@ -447,7 +454,15 @@ const ToolsTab = ({
                                 }
                               }}
                             >
-                              <SelectTrigger id={key} className="mt-1">
+                              <SelectTrigger
+                                id={key}
+                                className="mt-1"
+                                aria-describedby={
+                                  showFieldDescription
+                                    ? descriptionId
+                                    : undefined
+                                }
+                              >
                                 <SelectValue
                                   placeholder={
                                     prop.description || "Select an option"
@@ -467,6 +482,9 @@ const ToolsTab = ({
                               id={key}
                               name={key}
                               placeholder={prop.description}
+                              aria-describedby={
+                                showFieldDescription ? descriptionId : undefined
+                              }
                               value={
                                 params[key] === undefined
                                   ? ""
@@ -522,6 +540,9 @@ const ToolsTab = ({
                               id={key}
                               name={key}
                               placeholder={prop.description}
+                              aria-describedby={
+                                showFieldDescription ? descriptionId : undefined
+                              }
                               value={
                                 params[key] === undefined
                                   ? ""
@@ -575,6 +596,12 @@ const ToolsTab = ({
                                 }}
                               />
                             </div>
+                          )}
+                          {showFieldDescription && (
+                            <SchemaFieldDescription
+                              id={descriptionId}
+                              description={prop.description}
+                            />
                           )}
                         </div>
                       </div>
