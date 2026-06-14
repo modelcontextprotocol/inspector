@@ -77,14 +77,14 @@ const Sidebar = Stack.withProps({
   flex: "0 0 auto",
 });
 
-// Full-height card (matches the detail panel) whose `sidebar` variant lays its
-// content out as a column so ResourceControls' accordion scroll region fills
-// the space below the title/search and scrolls only when the panel is full.
+// Card that grows with its content but is capped at the screen height by the
+// `sidebar` variant (`max-height: 100%`), like the Tools panel. The column
+// layout lets ResourceControls' accordion take over per-section scrolling once
+// the content would overflow that cap.
 const SidebarCard = Card.withProps({
   withBorder: true,
   padding: "lg",
   variant: "sidebar",
-  flex: 1,
 });
 
 const DetailCard = Card.withProps({

@@ -21,15 +21,16 @@ export const ThemeCard = Card.extend({
       };
     }
     if (props.variant === "sidebar") {
-      // Full-height sidebar container — matches the detail panel's height so
-      // the two columns line up. Lays its content out as a column and hides
-      // overflow so a flex-grown inner ScrollArea (below the fixed title /
-      // search) takes over scrolling, and only once the panel is genuinely
-      // full rather than at a fixed sub-viewport cap (#1462).
+      // Sidebar container that grows with its content but never taller than the
+      // screen's available area (`max-height: 100%` of the full-height column
+      // wrapper) — like the Tools panel. Lays its content out as a column and
+      // hides overflow so that, once capped, the flex accordion below the fixed
+      // title/search takes over per-section scrolling rather than the card
+      // bleeding past the viewport (#1462).
       return {
         root: {
           backgroundColor: "var(--inspector-surface-card)",
-          height: "100%",
+          maxHeight: "100%",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
