@@ -2,7 +2,7 @@
 
 ### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | V2 Tech Stack | [V2 UX](v2_ux.md)
 
-#### Web Client | [Server](v2_server.md)  | [Storage](v2_storage.md)
+#### Web Client | [CLI, TUI, Launcher](v2_cli_tui_launcher.md) | [Server](v2_server.md)  | [Storage](v2_storage.md)
 
 ## Overview
 ### Language and Framework

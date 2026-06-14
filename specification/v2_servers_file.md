@@ -2,7 +2,7 @@
 
 ### Brief | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | V2 Tech Stack | [V2 UX](v2_ux.md)
 
-#### [Web Client](v2_web_client.md) | [Server](v2_server.md)  | Storage
+#### [Web Client](v2_web_client.md) | [CLI, TUI, Launcher](v2_cli_tui_launcher.md) | [Server](v2_server.md)  | Storage
 ##### [Overview](v2_storage.md) | Server List File
 
 ## Summary
