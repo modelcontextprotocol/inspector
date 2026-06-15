@@ -2716,6 +2716,43 @@ describe("InspectorClient", () => {
       expect(errorFirst).toEqual({ status: "error", disconnects: 1 });
     });
 
+    it("fires disconnect exactly once when explicitly disconnecting from a crashed (error) state (#1490)", async () => {
+      // After a crash holds status at "error", close() can fire the transport's
+      // onclose synchronously. onclose would emit `disconnect` (status held at
+      // "error"), and then disconnect()'s own guard — seeing "error" still
+      // != "disconnected" — would emit it a second time. The `disconnecting`
+      // ownership flag must collapse that to exactly one event regardless of
+      // whether the SDK closes synchronously.
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        { environment: { transport: createTransportNode } },
+      );
+      await client.connect();
+
+      const baseTransport = (
+        client as unknown as {
+          baseTransport: { onerror?: (error: Error) => void };
+        }
+      ).baseTransport;
+      baseTransport.onerror?.(new Error("stdio subprocess crashed"));
+      expect(client.getStatus()).toBe("error");
+
+      // Listener attached AFTER the crash so it counts only the explicit
+      // disconnect()'s events.
+      let disconnects = 0;
+      client.addEventListener("disconnect", () => {
+        disconnects++;
+      });
+      await client.disconnect();
+
+      expect(disconnects).toBe(1);
+      expect(client.getStatus()).toBe("disconnected");
+    });
+
     it("does not emit an error event when the handshake rejects connect()", async () => {
       // A transport whose start() rejects makes connect() reject (handshake
       // failure). The caller gets the reason via the rejected promise, so the
