@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Autocomplete,
   Button,
-  CloseButton,
   Group,
   Stack,
   Text,
   TextInput,
   Title,
 } from "@mantine/core";
+import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { ResourceTemplate } from "@modelcontextprotocol/sdk/types.js";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
@@ -265,8 +265,7 @@ export function ResourceTemplatePanel({
               rightSectionPointerEvents="auto"
               rightSection={
                 variables[varName] ? (
-                  <CloseButton
-                    aria-label="Clear"
+                  <ClearButton
                     onClick={() => handleVariableChange(varName, "")}
                   />
                 ) : null

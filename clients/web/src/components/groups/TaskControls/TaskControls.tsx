@@ -1,12 +1,5 @@
-import {
-  Button,
-  CloseButton,
-  Group,
-  Select,
-  Stack,
-  TextInput,
-  Title,
-} from "@mantine/core";
+import { Button, Group, Select, Stack, TextInput, Title } from "@mantine/core";
+import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { TaskStatus } from "@modelcontextprotocol/sdk/types.js";
 
 const STATUS_OPTIONS: TaskStatus[] = [
@@ -50,12 +43,7 @@ export function TaskControls({
         onChange={(event) => onSearchChange(event.currentTarget.value)}
         rightSectionPointerEvents="auto"
         rightSection={
-          searchText ? (
-            <CloseButton
-              aria-label="Clear"
-              onClick={() => onSearchChange("")}
-            />
-          ) : null
+          searchText ? <ClearButton onClick={() => onSearchChange("")} /> : null
         }
       />
 

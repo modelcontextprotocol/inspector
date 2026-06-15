@@ -3,13 +3,13 @@ import {
   ActionIcon,
   Button,
   Checkbox,
-  CloseButton,
   Group,
   NumberInput,
   Stack,
   Text,
   TextInput,
 } from "@mantine/core";
+import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type {
   InspectorServerSettings,
   OAuthSettings,
@@ -91,10 +91,7 @@ function KeyValueRows({
             rightSectionPointerEvents="auto"
             rightSection={
               item.key ? (
-                <CloseButton
-                  aria-label="Clear"
-                  onClick={() => onChange(index, "", item.value)}
-                />
+                <ClearButton onClick={() => onChange(index, "", item.value)} />
               ) : null
             }
           />
@@ -105,10 +102,7 @@ function KeyValueRows({
             rightSectionPointerEvents="auto"
             rightSection={
               item.value ? (
-                <CloseButton
-                  aria-label="Clear"
-                  onClick={() => onChange(index, item.key, "")}
-                />
+                <ClearButton onClick={() => onChange(index, item.key, "")} />
               ) : null
             }
           />
@@ -145,8 +139,7 @@ function RootRows({
             rightSectionPointerEvents="auto"
             rightSection={
               root.uri ? (
-                <CloseButton
-                  aria-label="Clear"
+                <ClearButton
                   onClick={() => onChange(index, "", root.name ?? "")}
                 />
               ) : null
@@ -159,10 +152,7 @@ function RootRows({
             rightSectionPointerEvents="auto"
             rightSection={
               root.name ? (
-                <CloseButton
-                  aria-label="Clear"
-                  onClick={() => onChange(index, root.uri, "")}
-                />
+                <ClearButton onClick={() => onChange(index, root.uri, "")} />
               ) : null
             }
           />
@@ -372,8 +362,7 @@ export function ServerSettingsForm({
               rightSectionPointerEvents="auto"
               rightSection={
                 settings.oauthClientId ? (
-                  <CloseButton
-                    aria-label="Clear"
+                  <ClearButton
                     onClick={() =>
                       onOAuthChange({ ...currentOAuth(), clientId: "" })
                     }
@@ -394,8 +383,7 @@ export function ServerSettingsForm({
               rightSectionPointerEvents="auto"
               rightSection={
                 settings.oauthClientSecret ? (
-                  <CloseButton
-                    aria-label="Clear"
+                  <ClearButton
                     onClick={() =>
                       onOAuthChange({ ...currentOAuth(), clientSecret: "" })
                     }
@@ -415,8 +403,7 @@ export function ServerSettingsForm({
               rightSectionPointerEvents="auto"
               rightSection={
                 settings.oauthScopes ? (
-                  <CloseButton
-                    aria-label="Clear"
+                  <ClearButton
                     onClick={() =>
                       onOAuthChange({ ...currentOAuth(), scopes: "" })
                     }

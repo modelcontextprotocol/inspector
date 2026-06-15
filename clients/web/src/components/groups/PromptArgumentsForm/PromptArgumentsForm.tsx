@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Autocomplete,
   Button,
-  CloseButton,
   Group,
   Stack,
   Text,
   TextInput,
   Title,
 } from "@mantine/core";
+import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 
 export interface PromptArgumentsFormProps {
@@ -225,10 +225,7 @@ export function PromptArgumentsForm({
                   rightSectionPointerEvents="auto"
                   rightSection={
                     argumentValues[arg.name] ? (
-                      <CloseButton
-                        aria-label="Clear"
-                        onClick={() => handleChange(arg.name, "")}
-                      />
+                      <ClearButton onClick={() => handleChange(arg.name, "")} />
                     ) : null
                   }
                 />

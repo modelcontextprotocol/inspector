@@ -1,12 +1,5 @@
-import {
-  Button,
-  CloseButton,
-  Group,
-  Select,
-  Stack,
-  TextInput,
-  Title,
-} from "@mantine/core";
+import { Button, Group, Select, Stack, TextInput, Title } from "@mantine/core";
+import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 import { FilterToggleButton } from "../../elements/FilterToggleButton/FilterToggleButton";
 
@@ -66,12 +59,7 @@ export function LogControls({
         onChange={(e) => onFilterChange(e.currentTarget.value)}
         rightSectionPointerEvents="auto"
         rightSection={
-          filterText ? (
-            <CloseButton
-              aria-label="Clear"
-              onClick={() => onFilterChange("")}
-            />
-          ) : null
+          filterText ? <ClearButton onClick={() => onFilterChange("")} /> : null
         }
       />
 

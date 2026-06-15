@@ -1,11 +1,5 @@
-import {
-  CloseButton,
-  Group,
-  ScrollArea,
-  Stack,
-  TextInput,
-  Title,
-} from "@mantine/core";
+import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
+import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { PromptListItem } from "../PromptListItem/PromptListItem";
@@ -56,12 +50,7 @@ export function PromptControls({
         onChange={(e) => onSearchChange(e.currentTarget.value)}
         rightSectionPointerEvents="auto"
         rightSection={
-          searchText ? (
-            <CloseButton
-              aria-label="Clear"
-              onClick={() => onSearchChange("")}
-            />
-          ) : null
+          searchText ? <ClearButton onClick={() => onSearchChange("")} /> : null
         }
       />
       <ScrollArea.Autosize viewportRef={viewportRef} mah={LIST_MAX_HEIGHT}>

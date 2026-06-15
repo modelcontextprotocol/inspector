@@ -1,6 +1,5 @@
 import {
   Button,
-  CloseButton,
   Divider,
   Group,
   Radio,
@@ -10,6 +9,7 @@ import {
   Textarea,
   Title,
 } from "@mantine/core";
+import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { InspectorServerJsonDraft } from "@inspector/core/mcp/types.js";
 
 export interface ValidationResult {
@@ -92,7 +92,7 @@ export function ImportServerJsonPanel({
         rightSectionPointerEvents="auto"
         rightSection={
           draft.rawText ? (
-            <CloseButton aria-label="Clear" onClick={() => onJsonChange("")} />
+            <ClearButton onClick={() => onJsonChange("")} />
           ) : null
         }
       />
@@ -149,8 +149,7 @@ export function ImportServerJsonPanel({
               rightSectionPointerEvents="auto"
               rightSection={
                 envVar.value ? (
-                  <CloseButton
-                    aria-label="Clear"
+                  <ClearButton
                     onClick={() => onEnvVarChange(envVar.name, "")}
                   />
                 ) : null
@@ -169,10 +168,7 @@ export function ImportServerJsonPanel({
         rightSectionPointerEvents="auto"
         rightSection={
           draft.nameOverride ? (
-            <CloseButton
-              aria-label="Clear"
-              onClick={() => onServerNameChange("")}
-            />
+            <ClearButton onClick={() => onServerNameChange("")} />
           ) : null
         }
       />

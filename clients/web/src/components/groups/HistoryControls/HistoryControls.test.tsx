@@ -45,6 +45,14 @@ describe("HistoryControls", () => {
     expect(onSearchChange).toHaveBeenCalledWith("");
   });
 
+  it("keeps the search Clear button out of the keyboard tab order", () => {
+    renderWithMantine(<HistoryControls {...baseProps} searchText="abc" />);
+    expect(screen.getByRole("button", { name: "Clear" })).toHaveAttribute(
+      "tabindex",
+      "-1",
+    );
+  });
+
   it("renders the method filter placeholder", () => {
     renderWithMantine(<HistoryControls {...baseProps} />);
     expect(screen.getByPlaceholderText("All methods")).toBeInTheDocument();

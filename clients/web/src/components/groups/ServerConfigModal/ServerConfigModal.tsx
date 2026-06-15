@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Button,
-  CloseButton,
   Group,
   Modal,
   Select,
@@ -10,6 +9,7 @@ import {
   TextInput,
   Textarea,
 } from "@mantine/core";
+import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type {
   MCPServerConfig,
   StdioServerConfig,
@@ -279,8 +279,7 @@ export function ServerConfigModal({
             rightSectionPointerEvents="auto"
             rightSection={
               form.id ? (
-                <CloseButton
-                  aria-label="Clear"
+                <ClearButton
                   disabled={submitting}
                   onClick={() => setForm((f) => ({ ...f, id: "" }))}
                 />
@@ -321,8 +320,7 @@ export function ServerConfigModal({
                 rightSectionPointerEvents="auto"
                 rightSection={
                   form.command ? (
-                    <CloseButton
-                      aria-label="Clear"
+                    <ClearButton
                       disabled={submitting}
                       onClick={() => setForm((f) => ({ ...f, command: "" }))}
                     />
@@ -344,8 +342,7 @@ export function ServerConfigModal({
                 rightSectionPointerEvents="auto"
                 rightSection={
                   form.argsText ? (
-                    <CloseButton
-                      aria-label="Clear"
+                    <ClearButton
                       disabled={submitting}
                       onClick={() => setForm((f) => ({ ...f, argsText: "" }))}
                     />
@@ -367,8 +364,7 @@ export function ServerConfigModal({
                 rightSectionPointerEvents="auto"
                 rightSection={
                   form.envText ? (
-                    <CloseButton
-                      aria-label="Clear"
+                    <ClearButton
                       disabled={submitting}
                       onClick={() => setForm((f) => ({ ...f, envText: "" }))}
                     />
@@ -387,8 +383,7 @@ export function ServerConfigModal({
                 rightSectionPointerEvents="auto"
                 rightSection={
                   form.cwd ? (
-                    <CloseButton
-                      aria-label="Clear"
+                    <ClearButton
                       disabled={submitting}
                       onClick={() => setForm((f) => ({ ...f, cwd: "" }))}
                     />
@@ -410,8 +405,7 @@ export function ServerConfigModal({
               rightSectionPointerEvents="auto"
               rightSection={
                 form.url ? (
-                  <CloseButton
-                    aria-label="Clear"
+                  <ClearButton
                     disabled={submitting}
                     onClick={() => setForm((f) => ({ ...f, url: "" }))}
                   />
