@@ -436,6 +436,22 @@ export class InspectorClient extends InspectorClientEventTarget {
       }
     };
     baseTransport.onerror = (error: Error) => {
+      // Suppress ONLY the handshake case. These listeners are attached before
+      // the handshake runs (see connect()), so an SDK transport that reports a
+      // connect-time error via `onerror` — in addition to rejecting connect()
+      // — would otherwise dispatch the `error` event for a failure the awaited
+      // connect() rejection already surfaces, double-reporting it. "connecting"
+      // is precisely that state: the only one with a pending awaited connect()
+      // that will reject.
+      //
+      // We deliberately do NOT guard on `!== "connected"`: on a real
+      // mid-session crash many transports fire BOTH `onclose` and `onerror`,
+      // and the order is transport-dependent. If `onclose` lands first it flips
+      // status to "disconnected", so a "connected"-only guard would swallow the
+      // reason that the trailing `onerror` carries (its sole surface). Firing
+      // from any non-"connecting" state captures the reason regardless of
+      // ordering.
+      if (this.status === "connecting") return;
       this.status = "error";
       this.dispatchTypedEvent("statusChange", this.status);
       this.dispatchTypedEvent("error", error);
@@ -1021,10 +1037,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     } catch (error) {
       this.status = "error";
       this.dispatchTypedEvent("statusChange", this.status);
-      this.dispatchTypedEvent(
-        "error",
-        error instanceof Error ? error : new Error(String(error)),
-      );
+      // Deliberately do NOT dispatch the `error` event here: this is the
+      // awaited `connect()` path, so re-throwing hands the reason straight to
+      // the caller. The `error` event is reserved for non-awaited transitions
+      // (the transport `onerror` above), where there is no promise to reject.
+      // Dispatching here too would double-report a handshake failure.
       throw error;
     }
   }

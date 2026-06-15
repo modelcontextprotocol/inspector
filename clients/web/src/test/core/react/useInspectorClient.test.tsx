@@ -150,6 +150,98 @@ describe("useInspectorClient", () => {
     expect(result.current.status).toBe("connected");
   });
 
+  it("captures lastError from the client's error event", () => {
+    const client = new FakeInspectorClient({ status: "connected" });
+    const { result } = renderHook(() => useInspectorClient(client));
+    expect(result.current.lastError).toBeUndefined();
+    act(() => {
+      client.dispatchTypedEvent("error", new Error("stdio subprocess crashed"));
+    });
+    expect(result.current.lastError).toBe("stdio subprocess crashed");
+  });
+
+  it("clears lastError when a new connection attempt begins (connecting)", () => {
+    const client = new FakeInspectorClient({ status: "connected" });
+    const { result } = renderHook(() => useInspectorClient(client));
+    act(() => {
+      client.dispatchTypedEvent("error", new Error("SSE stream dropped"));
+    });
+    expect(result.current.lastError).toBe("SSE stream dropped");
+
+    // A reconnect drives status → "connecting", which clears the stale error.
+    act(() => {
+      client.setStatus("connecting");
+    });
+    expect(result.current.lastError).toBeUndefined();
+  });
+
+  it("keeps lastError across the error status transition", () => {
+    const client = new FakeInspectorClient({ status: "connected" });
+    const { result } = renderHook(() => useInspectorClient(client));
+    // The transport onerror path fires statusChange("error") then error; the
+    // "error" status must not clear the message the error event carries.
+    act(() => {
+      client.setStatus("error");
+      client.dispatchTypedEvent("error", new Error("HTTP 503"));
+    });
+    expect(result.current.status).toBe("error");
+    expect(result.current.lastError).toBe("HTTP 503");
+  });
+
+  it("keeps lastError across a trailing disconnected transition", () => {
+    const client = new FakeInspectorClient({ status: "connected" });
+    const { result } = renderHook(() => useInspectorClient(client));
+    act(() => {
+      client.dispatchTypedEvent("error", new Error("stdio crashed"));
+    });
+    expect(result.current.lastError).toBe("stdio crashed");
+
+    // A real crash often trails the error with an onclose → statusChange
+    // ("disconnected"). The toast effect depends on that NOT clearing
+    // lastError (only the next "connecting" edge does).
+    act(() => {
+      client.setStatus("disconnected");
+    });
+    expect(result.current.status).toBe("disconnected");
+    expect(result.current.lastError).toBe("stdio crashed");
+  });
+
+  it("resets lastError when the client prop changes", () => {
+    const a = new FakeInspectorClient({ status: "connected" });
+    const b = new FakeInspectorClient({ status: "connected" });
+    const { result, rerender } = renderHook(
+      ({ c }: { c: InspectorClientProtocol }) => useInspectorClient(c),
+      { initialProps: { c: a as InspectorClientProtocol } },
+    );
+    act(() => {
+      a.dispatchTypedEvent("error", new Error("boom"));
+    });
+    expect(result.current.lastError).toBe("boom");
+
+    rerender({ c: b });
+    expect(result.current.lastError).toBeUndefined();
+
+    // The old client's error event is ignored after the swap.
+    act(() => {
+      a.dispatchTypedEvent("error", new Error("late"));
+    });
+    expect(result.current.lastError).toBeUndefined();
+  });
+
+  it("resets lastError when client becomes null", () => {
+    const client = new FakeInspectorClient({ status: "connected" });
+    const { result, rerender } = renderHook(
+      ({ c }: { c: InspectorClientProtocol | null }) => useInspectorClient(c),
+      { initialProps: { c: client as InspectorClientProtocol | null } },
+    );
+    act(() => {
+      client.dispatchTypedEvent("error", new Error("boom"));
+    });
+    expect(result.current.lastError).toBe("boom");
+    rerender({ c: null });
+    expect(result.current.lastError).toBeUndefined();
+  });
+
   it("reads clientCapabilities lazily from the client and defaults to {} when null", () => {
     const advertised: ClientCapabilities = {
       elicitation: { form: {} },

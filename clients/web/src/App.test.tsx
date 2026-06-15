@@ -707,6 +707,60 @@ describe("App network-log body-dropped toast", () => {
   });
 });
 
+describe("App mid-session error toast", () => {
+  beforeEach(() => {
+    clientInstances.length = 0;
+    notificationsMock.show.mockClear();
+    vi.mocked(useInspectorClient).mockReturnValue(DEFAULT_USE_INSPECTOR_CLIENT);
+  });
+
+  afterEach(() => {
+    vi.mocked(useInspectorClient).mockReturnValue(DEFAULT_USE_INSPECTOR_CLIENT);
+  });
+
+  it("toasts the lastError with a generic title when no server is active", () => {
+    // `lastError` is set but nothing has been connected, so the active-server
+    // name ref is empty and the toast falls back to "Connection lost".
+    vi.mocked(useInspectorClient).mockReturnValue({
+      ...DEFAULT_USE_INSPECTOR_CLIENT,
+      lastError: "stdio subprocess crashed",
+    });
+    renderWithMantine(<App />);
+
+    expect(notificationsMock.show).toHaveBeenCalledTimes(1);
+    const shown = notificationsMock.show.mock.calls[0][0];
+    expect(shown.title).toBe("Connection lost");
+    expect(shown.message).toBe("stdio subprocess crashed");
+    expect(shown.color).toBe("red");
+  });
+
+  it("names the active server in the toast after a session has connected", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+
+    // Connect first so the active-server name ref is populated with SERVER_A.
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    // The transport now dies mid-session: `lastError` becomes set and the
+    // client's `disconnect` event clears the active server. The name ref
+    // survives, so the toast still names the server (PlotRocket).
+    vi.mocked(useInspectorClient).mockReturnValue({
+      ...DEFAULT_USE_INSPECTOR_CLIENT,
+      lastError: "SSE stream dropped",
+    });
+    act(() => {
+      clientInstances[0].dispatchEvent(new CustomEvent("disconnect"));
+    });
+
+    await waitFor(() => expect(notificationsMock.show).toHaveBeenCalled());
+    const shown = notificationsMock.show.mock.calls.at(-1)?.[0];
+    expect(shown.title).toBe('Connection to "PlotRocket" lost');
+    expect(shown.message).toBe("SSE stream dropped");
+    expect(shown.color).toBe("red");
+  });
+});
+
 describe("App pending server-initiated request modal", () => {
   beforeEach(() => {
     clientInstances.length = 0;

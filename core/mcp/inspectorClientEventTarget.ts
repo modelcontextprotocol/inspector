@@ -61,6 +61,17 @@ export interface InspectorClientEventMap {
   fetchRequest: FetchRequestEntry;
   /** Fired when an in-flight fetch's response body is read asynchronously. */
   fetchRequestBodyUpdate: { id: string; responseBody: string };
+  /**
+   * Fired whenever the client transitions `status` to `"error"` from a path
+   * that is NOT an awaited promise — i.e. a mid-session transport failure
+   * (stdio subprocess crash, SSE stream drop, HTTP 5xx) surfaced via the
+   * transport's `onerror`. The `Error` carries the reason (`.message`,
+   * optional `.cause`). Handshake failures are NOT dispatched here: they
+   * reject the awaited `connect()` promise, so the caller already has the
+   * error and a second surface would double-report it. Consumers that don't
+   * subscribe directly can read the last error via `useInspectorClient`'s
+   * `lastError`.
+   */
   error: Error;
   resourceUpdated: { uri: string };
   progressNotification: Progress & { progressToken?: ProgressToken };

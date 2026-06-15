@@ -666,6 +666,7 @@ function App() {
     serverInfo,
     instructions,
     protocolVersion,
+    lastError,
   } = useInspectorClient(inspectorClient);
   const {
     tools,
@@ -1085,6 +1086,30 @@ function App() {
     [servers, activeServerId],
   );
 
+  // Mirror the active server's name into a ref so a mid-session failure toast
+  // can still name the server: a transport crash dispatches `disconnect`,
+  // which clears `activeServerId` (and thus `activeServer`) before the
+  // `lastError` effect below runs, so the ref is the only surviving handle.
+  const activeServerNameRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (activeServer) activeServerNameRef.current = activeServer.name;
+  }, [activeServer]);
+
+  // Surface a mid-session transport failure (stdio crash, SSE drop, HTTP 5xx)
+  // as a toast. The handshake case is handled in `onToggleConnection`'s catch;
+  // this covers the `status: connected → error` transition that fires the
+  // client's `error` event without rejecting any awaited promise (#1323).
+  // `lastError` clears at the next connecting edge, so each failure toasts once.
+  useEffect(() => {
+    if (!lastError) return;
+    const name = activeServerNameRef.current;
+    notifications.show({
+      title: name ? `Connection to "${name}" lost` : "Connection lost",
+      message: lastError,
+      color: "red",
+    });
+  }, [lastError]);
+
   // `config.type` is optional in the schema (a bare `command: ...`
   // entry implies stdio), so we materialize the default here rather
   // than at the render site — the modal's `transport` prop is a
@@ -1470,9 +1495,10 @@ function App() {
         // same behavior by reading from `serverSettings` on the client.
         await client.connect();
       } catch (err) {
-        // Handshake-only. A mid-session transport failure does not throw,
-        // so a future error event from InspectorClient is the right hook
-        // for surfacing those (TODO(#1323)).
+        // Handshake-only. A mid-session transport failure does not throw; the
+        // client's `error` event surfaces those, consumed via
+        // `useInspectorClient`'s `lastError` and toasted in the effect above
+        // (#1323).
         connectStartRef.current = undefined;
 
         // A 401 from an OAuth-protected server means we have no (valid) token
