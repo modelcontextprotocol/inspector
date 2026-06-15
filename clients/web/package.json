@@ -11,7 +11,7 @@
     ".": "./build/index.js"
   },
   "scripts": {
-    "dev": "node --import ./server/quiet-config-warnings.mjs ./node_modules/vite/bin/vite.js",
+    "dev": "vite",
     "build": "tsc -b && vite build && npm run build:runner",
     "build:runner": "tsup --config tsup.runner.config.ts",
     "lint": "eslint .",
