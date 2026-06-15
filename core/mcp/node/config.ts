@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
+import { getDefaultMcpConfigPath } from "../../storage/store-io.js";
 import type {
   MCPConfig,
   MCPServerConfig,
@@ -211,8 +212,26 @@ function applyOverrides(
 
 export type ResolveServerConfigsMode = "single" | "multi";
 
+export function hasAdHocServerOptions(options: ServerConfigOptions): boolean {
+  return (
+    (options.target != null && options.target.length > 0) ||
+    Boolean(options.transport) ||
+    Boolean(options.serverUrl?.trim())
+  );
+}
+
+/** When no --config and no ad-hoc target, use ~/.mcp-inspector/mcp.json (same as web). */
+export function withDefaultConfigPath(
+  options: ServerConfigOptions,
+): ServerConfigOptions {
+  if (options.configPath?.trim() || hasAdHocServerOptions(options)) {
+    return options;
+  }
+  return { ...options, configPath: getDefaultMcpConfigPath() };
+}
+
 /**
- * Resolves server config(s) from options and mode. Used by all runners.
+ * Resolves server config(s) from explicit options and mode.
  * Single mode: one config (from file + overrides, or from args).
  * Multi mode: all servers from file (with optional env/cwd/headers overrides), or one from args; errors if config path + transport/serverUrl/positional.
  */
@@ -221,10 +240,7 @@ export function resolveServerConfigs(
   mode: ResolveServerConfigsMode,
 ): MCPServerConfig[] {
   const hasConfigPath = Boolean(options.configPath?.trim());
-  const hasAdHoc =
-    (options.target && options.target.length > 0) ||
-    Boolean(options.transport) ||
-    Boolean(options.serverUrl);
+  const hasAdHoc = hasAdHocServerOptions(options);
 
   if (mode === "single") {
     if (hasConfigPath && options.serverName) {
@@ -284,6 +300,17 @@ export function resolveServerConfigs(
   }
 
   return [];
+}
+
+/**
+ * Launch-time resolver for CLI/TUI: applies the default catalog path when no
+ * `--config` or ad-hoc target is given, then delegates to `resolveServerConfigs`.
+ */
+export function resolveLaunchServerConfigs(
+  options: ServerConfigOptions,
+  mode: ResolveServerConfigsMode,
+): MCPServerConfig[] {
+  return resolveServerConfigs(withDefaultConfigPath(options), mode);
 }
 
 /**

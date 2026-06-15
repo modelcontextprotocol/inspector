@@ -4,7 +4,8 @@
 .claude/
 node_modules
 dist
-clients/*/build
+clients/web/dist
+clients/**/build
 test-servers/build
 .env
 /.playwright-mcp/

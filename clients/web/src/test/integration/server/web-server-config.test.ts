@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
+  buildWebServerConfig,
   buildWebServerConfigFromEnv,
   printServerBanner,
   webServerConfigToInitialPayload,
@@ -189,6 +190,39 @@ describe("buildWebServerConfigFromEnv", () => {
     process.env.MCP_LOG_FILE = logFile;
     const cfg = buildWebServerConfigFromEnv();
     expect(cfg.logger).toBeDefined();
+  });
+});
+
+describe("buildWebServerConfig", () => {
+  it("matches buildWebServerConfigFromEnv when initialMcpConfig is omitted", () => {
+    process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] = "shared";
+    expect(buildWebServerConfig()).toEqual(buildWebServerConfigFromEnv());
+    expect(buildWebServerConfig({ initialMcpConfig: null })).toEqual(
+      buildWebServerConfigFromEnv(),
+    );
+  });
+
+  it("preserves a stdio initialMcpConfig while applying shared env defaults", () => {
+    process.env.CLIENT_PORT = "7000";
+    const initialMcpConfig = {
+      type: "stdio" as const,
+      command: "node",
+      args: ["server.js"],
+      cwd: "/srv",
+    };
+    const cfg = buildWebServerConfig({ initialMcpConfig });
+    expect(cfg.port).toBe(7000);
+    expect(cfg.initialMcpConfig).toEqual(initialMcpConfig);
+    expect(cfg.allowedOrigins).toEqual(["http://localhost:7000"]);
+  });
+
+  it("preserves remote transport initialMcpConfig", () => {
+    const initialMcpConfig = {
+      type: "streamable-http" as const,
+      url: "https://example.com/mcp",
+    };
+    const cfg = buildWebServerConfig({ initialMcpConfig });
+    expect(cfg.initialMcpConfig).toEqual(initialMcpConfig);
   });
 });
 

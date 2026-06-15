@@ -1,10 +1,12 @@
 /**
- * Hono production server. Export startHonoServer(config) for in-process use by the runner.
- * When run as the main module (e.g. node dist/server.js), build config from env and start.
+ * Hono production server. Export startHonoServer(config) for in-process use by
+ * the runner. The server is started programmatically via `runWeb` (in
+ * `run-web.ts`), which is the bundled `build/index.js` entry the `mcp-inspector`
+ * bin invokes — there is no separate standalone server entry.
  */
 
 import { readFileSync } from "node:fs";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import open from "open";
@@ -18,7 +20,6 @@ import { injectAuthToken } from "./inject-auth-token.js";
 import type { WebServerConfig } from "./web-server-config.js";
 import {
   webServerConfigToInitialPayload,
-  buildWebServerConfigFromEnv,
   printServerBanner,
 } from "./web-server-config.js";
 import type { WebServerHandle } from "./types.js";
@@ -147,22 +148,4 @@ export async function startHonoServer(
       });
     },
   };
-}
-
-/** Run when this file is executed as the main module (e.g. node dist/server.js). */
-async function runStandalone(): Promise<void> {
-  const config = buildWebServerConfigFromEnv();
-  const handle = await startHonoServer(config);
-  const shutdown = () => {
-    void handle.close().then(() => process.exit(0));
-  };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
-}
-
-const isMain =
-  process.argv[1] !== undefined &&
-  resolve(process.argv[1]) === resolve(__filename);
-if (isMain) {
-  void runStandalone();
 }

@@ -149,10 +149,18 @@ export function printServerBanner(
   return url;
 }
 
+export interface BuildWebServerConfigOptions {
+  initialMcpConfig?: MCPServerConfig | null;
+}
+
 /**
- * Build WebServerConfig from process.env. Used when running server as standalone (e.g. node dist/server.js).
+ * Build WebServerConfig from process.env and optional initial MCP server config.
+ * Used by the launcher runner, Vite dev (`buildWebServerConfigFromEnv`), and prod standalone.
  */
-export function buildWebServerConfigFromEnv(): WebServerConfig {
+export function buildWebServerConfig(
+  options: BuildWebServerConfigOptions = {},
+): WebServerConfig {
+  const { initialMcpConfig = null } = options;
   const port = parseInt(process.env.CLIENT_PORT ?? "6274", 10);
   const hostname = process.env.HOST ?? "localhost";
   const baseUrl = `http://${hostname}:${port}`;
@@ -162,8 +170,6 @@ export function buildWebServerConfigFromEnv(): WebServerConfig {
     : ((process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] as string | undefined) ??
       (process.env[LEGACY_AUTH_TOKEN_ENV] as string | undefined) ??
       "");
-
-  const initialMcpConfig: MCPServerConfig | null = null;
 
   const sandboxPort = resolveSandboxPort();
 
@@ -194,6 +200,13 @@ export function buildWebServerConfigFromEnv(): WebServerConfig {
     logger,
     autoOpen: resolveAutoOpen(),
   };
+}
+
+/**
+ * Build WebServerConfig from process.env only. Used by `vite dev` (the Hono dev plugin reads env, not argv).
+ */
+export function buildWebServerConfigFromEnv(): WebServerConfig {
+  return buildWebServerConfig({ initialMcpConfig: null });
 }
 
 /**
