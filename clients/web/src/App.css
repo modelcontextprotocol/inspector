@@ -283,8 +283,11 @@
 
 /* ── Filter toggle buttons (Logging / History / Network) ─────────
  *
- * Shared by the FilterToggleButton element and the History list's collapsible
- * section headers (the `sectionHeader` Group variant). Unlike `.list-item`,
+ * Shared by the FilterToggleButton element, the History list's collapsible
+ * section headers (the `sectionHeader` Group variant), and the Resources
+ * disclosure accordion controls (the `disclosure` Accordion variant). The
+ * active (on / open) state is keyed off `aria-pressed` for the toggle buttons
+ * and `aria-expanded` for the accordion controls. Unlike `.list-item`,
  * hover is a thin border rather than a background fill, and the active (on)
  * state is the filled background. Keeping the two states distinct means
  * toggling a button off while the cursor is still over it is immediately
@@ -302,7 +305,8 @@
   border-color: var(--inspector-brand-primary);
 }
 
-.filter-toggle[aria-pressed="true"] {
+.filter-toggle[aria-pressed="true"],
+.filter-toggle[aria-expanded="true"] {
   background-color: var(--mantine-primary-color-light);
 }
 
@@ -343,7 +347,11 @@
 
 /* ── Accordion button hover ─────────────────────────────── */
 
-.mantine-Accordion-control:hover {
+/* Default accordions (e.g. Server Settings) keep the background-fill hover.
+ * The Resources `disclosure` accordion opts out via `.filter-toggle` (added to
+ * its control slot in theme/Accordion.ts) so it gets the outline-on-hover
+ * treatment instead — see the `.filter-toggle` rules above. */
+.mantine-Accordion-control:not(.filter-toggle):hover {
   background-color: var(--mantine-primary-color-light-hover);
 }
 
