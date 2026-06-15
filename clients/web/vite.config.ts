@@ -32,58 +32,24 @@ export default defineConfig({
   // `honoMiddlewarePlugin` is gated by `apply: 'serve'` so it only attaches
   // during `vite dev` / `vite preview` — vitest projects share this config
   // but never invoke `configureServer`, so the plugin stays inert there.
+  //
+  // The plugin statically imports the node-only dev backend
+  // (`core/mcp/remote/node/server.ts`), so Vite's config bundler (Rolldown)
+  // walks that chain when it loads this file and reaches node-only deps
+  // (`chokidar`, `atomically`, `@napi-rs/keyring`). Those resolve cleanly at
+  // config-bundle time because they're declared in the repo-root
+  // `package.json` and installed into the repo-root `node_modules`, which sits
+  // on `core/`'s module-resolution chain (core/ has no node_modules of its
+  // own). Keep them in the root manifest: drop one and Rolldown can no longer
+  // resolve it from core/, reviving the benign `UNRESOLVED_IMPORT` warnings
+  // that #1491 eliminated at the source (by removing the old stream filter and
+  // build-time onwarn suppressions rather than re-hiding the symptom).
   plugins: [react(), honoMiddlewarePlugin(buildWebServerConfigFromEnv())],
   // Shared optimizeDeps exclusions so node-only packages
   // (`@modelcontextprotocol/sdk/client/stdio.js`, `cross-spawn`, `which`)
   // consumed by the dev backend aren't scanned for browser pre-bundling.
   // Browser code reaches the node-side stack via the Hono plugin only.
   ...getViteBaseConfig(),
-  build: {
-    rollupOptions: {
-      // Loading vite.config.ts pulls `core/mcp/remote/node/server.ts` (via the
-      // Hono plugin) into Rollup's module cache. That chain reaches
-      // `core/storage/store-io.ts`, which imports node-only `atomically`. The
-      // module never lands in the browser bundle (it's unreachable from
-      // `index.html`), but Rollup's scanner still warns about the unresolved
-      // import. Silence it here so the build log stays clean.
-      onwarn(warning, defaultHandler) {
-        if (
-          warning.code === 'UNRESOLVED_IMPORT' &&
-          typeof warning.message === 'string' &&
-          warning.message.includes("'atomically'") &&
-          warning.message.includes('store-io.ts')
-        ) {
-          return;
-        }
-        // Same story for `chokidar`: the mcp.json file watcher in
-        // `core/mcp/remote/node/server.ts` is reachable only through the dev
-        // backend, never from the browser bundle. Rollup still scans the
-        // import statement and warns when it can't resolve it.
-        if (
-          warning.code === 'UNRESOLVED_IMPORT' &&
-          typeof warning.message === 'string' &&
-          warning.message.includes("'chokidar'") &&
-          warning.message.includes('server.ts')
-        ) {
-          return;
-        }
-        // `@napi-rs/keyring` is the native-binding keychain backend
-        // consumed by `core/auth/node/secret-store.ts` from the Hono
-        // `/api/servers` handlers. Same reasoning as the entries above:
-        // unreachable from the browser bundle, so the unresolved-import
-        // warning is noise.
-        if (
-          warning.code === 'UNRESOLVED_IMPORT' &&
-          typeof warning.message === 'string' &&
-          warning.message.includes("'@napi-rs/keyring'") &&
-          warning.message.includes('secret-store.ts')
-        ) {
-          return;
-        }
-        defaultHandler(warning);
-      },
-    },
-  },
   resolve: {
     // NOTE: the unit vitest project (below) overrides this — see comment there.
     //
