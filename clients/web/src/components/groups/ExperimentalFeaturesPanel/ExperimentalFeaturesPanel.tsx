@@ -5,7 +5,6 @@ import {
   Button,
   Card,
   Checkbox,
-  CloseButton,
   Divider,
   Group,
   Stack,
@@ -15,6 +14,7 @@ import {
   Textarea,
   Title,
 } from "@mantine/core";
+import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type {
   ClientCapabilities,
   JSONRPCErrorResponse,
@@ -248,9 +248,7 @@ export function ExperimentalFeaturesPanel({
             rightSectionPointerEvents="auto"
             rightSection={
               header.key ? (
-                <CloseButton
-                  aria-label="Clear"
-                  tabIndex={-1}
+                <ClearButton
                   onClick={() => onHeaderChange(index, "", header.value)}
                 />
               ) : null
@@ -265,9 +263,7 @@ export function ExperimentalFeaturesPanel({
             rightSectionPointerEvents="auto"
             rightSection={
               header.value ? (
-                <CloseButton
-                  aria-label="Clear"
-                  tabIndex={-1}
+                <ClearButton
                   onClick={() => onHeaderChange(index, header.key, "")}
                 />
               ) : null
@@ -293,11 +289,7 @@ export function ExperimentalFeaturesPanel({
         rightSectionPointerEvents="auto"
         rightSection={
           requestDraft ? (
-            <CloseButton
-              aria-label="Clear"
-              tabIndex={-1}
-              onClick={() => onRequestChange("")}
-            />
+            <ClearButton onClick={() => onRequestChange("")} />
           ) : null
         }
       />

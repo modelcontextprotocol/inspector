@@ -1,11 +1,5 @@
-import {
-  Accordion,
-  CloseButton,
-  Group,
-  Stack,
-  TextInput,
-  Title,
-} from "@mantine/core";
+import { Accordion, Group, Stack, TextInput, Title } from "@mantine/core";
+import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import { RiArrowRightSLine } from "react-icons/ri";
 import type {
   Resource,
@@ -186,11 +180,7 @@ export function ResourceControls({
           rightSectionPointerEvents="auto"
           rightSection={
             searchText ? (
-              <CloseButton
-                aria-label="Clear"
-                tabIndex={-1}
-                onClick={() => onSearchChange("")}
-              />
+              <ClearButton onClick={() => onSearchChange("")} />
             ) : null
           }
         />

@@ -1,7 +1,6 @@
 import {
   Badge,
   Button,
-  CloseButton,
   Divider,
   Group,
   Paper,
@@ -12,6 +11,7 @@ import {
   Textarea,
   Title,
 } from "@mantine/core";
+import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type {
   CreateMessageRequestParams,
   CreateMessageResult,
@@ -159,9 +159,7 @@ export function SamplingRequestPanel({
         rightSectionPointerEvents="auto"
         rightSection={
           draftResult.content.type === "text" && draftResult.content.text ? (
-            <CloseButton
-              aria-label="Clear"
-              tabIndex={-1}
+            <ClearButton
               onClick={() =>
                 onResultChange({
                   ...draftResult,
@@ -182,9 +180,7 @@ export function SamplingRequestPanel({
           rightSectionPointerEvents="auto"
           rightSection={
             draftResult.model ? (
-              <CloseButton
-                aria-label="Clear"
-                tabIndex={-1}
+              <ClearButton
                 onClick={() => onResultChange({ ...draftResult, model: "" })}
               />
             ) : null

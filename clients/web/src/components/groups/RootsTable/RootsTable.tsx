@@ -2,7 +2,6 @@ import {
   ActionIcon,
   Alert,
   Button,
-  CloseButton,
   Divider,
   Group,
   Stack,
@@ -11,6 +10,7 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
+import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { Root } from "@modelcontextprotocol/sdk/types.js";
 
 export type RootDraft = { name: string; uri: string };
@@ -94,9 +94,7 @@ export function RootsTable({
         rightSectionPointerEvents="auto"
         rightSection={
           newRootDraft.name ? (
-            <CloseButton
-              aria-label="Clear"
-              tabIndex={-1}
+            <ClearButton
               onClick={() =>
                 onNewRootDraftChange({ ...newRootDraft, name: "" })
               }
@@ -116,9 +114,7 @@ export function RootsTable({
         rightSectionPointerEvents="auto"
         rightSection={
           newRootDraft.uri ? (
-            <CloseButton
-              aria-label="Clear"
-              tabIndex={-1}
+            <ClearButton
               onClick={() => onNewRootDraftChange({ ...newRootDraft, uri: "" })}
             />
           ) : null

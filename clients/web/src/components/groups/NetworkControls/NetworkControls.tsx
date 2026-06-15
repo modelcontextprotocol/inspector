@@ -1,11 +1,5 @@
-import {
-  Button,
-  CloseButton,
-  Group,
-  Stack,
-  TextInput,
-  Title,
-} from "@mantine/core";
+import { Button, Group, Stack, TextInput, Title } from "@mantine/core";
+import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { FetchRequestCategory } from "@inspector/core/mcp/types.js";
 import { FilterToggleButton } from "../../elements/FilterToggleButton/FilterToggleButton";
 
@@ -47,13 +41,7 @@ export function NetworkControls({
         onChange={(e) => onFilterChange(e.currentTarget.value)}
         rightSectionPointerEvents="auto"
         rightSection={
-          filterText ? (
-            <CloseButton
-              aria-label="Clear"
-              tabIndex={-1}
-              onClick={() => onFilterChange("")}
-            />
-          ) : null
+          filterText ? <ClearButton onClick={() => onFilterChange("")} /> : null
         }
       />
 

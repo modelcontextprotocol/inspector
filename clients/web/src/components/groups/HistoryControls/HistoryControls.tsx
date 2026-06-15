@@ -1,4 +1,5 @@
-import { CloseButton, Select, Stack, TextInput, Title } from "@mantine/core";
+import { Select, Stack, TextInput, Title } from "@mantine/core";
+import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type {
   MessageMethod,
   MessageOrigin,
@@ -35,13 +36,7 @@ export function HistoryControls({
         onChange={(event) => onSearchChange(event.currentTarget.value)}
         rightSectionPointerEvents="auto"
         rightSection={
-          searchText ? (
-            <CloseButton
-              aria-label="Clear"
-              tabIndex={-1}
-              onClick={() => onSearchChange("")}
-            />
-          ) : null
+          searchText ? <ClearButton onClick={() => onSearchChange("")} /> : null
         }
       />
 

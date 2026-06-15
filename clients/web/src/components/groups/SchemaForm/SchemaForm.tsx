@@ -1,6 +1,5 @@
 import {
   Checkbox,
-  CloseButton,
   JsonInput,
   MultiSelect,
   NumberInput,
@@ -9,6 +8,7 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
+import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { JsonSchemaType } from "../../../utils/jsonUtils";
 
 const FieldLabel = Text.withProps({
@@ -119,11 +119,7 @@ export function SchemaForm({
           rightSectionPointerEvents="auto"
           rightSection={
             rawValue ? (
-              <CloseButton
-                aria-label="Clear"
-                tabIndex={-1}
-                onClick={() => handleFieldChange(fieldName, "")}
-              />
+              <ClearButton onClick={() => handleFieldChange(fieldName, "")} />
             ) : null
           }
         />
