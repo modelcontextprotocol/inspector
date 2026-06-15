@@ -281,6 +281,7 @@ export function ServerConfigModal({
               form.id ? (
                 <CloseButton
                   aria-label="Clear"
+                  tabIndex={-1}
                   disabled={submitting}
                   onClick={() => setForm((f) => ({ ...f, id: "" }))}
                 />
@@ -323,6 +324,7 @@ export function ServerConfigModal({
                   form.command ? (
                     <CloseButton
                       aria-label="Clear"
+                      tabIndex={-1}
                       disabled={submitting}
                       onClick={() => setForm((f) => ({ ...f, command: "" }))}
                     />
@@ -346,6 +348,7 @@ export function ServerConfigModal({
                   form.argsText ? (
                     <CloseButton
                       aria-label="Clear"
+                      tabIndex={-1}
                       disabled={submitting}
                       onClick={() => setForm((f) => ({ ...f, argsText: "" }))}
                     />
@@ -369,6 +372,7 @@ export function ServerConfigModal({
                   form.envText ? (
                     <CloseButton
                       aria-label="Clear"
+                      tabIndex={-1}
                       disabled={submitting}
                       onClick={() => setForm((f) => ({ ...f, envText: "" }))}
                     />
@@ -389,6 +393,7 @@ export function ServerConfigModal({
                   form.cwd ? (
                     <CloseButton
                       aria-label="Clear"
+                      tabIndex={-1}
                       disabled={submitting}
                       onClick={() => setForm((f) => ({ ...f, cwd: "" }))}
                     />
@@ -412,6 +417,7 @@ export function ServerConfigModal({
                 form.url ? (
                   <CloseButton
                     aria-label="Clear"
+                    tabIndex={-1}
                     disabled={submitting}
                     onClick={() => setForm((f) => ({ ...f, url: "" }))}
                   />

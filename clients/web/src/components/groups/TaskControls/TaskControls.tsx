@@ -53,6 +53,7 @@ export function TaskControls({
           searchText ? (
             <CloseButton
               aria-label="Clear"
+              tabIndex={-1}
               onClick={() => onSearchChange("")}
             />
           ) : null

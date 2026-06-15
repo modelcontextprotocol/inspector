@@ -93,6 +93,7 @@ function KeyValueRows({
               item.key ? (
                 <CloseButton
                   aria-label="Clear"
+                  tabIndex={-1}
                   onClick={() => onChange(index, "", item.value)}
                 />
               ) : null
@@ -107,6 +108,7 @@ function KeyValueRows({
               item.value ? (
                 <CloseButton
                   aria-label="Clear"
+                  tabIndex={-1}
                   onClick={() => onChange(index, item.key, "")}
                 />
               ) : null
@@ -147,6 +149,7 @@ function RootRows({
               root.uri ? (
                 <CloseButton
                   aria-label="Clear"
+                  tabIndex={-1}
                   onClick={() => onChange(index, "", root.name ?? "")}
                 />
               ) : null
@@ -161,6 +164,7 @@ function RootRows({
               root.name ? (
                 <CloseButton
                   aria-label="Clear"
+                  tabIndex={-1}
                   onClick={() => onChange(index, root.uri, "")}
                 />
               ) : null
@@ -374,6 +378,7 @@ export function ServerSettingsForm({
                 settings.oauthClientId ? (
                   <CloseButton
                     aria-label="Clear"
+                    tabIndex={-1}
                     onClick={() =>
                       onOAuthChange({ ...currentOAuth(), clientId: "" })
                     }
@@ -396,6 +401,7 @@ export function ServerSettingsForm({
                 settings.oauthClientSecret ? (
                   <CloseButton
                     aria-label="Clear"
+                    tabIndex={-1}
                     onClick={() =>
                       onOAuthChange({ ...currentOAuth(), clientSecret: "" })
                     }
@@ -417,6 +423,7 @@ export function ServerSettingsForm({
                 settings.oauthScopes ? (
                   <CloseButton
                     aria-label="Clear"
+                    tabIndex={-1}
                     onClick={() =>
                       onOAuthChange({ ...currentOAuth(), scopes: "" })
                     }

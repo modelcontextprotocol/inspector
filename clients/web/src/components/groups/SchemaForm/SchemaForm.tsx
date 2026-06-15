@@ -121,6 +121,7 @@ export function SchemaForm({
             rawValue ? (
               <CloseButton
                 aria-label="Clear"
+                tabIndex={-1}
                 onClick={() => handleFieldChange(fieldName, "")}
               />
             ) : null

@@ -96,6 +96,7 @@ export function RootsTable({
           newRootDraft.name ? (
             <CloseButton
               aria-label="Clear"
+              tabIndex={-1}
               onClick={() =>
                 onNewRootDraftChange({ ...newRootDraft, name: "" })
               }
@@ -117,6 +118,7 @@ export function RootsTable({
           newRootDraft.uri ? (
             <CloseButton
               aria-label="Clear"
+              tabIndex={-1}
               onClick={() => onNewRootDraftChange({ ...newRootDraft, uri: "" })}
             />
           ) : null

@@ -92,7 +92,11 @@ export function ImportServerJsonPanel({
         rightSectionPointerEvents="auto"
         rightSection={
           draft.rawText ? (
-            <CloseButton aria-label="Clear" onClick={() => onJsonChange("")} />
+            <CloseButton
+              aria-label="Clear"
+              tabIndex={-1}
+              onClick={() => onJsonChange("")}
+            />
           ) : null
         }
       />
@@ -151,6 +155,7 @@ export function ImportServerJsonPanel({
                 envVar.value ? (
                   <CloseButton
                     aria-label="Clear"
+                    tabIndex={-1}
                     onClick={() => onEnvVarChange(envVar.name, "")}
                   />
                 ) : null
@@ -171,6 +176,7 @@ export function ImportServerJsonPanel({
           draft.nameOverride ? (
             <CloseButton
               aria-label="Clear"
+              tabIndex={-1}
               onClick={() => onServerNameChange("")}
             />
           ) : null

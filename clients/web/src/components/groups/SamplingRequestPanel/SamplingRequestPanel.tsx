@@ -161,6 +161,7 @@ export function SamplingRequestPanel({
           draftResult.content.type === "text" && draftResult.content.text ? (
             <CloseButton
               aria-label="Clear"
+              tabIndex={-1}
               onClick={() =>
                 onResultChange({
                   ...draftResult,
@@ -183,6 +184,7 @@ export function SamplingRequestPanel({
             draftResult.model ? (
               <CloseButton
                 aria-label="Clear"
+                tabIndex={-1}
                 onClick={() => onResultChange({ ...draftResult, model: "" })}
               />
             ) : null

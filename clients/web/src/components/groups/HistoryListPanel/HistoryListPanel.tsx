@@ -58,8 +58,9 @@ const EmptyState = Text.withProps({
   py: "xl",
 });
 
-// The section header is a single "pleat" bar (rounded, hover-highlighted, with
-// the active background passed per instance via `bg`). Inside it sit the
+// The section header is a single "pleat" bar (rounded, with the filter-button
+// outline-on-hover treatment and the active background passed per instance via
+// `bg`). Inside it sit the
 // clickable toggle area (the title, filling the left) and the optional
 // Clear/Export actions on the right — so the actions live on the pleat itself,
 // not beside it. The toggle is its own button (the actions can't nest inside a

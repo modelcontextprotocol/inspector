@@ -250,6 +250,7 @@ export function ExperimentalFeaturesPanel({
               header.key ? (
                 <CloseButton
                   aria-label="Clear"
+                  tabIndex={-1}
                   onClick={() => onHeaderChange(index, "", header.value)}
                 />
               ) : null
@@ -266,6 +267,7 @@ export function ExperimentalFeaturesPanel({
               header.value ? (
                 <CloseButton
                   aria-label="Clear"
+                  tabIndex={-1}
                   onClick={() => onHeaderChange(index, header.key, "")}
                 />
               ) : null
@@ -293,6 +295,7 @@ export function ExperimentalFeaturesPanel({
           requestDraft ? (
             <CloseButton
               aria-label="Clear"
+              tabIndex={-1}
               onClick={() => onRequestChange("")}
             />
           ) : null

@@ -50,6 +50,7 @@ export function NetworkControls({
           filterText ? (
             <CloseButton
               aria-label="Clear"
+              tabIndex={-1}
               onClick={() => onFilterChange("")}
             />
           ) : null

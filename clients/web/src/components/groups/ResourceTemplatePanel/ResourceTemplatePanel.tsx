@@ -267,6 +267,7 @@ export function ResourceTemplatePanel({
                 variables[varName] ? (
                   <CloseButton
                     aria-label="Clear"
+                    tabIndex={-1}
                     onClick={() => handleVariableChange(varName, "")}
                   />
                 ) : null

@@ -283,14 +283,15 @@
 
 /* ── Filter toggle buttons (Logging / History / Network) ─────────
  *
- * Shared by the FilterToggleButton element. Unlike `.list-item`, hover is a
- * thin border rather than a background fill, and the active (on) state is the
- * filled background. Keeping the two states distinct means toggling a button
- * off while the cursor is still over it is immediately visible, instead of the
- * hover background masking the removal of the active background (issue #1460).
- * The 1px transparent border is reserved here (not as an inline style in the
- * theme variant — inline styles outrank stylesheet `:hover` rules) so the hover
- * border doesn't shift layout. */
+ * Shared by the FilterToggleButton element and the History list's collapsible
+ * section headers (the `sectionHeader` Group variant). Unlike `.list-item`,
+ * hover is a thin border rather than a background fill, and the active (on)
+ * state is the filled background. Keeping the two states distinct means
+ * toggling a button off while the cursor is still over it is immediately
+ * visible, instead of the hover background masking the removal of the active
+ * background (issue #1460). The 1px transparent border is reserved here (not as
+ * an inline style in the theme variant — inline styles outrank stylesheet
+ * `:hover` rules) so the hover border doesn't shift layout. */
 
 .filter-toggle {
   border: 1px solid transparent;

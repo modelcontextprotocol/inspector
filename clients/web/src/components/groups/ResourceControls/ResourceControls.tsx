@@ -188,6 +188,7 @@ export function ResourceControls({
             searchText ? (
               <CloseButton
                 aria-label="Clear"
+                tabIndex={-1}
                 onClick={() => onSearchChange("")}
               />
             ) : null

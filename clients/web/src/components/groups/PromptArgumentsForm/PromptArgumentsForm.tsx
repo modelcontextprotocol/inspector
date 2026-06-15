@@ -227,6 +227,7 @@ export function PromptArgumentsForm({
                     argumentValues[arg.name] ? (
                       <CloseButton
                         aria-label="Clear"
+                        tabIndex={-1}
                         onClick={() => handleChange(arg.name, "")}
                       />
                     ) : null
