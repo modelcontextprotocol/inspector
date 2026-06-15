@@ -177,9 +177,20 @@ describe("MessageLogState", () => {
     expect(dispatched).toBe(true);
   });
 
-  it("does not clear on non-disconnected status changes", () => {
+  it("clears on a mid-session crash (statusChange -> error, #1490)", () => {
+    client.setStatus("connected");
     client.dispatchTypedEvent("message", notificationEntry());
+    expect(state.getMessages()).toHaveLength(1);
+    let dispatched = false;
+    state.addEventListener("messagesChange", () => (dispatched = true));
     client.setStatus("error");
+    expect(state.getMessages()).toEqual([]);
+    expect(dispatched).toBe(true);
+  });
+
+  it("does not clear on a non-terminal status change (connecting)", () => {
+    client.dispatchTypedEvent("message", notificationEntry());
+    client.setStatus("connecting");
     expect(state.getMessages()).toHaveLength(1);
   });
 

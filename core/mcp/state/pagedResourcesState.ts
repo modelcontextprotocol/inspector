@@ -12,6 +12,7 @@
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { Resource } from "@modelcontextprotocol/sdk/types.js";
+import { isTerminalStatus } from "../types.js";
 import { TypedEventTarget } from "../typedEventTarget.js";
 
 export interface PagedResourcesStateEventMap {
@@ -32,7 +33,7 @@ export class PagedResourcesState extends TypedEventTarget<PagedResourcesStateEve
     super();
     this.client = client;
     const onStatusChange = (): void => {
-      if (this.client?.getStatus() === "disconnected") {
+      if (isTerminalStatus(this.client?.getStatus())) {
         this.resources = [];
         this.dispatchTypedEvent("resourcesChange", []);
       }

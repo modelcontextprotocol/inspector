@@ -2612,6 +2612,199 @@ describe("InspectorClient", () => {
       await client.disconnect();
     });
 
+    it("holds status at error when a trailing onclose lands after onerror (#1490)", async () => {
+      // The reverse ordering of the test above: onerror lands first (status
+      // "error"), then the trailing onclose arrives. A bare
+      // `if (status !== "disconnected")` onclose guard would downgrade "error"
+      // back to "disconnected", so the persistent terminal status differed by
+      // transport ordering. onclose must now treat "error" as terminal and
+      // leave it untouched, while still emitting `disconnect` so teardown
+      // consumers fire identically in both orderings.
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+        },
+      );
+
+      const errors: Error[] = [];
+      let disconnects = 0;
+      client.addEventListener("error", (event) => {
+        errors.push(event.detail);
+      });
+      client.addEventListener("disconnect", () => {
+        disconnects++;
+      });
+
+      await client.connect();
+      expect(client.getStatus()).toBe("connected");
+
+      const baseTransport = (
+        client as unknown as {
+          baseTransport: {
+            onclose?: () => void;
+            onerror?: (error: Error) => void;
+          };
+        }
+      ).baseTransport;
+
+      // onerror first → status "error".
+      const failure = new Error("stdio subprocess crashed");
+      baseTransport.onerror?.(failure);
+      expect(client.getStatus()).toBe("error");
+
+      // Trailing onclose must NOT downgrade "error" to "disconnected"...
+      baseTransport.onclose?.();
+      expect(client.getStatus()).toBe("error");
+      // ...but must still fire `disconnect` exactly once so session teardown
+      // (e.g. App resets the active server) happens regardless of ordering.
+      expect(disconnects).toBe(1);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBe(failure);
+
+      await client.disconnect();
+    });
+
+    it("emits disconnect on a mid-session crash regardless of onclose/onerror ordering (#1490)", async () => {
+      // Both real-world orderings must settle on the same observable outcome:
+      // final status "error" and exactly one `disconnect` event.
+      const run = async (order: "onclose-first" | "onerror-first") => {
+        const c = new InspectorClient(
+          {
+            type: "stdio",
+            command: serverCommand.command,
+            args: serverCommand.args,
+          },
+          { environment: { transport: createTransportNode } },
+        );
+        let disconnects = 0;
+        c.addEventListener("disconnect", () => {
+          disconnects++;
+        });
+        await c.connect();
+        const bt = (
+          c as unknown as {
+            baseTransport: {
+              onclose?: () => void;
+              onerror?: (error: Error) => void;
+            };
+          }
+        ).baseTransport;
+        const failure = new Error("crash");
+        if (order === "onclose-first") {
+          bt.onclose?.();
+          bt.onerror?.(failure);
+        } else {
+          bt.onerror?.(failure);
+          bt.onclose?.();
+        }
+        // Snapshot before the cleanup disconnect() below, which fires its own
+        // disconnect events as it tears the (still-live) real transport down.
+        const result = { status: c.getStatus(), disconnects };
+        await c.disconnect();
+        return result;
+      };
+
+      const closeFirst = await run("onclose-first");
+      const errorFirst = await run("onerror-first");
+
+      expect(closeFirst).toEqual({ status: "error", disconnects: 1 });
+      expect(errorFirst).toEqual({ status: "error", disconnects: 1 });
+    });
+
+    it("fires disconnect exactly once when explicitly disconnecting from a crashed (error) state (#1490)", async () => {
+      // After a crash holds status at "error", close() can fire the transport's
+      // onclose synchronously. onclose would emit `disconnect` (status held at
+      // "error"), and then disconnect()'s own guard — seeing "error" still
+      // != "disconnected" — would emit it a second time. The `disconnecting`
+      // ownership flag must collapse that to exactly one event regardless of
+      // whether the SDK closes synchronously.
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        { environment: { transport: createTransportNode } },
+      );
+      await client.connect();
+
+      const baseTransport = (
+        client as unknown as {
+          baseTransport: { onerror?: (error: Error) => void };
+        }
+      ).baseTransport;
+      baseTransport.onerror?.(new Error("stdio subprocess crashed"));
+      expect(client.getStatus()).toBe("error");
+
+      // Listener attached AFTER the crash so it counts only the explicit
+      // disconnect()'s events.
+      let disconnects = 0;
+      client.addEventListener("disconnect", () => {
+        disconnects++;
+      });
+      await client.disconnect();
+
+      expect(disconnects).toBe(1);
+      expect(client.getStatus()).toBe("disconnected");
+    });
+
+    it("fires disconnect exactly once on a synchronous close() from error (deterministic sync-close pin, #1490)", async () => {
+      // The test above uses the real stdio transport, whose close() may invoke
+      // onclose asynchronously — so it asserts the invariant but does not
+      // deterministically exercise the sync-close branch that double-fired
+      // (onclose firing INSIDE close(), before disconnect()'s guard runs).
+      // Here we force that exact timing: override the SDK client's close() to
+      // invoke the transport's onclose synchronously. Without the
+      // `disconnecting` flag this asserts 2; with it, 1.
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        { environment: { transport: createTransportNode } },
+      );
+      await client.connect();
+
+      const baseTransport = (
+        client as unknown as {
+          baseTransport: {
+            onclose?: () => void;
+            onerror?: (error: Error) => void;
+          };
+        }
+      ).baseTransport;
+      // Put the client into the crashed "error" state.
+      baseTransport.onerror?.(new Error("stdio subprocess crashed"));
+      expect(client.getStatus()).toBe("error");
+
+      // Force close() to fire onclose synchronously (the sync-close branch),
+      // then delegate to the real close() so the subprocess is still torn down.
+      const sdkClient = (
+        client as unknown as { client: { close: () => Promise<void> } }
+      ).client;
+      const realClose = sdkClient.close.bind(sdkClient);
+      sdkClient.close = async () => {
+        baseTransport.onclose?.();
+        await realClose();
+      };
+
+      // Listener attached AFTER the crash so it counts only disconnect()'s events.
+      let disconnects = 0;
+      client.addEventListener("disconnect", () => {
+        disconnects++;
+      });
+      await client.disconnect();
+
+      expect(disconnects).toBe(1);
+      expect(client.getStatus()).toBe("disconnected");
+    });
+
     it("does not emit an error event when the handshake rejects connect()", async () => {
       // A transport whose start() rejects makes connect() reject (handshake
       // failure). The caller gets the reason via the rejected promise, so the

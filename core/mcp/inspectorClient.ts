@@ -189,6 +189,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   private defaultMetadata: Record<string, string> | undefined;
   private serverSettings: InspectorServerSettings | undefined;
   private status: ConnectionStatus = "disconnected";
+  // True only while an explicit disconnect() owns the teardown. close() can
+  // trigger the transport's onclose synchronously, so this lets onclose defer
+  // the canonical status set + `disconnect` event to disconnect() and fire it
+  // exactly once (see onclose / disconnect()).
+  private disconnecting = false;
   // Server data (resources, resourceTemplates, prompts are in state managers)
   private capabilities?: ServerCapabilities;
   private serverInfo?: Implementation;
@@ -429,11 +434,30 @@ export class InspectorClient extends InspectorClientEventTarget {
 
   private attachTransportListeners(baseTransport: Transport): void {
     baseTransport.onclose = () => {
-      if (this.status !== "disconnected") {
+      // An explicit disconnect() owns the teardown and will set the canonical
+      // status + fire `disconnect` itself. Defer to it so the event fires
+      // exactly once whether or not the SDK calls onclose synchronously inside
+      // close() — without this, an onclose that runs while status is held at
+      // "error" would fire `disconnect`, then disconnect()'s own guard would
+      // fire it again (#1490 re-review).
+      if (this.disconnecting) return;
+      // Already fully torn down — nothing to do (avoids a duplicate
+      // `disconnect` event after an explicit disconnect()).
+      if (this.status === "disconnected") return;
+      // Do NOT let a trailing `onclose` downgrade a crash's "error" status to
+      // "disconnected". On a real mid-session crash many SDK transports fire
+      // BOTH `onclose` and `onerror` in a transport-dependent order; with the
+      // old `!== "disconnected"` guard the final status differed by ordering
+      // ("disconnected" when onerror landed first, "error" when onclose did).
+      // Treating "error" as terminal here makes "error" the canonical resting
+      // status in both orderings (#1490). We still emit the `disconnect` event
+      // below so session-teardown consumers fire identically either way; only
+      // the persistent status value is held at "error".
+      if (this.status !== "error") {
         this.status = "disconnected";
         this.dispatchTypedEvent("statusChange", this.status);
-        this.dispatchTypedEvent("disconnect");
       }
+      this.dispatchTypedEvent("disconnect");
     };
     baseTransport.onerror = (error: Error) => {
       // Suppress ONLY the handshake case. These listeners are attached before
@@ -1051,41 +1075,56 @@ export class InspectorClient extends InspectorClientEventTarget {
    * @param safeDisconnectTimeout If > 0, poll every 10ms until SDK _responseHandlers is empty or this many ms have elapsed, then close. Default 0 = close immediately.
    */
   async disconnect(safeDisconnectTimeout = 0): Promise<void> {
-    if (this.client) {
-      if (safeDisconnectTimeout > 0) {
-        // This is pretty creepy, but there are test cases where client calls return but there
-        // are still response handlers pending. Usually a single macrotask delay is enough to
-        // clear them, but not always (it's been >10ms in some cases). The pending handlers
-        // themselves get the error (and in cases where those aren't awaited, the errors fly
-        // out of the test). This workaround where we directly access the handlers (otherwise
-        // private member of the SDK client) is creepy, but the least ugly working solution.
-        // We will re-valuate this with the v2 SDK. Currenly only tests that do quick disconnects
-        // use this setting.
-        //
-        const protocol = this.client as unknown as {
-          _responseHandlers?: Map<unknown, unknown>;
-        };
-        const handlers = protocol._responseHandlers;
-        const deadline = Date.now() + safeDisconnectTimeout;
-        while (
-          handlers?.size !== undefined &&
-          handlers.size > 0 &&
-          Date.now() < deadline
-        ) {
-          await new Promise((r) => setTimeout(r, 10));
+    // Claim ownership of the teardown so a synchronous onclose (fired from
+    // within close() below) defers its status set + `disconnect` event to the
+    // canonical block at the end of this method. Reset before that block so
+    // its dispatch is unaffected; any later async onclose early-returns on the
+    // "disconnected" status guard. Guarantees a single `disconnect` event even
+    // when disconnecting from a held-"error" status (#1490 re-review).
+    this.disconnecting = true;
+    try {
+      if (this.client) {
+        if (safeDisconnectTimeout > 0) {
+          // This is pretty creepy, but there are test cases where client calls return but there
+          // are still response handlers pending. Usually a single macrotask delay is enough to
+          // clear them, but not always (it's been >10ms in some cases). The pending handlers
+          // themselves get the error (and in cases where those aren't awaited, the errors fly
+          // out of the test). This workaround where we directly access the handlers (otherwise
+          // private member of the SDK client) is creepy, but the least ugly working solution.
+          // We will re-valuate this with the v2 SDK. Currenly only tests that do quick disconnects
+          // use this setting.
+          //
+          const protocol = this.client as unknown as {
+            _responseHandlers?: Map<unknown, unknown>;
+          };
+          const handlers = protocol._responseHandlers;
+          const deadline = Date.now() + safeDisconnectTimeout;
+          while (
+            handlers?.size !== undefined &&
+            handlers.size > 0 &&
+            Date.now() < deadline
+          ) {
+            await new Promise((r) => setTimeout(r, 10));
+          }
+        }
+        try {
+          await this.client.close();
+        } catch {
+          // Ignore errors on close
         }
       }
-      try {
-        await this.client.close();
-      } catch {
-        // Ignore errors on close
-      }
+    } finally {
+      // Release ownership before the canonical dispatch below so it runs
+      // normally; the "disconnected" status it sets makes any later async
+      // onclose early-return.
+      this.disconnecting = false;
     }
     // Null out transport so next connect() creates a fresh one.
     this.baseTransport = null;
     this.transport = null;
-    // Update status - transport onclose handler will also fire and clear state
-    // But we also do it here in case disconnect() is called directly
+    // Update status - any onclose fired during close() above deferred to us
+    // (see `disconnecting`), so this is the single place the explicit-disconnect
+    // path settles the status and emits `disconnect`.
     if (this.status !== "disconnected") {
       this.status = "disconnected";
       this.dispatchTypedEvent("statusChange", this.status);

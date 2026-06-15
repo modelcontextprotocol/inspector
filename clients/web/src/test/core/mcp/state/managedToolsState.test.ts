@@ -242,11 +242,24 @@ describe("ManagedToolsState", () => {
     expect(state.getTools()).toEqual([]);
   });
 
-  it("statusChange to other (non-disconnected) values does not clear tools", async () => {
+  it("statusChange to error clears tools (error is terminal, #1490)", async () => {
     client.setStatus("connected");
     client.queueToolPages({ tools: [tool("a")] });
     await state.refresh();
+    expect(state.getTools()).toHaveLength(1);
+
+    const changePromise = waitForToolsChange(state);
     client.setStatus("error");
+    const next = await changePromise;
+    expect(next).toEqual([]);
+    expect(state.getTools()).toEqual([]);
+  });
+
+  it("statusChange to a non-terminal value (connecting) does not clear tools", async () => {
+    client.setStatus("connected");
+    client.queueToolPages({ tools: [tool("a")] });
+    await state.refresh();
+    client.setStatus("connecting");
     expect(state.getTools().map((t) => t.name)).toEqual(["a"]);
   });
 

@@ -81,11 +81,21 @@ describe("PagedPromptsState", () => {
     expect(await changePromise).toEqual([]);
   });
 
-  it("statusChange to non-disconnected values is a no-op", async () => {
+  it("statusChange to error clears prompts (error is terminal, #1490)", async () => {
     client.setStatus("connected");
     client.queuePromptPages({ prompts: [prompt("a")] });
     await state.loadPage();
+    const changePromise = waitForChange(state);
     client.setStatus("error");
+    expect(await changePromise).toEqual([]);
+    expect(state.getPrompts()).toEqual([]);
+  });
+
+  it("statusChange to a non-terminal value (connecting) is a no-op", async () => {
+    client.setStatus("connected");
+    client.queuePromptPages({ prompts: [prompt("a")] });
+    await state.loadPage();
+    client.setStatus("connecting");
     expect(state.getPrompts().map((p) => p.name)).toEqual(["a"]);
   });
 

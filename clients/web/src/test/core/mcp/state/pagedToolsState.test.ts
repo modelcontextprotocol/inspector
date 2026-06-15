@@ -77,11 +77,21 @@ describe("PagedToolsState", () => {
     expect(state.getTools()).toEqual([]);
   });
 
-  it("statusChange to non-disconnected values is a no-op", async () => {
+  it("statusChange to error clears tools (error is terminal, #1490)", async () => {
     client.setStatus("connected");
     client.queueToolPages({ tools: [tool("a")] });
     await state.loadPage();
+    const changePromise = waitForChange(state);
     client.setStatus("error");
+    expect(await changePromise).toEqual([]);
+    expect(state.getTools()).toEqual([]);
+  });
+
+  it("statusChange to a non-terminal value (connecting) is a no-op", async () => {
+    client.setStatus("connected");
+    client.queueToolPages({ tools: [tool("a")] });
+    await state.loadPage();
+    client.setStatus("connecting");
     expect(state.getTools().map((t) => t.name)).toEqual(["a"]);
   });
 

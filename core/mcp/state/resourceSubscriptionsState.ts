@@ -22,6 +22,7 @@ import type {
   ManagedResourcesStateEventMap,
 } from "./managedResourcesState.js";
 import type { InspectorResourceSubscription } from "../types.js";
+import { isTerminalStatus } from "../types.js";
 import type { Resource } from "@modelcontextprotocol/sdk/types.js";
 import {
   TypedEventTarget,
@@ -82,7 +83,7 @@ export class ResourceSubscriptionsState extends TypedEventTarget<ResourceSubscri
     };
 
     const onStatusChange = (): void => {
-      if (this.client?.getStatus() === "disconnected") {
+      if (isTerminalStatus(this.client?.getStatus())) {
         this.subscribedUris = [];
         this.lastUpdatedByUri.clear();
         this.subscriptions = [];

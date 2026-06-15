@@ -9,6 +9,7 @@
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { Task } from "@modelcontextprotocol/sdk/types.js";
+import { isTerminalStatus } from "../types.js";
 import type { InspectorClientEventMap } from "../inspectorClientEventTarget.js";
 import {
   TypedEventTarget,
@@ -55,7 +56,7 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
       void this.refresh();
     };
     const onStatusChange = (): void => {
-      if (this.client?.getStatus() === "disconnected") {
+      if (isTerminalStatus(this.client?.getStatus())) {
         this.tasks = [];
         this.dismissedTaskIds.clear();
         this.dispatchTypedEvent("tasksChange", []);

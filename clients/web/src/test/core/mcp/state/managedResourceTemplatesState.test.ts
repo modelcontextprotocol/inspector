@@ -196,11 +196,24 @@ describe("ManagedResourceTemplatesState", () => {
     expect(state.getResourceTemplates()).toEqual([]);
   });
 
-  it("statusChange to other values does not clear templates", async () => {
+  it("statusChange to error clears templates (error is terminal, #1490)", async () => {
     client.setStatus("connected");
     client.queueResourceTemplatePages({ resourceTemplates: [template("a")] });
     await state.refresh();
+    expect(state.getResourceTemplates()).toHaveLength(1);
+
+    const changePromise = waitForChange(state);
     client.setStatus("error");
+    const next = await changePromise;
+    expect(next).toEqual([]);
+    expect(state.getResourceTemplates()).toEqual([]);
+  });
+
+  it("statusChange to a non-terminal value (connecting) does not clear templates", async () => {
+    client.setStatus("connected");
+    client.queueResourceTemplatePages({ resourceTemplates: [template("a")] });
+    await state.refresh();
+    client.setStatus("connecting");
     expect(state.getResourceTemplates().map((t) => t.name)).toEqual(["a"]);
   });
 
