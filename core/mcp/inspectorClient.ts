@@ -1021,10 +1021,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     } catch (error) {
       this.status = "error";
       this.dispatchTypedEvent("statusChange", this.status);
-      this.dispatchTypedEvent(
-        "error",
-        error instanceof Error ? error : new Error(String(error)),
-      );
+      // Deliberately do NOT dispatch the `error` event here: this is the
+      // awaited `connect()` path, so re-throwing hands the reason straight to
+      // the caller. The `error` event is reserved for non-awaited transitions
+      // (the transport `onerror` above), where there is no promise to reject.
+      // Dispatching here too would double-report a handshake failure.
       throw error;
     }
   }

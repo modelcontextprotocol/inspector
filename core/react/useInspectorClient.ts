@@ -22,6 +22,14 @@ export interface UseInspectorClientResult {
   serverInfo?: Implementation;
   instructions?: string;
   protocolVersion?: string;
+  /**
+   * Message from the most recent mid-session transport failure (the client's
+   * `error` event — stdio crash, SSE drop, HTTP 5xx). Stays set until the next
+   * connection attempt (`status` → `"connecting"`) clears it, so consumers can
+   * render it without subscribing to the event directly. Handshake failures do
+   * NOT populate this — they reject the `connect()` promise instead.
+   */
+  lastError?: string;
   appRendererClient: AppRendererClient | null;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
@@ -58,6 +66,7 @@ export function useInspectorClient(
   const [protocolVersion, setProtocolVersion] = useState<string | undefined>(
     inspectorClient?.getProtocolVersion(),
   );
+  const [lastError, setLastError] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (!inspectorClient) {
@@ -66,6 +75,7 @@ export function useInspectorClient(
       setServerInfo(undefined);
       setInstructions(undefined);
       setProtocolVersion(undefined);
+      setLastError(undefined);
       return;
     }
 
@@ -74,9 +84,18 @@ export function useInspectorClient(
     setServerInfo(inspectorClient.getServerInfo());
     setInstructions(inspectorClient.getInstructions());
     setProtocolVersion(inspectorClient.getProtocolVersion());
+    setLastError(undefined);
 
     const onStatusChange = (event: TypedEvent<"statusChange">) => {
       setStatus(event.detail);
+      // A fresh connection attempt clears any stale error from the prior
+      // session so the UI doesn't keep showing why the last transport died.
+      if (event.detail === "connecting") {
+        setLastError(undefined);
+      }
+    };
+    const onError = (event: TypedEvent<"error">) => {
+      setLastError(event.detail.message);
     };
     const onCapabilitiesChange = (event: TypedEvent<"capabilitiesChange">) => {
       setCapabilities(event.detail);
@@ -94,6 +113,7 @@ export function useInspectorClient(
     };
 
     inspectorClient.addEventListener("statusChange", onStatusChange);
+    inspectorClient.addEventListener("error", onError);
     inspectorClient.addEventListener(
       "capabilitiesChange",
       onCapabilitiesChange,
@@ -110,6 +130,7 @@ export function useInspectorClient(
 
     return () => {
       inspectorClient.removeEventListener("statusChange", onStatusChange);
+      inspectorClient.removeEventListener("error", onError);
       inspectorClient.removeEventListener(
         "capabilitiesChange",
         onCapabilitiesChange,
@@ -152,6 +173,7 @@ export function useInspectorClient(
     serverInfo,
     instructions,
     protocolVersion,
+    lastError,
     appRendererClient: inspectorClient?.getAppRendererClient() ?? null,
     connect,
     disconnect,

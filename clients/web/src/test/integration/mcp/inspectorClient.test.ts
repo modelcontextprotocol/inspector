@@ -2527,6 +2527,75 @@ describe("InspectorClient", () => {
       await client.disconnect();
       expect(disconnectFired).toBe(true);
     });
+
+    it("emits an error event and sets status to error on a mid-session transport failure", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+        },
+      );
+
+      const errors: Error[] = [];
+      client.addEventListener("error", (event) => {
+        errors.push(event.detail);
+      });
+
+      await client.connect();
+      expect(client.getStatus()).toBe("connected");
+
+      // Simulate the transport dying mid-session (stdio crash / SSE drop /
+      // HTTP 5xx) by invoking the `onerror` the client attached to the base
+      // transport — the same callback the SDK fires on a real failure.
+      const baseTransport = (
+        client as unknown as {
+          baseTransport: { onerror?: (error: Error) => void };
+        }
+      ).baseTransport;
+      const failure = new Error("stdio subprocess crashed");
+      baseTransport.onerror?.(failure);
+
+      expect(client.getStatus()).toBe("error");
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBe(failure);
+
+      await client.disconnect();
+    });
+
+    it("does not emit an error event when the handshake rejects connect()", async () => {
+      // A transport whose start() rejects makes connect() reject (handshake
+      // failure). The caller gets the reason via the rejected promise, so the
+      // client must NOT also dispatch the `error` event (which is reserved for
+      // non-awaited, mid-session failures). See #1323.
+      const failingFactory = () => ({
+        transport: {
+          start: () => Promise.reject(new Error("handshake refused")),
+          send: async () => {},
+          close: async () => {},
+          onclose: undefined,
+          onerror: undefined,
+          onmessage: undefined,
+          sessionId: undefined,
+        } as unknown as import("@modelcontextprotocol/sdk/shared/transport.js").Transport,
+      });
+      client = new InspectorClient(
+        { type: "streamable-http", url: "http://localhost:1/never" },
+        { environment: { transport: failingFactory } },
+      );
+
+      let errorFired = false;
+      client.addEventListener("error", () => {
+        errorFired = true;
+      });
+
+      await expect(client.connect()).rejects.toThrow(/handshake refused/);
+      expect(client.getStatus()).toBe("error");
+      expect(errorFired).toBe(false);
+    });
   });
 
   describe("Sampling Requests", () => {
