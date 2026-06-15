@@ -2753,6 +2753,58 @@ describe("InspectorClient", () => {
       expect(client.getStatus()).toBe("disconnected");
     });
 
+    it("fires disconnect exactly once on a synchronous close() from error (deterministic sync-close pin, #1490)", async () => {
+      // The test above uses the real stdio transport, whose close() may invoke
+      // onclose asynchronously — so it asserts the invariant but does not
+      // deterministically exercise the sync-close branch that double-fired
+      // (onclose firing INSIDE close(), before disconnect()'s guard runs).
+      // Here we force that exact timing: override the SDK client's close() to
+      // invoke the transport's onclose synchronously. Without the
+      // `disconnecting` flag this asserts 2; with it, 1.
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        { environment: { transport: createTransportNode } },
+      );
+      await client.connect();
+
+      const baseTransport = (
+        client as unknown as {
+          baseTransport: {
+            onclose?: () => void;
+            onerror?: (error: Error) => void;
+          };
+        }
+      ).baseTransport;
+      // Put the client into the crashed "error" state.
+      baseTransport.onerror?.(new Error("stdio subprocess crashed"));
+      expect(client.getStatus()).toBe("error");
+
+      // Force close() to fire onclose synchronously (the sync-close branch),
+      // then delegate to the real close() so the subprocess is still torn down.
+      const sdkClient = (
+        client as unknown as { client: { close: () => Promise<void> } }
+      ).client;
+      const realClose = sdkClient.close.bind(sdkClient);
+      sdkClient.close = async () => {
+        baseTransport.onclose?.();
+        await realClose();
+      };
+
+      // Listener attached AFTER the crash so it counts only disconnect()'s events.
+      let disconnects = 0;
+      client.addEventListener("disconnect", () => {
+        disconnects++;
+      });
+      await client.disconnect();
+
+      expect(disconnects).toBe(1);
+      expect(client.getStatus()).toBe("disconnected");
+    });
+
     it("does not emit an error event when the handshake rejects connect()", async () => {
       // A transport whose start() rejects makes connect() reject (handshake
       // failure). The caller gets the reason via the rejected promise, so the
