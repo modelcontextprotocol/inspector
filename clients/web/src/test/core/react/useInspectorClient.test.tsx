@@ -188,6 +188,24 @@ describe("useInspectorClient", () => {
     expect(result.current.lastError).toBe("HTTP 503");
   });
 
+  it("keeps lastError across a trailing disconnected transition", () => {
+    const client = new FakeInspectorClient({ status: "connected" });
+    const { result } = renderHook(() => useInspectorClient(client));
+    act(() => {
+      client.dispatchTypedEvent("error", new Error("stdio crashed"));
+    });
+    expect(result.current.lastError).toBe("stdio crashed");
+
+    // A real crash often trails the error with an onclose → statusChange
+    // ("disconnected"). The toast effect depends on that NOT clearing
+    // lastError (only the next "connecting" edge does).
+    act(() => {
+      client.setStatus("disconnected");
+    });
+    expect(result.current.status).toBe("disconnected");
+    expect(result.current.lastError).toBe("stdio crashed");
+  });
+
   it("resets lastError when the client prop changes", () => {
     const a = new FakeInspectorClient({ status: "connected" });
     const b = new FakeInspectorClient({ status: "connected" });

@@ -436,15 +436,22 @@ export class InspectorClient extends InspectorClientEventTarget {
       }
     };
     baseTransport.onerror = (error: Error) => {
-      // Only treat this as a mid-session failure. These listeners are attached
-      // before the handshake runs (see connect()), so an SDK transport that
-      // reports a connect-time error via `onerror` — in addition to rejecting
-      // `connect()` — would otherwise flip status to "error" and dispatch the
-      // `error` event during a handshake that the awaited `connect()` path is
-      // already going to surface via its rejection. Guarding on "connected"
-      // keeps the `error` event exclusively for post-handshake transport death
-      // (the one path with no promise to reject) and avoids double-reporting.
-      if (this.status !== "connected") return;
+      // Suppress ONLY the handshake case. These listeners are attached before
+      // the handshake runs (see connect()), so an SDK transport that reports a
+      // connect-time error via `onerror` — in addition to rejecting connect()
+      // — would otherwise dispatch the `error` event for a failure the awaited
+      // connect() rejection already surfaces, double-reporting it. "connecting"
+      // is precisely that state: the only one with a pending awaited connect()
+      // that will reject.
+      //
+      // We deliberately do NOT guard on `!== "connected"`: on a real
+      // mid-session crash many transports fire BOTH `onclose` and `onerror`,
+      // and the order is transport-dependent. If `onclose` lands first it flips
+      // status to "disconnected", so a "connected"-only guard would swallow the
+      // reason that the trailing `onerror` carries (its sole surface). Firing
+      // from any non-"connecting" state captures the reason regardless of
+      // ordering.
+      if (this.status === "connecting") return;
       this.status = "error";
       this.dispatchTypedEvent("statusChange", this.status);
       this.dispatchTypedEvent("error", error);

@@ -2566,6 +2566,52 @@ describe("InspectorClient", () => {
       await client.disconnect();
     });
 
+    it("still emits error when onclose lands before onerror on a mid-session crash", async () => {
+      // Many transports fire BOTH onclose and onerror on a real crash, in a
+      // transport-dependent order. When onclose lands first it flips status to
+      // "disconnected"; the guard must NOT swallow the trailing onerror's
+      // reason (its only surface). Regression lock for the #1489 re-review.
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+        },
+      );
+
+      const errors: Error[] = [];
+      client.addEventListener("error", (event) => {
+        errors.push(event.detail);
+      });
+
+      await client.connect();
+      expect(client.getStatus()).toBe("connected");
+
+      const baseTransport = (
+        client as unknown as {
+          baseTransport: {
+            onclose?: () => void;
+            onerror?: (error: Error) => void;
+          };
+        }
+      ).baseTransport;
+
+      // onclose first → status "disconnected"; then the trailing onerror.
+      baseTransport.onclose?.();
+      expect(client.getStatus()).toBe("disconnected");
+      const failure = new Error("stdio subprocess crashed");
+      baseTransport.onerror?.(failure);
+
+      expect(client.getStatus()).toBe("error");
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBe(failure);
+
+      await client.disconnect();
+    });
+
     it("does not emit an error event when the handshake rejects connect()", async () => {
       // A transport whose start() rejects makes connect() reject (handshake
       // failure). The caller gets the reason via the rejected promise, so the
