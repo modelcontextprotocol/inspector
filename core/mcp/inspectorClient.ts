@@ -436,6 +436,15 @@ export class InspectorClient extends InspectorClientEventTarget {
       }
     };
     baseTransport.onerror = (error: Error) => {
+      // Only treat this as a mid-session failure. These listeners are attached
+      // before the handshake runs (see connect()), so an SDK transport that
+      // reports a connect-time error via `onerror` — in addition to rejecting
+      // `connect()` — would otherwise flip status to "error" and dispatch the
+      // `error` event during a handshake that the awaited `connect()` path is
+      // already going to surface via its rejection. Guarding on "connected"
+      // keeps the `error` event exclusively for post-handshake transport death
+      // (the one path with no promise to reject) and avoids double-reporting.
+      if (this.status !== "connected") return;
       this.status = "error";
       this.dispatchTypedEvent("statusChange", this.status);
       this.dispatchTypedEvent("error", error);

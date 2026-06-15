@@ -2596,6 +2596,60 @@ describe("InspectorClient", () => {
       expect(client.getStatus()).toBe("error");
       expect(errorFired).toBe(false);
     });
+
+    it("does not emit error or flip to error when onerror fires during the handshake", async () => {
+      // The transport listeners are attached before the handshake runs, so a
+      // transport that reports a connect-time error via `onerror` (some SDK
+      // transports do this in addition to rejecting connect()) must NOT be
+      // treated as a mid-session failure: that would double-report a handshake
+      // error the awaited connect() rejection already surfaces. See #1323.
+      let rejectStart: (error: Error) => void = () => {};
+      const startPromise = new Promise<void>((_resolve, reject) => {
+        rejectStart = reject;
+      });
+      const transport = {
+        start: () => startPromise,
+        send: async () => {},
+        close: async () => {},
+        onclose: undefined as undefined | (() => void),
+        onerror: undefined as undefined | ((error: Error) => void),
+        onmessage: undefined,
+        sessionId: undefined,
+      };
+      const factory = () => ({
+        transport:
+          transport as unknown as import("@modelcontextprotocol/sdk/shared/transport.js").Transport,
+      });
+      client = new InspectorClient(
+        { type: "streamable-http", url: "http://localhost:1/never" },
+        { environment: { transport: factory } },
+      );
+
+      let errorFired = false;
+      client.addEventListener("error", () => {
+        errorFired = true;
+      });
+
+      // Kick off connect() without awaiting — it parks on the hanging start().
+      // `status` is "connecting" and `onerror` is wired by this point.
+      const pending = client.connect().catch(() => {});
+      expect(client.getStatus()).toBe("connecting");
+
+      // A connect-time transport error arrives via onerror.
+      transport.onerror?.(new Error("socket error mid-handshake"));
+
+      // It must be ignored: still connecting, no error event dispatched.
+      expect(client.getStatus()).toBe("connecting");
+      expect(errorFired).toBe(false);
+
+      // Unblock the handshake so connect() settles (and tears down cleanly).
+      rejectStart(new Error("aborted"));
+      await pending;
+      // connect()'s catch transitions to "error" via the rejection path —
+      // still without dispatching the `error` event.
+      expect(client.getStatus()).toBe("error");
+      expect(errorFired).toBe(false);
+    });
   });
 
   describe("Sampling Requests", () => {
