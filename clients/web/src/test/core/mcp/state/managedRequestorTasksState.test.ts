@@ -136,11 +136,24 @@ describe("ManagedRequestorTasksState", () => {
     expect(state.getTasks()).toEqual([]);
   });
 
-  it("statusChange to other values does not clear tasks", async () => {
+  it("statusChange to error clears tasks (error is terminal, #1490)", async () => {
     client.setStatus("connected");
     client.queueTaskPages({ tasks: [task("t1")] });
     await state.refresh();
+    expect(state.getTasks()).toHaveLength(1);
+
+    const changePromise = waitForChange(state);
     client.setStatus("error");
+    const next = await changePromise;
+    expect(next).toEqual([]);
+    expect(state.getTasks()).toEqual([]);
+  });
+
+  it("statusChange to a non-terminal value (connecting) does not clear tasks", async () => {
+    client.setStatus("connected");
+    client.queueTaskPages({ tasks: [task("t1")] });
+    await state.refresh();
+    client.setStatus("connecting");
     expect(state.getTasks().map((t) => t.taskId)).toEqual(["t1"]);
   });
 

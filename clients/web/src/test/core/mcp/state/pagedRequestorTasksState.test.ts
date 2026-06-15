@@ -148,6 +148,16 @@ describe("PagedRequestorTasksState", () => {
     expect(state.getNextCursor()).toBeUndefined();
   });
 
+  it("statusChange to error clears tasks and nextCursor (error is terminal, #1490)", async () => {
+    client.setStatus("connected");
+    client.queueTaskPages({ tasks: [task("t1")], nextCursor: "c1" });
+    await state.loadPage();
+    const changePromise = waitForChange(state);
+    client.setStatus("error");
+    expect(await changePromise).toEqual([]);
+    expect(state.getNextCursor()).toBeUndefined();
+  });
+
   it("destroy stops listening and clears state", async () => {
     client.setStatus("connected");
     client.queueTaskPages({ tasks: [task("t1")] });

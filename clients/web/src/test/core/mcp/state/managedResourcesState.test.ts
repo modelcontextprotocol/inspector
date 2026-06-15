@@ -189,11 +189,24 @@ describe("ManagedResourcesState", () => {
     expect(state.getResources()).toEqual([]);
   });
 
-  it("statusChange to other (non-disconnected) values does not clear resources", async () => {
+  it("statusChange to error clears resources (error is terminal, #1490)", async () => {
     client.setStatus("connected");
     client.queueResourcePages({ resources: [resource("a://1")] });
     await state.refresh();
+    expect(state.getResources()).toHaveLength(1);
+
+    const changePromise = waitForResourcesChange(state);
     client.setStatus("error");
+    const next = await changePromise;
+    expect(next).toEqual([]);
+    expect(state.getResources()).toEqual([]);
+  });
+
+  it("statusChange to a non-terminal value (connecting) does not clear resources", async () => {
+    client.setStatus("connected");
+    client.queueResourcePages({ resources: [resource("a://1")] });
+    await state.refresh();
+    client.setStatus("connecting");
     expect(state.getResources().map((r) => r.uri)).toEqual(["a://1"]);
   });
 

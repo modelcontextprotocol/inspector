@@ -14,6 +14,7 @@
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { InspectorClientEventMap } from "../inspectorClientEventTarget.js";
 import type { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
+import { isTerminalStatus } from "../types.js";
 import { TypedEventTarget } from "../typedEventTarget.js";
 
 const MAX_PAGES = 100;
@@ -106,7 +107,7 @@ export abstract class ManagedListState<
       }, config.debounceMs);
     };
     const onStatusChange = (): void => {
-      if (this.client?.getStatus() === "disconnected") {
+      if (isTerminalStatus(this.client?.getStatus())) {
         if (this.listChangedTimer !== null) {
           clearTimeout(this.listChangedTimer);
           this.listChangedTimer = null;

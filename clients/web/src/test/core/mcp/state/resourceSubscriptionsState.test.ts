@@ -191,10 +191,22 @@ describe("ResourceSubscriptionsState", () => {
     expect(state.getSubscriptions()).toEqual([]);
   });
 
-  it("does not clear subscriptions on non-disconnected status changes", () => {
+  it("clears subscriptions on a mid-session crash (statusChange to error, #1490)", async () => {
     const state = new ResourceSubscriptionsState(client);
     client.dispatchTypedEvent("resourceSubscriptionsChange", ["file:///a"]);
+    expect(state.getSubscriptions()).toHaveLength(1);
+
+    const changePromise = waitForSubscriptionsChange(state);
     client.setStatus("error");
+    const next = await changePromise;
+    expect(next).toEqual([]);
+    expect(state.getSubscriptions()).toEqual([]);
+  });
+
+  it("does not clear subscriptions on a non-terminal status change (connecting)", () => {
+    const state = new ResourceSubscriptionsState(client);
+    client.dispatchTypedEvent("resourceSubscriptionsChange", ["file:///a"]);
+    client.setStatus("connecting");
     expect(state.getSubscriptions()).toHaveLength(1);
   });
 

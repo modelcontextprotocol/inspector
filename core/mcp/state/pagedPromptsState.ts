@@ -12,6 +12,7 @@
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
+import { isTerminalStatus } from "../types.js";
 import { TypedEventTarget } from "../typedEventTarget.js";
 
 export interface PagedPromptsStateEventMap {
@@ -32,7 +33,7 @@ export class PagedPromptsState extends TypedEventTarget<PagedPromptsStateEventMa
     super();
     this.client = client;
     const onStatusChange = (): void => {
-      if (this.client?.getStatus() === "disconnected") {
+      if (isTerminalStatus(this.client?.getStatus())) {
         this.prompts = [];
         this.dispatchTypedEvent("promptsChange", []);
       }

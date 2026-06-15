@@ -150,6 +150,23 @@ export type ConnectionStatus =
   | "error";
 
 /**
+ * True when a connection has settled into a non-live terminal state — either a
+ * clean `"disconnected"` or a crashed `"error"`. Both mean the session is over
+ * and any cached server state (tool/resource/prompt lists, message log,
+ * subscriptions) should be torn down.
+ *
+ * Session-teardown consumers must key off this predicate rather than branching
+ * on `status === "disconnected"` alone: on a real mid-session crash many SDK
+ * transports fire BOTH `onclose` and `onerror` in a transport-dependent order,
+ * and the canonical terminal status is now `"error"` regardless of ordering
+ * (see InspectorClient's `onclose` handler, #1490). A bare `=== "disconnected"`
+ * check would therefore tear down in one ordering but not the other.
+ */
+export function isTerminalStatus(status: ConnectionStatus | undefined): boolean {
+  return status === "disconnected" || status === "error";
+}
+
+/**
  * Snapshot of a server's connection state, used by dumb components
  * that display status, retry count, and error details.
  */

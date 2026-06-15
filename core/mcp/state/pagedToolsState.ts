@@ -13,6 +13,7 @@
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { isTerminalStatus } from "../types.js";
 import { TypedEventTarget } from "../typedEventTarget.js";
 
 export interface PagedToolsStateEventMap {
@@ -33,7 +34,7 @@ export class PagedToolsState extends TypedEventTarget<PagedToolsStateEventMap> {
     super();
     this.client = client;
     const onStatusChange = (): void => {
-      if (this.client?.getStatus() === "disconnected") {
+      if (isTerminalStatus(this.client?.getStatus())) {
         this.tools = [];
         this.dispatchTypedEvent("toolsChange", []);
       }

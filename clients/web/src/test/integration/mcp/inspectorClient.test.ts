@@ -2612,6 +2612,110 @@ describe("InspectorClient", () => {
       await client.disconnect();
     });
 
+    it("holds status at error when a trailing onclose lands after onerror (#1490)", async () => {
+      // The reverse ordering of the test above: onerror lands first (status
+      // "error"), then the trailing onclose arrives. A bare
+      // `if (status !== "disconnected")` onclose guard would downgrade "error"
+      // back to "disconnected", so the persistent terminal status differed by
+      // transport ordering. onclose must now treat "error" as terminal and
+      // leave it untouched, while still emitting `disconnect` so teardown
+      // consumers fire identically in both orderings.
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+        },
+      );
+
+      const errors: Error[] = [];
+      let disconnects = 0;
+      client.addEventListener("error", (event) => {
+        errors.push(event.detail);
+      });
+      client.addEventListener("disconnect", () => {
+        disconnects++;
+      });
+
+      await client.connect();
+      expect(client.getStatus()).toBe("connected");
+
+      const baseTransport = (
+        client as unknown as {
+          baseTransport: {
+            onclose?: () => void;
+            onerror?: (error: Error) => void;
+          };
+        }
+      ).baseTransport;
+
+      // onerror first → status "error".
+      const failure = new Error("stdio subprocess crashed");
+      baseTransport.onerror?.(failure);
+      expect(client.getStatus()).toBe("error");
+
+      // Trailing onclose must NOT downgrade "error" to "disconnected"...
+      baseTransport.onclose?.();
+      expect(client.getStatus()).toBe("error");
+      // ...but must still fire `disconnect` exactly once so session teardown
+      // (e.g. App resets the active server) happens regardless of ordering.
+      expect(disconnects).toBe(1);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBe(failure);
+
+      await client.disconnect();
+    });
+
+    it("emits disconnect on a mid-session crash regardless of onclose/onerror ordering (#1490)", async () => {
+      // Both real-world orderings must settle on the same observable outcome:
+      // final status "error" and exactly one `disconnect` event.
+      const run = async (order: "onclose-first" | "onerror-first") => {
+        const c = new InspectorClient(
+          {
+            type: "stdio",
+            command: serverCommand.command,
+            args: serverCommand.args,
+          },
+          { environment: { transport: createTransportNode } },
+        );
+        let disconnects = 0;
+        c.addEventListener("disconnect", () => {
+          disconnects++;
+        });
+        await c.connect();
+        const bt = (
+          c as unknown as {
+            baseTransport: {
+              onclose?: () => void;
+              onerror?: (error: Error) => void;
+            };
+          }
+        ).baseTransport;
+        const failure = new Error("crash");
+        if (order === "onclose-first") {
+          bt.onclose?.();
+          bt.onerror?.(failure);
+        } else {
+          bt.onerror?.(failure);
+          bt.onclose?.();
+        }
+        // Snapshot before the cleanup disconnect() below, which fires its own
+        // disconnect events as it tears the (still-live) real transport down.
+        const result = { status: c.getStatus(), disconnects };
+        await c.disconnect();
+        return result;
+      };
+
+      const closeFirst = await run("onclose-first");
+      const errorFirst = await run("onerror-first");
+
+      expect(closeFirst).toEqual({ status: "error", disconnects: 1 });
+      expect(errorFirst).toEqual({ status: "error", disconnects: 1 });
+    });
+
     it("does not emit an error event when the handshake rejects connect()", async () => {
       // A transport whose start() rejects makes connect() reject (handshake
       // failure). The caller gets the reason via the rejected promise, so the

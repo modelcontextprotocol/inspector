@@ -429,11 +429,23 @@ export class InspectorClient extends InspectorClientEventTarget {
 
   private attachTransportListeners(baseTransport: Transport): void {
     baseTransport.onclose = () => {
-      if (this.status !== "disconnected") {
+      // Already fully torn down — nothing to do (avoids a duplicate
+      // `disconnect` event after an explicit disconnect()).
+      if (this.status === "disconnected") return;
+      // Do NOT let a trailing `onclose` downgrade a crash's "error" status to
+      // "disconnected". On a real mid-session crash many SDK transports fire
+      // BOTH `onclose` and `onerror` in a transport-dependent order; with the
+      // old `!== "disconnected"` guard the final status differed by ordering
+      // ("disconnected" when onerror landed first, "error" when onclose did).
+      // Treating "error" as terminal here makes "error" the canonical resting
+      // status in both orderings (#1490). We still emit the `disconnect` event
+      // below so session-teardown consumers fire identically either way; only
+      // the persistent status value is held at "error".
+      if (this.status !== "error") {
         this.status = "disconnected";
         this.dispatchTypedEvent("statusChange", this.status);
-        this.dispatchTypedEvent("disconnect");
       }
+      this.dispatchTypedEvent("disconnect");
     };
     baseTransport.onerror = (error: Error) => {
       // Suppress ONLY the handshake case. These listeners are attached before

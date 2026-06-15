@@ -83,11 +83,21 @@ describe("PagedResourcesState", () => {
     expect(await changePromise).toEqual([]);
   });
 
-  it("statusChange to non-disconnected values is a no-op", async () => {
+  it("statusChange to error clears resources (error is terminal, #1490)", async () => {
     client.setStatus("connected");
     client.queueResourcePages({ resources: [resource("a://1")] });
     await state.loadPage();
+    const changePromise = waitForChange(state);
     client.setStatus("error");
+    expect(await changePromise).toEqual([]);
+    expect(state.getResources()).toEqual([]);
+  });
+
+  it("statusChange to a non-terminal value (connecting) is a no-op", async () => {
+    client.setStatus("connected");
+    client.queueResourcePages({ resources: [resource("a://1")] });
+    await state.loadPage();
+    client.setStatus("connecting");
     expect(state.getResources().map((r) => r.uri)).toEqual(["a://1"]);
   });
 

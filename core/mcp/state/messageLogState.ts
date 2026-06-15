@@ -16,6 +16,7 @@
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { MessageEntry } from "../types.js";
+import { isTerminalStatus } from "../types.js";
 import type { InspectorClientEventMap } from "../inspectorClientEventTarget.js";
 import {
   TypedEventTarget,
@@ -98,7 +99,7 @@ export class MessageLogState extends TypedEventTarget<MessageLogStateEventMap> {
     };
 
     const onStatusChange = (): void => {
-      if (this.client?.getStatus() === "disconnected") {
+      if (isTerminalStatus(this.client?.getStatus())) {
         this.messages = [];
         this.pendingRequestEntries.clear();
         this.dispatchTypedEvent("messagesChange", []);

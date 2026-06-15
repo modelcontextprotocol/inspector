@@ -182,11 +182,24 @@ describe("ManagedPromptsState", () => {
     expect(state.getPrompts()).toEqual([]);
   });
 
-  it("statusChange to other (non-disconnected) values does not clear prompts", async () => {
+  it("statusChange to error clears prompts (error is terminal, #1490)", async () => {
     client.setStatus("connected");
     client.queuePromptPages({ prompts: [prompt("a")] });
     await state.refresh();
+    expect(state.getPrompts()).toHaveLength(1);
+
+    const changePromise = waitForPromptsChange(state);
     client.setStatus("error");
+    const next = await changePromise;
+    expect(next).toEqual([]);
+    expect(state.getPrompts()).toEqual([]);
+  });
+
+  it("statusChange to a non-terminal value (connecting) does not clear prompts", async () => {
+    client.setStatus("connected");
+    client.queuePromptPages({ prompts: [prompt("a")] });
+    await state.refresh();
+    client.setStatus("connecting");
     expect(state.getPrompts().map((p) => p.name)).toEqual(["a"]);
   });
 
