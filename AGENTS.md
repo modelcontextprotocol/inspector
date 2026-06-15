@@ -134,7 +134,7 @@ All work should be driven by items on the project board.
 
 ### Lint-fixed, Formatted code
 - ALWAYS do `npm run format` before committing — it auto-fixes any Prettier issues. `validate` runs `format:check` (the non-fixing variant) and will fail in CI on any unformatted file, so always run the auto-fixer first rather than letting `format:check` catch it.
-- ALWAYS do `npm run validate` before pushing any changes, this runs the various lint, build, format checks, etc.
+- ALWAYS do `npm run validate` before pushing any changes — from the repo root it mirrors what CI enforces across every client: web `format:check` + `lint` + `build` + `test:coverage` (`validate:web`), then the CLI and TUI test suites (`test:cli` / `test:tui`), then a build of CLI + TUI + launcher and the launcher `--help` smoke (`validate:launcher`). The sub-scripts (`validate:web`, `validate:launcher`, `smoke:launcher`) can be run individually when iterating on one client. Storybook is the only CI step left out (see below).
 - Also run `npm run test:storybook` before pushing — it executes every story's `play` function in headless Chromium via `@vitest/browser-playwright` (~10s). CI runs this as a separate step after the unit/lint/build checks; failures block merge. It is kept out of `validate` because it needs the Playwright browser binary and is much slower than the unit suite.
 
 ### Typescript instructions
