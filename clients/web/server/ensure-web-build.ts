@@ -20,17 +20,26 @@ import { spawnSync } from "node:child_process";
 export interface EnsureWebBuildDeps {
   exists?: (path: string) => boolean;
   /** Build the web assets in `webRoot`; returns the child exit code (null if it never ran). */
-  build?: (webRoot: string) => number | null;
+  build?: (webRoot: string, log: (message: string) => void) => number | null;
   log?: (message: string) => void;
 }
 
-function runViteBuild(webRoot: string): number | null {
+function runViteBuild(
+  webRoot: string,
+  log: (message: string) => void,
+): number | null {
   const result = spawnSync("npm", ["run", "build:client"], {
     cwd: webRoot,
     stdio: "inherit",
     // npm resolves to npm.cmd on Windows, which needs a shell to be spawnable.
     shell: process.platform === "win32",
   });
+  // A spawn failure (e.g. `npm` not on PATH → ENOENT) leaves `status` null and
+  // the child produces no output of its own, so surface the cause before the
+  // caller falls back to the generic actionable error.
+  if (result.error) {
+    log(`Web build failed to start: ${result.error.message}`);
+  }
   return result.status;
 }
 
@@ -57,7 +66,7 @@ export function ensureWebBuild(
     "No production web build found at clients/web/dist. Building the web UI now (first run only; this can take a minute)...",
   );
 
-  const status = build(webRoot);
+  const status = build(webRoot, log);
 
   if (status !== 0 || !exists(indexHtml)) {
     throw new Error(

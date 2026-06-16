@@ -38,7 +38,7 @@ describe("ensureWebBuild", () => {
       ensureWebBuild(WEB_ROOT, DIST_ROOT, { exists, build, log }),
     ).not.toThrow();
 
-    expect(build).toHaveBeenCalledWith(WEB_ROOT);
+    expect(build).toHaveBeenCalledWith(WEB_ROOT, expect.any(Function));
     expect(log).toHaveBeenCalledTimes(1);
     expect(log.mock.calls[0]?.[0]).toContain("No production web build found");
   });
@@ -116,6 +116,30 @@ describe("ensureWebBuild", () => {
         expect(() => ensureWebBuild(WEB_ROOT, DIST_ROOT)).toThrow(
           /Could not build the web UI automatically/,
         );
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+
+    it("surfaces the spawn error when the build can't start (ENOENT)", () => {
+      existsSync.mockReturnValue(false);
+      spawnSync.mockReturnValue({
+        status: null,
+        error: new Error("spawn npm ENOENT"),
+      });
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      try {
+        expect(() => ensureWebBuild(WEB_ROOT, DIST_ROOT)).toThrow(
+          /Could not build the web UI/,
+        );
+        expect(
+          logSpy.mock.calls.some((c) =>
+            String(c[0]).includes(
+              "Web build failed to start: spawn npm ENOENT",
+            ),
+          ),
+        ).toBe(true);
       } finally {
         logSpy.mockRestore();
       }

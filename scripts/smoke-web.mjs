@@ -9,9 +9,11 @@
  * returns HTTP 200 with the injected auth-token global. It exits non-zero
  * (failing CI / `npm run validate`) on any failure, then shuts the server down.
  *
- * Requires `clients/web/dist` and `clients/launcher/build` to be built first
- * (the validate / CI ordering guarantees this). If `dist` is missing the
- * launcher's build-on-demand path (ensure-web-build.ts) builds it.
+ * Expects `clients/web/dist` and `clients/launcher/build` to be built first —
+ * the validate / CI ordering guarantees this, so the readiness wait below is
+ * sized for an already-built `dist`. (If `dist` happened to be missing, the
+ * launcher's build-on-demand path would build it on startup, which a cold
+ * `vite build` could push past that wait — not a scenario this script targets.)
  */
 
 import { spawn } from "node:child_process";
