@@ -4,7 +4,7 @@
 
 import pino from "pino";
 import type { Logger } from "pino";
-import type { MCPServerConfig } from "../../../core/mcp/types.ts";
+import type { MCPConfig, MCPServerConfig } from "../../../core/mcp/types.ts";
 // Import directly from the leaf module — not the `core/mcp/remote/index.ts`
 // barrel — so Vite's config-time module graph doesn't pull in `createRemoteLogger`
 // (which references `pino/browser.js`) or other browser-side re-exports that
@@ -23,6 +23,28 @@ export interface WebServerConfig {
   dangerouslyOmitAuth: boolean;
   /** Single initial MCP server config, or null when no server specified. */
   initialMcpConfig: MCPServerConfig | null;
+  /**
+   * Absolute path to the `mcp.json` file the backend reads (and writes/watches
+   * when {@link writable}). When undefined the backend falls back to the
+   * default catalog (`~/.mcp-inspector/mcp.json`). Set by the launcher for
+   * `--catalog <path>` (writable) or `--config <path>` (read-only session).
+   * Mutually exclusive with {@link initialServers} (#1481).
+   */
+  mcpConfigPath: string | undefined;
+  /**
+   * When false, the server list is read-only for the session: the backend
+   * rejects `/api/servers` mutations and never seeds/migrates the file, and
+   * the web UI hides catalog CRUD. True for the default catalog and
+   * `--catalog`; false for `--config` and ad-hoc launches (#1481).
+   */
+  writable: boolean;
+  /**
+   * In-memory server list served by the backend instead of reading a file —
+   * set by the launcher to seed an ad-hoc `--server-url` / command target
+   * (with `--header`) without writing any file. Implies `writable: false`.
+   * Mutually exclusive with {@link mcpConfigPath} (#1481/#1483).
+   */
+  initialServers: MCPConfig | null;
   storageDir: string | undefined;
   allowedOrigins: string[];
   /** Sandbox port (0 = dynamic). */
@@ -151,6 +173,12 @@ export function printServerBanner(
 
 export interface BuildWebServerConfigOptions {
   initialMcpConfig?: MCPServerConfig | null;
+  /** Catalog/session file the backend should serve; see {@link WebServerConfig.mcpConfigPath}. */
+  mcpConfigPath?: string;
+  /** Read-only when false; see {@link WebServerConfig.writable}. Defaults to true. */
+  writable?: boolean;
+  /** In-memory ad-hoc list; see {@link WebServerConfig.initialServers}. */
+  initialServers?: MCPConfig | null;
 }
 
 /**
@@ -160,7 +188,12 @@ export interface BuildWebServerConfigOptions {
 export function buildWebServerConfig(
   options: BuildWebServerConfigOptions = {},
 ): WebServerConfig {
-  const { initialMcpConfig = null } = options;
+  const {
+    initialMcpConfig = null,
+    mcpConfigPath,
+    writable = true,
+    initialServers = null,
+  } = options;
   const port = parseInt(process.env.CLIENT_PORT ?? "6274", 10);
   const hostname = process.env.HOST ?? "localhost";
   const baseUrl = `http://${hostname}:${port}`;
@@ -191,6 +224,9 @@ export function buildWebServerConfig(
     authToken,
     dangerouslyOmitAuth,
     initialMcpConfig,
+    mcpConfigPath,
+    writable,
+    initialServers,
     storageDir: process.env.MCP_STORAGE_DIR,
     allowedOrigins: process.env.ALLOWED_ORIGINS?.split(",").filter(Boolean) ?? [
       baseUrl,

@@ -10,6 +10,22 @@ The launcher is the package that provides the global `mcp-inspector` binary (e.g
 
 All configuration parsing, config-file loading, and server setup are handled by the app runners and by **core**; the launcher does not interpret config or env vars.
 
+## Web server-list flags (`--web`)
+
+`mcp-inspector --web` chooses which server list the UI shows and whether it is
+editable (see [specification/v2_catalog_launch_config.md](../../specification/v2_catalog_launch_config.md)):
+
+| Invocation | Server list | Editable in UI? |
+|------------|-------------|-----------------|
+| `mcp-inspector --web` | Default catalog `~/.mcp-inspector/mcp.json` | Yes |
+| `mcp-inspector --web --catalog <path>` (or `MCP_CATALOG_PATH=<path>`) | That file as the active catalog (created/seeded if missing) | Yes |
+| `mcp-inspector --web --config <path>` | That file as a **read-only session** — shown but never written, seeded, or migrated (safe for a foreign config) | No |
+| `mcp-inspector --web --server-url <url> --transport http --header "Name: Value"` (or a positional command) | One ad-hoc server held in memory, connectable with the given `--header`s | No |
+
+Rules: `--catalog` and `--config` are mutually exclusive; neither combines with
+an ad-hoc target or `--header`; `--header` requires an ad-hoc HTTP/SSE server
+and is applied to that connection (it is no longer a warn-only no-op).
+
 ## Publishing
 
 The root `@modelcontextprotocol/inspector` package ships as one fat tarball: `npm run build` at the repo root builds all clients, then `prepack` runs before `npm publish`. Runtime dependencies are declared on the root `package.json`; client builds bundle `@inspector/core` and externalize npm packages resolved from the root install.

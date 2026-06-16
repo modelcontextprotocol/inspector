@@ -386,3 +386,57 @@ describe("GET /api/servers/events", () => {
     sink2.close();
   });
 });
+
+describe("GET /api/servers/events (in-memory ad-hoc session)", () => {
+  let h: Harness;
+
+  beforeEach(async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "inspector-events-mem-"));
+    const configPath = join(tempDir, "mcp.json");
+    const { app, close: closeApi } = createRemoteApp({
+      dangerouslyOmitAuth: true,
+      mcpConfigPath: configPath,
+      writable: false,
+      initialServers: {
+        mcpServers: { srv: { type: "stdio", command: "node" } },
+      },
+      initialConfig: { defaultEnvironment: {} },
+      secretStore: new InMemorySecretStore(),
+    });
+    const { baseUrl, server } = await new Promise<{
+      baseUrl: string;
+      server: ServerType;
+    }>((resolve, reject) => {
+      const s = serve(
+        { fetch: app.fetch, port: 0, hostname: "127.0.0.1" },
+        (info) => {
+          const port =
+            info && typeof info === "object" && "port" in info
+              ? (info as { port: number }).port
+              : 0;
+          resolve({ baseUrl: `http://127.0.0.1:${port}`, server: s });
+        },
+      );
+      s.on("error", reject);
+    });
+    h = { baseUrl, server, configPath, tempDir, closeApi };
+  });
+
+  afterEach(async () => {
+    await teardown(h);
+  });
+
+  it("opens the stream but never broadcasts (no watcher, nothing to watch)", async () => {
+    const sink = await subscribe(h.baseUrl); // 200 + open stream or it throws
+    // Writing to the (unwatched) config path must not produce any event.
+    writeFileSync(
+      h.configPath,
+      JSON.stringify({
+        mcpServers: { other: { type: "stdio", command: "x" } },
+      }),
+    );
+    await expect(sink.waitFor(1, 400)).rejects.toThrow(/Timed out/);
+    expect(sink.events).toHaveLength(0);
+    sink.close();
+  });
+});

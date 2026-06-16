@@ -299,17 +299,25 @@ Import is not a list-client concern — catalog mutation via UC2 or web CRUD whe
 
 ### Web
 
-| Launch | Catalog (`/api/servers`) | `initialMcpConfig` → `/api/config` | Connect |
-|--------|--------------------------|--------------------------------------|---------|
-| No server args | Default catalog via `useServers` | Empty | User selects catalog server |
-| Ad-hoc server flags | **Still full default catalog** | Populated (transport fields) | **Launch config not consumed** — no auto-connect, no form pre-fill (G2) |
-| `--config` + `--server` | **Still default catalog** | Populated from resolved config (settings stripped) | User sees catalog, not launch file |
+Implemented (#1481/#1483): `runWeb` selects the backend's catalog source and a
+session-wide `writable` flag (`/api/config`); the web UI hides catalog CRUD when
+`writable: false`.
 
-**Target:** `/api/servers` serves the **resolved** list for the session (catalog or UC3 file) with `writable` and `defaultServerId`. See [Web launch behavior](#web-launch-behavior).
+| Launch | Catalog (`/api/servers`) | `writable` | Connect |
+|--------|--------------------------|-----------|---------|
+| No server args | Default catalog via `useServers` | `true` | User selects catalog server |
+| `--catalog <path>` / `MCP_CATALOG_PATH` | That file (seed/CRUD/watch) | `true` | User selects a server |
+| `--config <path>` | That file, served read-only (never written/seeded/migrated) | `false` | User selects; CRUD hidden |
+| Ad-hoc server flags (`--server-url`/command, `--header`) | One server held **in memory** (no file) | `false` | User connects; `--header` applied; CRUD hidden |
+
+`--catalog`/`--config` are mutually exclusive, and neither combines with an
+ad-hoc target or `--header`; `--header` requires an ad-hoc HTTP/SSE server.
+
+**Still open:** `--server` selection / `defaultServerId` + auto-connect (G8, [#1183](https://github.com/modelcontextprotocol/inspector/issues/1183)); the `resolveServerList` core unification (TUI/CLI) below remains the target shape.
 
 ### CLI and TUI
 
-CLI connects to exactly one resolved config per invocation; TUI shows all entries from the resolved list. Resolution paths, settings lift, and port gaps are documented in [v2_cli_tui_launcher.md](v2_cli_tui_launcher.md). Key catalog-specific gaps: **G1** (CLI drops disk settings on catalog/file lookup), **G4** (web `runWeb --header` warns only).
+CLI connects to exactly one resolved config per invocation; TUI shows all entries from the resolved list. Resolution paths, settings lift, and port gaps are documented in [v2_cli_tui_launcher.md](v2_cli_tui_launcher.md). Key remaining catalog-specific gap: **G1** (CLI drops disk settings on catalog/file lookup). (Web's **G4** `--header` and **G2** list-seeding are resolved — see above.)
 
 ### Shared resolvers (`resolveLaunchServerConfigs` / `resolveServerConfigs`)
 
@@ -462,9 +470,9 @@ Resolved (documented above): catalog vs session flag split; no launch write-back
 | # | Gap | Severity | Clients |
 |---|-----|----------|---------|
 | G1 | CLI catalog/file lookup drops settings — `loadServerFromConfig` not `mcpConfigToServerEntries` | Functional | CLI |
-| G2 | Web ignores launch-time `initialMcpConfig` for list/selection/connect | Functional / UX | Web |
-| G3 | `InitialConfigPayload` has no settings — cannot pass headers/oauth at web launch | Functional | Web + launcher |
-| G4 | `runWeb --header` warns only | Functional | Web launcher |
+| G2 | ~~Web ignores launch-time server input for the list~~ — **resolved for web (#1481):** `runWeb` now points the backend catalog at `--catalog` (writable) / `--config` (read-only session), or serves an in-memory ad-hoc server, and `/api/config` carries `writable` so the UI gates CRUD. Selection/auto-connect (`--server` / `defaultServerId`) is still open (G8). | Web |
+| G3 | ~~`InitialConfigPayload` has no settings — cannot pass headers at web launch~~ — **resolved for ad-hoc headers (#1483):** ad-hoc `--header` rides on the in-memory session entry (`headers` → `settings.headers`); a general settings channel on `InitialConfigPayload` is still unbuilt. | Web + launcher |
+| G4 | ~~`runWeb --header` warns only~~ — **resolved (#1483):** applied to the seeded ad-hoc connection (or a clear error when it can't apply). | Web launcher |
 | G5 | Two config pipelines — `config.ts` vs `serverList.ts` | Design debt | CLI vs TUI vs web |
 | G6 | v1.5 `docs/mcp-server-configuration.md` not ported to v2 | Docs | All |
 | G7 | CLI test expects `--server` without `--config` to fail — predates default catalog | Tests | CLI |
@@ -506,6 +514,8 @@ G1, G4, and launcher details: [v2_cli_tui_launcher.md](v2_cli_tui_launcher.md).
 
 | Issue | Status | Relevance |
 |-------|--------|-----------|
+| [#1481](https://github.com/modelcontextprotocol/inspector/issues/1481) — launcher `--config` drives the web catalog | Implemented | `--catalog` (writable) / `--config` (read-only session) / ad-hoc in-memory → backend `mcpConfigPath`/`initialServers` + `writable` on `/api/config`; UI gates CRUD |
+| [#1483](https://github.com/modelcontextprotocol/inspector/issues/1483) — web `--header` warns only | Implemented | `--header` lifted onto the in-memory ad-hoc entry (`settings.headers`); errors clearly when it can't apply |
 | [#1347](https://github.com/modelcontextprotocol/inspector/issues/1347) — default `--config` | Open (likely closable) | Implemented via `resolveLaunchServerConfigs()` |
 | [#1246](https://github.com/modelcontextprotocol/inspector/issues/1246) — port CLI/TUI/launcher | Done in worktree | Parent of default-catalog behavior |
 | [#1183](https://github.com/modelcontextprotocol/inspector/issues/1183) — auto-connect | Open | UC5 web ergonomics |

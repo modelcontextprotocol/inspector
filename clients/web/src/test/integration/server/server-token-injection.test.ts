@@ -66,6 +66,9 @@ describe("startHonoServer index.html token injection (/ -> /api/*)", () => {
       authToken: TOKEN,
       dangerouslyOmitAuth: false,
       initialMcpConfig: null,
+      mcpConfigPath: undefined,
+      writable: true,
+      initialServers: null,
       storageDir: undefined,
       // Allow the same-origin requests the test issues below.
       allowedOrigins: [baseUrl],

@@ -1,4 +1,11 @@
-import { ScrollArea, SimpleGrid, Stack, Text } from "@mantine/core";
+import {
+  Alert,
+  Code,
+  ScrollArea,
+  SimpleGrid,
+  Stack,
+  Text,
+} from "@mantine/core";
 import {
   DndContext,
   KeyboardSensor,
@@ -23,6 +30,13 @@ import {
 
 export interface ServerListScreenProps {
   servers: ServerEntry[];
+  /**
+   * Whether the server list is writable (catalog) or read-only (a `--config`
+   * session file / ad-hoc launch). When false, all catalog mutation controls
+   * (add, edit, clone, remove, reorder, settings) are hidden and a read-only
+   * banner is shown. Defaults to true.
+   */
+  writable?: boolean;
   /** Id of the server the wiring layer treats as active (drives card dimming). */
   activeServer?: string;
   onAddManually: () => void;
@@ -57,6 +71,7 @@ const EmptyState = Text.withProps({
 
 export function ServerListScreen({
   servers,
+  writable = true,
   activeServer,
   onAddManually,
   onImportConfig,
@@ -81,11 +96,12 @@ export function ServerListScreen({
 
   const ids = servers.map((s) => s.id);
 
-  // `reorderable` only when a persistence callback is wired. Without it we
-  // render plain `ServerCard`s (no grip, no DndContext) so the screen stays
-  // usable as a pure display — the SortableServerCard's grip would otherwise
-  // be a dead affordance.
-  const reorderable = onReorder !== undefined;
+  // `reorderable` only when a persistence callback is wired AND the list is
+  // writable. Without it we render plain `ServerCard`s (no grip, no DndContext)
+  // so the screen stays usable as a pure display — the SortableServerCard's
+  // grip would otherwise be a dead affordance (and reorder is a catalog write
+  // the backend rejects in a read-only session).
+  const reorderable = onReorder !== undefined && writable;
 
   // Built only when reorderable — the drag-end handler and the fresh
   // announcements object (four closures) are otherwise allocated every render
@@ -99,6 +115,7 @@ export function ServerListScreen({
 
   const cardProps = (server: ServerEntry) => ({
     compact,
+    writable,
     activeServer,
     onToggleConnection,
     onConnectionInfo,
@@ -127,9 +144,17 @@ export function ServerListScreen({
 
   return (
     <PageContainer>
+      {!writable && (
+        <Alert color="gray" variant="light" title="Read-only session">
+          This server list was launched with <Code>--config</Code> or an ad-hoc
+          server and can't be edited here. Changes won't be saved. Use{" "}
+          <Code>--catalog</Code> (or no flag) to manage a writable catalog.
+        </Alert>
+      )}
       <ServerListControls
         serverCount={servers.length}
         compact={compact}
+        writable={writable}
         onToggleList={onToggleCompact}
         onAddManually={onAddManually}
         onImportConfig={onImportConfig}

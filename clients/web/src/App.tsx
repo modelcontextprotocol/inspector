@@ -78,6 +78,7 @@ import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubsc
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js";
 import { useSandboxUrl } from "@inspector/core/react/useSandboxUrl.js";
+import { useServerListWritable } from "@inspector/core/react/useServerListWritable.js";
 import { usePendingClientRequests } from "@inspector/core/react/usePendingClientRequests.js";
 import { InspectorView } from "./components/views/InspectorView/InspectorView";
 import type {
@@ -537,11 +538,16 @@ function App() {
   // the active client's underlying SDK client so the running view can call the
   // server, and reads the tool's UI resource into the sandbox on handshake.
   const appRendererRef = useRef<AppRendererHandle>(null);
+  const configBaseUrl =
+    typeof window !== "undefined" ? window.location.origin : "http://localhost";
   const { sandboxUrl } = useSandboxUrl({
-    baseUrl:
-      typeof window !== "undefined"
-        ? window.location.origin
-        : "http://localhost",
+    baseUrl: configBaseUrl,
+    authToken: getAuthToken(),
+  });
+  // Read-only sessions (launched with `--config` or an ad-hoc server) hide
+  // catalog CRUD; the default catalog and `--catalog` stay writable.
+  const { writable: serverListWritable } = useServerListWritable({
+    baseUrl: configBaseUrl,
     authToken: getAuthToken(),
   });
   const sandboxBridgeFactory = useMemo(
@@ -2353,6 +2359,7 @@ function App() {
     <>
       <InspectorView
         servers={servers}
+        serverListWritable={serverListWritable}
         activeServer={activeServerId}
         connectionStatus={connectionStatus}
         initializeResult={initializeResult}
