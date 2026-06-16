@@ -1845,3 +1845,214 @@ describe("/api/servers routes", () => {
     });
   });
 });
+
+describe("/api/servers read-only sessions (#1481/#1483)", () => {
+  interface RoHarness {
+    baseUrl: string;
+    server: ServerType;
+    tempDir: string;
+    configPath: string;
+  }
+
+  async function listen(app: {
+    fetch: (req: Request) => Response | Promise<Response>;
+  }): Promise<{ baseUrl: string; server: ServerType }> {
+    return new Promise((resolve, reject) => {
+      const server = serve(
+        { fetch: app.fetch, port: 0, hostname: "127.0.0.1" },
+        (info) => {
+          const port =
+            info && typeof info === "object" && "port" in info
+              ? (info as { port: number }).port
+              : 0;
+          resolve({ baseUrl: `http://127.0.0.1:${port}`, server });
+        },
+      );
+      server.on("error", reject);
+    });
+  }
+
+  async function close(h: RoHarness): Promise<void> {
+    await new Promise<void>((r) => h.server.close(() => r()));
+    try {
+      rmSync(h.tempDir, { recursive: true });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Read-only session backed by a `--config`-style file. */
+  async function setupReadOnlyFile(contents?: string): Promise<RoHarness> {
+    const tempDir = mkdtempSync(join(tmpdir(), "inspector-ro-file-"));
+    const configPath = join(tempDir, "mcp.json");
+    if (contents !== undefined) writeFileSync(configPath, contents);
+    const { app } = createRemoteApp({
+      dangerouslyOmitAuth: true,
+      mcpConfigPath: configPath,
+      writable: false,
+      initialConfig: { defaultEnvironment: {} },
+      secretStore: new InMemorySecretStore(),
+    });
+    const { baseUrl, server } = await listen(app);
+    return { baseUrl, server, tempDir, configPath };
+  }
+
+  /** Read-only session backed by an in-memory ad-hoc list (no file). */
+  async function setupInMemory(servers: MCPConfig): Promise<RoHarness> {
+    const tempDir = mkdtempSync(join(tmpdir(), "inspector-ro-mem-"));
+    const configPath = join(tempDir, "mcp.json");
+    const { app } = createRemoteApp({
+      dangerouslyOmitAuth: true,
+      // mcpConfigPath points at a path that must NEVER be touched.
+      mcpConfigPath: configPath,
+      writable: false,
+      initialServers: servers,
+      initialConfig: { defaultEnvironment: {} },
+      secretStore: new InMemorySecretStore(),
+    });
+    const { baseUrl, server } = await listen(app);
+    return { baseUrl, server, tempDir, configPath };
+  }
+
+  const jsonHeaders = { "Content-Type": "application/json" };
+
+  it("rejects every mutation with 403 and leaves the file untouched", async () => {
+    const original = JSON.stringify(
+      { mcpServers: { api: { type: "stdio", command: "node" } } },
+      null,
+      2,
+    );
+    const h = await setupReadOnlyFile(original);
+    try {
+      const mutations: Array<{ method: string; path: string; body: unknown }> =
+        [
+          {
+            method: "POST",
+            path: "/api/servers",
+            body: { id: "new", config: { type: "stdio", command: "x" } },
+          },
+          {
+            method: "PUT",
+            path: "/api/servers/api",
+            body: { config: { type: "stdio", command: "y" } },
+          },
+          {
+            method: "PUT",
+            path: "/api/servers/order",
+            body: { order: ["api"] },
+          },
+          { method: "DELETE", path: "/api/servers/api", body: undefined },
+        ];
+      for (const m of mutations) {
+        const res = await fetch(`${h.baseUrl}${m.path}`, {
+          method: m.method,
+          headers: m.body ? jsonHeaders : undefined,
+          body: m.body ? JSON.stringify(m.body) : undefined,
+        });
+        expect(res.status).toBe(403);
+        const body = (await res.json()) as { error?: string };
+        expect(body.error).toMatch(/read-only/i);
+      }
+      // The file is byte-for-byte unchanged.
+      expect(readFileSync(h.configPath, "utf-8")).toBe(original);
+    } finally {
+      await close(h);
+    }
+  });
+
+  it("returns 403 (not 404) for a mutation on a missing id — no existence leak", async () => {
+    const h = await setupReadOnlyFile(
+      JSON.stringify({ mcpServers: {} }, null, 2),
+    );
+    try {
+      const res = await fetch(`${h.baseUrl}/api/servers/ghost`, {
+        method: "DELETE",
+      });
+      expect(res.status).toBe(403);
+    } finally {
+      await close(h);
+    }
+  });
+
+  it("serves a read-only file as-is and never seeds when the file is missing", async () => {
+    const h = await setupReadOnlyFile(); // no file written
+    try {
+      const res = await fetch(`${h.baseUrl}/api/servers`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ mcpServers: {} });
+      // No seed write happened.
+      expect(existsSync(h.configPath)).toBe(false);
+    } finally {
+      await close(h);
+    }
+  });
+
+  it("does not migrate on-disk plaintext secrets on read (file bytes stable)", async () => {
+    // A foreign config with a plaintext stdio env value that the writable path
+    // would migrate into the keychain (a write). Read-only must leave it be.
+    const original = JSON.stringify(
+      {
+        mcpServers: {
+          api: {
+            type: "stdio",
+            command: "node",
+            env: { API_KEY: "plaintext-secret" },
+          },
+        },
+      },
+      null,
+      2,
+    );
+    const h = await setupReadOnlyFile(original);
+    try {
+      const res = await fetch(`${h.baseUrl}/api/servers`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as MCPConfig;
+      // Plaintext flows straight back (no keychain swap) and disk is untouched.
+      expect(
+        (body.mcpServers.api as { env?: Record<string, string> }).env?.API_KEY,
+      ).toBe("plaintext-secret");
+      expect(readFileSync(h.configPath, "utf-8")).toBe(original);
+    } finally {
+      await close(h);
+    }
+  });
+
+  it("serves an in-memory ad-hoc list (with lifted headers) and writes no file", async () => {
+    const h = await setupInMemory({
+      mcpServers: {
+        "example.com": {
+          type: "streamable-http",
+          url: "https://example.com/mcp",
+          headers: { Authorization: "Bearer x" },
+        },
+      },
+    });
+    try {
+      const res = await fetch(`${h.baseUrl}/api/servers`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as MCPConfig;
+      expect(body.mcpServers["example.com"]).toMatchObject({
+        type: "streamable-http",
+        url: "https://example.com/mcp",
+        headers: { Authorization: "Bearer x" },
+      });
+      // The configPath must never be created for an in-memory session.
+      expect(existsSync(h.configPath)).toBe(false);
+
+      // Mutations are still rejected.
+      const post = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          id: "x",
+          config: { type: "stdio", command: "n" },
+        }),
+      });
+      expect(post.status).toBe(403);
+      expect(existsSync(h.configPath)).toBe(false);
+    } finally {
+      await close(h);
+    }
+  });
+});

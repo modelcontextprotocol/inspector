@@ -55,4 +55,29 @@ describe("createRemoteApp GET /api/config", () => {
     expect(data.defaultCwd).toBe("/tmp");
     expect(data.defaultEnvironment).toEqual({ PATH: "/usr/bin" });
   });
+
+  it("reports writable:true by default and writable:false when set", async () => {
+    const writableApp = createRemoteApp({
+      dangerouslyOmitAuth: true,
+      initialConfig: { defaultEnvironment: {} },
+    }).app;
+    const writableRes = await writableApp.request(
+      new Request("http://test/api/config"),
+    );
+    expect(
+      ((await writableRes.json()) as { writable?: boolean }).writable,
+    ).toBe(true);
+
+    const readOnlyApp = createRemoteApp({
+      dangerouslyOmitAuth: true,
+      writable: false,
+      initialConfig: { defaultEnvironment: {} },
+    }).app;
+    const readOnlyRes = await readOnlyApp.request(
+      new Request("http://test/api/config"),
+    );
+    expect(
+      ((await readOnlyRes.json()) as { writable?: boolean }).writable,
+    ).toBe(false);
+  });
 });

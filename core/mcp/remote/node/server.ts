@@ -62,6 +62,13 @@ export interface InitialConfigPayload {
   defaultServerUrl?: string;
   defaultCwd?: string;
   defaultEnvironment: Record<string, string>;
+  /**
+   * Whether the session's server list is writable (catalog) or read-only
+   * (a `--config` session file or ad-hoc seeded server). Absent → treated as
+   * true by clients for backward compatibility. Drives whether the web UI
+   * shows catalog CRUD affordances.
+   */
+  writable?: boolean;
 }
 
 export interface RemoteServerOptions {
@@ -86,6 +93,26 @@ export interface RemoteServerOptions {
 
   /** Optional path for the user's server list file (/api/servers). Default: ~/.mcp-inspector/mcp.json */
   mcpConfigPath?: string;
+
+  /**
+   * When false, the server list is read-only for this session: all
+   * `/api/servers` mutations (POST/PUT/DELETE/order) are rejected with 403,
+   * the file is never seeded on first read, and on-disk plaintext secrets are
+   * not migrated into the keychain (migration is a write). Used for the web
+   * launcher's read-only `--config` session file and ad-hoc seeded servers, so
+   * a foreign config passed at launch is never silently rewritten. Defaults to
+   * true (the default catalog and `--catalog` are writable).
+   */
+  writable?: boolean;
+
+  /**
+   * In-memory server list served by GET /api/servers instead of reading from
+   * disk. Set by the web launcher to seed an ad-hoc `--server-url` / command
+   * target (with `--header`) without writing any file. Implies a read-only
+   * session — pass `writable: false` alongside it. When set, `mcpConfigPath`
+   * is ignored for reads and the file watcher is not started.
+   */
+  initialServers?: MCPConfig;
 
   /** Optional sandbox URL for MCP Apps tab. When set, GET /api/config includes sandboxUrl. */
   sandboxUrl?: string;
@@ -298,6 +325,16 @@ export function createRemoteApp(
   const secretStore: SecretStore =
     options.secretStore ?? new KeyringSecretStore();
 
+  // Read-only session support (#1481/#1483). `writable: false` rejects every
+  // /api/servers mutation and suppresses the seed/migrate writes on read.
+  // `initialServers` serves an in-memory list (ad-hoc launch) with no file at
+  // all. Both default off so the catalog path is unchanged.
+  const writable = options.writable ?? true;
+  const inMemoryServers = options.initialServers;
+  // Watch only a real on-disk catalog/session file — never for an in-memory
+  // ad-hoc list (there is nothing to watch and the default path is unrelated).
+  const watchable = !inMemoryServers;
+
   // --- /api/servers/events: file-watch fanout state -----------------------
   //
   // Subscribers are SSE writers added by GET /api/servers/events and removed
@@ -447,9 +484,11 @@ export function createRemoteApp(
   }
 
   app.get("/api/config", (c) => {
-    const payload = options.sandboxUrl
-      ? { ...options.initialConfig, sandboxUrl: options.sandboxUrl }
-      : options.initialConfig;
+    const payload = {
+      ...options.initialConfig,
+      writable,
+      ...(options.sandboxUrl ? { sandboxUrl: options.sandboxUrl } : {}),
+    };
     return c.json(payload);
   });
 
@@ -1420,8 +1459,31 @@ export function createRemoteApp(
     return undefined;
   };
 
+  // Reject catalog mutations in a read-only session. Checked first in each
+  // mutating route — before body parse or existence checks — so a read-only
+  // backend answers uniformly and never leaks whether an id exists (403, not
+  // 404). Returns a Response to short-circuit, or undefined to proceed.
+  const requireWritable = (c: Context): Response | undefined => {
+    if (writable) return undefined;
+    return c.json(
+      { error: "Server list is read-only for this session." },
+      403,
+    );
+  };
+
   app.get("/api/servers", async (c) => {
     try {
+      // In-memory session (ad-hoc launch): serve the seeded list verbatim.
+      // No disk read, no seed, no migration — there is no file. Ad-hoc env /
+      // header values live as plaintext in this list and flow straight to
+      // POST /api/mcp/connect, which is what makes `--header` take effect.
+      if (inMemoryServers) {
+        const normalized: MCPConfig = {
+          mcpServers: normalizeMcpServers(inMemoryServers.mcpServers),
+        };
+        return c.json(await rehydrateConfig(normalized));
+      }
+
       // Fast path: peek at the file without taking the write lock. Most
       // GETs land here — file exists, no plaintext to migrate. The
       // unlocked read is safe because we don't write anything in this
@@ -1433,9 +1495,19 @@ export function createRemoteApp(
         const onDisk: MCPConfig = {
           mcpServers: normalizeMcpServers(parsed?.mcpServers),
         };
+        // Read-only session file (`--config`): never migrate (a write) and
+        // never seed. Return the file as-is so a foreign config is shown but
+        // its bytes — and any plaintext secrets — are left untouched on disk.
+        if (!writable) {
+          return c.json(await rehydrateConfig(onDisk));
+        }
         if (!hasPlaintextSecrets(onDisk)) {
           return c.json(await rehydrateConfig(onDisk));
         }
+      } else if (!writable) {
+        // Read-only and the file is absent: present an empty list rather than
+        // seeding the default sample servers into a path the user pointed us at.
+        return c.json({ mcpServers: {} });
       }
 
       // Slow path: either the file is missing (first-launch seed) or it
@@ -1480,6 +1552,8 @@ export function createRemoteApp(
   });
 
   app.post("/api/servers", async (c) => {
+    const ro = requireWritable(c);
+    if (ro) return ro;
     let body: { id?: unknown; config?: unknown; settings?: unknown };
     try {
       body = (await c.req.json()) as {
@@ -1553,6 +1627,8 @@ export function createRemoteApp(
   // values, so we just permute the existing stripped entries and reuse the
   // same atomic-write + watcher-notify path as the other mutators.
   app.put("/api/servers/order", async (c) => {
+    const ro = requireWritable(c);
+    if (ro) return ro;
     let body: { order?: unknown };
     try {
       body = (await c.req.json()) as { order?: unknown };
@@ -1605,6 +1681,8 @@ export function createRemoteApp(
   });
 
   app.put("/api/servers/:id", async (c) => {
+    const ro = requireWritable(c);
+    if (ro) return ro;
     const originalId = c.req.param("id");
     if (!originalId || !validateStoreId(originalId)) {
       return c.json({ error: "Invalid id" }, 400);
@@ -1766,6 +1844,8 @@ export function createRemoteApp(
   });
 
   app.delete("/api/servers/:id", async (c) => {
+    const ro = requireWritable(c);
+    if (ro) return ro;
     const id = c.req.param("id");
     if (!id || !validateStoreId(id)) {
       return c.json({ error: "Invalid id" }, 400);
@@ -1804,8 +1884,13 @@ export function createRemoteApp(
       const send = (data: string): void => {
         void stream.writeSSE({ event: "change", data });
       };
-      serverEventSubscribers.add(send);
-      ensureWatcher();
+      // An in-memory ad-hoc list never changes and has no file to watch, so we
+      // hold the stream open (so the client's fetch resolves cleanly) but
+      // register no subscriber and start no watcher — there is nothing to emit.
+      if (watchable) {
+        serverEventSubscribers.add(send);
+        ensureWatcher();
+      }
 
       stream.onAbort(() => {
         serverEventSubscribers.delete(send);

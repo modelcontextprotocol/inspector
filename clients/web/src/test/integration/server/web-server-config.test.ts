@@ -34,6 +34,9 @@ const baseConfig = (): WebServerConfig => ({
   authToken: "tok",
   dangerouslyOmitAuth: false,
   initialMcpConfig: null,
+  mcpConfigPath: undefined,
+  writable: true,
+  initialServers: null,
   storageDir: undefined,
   allowedOrigins: ["http://localhost:6274"],
   sandboxPort: 0,
@@ -200,6 +203,29 @@ describe("buildWebServerConfig", () => {
     expect(buildWebServerConfig({ initialMcpConfig: null })).toEqual(
       buildWebServerConfigFromEnv(),
     );
+  });
+
+  it("threads mcpConfigPath through and defaults it to undefined", () => {
+    expect(buildWebServerConfig().mcpConfigPath).toBeUndefined();
+    expect(
+      buildWebServerConfig({ mcpConfigPath: "/tmp/catalog/mcp.json" })
+        .mcpConfigPath,
+    ).toBe("/tmp/catalog/mcp.json");
+  });
+
+  it("defaults writable to true and initialServers to null", () => {
+    const cfg = buildWebServerConfig();
+    expect(cfg.writable).toBe(true);
+    expect(cfg.initialServers).toBeNull();
+  });
+
+  it("threads writable and initialServers when provided", () => {
+    const initialServers = {
+      mcpServers: { srv: { type: "stdio" as const, command: "node" } },
+    };
+    const cfg = buildWebServerConfig({ writable: false, initialServers });
+    expect(cfg.writable).toBe(false);
+    expect(cfg.initialServers).toBe(initialServers);
   });
 
   it("preserves a stdio initialMcpConfig while applying shared env defaults", () => {

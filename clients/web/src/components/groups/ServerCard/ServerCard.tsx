@@ -20,6 +20,12 @@ export interface ServerCardProps extends ServerEntry {
   onRemove: (id: string) => void;
   compact?: boolean;
   /**
+   * When false (read-only session), the catalog mutation actions
+   * (Clone / Edit / Remove / Settings) are hidden; connect and Connection Info
+   * remain. Defaults to true.
+   */
+  writable?: boolean;
+  /**
    * Optional drag-handle affordance rendered at the start of the card header,
    * before the server name. Supplied by the sortable wrapper
    * (`SortableServerCard`); omitted when the card is rendered outside a reorder
@@ -112,6 +118,7 @@ export function ServerCard({
   onClone,
   onRemove,
   compact = false,
+  writable = true,
   dragHandle,
 }: ServerCardProps) {
   const isDimmed = activeServer !== undefined && activeServer !== id;
@@ -165,9 +172,17 @@ export function ServerCard({
 
             <Group justify="space-between">
               <ActionsRow>
-                <SubtleButton onClick={() => onClone(id)}>Clone</SubtleButton>
-                <SubtleButton onClick={() => onEdit(id)}>Edit</SubtleButton>
-                <RemoveButton onClick={() => onRemove(id)}>Remove</RemoveButton>
+                {writable && (
+                  <>
+                    <SubtleButton onClick={() => onClone(id)}>
+                      Clone
+                    </SubtleButton>
+                    <SubtleButton onClick={() => onEdit(id)}>Edit</SubtleButton>
+                    <RemoveButton onClick={() => onRemove(id)}>
+                      Remove
+                    </RemoveButton>
+                  </>
+                )}
               </ActionsRow>
               <ActionsRow>
                 {connection.status === "connected" && (
@@ -175,9 +190,11 @@ export function ServerCard({
                     Connection Info
                   </SubtleButton>
                 )}
-                <SubtleButton onClick={() => onSettings(id)}>
-                  Settings
-                </SubtleButton>
+                {writable && (
+                  <SubtleButton onClick={() => onSettings(id)}>
+                    Settings
+                  </SubtleButton>
+                )}
               </ActionsRow>
             </Group>
           </>

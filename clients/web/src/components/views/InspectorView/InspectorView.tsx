@@ -188,6 +188,12 @@ export interface InspectorViewProps {
   // Server list (static config; runtime connection state comes from the
   // separate fields below and is merged into each card by this component).
   servers: ServerEntry[];
+  /**
+   * Whether the server list is writable (catalog) or read-only (a `--config`
+   * session file / ad-hoc launch). When false, the Servers screen hides all
+   * catalog mutation controls. Defaults to true.
+   */
+  serverListWritable?: boolean;
 
   // Connection state — driven by the parent via `useInspectorClient`.
   activeServer?: string;
@@ -349,6 +355,7 @@ export interface InspectorViewProps {
 
 export function InspectorView({
   servers: serversInput,
+  serverListWritable = true,
   activeServer,
   connectionStatus,
   initializeResult,
@@ -590,6 +597,7 @@ export function InspectorView({
           <ScreenStage active={activeTab === SERVERS_TAB}>
             <ServerListScreen
               servers={servers}
+              writable={serverListWritable}
               activeServer={activeServer}
               onAddManually={onServerAdd}
               onImportConfig={onServerImportConfig}

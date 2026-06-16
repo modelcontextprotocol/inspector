@@ -247,4 +247,34 @@ describe("ServerCard", () => {
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
   });
+
+  describe("read-only (writable=false)", () => {
+    it("hides Clone/Edit/Remove/Settings but keeps connect + Connection Info", () => {
+      renderWithMantine(<ServerCard {...baseProps} writable={false} />);
+      expect(
+        screen.queryByRole("button", { name: "Clone" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Edit" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Remove" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Settings" }),
+      ).not.toBeInTheDocument();
+      // connection === connected, so Connection Info stays available.
+      expect(
+        screen.getByRole("button", { name: "Connection Info" }),
+      ).toBeInTheDocument();
+    });
+
+    it("shows mutation actions when writable (default)", () => {
+      renderWithMantine(<ServerCard {...baseProps} />);
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Settings" }),
+      ).toBeInTheDocument();
+    });
+  });
 });

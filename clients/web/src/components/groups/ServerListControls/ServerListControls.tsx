@@ -11,6 +11,8 @@ export interface ServerListControlsProps extends AddServerMenuProps {
   onToggleList: () => void;
   /** Download the current server list as a canonical `mcp.json` file. */
   onExport: () => void;
+  /** When false (read-only session), the Add menu is hidden. Defaults to true. */
+  writable?: boolean;
 }
 
 export function ServerListControls({
@@ -21,6 +23,7 @@ export function ServerListControls({
   onImportConfig,
   onImportServerJson,
   onExport,
+  writable = true,
 }: ServerListControlsProps) {
   return (
     <Group justify="flex-end">
@@ -30,11 +33,13 @@ export function ServerListControls({
       <Button variant="default" onClick={onExport} disabled={serverCount === 0}>
         Export
       </Button>
-      <ServerAddMenu
-        onAddManually={onAddManually}
-        onImportConfig={onImportConfig}
-        onImportServerJson={onImportServerJson}
-      />
+      {writable && (
+        <ServerAddMenu
+          onAddManually={onAddManually}
+          onImportConfig={onImportConfig}
+          onImportServerJson={onImportServerJson}
+        />
+      )}
     </Group>
   );
 }

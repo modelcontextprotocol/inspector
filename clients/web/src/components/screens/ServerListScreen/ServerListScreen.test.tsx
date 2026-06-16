@@ -91,4 +91,48 @@ describe("ServerListScreen", () => {
       ).not.toBeInTheDocument();
     });
   });
+
+  describe("read-only session (writable=false)", () => {
+    it("shows the read-only banner", () => {
+      renderWithMantine(<ServerListScreen {...baseProps} writable={false} />);
+      expect(screen.getByText("Read-only session")).toBeInTheDocument();
+    });
+
+    it("hides the Add menu and per-card mutation actions", () => {
+      renderWithMantine(<ServerListScreen {...baseProps} writable={false} />);
+      // Cards still render and connect controls remain.
+      expect(screen.getByText("Alpha")).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /add servers/i }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Edit" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Remove" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Clone" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Settings" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("omits drag handles even when onReorder is provided", () => {
+      renderWithMantine(<ServerListScreen {...baseProps} writable={false} />);
+      expect(
+        screen.queryByRole("button", { name: /^Reorder / }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("keeps the Add menu and actions when writable (default)", () => {
+      renderWithMantine(<ServerListScreen {...baseProps} />);
+      expect(
+        screen.getByRole("button", { name: /add servers/i }),
+      ).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: "Edit" }).length).toBe(2);
+      expect(screen.queryByText("Read-only session")).not.toBeInTheDocument();
+    });
+  });
 });
