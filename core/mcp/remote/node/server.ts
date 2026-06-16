@@ -333,6 +333,9 @@ export function createRemoteApp(
   const inMemoryServers = options.initialServers;
   // Watch only a real on-disk catalog/session file — never for an in-memory
   // ad-hoc list (there is nothing to watch and the default path is unrelated).
+  // A read-only `--config` *file* is still watched on purpose: read-only blocks
+  // UI-driven writes, not external observation, so an external edit to the file
+  // should still refresh the UI. (`writable` does not gate watching.)
   const watchable = !inMemoryServers;
 
   // --- /api/servers/events: file-watch fanout state -----------------------

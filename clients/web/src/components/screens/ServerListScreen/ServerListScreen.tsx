@@ -1,4 +1,11 @@
-import { Alert, ScrollArea, SimpleGrid, Stack, Text } from "@mantine/core";
+import {
+  Alert,
+  Code,
+  ScrollArea,
+  SimpleGrid,
+  Stack,
+  Text,
+} from "@mantine/core";
 import {
   DndContext,
   KeyboardSensor,
@@ -139,9 +146,9 @@ export function ServerListScreen({
     <PageContainer>
       {!writable && (
         <Alert color="gray" variant="light" title="Read-only session">
-          This server list was launched with <code>--config</code> or an ad-hoc
+          This server list was launched with <Code>--config</Code> or an ad-hoc
           server and can't be edited here. Changes won't be saved. Use{" "}
-          <code>--catalog</code> (or no flag) to manage a writable catalog.
+          <Code>--catalog</Code> (or no flag) to manage a writable catalog.
         </Alert>
       )}
       <ServerListControls
