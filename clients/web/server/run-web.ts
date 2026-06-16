@@ -21,6 +21,7 @@ import {
 import { buildWebServerConfig } from "./web-server-config.js";
 import { startViteDevServer } from "./start-vite-dev-server.js";
 import { startHonoServer } from "./server.js";
+import { ensureWebBuild } from "./ensure-web-build.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -237,8 +238,10 @@ export async function runWeb(argv: string[]): Promise<number> {
     writable,
     initialServers,
   });
+  const webRoot = join(__dirname, "..");
+  const distRoot = join(webRoot, "dist");
   if (!isDev) {
-    webConfig.staticRoot = join(__dirname, "..", "dist");
+    webConfig.staticRoot = distRoot;
   }
 
   console.log(
@@ -253,6 +256,9 @@ export async function runWeb(argv: string[]): Promise<number> {
     if (isDev) {
       handle = await startViteDevServer(webConfig);
     } else {
+      // Build clients/web/dist on demand if it's missing so prod `--web` never
+      // serves a broken page (#1486); throws an actionable error if it can't.
+      ensureWebBuild(webRoot, distRoot);
       handle = await startHonoServer(webConfig);
     }
   } catch (err) {

@@ -26,6 +26,22 @@ Rules: `--catalog` and `--config` are mutually exclusive; neither combines with
 an ad-hoc target or `--header`; `--header` requires an ad-hoc HTTP/SSE server
 and is applied to that connection (it is no longer a warn-only no-op).
 
+### Production web build (`--web`, no `--dev`)
+
+Prod `--web` serves static assets from `clients/web/dist/`, which only exists
+after a build. In the published package `dist/` always ships. In a fresh dev
+checkout it is absent, so the runner **builds it on demand** the first time you
+launch (`vite build` via `npm run build:client`, run in `clients/web`) instead
+of serving a broken page (#1486). If that build can't run — e.g. dev
+dependencies are missing — the launcher exits with an actionable error telling
+you to run `npm run build` (from `clients/web`) or relaunch with `--dev` to use
+the Vite dev server. `--dev` never needs `dist/`; it runs Vite directly.
+
+CI and `npm run validate` (via `validate:launcher`) exercise this prod path
+end-to-end with `npm run smoke:web` (`scripts/smoke-web.mjs`): it starts
+`mcp-inspector --web` against the built `dist/` and asserts `GET /` returns the
+SPA (HTTP 200) with the injected `__INSPECTOR_API_TOKEN__`.
+
 ## Publishing
 
 The root `@modelcontextprotocol/inspector` package ships as one fat tarball: `npm run build` at the repo root builds all clients, then `prepack` runs before `npm publish`. Runtime dependencies are declared on the root `package.json`; client builds bundle `@inspector/core` and externalize npm packages resolved from the root install.

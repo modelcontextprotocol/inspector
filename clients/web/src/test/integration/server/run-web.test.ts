@@ -4,14 +4,18 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const { mockClose, startViteDevServer, startHonoServer } = vi.hoisted(() => {
-  const mockClose = vi.fn().mockResolvedValue(undefined);
-  return {
-    mockClose,
-    startViteDevServer: vi.fn().mockResolvedValue({ close: mockClose }),
-    startHonoServer: vi.fn().mockResolvedValue({ close: mockClose }),
-  };
-});
+const { mockClose, startViteDevServer, startHonoServer, ensureWebBuild } =
+  vi.hoisted(() => {
+    const mockClose = vi.fn().mockResolvedValue(undefined);
+    return {
+      mockClose,
+      startViteDevServer: vi.fn().mockResolvedValue({ close: mockClose }),
+      startHonoServer: vi.fn().mockResolvedValue({ close: mockClose }),
+      // No-op by default so prod tests don't shell out to a real build; the
+      // build-on-demand contract is covered in ensure-web-build.test.ts.
+      ensureWebBuild: vi.fn(),
+    };
+  });
 
 vi.mock("../../../../server/start-vite-dev-server.js", () => ({
   startViteDevServer,
@@ -19,6 +23,10 @@ vi.mock("../../../../server/start-vite-dev-server.js", () => ({
 
 vi.mock("../../../../server/server.js", () => ({
   startHonoServer,
+}));
+
+vi.mock("../../../../server/ensure-web-build.js", () => ({
+  ensureWebBuild,
 }));
 
 import * as nodeConfig from "../../../../../../core/mcp/node/config.js";
@@ -39,6 +47,8 @@ describe("runWeb", () => {
   beforeEach(() => {
     startViteDevServer.mockClear();
     startHonoServer.mockClear();
+    ensureWebBuild.mockClear();
+    ensureWebBuild.mockReset();
     mockClose.mockClear();
     signalHandlers.clear();
     exitCode = undefined;
@@ -126,6 +136,32 @@ describe("runWeb", () => {
     );
   });
 
+  it("ensures the web build before starting Hono in production", async () => {
+    void runWeb(["node", "run-web"]);
+    await expectServerStarted(startHonoServer);
+
+    expect(ensureWebBuild).toHaveBeenCalledTimes(1);
+    // (webRoot, distRoot) — both end at the web client root / its dist dir.
+    const [webRoot, distRoot] = ensureWebBuild.mock.calls[0] as [
+      string,
+      string,
+    ];
+    expect(distRoot).toMatch(/dist$/);
+    expect(distRoot.startsWith(webRoot)).toBe(true);
+  });
+
+  it("exits with an actionable error when the web build can't be produced", async () => {
+    ensureWebBuild.mockImplementationOnce(() => {
+      throw new Error("Could not build the web UI automatically.");
+    });
+
+    await expect(runWeb(["node", "run-web"])).rejects.toThrow("process.exit:1");
+    expect(
+      errorLines.some((l) => l.includes("Could not build the web UI")),
+    ).toBe(true);
+    expect(startHonoServer).not.toHaveBeenCalled();
+  });
+
   it("starts Vite when --dev is set", async () => {
     void runWeb(["node", "run-web", "--dev"]);
     await expectServerStarted(startViteDevServer);
@@ -134,6 +170,8 @@ describe("runWeb", () => {
       expect.objectContaining({ initialMcpConfig: null, writable: true }),
     );
     expect(logLines.some((l) => l.includes("development mode"))).toBe(true);
+    // --dev uses Vite directly; no static build is required or attempted.
+    expect(ensureWebBuild).not.toHaveBeenCalled();
   });
 
   // --- ad-hoc launch → read-only in-memory session ------------------------

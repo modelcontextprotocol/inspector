@@ -55,6 +55,13 @@ jobs:
           node clients/launcher/build/index.js --cli --help
           node clients/launcher/build/index.js --tui --help
 
+      - name: Smoke test prod web launcher (end-to-end)
+        # Starts `mcp-inspector --web` against the built clients/web/dist (from
+        # the "Run Build" step) and asserts GET / serves the SPA (HTTP 200) with
+        # the injected auth token — the prod web path the --help smoke can't
+        # reach (#1486).
+        run: npm run smoke:web
+
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
