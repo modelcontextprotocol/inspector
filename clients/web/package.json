@@ -13,6 +13,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build && npm run build:runner",
+    "build:client": "vite build",
     "build:runner": "tsup --config tsup.runner.config.ts",
     "lint": "eslint .",
     "format": "prettier --write src",
