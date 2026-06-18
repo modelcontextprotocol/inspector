@@ -33,6 +33,7 @@ jest.mock("../utils/configUtils", () => ({
   getInitialSseUrl: jest.fn(() => "http://localhost:3001/sse"),
   getInitialCommand: jest.fn(() => "mcp-server-everything"),
   getInitialArgs: jest.fn(() => ""),
+  getInitialConnectionType: jest.fn(() => "proxy"),
   initializeInspectorConfig: jest.fn(() => DEFAULT_INSPECTOR_CONFIG),
   saveInspectorConfig: jest.fn(),
 }));
@@ -208,6 +209,62 @@ describe("App - Config Endpoint", () => {
         }),
       }),
     );
+  });
+
+  test("applies defaultConnectionType from /config response", async () => {
+    const mockConfig = {
+      ...DEFAULT_INSPECTOR_CONFIG,
+      MCP_PROXY_AUTH_TOKEN: {
+        ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
+        value: "test-proxy-token",
+      },
+    };
+    mockInitializeInspectorConfig.mockReturnValue(mockConfig);
+
+    (global.fetch as jest.Mock).mockResolvedValue({
+      json: () =>
+        Promise.resolve({
+          defaultEnvironment: {},
+          defaultConnectionType: "direct",
+        }),
+    });
+
+    localStorage.setItem("lastConnectionType", "proxy");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(localStorage.getItem("lastConnectionType")).toBe("direct");
+    });
+  });
+
+  test("ignores invalid defaultConnectionType values from /config", async () => {
+    const mockConfig = {
+      ...DEFAULT_INSPECTOR_CONFIG,
+      MCP_PROXY_AUTH_TOKEN: {
+        ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
+        value: "test-proxy-token",
+      },
+    };
+    mockInitializeInspectorConfig.mockReturnValue(mockConfig);
+
+    (global.fetch as jest.Mock).mockResolvedValue({
+      json: () =>
+        Promise.resolve({
+          defaultEnvironment: {},
+          defaultConnectionType: "bogus",
+        }),
+    });
+
+    localStorage.setItem("lastConnectionType", "proxy");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalled();
+    });
+
+    expect(localStorage.getItem("lastConnectionType")).toBe("proxy");
   });
 
   test("handles config endpoint errors gracefully", async () => {

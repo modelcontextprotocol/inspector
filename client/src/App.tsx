@@ -87,6 +87,7 @@ import {
   getInitialTransportType,
   getInitialCommand,
   getInitialArgs,
+  getInitialConnectionType,
   initializeInspectorConfig,
   saveInspectorConfig,
   getMCPTaskTtl,
@@ -179,13 +180,9 @@ const App = () => {
     "stdio" | "sse" | "streamable-http"
   >(getInitialTransportType);
   const [connectionType, setConnectionType] = useState<"direct" | "proxy">(
-    () => {
-      return (
-        (localStorage.getItem("lastConnectionType") as "direct" | "proxy") ||
-        "proxy"
-      );
-    },
+    getInitialConnectionType,
   );
+
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [roots, setRoots] = useState<Root[]>([]);
@@ -738,6 +735,12 @@ const App = () => {
         }
         if (data.defaultServerUrl) {
           setSseUrl(data.defaultServerUrl);
+        }
+        if (
+          data.defaultConnectionType === "direct" ||
+          data.defaultConnectionType === "proxy"
+        ) {
+          setConnectionType(data.defaultConnectionType);
         }
       })
       .catch((error) =>

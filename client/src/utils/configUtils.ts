@@ -92,6 +92,17 @@ export const getInitialArgs = (): string => {
   return localStorage.getItem("lastArgs") || "";
 };
 
+export const getInitialConnectionType = (): "direct" | "proxy" => {
+  const param = getSearchParam("connectionType");
+  if (param === "proxy" || param === "direct") {
+    return param;
+  }
+  return (
+    (localStorage.getItem("lastConnectionType") as "direct" | "proxy") ||
+    "proxy"
+  );
+};
+
 // Returns a map of config key -> value from query params if present
 export const getConfigOverridesFromQueryParams = (
   defaultConfig: InspectorConfig,
