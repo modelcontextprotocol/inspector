@@ -16,6 +16,7 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type {
   EmbeddedResource,
   Implementation,
+  LoggingMessageNotification,
   ReadResourceResult,
   ResourceLink,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -196,6 +197,45 @@ export type ContainerDimensions = NonNullable<
  * Exported so AppRenderer's ResizeObserver can reuse the same measurement for
  * live `host-context-changed` pushes.
  */
+/**
+ * One MCP `notifications/message` log entry from a running app, stamped with a
+ * host-side `id` (stable React key) and `timestamp` so the UI can render a
+ * keyed, time-ordered log without re-processing on every push.
+ */
+export interface AppLogEntry {
+  id: number;
+  timestamp: number;
+  level: LoggingMessageNotification["params"]["level"];
+  logger?: string;
+  data: unknown;
+}
+
+/**
+ * Subscribe to a bridge's `loggingmessage` events and forward each one to
+ * `onLog` as a stamped {@link AppLogEntry}. The inspector advertises the
+ * `logging` host capability in {@link HOST_CAPABILITIES}, so a running app may
+ * emit standard MCP log notifications — without a listener the bridge receives
+ * them and silently drops them. Colocated with the other bridge-event wiring so
+ * the SDK event surface stays in one file. Returns an unsubscribe function.
+ */
+export function subscribeAppLogs(
+  bridge: AppBridge,
+  onLog: (entry: AppLogEntry) => void,
+): () => void {
+  let nextId = 0;
+  const handler = (params: LoggingMessageNotification["params"]) => {
+    onLog({
+      id: nextId++,
+      timestamp: Date.now(),
+      level: params.level,
+      logger: params.logger,
+      data: params.data,
+    });
+  };
+  bridge.addEventListener("loggingmessage", handler);
+  return () => bridge.removeEventListener("loggingmessage", handler);
+}
+
 export function measureContainerDimensions(
   element: HTMLElement,
 ): ContainerDimensions | undefined {

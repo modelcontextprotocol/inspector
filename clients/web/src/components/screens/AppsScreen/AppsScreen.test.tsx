@@ -495,4 +495,32 @@ describe("AppsScreen", () => {
     await user.click(screen.getByLabelText("Close"));
     expect(screen.queryByText(/Messages from app/)).not.toBeInTheDocument();
   });
+
+  it("surfaces app log notifications in a collapsible log panel with a working Clear", async () => {
+    const user = userEvent.setup();
+    const { factory, emit } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.queryByText(/App logs/)).not.toBeInTheDocument();
+    await act(async () => {
+      emit("loggingmessage", { level: "warning", data: "disk almost full" });
+      emit("loggingmessage", {
+        level: "error",
+        logger: "render",
+        data: { code: 500 },
+      });
+    });
+    const toggle = screen.getByRole("button", { name: /App logs \(2\)/ });
+    expect(toggle).toBeInTheDocument();
+    await user.click(toggle);
+    expect(screen.getByText("disk almost full")).toBeInTheDocument();
+    expect(screen.getByText("render")).toBeInTheDocument();
+    expect(screen.getByText('{"code":500}')).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(screen.queryByText(/App logs/)).not.toBeInTheDocument();
+  });
 });

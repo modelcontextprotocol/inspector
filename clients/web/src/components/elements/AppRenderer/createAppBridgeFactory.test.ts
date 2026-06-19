@@ -67,10 +67,12 @@ vi.mock("@modelcontextprotocol/ext-apps/app-bridge", () => {
   };
 });
 
+import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   createAppBridgeFactory,
   HOST_CAPABILITIES,
   measureContainerDimensions,
+  subscribeAppLogs,
 } from "./createAppBridgeFactory";
 
 const tool: Tool = {
@@ -588,5 +590,57 @@ describe("measureContainerDimensions", () => {
       width: 320,
       height: 240,
     });
+  });
+});
+
+describe("subscribeAppLogs", () => {
+  function makeBridge(): {
+    bridge: AppBridge;
+    fire: (params: { level: string; logger?: string; data: unknown }) => void;
+  } {
+    const listeners: Record<string, ((p: unknown) => void)[]> = {};
+    const bridge = {
+      addEventListener: (e: string, h: (p: unknown) => void) => {
+        (listeners[e] ??= []).push(h);
+      },
+      removeEventListener: (e: string, h: (p: unknown) => void) => {
+        listeners[e] = (listeners[e] ?? []).filter((l) => l !== h);
+      },
+    } as unknown as AppBridge;
+    return {
+      bridge,
+      fire: (p) => (listeners.loggingmessage ?? []).forEach((h) => h(p)),
+    };
+  }
+
+  it("forwards each loggingmessage as a stamped AppLogEntry", () => {
+    const { bridge, fire } = makeBridge();
+    const onLog = vi.fn();
+    subscribeAppLogs(bridge, onLog);
+    fire({ level: "info", logger: "widget", data: "hello" });
+    fire({ level: "error", data: { code: 500 } });
+    expect(onLog).toHaveBeenCalledTimes(2);
+    expect(onLog.mock.calls[0][0]).toMatchObject({
+      id: 0,
+      level: "info",
+      logger: "widget",
+      data: "hello",
+    });
+    expect(typeof onLog.mock.calls[0][0].timestamp).toBe("number");
+    expect(onLog.mock.calls[1][0]).toMatchObject({
+      id: 1,
+      level: "error",
+      data: { code: 500 },
+    });
+  });
+
+  it("stops forwarding after unsubscribe", () => {
+    const { bridge, fire } = makeBridge();
+    const onLog = vi.fn();
+    const unsubscribe = subscribeAppLogs(bridge, onLog);
+    fire({ level: "info", data: "a" });
+    unsubscribe();
+    fire({ level: "info", data: "b" });
+    expect(onLog).toHaveBeenCalledTimes(1);
   });
 });
