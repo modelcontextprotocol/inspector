@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import { currentTheme } from "./createAppBridgeFactory";
 
 /**
  * Constructs the `AppBridge` for a freshly mounted sandbox iframe. Wrap with
@@ -203,6 +204,11 @@ export function AppRenderer({
         // drives), so the view's `initialized` signal is never missed.
         bridge.addEventListener("initialized", () => {
           initializedRef.current = true;
+          // Re-assert the current theme now that the view is ready: it may have
+          // flipped between bridge construction (which seeded the initial
+          // hostContext) and initialization. setHostContext diffs internally, so
+          // an unchanged theme emits no host-context-changed notification.
+          bridge.setHostContext({ theme: currentTheme() });
           flushPending();
         });
         flushPending();
@@ -213,6 +219,33 @@ export function AppRenderer({
 
     return scheduleDispose;
   }, [bridgeFactory, sandboxPath, tool, flushPending, scheduleDispose]);
+
+  // Push live host-context changes to the running view. The factory only seeds
+  // the INITIAL theme into the handshake hostContext, but the spec has the host
+  // push partial hostContext diffs (via ui/notifications/host-context-changed)
+  // as fields change — so a theme flip while an app is open must reach it too.
+  // Mantine writes the resolved scheme to `<html data-mantine-color-scheme>`;
+  // observe that attribute and forward changes through the live bridge.
+  // `setHostContext` diffs and emits only modified fields, so re-asserting an
+  // unchanged theme is a no-op. Reading `bridgeRef.current` at callback time
+  // (not capturing a bridge) means the observer always targets the live bridge,
+  // even though it resolves asynchronously after this effect runs.
+  useEffect(() => {
+    if (
+      typeof MutationObserver === "undefined" ||
+      typeof document === "undefined"
+    ) {
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      bridgeRef.current?.setHostContext({ theme: currentTheme() });
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-mantine-color-scheme"],
+    });
+    return () => observer.disconnect();
+  }, []);
 
   useImperativeHandle(
     ref,

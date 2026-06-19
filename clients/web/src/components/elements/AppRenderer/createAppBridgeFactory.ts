@@ -50,16 +50,17 @@ export interface AppBridgeFactoryDeps {
  * (rather than capturing React state in the factory deps) keeps the factory's
  * identity stable across theme toggles — the AppRenderer treats a new factory
  * identity as "rebuild the bridge", which would reload a running app's iframe on
- * every theme flip. The theme is read once per bridge build (the value at open
- * time); pushing live theme updates to an already-open app would need an
- * AppBridge.setHostContext follow-up.
+ * every theme flip. The theme is read once per bridge build to seed the initial
+ * hostContext; AppRenderer watches the same attribute and pushes live theme
+ * changes to an already-open app via AppBridge.setHostContext, so it is exported
+ * here to keep a single source of truth for "what theme is the host showing".
  *
  * The attribute is only ever `"light"` or `"dark"` — Mantine resolves
  * `defaultColorScheme="auto"` to the system value before paint and never writes
  * `"auto"` here, so no `auto` branch is needed. The matchMedia fallback only
  * covers the attribute being absent (e.g. a hydration race).
  */
-function currentTheme(): "light" | "dark" {
+export function currentTheme(): "light" | "dark" {
   if (typeof document !== "undefined") {
     const attr = document.documentElement.getAttribute(
       "data-mantine-color-scheme",

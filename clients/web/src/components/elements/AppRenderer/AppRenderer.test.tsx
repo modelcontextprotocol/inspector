@@ -20,6 +20,7 @@ interface MockBridge {
   sendToolInput: ReturnType<typeof vi.fn>;
   sendToolResult: ReturnType<typeof vi.fn>;
   sendToolCancelled: ReturnType<typeof vi.fn>;
+  setHostContext: ReturnType<typeof vi.fn>;
   teardownResource: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
   addEventListener: ReturnType<typeof vi.fn>;
@@ -34,6 +35,7 @@ function createMockBridge(): MockBridge {
     sendToolInput: vi.fn().mockResolvedValue(undefined),
     sendToolResult: vi.fn().mockResolvedValue(undefined),
     sendToolCancelled: vi.fn().mockResolvedValue(undefined),
+    setHostContext: vi.fn(),
     teardownResource: vi.fn().mockResolvedValue({}),
     close: vi.fn().mockResolvedValue(undefined),
     addEventListener: vi.fn((event: string, handler: (p: unknown) => void) => {
@@ -228,6 +230,81 @@ describe("AppRenderer", () => {
     expect(bridge.sendToolCancelled).toHaveBeenCalledWith({
       reason: "user-aborted",
     });
+  });
+
+  // The host theme lives on `<html data-mantine-color-scheme>`. MantineProvider
+  // writes its own scheme there on mount, so these tests manipulate the
+  // attribute AFTER render to model a user-driven theme flip on an open app.
+  it("re-asserts the theme via setHostContext when the view initializes", async () => {
+    const bridge = createMockBridge();
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+      />,
+    );
+    await flushAsync();
+    await act(async () => {
+      document.documentElement.setAttribute(
+        "data-mantine-color-scheme",
+        "dark",
+      );
+      bridge.emit("initialized");
+    });
+    expect(bridge.setHostContext).toHaveBeenCalledWith({ theme: "dark" });
+  });
+
+  it("pushes a live theme flip to the running bridge via host-context-changed", async () => {
+    const bridge = createMockBridge();
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+      />,
+    );
+    await flushAsync();
+    // Ignore any seeding from Mantine's own mount-time write — assert only the
+    // flip we trigger below.
+    bridge.setHostContext.mockClear();
+
+    await act(async () => {
+      document.documentElement.setAttribute(
+        "data-mantine-color-scheme",
+        "dark",
+      );
+      // MutationObserver callbacks are delivered on a microtask.
+      await Promise.resolve();
+    });
+    expect(bridge.setHostContext).toHaveBeenCalledWith({ theme: "dark" });
+  });
+
+  it("stops observing theme changes after the renderer unmounts", async () => {
+    const bridge = createMockBridge();
+    const { unmount } = renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+      />,
+    );
+    await flushAsync();
+    await act(async () => {
+      unmount();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    bridge.setHostContext.mockClear();
+
+    await act(async () => {
+      document.documentElement.setAttribute(
+        "data-mantine-color-scheme",
+        "dark",
+      );
+      await Promise.resolve();
+    });
+    expect(bridge.setHostContext).not.toHaveBeenCalled();
   });
 
   it("builds a single bridge and does not dispose it under StrictMode double-invoke", async () => {
