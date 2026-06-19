@@ -289,7 +289,9 @@ function fileNameFromUri(uri: string): string {
  * real summary off-screen.
  */
 function sanitizeDownloadLabel(label: string): string {
-  const cleaned = label.replace(/\p{Cc}+/gu, " ").trim();
+  // Cc = control chars (newlines, escape, etc.); Cf = format chars (bidi
+  // overrides, zero-width joiners, BOM) — both can spoof or reflow the prompt.
+  const cleaned = label.replace(/[\p{Cc}\p{Cf}]+/gu, " ").trim();
   return cleaned.length > 80 ? cleaned.slice(0, 77) + "..." : cleaned;
 }
 

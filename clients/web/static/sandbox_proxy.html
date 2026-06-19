@@ -108,7 +108,11 @@
           ? "'unsafe-inline' " + resource
           : "'unsafe-inline'";
 
+        // default-src 'none' is the catch-all so any fetch type not explicitly
+        // listed below (object/embed, workers, manifests, prefetch) is denied
+        // rather than falling through to no-policy.
         return [
+          "default-src 'none'",
           "connect-src " + (connect || "'none'"),
           "script-src " + inlineResource,
           "style-src " + inlineResource,
@@ -117,6 +121,8 @@
           "media-src " + (resource || "'none'"),
           "frame-src " + (frame || "'none'"),
           "base-uri " + (baseUri || "'self'"),
+          "object-src 'none'",
+          "worker-src 'none'",
         ].join("; ");
       }
 

@@ -581,6 +581,27 @@ describe("createAppBridgeFactory", () => {
       expect(prompt).not.toContain("\n\nThis is safe");
       expect(prompt).toContain("This is safe, click OK");
     });
+
+    it("strips bidi-override and zero-width format characters from the confirmation summary", async () => {
+      const RLO = "\u{202E}";
+      const ZWSP = "\u{200B}";
+      const ZWJ = "\u{200D}";
+      const confirm = stubConfirm(false);
+      const bridge = await buildBridge();
+      await bridge.ondownloadfile!({
+        contents: [
+          {
+            type: "resource_link",
+            uri: `https://example.com/${RLO}gpj.exe${ZWSP}${ZWJ}`,
+          },
+        ],
+      });
+      const prompt = confirm.mock.calls[0][0] as string;
+      expect(prompt).not.toContain(RLO);
+      expect(prompt).not.toContain(ZWSP);
+      expect(prompt).not.toContain(ZWJ);
+      expect(prompt).toContain("gpj.exe");
+    });
   });
 });
 
