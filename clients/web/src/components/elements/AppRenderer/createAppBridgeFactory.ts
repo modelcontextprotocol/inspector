@@ -14,8 +14,10 @@ import type {
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type {
+  EmbeddedResource,
   Implementation,
   ReadResourceResult,
+  ResourceLink,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { BridgeFactory } from "./AppRenderer";
 
@@ -32,11 +34,12 @@ export const HOST_INFO: Implementation = {
  * Capabilities the inspector host offers a running MCP App. Constructed WITH an
  * MCP client (see {@link createAppBridgeFactory}), so the bridge auto-forwards
  * tools/resources/prompts to the view; we only declare the host-side features
- * we actually back: external links (handled below), tool/resource list-change
- * forwarding, and logging passthrough.
+ * we actually back: external links and file downloads (both handled below),
+ * tool/resource list-change forwarding, and logging passthrough.
  */
 export const HOST_CAPABILITIES: McpUiHostCapabilities = {
   openLinks: {},
+  downloadFile: {},
   serverTools: { listChanged: true },
   serverResources: { listChanged: true },
   logging: {},
@@ -208,6 +211,56 @@ function extractHtmlAndMeta(result: ReadResourceResult): {
   throw new Error("UI resource has no text (HTML) content");
 }
 
+/** Decode a base64-encoded blob resource into bytes for download. */
+function base64ToBytes(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+/** Last path segment of a resource URI, used as the suggested filename. */
+function fileNameFromUri(uri: string): string {
+  const tail = uri.split(/[\\/]/).pop();
+  return tail && tail.length > 0 ? tail : "download";
+}
+
+/** Human-readable label for a download item, shown in the confirmation prompt. */
+function describeDownloadItem(item: EmbeddedResource | ResourceLink): string {
+  if (item.type === "resource_link") return item.uri;
+  return fileNameFromUri(item.resource.uri);
+}
+
+/**
+ * Trigger a browser download for a single MCP resource item. Inline
+ * {@link EmbeddedResource}s (text or base64 blob) become an object-URL anchor
+ * click; a {@link ResourceLink} is opened in a new tab so the browser fetches it
+ * directly. Returns false when the item carries nothing downloadable.
+ */
+function downloadResourceItem(item: EmbeddedResource | ResourceLink): boolean {
+  if (item.type === "resource_link") {
+    window.open(item.uri, "_blank", "noopener,noreferrer");
+    return true;
+  }
+  const resource = item.resource;
+  const blob =
+    "blob" in resource
+      ? new Blob([base64ToBytes(resource.blob)], {
+          type: resource.mimeType ?? "application/octet-stream",
+        })
+      : new Blob([resource.text], { type: resource.mimeType ?? "text/plain" });
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileNameFromUri(resource.uri);
+    link.click();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  return true;
+}
+
 /**
  * Builds the {@link BridgeFactory} the AppRenderer uses to bring a sandbox
  * iframe to life. For each mounted iframe + tool it:
@@ -295,6 +348,30 @@ export function createAppBridgeFactory(
         return { isError: false };
       }
       return { isError: true };
+    };
+
+    // The view asks the host to save MCP resource contents to disk (sandboxed
+    // iframes can't download directly). Confirm with the user first — the spec
+    // requires a host-mediated confirmation — then write each item out. A
+    // declined prompt, an empty payload, or a thrown error all return isError.
+    bridge.ondownloadfile = async ({ contents }) => {
+      if (!Array.isArray(contents) || contents.length === 0) {
+        return { isError: true };
+      }
+      const summary = contents.map(describeDownloadItem).join("\n");
+      const approved = window.confirm(
+        `This MCP App wants to download ${contents.length} file(s):\n\n${summary}`,
+      );
+      if (!approved) return { isError: true };
+      try {
+        let downloaded = false;
+        for (const item of contents) {
+          if (downloadResourceItem(item)) downloaded = true;
+        }
+        return { isError: !downloaded };
+      } catch {
+        return { isError: true };
+      }
     };
 
     const transport = new PostMessageTransport(targetWindow, targetWindow);

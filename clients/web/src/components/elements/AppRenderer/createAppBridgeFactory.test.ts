@@ -6,7 +6,7 @@
  * end-to-end iframe round-trip is covered by the AppsScreen Storybook play test.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type {
   Tool,
   ReadResourceResult,
@@ -23,6 +23,9 @@ interface MockBridge {
   sendSandboxResourceReady: ReturnType<typeof vi.fn>;
   connect: ReturnType<typeof vi.fn>;
   onopenlink?: (params: { url: string }) => Promise<{ isError?: boolean }>;
+  ondownloadfile?: (params: {
+    contents: unknown[];
+  }) => Promise<{ isError?: boolean }>;
   emit: (event: string, payload?: unknown) => void;
 }
 
@@ -36,6 +39,9 @@ vi.mock("@modelcontextprotocol/ext-apps/app-bridge", () => {
     sendSandboxResourceReady = vi.fn().mockResolvedValue(undefined);
     connect = vi.fn().mockResolvedValue(undefined);
     onopenlink?: (params: { url: string }) => Promise<{ isError?: boolean }>;
+    ondownloadfile?: (params: {
+      contents: unknown[];
+    }) => Promise<{ isError?: boolean }>;
     emit = (event: string, payload?: unknown) => {
       (this.listeners[event] ?? []).forEach((h) => h(payload));
     };
@@ -136,7 +142,10 @@ describe("createAppBridgeFactory", () => {
       const bridge = bridgeInstances[0];
       expect(bridge.ctorArgs[0]).toBe(fakeClient);
       expect(bridge.ctorArgs[1]).toMatchObject({ name: "MCP Inspector" });
-      expect(bridge.ctorArgs[2]).toMatchObject({ serverTools: {} });
+      expect(bridge.ctorArgs[2]).toMatchObject({
+        serverTools: {},
+        downloadFile: {},
+      });
       expect(bridge.ctorArgs[3]).toMatchObject({
         hostContext: {
           theme: "dark",
@@ -361,6 +370,163 @@ describe("createAppBridgeFactory", () => {
     ).resolves.toEqual({ isError: true });
 
     open.mockRestore();
+  });
+
+  describe("ondownloadfile", () => {
+    // happy-dom does not implement window.confirm, so stub it (rather than
+    // spyOn an absent function). Returns the installed mock for assertions.
+    function stubConfirm(approved: boolean): ReturnType<typeof vi.fn> {
+      const confirm = vi.fn().mockReturnValue(approved);
+      vi.stubGlobal("confirm", confirm);
+      return confirm;
+    }
+
+    async function buildBridge(): Promise<MockBridge> {
+      const factory = createAppBridgeFactory({
+        getClient: () => fakeClient,
+        readResource: vi.fn().mockResolvedValue(uiResource("<h1>x</h1>")),
+      });
+      await factory(makeIframe(), tool);
+      return bridgeInstances[0];
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    it("downloads an inline text resource after confirmation", async () => {
+      const confirm = stubConfirm(true);
+      const createUrl = vi
+        .spyOn(URL, "createObjectURL")
+        .mockReturnValue("blob:fake");
+      const revokeUrl = vi
+        .spyOn(URL, "revokeObjectURL")
+        .mockImplementation(() => undefined);
+      const click = vi
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(() => undefined);
+
+      const bridge = await buildBridge();
+      await expect(
+        bridge.ondownloadfile!({
+          contents: [
+            {
+              type: "resource",
+              resource: {
+                uri: "file:///report.csv",
+                mimeType: "text/csv",
+                text: "a,b\n1,2",
+              },
+            },
+          ],
+        }),
+      ).resolves.toEqual({ isError: false });
+
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(createUrl).toHaveBeenCalledTimes(1);
+      expect(click).toHaveBeenCalledTimes(1);
+      expect(revokeUrl).toHaveBeenCalledWith("blob:fake");
+    });
+
+    it("decodes a base64 blob resource", async () => {
+      stubConfirm(true);
+      const createUrl = vi
+        .spyOn(URL, "createObjectURL")
+        .mockReturnValue("blob:fake");
+      vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+        () => undefined,
+      );
+
+      const bridge = await buildBridge();
+      await expect(
+        bridge.ondownloadfile!({
+          contents: [
+            {
+              type: "resource",
+              resource: {
+                uri: "file:///logo.png",
+                mimeType: "image/png",
+                blob: btoa("PNGDATA"),
+              },
+            },
+          ],
+        }),
+      ).resolves.toEqual({ isError: false });
+
+      const blob = createUrl.mock.calls[0][0] as Blob;
+      expect(blob.type).toBe("image/png");
+      expect(await blob.text()).toBe("PNGDATA");
+    });
+
+    it("opens a resource link in a new tab", async () => {
+      stubConfirm(true);
+      const open = vi
+        .spyOn(window, "open")
+        .mockImplementation(() => null as unknown as Window);
+
+      const bridge = await buildBridge();
+      await expect(
+        bridge.ondownloadfile!({
+          contents: [
+            { type: "resource_link", uri: "https://example.com/a.pdf" },
+          ],
+        }),
+      ).resolves.toEqual({ isError: false });
+
+      expect(open).toHaveBeenCalledWith(
+        "https://example.com/a.pdf",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    });
+
+    it("returns isError when the user declines the confirmation", async () => {
+      stubConfirm(false);
+      const createUrl = vi.spyOn(URL, "createObjectURL");
+
+      const bridge = await buildBridge();
+      await expect(
+        bridge.ondownloadfile!({
+          contents: [
+            {
+              type: "resource",
+              resource: { uri: "file:///x.txt", text: "x" },
+            },
+          ],
+        }),
+      ).resolves.toEqual({ isError: true });
+      expect(createUrl).not.toHaveBeenCalled();
+    });
+
+    it("returns isError for an empty contents array without confirming", async () => {
+      const confirm = stubConfirm(true);
+      const bridge = await buildBridge();
+      await expect(bridge.ondownloadfile!({ contents: [] })).resolves.toEqual({
+        isError: true,
+      });
+      expect(confirm).not.toHaveBeenCalled();
+    });
+
+    it("returns isError when a download throws", async () => {
+      stubConfirm(true);
+      vi.spyOn(URL, "createObjectURL").mockImplementation(() => {
+        throw new Error("boom");
+      });
+
+      const bridge = await buildBridge();
+      await expect(
+        bridge.ondownloadfile!({
+          contents: [
+            {
+              type: "resource",
+              resource: { uri: "file:///x.txt", text: "x" },
+            },
+          ],
+        }),
+      ).resolves.toEqual({ isError: true });
+    });
   });
 });
 
