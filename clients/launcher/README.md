@@ -61,6 +61,23 @@ end-to-end with `npm run smoke:web` (`scripts/smoke-web.mjs`): it starts
 `mcp-inspector --web` against the built `dist/` and asserts `GET /` returns the
 SPA (HTTP 200) with the injected `__INSPECTOR_API_TOKEN__`.
 
+### CLI and TUI smokes
+
+`validate:launcher` also runs end-to-end smokes for the other two modes through
+the built launcher artifact (beyond the `--help` checks in `smoke:launcher`):
+
+- `npm run smoke:cli` (`scripts/smoke-cli.mjs`) — runs `mcp-inspector --cli`
+  against the bundled stdio test server via a temp `--catalog` and asserts
+  `tools/list` returns the server's tools, plus the `--catalog`/`--config`
+  resolution paths (default-catalog seed-on-missing, read-only `--config`
+  error-without-seed, `--catalog`/`--config` conflict).
+- `npm run smoke:tui` (`scripts/smoke-tui.mjs`) — launches
+  `mcp-inspector --tui --catalog <temp>` and asserts the Ink app renders its
+  first frame within a timeout, then shuts it down (a shallow boot/render
+  check, not full interaction).
+
+Both build `test-servers/build` on demand if it is missing.
+
 ## Publishing
 
 The root `@modelcontextprotocol/inspector` package ships as one fat tarball: `npm run build` at the repo root builds all clients, then `prepack` runs before `npm publish`. Runtime dependencies are declared on the root `package.json`; client builds bundle `@inspector/core` and externalize npm packages resolved from the root install.
