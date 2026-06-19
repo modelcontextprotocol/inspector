@@ -156,16 +156,32 @@ export function AppsScreen({
   const { selectedAppName, formValues, search } = ui;
   const [running, setRunning] = useState(false);
   const [maximized, setMaximized] = useState(false);
+  // Height (px) the running view last reported via ui/notifications/size-changed.
+  // Undefined until the view reports (or after it's torn down), in which case
+  // the iframe fills the available card space as before. Local to the screen
+  // like `running`/`maximized`: it's tied to the live iframe, not persisted.
+  const [appHeight, setAppHeight] = useState<number | undefined>(undefined);
 
   const selectedTool = selectedAppName
     ? tools.find((t) => t.name === selectedAppName)
     : undefined;
   const selectedHasFields = selectedTool ? hasInputFields(selectedTool) : false;
 
+  // The running view reports its rendered content height via
+  // ui/notifications/size-changed; honor it so the iframe is neither clipped
+  // nor surrounded by dead space. Width is left at the host-controlled
+  // container width. The value is clamped to the available space by the
+  // renderer frame's `mah` below, and ignored while maximized (the app fills
+  // the screen instead).
+  function handleSizeChange(size: { width?: number; height?: number }) {
+    if (size.height != null) setAppHeight(size.height);
+  }
+
   function handleSelect(name: string) {
     if (name === selectedAppName) return;
     const next = tools.find((t) => t.name === name);
     if (!next) return;
+    setAppHeight(undefined);
     // Seed schema defaults so default-only fields are sent on Open App (parity
     // with the form's resolveValue display, which onChange doesn't capture).
     onUiChange({
@@ -187,12 +203,14 @@ export function AppsScreen({
 
   function handleOpen() {
     if (!selectedTool) return;
+    setAppHeight(undefined);
     setRunning(true);
     onOpenApp(selectedTool.name, formValues);
   }
 
   function handleClose() {
     setRunning(false);
+    setAppHeight(undefined);
     onUiChange({ ...ui, selectedAppName: undefined, formValues: {} });
     setMaximized(false);
     onCloseApp();
@@ -200,6 +218,7 @@ export function AppsScreen({
 
   function handleBackToInput() {
     setRunning(false);
+    setAppHeight(undefined);
     setMaximized(false);
   }
 
@@ -217,6 +236,10 @@ export function AppsScreen({
       </ScreenLayout>
     );
   }
+
+  // While maximized the app fills the screen, so the view-reported height is
+  // ignored; otherwise we honor it (clamped to the card by the frame's `mah`).
+  const contentHeight = maximized ? undefined : appHeight;
 
   return (
     <ScreenLayout>
@@ -286,7 +309,16 @@ export function AppsScreen({
               </HeaderActions>
             </HeaderRow>
             {running ? (
-              <RendererFrame>
+              // When the view has reported a content height (and we're not
+              // maximized), size the frame to it and stop it flex-growing, but
+              // cap it at the card's available height (`mah`) so a tall widget
+              // scrolls/clips inside the card instead of overflowing the page.
+              // Otherwise the frame fills the card as before.
+              <RendererFrame
+                flex={contentHeight != null ? "0 0 auto" : 1}
+                h={contentHeight}
+                mah="100%"
+              >
                 {/* Keying by name forces the renderer to remount when the
                     selected app changes, ensuring a fresh bridge and iframe
                     rather than reusing the previous app's transport. */}
@@ -296,6 +328,7 @@ export function AppsScreen({
                   tool={selectedTool}
                   bridgeFactory={bridgeFactory}
                   onError={onError}
+                  onSizeChange={handleSizeChange}
                   ref={rendererRef}
                 />
               </RendererFrame>

@@ -1,4 +1,5 @@
 import { createRef, useState } from "react";
+import { act } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -58,6 +59,33 @@ const okBridgeFactory: BridgeFactory = () =>
     teardownResource: async () => ({}),
     close: async () => {},
   }) as unknown as AppBridge;
+
+// A bridge factory whose bridge supports the addEventListener/emit surface the
+// AppRenderer wires up, so a test can drive a `sizechange` notification through
+// to the screen's resize handling. `emit` dispatches to the captured listeners.
+function createEventBridgeFactory(): {
+  factory: BridgeFactory;
+  emit: (event: string, payload?: unknown) => void;
+} {
+  const listeners: Record<string, ((payload: unknown) => void)[]> = {};
+  const factory: BridgeFactory = () =>
+    ({
+      sendToolInput: async () => {},
+      sendToolResult: async () => {},
+      sendToolCancelled: async () => {},
+      teardownResource: async () => ({}),
+      close: async () => {},
+      addEventListener: (event: string, handler: (p: unknown) => void) => {
+        (listeners[event] ??= []).push(handler);
+      },
+      removeEventListener: () => {},
+    }) as unknown as AppBridge;
+  return {
+    factory,
+    emit: (event, payload) =>
+      (listeners[event] ?? []).forEach((h) => h(payload)),
+  };
+}
 
 function buildProps(overrides: Partial<AppsScreenProps> = {}): AppsScreenProps {
   return {
@@ -247,6 +275,31 @@ describe("AppsScreen", () => {
     expect(screen.queryByText("MCP Apps (3)")).not.toBeInTheDocument();
     await user.click(screen.getByLabelText("Restore"));
     expect(screen.getByText("MCP Apps (3)")).toBeInTheDocument();
+  });
+
+  it("sizes the renderer frame to the view-reported height", async () => {
+    const user = userEvent.setup();
+    const { factory, emit } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    // Auto-launches the no-fields app, mounting the renderer and registering
+    // its sizechange listener once the bridge resolves.
+    await user.click(screen.getByText("Ops Dashboard"));
+    const iframe = screen.getByTitle("Ops Dashboard");
+    const frame = iframe.parentElement as HTMLElement;
+    // Until the view reports a size, the frame flex-grows to fill the card.
+    expect(frame.style.flexGrow).toBe("1");
+
+    await act(async () => {
+      // Let the synchronous bridge factory's promise chain settle so the
+      // sizechange listener is registered before we emit.
+      await Promise.resolve();
+      await Promise.resolve();
+      emit("sizechange", { height: 600 });
+    });
+    // A reported height switches the frame to its content size: it stops
+    // flex-growing and takes the explicit `h` (applied as a calc() the test
+    // env's CSS parser elides, so the observable signal is the flex change).
+    expect(frame.style.flexGrow).toBe("0");
   });
 
   it("calls onCloseApp and clears selection on Close", async () => {

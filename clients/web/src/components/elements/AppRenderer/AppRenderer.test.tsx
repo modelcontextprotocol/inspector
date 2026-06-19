@@ -212,6 +212,40 @@ describe("AppRenderer", () => {
     });
   });
 
+  it("forwards view size-changed notifications to onSizeChange", async () => {
+    const bridge = createMockBridge();
+    const onSizeChange = vi.fn();
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+        onSizeChange={onSizeChange}
+      />,
+    );
+    await flushAsync();
+    await act(async () => {
+      bridge.emit("sizechange", { width: 480, height: 600 });
+    });
+    expect(onSizeChange).toHaveBeenCalledWith({ width: 480, height: 600 });
+  });
+
+  it("does not throw on size-changed when no onSizeChange is provided", async () => {
+    const bridge = createMockBridge();
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+      />,
+    );
+    await flushAsync();
+    await act(async () => {
+      bridge.emit("sizechange", { height: 320 });
+    });
+    expect(screen.getByTitle("Cohort App")).toBeInTheDocument();
+  });
+
   it("forwards sendToolCancelled through the bridge", async () => {
     const bridge = createMockBridge();
     const ref = createRef<AppRendererHandle>();

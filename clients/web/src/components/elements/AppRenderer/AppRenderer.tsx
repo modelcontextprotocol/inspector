@@ -6,7 +6,10 @@ import {
   useRef,
   type Ref,
 } from "react";
-import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
+import type {
+  AppBridge,
+  AppBridgeEventMap,
+} from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
   currentStyles,
@@ -37,6 +40,14 @@ export interface AppRendererProps {
   tool: Tool;
   bridgeFactory: BridgeFactory;
   onError?: (err: Error) => void;
+  /**
+   * Called when the running view reports a new rendered content size via
+   * `ui/notifications/size-changed` (typically driven by its `ResizeObserver`).
+   * Width and height (px) are both optional. The host uses this to resize the
+   * iframe's container so the widget is neither clipped nor padded with dead
+   * space.
+   */
+  onSizeChange?: (size: AppBridgeEventMap["sizechange"]) => void;
   ref?: Ref<AppRendererHandle>;
 }
 
@@ -84,6 +95,7 @@ export function AppRenderer({
   tool,
   bridgeFactory,
   onError,
+  onSizeChange,
   ref,
 }: AppRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -103,8 +115,10 @@ export function AppRenderer({
     tool: Tool;
   } | null>(null);
   const onErrorRef = useRef(onError);
+  const onSizeChangeRef = useRef(onSizeChange);
   useEffect(() => {
     onErrorRef.current = onError;
+    onSizeChangeRef.current = onSizeChange;
   });
 
   // Flush buffered tool input/result to the view, but only once the bridge
@@ -220,6 +234,11 @@ export function AppRenderer({
             ...(containerDimensions ? { containerDimensions } : {}),
           });
           flushPending();
+        });
+        // Forward the view's content-size reports (ui/notifications/size-changed)
+        // so the host can resize the iframe container to fit the rendered widget.
+        bridge.addEventListener("sizechange", (size) => {
+          onSizeChangeRef.current?.(size);
         });
         flushPending();
       })
