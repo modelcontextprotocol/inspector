@@ -238,6 +238,18 @@ const AppLogData = Code.withProps({
   fz: "xs",
 });
 
+const PartialStageControls = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
+  align: "center",
+  flex: "0 0 auto",
+});
+
+const PartialStageCount = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+});
+
 /** Map an MCP log level to the inspector's log color tokens (App.css :root). */
 function logLevelColor(level: AppLogEntry["level"]): string {
   switch (level) {
@@ -308,6 +320,13 @@ export function AppsScreen({
   // `messages`: tied to the live bridge, cleared on open/close/switch.
   const [appLogs, setAppLogs] = useState<AppLogEntry[]>([]);
   const [appLogsExpanded, setAppLogsExpanded] = useState(false);
+  // Snapshots of the input form captured via "Stage partial input". On Open
+  // App they're passed to AppRenderer as `partialInputs` and replayed via
+  // ui/notifications/tool-input-partial before the complete tool-input, so a
+  // widget's progressive-render path can be exercised. Cleared on switch/close.
+  const [partialStages, setPartialStages] = useState<Record<string, unknown>[]>(
+    [],
+  );
 
   // Wrap the host factory so each bridge it builds is also wired for the
   // screen-owned surfaces:
@@ -374,6 +393,7 @@ export function AppsScreen({
     setAppHeight(undefined);
     setMessages([]);
     setAppLogs([]);
+    setPartialStages([]);
     // Seed schema defaults so default-only fields are sent on Open App (parity
     // with the form's resolveValue display, which onChange doesn't capture).
     onUiChange({
@@ -398,8 +418,14 @@ export function AppsScreen({
     setAppHeight(undefined);
     setMessages([]);
     setAppLogs([]);
+    // partialStages is NOT cleared here — it's passed to the renderer for this
+    // open and replayed before the complete input. It clears on switch/close.
     setRunning(true);
     onOpenApp(selectedTool.name, formValues);
+  }
+
+  function handleStagePartialInput() {
+    setPartialStages((prev) => [...prev, { ...formValues }]);
   }
 
   function handleClose() {
@@ -407,6 +433,7 @@ export function AppsScreen({
     setAppHeight(undefined);
     setMessages([]);
     setAppLogs([]);
+    setPartialStages([]);
     onUiChange({ ...ui, selectedAppName: undefined, formValues: {} });
     setMaximized(false);
     onCloseApp();
@@ -417,6 +444,7 @@ export function AppsScreen({
     setAppHeight(undefined);
     setMessages([]);
     setAppLogs([]);
+    setPartialStages([]);
     setMaximized(false);
   }
 
@@ -529,6 +557,7 @@ export function AppsScreen({
                   onSizeChange={handleSizeChange}
                   displayMode={displayMode}
                   onRequestDisplayMode={handleRequestDisplayMode}
+                  partialInputs={partialStages}
                   ref={rendererRef}
                 />
               </RendererFrame>
@@ -540,15 +569,42 @@ export function AppsScreen({
               // standalone use (the `Opening` story) and for Phase 3
               // wiring, where a managed-state hook can hold the panel
               // in a pending state across an awaited `tools/call`.
-              <AppDetailPanel
-                tool={selectedTool}
-                formValues={formValues}
-                isOpening={false}
-                onFormChange={(values) =>
-                  onUiChange({ ...ui, formValues: values })
-                }
-                onOpenApp={handleOpen}
-              />
+              <>
+                {selectedHasFields && (
+                  <PartialStageControls>
+                    <Button
+                      variant="default"
+                      size="compact-xs"
+                      onClick={handleStagePartialInput}
+                    >
+                      Stage partial input
+                    </Button>
+                    {partialStages.length > 0 && (
+                      <>
+                        <PartialStageCount>
+                          {partialStages.length} staged
+                        </PartialStageCount>
+                        <Button
+                          variant="subtle"
+                          size="compact-xs"
+                          onClick={() => setPartialStages([])}
+                        >
+                          Clear staged
+                        </Button>
+                      </>
+                    )}
+                  </PartialStageControls>
+                )}
+                <AppDetailPanel
+                  tool={selectedTool}
+                  formValues={formValues}
+                  isOpening={false}
+                  onFormChange={(values) =>
+                    onUiChange({ ...ui, formValues: values })
+                  }
+                  onOpenApp={handleOpen}
+                />
+              </>
             )}
             {running && messages.length > 0 && (
               <MessageLog>

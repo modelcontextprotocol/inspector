@@ -18,6 +18,7 @@ const tool: Tool = {
 
 interface MockBridge {
   sendToolInput: ReturnType<typeof vi.fn>;
+  sendToolInputPartial: ReturnType<typeof vi.fn>;
   sendToolResult: ReturnType<typeof vi.fn>;
   sendToolCancelled: ReturnType<typeof vi.fn>;
   setHostContext: ReturnType<typeof vi.fn>;
@@ -36,6 +37,7 @@ function createMockBridge(): MockBridge {
   const listeners: Record<string, ((payload: unknown) => void)[]> = {};
   return {
     sendToolInput: vi.fn().mockResolvedValue(undefined),
+    sendToolInputPartial: vi.fn().mockResolvedValue(undefined),
     sendToolResult: vi.fn().mockResolvedValue(undefined),
     sendToolCancelled: vi.fn().mockResolvedValue(undefined),
     setHostContext: vi.fn(),
@@ -213,6 +215,54 @@ describe("AppRenderer", () => {
     expect(bridge.sendToolInput).toHaveBeenCalledWith({
       arguments: { city: "LA" },
     });
+  });
+
+  it("replays partialInputs in order before the complete tool-input on initialize", async () => {
+    const bridge = createMockBridge();
+    const ref = createRef<AppRendererHandle>();
+    renderWithMantine(
+      <AppRenderer
+        ref={ref}
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+        partialInputs={[{ city: "N" }, { city: "New" }]}
+      />,
+    );
+    await flushAsync();
+    await act(async () => {
+      await ref.current?.sendToolInput({ city: "New York" });
+      bridge.emit("initialized");
+    });
+    expect(bridge.sendToolInputPartial).toHaveBeenCalledTimes(2);
+    expect(bridge.sendToolInputPartial).toHaveBeenNthCalledWith(1, {
+      arguments: { city: "N" },
+    });
+    expect(bridge.sendToolInputPartial).toHaveBeenNthCalledWith(2, {
+      arguments: { city: "New" },
+    });
+    expect(
+      bridge.sendToolInputPartial.mock.invocationCallOrder[1],
+    ).toBeLessThan(bridge.sendToolInput.mock.invocationCallOrder[0]);
+  });
+
+  it("sends no tool-input-partial when partialInputs is omitted", async () => {
+    const bridge = createMockBridge();
+    const ref = createRef<AppRendererHandle>();
+    renderWithMantine(
+      <AppRenderer
+        ref={ref}
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+      />,
+    );
+    await flushAsync();
+    await act(async () => {
+      await ref.current?.sendToolInput({ city: "NYC" });
+      bridge.emit("initialized");
+    });
+    expect(bridge.sendToolInputPartial).not.toHaveBeenCalled();
   });
 
   it("forwards view size-changed notifications to onSizeChange", async () => {

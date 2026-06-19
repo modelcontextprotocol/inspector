@@ -264,10 +264,15 @@ function extractHtmlAndMeta(result: ReadResourceResult): {
   throw new Error("UI resource has no text (HTML) content");
 }
 
-/** Decode a base64-encoded blob resource into bytes for download. */
-function base64ToBytes(b64: string): Uint8Array {
+/**
+ * Decode a base64-encoded blob resource into bytes for download. Allocates the
+ * backing store explicitly so the return type is `Uint8Array<ArrayBuffer>`
+ * (Blob accepts `ArrayBufferView<ArrayBuffer>`, not the wider
+ * `ArrayBufferLike`).
+ */
+function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
 }

@@ -523,4 +523,24 @@ describe("AppsScreen", () => {
     await user.click(screen.getByRole("button", { name: "Clear" }));
     expect(screen.queryByText(/App logs/)).not.toBeInTheDocument();
   });
+
+  it("stages partial-input snapshots from the form and clears them", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledAppsScreen />);
+    // No-fields apps don't show the control.
+    await user.click(screen.getByText("Ops Dashboard"));
+    expect(
+      screen.queryByRole("button", { name: "Stage partial input" }),
+    ).not.toBeInTheDocument();
+    // Fielded apps do.
+    await user.click(screen.getByText("Weather Widget"));
+    const stage = screen.getByRole("button", { name: "Stage partial input" });
+    expect(stage).toBeInTheDocument();
+    expect(screen.queryByText(/staged/)).not.toBeInTheDocument();
+    await user.click(stage);
+    await user.click(stage);
+    expect(screen.getByText("2 staged")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Clear staged" }));
+    expect(screen.queryByText(/staged/)).not.toBeInTheDocument();
+  });
 });

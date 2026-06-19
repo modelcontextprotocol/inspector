@@ -587,8 +587,7 @@ describe("createAppBridgeFactory", () => {
 describe("measureContainerDimensions", () => {
   function elementWithRect(width: number, height: number): HTMLElement {
     return {
-      getBoundingClientRect: () =>
-        ({ width, height }) as unknown as DOMRect,
+      getBoundingClientRect: () => ({ width, height }) as unknown as DOMRect,
     } as unknown as HTMLElement;
   }
 
