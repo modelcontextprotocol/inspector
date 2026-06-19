@@ -4,6 +4,7 @@ import {
   getToolUiResourceUri,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type {
+  McpUiDisplayMode,
   McpUiHostCapabilities,
   McpUiHostContext,
   McpUiHostStyles,
@@ -40,6 +41,17 @@ export const HOST_CAPABILITIES: McpUiHostCapabilities = {
   serverResources: { listChanged: true },
   logging: {},
 };
+
+/**
+ * Display modes the inspector host supports. AppsScreen renders an app either
+ * inline within its layout card or maximized to fill the screen, so only those
+ * two are advertised — `pip` is declined (the spec lets a host return its
+ * current mode for an unsupported request).
+ */
+export const HOST_AVAILABLE_DISPLAY_MODES: readonly McpUiDisplayMode[] = [
+  "inline",
+  "fullscreen",
+];
 
 export interface AppBridgeFactoryDeps {
   /** The connected SDK client to back the bridge, or null when disconnected. */
@@ -237,6 +249,8 @@ export function createAppBridgeFactory(
     const bridge = new AppBridge(client, HOST_INFO, hostCapabilities, {
       hostContext: {
         theme: currentTheme(),
+        displayMode: "inline",
+        availableDisplayModes: [...HOST_AVAILABLE_DISPLAY_MODES],
         ...(styles ? { styles } : {}),
         ...(containerDimensions ? { containerDimensions } : {}),
       },

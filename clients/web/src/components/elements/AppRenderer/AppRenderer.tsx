@@ -9,6 +9,7 @@ import {
 import type {
   AppBridge,
   AppBridgeEventMap,
+  McpUiDisplayMode,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -48,6 +49,18 @@ export interface AppRendererProps {
    * space.
    */
   onSizeChange?: (size: AppBridgeEventMap["sizechange"]) => void;
+  /**
+   * Current host display mode for the app frame. Pushed to the running view
+   * via `host-context-changed` whenever it changes (e.g. Maximize/Restore), so
+   * an app can adapt its layout to inline vs fullscreen.
+   */
+  displayMode?: McpUiDisplayMode;
+  /**
+   * Handles a view-originated `ui/request-display-mode`. Return the mode the
+   * host actually applied — the spec lets the host decline an unsupported mode
+   * by returning its current one.
+   */
+  onRequestDisplayMode?: (requested: McpUiDisplayMode) => McpUiDisplayMode;
   ref?: Ref<AppRendererHandle>;
 }
 
@@ -96,6 +109,8 @@ export function AppRenderer({
   bridgeFactory,
   onError,
   onSizeChange,
+  displayMode,
+  onRequestDisplayMode,
   ref,
 }: AppRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -116,9 +131,13 @@ export function AppRenderer({
   } | null>(null);
   const onErrorRef = useRef(onError);
   const onSizeChangeRef = useRef(onSizeChange);
+  const displayModeRef = useRef(displayMode);
+  const onRequestDisplayModeRef = useRef(onRequestDisplayMode);
   useEffect(() => {
     onErrorRef.current = onError;
     onSizeChangeRef.current = onSizeChange;
+    displayModeRef.current = displayMode;
+    onRequestDisplayModeRef.current = onRequestDisplayMode;
   });
 
   // Flush buffered tool input/result to the view, but only once the bridge
@@ -228,10 +247,12 @@ export function AppRenderer({
           // setHostContext diffs internally, so unchanged fields emit nothing.
           const styles = currentStyles();
           const containerDimensions = measureContainerDimensions(iframe);
+          const mode = displayModeRef.current;
           bridge.setHostContext({
             theme: currentTheme(),
             ...(styles ? { styles } : {}),
             ...(containerDimensions ? { containerDimensions } : {}),
+            ...(mode ? { displayMode: mode } : {}),
           });
           flushPending();
         });
@@ -240,6 +261,16 @@ export function AppRenderer({
         bridge.addEventListener("sizechange", (size) => {
           onSizeChangeRef.current?.(size);
         });
+        // Handle ui/request-display-mode: let the host (AppsScreen) decide what
+        // mode to actually apply and return that. With no handler the request is
+        // declined by returning the current host-side mode.
+        bridge.onrequestdisplaymode = async ({ mode }) => {
+          const handler = onRequestDisplayModeRef.current;
+          const applied = handler
+            ? handler(mode)
+            : (displayModeRef.current ?? "inline");
+          return { mode: applied };
+        };
         flushPending();
       })
       .catch((err) => {
@@ -301,6 +332,17 @@ export function AppRenderer({
     observer.observe(iframe);
     return () => observer.disconnect();
   }, []);
+
+  // Push the host's display mode to the running view whenever it changes
+  // (Maximize/Restore, or after we honored a ui/request-display-mode). The
+  // factory seeds `displayMode: "inline"` into the initial hostContext;
+  // setHostContext diffs internally so an unchanged mode emits nothing. Gated
+  // on `initialized` for the same reason as the other host-context pushes.
+  useEffect(() => {
+    if (displayMode === undefined) return;
+    if (!initializedRef.current) return;
+    bridgeRef.current?.setHostContext({ displayMode });
+  }, [displayMode]);
 
   useImperativeHandle(
     ref,

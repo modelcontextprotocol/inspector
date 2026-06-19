@@ -137,7 +137,13 @@ describe("createAppBridgeFactory", () => {
       expect(bridge.ctorArgs[0]).toBe(fakeClient);
       expect(bridge.ctorArgs[1]).toMatchObject({ name: "MCP Inspector" });
       expect(bridge.ctorArgs[2]).toMatchObject({ serverTools: {} });
-      expect(bridge.ctorArgs[3]).toEqual({ hostContext: { theme: "dark" } });
+      expect(bridge.ctorArgs[3]).toMatchObject({
+        hostContext: {
+          theme: "dark",
+          displayMode: "inline",
+          availableDisplayModes: ["inline", "fullscreen"],
+        },
+      });
       expect(bridge.connect).toHaveBeenCalledTimes(1);
     } finally {
       document.documentElement.removeAttribute("data-mantine-color-scheme");

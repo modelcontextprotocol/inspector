@@ -17,11 +17,13 @@ import {
   MdFullscreenExit,
 } from "react-icons/md";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   AppRenderer,
   type AppRendererHandle,
   type BridgeFactory,
 } from "../../elements/AppRenderer/AppRenderer";
+import { HOST_AVAILABLE_DISPLAY_MODES } from "../../elements/AppRenderer/createAppBridgeFactory";
 import { AppDetailPanel } from "../../groups/AppDetailPanel/AppDetailPanel";
 import { AppControls } from "../../groups/AppControls/AppControls";
 import { hasInputFields, resolveDisplayLabel } from "../../../utils/toolUtils";
@@ -177,6 +179,23 @@ export function AppsScreen({
     if (size.height != null) setAppHeight(size.height);
   }
 
+  // The app's display mode is derived from the existing maximized toggle.
+  // Passed to AppRenderer so the running view receives it via
+  // host-context-changed; the Maximize/Restore button below keeps toggling
+  // `maximized`, which now flows out as a protocol event.
+  const displayMode: McpUiDisplayMode = maximized ? "fullscreen" : "inline";
+
+  // Handle a view-originated ui/request-display-mode. Only modes the inspector
+  // advertises in `availableDisplayModes` are honored — an unsupported request
+  // (e.g. "pip") is declined by returning the current mode, per spec.
+  function handleRequestDisplayMode(
+    requested: McpUiDisplayMode,
+  ): McpUiDisplayMode {
+    if (!HOST_AVAILABLE_DISPLAY_MODES.includes(requested)) return displayMode;
+    setMaximized(requested === "fullscreen");
+    return requested;
+  }
+
   function handleSelect(name: string) {
     if (name === selectedAppName) return;
     const next = tools.find((t) => t.name === name);
@@ -329,6 +348,8 @@ export function AppsScreen({
                   bridgeFactory={bridgeFactory}
                   onError={onError}
                   onSizeChange={handleSizeChange}
+                  displayMode={displayMode}
+                  onRequestDisplayMode={handleRequestDisplayMode}
                   ref={rendererRef}
                 />
               </RendererFrame>
