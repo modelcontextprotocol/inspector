@@ -278,6 +278,17 @@ function fileNameFromUri(uri: string): string {
   return tail && tail.length > 0 ? tail : "download";
 }
 
+/**
+ * Strip control characters and clamp length so a server-supplied filename or
+ * URI cannot forge additional lines in the confirmation prompt or push the
+ * real summary off-screen.
+ */
+function sanitizeDownloadLabel(label: string): string {
+  // eslint-disable-next-line no-control-regex -- intentional control-char strip
+  const cleaned = label.replace(/[ -]/g, " ").trim();
+  return cleaned.length > 80 ? cleaned.slice(0, 77) + "..." : cleaned;
+}
+
 /** Human-readable label for a download item, shown in the confirmation prompt. */
 function describeDownloadItem(item: EmbeddedResource | ResourceLink): string {
   if (item.type === "resource_link") return item.uri;
@@ -292,7 +303,16 @@ function describeDownloadItem(item: EmbeddedResource | ResourceLink): string {
  */
 function downloadResourceItem(item: EmbeddedResource | ResourceLink): boolean {
   if (item.type === "resource_link") {
-    window.open(item.uri, "_blank", "noopener,noreferrer");
+    let parsed: URL;
+    try {
+      parsed = new URL(item.uri);
+    } catch {
+      return false;
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return false;
+    }
+    window.open(parsed.href, "_blank", "noopener,noreferrer");
     return true;
   }
   const resource = item.resource;
@@ -411,7 +431,9 @@ export function createAppBridgeFactory(
       if (!Array.isArray(contents) || contents.length === 0) {
         return { isError: true };
       }
-      const summary = contents.map(describeDownloadItem).join("\n");
+      const summary = contents
+        .map((item) => sanitizeDownloadLabel(describeDownloadItem(item)))
+        .join("\n");
       const approved = window.confirm(
         `This MCP App wants to download ${contents.length} file(s):\n\n${summary}`,
       );

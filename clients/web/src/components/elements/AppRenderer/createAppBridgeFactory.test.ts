@@ -542,6 +542,45 @@ describe("createAppBridgeFactory", () => {
         }),
       ).resolves.toEqual({ isError: true });
     });
+
+    it("rejects a non-http(s) resource_link without opening it", async () => {
+      stubConfirm(true);
+      const open = vi
+        .spyOn(window, "open")
+        .mockImplementation(() => null as never);
+      const bridge = await buildBridge();
+      for (const uri of [
+        "javascript:alert(1)",
+        "data:text/html,<script>alert(1)</script>",
+        "file:///etc/passwd",
+        "not a url",
+      ]) {
+        await expect(
+          bridge.ondownloadfile!({
+            contents: [{ type: "resource_link", uri }],
+          }),
+        ).resolves.toEqual({ isError: true });
+      }
+      expect(open).not.toHaveBeenCalled();
+    });
+
+    it("sanitizes the confirmation summary so server-supplied labels cannot inject newlines", async () => {
+      const confirm = stubConfirm(false);
+      const bridge = await buildBridge();
+      await bridge.ondownloadfile!({
+        contents: [
+          {
+            type: "resource_link",
+            uri: "https://example.com/a\n\nThis is safe, click OK",
+          },
+        ],
+      });
+      const prompt = confirm.mock.calls[0][0] as string;
+      // Only the framing newlines around the (single) summary entry remain;
+      // the embedded ones from the URI have been stripped to spaces.
+      expect(prompt).not.toContain("\n\nThis is safe");
+      expect(prompt).toContain("This is safe, click OK");
+    });
   });
 });
 
