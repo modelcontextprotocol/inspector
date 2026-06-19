@@ -1,11 +1,8 @@
-import type {
-  InspectorServerSettings,
-  MCPServerConfig,
-  StdioServerConfig,
-} from "../types.js";
+import type { InspectorServerSettings, MCPServerConfig } from "../types.js";
 import { DEFAULT_MAX_FETCH_REQUESTS, DEFAULT_TASK_TTL_MS } from "../types.js";
 import { mcpConfigToServerEntries } from "../serverList.js";
 import {
+  applyOverrides,
   resolveServerConfigs,
   resolveServerSource,
   serverSourceConflict,
@@ -55,21 +52,6 @@ export function headersToServerSettings(
   };
 }
 
-function applyStdioOverrides(
-  config: MCPServerConfig,
-  overrides: { env?: Record<string, string>; cwd?: string },
-): MCPServerConfig {
-  if (config.type !== "stdio") return config;
-  const c = { ...config } as StdioServerConfig;
-  if (overrides.env && Object.keys(overrides.env).length > 0) {
-    c.env = { ...(c.env ?? {}), ...overrides.env };
-  }
-  if (overrides.cwd?.trim()) {
-    c.cwd = overrides.cwd.trim();
-  }
-  return c;
-}
-
 /**
  * Overlay CLI `--header` values onto the settings lifted from the file. Only the
  * `headers` field is overridden — timeouts, OAuth, and the rest of the file's
@@ -117,7 +99,7 @@ export function loadServerEntries(
     const result: Record<string, ResolvedServer> = {};
     for (const entry of entries) {
       result[entry.name] = {
-        config: applyStdioOverrides(entry.config, {
+        config: applyOverrides(entry.config, {
           env: serverOptions.env,
           cwd: serverOptions.cwd,
         }),
@@ -148,6 +130,11 @@ export function loadServerEntries(
  * Pick a single resolved server for runners that connect to exactly one (the
  * CLI). With `serverName`, returns that entry or errors listing the available
  * names; otherwise requires exactly one server in the source.
+ *
+ * The unknown-name error is source-agnostic ("not found" rather than "not found
+ * in config file") because `entries` may come from a file *or* a single ad-hoc
+ * target — e.g. `--server foo` alongside a positional command resolves to just
+ * `{ default }`, where "in config file" would be misleading.
  */
 export function selectServerEntry(
   entries: Record<string, ResolvedServer>,
@@ -158,7 +145,7 @@ export function selectServerEntry(
     const entry = entries[serverName];
     if (!entry) {
       throw new Error(
-        `Server '${serverName}' not found in config file. Available servers: ${names.join(", ")}`,
+        `Server '${serverName}' not found. Available servers: ${names.join(", ")}`,
       );
     }
     return entry;

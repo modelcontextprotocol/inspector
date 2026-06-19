@@ -14,7 +14,6 @@ import {
   parseHeaderPair,
   withDefaultCatalogPath,
   resolveServerConfigs,
-  resolveLaunchServerConfigs,
   resolveServerSource,
   serverSourceConflict,
   readServerListFile,
@@ -243,8 +242,16 @@ describe("readServerListFile", () => {
   });
 });
 
-describe("resolveLaunchServerConfigs", () => {
+describe("default-catalog launch resolution (withDefaultCatalogPath + resolveServerConfigs)", () => {
+  // The CLI/TUI launch path: apply the default writable catalog when no source
+  // or ad-hoc target is given, then resolve. (Both clients now compose these
+  // via loadServerEntries; this exercises the underlying config primitives.)
   let tempDir: string;
+
+  const resolveLaunch = (
+    options: Parameters<typeof resolveServerConfigs>[0],
+    mode: Parameters<typeof resolveServerConfigs>[1],
+  ) => resolveServerConfigs(withDefaultCatalogPath(options), mode);
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "inspector-config-test-"));
@@ -261,9 +268,9 @@ describe("resolveLaunchServerConfigs", () => {
     process.env.HOME = homeDir;
     const defaultConfig = join(homeDir, ".mcp-inspector", "mcp.json");
     try {
-      expect(() =>
-        resolveLaunchServerConfigs({ target: [] }, "single"),
-      ).toThrow(/No servers found/);
+      expect(() => resolveLaunch({ target: [] }, "single")).toThrow(
+        /No servers found/,
+      );
       // The writable default catalog is seeded on first run (matches web),
       // rather than erroring with "Config file not found".
       expect(existsSync(defaultConfig)).toBe(true);
@@ -281,7 +288,7 @@ describe("resolveLaunchServerConfigs", () => {
     mkdirSync(homeDir, { recursive: true });
     process.env.HOME = homeDir;
     try {
-      expect(resolveLaunchServerConfigs({}, "multi")).toEqual([]);
+      expect(resolveLaunch({}, "multi")).toEqual([]);
       expect(existsSync(join(homeDir, ".mcp-inspector", "mcp.json"))).toBe(
         true,
       );
@@ -302,7 +309,7 @@ describe("resolveLaunchServerConfigs", () => {
     );
     process.env.HOME = homeDir;
     try {
-      const configs = resolveLaunchServerConfigs({}, "multi");
+      const configs = resolveLaunch({}, "multi");
       expect(configs).toHaveLength(1);
       expect(configs[0]).toMatchObject({ type: "stdio", command: "a" });
     } finally {

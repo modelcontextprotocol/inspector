@@ -3,7 +3,6 @@ export {
   parseHeaderPair,
   withDefaultCatalogPath,
   resolveServerConfigs,
-  resolveLaunchServerConfigs,
   getNamedServerConfigs,
   resolveServerSource,
   serverSourceConflict,
