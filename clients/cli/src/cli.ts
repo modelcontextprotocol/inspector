@@ -396,7 +396,7 @@ function parseArgs(argv?: string[]): {
     // `?.trim() ||` (not `??`) so an explicit empty `--catalog ""` still falls
     // back to MCP_CATALOG_PATH — keeps CLI and TUI flag resolution identical.
     catalogPath: options.catalog?.trim() || process.env.MCP_CATALOG_PATH,
-    configPath: options.config,
+    configPath: options.config?.trim() || undefined,
     serverName: options.server,
     target: targetArgs.length > 0 ? targetArgs : undefined,
     transport: options.transport,
