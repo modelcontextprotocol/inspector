@@ -253,6 +253,73 @@ describe("CLI Tests", () => {
     });
   });
 
+  describe("Catalog File", () => {
+    it("should use a writable catalog with CLI mode", async () => {
+      const catalogPath = createSampleTestConfig();
+      try {
+        const result = await runCli([
+          "--catalog",
+          catalogPath,
+          "--server",
+          "test-stdio",
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
+
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        expect(json).toHaveProperty("tools");
+        expect(Array.isArray(json.tools)).toBe(true);
+      } finally {
+        deleteConfigFile(catalogPath);
+      }
+    });
+
+    it("should fail when --catalog and --config are combined", async () => {
+      const catalogPath = createSampleTestConfig();
+      try {
+        const result = await runCli([
+          "--catalog",
+          catalogPath,
+          "--config",
+          catalogPath,
+          "--server",
+          "test-stdio",
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
+
+        expectCliFailure(result);
+        expect(result.stderr).toMatch(/mutually exclusive/);
+      } finally {
+        deleteConfigFile(catalogPath);
+      }
+    });
+
+    it("should fail when --catalog is combined with an ad-hoc target", async () => {
+      const catalogPath = createSampleTestConfig();
+      const { command, args } = getTestMcpServerCommand();
+      try {
+        const result = await runCli([
+          command,
+          ...args,
+          "--catalog",
+          catalogPath,
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
+
+        expectCliFailure(result);
+        expect(result.stderr).toMatch(/--catalog cannot be combined/);
+      } finally {
+        deleteConfigFile(catalogPath);
+      }
+    });
+  });
+
   describe("Resource Options", () => {
     it("should read resource with URI", async () => {
       const { command, args } = getTestMcpServerCommand();

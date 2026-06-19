@@ -15,16 +15,35 @@ All configuration parsing, config-file loading, and server setup are handled by 
 `mcp-inspector --web` chooses which server list the UI shows and whether it is
 editable (see [specification/v2_catalog_launch_config.md](../../specification/v2_catalog_launch_config.md)):
 
-| Invocation | Server list | Editable in UI? |
-|------------|-------------|-----------------|
-| `mcp-inspector --web` | Default catalog `~/.mcp-inspector/mcp.json` | Yes |
-| `mcp-inspector --web --catalog <path>` (or `MCP_CATALOG_PATH=<path>`) | That file as the active catalog (created/seeded if missing) | Yes |
-| `mcp-inspector --web --config <path>` | That file as a **read-only session** — shown but never written, seeded, or migrated (safe for a foreign config) | No |
-| `mcp-inspector --web --server-url <url> --transport http --header "Name: Value"` (or a positional command) | One ad-hoc server held in memory, connectable with the given `--header`s | No |
+| Invocation                                                                                                 | Server list                                                                                                     | Editable in UI? |
+| ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------- |
+| `mcp-inspector --web`                                                                                      | Default catalog `~/.mcp-inspector/mcp.json`                                                                     | Yes             |
+| `mcp-inspector --web --catalog <path>` (or `MCP_CATALOG_PATH=<path>`)                                      | That file as the active catalog (created/seeded if missing)                                                     | Yes             |
+| `mcp-inspector --web --config <path>`                                                                      | That file as a **read-only session** — shown but never written, seeded, or migrated (safe for a foreign config) | No              |
+| `mcp-inspector --web --server-url <url> --transport http --header "Name: Value"` (or a positional command) | One ad-hoc server held in memory, connectable with the given `--header`s                                        | No              |
 
 Rules: `--catalog` and `--config` are mutually exclusive; neither combines with
 an ad-hoc target or `--header`; `--header` requires an ad-hoc HTTP/SSE server
 and is applied to that connection (it is no longer a warn-only no-op).
+
+## CLI and TUI server-list flags (`--cli` / `--tui`)
+
+The CLI and TUI use the same `--catalog` / `--config` vocabulary as `--web`,
+resolved by the shared `core/mcp/node/config.ts` helpers:
+
+| Invocation                                                         | Server list source                                                                                 |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `mcp-inspector --cli` / `--tui` (no source flag, no ad-hoc target) | Default writable catalog `~/.mcp-inspector/mcp.json` (created/seeded empty if missing)             |
+| `--catalog <path>` (or `MCP_CATALOG_PATH=<path>`)                  | That file as a **writable catalog** — seeded empty if missing                                      |
+| `--config <path>`                                                  | That file as a **read-only session** — served as-is, never written or seeded; **errors if absent** |
+| positional command / `--server-url <url>`                          | One ad-hoc server                                                                                  |
+
+Rules (shared `serverSourceConflict`): `--catalog` and `--config` are mutually
+exclusive, and neither combines with an ad-hoc command/URL target. The CLI/TUI
+do not perform catalog CRUD yet — they are read consumers — so the
+writable/read-only split currently surfaces only as **seed-if-missing**
+(`--catalog`/default) vs **error-if-missing** (`--config`). Full writable
+persistence is tracked in #1482 / #1432.
 
 ### Production web build (`--web`, no `--dev`)
 

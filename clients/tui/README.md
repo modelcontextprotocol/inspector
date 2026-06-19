@@ -14,10 +14,13 @@ npx @modelcontextprotocol/inspector --tui node build/index.js
 
 ### With Configuration Files
 
-The TUI can load all servers from an MCP config file:
+The TUI can load all servers from an MCP catalog/config file. With no source
+flag it uses the default writable catalog `~/.mcp-inspector/mcp.json` (seeded
+empty if missing):
 
 ```bash
-npx @modelcontextprotocol/inspector --tui --config mcp.json
+npx @modelcontextprotocol/inspector --tui --catalog mcp.json   # writable catalog (seeded if missing)
+npx @modelcontextprotocol/inspector --tui --config mcp.json    # read-only session (errors if absent)
 ```
 
 (It does not use `--server`; all servers in the file are available in the TUI.)
@@ -26,7 +29,7 @@ npx @modelcontextprotocol/inspector --tui --config mcp.json
 
 ### MCP server (which server(s) to connect to)
 
-Options that specify the MCP server(s) (config file, ad-hoc command/URL, env vars, headers) are shared by the Web, CLI, and TUI and are documented in [MCP server configuration](../../docs/mcp-server-configuration.md): `--config`, `-e`, `--cwd`, `--header`, `--transport`, `--server-url`, and the positional `[target...]`.
+Options that specify the MCP server(s) (catalog/config file, ad-hoc command/URL, env vars, headers) are shared by the Web, CLI, and TUI and are documented in [MCP server configuration](../../docs/mcp-server-configuration.md): `--catalog` (writable catalog, seeded if missing; default `~/.mcp-inspector/mcp.json` or `MCP_CATALOG_PATH`), `--config` (read-only session, errors if absent), `-e`, `--cwd`, `--header`, `--transport`, `--server-url`, and the positional `[target...]`. `--catalog` and `--config` are mutually exclusive, and neither combines with an ad-hoc target.
 
 ### TUI-specific (OAuth for HTTP servers)
 

@@ -1,13 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   parseKeyValuePair,
   parseHeaderPair,
-  withDefaultConfigPath,
+  withDefaultCatalogPath,
   resolveServerConfigs,
   resolveLaunchServerConfigs,
+  resolveServerSource,
+  serverSourceConflict,
+  readServerListFile,
   getNamedServerConfigs,
 } from "@inspector/core/mcp/node/config.js";
 
@@ -59,7 +69,99 @@ describe("parseHeaderPair", () => {
   });
 });
 
-describe("withDefaultConfigPath", () => {
+describe("resolveServerSource", () => {
+  it("returns the writable catalog source when catalogPath is set", () => {
+    expect(resolveServerSource({ catalogPath: "/tmp/cat.json" })).toEqual({
+      path: "/tmp/cat.json",
+      writable: true,
+    });
+  });
+
+  it("returns the read-only config source when only configPath is set", () => {
+    expect(resolveServerSource({ configPath: "/tmp/cfg.json" })).toEqual({
+      path: "/tmp/cfg.json",
+      writable: false,
+    });
+  });
+
+  it("prefers the catalog over the config when both are set", () => {
+    expect(
+      resolveServerSource({
+        catalogPath: "/tmp/cat.json",
+        configPath: "/tmp/cfg.json",
+      }),
+    ).toEqual({ path: "/tmp/cat.json", writable: true });
+  });
+
+  it("returns null when neither catalog nor config is set", () => {
+    expect(resolveServerSource({ target: ["cmd"] })).toBeNull();
+    expect(resolveServerSource({})).toBeNull();
+  });
+
+  it("ignores blank/whitespace-only paths", () => {
+    expect(
+      resolveServerSource({ catalogPath: "  ", configPath: "  " }),
+    ).toBeNull();
+  });
+});
+
+describe("serverSourceConflict", () => {
+  it("rejects --catalog and --config together", () => {
+    expect(
+      serverSourceConflict({
+        hasCatalog: true,
+        hasConfig: true,
+        hasAdHoc: false,
+      }),
+    ).toMatch(/mutually exclusive/);
+  });
+
+  it("rejects --catalog with an ad-hoc target", () => {
+    expect(
+      serverSourceConflict({
+        hasCatalog: true,
+        hasConfig: false,
+        hasAdHoc: true,
+      }),
+    ).toMatch(/--catalog cannot be combined/);
+  });
+
+  it("rejects --config with an ad-hoc target", () => {
+    expect(
+      serverSourceConflict({
+        hasCatalog: false,
+        hasConfig: true,
+        hasAdHoc: true,
+      }),
+    ).toMatch(/--config cannot be combined/);
+  });
+
+  it("allows a lone catalog, a lone config, or a lone ad-hoc target", () => {
+    expect(
+      serverSourceConflict({
+        hasCatalog: true,
+        hasConfig: false,
+        hasAdHoc: false,
+      }),
+    ).toBeNull();
+    expect(
+      serverSourceConflict({
+        hasCatalog: false,
+        hasConfig: true,
+        hasAdHoc: false,
+      }),
+    ).toBeNull();
+    expect(
+      serverSourceConflict({
+        hasCatalog: false,
+        hasConfig: false,
+        hasAdHoc: true,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("withDefaultCatalogPath", () => {
   let tempDir: string;
 
   beforeEach(() => {
@@ -70,28 +172,74 @@ describe("withDefaultConfigPath", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("leaves options unchanged when --config or ad-hoc target is present", () => {
-    expect(withDefaultConfigPath({ configPath: "/tmp/mcp.json" })).toEqual({
+  it("leaves options unchanged when --catalog, --config, or ad-hoc target is present", () => {
+    expect(withDefaultCatalogPath({ catalogPath: "/tmp/cat.json" })).toEqual({
+      catalogPath: "/tmp/cat.json",
+    });
+    expect(withDefaultCatalogPath({ configPath: "/tmp/mcp.json" })).toEqual({
       configPath: "/tmp/mcp.json",
     });
-    expect(withDefaultConfigPath({ target: ["node", "server.js"] })).toEqual({
+    expect(withDefaultCatalogPath({ target: ["node", "server.js"] })).toEqual({
       target: ["node", "server.js"],
     });
   });
 
-  it("injects the default catalog path when no config or ad-hoc target is given", () => {
+  it("injects the default catalog path into the writable catalog slot when nothing is given", () => {
     const prevHome = process.env.HOME;
     const homeDir = join(tempDir, "home");
     mkdirSync(homeDir, { recursive: true });
     process.env.HOME = homeDir;
     try {
-      const options = withDefaultConfigPath({});
-      expect(options.configPath).toBe(
+      const options = withDefaultCatalogPath({});
+      expect(options.catalogPath).toBe(
         join(homeDir, ".mcp-inspector", "mcp.json"),
       );
+      expect(options.configPath).toBeUndefined();
     } finally {
       process.env.HOME = prevHome;
     }
+  });
+});
+
+describe("readServerListFile", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "inspector-config-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("seeds an empty catalog on disk when a writable source is missing", () => {
+    const catalogPath = join(tempDir, "nested", "mcp.json");
+    const config = readServerListFile(catalogPath, true);
+    expect(config).toEqual({ mcpServers: {} });
+    expect(existsSync(catalogPath)).toBe(true);
+    expect(JSON.parse(readFileSync(catalogPath, "utf-8"))).toEqual({
+      mcpServers: {},
+    });
+  });
+
+  it("throws when a read-only source is missing (never seeds)", () => {
+    const configPath = join(tempDir, "absent.json");
+    expect(() => readServerListFile(configPath, false)).toThrow(
+      /Config file not found/,
+    );
+    expect(existsSync(configPath)).toBe(false);
+  });
+
+  it("reads and normalizes server types from an existing file", () => {
+    const configPath = join(tempDir, "mcp.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: { a: { type: "http", url: "http://example.com/mcp" } },
+      }),
+    );
+    const config = readServerListFile(configPath, false);
+    expect(config.mcpServers.a).toMatchObject({ type: "streamable-http" });
   });
 });
 
@@ -106,13 +254,37 @@ describe("resolveLaunchServerConfigs", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("uses the default catalog when no target or --config is given", () => {
+  it("seeds the default catalog and reports no servers when it is missing (single mode)", () => {
     const prevHome = process.env.HOME;
-    process.env.HOME = tempDir;
+    const homeDir = join(tempDir, "home");
+    mkdirSync(homeDir, { recursive: true });
+    process.env.HOME = homeDir;
+    const defaultConfig = join(homeDir, ".mcp-inspector", "mcp.json");
     try {
       expect(() =>
         resolveLaunchServerConfigs({ target: [] }, "single"),
-      ).toThrow(/Config file not found/);
+      ).toThrow(/No servers found/);
+      // The writable default catalog is seeded on first run (matches web),
+      // rather than erroring with "Config file not found".
+      expect(existsSync(defaultConfig)).toBe(true);
+      expect(JSON.parse(readFileSync(defaultConfig, "utf-8"))).toEqual({
+        mcpServers: {},
+      });
+    } finally {
+      process.env.HOME = prevHome;
+    }
+  });
+
+  it("returns an empty list from a seeded default catalog (multi mode)", () => {
+    const prevHome = process.env.HOME;
+    const homeDir = join(tempDir, "home");
+    mkdirSync(homeDir, { recursive: true });
+    process.env.HOME = homeDir;
+    try {
+      expect(resolveLaunchServerConfigs({}, "multi")).toEqual([]);
+      expect(existsSync(join(homeDir, ".mcp-inspector", "mcp.json"))).toBe(
+        true,
+      );
     } finally {
       process.env.HOME = prevHome;
     }
@@ -306,13 +478,34 @@ describe("resolveServerConfigs — single mode", () => {
     );
   });
 
-  it("throws when the config file is missing", () => {
+  it("throws when the read-only config file is missing", () => {
     expect(() =>
       resolveServerConfigs(
         { configPath: join(tempDir, "nonexistent.json") },
         "single",
       ),
     ).toThrow(/Config file not found/);
+  });
+
+  it("seeds a missing writable catalog and then reports no servers", () => {
+    const catalogPath = join(tempDir, "seeded.json");
+    expect(() => resolveServerConfigs({ catalogPath }, "single")).toThrow(
+      /No servers found/,
+    );
+    expect(existsSync(catalogPath)).toBe(true);
+  });
+
+  it("loads a named server from a writable catalog", () => {
+    const catalogPath = join(tempDir, "cat.json");
+    writeFileSync(
+      catalogPath,
+      JSON.stringify({ mcpServers: { foo: { command: "node" } } }),
+    );
+    const [config] = resolveServerConfigs(
+      { catalogPath, serverName: "foo" },
+      "single",
+    );
+    expect(config).toMatchObject({ type: "stdio", command: "node" });
   });
 
   it("throws when the config file has no mcpServers element", () => {
@@ -436,6 +629,21 @@ describe("resolveServerConfigs — multi mode", () => {
 
   it("returns a single ad-hoc config when no config file is given", () => {
     const configs = resolveServerConfigs({ target: ["cmd"] }, "multi");
+    expect(configs).toHaveLength(1);
+    expect(configs[0]?.type).toBe("stdio");
+  });
+
+  it("returns all servers from a writable catalog, seeding it if missing", () => {
+    const catalogPath = join(tempDir, "cat.json");
+    // Missing → seeded empty → no servers.
+    expect(resolveServerConfigs({ catalogPath }, "multi")).toEqual([]);
+    expect(existsSync(catalogPath)).toBe(true);
+    // Now populated → returned.
+    writeFileSync(
+      catalogPath,
+      JSON.stringify({ mcpServers: { a: { command: "a" } } }),
+    );
+    const configs = resolveServerConfigs({ catalogPath }, "multi");
     expect(configs).toHaveLength(1);
     expect(configs[0]?.type).toBe("stdio");
   });

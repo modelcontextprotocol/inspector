@@ -16,8 +16,12 @@ export async function runTui(args?: string[]): Promise<void> {
     .name("mcp-inspector-tui")
     .description("Terminal UI for MCP Inspector")
     .option(
+      "--catalog <path>",
+      "Writable catalog file (created if missing; default: ~/.mcp-inspector/mcp.json, or MCP_CATALOG_PATH)",
+    )
+    .option(
       "--config <path>",
-      "Path to MCP servers config file (or use ad-hoc server options below)",
+      "Read-only session config file (served as-is, never written or seeded; errors if absent)",
     )
     .option(
       "-e <key=value...>",
@@ -60,6 +64,7 @@ export async function runTui(args?: string[]): Promise<void> {
     .parse(args ?? process.argv);
 
   const options = program.opts() as {
+    catalog?: string;
     config?: string;
     e?: Record<string, string>;
     cwd?: string;
@@ -74,6 +79,7 @@ export async function runTui(args?: string[]): Promise<void> {
   const targetArgs = program.args as string[];
 
   const serverOptions = {
+    catalogPath: options.catalog?.trim() || process.env.MCP_CATALOG_PATH,
     configPath: options.config?.trim() || undefined,
     target: targetArgs.length > 0 ? targetArgs : undefined,
     cwd: options.cwd?.trim() || undefined,

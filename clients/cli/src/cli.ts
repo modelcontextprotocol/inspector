@@ -19,6 +19,8 @@ import {
 import {
   createTransportNode,
   resolveLaunchServerConfigs,
+  serverSourceConflict,
+  hasAdHocServerOptions,
   parseKeyValuePair as parseEnvPair,
   parseHeaderPair,
 } from "@inspector/core/mcp/node/index.js";
@@ -288,8 +290,15 @@ function parseArgs(argv?: string[]): {
       "[target...]",
       "Command and arguments or URL of the MCP server (or use --config and --server)",
     )
-    .option("--config <path>", "Config file path")
-    .option("--server <name>", "Server name from config file")
+    .option(
+      "--catalog <path>",
+      "Writable catalog file (created if missing; default: ~/.mcp-inspector/mcp.json, or MCP_CATALOG_PATH)",
+    )
+    .option(
+      "--config <path>",
+      "Read-only session config file (served as-is, never written or seeded; errors if absent)",
+    )
+    .option("--server <name>", "Server name from config/catalog file")
     .option(
       "-e <env>",
       "Environment variables for the server (KEY=VALUE)",
@@ -364,6 +373,7 @@ function parseArgs(argv?: string[]): {
   program.parse(preArgs);
 
   const options = program.opts() as {
+    catalog?: string;
     config?: string;
     server?: string;
     e?: Record<string, string>;
@@ -383,6 +393,7 @@ function parseArgs(argv?: string[]): {
   };
 
   const serverOptions = {
+    catalogPath: options.catalog ?? process.env.MCP_CATALOG_PATH,
     configPath: options.config,
     serverName: options.server,
     target: targetArgs.length > 0 ? targetArgs : undefined,
@@ -391,6 +402,15 @@ function parseArgs(argv?: string[]): {
     cwd: options.cwd,
     env: options.e,
   };
+
+  const conflict = serverSourceConflict({
+    hasCatalog: Boolean(serverOptions.catalogPath?.trim()),
+    hasConfig: Boolean(serverOptions.configPath?.trim()),
+    hasAdHoc: hasAdHocServerOptions(serverOptions),
+  });
+  if (conflict) {
+    throw new Error(conflict);
+  }
 
   const configs = resolveLaunchServerConfigs(serverOptions, "single");
   const serverConfig = configs[0];
