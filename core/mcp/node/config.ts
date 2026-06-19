@@ -85,6 +85,9 @@ export function parseHeaderPair(
   return { ...previous, [key]: val };
 }
 
+/** On-disk contents of a freshly seeded empty catalog (pretty-printed). */
+const EMPTY_CATALOG_CONTENT = `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`;
+
 /**
  * Write an empty catalog (`{ "mcpServers": {} }`) to `resolvedPath`, creating
  * parent directories. Seeds a writable catalog on first run so CLI/TUI match
@@ -92,11 +95,7 @@ export function parseHeaderPair(
  */
 function seedEmptyCatalog(resolvedPath: string): void {
   mkdirSync(dirname(resolvedPath), { recursive: true });
-  writeFileSync(
-    resolvedPath,
-    `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`,
-    { mode: 0o600 },
-  );
+  writeFileSync(resolvedPath, EMPTY_CATALOG_CONTENT, { mode: 0o600 });
 }
 
 /**
@@ -109,7 +108,7 @@ function readServerListContent(configPath: string, writable: boolean): string {
   if (!existsSync(resolvedPath)) {
     if (writable) {
       seedEmptyCatalog(resolvedPath);
-      return JSON.stringify({ mcpServers: {} });
+      return EMPTY_CATALOG_CONTENT;
     }
     throw new Error(`Config file not found: ${resolvedPath}`);
   }
@@ -290,8 +289,12 @@ export interface ServerSourceFlags {
 
 /**
  * Validate the `--catalog` / `--config` / ad-hoc combination shared by all
- * runners (mirrors the web `run-web` conflict matrix). Returns an error message
- * for an illegal combination, or null when the flags are coherent.
+ * runners (mirrors the *source-selection* portion of the web `run-web` conflict
+ * matrix). It deliberately omits web's `--header` + `--catalog`/`--config`
+ * rejection: unlike web, the CLI/TUI merge `--header` into per-server settings
+ * (`headersToServerSettings` / `mergeSettings`), so headers are allowed
+ * alongside a catalog/config here. Returns an error message for an illegal
+ * combination, or null when the flags are coherent.
  */
 export function serverSourceConflict(flags: ServerSourceFlags): string | null {
   if (flags.hasCatalog && flags.hasConfig) {

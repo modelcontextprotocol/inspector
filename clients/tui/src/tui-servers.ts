@@ -88,6 +88,9 @@ export function loadTuiServers(
           env: serverOptions.env,
           cwd: serverOptions.cwd,
         }),
+        // Deliberate broadcast: a single `--header` set is merged into EVERY
+        // server in the catalog/config (fine for the common single-server case;
+        // for multi-server files, prefer per-server headers in the file itself).
         settings: mergeSettings(entry.settings, serverOptions.headers),
       };
     }
