@@ -8,7 +8,11 @@ import {
 } from "react";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { currentStyles, currentTheme } from "./createAppBridgeFactory";
+import {
+  currentStyles,
+  currentTheme,
+  measureContainerDimensions,
+} from "./createAppBridgeFactory";
 
 /**
  * Constructs the `AppBridge` for a freshly mounted sandbox iframe. Wrap with
@@ -204,14 +208,16 @@ export function AppRenderer({
         // drives), so the view's `initialized` signal is never missed.
         bridge.addEventListener("initialized", () => {
           initializedRef.current = true;
-          // Re-assert the current theme + derived styles now that the view is
-          // ready: they may have flipped between bridge construction (which
-          // seeded the initial hostContext) and initialization. setHostContext
-          // diffs internally, so unchanged fields emit no notification.
+          // Re-assert theme + derived styles + container size now the view is
+          // ready: any of these may have changed between bridge construction
+          // (which seeded the initial hostContext) and initialization.
+          // setHostContext diffs internally, so unchanged fields emit nothing.
           const styles = currentStyles();
+          const containerDimensions = measureContainerDimensions(iframe);
           bridge.setHostContext({
             theme: currentTheme(),
             ...(styles ? { styles } : {}),
+            ...(containerDimensions ? { containerDimensions } : {}),
           });
           flushPending();
         });
@@ -252,6 +258,28 @@ export function AppRenderer({
       attributes: true,
       attributeFilter: ["data-mantine-color-scheme"],
     });
+    return () => observer.disconnect();
+  }, []);
+
+  // Push live container size to the running view via the same setHostContext
+  // path. The factory seeds the initial containerDimensions from the iframe's
+  // box at bridge-build time; a ResizeObserver here re-measures on every box
+  // change (maximize/restore, window resize, sidebar toggle) and the SDK diffs
+  // it into a host-context-changed carrying only the changed field. Gated on
+  // the view's `initialized` signal so the notification only fires once the
+  // handshake is complete, and a 0×0 (not-yet-laid-out) measurement is skipped
+  // — both via measureContainerDimensions returning undefined and the
+  // `initializedRef` check.
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (typeof ResizeObserver === "undefined" || !iframe) return;
+    const observer = new ResizeObserver(() => {
+      if (!initializedRef.current) return;
+      const containerDimensions = measureContainerDimensions(iframe);
+      if (!containerDimensions) return;
+      bridgeRef.current?.setHostContext({ containerDimensions });
+    });
+    observer.observe(iframe);
     return () => observer.disconnect();
   }, []);
 

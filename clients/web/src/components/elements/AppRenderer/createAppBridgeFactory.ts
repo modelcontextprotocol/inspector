@@ -5,6 +5,7 @@ import {
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type {
   McpUiHostCapabilities,
+  McpUiHostContext,
   McpUiHostStyles,
   McpUiResourceMeta,
   McpUiStyles,
@@ -148,6 +149,36 @@ export function currentStyles(): McpUiHostStyles | undefined {
   return resolved ? { variables } : undefined;
 }
 
+/**
+ * Spec shape for `hostContext.containerDimensions`. Derived from
+ * {@link McpUiHostContext} so the seed and live-push paths share one source of
+ * truth and stay in lockstep with the spec types.
+ */
+export type ContainerDimensions = NonNullable<
+  McpUiHostContext["containerDimensions"]
+>;
+
+/**
+ * Measure the host container an app renders into and return it as the spec's
+ * fixed `{ width, height }` shape (whole pixels). Returns undefined when the
+ * element has no layout box yet (0×0 — e.g. before the iframe is attached, or
+ * in a non-DOM/test environment) so a meaningless size is never seeded into
+ * hostContext.
+ *
+ * Exported so AppRenderer's ResizeObserver can reuse the same measurement for
+ * live `host-context-changed` pushes.
+ */
+export function measureContainerDimensions(
+  element: HTMLElement,
+): ContainerDimensions | undefined {
+  if (typeof element.getBoundingClientRect !== "function") return undefined;
+  const rect = element.getBoundingClientRect();
+  const width = Math.round(rect.width);
+  const height = Math.round(rect.height);
+  if (width <= 0 || height <= 0) return undefined;
+  return { width, height };
+}
+
 /** First text content block of a UI resource, plus its `_meta` (sandbox hints). */
 function extractHtmlAndMeta(result: ReadResourceResult): {
   html: string;
@@ -202,8 +233,13 @@ export function createAppBridgeFactory(
     // csp/permissions.
     const hostCapabilities: McpUiHostCapabilities = { ...HOST_CAPABILITIES };
     const styles = currentStyles();
+    const containerDimensions = measureContainerDimensions(iframe);
     const bridge = new AppBridge(client, HOST_INFO, hostCapabilities, {
-      hostContext: { theme: currentTheme(), ...(styles ? { styles } : {}) },
+      hostContext: {
+        theme: currentTheme(),
+        ...(styles ? { styles } : {}),
+        ...(containerDimensions ? { containerDimensions } : {}),
+      },
     });
 
     // The double-iframe proxy posts `sandboxready` once it can receive content.

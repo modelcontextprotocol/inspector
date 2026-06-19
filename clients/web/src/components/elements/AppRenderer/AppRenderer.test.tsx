@@ -1,6 +1,6 @@
 import { createRef, StrictMode } from "react";
 import { act } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
@@ -309,6 +309,115 @@ describe("AppRenderer", () => {
       await Promise.resolve();
     });
     expect(bridge.setHostContext).not.toHaveBeenCalled();
+  });
+
+  describe("containerDimensions ResizeObserver", () => {
+    // Stub ResizeObserver so tests can drive the callback directly: capture
+    // the callback per observed element + the constructed instance so an
+    // observed iframe's getBoundingClientRect can be patched before each fire.
+    let resizeCallback: (() => void) | undefined;
+    let observedIframe: HTMLIFrameElement | undefined;
+    let originalResizeObserver: typeof ResizeObserver | undefined;
+
+    beforeEach(() => {
+      resizeCallback = undefined;
+      observedIframe = undefined;
+      originalResizeObserver = globalThis.ResizeObserver;
+      globalThis.ResizeObserver = class {
+        constructor(cb: () => void) {
+          resizeCallback = cb;
+        }
+        observe(el: Element) {
+          observedIframe = el as HTMLIFrameElement;
+        }
+        unobserve() {}
+        disconnect() {
+          resizeCallback = undefined;
+        }
+      } as unknown as typeof ResizeObserver;
+    });
+    afterEach(() => {
+      if (originalResizeObserver) {
+        globalThis.ResizeObserver = originalResizeObserver;
+      } else {
+        delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+      }
+    });
+
+    function setObservedSize(width: number, height: number) {
+      if (!observedIframe) throw new Error("no iframe observed");
+      vi.spyOn(observedIframe, "getBoundingClientRect").mockReturnValue({
+        width,
+        height,
+        top: 0,
+        left: 0,
+        right: width,
+        bottom: height,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect);
+    }
+
+    it("does not push containerDimensions before the view is initialized", async () => {
+      const bridge = createMockBridge();
+      renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={() => asBridge(bridge)}
+        />,
+      );
+      await flushAsync();
+      bridge.setHostContext.mockClear();
+      setObservedSize(640, 480);
+      await act(async () => resizeCallback?.());
+      expect(bridge.setHostContext).not.toHaveBeenCalled();
+    });
+
+    it("pushes containerDimensions on resize once initialized; skips a 0×0 box", async () => {
+      const bridge = createMockBridge();
+      renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={() => asBridge(bridge)}
+        />,
+      );
+      await flushAsync();
+      await act(async () => bridge.emit("initialized"));
+      bridge.setHostContext.mockClear();
+
+      setObservedSize(640, 480);
+      await act(async () => resizeCallback?.());
+      expect(bridge.setHostContext).toHaveBeenCalledWith({
+        containerDimensions: { width: 640, height: 480 },
+      });
+
+      bridge.setHostContext.mockClear();
+      setObservedSize(0, 0);
+      await act(async () => resizeCallback?.());
+      expect(bridge.setHostContext).not.toHaveBeenCalled();
+    });
+
+    it("disconnects the ResizeObserver on unmount", async () => {
+      const bridge = createMockBridge();
+      const { unmount } = renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={() => asBridge(bridge)}
+        />,
+      );
+      await flushAsync();
+      await act(async () => bridge.emit("initialized"));
+      await act(async () => {
+        unmount();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(resizeCallback).toBeUndefined();
+    });
   });
 
   it("builds a single bridge and does not dispose it under StrictMode double-invoke", async () => {

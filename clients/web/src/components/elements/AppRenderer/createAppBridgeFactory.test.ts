@@ -61,7 +61,10 @@ vi.mock("@modelcontextprotocol/ext-apps/app-bridge", () => {
   };
 });
 
-import { createAppBridgeFactory } from "./createAppBridgeFactory";
+import {
+  createAppBridgeFactory,
+  measureContainerDimensions,
+} from "./createAppBridgeFactory";
 
 const tool: Tool = {
   name: "weather_app",
@@ -352,5 +355,53 @@ describe("createAppBridgeFactory", () => {
     ).resolves.toEqual({ isError: true });
 
     open.mockRestore();
+  });
+});
+
+describe("measureContainerDimensions", () => {
+  function elementWithRect(width: number, height: number): HTMLElement {
+    return {
+      getBoundingClientRect: () =>
+        ({ width, height }) as unknown as DOMRect,
+    } as unknown as HTMLElement;
+  }
+
+  it("returns the iframe box as fixed width/height in whole pixels", () => {
+    expect(measureContainerDimensions(elementWithRect(640.4, 480.6))).toEqual({
+      width: 640,
+      height: 481,
+    });
+  });
+
+  it("returns undefined for an unmeasured (0×0) box", () => {
+    expect(measureContainerDimensions(elementWithRect(0, 0))).toBeUndefined();
+    expect(measureContainerDimensions(elementWithRect(640, 0))).toBeUndefined();
+  });
+
+  it("returns undefined when getBoundingClientRect is unavailable", () => {
+    expect(
+      measureContainerDimensions({} as unknown as HTMLElement),
+    ).toBeUndefined();
+  });
+
+  it("seeds containerDimensions into the bridge's initial hostContext", async () => {
+    const measured = {
+      contentWindow: {} as Window,
+      getBoundingClientRect: () =>
+        ({ width: 320, height: 240 }) as unknown as DOMRect,
+    } as unknown as HTMLIFrameElement;
+    const factory = createAppBridgeFactory({
+      getClient: () => fakeClient,
+      readResource: vi.fn().mockResolvedValue(uiResource("<h1>app</h1>")),
+    });
+    await factory(measured, tool);
+    const bridge = bridgeInstances[bridgeInstances.length - 1];
+    const opts = bridge.ctorArgs[3] as {
+      hostContext?: { containerDimensions?: unknown };
+    };
+    expect(opts.hostContext?.containerDimensions).toEqual({
+      width: 320,
+      height: 240,
+    });
   });
 });
