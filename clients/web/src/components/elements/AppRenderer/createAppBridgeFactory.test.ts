@@ -166,6 +166,76 @@ describe("createAppBridgeFactory", () => {
     });
   });
 
+  it("echoes the approved csp + permissions in hostCapabilities after sandboxready", async () => {
+    const readResource = vi.fn().mockResolvedValue(
+      uiResource("<h1>weather</h1>", {
+        permissions: { geolocation: {} },
+        csp: { connectDomains: ["https://api.example.com"] },
+      }),
+    );
+    const factory = createAppBridgeFactory({
+      getClient: () => fakeClient,
+      readResource,
+    });
+    await factory(makeIframe(), tool);
+    const bridge = bridgeInstances[0];
+
+    bridge.emit("sandboxready");
+    await flush();
+
+    // The capabilities object passed to the bridge constructor is mutated in
+    // place, so the ui/initialize handshake (which reads it lazily) echoes the
+    // approved sandbox config back to the view.
+    expect(bridge.ctorArgs[2]).toMatchObject({
+      sandbox: {
+        permissions: { geolocation: {} },
+        csp: { connectDomains: ["https://api.example.com"] },
+      },
+    });
+  });
+
+  it("advertises an empty csp object when the resource declares no csp", async () => {
+    const factory = createAppBridgeFactory({
+      getClient: () => fakeClient,
+      readResource: vi.fn().mockResolvedValue(uiResource("<h1>hi</h1>")),
+    });
+    await factory(makeIframe(), tool);
+    const bridge = bridgeInstances[0];
+
+    bridge.emit("sandboxready");
+    await flush();
+
+    const sandbox = (
+      bridge.ctorArgs[2] as {
+        sandbox?: { csp?: unknown; permissions?: unknown };
+      }
+    ).sandbox;
+    expect(sandbox?.csp).toEqual({});
+    expect(sandbox?.permissions).toBeUndefined();
+  });
+
+  it("does not echo a sandbox capability before sandboxready or on read failure", async () => {
+    const factory = createAppBridgeFactory({
+      getClient: () => fakeClient,
+      readResource: vi.fn().mockRejectedValue(new Error("read boom")),
+    });
+    await factory(makeIframe(), tool);
+    const bridge = bridgeInstances[0];
+
+    // Nothing read yet → no sandbox echo.
+    expect(
+      (bridge.ctorArgs[2] as { sandbox?: unknown }).sandbox,
+    ).toBeUndefined();
+
+    bridge.emit("sandboxready");
+    await flush();
+
+    // Read failed → still no sandbox echo.
+    expect(
+      (bridge.ctorArgs[2] as { sandbox?: unknown }).sandbox,
+    ).toBeUndefined();
+  });
+
   it("does not push when the tool has no UI resource uri", async () => {
     const readResource = vi.fn();
     const factory = createAppBridgeFactory({

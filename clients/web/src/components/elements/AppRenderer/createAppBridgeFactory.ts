@@ -99,7 +99,8 @@ function extractHtmlAndMeta(result: ReadResourceResult): {
  *  1. constructs a host-side {@link AppBridge} over the SDK client (so the view
  *     can call tools/resources/prompts directly),
  *  2. on the sandbox proxy's `sandboxready` signal, reads the tool's UI
- *     resource and pushes its HTML + sandbox/permissions into the inner iframe,
+ *     resource and pushes its HTML + sandbox/permissions/CSP into the inner
+ *     iframe, echoing the applied sandbox config back via hostCapabilities,
  *  3. handles `openLinks` by opening http(s) URLs in a new tab,
  *  4. connects a {@link PostMessageTransport} to the iframe and returns the
  *     live bridge.
@@ -123,7 +124,11 @@ export function createAppBridgeFactory(
       throw new Error("Cannot render MCP App: sandbox iframe has no window.");
     }
 
-    const bridge = new AppBridge(client, HOST_INFO, HOST_CAPABILITIES, {
+    // Per-app copy so the approved-sandbox echo (set on sandboxready below) never
+    // mutates the shared HOST_CAPABILITIES constant — each app may declare its own
+    // csp/permissions.
+    const hostCapabilities: McpUiHostCapabilities = { ...HOST_CAPABILITIES };
+    const bridge = new AppBridge(client, HOST_INFO, hostCapabilities, {
       hostContext: { theme: currentTheme() },
     });
 
@@ -139,6 +144,16 @@ export function createAppBridgeFactory(
           if (!uri) return;
           const result = await deps.readResource(uri);
           const { html, meta } = extractHtmlAndMeta(result);
+          // Echo the sandbox config the host applied so the view can read what was
+          // granted via hostCapabilities.sandbox. The CSP is always enforced (the
+          // sandbox proxy falls back to secure defaults), so advertise at least an
+          // empty csp object even when the resource declares none. Set before
+          // sendSandboxResourceReady: the view only sends ui/initialize once it has
+          // the HTML, so the bridge reflects this in the initialize result.
+          hostCapabilities.sandbox = {
+            permissions: meta?.permissions,
+            csp: meta?.csp ?? {},
+          };
           await bridge.sendSandboxResourceReady({
             html,
             permissions: meta?.permissions,
