@@ -35,7 +35,8 @@ export const HOST_INFO: Implementation = {
  * MCP client (see {@link createAppBridgeFactory}), so the bridge auto-forwards
  * tools/resources/prompts to the view; we only declare the host-side features
  * we actually back: external links and file downloads (both handled below),
- * tool/resource list-change forwarding, and logging passthrough.
+ * tool/resource list-change forwarding, logging passthrough, and accepting
+ * view-originated messages.
  */
 export const HOST_CAPABILITIES: McpUiHostCapabilities = {
   openLinks: {},
@@ -43,6 +44,18 @@ export const HOST_CAPABILITIES: McpUiHostCapabilities = {
   serverTools: { listChanged: true },
   serverResources: { listChanged: true },
   logging: {},
+  // Accept view-originated user messages (ui/message). The inspector has no
+  // chat loop to continue, so it surfaces each submission in a log rather than
+  // adding it to a conversation — enough to verify a widget's send path. The
+  // handler and display live in AppsScreen (which owns the running-app UI);
+  // here we only advertise the content modalities the inspector can render.
+  message: {
+    text: {},
+    image: {},
+    audio: {},
+    resource: {},
+    resourceLink: {},
+  },
 };
 
 /**

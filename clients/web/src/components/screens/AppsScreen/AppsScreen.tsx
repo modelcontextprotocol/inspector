@@ -1,4 +1,4 @@
-import { useState, type Ref } from "react";
+import { useMemo, useState, type Ref } from "react";
 import {
   ActionIcon,
   Button,
@@ -6,8 +6,11 @@ import {
   Flex,
   Group,
   Image,
+  Paper,
+  ScrollArea,
   Stack,
   Text,
+  Title,
   Tooltip,
 } from "@mantine/core";
 import {
@@ -16,7 +19,7 @@ import {
   MdFullscreen,
   MdFullscreenExit,
 } from "react-icons/md";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   AppRenderer,
@@ -26,6 +29,7 @@ import {
 import { HOST_AVAILABLE_DISPLAY_MODES } from "../../elements/AppRenderer/createAppBridgeFactory";
 import { AppDetailPanel } from "../../groups/AppDetailPanel/AppDetailPanel";
 import { AppControls } from "../../groups/AppControls/AppControls";
+import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { hasInputFields, resolveDisplayLabel } from "../../../utils/toolUtils";
 import { collectSchemaDefaults } from "../../../utils/jsonUtils";
 
@@ -141,6 +145,51 @@ const ContentStack = Stack.withProps({
   h: "100%",
 });
 
+// Pinned log below the running app showing the user-role messages the view has
+// submitted via ui/message. `0 0 auto` keeps it at its content height (capped
+// by `mah`) so it never squeezes out the iframe above it; the list scrolls when
+// it overflows.
+const MessageLog = Stack.withProps({
+  gap: "xs",
+  flex: "0 0 auto",
+  mih: 0,
+});
+
+const MessageLogScroll = ScrollArea.withProps({
+  mah: 200,
+  type: "auto",
+  scrollbars: "y",
+  offsetScrollbars: true,
+});
+
+const MessageLogStack = Stack.withProps({
+  gap: "sm",
+});
+
+const MessageItem = Paper.withProps({
+  p: "md",
+  radius: "md",
+  withBorder: true,
+});
+
+const MessageItemStack = Stack.withProps({
+  gap: "xs",
+});
+
+const MessageRole = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+  ff: "monospace",
+});
+
+// A user-role message submitted by the running view through ui/message. The
+// inspector has no conversation to append to, so it just records the content
+// blocks for display. Shape matches McpUiMessageRequest["params"].
+interface AppMessage {
+  role: "user";
+  content: ContentBlock[];
+}
+
 export function AppsScreen({
   tools,
   listChanged,
@@ -163,6 +212,29 @@ export function AppsScreen({
   // the iframe fills the available card space as before. Local to the screen
   // like `running`/`maximized`: it's tied to the live iframe, not persisted.
   const [appHeight, setAppHeight] = useState<number | undefined>(undefined);
+  // Messages the running view has pushed via ui/message. The inspector has no
+  // chat loop, so they're collected here and shown in a log below the app
+  // rather than continuing a conversation. Local to the screen like `running`:
+  // tied to the live bridge, cleared when the open ends or the app changes.
+  const [messages, setMessages] = useState<AppMessage[]>([]);
+
+  // Wrap the host factory so each bridge it builds also handles ui/message:
+  // record the submitted content blocks for display and, per spec, return an
+  // empty result (no conversation content) to avoid information leakage. The
+  // capability itself is advertised in HOST_CAPABILITIES (createAppBridgeFactory).
+  // Memoized on `bridgeFactory` so the AppRenderer — which rebuilds the iframe
+  // whenever the factory identity changes — doesn't thrash on every render.
+  const messageBridgeFactory = useMemo<BridgeFactory>(
+    () => async (iframe, tool) => {
+      const bridge = await bridgeFactory(iframe, tool);
+      bridge.onmessage = async ({ role, content }) => {
+        setMessages((prev) => [...prev, { role, content }]);
+        return {};
+      };
+      return bridge;
+    },
+    [bridgeFactory],
+  );
 
   const selectedTool = selectedAppName
     ? tools.find((t) => t.name === selectedAppName)
@@ -201,6 +273,7 @@ export function AppsScreen({
     const next = tools.find((t) => t.name === name);
     if (!next) return;
     setAppHeight(undefined);
+    setMessages([]);
     // Seed schema defaults so default-only fields are sent on Open App (parity
     // with the form's resolveValue display, which onChange doesn't capture).
     onUiChange({
@@ -223,6 +296,7 @@ export function AppsScreen({
   function handleOpen() {
     if (!selectedTool) return;
     setAppHeight(undefined);
+    setMessages([]);
     setRunning(true);
     onOpenApp(selectedTool.name, formValues);
   }
@@ -230,6 +304,7 @@ export function AppsScreen({
   function handleClose() {
     setRunning(false);
     setAppHeight(undefined);
+    setMessages([]);
     onUiChange({ ...ui, selectedAppName: undefined, formValues: {} });
     setMaximized(false);
     onCloseApp();
@@ -238,6 +313,7 @@ export function AppsScreen({
   function handleBackToInput() {
     setRunning(false);
     setAppHeight(undefined);
+    setMessages([]);
     setMaximized(false);
   }
 
@@ -345,7 +421,7 @@ export function AppsScreen({
                   key={selectedTool.name}
                   sandboxPath={sandboxPath}
                   tool={selectedTool}
-                  bridgeFactory={bridgeFactory}
+                  bridgeFactory={messageBridgeFactory}
                   onError={onError}
                   onSizeChange={handleSizeChange}
                   displayMode={displayMode}
@@ -370,6 +446,31 @@ export function AppsScreen({
                 }
                 onOpenApp={handleOpen}
               />
+            )}
+            {running && messages.length > 0 && (
+              <MessageLog>
+                <Title order={5}>Messages from app ({messages.length})</Title>
+                <MessageLogScroll>
+                  <MessageLogStack>
+                    {messages.map((message, index) => (
+                      <MessageItem key={index}>
+                        <MessageItemStack>
+                          <MessageRole>
+                            [{index}] role: {message.role}
+                          </MessageRole>
+                          {message.content.map((block, blockIndex) => (
+                            <ContentViewer
+                              key={blockIndex}
+                              block={block}
+                              copyable
+                            />
+                          ))}
+                        </MessageItemStack>
+                      </MessageItem>
+                    ))}
+                  </MessageLogStack>
+                </MessageLogScroll>
+              </MessageLog>
             )}
           </ContentStack>
         ) : (

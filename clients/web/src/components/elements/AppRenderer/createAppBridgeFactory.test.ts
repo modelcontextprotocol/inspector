@@ -69,6 +69,7 @@ vi.mock("@modelcontextprotocol/ext-apps/app-bridge", () => {
 
 import {
   createAppBridgeFactory,
+  HOST_CAPABILITIES,
   measureContainerDimensions,
 } from "./createAppBridgeFactory";
 
@@ -109,6 +110,18 @@ async function flush(): Promise<void> {
 describe("createAppBridgeFactory", () => {
   beforeEach(() => {
     bridgeInstances.length = 0;
+  });
+
+  it("advertises the message capability with the content modalities it can render", () => {
+    // The view gates ui/message on this capability, so it must be present in
+    // the handshake. The inspector renders text/image/audio/resource blocks.
+    expect(HOST_CAPABILITIES.message).toEqual({
+      text: {},
+      image: {},
+      audio: {},
+      resource: {},
+      resourceLink: {},
+    });
   });
 
   it("throws when no client is connected", async () => {

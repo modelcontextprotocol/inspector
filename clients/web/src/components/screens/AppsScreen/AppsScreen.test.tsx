@@ -2,7 +2,7 @@ import { createRef, useState } from "react";
 import { act } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   renderWithMantine,
@@ -85,6 +85,47 @@ function createEventBridgeFactory(): {
     emit: (event, payload) =>
       (listeners[event] ?? []).forEach((h) => h(payload)),
   };
+}
+
+// A factory whose built bridges are captured so a test can drive the
+// onmessage handler the screen attaches (simulating a ui/message from a view).
+function makeCapturingFactory(): {
+  factory: BridgeFactory;
+  bridges: AppBridge[];
+} {
+  const bridges: AppBridge[] = [];
+  const factory: BridgeFactory = () => {
+    const bridge = {
+      sendToolInput: async () => {},
+      sendToolResult: async () => {},
+      sendToolCancelled: async () => {},
+      teardownResource: async () => ({}),
+      close: async () => {},
+    } as unknown as AppBridge;
+    bridges.push(bridge);
+    return bridge;
+  };
+  return { factory, bridges };
+}
+
+// Invoke the onmessage handler the screen attached to the latest bridge,
+// mimicking a ui/message request from the running view.
+async function sendUiMessage(
+  bridges: AppBridge[],
+  content: ContentBlock[],
+): Promise<Record<string, unknown>> {
+  const onmessage = bridges.at(-1)?.onmessage as unknown as
+    | ((params: {
+        role: "user";
+        content: ContentBlock[];
+      }) => Promise<Record<string, unknown>>)
+    | undefined;
+  if (!onmessage) throw new Error("no onmessage handler attached");
+  let result: Record<string, unknown> = {};
+  await act(async () => {
+    result = await onmessage({ role: "user", content });
+  });
+  return result;
 }
 
 function buildProps(overrides: Partial<AppsScreenProps> = {}): AppsScreenProps {
@@ -405,5 +446,53 @@ describe("AppsScreen", () => {
       ),
     ).not.toBeInTheDocument();
     expect(screen.getByText("Select an app to view details")).toBeVisible();
+  });
+
+  it("surfaces ui/message content from the view in the message log", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = makeCapturingFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    // The no-fields app auto-launches on selection, mounting the renderer,
+    // whose effect invokes the (message-wrapped) factory and attaches the
+    // onmessage handler the test drives below.
+    await user.click(screen.getByText("Ops Dashboard"));
+    await vi.waitFor(() =>
+      expect(bridges.at(-1)?.onmessage).toBeTypeOf("function"),
+    );
+    await sendUiMessage(bridges, [
+      { type: "text", text: "hello from the app" },
+    ]);
+    expect(screen.getByText(/Messages from app \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/hello from the app/)).toBeInTheDocument();
+  });
+
+  it("returns an empty ui/message result (no conversation content leak)", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = makeCapturingFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await vi.waitFor(() =>
+      expect(bridges.at(-1)?.onmessage).toBeTypeOf("function"),
+    );
+    const result = await sendUiMessage(bridges, [
+      { type: "text", text: "secret" },
+    ]);
+    expect(result).toEqual({});
+  });
+
+  it("clears the message log when the app is closed", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = makeCapturingFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await vi.waitFor(() =>
+      expect(bridges.at(-1)?.onmessage).toBeTypeOf("function"),
+    );
+    await sendUiMessage(bridges, [
+      { type: "text", text: "hello from the app" },
+    ]);
+    expect(screen.getByText(/Messages from app/)).toBeInTheDocument();
+    await user.click(screen.getByLabelText("Close"));
+    expect(screen.queryByText(/Messages from app/)).not.toBeInTheDocument();
   });
 });
