@@ -252,7 +252,9 @@ describe("AppRenderer", () => {
       );
       bridge.emit("initialized");
     });
-    expect(bridge.setHostContext).toHaveBeenCalledWith({ theme: "dark" });
+    expect(bridge.setHostContext).toHaveBeenCalledWith(
+      expect.objectContaining({ theme: "dark" }),
+    );
   });
 
   it("pushes a live theme flip to the running bridge via host-context-changed", async () => {
@@ -277,7 +279,9 @@ describe("AppRenderer", () => {
       // MutationObserver callbacks are delivered on a microtask.
       await Promise.resolve();
     });
-    expect(bridge.setHostContext).toHaveBeenCalledWith({ theme: "dark" });
+    expect(bridge.setHostContext).toHaveBeenCalledWith(
+      expect.objectContaining({ theme: "dark" }),
+    );
   });
 
   it("stops observing theme changes after the renderer unmounts", async () => {

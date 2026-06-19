@@ -141,6 +141,55 @@ describe("createAppBridgeFactory", () => {
     }
   });
 
+  it("seeds hostContext.styles from the resolved host design tokens", async () => {
+    // The host resolves spec style keys from its own CSS variables via
+    // getComputedStyle. Stub it so the mapped variables resolve to values
+    // (happy-dom returns "" for custom properties otherwise).
+    const resolved: Record<string, string> = {
+      "--mantine-color-body": "#1a1b1e",
+      "--mantine-color-text": "#c1c2c5",
+      "--mantine-font-family": "Inter, sans-serif",
+      "--mantine-radius-md": "0.5rem",
+    };
+    const getComputedStyle = vi
+      .spyOn(window, "getComputedStyle")
+      .mockReturnValue({
+        getPropertyValue: (prop: string) => resolved[prop] ?? "",
+      } as unknown as CSSStyleDeclaration);
+    try {
+      const factory = createAppBridgeFactory({
+        getClient: () => fakeClient,
+        readResource: vi.fn().mockResolvedValue(uiResource("<h1>hi</h1>")),
+      });
+      await factory(makeIframe(), tool);
+      const options = bridgeInstances[0].ctorArgs[3] as {
+        hostContext?: { styles?: { variables?: Record<string, string> } };
+      };
+      expect(options.hostContext?.styles?.variables).toEqual({
+        "--color-background-primary": "#1a1b1e",
+        "--color-text-primary": "#c1c2c5",
+        "--font-sans": "Inter, sans-serif",
+        "--border-radius-md": "0.5rem",
+      });
+    } finally {
+      getComputedStyle.mockRestore();
+    }
+  });
+
+  it("omits hostContext.styles when no host token resolves", async () => {
+    // happy-dom resolves custom properties to "" — nothing maps, so the host
+    // advertises no styles object rather than an empty one.
+    const factory = createAppBridgeFactory({
+      getClient: () => fakeClient,
+      readResource: vi.fn().mockResolvedValue(uiResource("<h1>hi</h1>")),
+    });
+    await factory(makeIframe(), tool);
+    const options = bridgeInstances[0].ctorArgs[3] as {
+      hostContext?: { styles?: unknown };
+    };
+    expect(options.hostContext?.styles).toBeUndefined();
+  });
+
   it("on sandboxready, reads the UI resource and pushes html + meta to the sandbox", async () => {
     const readResource = vi.fn().mockResolvedValue(
       uiResource("<h1>weather</h1>", {

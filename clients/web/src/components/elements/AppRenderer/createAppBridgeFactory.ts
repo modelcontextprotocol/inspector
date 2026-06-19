@@ -5,7 +5,10 @@ import {
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type {
   McpUiHostCapabilities,
+  McpUiHostStyles,
   McpUiResourceMeta,
+  McpUiStyles,
+  McpUiStyleVariableKey,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type {
@@ -76,6 +79,75 @@ export function currentTheme(): "light" | "dark" {
   return "light";
 }
 
+/**
+ * Maps the spec's host-style variable keys ({@link McpUiStyleVariableKey}) to
+ * the inspector's underlying CSS custom properties. The inspector themes itself
+ * with Mantine, so each spec token resolves to the matching Mantine design-token
+ * variable (or an `--inspector-*` token layered on top of one). Only a curated
+ * subset of the ~90 spec keys is mapped — the ones the inspector has a
+ * meaningful equivalent for; the rest are omitted, which the spec allows (hosts
+ * may provide any subset).
+ */
+const STYLE_VARIABLE_SOURCES: Partial<Record<McpUiStyleVariableKey, string>> = {
+  "--color-background-primary": "--mantine-color-body",
+  "--color-background-secondary": "--inspector-surface-card",
+  "--color-background-tertiary": "--inspector-surface-subtle",
+  "--color-text-primary": "--mantine-color-text",
+  "--color-text-secondary": "--inspector-text-secondary",
+  "--color-text-inverse": "--inspector-text-inverse",
+  "--color-text-info": "--inspector-log-info",
+  "--color-text-danger": "--inspector-log-error",
+  "--color-text-success": "--inspector-status-connected",
+  "--color-text-warning": "--inspector-log-warning",
+  "--color-border-primary": "--inspector-border-default",
+  "--color-border-secondary": "--inspector-border-subtle",
+  "--font-sans": "--mantine-font-family",
+  "--font-mono": "--mantine-font-family-monospace",
+  "--font-text-xs-size": "--mantine-font-size-xs",
+  "--font-text-sm-size": "--mantine-font-size-sm",
+  "--font-text-md-size": "--mantine-font-size-md",
+  "--font-text-lg-size": "--mantine-font-size-lg",
+  "--border-radius-xs": "--mantine-radius-xs",
+  "--border-radius-sm": "--mantine-radius-sm",
+  "--border-radius-md": "--mantine-radius-md",
+  "--border-radius-lg": "--mantine-radius-lg",
+  "--border-radius-xl": "--mantine-radius-xl",
+  "--shadow-sm": "--mantine-shadow-sm",
+  "--shadow-md": "--mantine-shadow-md",
+  "--shadow-lg": "--mantine-shadow-lg",
+};
+
+/**
+ * Resolve the inspector's design tokens into a {@link McpUiHostStyles} for
+ * hostContext, so style-aware apps can theme themselves from the host instead of
+ * falling back to their own defaults. Reads the computed value of each mapped
+ * CSS variable from the document root — which reflects the active Mantine color
+ * scheme — and keeps only the ones that resolve to a non-empty value. Returns
+ * undefined when nothing resolves (e.g. a non-DOM/test environment) so we never
+ * advertise an empty styles object.
+ *
+ * Like {@link currentTheme}, this is read at bridge-build time to seed the
+ * initial hostContext. Pushing the refreshed styles to an already-open app on a
+ * theme flip rides the same AppBridge.setHostContext follow-up the theme does;
+ * the function is exported so that wiring can reuse a single source of truth.
+ */
+export function currentStyles(): McpUiHostStyles | undefined {
+  if (typeof document === "undefined" || typeof window === "undefined") {
+    return undefined;
+  }
+  const computed = window.getComputedStyle(document.documentElement);
+  const variables: McpUiStyles = {} as McpUiStyles;
+  let resolved = false;
+  for (const [specKey, sourceVar] of Object.entries(STYLE_VARIABLE_SOURCES)) {
+    const value = computed.getPropertyValue(sourceVar).trim();
+    if (value) {
+      variables[specKey as McpUiStyleVariableKey] = value;
+      resolved = true;
+    }
+  }
+  return resolved ? { variables } : undefined;
+}
+
 /** First text content block of a UI resource, plus its `_meta` (sandbox hints). */
 function extractHtmlAndMeta(result: ReadResourceResult): {
   html: string;
@@ -129,8 +201,9 @@ export function createAppBridgeFactory(
     // mutates the shared HOST_CAPABILITIES constant — each app may declare its own
     // csp/permissions.
     const hostCapabilities: McpUiHostCapabilities = { ...HOST_CAPABILITIES };
+    const styles = currentStyles();
     const bridge = new AppBridge(client, HOST_INFO, hostCapabilities, {
-      hostContext: { theme: currentTheme() },
+      hostContext: { theme: currentTheme(), ...(styles ? { styles } : {}) },
     });
 
     // The double-iframe proxy posts `sandboxready` once it can receive content.

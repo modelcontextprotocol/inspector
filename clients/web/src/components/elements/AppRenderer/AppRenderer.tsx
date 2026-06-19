@@ -8,7 +8,7 @@ import {
 } from "react";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { currentTheme } from "./createAppBridgeFactory";
+import { currentStyles, currentTheme } from "./createAppBridgeFactory";
 
 /**
  * Constructs the `AppBridge` for a freshly mounted sandbox iframe. Wrap with
@@ -204,11 +204,15 @@ export function AppRenderer({
         // drives), so the view's `initialized` signal is never missed.
         bridge.addEventListener("initialized", () => {
           initializedRef.current = true;
-          // Re-assert the current theme now that the view is ready: it may have
-          // flipped between bridge construction (which seeded the initial
-          // hostContext) and initialization. setHostContext diffs internally, so
-          // an unchanged theme emits no host-context-changed notification.
-          bridge.setHostContext({ theme: currentTheme() });
+          // Re-assert the current theme + derived styles now that the view is
+          // ready: they may have flipped between bridge construction (which
+          // seeded the initial hostContext) and initialization. setHostContext
+          // diffs internally, so unchanged fields emit no notification.
+          const styles = currentStyles();
+          bridge.setHostContext({
+            theme: currentTheme(),
+            ...(styles ? { styles } : {}),
+          });
           flushPending();
         });
         flushPending();
@@ -238,7 +242,11 @@ export function AppRenderer({
       return;
     }
     const observer = new MutationObserver(() => {
-      bridgeRef.current?.setHostContext({ theme: currentTheme() });
+      const styles = currentStyles();
+      bridgeRef.current?.setHostContext({
+        theme: currentTheme(),
+        ...(styles ? { styles } : {}),
+      });
     });
     observer.observe(document.documentElement, {
       attributes: true,
