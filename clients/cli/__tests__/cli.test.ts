@@ -18,6 +18,7 @@ import {
   createEchoTool,
   createTestServerInfo,
 } from "@modelcontextprotocol/inspector-test-server";
+import type { MCPServerConfig } from "@modelcontextprotocol/inspector-core/mcp/index.js";
 
 describe("CLI Tests", () => {
   describe("Basic CLI Mode", () => {
@@ -316,6 +317,100 @@ describe("CLI Tests", () => {
         expect(result.stderr).toMatch(/--catalog cannot be combined/);
       } finally {
         deleteConfigFile(catalogPath);
+      }
+    });
+  });
+
+  describe("Config-file settings lifting (#1482)", () => {
+    it("applies a config file's custom header on a tools/call over HTTP", async () => {
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+      });
+      let configPath: string | undefined;
+      try {
+        await server.start();
+        // Write a config whose server carries disk-level headers + a timeout.
+        // `headers`/`requestTimeout` are Inspector-extension fields not present
+        // on MCPServerConfig, so build the entry as a loose record.
+        configPath = createTestConfig({
+          mcpServers: {
+            web: {
+              type: "streamable-http",
+              url: server.url,
+              headers: { "X-Custom-Token": "secret-123" },
+              requestTimeout: 8000,
+            } as unknown as MCPServerConfig,
+          },
+        });
+
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--server",
+          "web",
+          "--cli",
+          "--method",
+          "tools/call",
+          "--tool-name",
+          "echo",
+          "--tool-arg",
+          "message=hi",
+        ]);
+
+        expectCliSuccess(result);
+        // The server should have received a request carrying the disk header
+        // (Express lower-cases header names), proving the CLI lifted it from
+        // the config file into the connection's settings.
+        const sawHeader = server
+          .getRecordedRequests()
+          .some((r) => r.headers["x-custom-token"] === "secret-123");
+        expect(sawHeader).toBe(true);
+      } finally {
+        await server.stop();
+        if (configPath) deleteConfigFile(configPath);
+      }
+    });
+
+    it("overrides a config file's header with --header", async () => {
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+      });
+      let configPath: string | undefined;
+      try {
+        await server.start();
+        configPath = createTestConfig({
+          mcpServers: {
+            web: {
+              type: "streamable-http",
+              url: server.url,
+              headers: { "X-Custom-Token": "from-disk" },
+            } as unknown as MCPServerConfig,
+          },
+        });
+
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--server",
+          "web",
+          "--header",
+          "X-Custom-Token: from-cli",
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
+
+        expectCliSuccess(result);
+        const tokens = server
+          .getRecordedRequests()
+          .map((r) => r.headers["x-custom-token"]);
+        expect(tokens).toContain("from-cli");
+        expect(tokens).not.toContain("from-disk");
+      } finally {
+        await server.stop();
+        if (configPath) deleteConfigFile(configPath);
       }
     });
   });
