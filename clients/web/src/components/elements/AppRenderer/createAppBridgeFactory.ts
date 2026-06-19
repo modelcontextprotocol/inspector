@@ -289,8 +289,7 @@ function fileNameFromUri(uri: string): string {
  * real summary off-screen.
  */
 function sanitizeDownloadLabel(label: string): string {
-  // eslint-disable-next-line no-control-regex -- intentional control-char strip
-  const cleaned = label.replace(/[ -]/g, " ").trim();
+  const cleaned = label.replace(/\p{Cc}+/gu, " ").trim();
   return cleaned.length > 80 ? cleaned.slice(0, 77) + "..." : cleaned;
 }
 
