@@ -72,12 +72,32 @@
       // carry 'unsafe-inline' because the app's own inline <script>/<style> ship
       // with the HTML and have no origin to allowlist; external script/style
       // loads stay restricted to the declared resourceDomains.
+      //
+      // Each domain entry is server-supplied and untrusted: it is filtered
+      // against SAFE_CSP_SOURCE before use so it cannot inject extra directives
+      // (`;`) or break out of the meta attribute (`"`, `<`, `>`). Only common
+      // CSP source-expression shapes are accepted (scheme://host[:port][/path],
+      // scheme-only `data:`/`blob:`/etc., `*`, and wildcard hosts like
+      // `*.example.com` or `https://*.example.com`); anything else is dropped
+      // and logged. The assembled policy is also HTML-attribute-encoded by
+      // injectCsp as defense in depth.
+      const SAFE_CSP_SOURCE =
+        /^(?:\*|[a-z][a-z0-9+.-]*:(?:\/\/(?:\*\.)?[A-Za-z0-9._~%!$&'()*+,=@:-]+(?::\d+)?(?:\/[A-Za-z0-9._~%!$&'()*+,=@:/-]*)?)?|(?:\*\.)?[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?)$/;
+
       function buildCspContent(csp) {
         const c = csp || {};
-        const list = (domains) =>
-          Array.isArray(domains) && domains.length > 0
-            ? domains.join(" ")
-            : null;
+        const list = (domains) => {
+          if (!Array.isArray(domains)) return null;
+          const safe = [];
+          for (const d of domains) {
+            if (typeof d === "string" && SAFE_CSP_SOURCE.test(d)) {
+              safe.push(d);
+            } else {
+              console.warn("[mcp-app sandbox] dropping unsafe CSP source:", d);
+            }
+          }
+          return safe.length > 0 ? safe.join(" ") : null;
+        };
 
         const resource = list(c.resourceDomains);
         const connect = list(c.connectDomains);
@@ -103,10 +123,19 @@
       // Insert the policy as the first <head> child so it precedes — and thus
       // governs — every resource the inner document loads. Falls back to wrapping
       // a <head>, or prepending, when the HTML omits one.
+      function escapeHtmlAttr(s) {
+        return s
+          .replace(/&/g, "&amp;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+
       function injectCsp(html, cspContent) {
         const meta =
           '<meta http-equiv="Content-Security-Policy" content="' +
-          cspContent +
+          escapeHtmlAttr(cspContent) +
           '">';
         if (/<head[^>]*>/i.test(html)) {
           return html.replace(/<head[^>]*>/i, (m) => m + meta);
