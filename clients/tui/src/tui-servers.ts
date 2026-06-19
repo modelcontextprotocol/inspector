@@ -1,16 +1,17 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import type {
   InspectorServerSettings,
   MCPServerConfig,
-  MCPConfig,
   StdioServerConfig,
 } from "@inspector/core/mcp/types.js";
 import { DEFAULT_TASK_TTL_MS } from "@inspector/core/mcp/types.js";
 import { mcpConfigToServerEntries } from "@inspector/core/mcp/serverList.js";
 import {
   resolveServerConfigs,
-  withDefaultConfigPath,
+  resolveServerSource,
+  serverSourceConflict,
+  readServerListFile,
+  hasAdHocServerOptions,
+  withDefaultCatalogPath,
   type ServerConfigOptions,
 } from "@inspector/core/mcp/node/config.js";
 
@@ -64,13 +65,21 @@ function mergeSettings(
 export function loadTuiServers(
   serverOptions: ServerConfigOptions & { headers?: Record<string, string> },
 ): Record<string, TuiServer> {
-  serverOptions = withDefaultConfigPath(serverOptions);
-  const hasConfigPath = Boolean(serverOptions.configPath?.trim());
+  serverOptions = withDefaultCatalogPath(serverOptions);
 
-  if (hasConfigPath) {
-    const configPath = serverOptions.configPath!;
-    const resolvedPath = resolve(process.cwd(), configPath);
-    const config = JSON.parse(readFileSync(resolvedPath, "utf-8")) as MCPConfig;
+  const conflict = serverSourceConflict({
+    hasCatalog: Boolean(serverOptions.catalogPath?.trim()),
+    hasConfig: Boolean(serverOptions.configPath?.trim()),
+    hasAdHoc: hasAdHocServerOptions(serverOptions),
+  });
+  if (conflict) {
+    throw new Error(conflict);
+  }
+
+  const source = resolveServerSource(serverOptions);
+
+  if (source) {
+    const config = readServerListFile(source.path, source.writable);
     const entries = mcpConfigToServerEntries(config);
     const result: Record<string, TuiServer> = {};
     for (const entry of entries) {
@@ -79,6 +88,9 @@ export function loadTuiServers(
           env: serverOptions.env,
           cwd: serverOptions.cwd,
         }),
+        // Deliberate broadcast: a single `--header` set is merged into EVERY
+        // server in the catalog/config (fine for the common single-server case;
+        // for multi-server files, prefer per-server headers in the file itself).
         settings: mergeSettings(entry.settings, serverOptions.headers),
       };
     }
@@ -88,7 +100,7 @@ export function loadTuiServers(
   const configs = resolveServerConfigs(serverOptions, "multi");
   if (configs.length === 0) {
     throw new Error(
-      "At least one server is required. Use --config <path> or ad-hoc target (command/URL).",
+      "At least one server is required. Use --catalog/--config <path> or an ad-hoc target (command/URL).",
     );
   }
   return {

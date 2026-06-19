@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "fs";
-import { resolve } from "path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { dirname, resolve } from "path";
 import { getDefaultMcpConfigPath } from "../../storage/store-io.js";
 import type {
   MCPConfig,
@@ -15,6 +15,17 @@ import { normalizeServerType } from "../serverList.js";
  * Core exports this type so runners can type the subset they pass in.
  */
 export interface ServerConfigOptions {
+  /**
+   * Writable catalog file (`--catalog` / `MCP_CATALOG_PATH`): seeded as an empty
+   * catalog if it doesn't exist, then served. This is the slot the no-flag
+   * default (`~/.mcp-inspector/mcp.json`) fills. Wins over `configPath`.
+   */
+  catalogPath?: string;
+  /**
+   * Read-only session file (`--config`): served as-is and never written, seeded,
+   * or migrated. Errors if absent (so a typo'd path is a clear error, not a
+   * silently empty list). Used when `catalogPath` is unset.
+   */
   configPath?: string;
   serverName?: string;
   /** Command + args for stdio, or [url] for SSE/HTTP. Positional / args after -- */
@@ -74,22 +85,53 @@ export function parseHeaderPair(
   return { ...previous, [key]: val };
 }
 
+/** On-disk contents of a freshly seeded empty catalog (pretty-printed). */
+const EMPTY_CATALOG_CONTENT = `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`;
+
+/**
+ * Write an empty catalog (`{ "mcpServers": {} }`) to `resolvedPath`, creating
+ * parent directories. Seeds a writable catalog on first run so CLI/TUI match
+ * the web backend instead of erroring on a missing default file.
+ */
+function seedEmptyCatalog(resolvedPath: string): void {
+  mkdirSync(dirname(resolvedPath), { recursive: true });
+  writeFileSync(resolvedPath, EMPTY_CATALOG_CONTENT, { mode: 0o600 });
+}
+
+/**
+ * Read the raw contents of a server-list file. A missing *writable* catalog is
+ * seeded as an empty catalog and its contents returned; a missing *read-only*
+ * config throws so a typo'd path is a clear error, not a silently empty list.
+ */
+function readServerListContent(configPath: string, writable: boolean): string {
+  const resolvedPath = resolve(process.cwd(), configPath);
+  if (!existsSync(resolvedPath)) {
+    if (writable) {
+      seedEmptyCatalog(resolvedPath);
+      return EMPTY_CATALOG_CONTENT;
+    }
+    throw new Error(`Config file not found: ${resolvedPath}`);
+  }
+  return readFileSync(resolvedPath, "utf-8");
+}
+
 /**
  * Loads and validates an MCP servers configuration file.
- * Checks file existence before reading. Normalizes each server's type
- * (missing → "stdio", "http" → "streamable-http").
+ * Seeds an empty catalog when `writable` and the file is missing; otherwise a
+ * missing file throws. Normalizes each server's type (missing → "stdio",
+ * "http" → "streamable-http").
  *
  * @param configPath - Path to the config file (relative to process.cwd() or absolute)
+ * @param writable - true for a `--catalog`/default source (seed-if-missing); false for `--config` (error-if-missing)
  * @returns The parsed MCPConfig with normalized server types
- * @throws Error if the file is missing, cannot be loaded, parsed, or is invalid
+ * @throws Error if a read-only file is missing, or any file cannot be loaded, parsed, or is invalid
  */
-function loadMcpServersConfig(configPath: string): MCPConfig {
+function loadMcpServersConfig(
+  configPath: string,
+  writable: boolean,
+): MCPConfig {
   try {
-    const resolvedPath = resolve(process.cwd(), configPath);
-    if (!existsSync(resolvedPath)) {
-      throw new Error(`Config file not found: ${resolvedPath}`);
-    }
-    const configContent = readFileSync(resolvedPath, "utf-8");
+    const configContent = readServerListContent(configPath, writable);
     const config = JSON.parse(configContent) as MCPConfig;
 
     if (!config.mcpServers) {
@@ -118,8 +160,9 @@ function loadMcpServersConfig(configPath: string): MCPConfig {
 function loadServerFromConfig(
   configPath: string,
   serverName: string,
+  writable: boolean,
 ): MCPServerConfig {
-  const config = loadMcpServersConfig(configPath);
+  const config = loadMcpServersConfig(configPath, writable);
   if (!config.mcpServers[serverName]) {
     const available = Object.keys(config.mcpServers).join(", ");
     throw new Error(
@@ -220,14 +263,81 @@ export function hasAdHocServerOptions(options: ServerConfigOptions): boolean {
   );
 }
 
-/** When no --config and no ad-hoc target, use ~/.mcp-inspector/mcp.json (same as web). */
-export function withDefaultConfigPath(
+/**
+ * Identify the active server-list source and whether it's writable.
+ * `--catalog` (writable: seeded if missing) wins over `--config` (read-only:
+ * served as-is, never seeded/written). Returns null when neither is set
+ * (ad-hoc / no source).
+ */
+export function resolveServerSource(
+  options: ServerConfigOptions,
+): { path: string; writable: boolean } | null {
+  if (options.catalogPath?.trim()) {
+    return { path: options.catalogPath, writable: true };
+  }
+  if (options.configPath?.trim()) {
+    return { path: options.configPath, writable: false };
+  }
+  return null;
+}
+
+export interface ServerSourceFlags {
+  hasCatalog: boolean;
+  hasConfig: boolean;
+  hasAdHoc: boolean;
+}
+
+/**
+ * Validate the `--catalog` / `--config` / ad-hoc combination shared by all
+ * runners (mirrors the *source-selection* portion of the web `run-web` conflict
+ * matrix). It deliberately omits web's `--header` + `--catalog`/`--config`
+ * rejection: unlike web, the CLI/TUI merge `--header` into per-server settings
+ * (`headersToServerSettings` / `mergeSettings`), so headers are allowed
+ * alongside a catalog/config here. Returns an error message for an illegal
+ * combination, or null when the flags are coherent.
+ */
+export function serverSourceConflict(flags: ServerSourceFlags): string | null {
+  if (flags.hasCatalog && flags.hasConfig) {
+    return "--catalog and --config are mutually exclusive. --catalog is the writable catalog; --config is a read-only session file.";
+  }
+  if (flags.hasCatalog && flags.hasAdHoc) {
+    return "--catalog cannot be combined with an ad-hoc server URL/command.";
+  }
+  if (flags.hasConfig && flags.hasAdHoc) {
+    return "--config cannot be combined with an ad-hoc server URL/command. --config selects a read-only session file.";
+  }
+  return null;
+}
+
+/**
+ * Public catalog/config loader for runners that need the raw server map (e.g.
+ * the TUI, which derives per-server settings via `mcpConfigToServerEntries`).
+ * Applies the same seed-if-writable / error-if-read-only semantics as
+ * `resolveServerConfigs`; server `type` fields are normalized.
+ */
+export function readServerListFile(
+  configPath: string,
+  writable: boolean,
+): MCPConfig {
+  return loadMcpServersConfig(configPath, writable);
+}
+
+/**
+ * When no `--catalog`, no `--config`, and no ad-hoc target is given, default the
+ * writable catalog to ~/.mcp-inspector/mcp.json (the same file the web backend
+ * uses). Fills the *catalog* (writable, seed-if-missing) slot — not `--config`.
+ */
+export function withDefaultCatalogPath(
   options: ServerConfigOptions,
 ): ServerConfigOptions {
-  if (options.configPath?.trim() || hasAdHocServerOptions(options)) {
+  if (
+    options.catalogPath?.trim() ||
+    options.configPath?.trim() ||
+    hasAdHocServerOptions(options)
+  ) {
     return options;
   }
-  return { ...options, configPath: getDefaultMcpConfigPath() };
+  return { ...options, catalogPath: getDefaultMcpConfigPath() };
 }
 
 /**
@@ -239,14 +349,15 @@ export function resolveServerConfigs(
   options: ServerConfigOptions,
   mode: ResolveServerConfigsMode,
 ): MCPServerConfig[] {
-  const hasConfigPath = Boolean(options.configPath?.trim());
+  const source = resolveServerSource(options);
   const hasAdHoc = hasAdHocServerOptions(options);
 
   if (mode === "single") {
-    if (hasConfigPath && options.serverName) {
+    if (source && options.serverName) {
       const config = loadServerFromConfig(
-        options.configPath!,
+        source.path,
         options.serverName,
+        source.writable,
       );
       return [
         applyOverrides(config, {
@@ -255,9 +366,8 @@ export function resolveServerConfigs(
         }),
       ];
     }
-    if (hasConfigPath && !options.serverName) {
-      const configPath = options.configPath!;
-      const mcpConfig = loadMcpServersConfig(configPath);
+    if (source && !options.serverName) {
+      const mcpConfig = loadMcpServersConfig(source.path, source.writable);
       const servers = Object.keys(mcpConfig.mcpServers);
       if (servers.length === 0)
         throw new Error("No servers found in config file");
@@ -268,7 +378,11 @@ export function resolveServerConfigs(
       }
       const serverName = servers[0];
       if (!serverName) throw new Error("No servers found in config file");
-      const config = loadServerFromConfig(configPath, serverName);
+      const config = loadServerFromConfig(
+        source.path,
+        serverName,
+        source.writable,
+      );
       return [
         applyOverrides(config, {
           env: options.env,
@@ -280,14 +394,13 @@ export function resolveServerConfigs(
   }
 
   if (mode === "multi") {
-    if (hasConfigPath && hasAdHoc) {
+    if (source && hasAdHoc) {
       throw new Error(
         "In multi-server mode with a config file, do not pass --transport, --server-url, or positional command/URL. Use only --config with optional -e, --cwd.",
       );
     }
-    if (hasConfigPath && options.configPath) {
-      const configPath = options.configPath;
-      const mcpConfig = loadMcpServersConfig(configPath);
+    if (source) {
+      const mcpConfig = loadMcpServersConfig(source.path, source.writable);
       const configs = Object.values(mcpConfig.mcpServers).map((c) =>
         applyOverrides({ ...c } as MCPServerConfig, {
           env: options.env,
@@ -303,31 +416,31 @@ export function resolveServerConfigs(
 }
 
 /**
- * Launch-time resolver for CLI/TUI: applies the default catalog path when no
- * `--config` or ad-hoc target is given, then delegates to `resolveServerConfigs`.
+ * Launch-time resolver for CLI/TUI: applies the default writable catalog path
+ * when no `--catalog`, `--config`, or ad-hoc target is given, then delegates to
+ * `resolveServerConfigs`.
  */
 export function resolveLaunchServerConfigs(
   options: ServerConfigOptions,
   mode: ResolveServerConfigsMode,
 ): MCPServerConfig[] {
-  return resolveServerConfigs(withDefaultConfigPath(options), mode);
+  return resolveServerConfigs(withDefaultCatalogPath(options), mode);
 }
 
 /**
- * Returns named server configs from a config file (multi-server). Use when the caller
- * needs server names (e.g. TUI). Errors if config path is missing or if ad-hoc options
- * (target, transport, serverUrl) are also provided.
+ * Returns named server configs from a catalog/config file (multi-server). Use
+ * when the caller needs server names. Resolves the active source via
+ * `resolveServerSource` (a writable `--catalog` is seeded if missing; a
+ * read-only `--config` errors if absent). Errors if neither source is set or if
+ * ad-hoc options (target, transport, serverUrl) are also provided.
  */
 export function getNamedServerConfigs(
   options: ServerConfigOptions,
 ): Record<string, MCPServerConfig> {
-  const hasConfigPath = Boolean(options.configPath?.trim());
-  const hasAdHoc =
-    (options.target && options.target.length > 0) ||
-    Boolean(options.transport) ||
-    Boolean(options.serverUrl);
+  const source = resolveServerSource(options);
+  const hasAdHoc = hasAdHocServerOptions(options);
 
-  if (!hasConfigPath) {
+  if (!source) {
     throw new Error("Config path is required for getNamedServerConfigs.");
   }
   if (hasAdHoc) {
@@ -336,7 +449,7 @@ export function getNamedServerConfigs(
     );
   }
 
-  const mcpConfig = loadMcpServersConfig(options.configPath!);
+  const mcpConfig = loadMcpServersConfig(source.path, source.writable);
   const result: Record<string, MCPServerConfig> = {};
   for (const [name, config] of Object.entries(mcpConfig.mcpServers)) {
     result[name] = applyOverrides(
