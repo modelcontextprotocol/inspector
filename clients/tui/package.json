@@ -17,14 +17,14 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsup",
     "dev": "vite-node --config vitest.config.ts dev.ts",
+    "build": "tsup",
+    "validate": "npm run format:check && npm run lint && npm run build && npm run test",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
     "format": "prettier --write src __tests__",
-    "format:check": "prettier --check src __tests__",
-    "validate": "npm run format:check && npm run lint && npm run build && npm run test"
+    "format:check": "prettier --check src __tests__"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

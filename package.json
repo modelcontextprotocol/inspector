@@ -29,6 +29,8 @@
     "scripts/install-clients.mjs"
   ],
   "scripts": {
+    "web": "node clients/launcher/build/index.js --web",
+    "web:dev": "node clients/launcher/build/index.js --web --dev",
     "build": "npm run build:web && npm run build:cli && npm run build:tui && npm run build:launcher",
     "build:cli": "cd clients/cli && npm run build",
     "build:tui": "cd clients/tui && npm run build",
@@ -49,8 +51,6 @@
     "smoke:tui": "node scripts/smoke-tui.mjs",
     "smoke:web": "node scripts/smoke-web.mjs",
     "smoke:launcher": "node scripts/smoke-launcher.mjs",
-    "web": "node clients/launcher/build/index.js --web",
-    "web:dev": "node clients/launcher/build/index.js --web --dev",
     "prepack": "npm run build",
     "postinstall": "node scripts/install-clients.mjs",
     "install:clients": "node scripts/install-clients.mjs"

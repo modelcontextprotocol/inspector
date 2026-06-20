@@ -17,19 +17,19 @@
   ],
   "scripts": {
     "build": "tsup",
-    "pretest": "npm run test-servers:build && npm run build",
+    "validate": "npm run format:check && npm run lint && npm run test",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "npm run test-servers:build && npm run build && vitest run --coverage",
     "test-servers:build": "tsc -p ../../test-servers --noCheck",
-    "lint": "eslint .",
-    "format": "prettier --write src __tests__",
-    "format:check": "prettier --check src __tests__",
-    "validate": "npm run format:check && npm run lint && npm run test",
     "test:cli": "vitest run cli.test.ts",
     "test:cli-tools": "vitest run tools.test.ts",
     "test:cli-headers": "vitest run headers.test.ts",
-    "test:cli-metadata": "vitest run metadata.test.ts"
+    "test:cli-metadata": "vitest run metadata.test.ts",
+    "pretest": "npm run test-servers:build && npm run build",
+    "lint": "eslint .",
+    "format": "prettier --write src __tests__",
+    "format:check": "prettier --check src __tests__"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
