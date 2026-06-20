@@ -34,8 +34,7 @@ try {
 
 const { mode, forwardedArgv, hasPrefixModeFlag } = parsedArgv;
 
-const helpOnly =
-  process.argv.includes("-h") || process.argv.includes("--help");
+const helpOnly = process.argv.includes("-h") || process.argv.includes("--help");
 
 if (helpOnly && !hasPrefixModeFlag) {
   program.outputHelp();

@@ -15,14 +15,25 @@
   "scripts": {
     "build": "tsc",
     "postbuild": "node scripts/make-executable.js",
-    "test": "vitest run"
+    "lint": "eslint .",
+    "format": "prettier --write src __tests__",
+    "format:check": "prettier --check src __tests__",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "validate": "npm run format:check && npm run lint && npm run build && npm run test:coverage"
   },
   "dependencies": {
     "commander": "^13.1.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@types/node": "^24.12.4",
+    "@vitest/coverage-v8": "^4.1.0",
+    "eslint": "^9.39.4",
+    "globals": "^17.4.0",
+    "prettier": "^3.8.1",
     "typescript": "~5.9.3",
+    "typescript-eslint": "^8.56.1",
     "vitest": "^4.1.0"
   }
 }

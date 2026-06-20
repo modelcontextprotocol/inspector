@@ -51,8 +51,13 @@ jobs:
         working-directory: ./clients/tui
         run: npm run test:coverage
 
-      - name: Build CLI, TUI, and launcher
-        run: npm run build:cli && npm run build:tui && npm run build:launcher
+      - name: Validate launcher (format, lint, build, coverage)
+        # Self-contained: format:check + lint + build + test:coverage in its own
+        # folder, with no dependency on the other clients being built. The CLI
+        # and TUI bundles the smokes below need are produced by their own
+        # test:coverage steps above; this step builds the launcher itself.
+        working-directory: ./clients/launcher
+        run: npm run validate
 
       - name: Smoke test launcher
         run: |

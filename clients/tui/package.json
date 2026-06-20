@@ -20,7 +20,7 @@
     "build": "tsup",
     "dev": "vite-node --config vitest.config.ts dev.ts",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "npm run build && vitest run --coverage"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

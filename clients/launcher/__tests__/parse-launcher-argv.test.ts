@@ -23,13 +23,13 @@ describe("parseLauncherArgv", () => {
   });
 
   it("does not treat a trailing mode-like token as launcher mode", () => {
-    expect(parseLauncherArgv([...EXEC, "node", "./server.js", "--cli"])).toEqual(
-      {
-        mode: "web",
-        forwardedArgv: [...EXEC, "node", "./server.js", "--cli"],
-        hasPrefixModeFlag: false,
-      },
-    );
+    expect(
+      parseLauncherArgv([...EXEC, "node", "./server.js", "--cli"]),
+    ).toEqual({
+      mode: "web",
+      forwardedArgv: [...EXEC, "node", "./server.js", "--cli"],
+      hasPrefixModeFlag: false,
+    });
   });
 
   it("rejects multiple mode flags in the launcher prefix", () => {
