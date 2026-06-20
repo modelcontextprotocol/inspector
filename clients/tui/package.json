@@ -23,8 +23,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
-    "format": "prettier --write src __tests__",
-    "format:check": "prettier --check src __tests__"
+    "format": "prettier --write src __tests__ index.ts tui.tsx dev.ts",
+    "format:check": "prettier --check src __tests__ index.ts tui.tsx dev.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

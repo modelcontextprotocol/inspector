@@ -37,9 +37,14 @@ Object.defineProperty(window, "localStorage", {
 // the app reads `GET /api/config` via `useSandboxUrl` / `useServerListWritable`.
 // Under happy-dom (no server) those real requests 404 and log alarming
 // `GET .../api/config 404 (Not Found)` lines that make a green run look broken.
-// Returning an empty 200 keeps such incidental calls quiet; any test that
-// actually exercises fetch overrides this with its own spy/stub (which Vitest
-// restores back to this baseline afterward).
+// Returning an empty 200 keeps such *incidental* calls quiet. Tests that care
+// about fetch install their own per-test spy/stub (e.g. `vi.spyOn(globalThis,
+// "fetch")`), which Vitest only auto-reverts to this baseline if the test
+// registers it through Vitest's mock APIs — this project doesn't set
+// `restoreMocks` globally, so a test that mutates `globalThis.fetch` directly
+// must restore it itself. Note the tradeoff: this default is permissive, so a
+// test meaning to assert on a fetch FAILURE must set up its own rejecting/
+// erroring stub rather than relying on the absence of a server.
 Object.defineProperty(globalThis, "fetch", {
   configurable: true,
   writable: true,
