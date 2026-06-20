@@ -33,6 +33,25 @@ Object.defineProperty(window, "localStorage", {
   value: new MemoryStorage(),
 });
 
+// Benign default `fetch`. Several components hit the backend on mount — e.g.
+// the app reads `GET /api/config` via `useSandboxUrl` / `useServerListWritable`.
+// Under happy-dom (no server) those real requests 404 and log alarming
+// `GET .../api/config 404 (Not Found)` lines that make a green run look broken.
+// Returning an empty 200 keeps such incidental calls quiet; any test that
+// actually exercises fetch overrides this with its own spy/stub (which Vitest
+// restores back to this baseline afterward).
+Object.defineProperty(globalThis, "fetch", {
+  configurable: true,
+  writable: true,
+  value: () =>
+    Promise.resolve(
+      new Response("{}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    ),
+});
+
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
