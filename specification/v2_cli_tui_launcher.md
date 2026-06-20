@@ -13,7 +13,7 @@ This document describes how those clients are built, wired, and tested today, an
 ## Goals
 
 - One published entry binary (`mcp-inspector`) that forwards argv to the selected client.
-- CLI and TUI use the same `InspectorClient`, managed-state classes, and `resolveLaunchServerConfigs()` path as v1.5 — adapted to v2's `InspectorServerSettings` model (post-#1358).
+- CLI and TUI use the same `InspectorClient`, managed-state classes, and shared `loadServerEntries()` resolution path — adapted to v2's `InspectorServerSettings` model (post-#1358).
 - Bundle `core/` into CLI/TUI Node artifacts with **tsup** (analogous to Vite bundling core for the browser).
 - Port v1.5 CLI integration tests (86 cases) and TUI smoke tests without duplicating `core/` unit tests (web suite remains canonical for core).
 - CI runs CLI and TUI tests plus a launcher `--help` smoke step on every PR.
@@ -31,12 +31,12 @@ This document describes how those clients are built, wired, and tested today, an
 
 ## Packaging and entrypoints
 
-| Artifact | Path | Build | Published bin |
-|----------|------|-------|---------------|
-| Launcher | `clients/launcher/` | `tsc` → `build/index.js` | Root `mcp-inspector` → `clients/launcher/build/index.js` |
-| CLI | `clients/cli/` | `tsup` → `build/index.js` | `mcp-inspector-cli` (client package only) |
-| TUI | `clients/tui/` | `tsup` → `build/index.js` | `mcp-inspector-tui` (client package only) |
-| Web runner | `clients/web/server/run-web.ts` | `tsup` (`build:runner`) → `clients/web/build/index.js` | `mcp-inspector-web` (client package only) |
+| Artifact   | Path                            | Build                                                  | Published bin                                            |
+| ---------- | ------------------------------- | ------------------------------------------------------ | -------------------------------------------------------- |
+| Launcher   | `clients/launcher/`             | `tsc` → `build/index.js`                               | Root `mcp-inspector` → `clients/launcher/build/index.js` |
+| CLI        | `clients/cli/`                  | `tsup` → `build/index.js`                              | `mcp-inspector-cli` (client package only)                |
+| TUI        | `clients/tui/`                  | `tsup` → `build/index.js`                              | `mcp-inspector-tui` (client package only)                |
+| Web runner | `clients/web/server/run-web.ts` | `tsup` (`build:runner`) → `clients/web/build/index.js` | `mcp-inspector-web` (client package only)                |
 
 Root `package.json` (`@modelcontextprotocol/inspector` v2) publishes a **fat package**: merged runtime `dependencies`, `files` manifest listing each client's `build/` (and web `dist/`), and `prepack` → full `npm run build`. On the dev side, a `postinstall` runs `scripts/install-clients.mjs`, which cascades `npm install` into each client so one `npm install` at the repo root sets up every client (also exposed as `npm run install:clients`); it no-ops when the package is installed as a dependency. The launcher does not declare `file:` sibling dependencies; it dynamically imports `../web/build/index.js`, `../cli/build/index.js`, or `../tui/build/index.js` relative to its own `build/` directory.
 
@@ -73,22 +73,22 @@ Root scripts `inspector`, `web`, and `web:dev` are thin wrappers around the laun
 
 All three clients import from `@inspector/core/...` (mapped to `../../core/` source).
 
-| Concern | Web | CLI / TUI | Launcher |
-|---------|-----|-----------|----------|
-| Dev typecheck | `tsconfig.app.json` paths | per-client `tsconfig.json` paths | `tsconfig.json` (no core) |
-| Runtime bundle | Vite alias | tsup `noExternal: [/^@inspector\/core/]` + esbuild alias | n/a |
-| Tests | Vitest projects in `clients/web/` | Vitest + `vitest.shared.mts` aliases | none |
+| Concern        | Web                               | CLI / TUI                                                | Launcher                  |
+| -------------- | --------------------------------- | -------------------------------------------------------- | ------------------------- |
+| Dev typecheck  | `tsconfig.app.json` paths         | per-client `tsconfig.json` paths                         | `tsconfig.json` (no core) |
+| Runtime bundle | Vite alias                        | tsup `noExternal: [/^@inspector\/core/]` + esbuild alias | n/a                       |
+| Tests          | Vitest projects in `clients/web/` | Vitest + `vitest.shared.mts` aliases                     | none                      |
 
 `vitest.shared.mts` at repo root centralizes `@inspector/core` and test-server aliases plus bare-module pins (`react`, `pino`, SDK, etc.) so CLI/TUI Vitest configs stay aligned with web.
 
 **Resolved design choices:**
 
-| Topic | Decision |
-|-------|----------|
-| Core package | No separate `inspector-core` npm package; source-only `core/` |
-| CLI/TUI build | tsup bundles `@inspector/core` into `build/index.js` |
-| Core tests | Not duplicated under cli/tui; web unit + integration suites cover `core/` |
-| Default config path | `resolveLaunchServerConfigs()` applies `withDefaultConfigPath()` → `~/.mcp-inspector/mcp.json` when no `--config` and no ad-hoc target |
+| Topic               | Decision                                                                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Core package        | No separate `inspector-core` npm package; source-only `core/`                                                                              |
+| CLI/TUI build       | tsup bundles `@inspector/core` into `build/index.js`                                                                                       |
+| Core tests          | Not duplicated under cli/tui; web unit + integration suites cover `core/`                                                                  |
+| Default config path | `loadServerEntries()` applies `withDefaultCatalogPath()` → `~/.mcp-inspector/mcp.json` when no `--catalog`/`--config` and no ad-hoc target |
 
 ---
 
@@ -100,11 +100,11 @@ All three clients import from `@inspector/core/...` (mapped to `../../core/` sou
 
 **Server resolution:**
 
-1. Positional `[target...]` (command/URL) and/or `--config` + `--server`, plus `-e`, `--cwd`, `--transport`, `--server-url`.
-2. `resolveLaunchServerConfigs(serverOptions, "single")` in `core/mcp/node/config.ts` — applies default catalog path when appropriate.
-3. Ad-hoc `--header` pairs map to `InspectorServerSettings` and pass into `InspectorClient` via `serverSettings` (not `MCPServerConfig.headers`).
+1. Positional `[target...]` (command/URL) and/or `--catalog`/`--config` + `--server`, plus `-e`, `--cwd`, `--transport`, `--server-url`, `--header`.
+2. `loadServerEntries(serverOptions)` in `core/mcp/node/servers.ts` — applies the default catalog path when appropriate and lifts disk settings; `selectServerEntry(entries, --server)` picks the single server to connect.
+3. Disk `headers`/timeouts/OAuth (post-#1358 flat entry shape) and ad-hoc `--header` pairs both map to `InspectorServerSettings` and pass into `InspectorClient` via `serverSettings` (not `MCPServerConfig.headers`). A launch-time `--header` overrides the file's headers.
 
-**Gap — config-file settings:** when loading from a config file, CLI uses `loadServerFromConfig()` / bare `MCPServerConfig` only. Persisted `headers`, timeouts, and OAuth fields on disk (post-#1358 flat entry shape) are **not** lifted into `serverSettings`. TUI uses `mcpConfigToServerEntries()` and does lift them. Ad-hoc `--header` on CLI works; file-backed settings do not.
+**Config-file settings (resolved #1482):** the CLI now routes file-sourced servers through the same `loadServerEntries()` → `mcpConfigToServerEntries()` path as the TUI, so persisted `headers`, timeouts, and OAuth are lifted into `serverSettings`. (Previously the CLI used bare `MCPServerConfig` and dropped them.)
 
 **Tests:** 86 cases in `clients/cli/__tests__/` spawn `node build/index.js` via `cli-runner.ts` (`pretest` builds test-servers + CLI). Core behavior is exercised; Vitest coverage on `src/cli.ts` is invisible to the coverage instrumenter because tests run out-of-process (see [Known gaps](#known-gaps)).
 
@@ -116,10 +116,10 @@ All three clients import from `@inspector/core/...` (mapped to `../../core/` sou
 
 **Entry:** `clients/tui/index.ts` exports `runTui(argv)`; `tui.tsx` parses argv and renders `App`.
 
-**Server resolution:** `loadTuiServers()` in `clients/tui/src/tui-servers.ts`:
+**Server resolution:** `loadTuiServers()` in `clients/tui/src/tui-servers.ts` — a thin re-export of the shared `loadServerEntries()` in `core/mcp/node/servers.ts`:
 
 - **Config file path:** reads JSON, runs `mcpConfigToServerEntries()` — returns `{ config, settings }` per server (correct post-#1358 path; matches web `useServers`).
-- **Catalog file:** applies `withDefaultConfigPath()` before reading the file (default catalog when no `--config` or ad-hoc target).
+- **Catalog file:** applies `withDefaultCatalogPath()` before reading the file (default catalog when no `--catalog`/`--config` or ad-hoc target).
 - **Ad-hoc:** `resolveServerConfigs(..., "multi")` for a single inline server (default catalog already applied above); merges launch-time `--header` into `settings`.
 
 **Core hooks:** TUI uses the same managed-state and `useInspectorClient` patterns as web (`ManagedToolsState`, etc.) inside Ink components.
@@ -151,15 +151,15 @@ Day-to-day web development still uses `cd clients/web && npm run dev` (Vite CLI 
 
 CLI, TUI, and `runWeb` share launch-time server options documented in v1.5's `docs/mcp-server-configuration.md` (port to v2 pending). Common flags:
 
-| Flag | Purpose |
-|------|---------|
-| `--config <path>` | MCP servers JSON file |
-| `--server <name>` | Named entry within config (required when file has multiple servers) |
-| `[target...]` | Ad-hoc stdio command/args or HTTP URL |
-| `-e KEY=VALUE` | Stdio environment overrides |
-| `--cwd <path>` | Stdio working directory |
-| `--transport` | `stdio`, `sse`, or `http` |
-| `--server-url <url>` | HTTP/SSE endpoint |
+| Flag                     | Purpose                                                                          |
+| ------------------------ | -------------------------------------------------------------------------------- |
+| `--config <path>`        | MCP servers JSON file                                                            |
+| `--server <name>`        | Named entry within config (required when file has multiple servers)              |
+| `[target...]`            | Ad-hoc stdio command/args or HTTP URL                                            |
+| `-e KEY=VALUE`           | Stdio environment overrides                                                      |
+| `--cwd <path>`           | Stdio working directory                                                          |
+| `--transport`            | `stdio`, `sse`, or `http`                                                        |
+| `--server-url <url>`     | HTTP/SSE endpoint                                                                |
 | `--header "Name: Value"` | Launch-time HTTP headers (CLI/TUI ad-hoc → `serverSettings`; web → warning only) |
 
 CLI additionally requires `--method` and method-specific args (`--tool-name`, `--uri`, etc.). Semantics for catalog vs session config, `--catalog`, and `servers/import` are in [v2_catalog_launch_config.md](v2_catalog_launch_config.md).
@@ -168,12 +168,12 @@ CLI additionally requires `--method` and method-specific args (`--tool-name`, `-
 
 ## Testing and CI
 
-| Suite | Location | Count | How |
-|-------|----------|-------|-----|
-| CLI | `clients/cli/__tests__/` | 86 | Subprocess `node build/index.js` |
-| TUI | `clients/tui/__tests__/` | 2 | In-process imports |
-| Launcher | CI smoke only | 3 | `--help`, `--cli --help`, `--tui --help` |
-| Core | `clients/web/src/test/` | — | Canonical; not duplicated in cli/tui |
+| Suite    | Location                 | Count | How                                      |
+| -------- | ------------------------ | ----- | ---------------------------------------- |
+| CLI      | `clients/cli/__tests__/` | 86    | Subprocess `node build/index.js`         |
+| TUI      | `clients/tui/__tests__/` | 2     | In-process imports                       |
+| Launcher | CI smoke only            | 3     | `--help`, `--cli --help`, `--tui --help` |
+| Core     | `clients/web/src/test/`  | —     | Canonical; not duplicated in cli/tui     |
 
 **Root orchestration:** `npm run test` chains web unit tests, then `clients/cli` and `clients/tui` tests. `npm run test:coverage` runs web coverage only.
 
@@ -210,17 +210,17 @@ Root `npm run validate` currently runs web validate only; extending it to CLI/TU
 
 ## Known gaps
 
-| Area | Gap | Tracking |
-|------|-----|----------|
-| **CLI config-file settings** | Disk `headers` / timeouts / OAuth not lifted when `--config` is used | This spec; [catalog doc](v2_catalog_launch_config.md) G1 |
-| **Web launch headers** | `runWeb --header` warns but does not apply settings to UI | This spec; [#1246](https://github.com/modelcontextprotocol/inspector/issues/1246) |
-| **TUI list-changed UX** | No stale-list indicator when `autoRefreshOnListChanged` is false | [#1402](https://github.com/modelcontextprotocol/inspector/issues/1402) |
-| **TUI test coverage** | Only `tabsConfig` shape tested | Expand `tui-servers.ts`, Ink flows |
-| **CLI coverage gates** | Subprocess tests don't instrument `src/cli.ts` | In-process `runCli()` runner + thin binary E2E suite |
-| **Prod web via launcher** | Requires pre-built `clients/web/dist/` | Document or wire into launcher prebuild |
-| **Import / `--catalog`** | `servers/import`, `--catalog` not implemented | [catalog doc](v2_catalog_launch_config.md); [#1348](https://github.com/modelcontextprotocol/inspector/issues/1348) |
-| **README refresh** | Client READMEs may lag v2 install/build commands | `clients/*/README.md`, `AGENTS.md` |
-| **Root validate** | Does not build/test CLI/TUI | Root `package.json` |
+| Area                         | Gap                                                                  | Tracking                                                                                                           |
+| ---------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **CLI config-file settings** | Disk `headers` / timeouts / OAuth not lifted when `--config` is used | This spec; [catalog doc](v2_catalog_launch_config.md) G1                                                           |
+| **Web launch headers**       | `runWeb --header` warns but does not apply settings to UI            | This spec; [#1246](https://github.com/modelcontextprotocol/inspector/issues/1246)                                  |
+| **TUI list-changed UX**      | No stale-list indicator when `autoRefreshOnListChanged` is false     | [#1402](https://github.com/modelcontextprotocol/inspector/issues/1402)                                             |
+| **TUI test coverage**        | Only `tabsConfig` shape tested                                       | Expand `tui-servers.ts`, Ink flows                                                                                 |
+| **CLI coverage gates**       | Subprocess tests don't instrument `src/cli.ts`                       | In-process `runCli()` runner + thin binary E2E suite                                                               |
+| **Prod web via launcher**    | Requires pre-built `clients/web/dist/`                               | Document or wire into launcher prebuild                                                                            |
+| **Import / `--catalog`**     | `servers/import`, `--catalog` not implemented                        | [catalog doc](v2_catalog_launch_config.md); [#1348](https://github.com/modelcontextprotocol/inspector/issues/1348) |
+| **README refresh**           | Client READMEs may lag v2 install/build commands                     | `clients/*/README.md`, `AGENTS.md`                                                                                 |
+| **Root validate**            | Does not build/test CLI/TUI                                          | Root `package.json`                                                                                                |
 
 ---
 
@@ -228,9 +228,10 @@ Root `npm run validate` currently runs web validate only; extending it to CLI/TU
 
 - `clients/launcher/src/index.ts` — mode routing and dynamic import
 - `clients/cli/src/cli.ts` — CLI parsing, `InspectorClient` one-shot flow
-- `clients/tui/src/tui-servers.ts` — config + settings load path (correct for v2)
+- `clients/tui/src/tui-servers.ts` — thin re-export of the shared `loadServerEntries`
 - `clients/web/server/run-web.ts` — launcher web entry
-- `core/mcp/node/config.ts` — `resolveLaunchServerConfigs`, `resolveServerConfigs`, `withDefaultConfigPath`
+- `core/mcp/node/servers.ts` — `loadServerEntries`, `selectServerEntry` (shared CLI/TUI config + settings load path)
+- `core/mcp/node/config.ts` — `resolveServerConfigs`, `withDefaultCatalogPath`, `serverSourceConflict`
 - `core/mcp/serverList.ts` — `mcpConfigToServerEntries`
 - `vitest.shared.mts` — shared Vitest aliases
 - [v2_catalog_launch_config.md](v2_catalog_launch_config.md) — catalog and launch config, import, UC1–UC5

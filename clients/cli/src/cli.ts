@@ -8,7 +8,6 @@ import type {
   InspectorServerSettings,
   MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
-import { DEFAULT_TASK_TTL_MS } from "@inspector/core/mcp/types.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import {
   ManagedToolsState,
@@ -18,9 +17,8 @@ import {
 } from "@inspector/core/mcp/state/index.js";
 import {
   createTransportNode,
-  resolveLaunchServerConfigs,
-  serverSourceConflict,
-  hasAdHocServerOptions,
+  loadServerEntries,
+  selectServerEntry,
   parseKeyValuePair as parseEnvPair,
   parseHeaderPair,
 } from "@inspector/core/mcp/node/index.js";
@@ -45,23 +43,6 @@ type MethodArgs = {
   toolMeta?: Record<string, string>;
   metadata?: Record<string, string>;
 };
-
-function headersToServerSettings(
-  headers?: Record<string, string>,
-): InspectorServerSettings | undefined {
-  if (!headers || Object.keys(headers).length === 0) {
-    return undefined;
-  }
-  return {
-    headers: Object.entries(headers).map(([key, value]) => ({ key, value })),
-    metadata: [],
-    connectionTimeout: 0,
-    requestTimeout: 0,
-    taskTtl: DEFAULT_TASK_TTL_MS,
-    autoRefreshOnListChanged: false,
-    roots: [],
-  };
-}
 
 async function callMethod(
   serverConfig: MCPServerConfig,
@@ -397,30 +378,24 @@ function parseArgs(argv?: string[]): {
     // back to MCP_CATALOG_PATH — keeps CLI and TUI flag resolution identical.
     catalogPath: options.catalog?.trim() || process.env.MCP_CATALOG_PATH,
     configPath: options.config?.trim() || undefined,
-    serverName: options.server,
     target: targetArgs.length > 0 ? targetArgs : undefined,
     transport: options.transport,
     serverUrl: options.serverUrl,
     cwd: options.cwd,
     env: options.e,
+    // `--header` is merged into the resolved server's settings (overriding any
+    // file-level headers); file timeouts/OAuth are preserved. See #1482.
+    headers: options.header,
   };
 
-  const conflict = serverSourceConflict({
-    hasCatalog: Boolean(serverOptions.catalogPath?.trim()),
-    hasConfig: Boolean(serverOptions.configPath?.trim()),
-    hasAdHoc: hasAdHocServerOptions(serverOptions),
-  });
-  if (conflict) {
-    throw new Error(conflict);
-  }
-
-  const configs = resolveLaunchServerConfigs(serverOptions, "single");
-  const serverConfig = configs[0];
-  if (!serverConfig) {
-    throw new Error(
-      "Could not resolve server config. Specify a URL or command, or use --config and --server.",
-    );
-  }
+  // Shared with the TUI: resolves the catalog/config source (or ad-hoc target),
+  // enforces the conflict matrix, and lifts disk headers/timeouts/OAuth into
+  // per-server settings. `--server` selects one when the file has several.
+  const entries = loadServerEntries(serverOptions);
+  const { config: serverConfig, settings: serverSettings } = selectServerEntry(
+    entries,
+    options.server,
+  );
 
   if (!options.method) {
     throw new Error(
@@ -456,7 +431,7 @@ function parseArgs(argv?: string[]): {
 
   return {
     serverConfig,
-    serverSettings: headersToServerSettings(options.header),
+    serverSettings,
     methodArgs,
   };
 }

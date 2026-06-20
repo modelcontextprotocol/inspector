@@ -78,6 +78,8 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --tr
 npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --transport http --method tools/list --header "X-API-Key: your-api-key"
 ```
 
+When a server is loaded from a `--catalog`/`--config` file, its per-server settings (headers, connection/request timeouts, and OAuth) are applied to the connection — the same resolution the TUI uses. A `--header` flag overrides the file's headers for that run while leaving the file's timeouts and OAuth in place.
+
 ## Options
 
 ### MCP server (which server to connect to)

@@ -235,7 +235,7 @@ function buildConfigFromOptions(options: ServerConfigOptions): MCPServerConfig {
  * carry no overridable per-request fields here — custom headers live in
  * `InspectorServerSettings.headers` (the persisted per-server settings node),
  * not on `MCPServerConfig`. */
-function applyOverrides(
+export function applyOverrides(
   config: MCPServerConfig,
   overrides: {
     env?: Record<string, string>;
@@ -247,7 +247,7 @@ function applyOverrides(
     if (overrides.env && Object.keys(overrides.env).length > 0) {
       c.env = { ...(c.env ?? {}), ...overrides.env };
     }
-    if (overrides.cwd) c.cwd = overrides.cwd;
+    if (overrides.cwd?.trim()) c.cwd = overrides.cwd.trim();
     return c;
   }
   return config;
@@ -413,18 +413,6 @@ export function resolveServerConfigs(
   }
 
   return [];
-}
-
-/**
- * Launch-time resolver for CLI/TUI: applies the default writable catalog path
- * when no `--catalog`, `--config`, or ad-hoc target is given, then delegates to
- * `resolveServerConfigs`.
- */
-export function resolveLaunchServerConfigs(
-  options: ServerConfigOptions,
-  mode: ResolveServerConfigsMode,
-): MCPServerConfig[] {
-  return resolveServerConfigs(withDefaultCatalogPath(options), mode);
 }
 
 /**
