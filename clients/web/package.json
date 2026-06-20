@@ -15,13 +15,11 @@
     "build": "tsc -b && vite build && npm run build:runner",
     "build:client": "vite build",
     "build:runner": "tsup --config tsup.runner.config.ts",
+    "build:storybook": "storybook build",
     "lint": "eslint .",
     "format": "prettier --write src",
     "format:check": "prettier --check src",
     "validate": "npm run format:check && npm run lint && npm run build && npm run test",
-    "preview": "vite preview",
-    "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build",
     "test": "vitest run --project=unit",
     "test:watch": "vitest --project=unit",
     "test:coverage": "npm run test-servers:build && vitest run --project=unit --project=integration --coverage",
@@ -29,7 +27,9 @@
     "test:storybook:watch": "vitest --project=storybook",
     "test-servers:build": "tsc -p ../../test-servers --noCheck",
     "test:integration": "npm run test-servers:build && vitest run --project=integration",
-    "test:integration:watch": "npm run test-servers:build && vitest --project=integration"
+    "test:integration:watch": "npm run test-servers:build && vitest --project=integration",
+    "preview": "vite preview",
+    "storybook": "storybook dev -p 6006"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
