@@ -107,3 +107,16 @@ While the Web Client provides a rich visual interface, the CLI is designed for:
 - **Automation**: Ideal for CI/CD pipelines and batch processing.
 - **AI Coding Assistants**: Provides a direct, machine-readable interface (JSON) for tools like Cursor or Claude to verify changes immediately.
 - **Log Analysis**: Easier integration with command-line utilities (like `jq`) to process and analyze MCP server output.
+
+## Development
+
+Run the test suite (and coverage gate) from `clients/cli/`:
+
+```bash
+npm test            # build test-servers + binary, then run all tests
+npm run test:coverage  # same, under the per-file coverage gate
+```
+
+Tests run the CLI **in-process** (importing `runCli()`) so `src/` is measured
+under coverage, with a thin out-of-process spawn layer for the real binary. See
+[`__tests__/README.md`](./__tests__/README.md) for details.

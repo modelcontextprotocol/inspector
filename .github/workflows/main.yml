@@ -38,13 +38,18 @@ jobs:
         working-directory: ./clients/web
         run: npm run test:coverage
 
-      - name: Run CLI tests
+      - name: Run CLI tests with coverage
+        # In-process runCli() tests under v8 instrumentation + a thin
+        # out-of-process E2E layer; enforces the per-file gate for
+        # clients/cli/src (#1484).
         working-directory: ./clients/cli
-        run: npm run test
+        run: npm run test:coverage
 
-      - name: Run TUI tests
+      - name: Run TUI tests with coverage
+        # Enforces the per-file gate for the TUI's non-React logic modules
+        # (interim scope — see clients/tui/vitest.config.ts and #1501).
         working-directory: ./clients/tui
-        run: npm run test
+        run: npm run test:coverage
 
       - name: Build CLI, TUI, and launcher
         run: npm run build:cli && npm run build:tui && npm run build:launcher

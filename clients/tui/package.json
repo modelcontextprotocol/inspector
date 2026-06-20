@@ -19,7 +19,8 @@
   "scripts": {
     "build": "tsup",
     "dev": "vite-node --config vitest.config.ts dev.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -41,6 +42,7 @@
   "devDependencies": {
     "@types/node": "^24.12.4",
     "@types/react": "^19.2.14",
+    "@vitest/coverage-v8": "^4.1.0",
     "tsup": "^8.5.0",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",

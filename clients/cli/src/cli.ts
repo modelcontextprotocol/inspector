@@ -2,7 +2,6 @@ import { dirname, join } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { Command } from "commander";
 type McpResponse = Record<string, unknown>;
-import { handleError } from "./error-handler.js";
 import { awaitableLog } from "./utils/awaitable-log.js";
 import type {
   InspectorServerSettings,
@@ -242,6 +241,17 @@ function parseArgs(argv?: string[]): {
   methodArgs: MethodArgs & { method: string };
 } {
   const program = new Command();
+  // On a parse/usage ERROR (exitCode !== 0), throw the CommanderError instead
+  // of letting commander call process.exit(). The binary entry (index.ts) still
+  // routes any thrown error through handleError → process.exit, so external
+  // behavior is unchanged — but in-process callers (the test harness in
+  // __tests__/helpers/cli-runner.ts) can now catch the error instead of having
+  // commander tear down the whole test worker. For --help / --version
+  // (exitCode 0) we return without throwing, so commander falls through to its
+  // normal clean process.exit(0) after printing — preserving that UX. See #1484.
+  program.exitOverride((err) => {
+    if (err.exitCode !== 0) throw err;
+  });
   const rawArgs = argv ?? process.argv;
   const scriptArgs = rawArgs.slice(2);
   const dashDashIndex = scriptArgs.indexOf("--");
@@ -441,17 +451,4 @@ export async function runCli(argv?: string[]): Promise<void> {
     argv ?? process.argv,
   );
   await callMethod(serverConfig, serverSettings, methodArgs);
-}
-
-export async function main(): Promise<void> {
-  process.on("uncaughtException", (error) => {
-    handleError(error);
-  });
-
-  try {
-    await runCli();
-    process.exit(0);
-  } catch (error) {
-    handleError(error);
-  }
 }

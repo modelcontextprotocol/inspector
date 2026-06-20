@@ -58,3 +58,17 @@ The TUI provides terminal-native tabs and panes for interacting with your MCP se
 - Use the **Arrow Keys** (Up/Down) to scroll through lists of items.
 - Press **Enter** to select an item, execute a tool, or fetch a resource.
 - Press **Escape** or `Ctrl+C` to exit the application.
+
+## Development
+
+Run the test suite from `clients/tui/`:
+
+```bash
+npm test               # run all tests
+npm run test:coverage  # run tests under the per-file coverage gate
+```
+
+Tests live in `__tests__/`. The coverage gate currently covers the TUI's
+non-React logic (server resolution, logger, tab metadata, and the `utils/`
+form/URL helpers); the Ink components and `App.tsx` are an interim exclusion in
+`vitest.config.ts` pending a renderer-based follow-up.

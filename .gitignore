@@ -6,6 +6,7 @@ node_modules
 dist
 clients/web/dist
 clients/**/build
+clients/**/coverage
 test-servers/build
 .env
 /.playwright-mcp/
