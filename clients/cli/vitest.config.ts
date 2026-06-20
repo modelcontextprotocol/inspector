@@ -25,7 +25,7 @@ export default defineConfig({
       reporter: ['text', 'html', 'json-summary'],
       include: ['src/**/*.ts'],
       exclude: [
-        // Binary bootstrap: shebang + `isMain` guard + `main()`/`process.exit`
+        // Binary bootstrap: shebang + `isMain` guard + `runCli()`/`process.exit`
         // wiring that only runs when launched as the real binary. Exercised by
         // the out-of-process layer (__tests__/e2e.test.ts + scripts/smoke-cli.mjs),
         // which spawns build/index.js and so can't be measured under in-process
