@@ -22,6 +22,10 @@
     "test:watch": "vitest",
     "test:coverage": "npm run test-servers:build && npm run build && vitest run --coverage",
     "test-servers:build": "tsc -p ../../test-servers --noCheck",
+    "lint": "eslint .",
+    "format": "prettier --write src __tests__",
+    "format:check": "prettier --check src __tests__",
+    "validate": "npm run format:check && npm run lint && npm run test:coverage",
     "test:cli": "vitest run cli.test.ts",
     "test:cli-tools": "vitest run tools.test.ts",
     "test:cli-headers": "vitest run headers.test.ts",
@@ -37,10 +41,15 @@
     "zustand": "^5.0.13"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@types/node": "^24.12.4",
     "@vitest/coverage-v8": "^4.1.0",
+    "eslint": "^9.39.4",
+    "globals": "^17.4.0",
+    "prettier": "^3.8.1",
     "tsup": "^8.5.0",
     "typescript": "~5.9.3",
+    "typescript-eslint": "^8.56.1",
     "vitest": "^4.1.0"
   }
 }

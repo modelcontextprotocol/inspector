@@ -6,10 +6,7 @@ import type {
   MCPServerConfig,
   InspectorClient,
 } from "@inspector/core/mcp/index.js";
-import type {
-  AuthGuidedState,
-  OAuthStep,
-} from "@inspector/core/auth/index.js";
+import type { AuthGuidedState, OAuthStep } from "@inspector/core/auth/index.js";
 
 const STEP_LABELS: Record<OAuthStep, string> = {
   metadata_discovery: "Metadata Discovery",

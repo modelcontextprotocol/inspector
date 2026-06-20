@@ -61,12 +61,18 @@ The TUI provides terminal-native tabs and panes for interacting with your MCP se
 
 ## Development
 
-Run the test suite from `clients/tui/`:
+Like the other clients, the TUI self-validates from its own folder:
 
 ```bash
+npm run validate       # format:check && lint && build && test:coverage
 npm test               # run all tests
 npm run test:coverage  # run tests under the per-file coverage gate
 ```
+
+The repo-root `validate:tui` just delegates here. `eslint.config.js` registers
+`react-hooks` for the classic rules only (rules-of-hooks + exhaustive-deps); the
+stricter react-hooks@7 rules are not enforced on the interim component surface
+(#1501).
 
 Tests live in `__tests__/`. The coverage gate currently covers the TUI's
 non-React logic (server resolution, logger, tab metadata, and the `utils/`
