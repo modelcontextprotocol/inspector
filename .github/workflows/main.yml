@@ -22,50 +22,23 @@ jobs:
         # clients/launcher, so this single step sets up every client.
         run: npm install
 
-      - name: Check formatting
-        working-directory: ./clients/web
-        run: npm run format:check
-
-      - name: Run linter
-        working-directory: ./clients/web
-        run: npm run lint
-
-      - name: Run Build
-        working-directory: ./clients/web
-        run: npm run build
-
-      - name: Run tests with coverage
-        working-directory: ./clients/web
-        run: npm run test:coverage
-
-      - name: Validate CLI (format, lint, coverage)
-        # Self-contained. In-process runCli() tests under v8 instrumentation + a
-        # thin out-of-process E2E layer enforce the per-file gate for
-        # clients/cli/src (#1484). The CLI's test:coverage builds the binary
-        # first (its e2e spawns it), which also produces the bundle the smokes
-        # need — so validate folds the build into test:coverage (no separate
-        # build step).
-        working-directory: ./clients/cli
+      - name: Validate (format, lint, build, fast tests)
+        # Each client self-validates: format:check + lint + build + test (no
+        # coverage instrumentation — fast). This also builds every client bundle
+        # (web dist, cli/tui/launcher) that the smokes below need.
         run: npm run validate
 
-      - name: Validate TUI (format, lint, build, coverage)
-        # Self-contained. The per-file coverage gate covers the TUI's non-React
-        # logic modules (interim scope — see clients/tui/vitest.config.ts and
-        # #1501); `build` produces the bundle the smoke needs.
-        working-directory: ./clients/tui
-        run: npm run validate
-
-      - name: Validate launcher (format, lint, build, coverage)
-        # Self-contained, with no dependency on the other clients being built.
-        working-directory: ./clients/launcher
-        run: npm run validate
+      - name: Coverage gate
+        # Runs each client's test:coverage (the web suite adds its integration
+        # project here) and enforces the per-file gate (lines ≥ 90, etc.). Kept
+        # separate from `validate` so the everyday check stays fast (#1484).
+        run: npm run coverage
 
       - name: Run cross-client smokes
         # End-to-end smokes through the built launcher (--help dispatch + prod
         # CLI/TUI/web). Not part of any client's `validate`: it needs the
-        # cli/tui/launcher bundles, which the validate steps above already built
-        # (smoke:web builds clients/web/dist on demand — #1486), so nothing is
-        # built twice.
+        # cli/tui/launcher bundles, which `validate` above already built
+        # (smoke:web builds clients/web/dist on demand — #1486).
         run: npm run smoke
 
       - name: Cache Playwright browsers
