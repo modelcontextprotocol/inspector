@@ -55,12 +55,18 @@ function captureWrite(append: (text: string) => void) {
  *   (and `console.error`/`console.warn`, which commander and error paths use).
  * - A thrown error (bad args, failed connect, unsupported method) maps to
  *   `exitCode: 1` with the message appended to stderr — mirroring how the real
- *   binary's `main()` routes errors through `handleError` → `process.exit(1)`.
+ *   binary (`index.ts`) routes errors through `handleError` → `process.exit(1)`.
  * - `options.env` is applied to `process.env` for the duration of the call and
  *   fully restored afterward.
  *
  * The real binary, its shebang, and actual `process.exit` codes are covered by
  * the thin out-of-process layer in `e2e.test.ts` and `scripts/smoke-cli.mjs`.
+ *
+ * DO NOT drive `--help` / `--version` through this runner. `cli.ts` sets
+ * `program.exitOverride((err) => { if (err.exitCode !== 0) throw err })`, so for
+ * those (exitCode 0) commander does NOT throw — it falls through to its normal
+ * `process.exit(0)`, which run in-process would terminate the vitest worker.
+ * Cover `--help` / `--version` in the out-of-process `e2e.test.ts` layer instead.
  */
 export async function runCli(
   args: string[],
@@ -101,6 +107,13 @@ export async function runCli(
   // ([node, script]) to mirror how the binary is launched.
   const argv = ["node", "inspector-cli", ...args];
 
+  // Safety net for a genuinely hung CLI. Note: when the timeout wins the race
+  // below, `invokeCli` is NOT cancellable in-process — it keeps running (its
+  // stdio MCP subprocess stays alive) and any later writes land on the
+  // *restored* real stdout, since `finally` has already unpatched it. The old
+  // out-of-process runner could SIGTERM the child group; this one structurally
+  // cannot. Acceptable because it only fires on the failure path (a hang),
+  // which no passing test should reach.
   const timeoutMs = options.timeout ?? 10000;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
