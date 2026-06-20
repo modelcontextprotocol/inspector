@@ -57,7 +57,7 @@ v2 is **not** an npm workspace — each client under `clients/*` keeps its own `
 - **After a pull that changes a client's dependencies:** re-run `npm install` at the root (or `npm run install:clients`) to re-sync every client.
 - The cascade is dev-only: it exits early when the package is installed under `node_modules`, and the published tarball ships only each client's `build/`, so end users are unaffected. Set `INSPECTOR_SKIP_CLIENT_INSTALL=1` to skip it.
 
-After installing, `npm run build` builds all clients. The launcher scripts (`npm run inspector` / `web` / `web:dev`) run the built launcher, so build first; for day-to-day web iteration use `cd clients/web && npm run dev`.
+After installing, `npm run build` builds all clients. The launcher scripts (`npm run web` / `web:dev`) run the built launcher, so build first; for day-to-day web iteration use `cd clients/web && npm run dev`.
 
 ## Repository & Project Board
 
@@ -145,7 +145,7 @@ All work should be driven by items on the project board.
 - `smoke:launcher` (`scripts/smoke-launcher.mjs`) runs the built launcher with `--help`, `--cli --help`, and `--tui --help`, asserting each exits 0 and prints that mode's usage banner (which also proves the launcher resolved and loaded the right client build). It's the cheap dispatch check before the heavier prod smokes below.
 - `smoke:web` (`scripts/smoke-web.mjs`) starts `mcp-inspector --web` (prod, no `--dev`) against the built `clients/web/dist` and asserts `GET /` serves the SPA (HTTP 200) with the injected `__INSPECTOR_API_TOKEN__`. Prod `--web` serves from `clients/web/dist`, which ships in the published package but is absent in a fresh checkout — the runner builds it on demand (`build:client` = `vite build`) on first launch, or exits with an actionable error if that build can't run (see `clients/web/server/ensure-web-build.ts` and the launcher README). `--dev` runs Vite directly and never needs `dist`.
 - `smoke:cli` (`scripts/smoke-cli.mjs`) drives `mcp-inspector --cli` through the built launcher against the bundled stdio test server via a temp `--catalog`: it asserts `tools/list` returns the server's tools (real connect over stdio), the default writable catalog is seeded empty on first run, a missing read-only `--config` errors without seeding, and `--catalog` + `--config` is rejected. `smoke:tui` (`scripts/smoke-tui.mjs`) launches `mcp-inspector --tui --catalog <temp>` and asserts the Ink app renders its first frame (the "MCP Servers" panel) within a timeout, then SIGTERMs it — a shallow boot/render check, not full interaction. Both build `test-servers/build` on demand if it's missing.
-- Also run `npm run test:storybook` before pushing — it executes every story's `play` function in headless Chromium via `@vitest/browser-playwright` (~10s). CI runs this as a separate step after the unit/lint/build checks; failures block merge. It is kept out of `validate` because it needs the Playwright browser binary and is much slower than the unit suite.
+- Also run `npm run test:storybook` from `clients/web/` before pushing — it executes every story's `play` function in headless Chromium via `@vitest/browser-playwright` (~10s). CI runs this as a separate step (from `clients/web`) after `validate`; failures block merge. It is kept out of `validate` because it needs the Playwright browser binary and is much slower than the unit suite. (There is no root-level `test:storybook` aggregate — run it in the web client.)
 
 ### Typescript instructions
 - Use TypeScript for all new code
