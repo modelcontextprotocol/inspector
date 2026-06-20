@@ -25,14 +25,18 @@ jobs:
       - name: Validate (format, lint, build, fast tests)
         # Each client self-validates: format:check + lint + build + test (no
         # coverage instrumentation — fast). This also builds every client bundle
-        # (web dist, cli/tui/launcher) that the smokes below need.
+        # (web dist, cli/tui/launcher) that the smokes below need. The per-file
+        # coverage gate (`npm run coverage`) is intentionally NOT run in CI — run
+        # it locally before pushing when you want the gate (#1484).
         run: npm run validate
 
-      - name: Coverage gate
-        # Runs each client's test:coverage (the web suite adds its integration
-        # project here) and enforces the per-file gate (lines ≥ 90, etc.). Kept
-        # separate from `validate` so the everyday check stays fast (#1484).
-        run: npm run coverage
+      - name: Run web integration tests
+        # `validate` runs the web UNIT project only (fast); the integration
+        # project (real stdio/HTTP servers, e2e OAuth, filesystem storage) is
+        # otherwise only reached via test:coverage. Run it here without coverage
+        # so CI still exercises those paths even though the gate is local-only.
+        working-directory: ./clients/web
+        run: npm run test:integration
 
       - name: Run cross-client smokes
         # End-to-end smokes through the built launcher (--help dispatch + prod

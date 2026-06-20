@@ -34,7 +34,6 @@
     "build:cli": "cd clients/cli && npm run build",
     "build:tui": "cd clients/tui && npm run build",
     "build:launcher": "cd clients/launcher && npm run build",
-    "prepack": "npm run build",
     "validate": "npm run validate:web && npm run validate:cli && npm run validate:tui && npm run validate:launcher",
     "validate:web": "cd clients/web && npm run validate",
     "validate:cli": "cd clients/cli && npm run validate",
@@ -54,6 +53,7 @@
     "inspector": "node clients/launcher/build/index.js",
     "web": "node clients/launcher/build/index.js --web",
     "web:dev": "node clients/launcher/build/index.js --web --dev",
+    "prepack": "npm run build",
     "postinstall": "node scripts/install-clients.mjs",
     "install:clients": "node scripts/install-clients.mjs"
   },
