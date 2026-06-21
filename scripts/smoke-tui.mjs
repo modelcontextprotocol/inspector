@@ -55,6 +55,19 @@ function ensureTestServer() {
   }
 }
 
+// The Ink TUI requires a real TTY for raw-mode keyboard input. Headless CI has
+// none, so the app throws "Raw mode is not supported" on mount and exits before
+// it can render its first frame — making this boot/render check inherently a
+// LOCAL-only smoke (its own design notes call driving Ink in CI flaky). Skip it
+// under CI rather than fail spuriously: the TUI is still built and unit-tested
+// there; only this terminal-dependent render check is local-only.
+if (process.env.CI) {
+  console.log(
+    "smoke:tui SKIPPED — Ink needs a real TTY (raw mode), unavailable in CI; run it locally",
+  );
+  process.exit(0);
+}
+
 if (!existsSync(launcher)) {
   fail(`launcher build not found at ${launcher} — run \`npm run build\` first`);
 }

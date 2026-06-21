@@ -40,9 +40,11 @@ jobs:
 
       - name: Run cross-client smokes
         # End-to-end smokes through the built launcher (--help dispatch + prod
-        # CLI/TUI/web). Not part of any client's `validate`: it needs the
+        # CLI/web). Not part of any client's `validate`: it needs the
         # cli/tui/launcher bundles, which `validate` above already built
-        # (smoke:web builds clients/web/dist on demand — #1486).
+        # (smoke:web builds clients/web/dist on demand — #1486). smoke:tui
+        # self-skips here — the Ink TUI needs a real TTY (raw mode) that headless
+        # CI lacks, so its boot/render check is local-only.
         run: npm run smoke
 
       - name: Cache Playwright browsers
