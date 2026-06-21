@@ -19,7 +19,8 @@
     "client/dist",
     "server/build",
     "server/static",
-    "cli/build"
+    "cli/build",
+    "cli/package.json"
   ],
   "workspaces": [
     "client",
