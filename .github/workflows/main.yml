@@ -22,50 +22,30 @@ jobs:
         # clients/launcher, so this single step sets up every client.
         run: npm install
 
-      - name: Check formatting
+      - name: Validate (format, lint, build, fast tests)
+        # Each client self-validates: format:check + lint + build + test (no
+        # coverage instrumentation — fast). This also builds every client bundle
+        # (web dist, cli/tui/launcher) that the smokes below need. The per-file
+        # coverage gate (`npm run coverage`) is intentionally NOT run in CI — run
+        # it locally before pushing when you want the gate (#1484).
+        run: npm run validate
+
+      - name: Run web integration tests
+        # `validate` runs the web UNIT project only (fast); the integration
+        # project (real stdio/HTTP servers, e2e OAuth, filesystem storage) is
+        # otherwise only reached via test:coverage. Run it here without coverage
+        # so CI still exercises those paths even though the gate is local-only.
         working-directory: ./clients/web
-        run: npm run format:check
+        run: npm run test:integration
 
-      - name: Run linter
-        working-directory: ./clients/web
-        run: npm run lint
-
-      - name: Run Build
-        working-directory: ./clients/web
-        run: npm run build
-
-      - name: Run tests with coverage
-        working-directory: ./clients/web
-        run: npm run test:coverage
-
-      - name: Run CLI tests with coverage
-        # In-process runCli() tests under v8 instrumentation + a thin
-        # out-of-process E2E layer; enforces the per-file gate for
-        # clients/cli/src (#1484).
-        working-directory: ./clients/cli
-        run: npm run test:coverage
-
-      - name: Run TUI tests with coverage
-        # Enforces the per-file gate for the TUI's non-React logic modules
-        # (interim scope — see clients/tui/vitest.config.ts and #1501).
-        working-directory: ./clients/tui
-        run: npm run test:coverage
-
-      - name: Build CLI, TUI, and launcher
-        run: npm run build:cli && npm run build:tui && npm run build:launcher
-
-      - name: Smoke test launcher
-        run: |
-          node clients/launcher/build/index.js --help
-          node clients/launcher/build/index.js --cli --help
-          node clients/launcher/build/index.js --tui --help
-
-      - name: Smoke test prod web launcher (end-to-end)
-        # Starts `mcp-inspector --web` against the built clients/web/dist (from
-        # the "Run Build" step) and asserts GET / serves the SPA (HTTP 200) with
-        # the injected auth token — the prod web path the --help smoke can't
-        # reach (#1486).
-        run: npm run smoke:web
+      - name: Run cross-client smokes
+        # End-to-end smokes through the built launcher (--help dispatch + prod
+        # CLI/web). Not part of any client's `validate`: it needs the
+        # cli/tui/launcher bundles, which `validate` above already built
+        # (smoke:web builds clients/web/dist on demand — #1486). smoke:tui
+        # self-skips here — the Ink TUI needs a real TTY (raw mode) that headless
+        # CI lacks, so its boot/render check is local-only.
+        run: npm run smoke
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4

@@ -110,12 +110,20 @@ While the Web Client provides a rich visual interface, the CLI is designed for:
 
 ## Development
 
-Run the test suite (and coverage gate) from `clients/cli/`:
+Like the other clients, the CLI self-validates from its own folder:
 
 ```bash
-npm test            # build test-servers + binary, then run all tests
-npm run test:coverage  # same, under the per-file coverage gate
+npm run validate       # format:check && lint && test:coverage
+npm test               # build test-servers + binary, then run all tests
+npm run test:coverage  # build + tests under the per-file coverage gate
 ```
+
+The CLI's `test:coverage` **builds the binary first** (its out-of-process
+`e2e.test.ts` spawns it, so it must run against a fresh build). `validate`
+therefore folds the build into `test:coverage` rather than repeating it — it is
+`format:check && lint && test:coverage`, with no separate `build` step (the
+other clients, whose tests don't spawn their bundle, keep an explicit `build`).
+The repo-root `validate:cli` just delegates here.
 
 Tests run the CLI **in-process** (importing `runCli()`) so `src/` is measured
 under coverage, with a thin out-of-process spawn layer for the real binary. See

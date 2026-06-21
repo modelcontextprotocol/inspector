@@ -17,10 +17,14 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsup",
     "dev": "vite-node --config vitest.config.ts dev.ts",
+    "build": "tsup",
+    "validate": "npm run format:check && npm run lint && npm run build && npm run test",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "format": "prettier --write src __tests__ index.ts tui.tsx dev.ts",
+    "format:check": "prettier --check src __tests__ index.ts tui.tsx dev.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -40,12 +44,18 @@
     "ink-select-input": "^6.2.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@types/node": "^24.12.4",
     "@types/react": "^19.2.14",
     "@vitest/coverage-v8": "^4.1.0",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "globals": "^17.4.0",
+    "prettier": "^3.8.1",
     "tsup": "^8.5.0",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
+    "typescript-eslint": "^8.56.1",
     "vite": "^8.0.16",
     "vite-node": "^6.0.0",
     "vitest": "^4.1.0"

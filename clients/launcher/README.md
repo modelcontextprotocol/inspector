@@ -56,15 +56,16 @@ dependencies are missing — the launcher exits with an actionable error telling
 you to run `npm run build` (from `clients/web`) or relaunch with `--dev` to use
 the Vite dev server. `--dev` never needs `dist/`; it runs Vite directly.
 
-CI and `npm run validate` (via `validate:launcher`) exercise this prod path
-end-to-end with `npm run smoke:web` (`scripts/smoke-web.mjs`): it starts
+CI and `npm run validate` (via the top-level `smoke` step) exercise this prod
+path end-to-end with `npm run smoke:web` (`scripts/smoke-web.mjs`): it starts
 `mcp-inspector --web` against the built `dist/` and asserts `GET /` returns the
 SPA (HTTP 200) with the injected `__INSPECTOR_API_TOKEN__`.
 
 ### CLI and TUI smokes
 
-`validate:launcher` also runs end-to-end smokes for the other two modes through
-the built launcher artifact (beyond the `--help` checks in `smoke:launcher`):
+The top-level `smoke` step also runs end-to-end smokes for the other two modes
+through the built launcher artifact (beyond the `--help` checks in
+`smoke:launcher`):
 
 - `npm run smoke:cli` (`scripts/smoke-cli.mjs`) — runs `mcp-inspector --cli`
   against the bundled stdio test server via a temp `--catalog` and asserts
@@ -77,6 +78,21 @@ the built launcher artifact (beyond the `--help` checks in `smoke:launcher`):
   check, not full interaction).
 
 Both build `test-servers/build` on demand if it is missing.
+
+## Development
+
+Like the web client, the launcher self-validates from its own folder:
+
+```bash
+npm run validate  # format:check && lint && build && test:coverage
+```
+
+This has **no** dependency on the other clients being built — it only checks the
+launcher's own source. `eslint.config.js` is a Node-only flat config (the web
+client's React/Storybook plugins stripped out), and the per-file coverage gate
+covers `parse-launcher-argv.ts` (the pure arg-parsing logic); `src/index.ts` is
+excluded as binary bootstrap and is instead exercised by the smokes above. The
+repo-root `validate:launcher` simply delegates here (`cd clients/launcher && npm run validate`).
 
 ## Publishing
 

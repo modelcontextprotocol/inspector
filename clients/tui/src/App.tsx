@@ -149,7 +149,10 @@ function App({
   );
 
   useEffect(() => {
-    getTuiLogger().info({ serverNames: Object.keys(mcpServers) }, "TUI started");
+    getTuiLogger().info(
+      { serverNames: Object.keys(mcpServers) },
+      "TUI started",
+    );
   }, [mcpServers]);
 
   const [selectedServer, setSelectedServer] = useState<string | null>(null);
@@ -711,7 +714,9 @@ function App({
     oauthInProgressRef.current = true;
     setOauthStatus("authenticating");
     setOauthMessage(null);
-    getTuiLogger().info("OAuth authentication started (Guided Auth advance step)");
+    getTuiLogger().info(
+      "OAuth authentication started (Guided Auth advance step)",
+    );
     try {
       await selectedInspectorClient.proceedOAuthStep();
       const state = selectedInspectorClient.getOAuthState();

@@ -162,6 +162,19 @@ export default defineConfig({
         test: {
           name: 'unit',
           environment: 'happy-dom',
+          // Don't let happy-dom actually navigate child frames. Components like
+          // the MCP Apps sandbox render an <iframe src="/sandbox.html">; with
+          // navigation enabled happy-dom fetches that URL (and unloads it on
+          // teardown), which fails under the test server and floods the run with
+          // alarming-but-expected `DOMException [NetworkError/AbortError]` and
+          // `AsyncTaskManager destroyed` output. The component tests only assert
+          // on the iframe element/attributes, not its loaded document, so
+          // disabling frame navigation removes the noise without losing coverage.
+          environmentOptions: {
+            happyDOM: {
+              settings: { navigation: { disableChildFrameNavigation: true } },
+            },
+          },
           // Root the unit project at the repo root so vitest's coverage
           // transformer (which only processes files inside a project root)
           // can reach core/ modules. Without this, untested core/ files fall
