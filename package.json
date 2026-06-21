@@ -52,8 +52,7 @@
     "smoke:web": "node scripts/smoke-web.mjs",
     "smoke:launcher": "node scripts/smoke-launcher.mjs",
     "prepack": "npm run build",
-    "postinstall": "node scripts/install-clients.mjs",
-    "install:clients": "node scripts/install-clients.mjs"
+    "postinstall": "node scripts/install-clients.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.14",
