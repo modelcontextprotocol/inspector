@@ -776,13 +776,18 @@ const MCP_APP_DEMO_HTML = `<!doctype html>
     <h2 id="title">mcp-app-demo</h2>
     <pre id="ctx">waiting for ui/initialize…</pre>
     <script type="module">
-      let nextId = 1;
-      // Captured from the first ui/initialize message; thereafter every send
+      // Per spec, ui/initialize is a View→Host REQUEST: the view sends it on
+      // load and the host responds with hostContext + capabilities. The view
+      // then sends notifications/initialized once it has rendered.
+      // Production apps should use @modelcontextprotocol/ext-apps (the App
+      // class handles the handshake and origin discipline internally) — this
+      // fixture is a minimal no-SDK demo of the raw protocol for testing the
+      // host side.
+      const INIT_ID = 1;
+      let nextId = 2;
+      // Captured from the host's ui/initialize RESPONSE; thereafter every send
       // targets, and every receive is checked against, this exact origin so a
       // sibling frame on a different origin cannot inject or intercept traffic.
-      // Production apps should use @modelcontextprotocol/ext-apps (the App
-      // class handles origin discipline internally) — this fixture is a minimal
-      // no-SDK demo of the raw protocol for testing the host side.
       let HOST_ORIGIN = null;
       const send = (msg) =>
         window.parent.postMessage(
@@ -800,45 +805,52 @@ const MCP_APP_DEMO_HTML = `<!doctype html>
           2,
         );
       };
+      const onInitialized = (hostContext) => {
+        renderCtx(hostContext);
+        // Signal the view is ready (host gates host-context-changed on this).
+        send({ method: "notifications/initialized" });
+        // Standard MCP log notification — surfaced by the host's log panel.
+        send({
+          method: "notifications/message",
+          params: { level: "info", data: "mcp-app-demo initialized" },
+        });
+        // Tell the host the rendered content height.
+        send({
+          method: "ui/notifications/size-changed",
+          params: {
+            width: document.body.clientWidth,
+            height: document.body.scrollHeight,
+          },
+        });
+        // Submit one user-role message via ui/message.
+        send({
+          id: nextId++,
+          method: "ui/message",
+          params: {
+            content: [{ type: "text", text: "hello from mcp-app-demo" }],
+          },
+        });
+      };
       window.addEventListener("message", (ev) => {
         if (HOST_ORIGIN !== null && ev.origin !== HOST_ORIGIN) return;
         const m = ev.data;
         if (!m || m.jsonrpc !== "2.0") return;
-        if (m.method === "ui/initialize") {
+        if (m.id === INIT_ID && m.result) {
           HOST_ORIGIN = ev.origin;
-          send({
-            id: m.id,
-            result: {
-              protocolVersion: m.params.protocolVersion,
-              capabilities: {},
-              appInfo: { name: "mcp-app-demo", version: "1.0.0" },
-            },
-          });
-          renderCtx(m.params.hostContext);
-          // Standard MCP log notification — surfaced by the host's log panel.
-          send({
-            method: "notifications/message",
-            params: { level: "info", data: "mcp-app-demo initialized" },
-          });
-          // Tell the host the rendered content height.
-          const h = document.body.scrollHeight;
-          send({
-            method: "ui/notifications/size-changed",
-            params: { width: document.body.clientWidth, height: h },
-          });
-          // Submit one user-role message via ui/message.
-          send({
-            id: nextId++,
-            method: "ui/message",
-            params: {
-              content: [{ type: "text", text: "hello from mcp-app-demo" }],
-            },
-          });
-          // Signal the view is ready.
-          send({ method: "notifications/initialized" });
+          onInitialized(m.result.hostContext);
         } else if (m.method === "ui/notifications/host-context-changed") {
           renderCtx(m.params.hostContext);
         }
+      });
+      // Kick off the handshake.
+      send({
+        id: INIT_ID,
+        method: "ui/initialize",
+        params: {
+          protocolVersion: "2026-01-26",
+          appInfo: { name: "mcp-app-demo", version: "1.0.0" },
+          appCapabilities: {},
+        },
       });
     </script>
   </body>
