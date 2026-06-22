@@ -647,6 +647,8 @@ export function useConnection({
         }
 
         let mcpProxyServerUrl;
+        const upstreamSocks5Proxy = config.MCP_UPSTREAM_SOCKS5_PROXY
+          .value as string;
         switch (transportType) {
           case "stdio": {
             mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/stdio`);
@@ -684,6 +686,12 @@ export function useConnection({
           case "sse": {
             mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/sse`);
             mcpProxyServerUrl.searchParams.append("url", sseUrl);
+            if (upstreamSocks5Proxy) {
+              mcpProxyServerUrl.searchParams.append(
+                "socks5",
+                upstreamSocks5Proxy,
+              );
+            }
 
             const proxyFullAddressSSE = config.MCP_PROXY_FULL_ADDRESS
               .value as string;
@@ -715,6 +723,12 @@ export function useConnection({
           case "streamable-http":
             mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
             mcpProxyServerUrl.searchParams.append("url", sseUrl);
+            if (upstreamSocks5Proxy) {
+              mcpProxyServerUrl.searchParams.append(
+                "socks5",
+                upstreamSocks5Proxy,
+              );
+            }
             transportOptions = {
               authProvider: serverAuthProvider,
               eventSourceInit: {

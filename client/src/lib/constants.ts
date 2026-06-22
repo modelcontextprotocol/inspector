@@ -85,6 +85,13 @@ export const DEFAULT_INSPECTOR_CONFIG: InspectorConfig = {
     value: "",
     is_session_item: true,
   },
+  MCP_UPSTREAM_SOCKS5_PROXY: {
+    label: "Upstream SOCKS5 Proxy",
+    description:
+      "Optional SOCKS5 proxy for the Inspector proxy server when it connects to upstream SSE or Streamable HTTP MCP servers. Example: socks5://127.0.0.1:1080",
+    value: "",
+    is_session_item: false,
+  },
   MCP_TASK_TTL: {
     label: "Task TTL",
     description:

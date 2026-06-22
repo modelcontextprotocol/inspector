@@ -13,7 +13,13 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms, true));
 }
 
-function getClientUrl(port, authDisabled, sessionToken, serverPort) {
+function getClientUrl(
+  port,
+  authDisabled,
+  sessionToken,
+  serverPort,
+  upstreamSocks5Proxy,
+) {
   const host = process.env.HOST || "localhost";
   const baseUrl = `http://${host}:${port}`;
 
@@ -23,6 +29,9 @@ function getClientUrl(port, authDisabled, sessionToken, serverPort) {
   }
   if (!authDisabled) {
     params.set("MCP_PROXY_AUTH_TOKEN", sessionToken);
+  }
+  if (upstreamSocks5Proxy) {
+    params.set("MCP_UPSTREAM_SOCKS5_PROXY", upstreamSocks5Proxy);
   }
   return params.size > 0 ? `${baseUrl}/?${params.toString()}` : baseUrl;
 }
@@ -36,6 +45,7 @@ async function startDevServer(serverOptions) {
     abort,
     transport,
     serverUrl,
+    upstreamSocks5Proxy,
   } = serverOptions;
   const serverCommand = "npx";
   const serverArgs = ["tsx", "watch", "--clear-screen=false", "src/index.ts"];
@@ -51,6 +61,9 @@ async function startDevServer(serverOptions) {
       MCP_ENV_VARS: JSON.stringify(envVars),
       ...(transport ? { MCP_TRANSPORT: transport } : {}),
       ...(serverUrl ? { MCP_SERVER_URL: serverUrl } : {}),
+      ...(upstreamSocks5Proxy
+        ? { MCP_UPSTREAM_SOCKS5_PROXY: upstreamSocks5Proxy }
+        : {}),
     },
     signal: abort.signal,
     echoOutput: true,
@@ -91,6 +104,7 @@ async function startProdServer(serverOptions) {
     mcpServerArgs,
     transport,
     serverUrl,
+    upstreamSocks5Proxy,
   } = serverOptions;
   const inspectorServerPath = resolve(
     __dirname,
@@ -110,6 +124,7 @@ async function startProdServer(serverOptions) {
         : []),
       ...(transport ? [`--transport=${transport}`] : []),
       ...(serverUrl ? [`--server-url=${serverUrl}`] : []),
+      ...(upstreamSocks5Proxy ? [`--socks5=${upstreamSocks5Proxy}`] : []),
     ],
     {
       env: {
@@ -138,6 +153,7 @@ async function startDevClient(clientOptions) {
     sessionToken,
     abort,
     cancelled,
+    upstreamSocks5Proxy,
   } = clientOptions;
   const clientCommand = "npx";
   const host = process.env.HOST || "localhost";
@@ -163,6 +179,7 @@ async function startDevClient(clientOptions) {
     authDisabled,
     sessionToken,
     SERVER_PORT,
+    upstreamSocks5Proxy,
   );
 
   // Give vite time to start before opening or logging the URL
@@ -196,6 +213,7 @@ async function startProdClient(clientOptions) {
     sessionToken,
     abort,
     cancelled,
+    upstreamSocks5Proxy,
   } = clientOptions;
   const inspectorClientPath = resolve(
     __dirname,
@@ -210,6 +228,7 @@ async function startProdClient(clientOptions) {
     authDisabled,
     sessionToken,
     SERVER_PORT,
+    upstreamSocks5Proxy,
   );
 
   await spawnPromise("node", [inspectorClientPath], {
@@ -233,6 +252,7 @@ async function main() {
   let isDev = false;
   let transport = null;
   let serverUrl = null;
+  let upstreamSocks5Proxy = process.env.MCP_UPSTREAM_SOCKS5_PROXY || null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -254,6 +274,11 @@ async function main() {
 
     if (parsingFlags && arg === "--server-url" && i + 1 < args.length) {
       serverUrl = args[++i];
+      continue;
+    }
+
+    if (parsingFlags && arg === "--socks5" && i + 1 < args.length) {
+      upstreamSocks5Proxy = args[++i];
       continue;
     }
 
@@ -310,6 +335,7 @@ async function main() {
       mcpServerArgs,
       transport,
       serverUrl,
+      upstreamSocks5Proxy,
     };
 
     const result = isDev
@@ -329,6 +355,7 @@ async function main() {
         sessionToken,
         abort,
         cancelled,
+        upstreamSocks5Proxy,
       };
 
       await (isDev
