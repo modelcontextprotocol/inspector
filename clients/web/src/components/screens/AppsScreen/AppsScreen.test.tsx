@@ -61,51 +61,40 @@ const okBridgeFactory: BridgeFactory = () =>
   }) as unknown as AppBridge;
 
 // A bridge factory whose bridge supports the addEventListener/emit surface the
-// AppRenderer wires up, so a test can drive a `sizechange` notification through
-// to the screen's resize handling. `emit` dispatches to the captured listeners.
+// AppRenderer wires up, so a test can drive a bridge event (sizechange,
+// loggingmessage) through to the screen's handling. `emit` dispatches to the
+// captured listeners; `bridges` exposes each built bridge so tests can also
+// drive the per-bridge handlers (onmessage, onrequestdisplaymode).
 function createEventBridgeFactory(): {
   factory: BridgeFactory;
+  bridges: AppBridge[];
   emit: (event: string, payload?: unknown) => void;
 } {
   const listeners: Record<string, ((payload: unknown) => void)[]> = {};
-  const factory: BridgeFactory = () =>
-    ({
+  const bridges: AppBridge[] = [];
+  const factory: BridgeFactory = () => {
+    const bridge = {
       sendToolInput: async () => {},
+      sendToolInputPartial: async () => {},
       sendToolResult: async () => {},
       sendToolCancelled: async () => {},
+      sendHostContextChange: async () => {},
       teardownResource: async () => ({}),
       close: async () => {},
       addEventListener: (event: string, handler: (p: unknown) => void) => {
         (listeners[event] ??= []).push(handler);
       },
       removeEventListener: () => {},
-    }) as unknown as AppBridge;
-  return {
-    factory,
-    emit: (event, payload) =>
-      (listeners[event] ?? []).forEach((h) => h(payload)),
-  };
-}
-
-// A factory whose built bridges are captured so a test can drive the
-// onmessage handler the screen attaches (simulating a ui/message from a view).
-function makeCapturingFactory(): {
-  factory: BridgeFactory;
-  bridges: AppBridge[];
-} {
-  const bridges: AppBridge[] = [];
-  const factory: BridgeFactory = () => {
-    const bridge = {
-      sendToolInput: async () => {},
-      sendToolResult: async () => {},
-      sendToolCancelled: async () => {},
-      teardownResource: async () => ({}),
-      close: async () => {},
     } as unknown as AppBridge;
     bridges.push(bridge);
     return bridge;
   };
-  return { factory, bridges };
+  return {
+    factory,
+    bridges,
+    emit: (event, payload) =>
+      (listeners[event] ?? []).forEach((h) => h(payload)),
+  };
 }
 
 // Invoke the onmessage handler the screen attached to the latest bridge,
@@ -450,7 +439,7 @@ describe("AppsScreen", () => {
 
   it("surfaces ui/message content from the view in the message log", async () => {
     const user = userEvent.setup();
-    const { factory, bridges } = makeCapturingFactory();
+    const { factory, bridges } = createEventBridgeFactory();
     renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
     // The no-fields app auto-launches on selection, mounting the renderer,
     // whose effect invokes the (message-wrapped) factory and attaches the
@@ -468,7 +457,7 @@ describe("AppsScreen", () => {
 
   it("returns an empty ui/message result (no conversation content leak)", async () => {
     const user = userEvent.setup();
-    const { factory, bridges } = makeCapturingFactory();
+    const { factory, bridges } = createEventBridgeFactory();
     renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
     await user.click(screen.getByText("Ops Dashboard"));
     await vi.waitFor(() =>
@@ -482,7 +471,7 @@ describe("AppsScreen", () => {
 
   it("clears the message log when the app is closed", async () => {
     const user = userEvent.setup();
-    const { factory, bridges } = makeCapturingFactory();
+    const { factory, bridges } = createEventBridgeFactory();
     renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
     await user.click(screen.getByText("Ops Dashboard"));
     await vi.waitFor(() =>

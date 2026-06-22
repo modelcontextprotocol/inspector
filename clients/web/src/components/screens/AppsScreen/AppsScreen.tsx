@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type Ref } from "react";
+import { useRef, useState, type Ref } from "react";
 import {
   ActionIcon,
   Button,
@@ -21,18 +21,18 @@ import {
   MdFullscreen,
   MdFullscreenExit,
 } from "react-icons/md";
-import type { ContentBlock, Tool } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  ContentBlock,
+  LoggingMessageNotification,
+  Tool,
+} from "@modelcontextprotocol/sdk/types.js";
 import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   AppRenderer,
   type AppRendererHandle,
   type BridgeFactory,
 } from "../../elements/AppRenderer/AppRenderer";
-import {
-  HOST_AVAILABLE_DISPLAY_MODES,
-  subscribeAppLogs,
-  type AppLogEntry,
-} from "../../elements/AppRenderer/createAppBridgeFactory";
+import { HOST_AVAILABLE_DISPLAY_MODES } from "../../elements/AppRenderer/createAppBridgeFactory";
 import { AppDetailPanel } from "../../groups/AppDetailPanel/AppDetailPanel";
 import { AppControls } from "../../groups/AppControls/AppControls";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
@@ -107,7 +107,7 @@ const EmptyState = Text.withProps({
   py: "xl",
 });
 
-const HeaderRow = Group.withProps({
+const SpacedRow = Group.withProps({
   justify: "space-between",
   wrap: "nowrap",
   gap: "sm",
@@ -140,6 +140,26 @@ const HeaderActions = Group.withProps({
   wrap: "nowrap",
 });
 
+const HeaderActionIcon = ActionIcon.withProps({
+  variant: "subtle",
+});
+
+const CompactSubtleButton = Button.withProps({
+  variant: "subtle",
+  size: "compact-xs",
+});
+
+const BackToInputButton = Button.withProps({
+  variant: "subtle",
+  size: "sm",
+  leftSection: <MdArrowBack aria-hidden size={16} />,
+});
+
+const StagePartialButton = Button.withProps({
+  variant: "default",
+  size: "compact-xs",
+});
+
 // The host-controlled box the running app sits within. Its size is driven by
 // the host's layout (window resize, sidebar toggle, maximize) and NOT by the
 // view's reported content height — that drives the inner RendererFrame — so
@@ -152,29 +172,21 @@ const RendererContainer = Stack.withProps({
   gap: 0,
 });
 
-const RendererFrame = Stack.withProps({
-  flex: 1,
-  miw: 0,
-  mih: 0,
-  gap: 0,
-});
-
 const ContentStack = Stack.withProps({
   gap: "md",
   h: "100%",
 });
 
-// Pinned log below the running app showing the user-role messages the view has
-// submitted via ui/message. `0 0 auto` keeps it at its content height (capped
-// by `mah`) so it never squeezes out the iframe above it; the list scrolls when
-// it overflows.
-const MessageLog = Stack.withProps({
+// Pinned panel below the running app (used by both the message log and the
+// app-log panel). `0 0 auto` keeps it at its content height (capped by the
+// inner scroll's `mah`) so it never squeezes out the iframe above it.
+const PinnedPanel = Stack.withProps({
   gap: "xs",
   flex: "0 0 auto",
   mih: 0,
 });
 
-const MessageLogScroll = ScrollArea.withProps({
+const LogScroll = ScrollArea.withProps({
   mah: 200,
   type: "auto",
   scrollbars: "y",
@@ -195,32 +207,10 @@ const MessageItemStack = Stack.withProps({
   gap: "xs",
 });
 
-const MessageRole = Text.withProps({
+const MonoCaption = Text.withProps({
   size: "xs",
   c: "dimmed",
   ff: "monospace",
-});
-
-// Collapsed-by-default panel showing the running app's MCP log notifications.
-// Same flex behavior as MessageLog so it pins below the iframe and scrolls
-// internally instead of squeezing the app.
-const AppLogPanel = Stack.withProps({
-  gap: "xs",
-  flex: "0 0 auto",
-  mih: 0,
-});
-
-const AppLogHeader = Group.withProps({
-  justify: "space-between",
-  wrap: "nowrap",
-  gap: "sm",
-});
-
-const AppLogScroll = ScrollArea.withProps({
-  mah: 200,
-  type: "auto",
-  scrollbars: "y",
-  offsetScrollbars: true,
 });
 
 const AppLogList = Stack.withProps({
@@ -231,12 +221,6 @@ const AppLogRow = Group.withProps({
   gap: "sm",
   wrap: "nowrap",
   align: "flex-start",
-});
-
-const AppLogLogger = Text.withProps({
-  size: "xs",
-  c: "dimmed",
-  ff: "monospace",
 });
 
 const AppLogData = Code.withProps({
@@ -256,7 +240,7 @@ const PartialStageCount = Text.withProps({
   c: "dimmed",
 });
 
-/** Render the log payload as a string for display. */
+/** Render a log payload as a string for display. */
 function formatLogData(data: unknown): string {
   if (typeof data === "string") return data;
   try {
@@ -272,6 +256,18 @@ function formatLogData(data: unknown): string {
 interface AppMessage {
   role: "user";
   content: ContentBlock[];
+}
+
+/**
+ * One MCP `notifications/message` log entry from the running app, with the
+ * payload stringified once at capture time so the render path can use it
+ * directly. `id` is a stable React key.
+ */
+interface AppLogEntry {
+  id: number;
+  level: LoggingMessageNotification["params"]["level"];
+  logger?: string;
+  text: string;
 }
 
 export function AppsScreen({
@@ -292,6 +288,7 @@ export function AppsScreen({
   const [running, setRunning] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const rendererContainerRef = useRef<HTMLDivElement | null>(null);
+  const nextLogIdRef = useRef(0);
   // Height (px) the running view last reported via ui/notifications/size-changed.
   // Undefined until the view reports (or after it's torn down), in which case
   // the iframe fills the available card space as before. Local to the screen
@@ -316,35 +313,20 @@ export function AppsScreen({
     [],
   );
 
-  // Wrap the host factory so each bridge it builds is also wired for the
-  // screen-owned surfaces:
-  //  - ui/message: record the submitted content blocks for display and, per
-  //    spec, return an empty result (no conversation content) to avoid
-  //    information leakage.
-  //  - notifications/message: subscribe and append to the app-log panel so the
-  //    advertised `logging` capability is honored.
-  // The capabilities themselves are advertised in HOST_CAPABILITIES
-  // (createAppBridgeFactory). Memoized on `bridgeFactory` so the AppRenderer —
-  // which rebuilds the iframe whenever the factory identity changes — doesn't
-  // thrash on every render.
-  const wrappedBridgeFactory = useMemo<BridgeFactory>(
-    () => async (iframe, tool) => {
-      const bridge = await bridgeFactory(iframe, tool);
-      bridge.onmessage = async ({ role, content }) => {
-        setMessages((prev) => [...prev, { role, content }]);
-        return {};
-      };
-      subscribeAppLogs(bridge, (entry) =>
-        setAppLogs((prev) => [...prev, entry]),
-      );
-      return bridge;
-    },
-    [bridgeFactory],
-  );
+  // Clear every piece of "tied to the live bridge" local state. Called on
+  // select/open/close/back so a new run starts clean. `keepPartials` is set
+  // for `handleOpen`, where the staged fragments are about to be consumed by
+  // the renderer and should not be cleared first.
+  function resetSessionState(opts?: { keepPartials?: boolean }) {
+    setAppHeight(undefined);
+    setMessages([]);
+    setAppLogs([]);
+    setAppLogsExpanded(false);
+    setMaximized(false);
+    if (!opts?.keepPartials) setPartialStages([]);
+  }
 
-  const selectedTool = selectedAppName
-    ? tools.find((t) => t.name === selectedAppName)
-    : undefined;
+  const selectedTool = tools.find((t) => t.name === selectedAppName);
   const selectedHasFields = selectedTool ? hasInputFields(selectedTool) : false;
 
   // The running view reports its rendered content height via
@@ -355,6 +337,22 @@ export function AppsScreen({
   // the screen instead).
   function handleSizeChange(size: { width?: number; height?: number }) {
     if (size.height != null) setAppHeight(size.height);
+  }
+
+  function handleMessage(params: { role: "user"; content: ContentBlock[] }) {
+    setMessages((prev) => [...prev, params]);
+  }
+
+  function handleLog(params: LoggingMessageNotification["params"]) {
+    setAppLogs((prev) => [
+      ...prev,
+      {
+        id: nextLogIdRef.current++,
+        level: params.level,
+        logger: params.logger,
+        text: formatLogData(params.data),
+      },
+    ]);
   }
 
   // The app's display mode is derived from the existing maximized toggle.
@@ -378,10 +376,7 @@ export function AppsScreen({
     if (name === selectedAppName) return;
     const next = tools.find((t) => t.name === name);
     if (!next) return;
-    setAppHeight(undefined);
-    setMessages([]);
-    setAppLogs([]);
-    setPartialStages([]);
+    resetSessionState();
     // Seed schema defaults so default-only fields are sent on Open App (parity
     // with the form's resolveValue display, which onChange doesn't capture).
     onUiChange({
@@ -389,7 +384,6 @@ export function AppsScreen({
       selectedAppName: name,
       formValues: collectSchemaDefaults(next.inputSchema),
     });
-    setMaximized(false);
     onSelectApp(name);
     // No-input apps auto-launch on selection so the user lands directly in
     // the running view; apps with fields wait for the explicit Open App click.
@@ -403,11 +397,7 @@ export function AppsScreen({
 
   function handleOpen() {
     if (!selectedTool) return;
-    setAppHeight(undefined);
-    setMessages([]);
-    setAppLogs([]);
-    // partialStages is NOT cleared here — it's passed to the renderer for this
-    // open and replayed before the complete input. It clears on switch/close.
+    resetSessionState({ keepPartials: true });
     setRunning(true);
     onOpenApp(selectedTool.name, formValues);
   }
@@ -418,22 +408,14 @@ export function AppsScreen({
 
   function handleClose() {
     setRunning(false);
-    setAppHeight(undefined);
-    setMessages([]);
-    setAppLogs([]);
-    setPartialStages([]);
+    resetSessionState();
     onUiChange({ ...ui, selectedAppName: undefined, formValues: {} });
-    setMaximized(false);
     onCloseApp();
   }
 
   function handleBackToInput() {
     setRunning(false);
-    setAppHeight(undefined);
-    setMessages([]);
-    setAppLogs([]);
-    setPartialStages([]);
-    setMaximized(false);
+    resetSessionState();
   }
 
   // No sandbox proxy URL means the host can't embed the trusted outer iframe
@@ -476,7 +458,7 @@ export function AppsScreen({
       <ContentCard flex={1} h="100%">
         {selectedTool ? (
           <ContentStack>
-            <HeaderRow>
+            <SpacedRow>
               <HeaderLabel>
                 {selectedTool.icons?.[0]?.src && (
                   <HeaderIcon src={selectedTool.icons[0].src} alt="" />
@@ -487,19 +469,13 @@ export function AppsScreen({
               </HeaderLabel>
               <HeaderActions>
                 {running && selectedHasFields && (
-                  <Button
-                    variant="subtle"
-                    size="sm"
-                    leftSection={<MdArrowBack aria-hidden size={16} />}
-                    onClick={handleBackToInput}
-                  >
+                  <BackToInputButton onClick={handleBackToInput}>
                     Back to Input
-                  </Button>
+                  </BackToInputButton>
                 )}
                 {running && (
                   <Tooltip label={maximized ? "Restore" : "Maximize"}>
-                    <ActionIcon
-                      variant="subtle"
+                    <HeaderActionIcon
                       onClick={() => setMaximized((m) => !m)}
                       aria-label={maximized ? "Restore" : "Maximize"}
                     >
@@ -508,26 +484,22 @@ export function AppsScreen({
                       ) : (
                         <MdFullscreen aria-hidden size={20} />
                       )}
-                    </ActionIcon>
+                    </HeaderActionIcon>
                   </Tooltip>
                 )}
                 <Tooltip label="Close">
-                  <ActionIcon
-                    variant="subtle"
-                    onClick={handleClose}
-                    aria-label="Close"
-                  >
+                  <HeaderActionIcon onClick={handleClose} aria-label="Close">
                     <MdClose aria-hidden size={20} />
-                  </ActionIcon>
+                  </HeaderActionIcon>
                 </Tooltip>
               </HeaderActions>
-            </HeaderRow>
+            </SpacedRow>
             {running ? (
               // RendererContainer is the host-controlled box (its size only
-              // changes with host layout); RendererFrame inside it is sized by
-              // the view's reported content height, capped at the container.
+              // changes with host layout); the inner Stack is sized by the
+              // view's reported content height, capped at the container.
               <RendererContainer ref={rendererContainerRef}>
-                <RendererFrame
+                <RendererContainer
                   flex={contentHeight != null ? "0 0 auto" : 1}
                   h={contentHeight}
                   mah="100%"
@@ -539,16 +511,18 @@ export function AppsScreen({
                     key={selectedTool.name}
                     sandboxPath={sandboxPath}
                     tool={selectedTool}
-                    bridgeFactory={wrappedBridgeFactory}
+                    bridgeFactory={bridgeFactory}
                     onError={onError}
                     onSizeChange={handleSizeChange}
+                    onMessage={handleMessage}
+                    onLog={handleLog}
                     displayMode={displayMode}
                     onRequestDisplayMode={handleRequestDisplayMode}
                     partialInputs={partialStages}
                     containerRef={rendererContainerRef}
                     ref={rendererRef}
                   />
-                </RendererFrame>
+                </RendererContainer>
               </RendererContainer>
             ) : (
               // `isOpening` is always false here because `handleOpen`
@@ -561,25 +535,19 @@ export function AppsScreen({
               <>
                 {selectedHasFields && (
                   <PartialStageControls>
-                    <Button
-                      variant="default"
-                      size="compact-xs"
-                      onClick={handleStagePartialInput}
-                    >
+                    <StagePartialButton onClick={handleStagePartialInput}>
                       Stage partial input
-                    </Button>
+                    </StagePartialButton>
                     {partialStages.length > 0 && (
                       <>
                         <PartialStageCount>
                           {partialStages.length} staged
                         </PartialStageCount>
-                        <Button
-                          variant="subtle"
-                          size="compact-xs"
+                        <CompactSubtleButton
                           onClick={() => setPartialStages([])}
                         >
                           Clear staged
-                        </Button>
+                        </CompactSubtleButton>
                       </>
                     )}
                   </PartialStageControls>
@@ -596,16 +564,16 @@ export function AppsScreen({
               </>
             )}
             {running && messages.length > 0 && (
-              <MessageLog>
+              <PinnedPanel>
                 <Title order={5}>Messages from app ({messages.length})</Title>
-                <MessageLogScroll>
+                <LogScroll>
                   <MessageLogStack>
                     {messages.map((message, index) => (
                       <MessageItem key={index}>
                         <MessageItemStack>
-                          <MessageRole>
+                          <MonoCaption>
                             [{index}] role: {message.role}
-                          </MessageRole>
+                          </MonoCaption>
                           {message.content.map((block, blockIndex) => (
                             <ContentViewer
                               key={blockIndex}
@@ -617,44 +585,38 @@ export function AppsScreen({
                       </MessageItem>
                     ))}
                   </MessageLogStack>
-                </MessageLogScroll>
-              </MessageLog>
+                </LogScroll>
+              </PinnedPanel>
             )}
             {running && appLogs.length > 0 && (
-              <AppLogPanel>
-                <AppLogHeader>
-                  <Button
-                    variant="subtle"
-                    size="compact-xs"
+              <PinnedPanel>
+                <SpacedRow>
+                  <CompactSubtleButton
                     onClick={() => setAppLogsExpanded((e) => !e)}
                     aria-expanded={appLogsExpanded}
                   >
                     App logs ({appLogs.length})
-                  </Button>
-                  <Button
-                    variant="subtle"
-                    size="compact-xs"
-                    onClick={() => setAppLogs([])}
-                  >
+                  </CompactSubtleButton>
+                  <CompactSubtleButton onClick={() => setAppLogs([])}>
                     Clear
-                  </Button>
-                </AppLogHeader>
+                  </CompactSubtleButton>
+                </SpacedRow>
                 <Collapse in={appLogsExpanded}>
-                  <AppLogScroll>
+                  <LogScroll>
                     <AppLogList>
                       {appLogs.map((entry) => (
                         <AppLogRow key={entry.id}>
                           <LogLevelBadge level={entry.level} />
                           {entry.logger && (
-                            <AppLogLogger>{entry.logger}</AppLogLogger>
+                            <MonoCaption>{entry.logger}</MonoCaption>
                           )}
-                          <AppLogData>{formatLogData(entry.data)}</AppLogData>
+                          <AppLogData>{entry.text}</AppLogData>
                         </AppLogRow>
                       ))}
                     </AppLogList>
-                  </AppLogScroll>
+                  </LogScroll>
                 </Collapse>
-              </AppLogPanel>
+              </PinnedPanel>
             )}
           </ContentStack>
         ) : (

@@ -61,18 +61,19 @@ function joinSources(list: string[] | undefined, fallback: string): string {
  * stay restricted to `resourceDomains`.
  */
 export function buildSandboxCspPolicy(approved: McpUiResourceCsp): string {
-  const resource = approved.resourceDomains;
-  const inlineResource = resource
-    ? `'unsafe-inline' ${resource.join(" ")}`
-    : "'unsafe-inline'";
+  const resourceSrc = joinSources(approved.resourceDomains, "'none'");
+  const inlineResource =
+    resourceSrc === "'none'"
+      ? "'unsafe-inline'"
+      : `'unsafe-inline' ${resourceSrc}`;
   return [
     "default-src 'none'",
     `connect-src ${joinSources(approved.connectDomains, "'none'")}`,
     `script-src ${inlineResource}`,
     `style-src ${inlineResource}`,
-    `img-src ${joinSources(resource, "'none'")}`,
-    `font-src ${joinSources(resource, "'none'")}`,
-    `media-src ${joinSources(resource, "'none'")}`,
+    `img-src ${resourceSrc}`,
+    `font-src ${resourceSrc}`,
+    `media-src ${resourceSrc}`,
     `frame-src ${joinSources(approved.frameDomains, "'none'")}`,
     `base-uri ${joinSources(approved.baseUriDomains, "'self'")}`,
     "form-action 'none'",

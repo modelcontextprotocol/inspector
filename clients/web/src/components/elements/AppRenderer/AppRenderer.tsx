@@ -11,13 +11,17 @@ import type {
   AppBridge,
   AppBridgeEventMap,
   McpUiDisplayMode,
+  McpUiMessageRequest,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  CallToolResult,
+  LoggingMessageNotification,
+  Tool,
+} from "@modelcontextprotocol/sdk/types.js";
 import {
   currentStyles,
   currentTheme,
   measureContainerDimensions,
-  type ContainerDimensions,
 } from "./hostContext";
 
 /**
@@ -63,6 +67,17 @@ export interface AppRendererProps {
    * by returning its current one.
    */
   onRequestDisplayMode?: (requested: McpUiDisplayMode) => McpUiDisplayMode;
+  /**
+   * Called when the running view submits a user-role message via
+   * `ui/message`. The renderer returns the spec-required empty result on
+   * the host's behalf, so the callback is fire-and-forget.
+   */
+  onMessage?: (params: McpUiMessageRequest["params"]) => void;
+  /**
+   * Called for each MCP log notification (`notifications/message`) the
+   * running view emits. Backs the advertised `logging` host capability.
+   */
+  onLog?: (params: LoggingMessageNotification["params"]) => void;
   /**
    * Ordered tool-input fragments to replay via
    * `ui/notifications/tool-input-partial` BEFORE the complete `tool-input`,
@@ -129,6 +144,8 @@ export function AppRenderer({
   onSizeChange,
   displayMode,
   onRequestDisplayMode,
+  onMessage,
+  onLog,
   partialInputs,
   containerRef,
   ref,
@@ -154,15 +171,17 @@ export function AppRenderer({
   const onSizeChangeRef = useRef(onSizeChange);
   const displayModeRef = useRef(displayMode);
   const onRequestDisplayModeRef = useRef(onRequestDisplayMode);
+  const onMessageRef = useRef(onMessage);
+  const onLogRef = useRef(onLog);
   const partialInputsRef = useRef(partialInputs);
-  const containerElementRef = useRef(containerRef);
   useEffect(() => {
     onErrorRef.current = onError;
     onSizeChangeRef.current = onSizeChange;
     displayModeRef.current = displayMode;
     onRequestDisplayModeRef.current = onRequestDisplayMode;
+    onMessageRef.current = onMessage;
+    onLogRef.current = onLog;
     partialInputsRef.current = partialInputs;
-    containerElementRef.current = containerRef;
   });
 
   // Flush buffered tool input/result to the view, but only once the bridge
@@ -176,10 +195,10 @@ export function AppRenderer({
     if (!bridge || !initializedRef.current) return;
     // Partial-input fragments first, in staged order, BEFORE the complete
     // tool-input — the spec requires partials to precede the final input.
-    while (pendingPartialsRef.current.length > 0) {
-      const args = pendingPartialsRef.current.shift();
-      if (args) void bridge.sendToolInputPartial({ arguments: args });
+    for (const args of pendingPartialsRef.current) {
+      void bridge.sendToolInputPartial({ arguments: args });
     }
+    pendingPartialsRef.current = [];
     if (pendingInputRef.current !== null) {
       const args = pendingInputRef.current;
       pendingInputRef.current = null;
@@ -283,8 +302,7 @@ export function AppRenderer({
           // changes. Only containerDimensions can plausibly differ between
           // bridge construction and initialization (layout settles), so push
           // that one field now via the SDK's partial-change notification.
-          const container =
-            containerElementRef.current?.current ?? iframeRef.current;
+          const container = containerRef?.current ?? iframeRef.current;
           const containerDimensions = container
             ? measureContainerDimensions(container)
             : undefined;
@@ -298,6 +316,11 @@ export function AppRenderer({
         bridge.addEventListener("sizechange", (size) => {
           onSizeChangeRef.current?.(size);
         });
+        // Forward the view's MCP log notifications so the host can honor the
+        // advertised `logging` capability instead of dropping them.
+        bridge.addEventListener("loggingmessage", (params) => {
+          onLogRef.current?.(params);
+        });
         // Handle ui/request-display-mode: let the host (AppsScreen) decide what
         // mode to actually apply and return that. With no handler the request is
         // declined by returning the current host-side mode.
@@ -308,6 +331,15 @@ export function AppRenderer({
             : (displayModeRef.current ?? "inline");
           return { mode: applied };
         };
+        // Handle ui/message: surface the submitted content and return the
+        // spec-required empty result (no conversation content) to avoid
+        // information leakage. With no handler the submission is declined.
+        bridge.onmessage = async (params) => {
+          const handler = onMessageRef.current;
+          if (!handler) return { isError: true };
+          handler(params);
+          return {};
+        };
         flushPending();
       })
       .catch((err) => {
@@ -315,7 +347,14 @@ export function AppRenderer({
       });
 
     return scheduleDispose;
-  }, [bridgeFactory, sandboxPath, tool, flushPending, scheduleDispose]);
+  }, [
+    bridgeFactory,
+    sandboxPath,
+    tool,
+    containerRef,
+    flushPending,
+    scheduleDispose,
+  ]);
 
   // Push live host-context changes to the running view as discrete partial
   // updates via AppBridge.sendHostContextChange (the SDK's
@@ -357,9 +396,9 @@ export function AppRenderer({
   // fires once the handshake is complete; a 0×0 (not-yet-laid-out) measurement
   // and a value-equal repeat are both skipped.
   useEffect(() => {
-    const target = containerElementRef.current?.current ?? iframeRef.current;
+    const target = containerRef?.current ?? iframeRef.current;
     if (typeof ResizeObserver === "undefined" || !target) return;
-    let last: ContainerDimensions | undefined;
+    let last: { width: number; height: number } | undefined;
     const observer = new ResizeObserver(() => {
       if (!initializedRef.current) return;
       const next = measureContainerDimensions(target);
@@ -374,7 +413,7 @@ export function AppRenderer({
     });
     observer.observe(target);
     return () => observer.disconnect();
-  }, []);
+  }, [containerRef]);
 
   // Display mode: pushes whenever the prop changes (Maximize/Restore, or after
   // we honored a ui/request-display-mode). Gated on `initialized` for the same

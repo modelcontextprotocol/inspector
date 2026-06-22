@@ -1,4 +1,5 @@
 import type {
+  McpUiDisplayMode,
   McpUiHostContext,
   McpUiHostStyles,
   McpUiStyles,
@@ -112,19 +113,44 @@ export type ContainerDimensions = NonNullable<
 >;
 
 /**
- * Measure the host container an app renders into and return it as the spec's
- * fixed `{ width, height }` shape (whole pixels). Returns undefined when the
- * element has no layout box yet (0×0 — e.g. before the iframe is attached, or
- * in a non-DOM/test environment) so a meaningless size is never seeded into
- * hostContext.
+ * Measure the host container an app renders into and return its concrete
+ * `{ width, height }` (whole pixels). Returns undefined when the element has
+ * no layout box yet (0×0 — e.g. before the iframe is attached, or in a
+ * non-DOM/test environment) so a meaningless size is never seeded into
+ * hostContext. The return type is the concrete pair rather than the spec's
+ * {@link ContainerDimensions} union so callers can compare both fields.
  */
 export function measureContainerDimensions(
   element: HTMLElement,
-): ContainerDimensions | undefined {
+): { width: number; height: number } | undefined {
   if (typeof element.getBoundingClientRect !== "function") return undefined;
   const rect = element.getBoundingClientRect();
   const width = Math.round(rect.width);
   const height = Math.round(rect.height);
   if (width <= 0 || height <= 0) return undefined;
   return { width, height };
+}
+
+/**
+ * Read the live host UI state into a {@link McpUiHostContext} for the bridge
+ * handshake — the single place that decides which fields the inspector seeds.
+ * Optional fields are omitted (not set undefined) so the SDK's diff stays
+ * accurate; subsequent live changes are pushed by the renderer's observers as
+ * partial `host-context-changed` notifications.
+ */
+export function snapshotHostContext(
+  container: HTMLElement | null,
+  availableDisplayModes: readonly McpUiDisplayMode[],
+): McpUiHostContext {
+  const styles = currentStyles();
+  const containerDimensions = container
+    ? measureContainerDimensions(container)
+    : undefined;
+  return {
+    theme: currentTheme(),
+    displayMode: "inline",
+    availableDisplayModes: [...availableDisplayModes],
+    ...(styles ? { styles } : {}),
+    ...(containerDimensions ? { containerDimensions } : {}),
+  };
 }

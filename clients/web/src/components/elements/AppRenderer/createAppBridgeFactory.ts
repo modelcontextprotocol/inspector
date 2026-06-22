@@ -12,7 +12,6 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type {
   EmbeddedResource,
   Implementation,
-  LoggingMessageNotification,
   ReadResourceResult,
   ResourceLink,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -26,11 +25,7 @@ import {
   fileNameFromUri,
   isHttpUrl,
 } from "../../../lib/downloadFile";
-import {
-  currentStyles,
-  currentTheme,
-  measureContainerDimensions,
-} from "./hostContext";
+import { snapshotHostContext } from "./hostContext";
 import type { BridgeFactory } from "./AppRenderer";
 
 /**
@@ -92,45 +87,6 @@ export interface AppBridgeFactoryDeps {
    * frame; the error is also always console.error'd.
    */
   onResourceError?: (err: Error) => void;
-}
-
-/**
- * One MCP `notifications/message` log entry from a running app, stamped with a
- * host-side `id` (stable React key) and `timestamp` so the UI can render a
- * keyed, time-ordered log without re-processing on every push.
- */
-export interface AppLogEntry {
-  id: number;
-  timestamp: number;
-  level: LoggingMessageNotification["params"]["level"];
-  logger?: string;
-  data: unknown;
-}
-
-/**
- * Subscribe to a bridge's `loggingmessage` events and forward each one to
- * `onLog` as a stamped {@link AppLogEntry}. The inspector advertises the
- * `logging` host capability in {@link HOST_CAPABILITIES}, so a running app may
- * emit standard MCP log notifications — without a listener the bridge receives
- * them and silently drops them. Colocated with the other bridge-event wiring so
- * the SDK event surface stays in one file. Returns an unsubscribe function.
- */
-export function subscribeAppLogs(
-  bridge: AppBridge,
-  onLog: (entry: AppLogEntry) => void,
-): () => void {
-  let nextId = 0;
-  const handler = (params: LoggingMessageNotification["params"]) => {
-    onLog({
-      id: nextId++,
-      timestamp: Date.now(),
-      level: params.level,
-      logger: params.logger,
-      data: params.data,
-    });
-  };
-  bridge.addEventListener("loggingmessage", handler);
-  return () => bridge.removeEventListener("loggingmessage", handler);
 }
 
 /** First text content block of a UI resource, plus its `_meta` (sandbox hints). */
@@ -247,16 +203,8 @@ export function createAppBridgeFactory(
     // mutates the shared HOST_CAPABILITIES constant — each app may declare its own
     // csp/permissions.
     const hostCapabilities: McpUiHostCapabilities = { ...HOST_CAPABILITIES };
-    const styles = currentStyles();
-    const containerDimensions = measureContainerDimensions(iframe);
     const bridge = new AppBridge(client, HOST_INFO, hostCapabilities, {
-      hostContext: {
-        theme: currentTheme(),
-        displayMode: "inline",
-        availableDisplayModes: [...HOST_AVAILABLE_DISPLAY_MODES],
-        ...(styles ? { styles } : {}),
-        ...(containerDimensions ? { containerDimensions } : {}),
-      },
+      hostContext: snapshotHostContext(iframe, HOST_AVAILABLE_DISPLAY_MODES),
     });
 
     // The double-iframe proxy posts `sandboxready` once it can receive content.
