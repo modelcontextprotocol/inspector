@@ -102,6 +102,8 @@ export interface ToolDefinition {
   inputSchema?: ToolInputSchema;
   /** Optional Zod object schema for tool output; when set, handler must return structuredContent. */
   outputSchema?: unknown;
+  /** Passed through to the SDK so clients can read tool-level `_meta` (e.g. `_meta.ui.resourceUri` for MCP App tools). */
+  _meta?: Record<string, unknown>;
   handler: (
     params: Record<string, unknown>,
     context?: TestServerContext,
@@ -123,6 +125,8 @@ export interface ResourceDefinition {
   description?: string;
   mimeType?: string;
   text?: string;
+  /** Included on the returned content item so clients can read resource-level `_meta` (e.g. `_meta.ui.csp` for MCP App UI resources). */
+  _meta?: Record<string, unknown>;
 }
 
 export interface PromptDefinition {
@@ -477,6 +481,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
             ...(tool.outputSchema != null && {
               outputSchema: tool.outputSchema as AnySchema,
             }),
+            ...(tool._meta != null && { _meta: tool._meta }),
           },
           async (args, extra) => {
             const result = await tool.handler(
@@ -542,6 +547,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
                   uri: resource.uri,
                   mimeType: resource.mimeType || "text/plain",
                   text: resource.text ?? "",
+                  ...(resource._meta != null && { _meta: resource._meta }),
                 },
               ],
             };

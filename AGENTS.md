@@ -59,6 +59,8 @@ v2 is **not** an npm workspace — each client under `clients/*` keeps its own `
 
 After installing, `npm run build` builds all clients. The launcher scripts (`npm run web` / `web:dev`) run the built launcher, so build first; for day-to-day web iteration use `cd clients/web && npm run dev`.
 
+For automated MCP App review (CLI-first probe + one-shot web render), see [docs/mcp-app-review.md](docs/mcp-app-review.md).
+
 ## Repository & Project Board
 
 - **Repo**: https://github.com/modelcontextprotocol/inspector.git

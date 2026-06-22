@@ -59,6 +59,53 @@ describe("--app-info", () => {
     expect(info.hasApp).toBe(false);
   });
 
+  it("emits the resource-side csp/permissions and exits 0 for an App tool", async () => {
+    const { command, args } = getTestMcpServerCommand();
+    const result = await runCli([
+      command,
+      ...args,
+      "--method",
+      "tools/call",
+      "--tool-name",
+      "mcp_app_demo",
+      "--app-info",
+    ]);
+    expect(result.exitCode).toBe(0);
+    const info = JSON.parse(result.stdout.trim().split("\n")[0]) as {
+      hasApp: boolean;
+      toolName: string;
+      resourceUri: string;
+      csp: unknown;
+      permissions: unknown;
+      prefersBorder: boolean;
+      resourceMimeType: string;
+    };
+    expect(info.hasApp).toBe(true);
+    expect(info.toolName).toBe("mcp_app_demo");
+    expect(info.resourceUri).toBe("ui://demo/widget.html");
+    expect(info.csp).toEqual({ connectDomains: [], resourceDomains: [] });
+    expect(info.permissions).toEqual({ clipboard: false });
+    expect(info.prefersBorder).toBe(true);
+    expect(info.resourceMimeType).toBe("text/html");
+  });
+
+  it("appends an MCP App Info block after a normal tools/call on an App tool", async () => {
+    const { command, args } = getTestMcpServerCommand();
+    const result = await runCli([
+      command,
+      ...args,
+      "--method",
+      "tools/call",
+      "--tool-name",
+      "mcp_app_demo",
+      "--tool-arg",
+      "title=hello",
+    ]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("--- MCP App Info ---");
+    expect(result.stdout).toContain('"hasApp": true');
+  });
+
   it("does not invoke the tool when --app-info is set", async () => {
     // get_sum requires numeric a/b args; without --app-info this would fail
     // with a tool error. With --app-info the tool is never called, so the
