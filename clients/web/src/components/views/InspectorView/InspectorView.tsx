@@ -1,4 +1,12 @@
-import { useMemo, useState, type ReactNode, type Ref } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref,
+} from "react";
+import type { DeepLink } from "../../../utils/deepLink";
 import { AppShell, Box, Stack, Transition } from "@mantine/core";
 import { useLocalStorage } from "@mantine/hooks";
 import type {
@@ -160,9 +168,12 @@ const ScreenStageContainer = Stack.withProps({
 // expanded sections) is reset on tab switch.
 function ScreenStage({
   active,
+  testId,
   children,
 }: {
   active: boolean;
+  /** Stable hook for automated drivers; only present in the DOM while mounted. */
+  testId?: string;
   children: ReactNode;
 }) {
   return (
@@ -176,7 +187,14 @@ function ScreenStage({
       {(styles) => (
         // `style={styles}` is the runtime transition state from Mantine's
         // Transition API — these are interpolated values, not static styling.
-        <Box style={styles} pos="absolute" top={0} left={0} right={0}>
+        <Box
+          style={styles}
+          pos="absolute"
+          top={0}
+          left={0}
+          right={0}
+          data-testid={testId}
+        >
           {children}
         </Box>
       )}
@@ -185,6 +203,14 @@ function ScreenStage({
 }
 
 export interface InspectorViewProps {
+  /**
+   * Validated deep-link parameters from the page URL. When present and
+   * `openApp` is set, this component switches to the Apps tab and pre-selects
+   * that app (with `appArgs` as the form values) once the connection is up and
+   * the app list contains it. The connect itself is driven by the parent.
+   */
+  deepLink?: DeepLink;
+
   // Server list (static config; runtime connection state comes from the
   // separate fields below and is merged into each card by this component).
   servers: ServerEntry[];
@@ -354,6 +380,7 @@ export interface InspectorViewProps {
 }
 
 export function InspectorView({
+  deepLink,
   servers: serversInput,
   serverListWritable = true,
   activeServer,
@@ -448,8 +475,13 @@ export function InspectorView({
 }: InspectorViewProps) {
   // UI-only state. Connection state, primitive lists, and all action
   // dispatching live in the parent; this component only owns navigation
-  // (which tab is visible) and a couple of view-local toggles.
-  const [selectedTab, setSelectedTab] = useState<string>(SERVERS_TAB);
+  // (which tab is visible) and a couple of view-local toggles. A deep link
+  // with `openApp` seeds the selection at "Apps" — the `availableTabs` clamp
+  // below shows Servers until the connection is up and the Apps tab becomes
+  // available, at which point the seeded selection takes effect.
+  const [selectedTab, setSelectedTab] = useState<string>(
+    deepLink?.openApp ? "Apps" : SERVERS_TAB,
+  );
 
   const [logsSort, setLogsSort] = useSortDirection("logs");
   const [historySort, setHistorySort] = useSortDirection("history");
@@ -537,6 +569,36 @@ export function InspectorView({
     ? selectedTab
     : SERVERS_TAB;
 
+  // Deep-link auto-open: once connected and the requested app appears in the
+  // app-tools list, pre-select it with the supplied form values (the tab
+  // itself is seeded above). AppsScreen owns the running/iframe state
+  // internally, so the remaining "click Open" is one explicit user (or
+  // automated driver) action away.
+  const deepLinkOpenAppRef = useRef(false);
+  useEffect(() => {
+    if (!deepLink?.openApp) return;
+    if (deepLinkOpenAppRef.current) return;
+    if (connectionStatus !== "connected") return;
+    if (!availableTabs.includes("Apps")) return;
+    const target = appTools.find((t) => t.name === deepLink.openApp);
+    if (!target) return;
+    deepLinkOpenAppRef.current = true;
+    onAppsUiChange({
+      ...appsUi,
+      selectedAppName: target.name,
+      formValues: deepLink.appArgs,
+    });
+    onSelectApp(target.name);
+  }, [
+    deepLink,
+    connectionStatus,
+    availableTabs,
+    appTools,
+    appsUi,
+    onAppsUiChange,
+    onSelectApp,
+  ]);
+
   // Merge the parent's `serversInput` (static config) with the runtime
   // connection state owned by the parent — only the active server reflects
   // the live status; the rest render as `disconnected`. Handshake errors
@@ -575,7 +637,10 @@ export function InspectorView({
     // Main-slot height clamp + overflow:hidden keep that scroll on the inner
     // ScrollArea regions only.
     <AppShell header={{ height: 60 }} padding={0}>
-      <AppShell.Header>
+      <AppShell.Header
+        data-testid="connection-status"
+        data-status={connectionStatus}
+      >
         {connectionStatus === "connected" && initializeResult ? (
           <ViewHeader
             connected
@@ -629,7 +694,7 @@ export function InspectorView({
               onReadResource={onReadResourceContents}
             />
           </ScreenStage>
-          <ScreenStage active={activeTab === "Apps"}>
+          <ScreenStage active={activeTab === "Apps"} testId="apps-stage">
             <AppsScreen
               tools={appTools}
               listChanged={toolsListChanged}

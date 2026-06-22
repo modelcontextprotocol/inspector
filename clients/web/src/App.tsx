@@ -88,6 +88,8 @@ import type {
 import type { GetPromptState } from "./components/screens/PromptsScreen/PromptsScreen";
 import type { ReadResourceState } from "./components/screens/ResourcesScreen/ResourcesScreen";
 import type { TaskProgress } from "./components/groups/TaskCard/TaskCard";
+import { parseDeepLink } from "./utils/deepLink";
+import type { DeepLink } from "./utils/deepLink";
 import {
   EMPTY_TOOLS_UI,
   EMPTY_PROMPTS_UI,
@@ -634,6 +636,18 @@ function App() {
   // for the async `servers` list to hydrate, so it can run on more than one
   // render; this ref ensures the token exchange fires exactly once per load.
   const oauthCallbackHandledRef = useRef(false);
+
+  // Deep-link parameters parsed once from the initial URL. Security gating
+  // (auth-token match, http(s)-only serverUrl) happens inside `parseDeepLink`,
+  // so a `DeepLink` value here is already validated.
+  const deepLink = useMemo<DeepLink | undefined>(
+    () =>
+      typeof window !== "undefined"
+        ? parseDeepLink(window.location.search, getAuthToken())
+        : undefined,
+    [],
+  );
+  const deepLinkConnectRef = useRef(false);
 
   // Tracks which progress streams currently have a live toast, so each new tick
   // updates the existing toast instead of stacking a fresh one. Entries are
@@ -1557,6 +1571,37 @@ function App() {
     await inspectorClient.disconnect();
   }, [inspectorClient]);
 
+  // Deep-link auto-connect (closes #1183 for the URL-driven case). Waits for
+  // the server list to hydrate so `addServer`'s backend is ready, then ensures
+  // an entry exists for the deep-link target and connects to it. The OAuth
+  // callback path takes precedence — a deep link on `/oauth/callback` would
+  // be a misconfiguration, and the callback handler clears the URL.
+  useEffect(() => {
+    if (!deepLink) return;
+    if (deepLinkConnectRef.current) return;
+    if (servers.length === 0) return;
+    if (window.location.pathname === OAUTH_CALLBACK_PATH) return;
+    deepLinkConnectRef.current = true;
+
+    void (async () => {
+      const existing = servers.find((s) => s.id === deepLink.serverId);
+      if (!existing) {
+        await addServer(deepLink.serverId, deepLink.serverConfig);
+      } else if (
+        "url" in existing.config &&
+        "url" in deepLink.serverConfig &&
+        existing.config.url !== deepLink.serverConfig.url
+      ) {
+        await updateServer(
+          deepLink.serverId,
+          deepLink.serverId,
+          deepLink.serverConfig,
+        );
+      }
+      await onToggleConnection(deepLink.serverId);
+    })();
+  }, [deepLink, servers, addServer, updateServer, onToggleConnection]);
+
   // --- Action handlers that route directly to the InspectorClient. ---
 
   const onCallTool = useCallback(
@@ -2358,6 +2403,7 @@ function App() {
   return (
     <>
       <InspectorView
+        deepLink={deepLink}
         servers={servers}
         serverListWritable={serverListWritable}
         activeServer={activeServerId}
