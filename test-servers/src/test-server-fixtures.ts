@@ -794,12 +794,16 @@ const MCP_APP_DEMO_HTML = `<!doctype html>
           { jsonrpc: "2.0", ...msg },
           HOST_ORIGIN ?? "*",
         );
-      const renderCtx = (ctx) => {
+      let lastCtx = {};
+      const renderCtx = (patch) => {
+        // host-context-changed carries a PARTIAL (only changed fields per
+        // spec); merge into the running snapshot so unchanged fields persist.
+        lastCtx = { ...lastCtx, ...patch };
         document.getElementById("ctx").textContent = JSON.stringify(
           {
-            theme: ctx?.theme,
-            displayMode: ctx?.displayMode,
-            containerDimensions: ctx?.containerDimensions,
+            theme: lastCtx.theme,
+            displayMode: lastCtx.displayMode,
+            containerDimensions: lastCtx.containerDimensions,
           },
           null,
           2,
@@ -839,7 +843,8 @@ const MCP_APP_DEMO_HTML = `<!doctype html>
           HOST_ORIGIN = ev.origin;
           onInitialized(m.result.hostContext);
         } else if (m.method === "ui/notifications/host-context-changed") {
-          renderCtx(m.params.hostContext);
+          // params IS the partial McpUiHostContext (spec.types.d.ts:290).
+          renderCtx(m.params);
         }
       });
       // Kick off the handshake.
