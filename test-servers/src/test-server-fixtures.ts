@@ -780,6 +780,9 @@ const MCP_APP_DEMO_HTML = `<!doctype html>
       // Captured from the first ui/initialize message; thereafter every send
       // targets, and every receive is checked against, this exact origin so a
       // sibling frame on a different origin cannot inject or intercept traffic.
+      // Production apps should use @modelcontextprotocol/ext-apps (the App
+      // class handles origin discipline internally) — this fixture is a minimal
+      // no-SDK demo of the raw protocol for testing the host side.
       let HOST_ORIGIN = null;
       const send = (msg) =>
         window.parent.postMessage(
