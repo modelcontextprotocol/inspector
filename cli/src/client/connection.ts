@@ -1,5 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { LoggingMessageNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import type { LogEntry } from "../output.js";
 import { McpResponse } from "./types.js";
 
 export const validLogLevels = [
@@ -12,12 +14,37 @@ export const validLogLevels = [
 
 export type LogLevel = (typeof validLogLevels)[number];
 
+const logBuffer: LogEntry[] = [];
+
+export function getCapturedLogs(): LogEntry[] {
+  return [...logBuffer];
+}
+
+export function clearCapturedLogs(): void {
+  logBuffer.length = 0;
+}
+
 export async function connect(
   client: Client,
   transport: Transport,
 ): Promise<void> {
   try {
     await client.connect(transport);
+
+    client.setNotificationHandler(
+      LoggingMessageNotificationSchema,
+      (notification) => {
+        logBuffer.push({
+          level: notification.params.level,
+          logger: notification.params.logger,
+          message:
+            typeof notification.params.data === "string"
+              ? notification.params.data
+              : JSON.stringify(notification.params.data),
+          timestamp: new Date().toISOString(),
+        });
+      },
+    );
 
     if (client.getServerCapabilities()?.logging) {
       // default logging level is undefined in the spec, but the user of the

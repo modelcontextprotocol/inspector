@@ -5,8 +5,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { Command } from "commander";
 import {
   callTool,
+  clearCapturedLogs,
   connect,
   disconnect,
+  getCapturedLogs,
   getPrompt,
   listPrompts,
   listResources,
@@ -18,7 +20,14 @@ import {
   setLoggingLevel,
   validLogLevels,
 } from "./client/index.js";
+import { discover } from "./discover.js";
 import { handleError } from "./error-handler.js";
+import {
+  categorizeError,
+  formatStructuredOutput,
+  StructuredCliError,
+  type StructuredOutput,
+} from "./output.js";
 import { createTransport, TransportOptions } from "./transport.js";
 import { awaitableLog } from "./utils/awaitable-log.js";
 
@@ -45,6 +54,20 @@ type Args = {
   transport?: "sse" | "stdio" | "http";
   headers?: Record<string, string>;
   metadata?: Record<string, string>;
+  structured?: boolean;
+  failOnError?: boolean;
+};
+
+// Map of methods to their required server capability key
+const METHOD_CAPABILITY_MAP: Record<string, string> = {
+  "tools/list": "tools",
+  "tools/call": "tools",
+  "resources/list": "resources",
+  "resources/read": "resources",
+  "resources/templates/list": "resources",
+  "prompts/list": "prompts",
+  "prompts/get": "prompts",
+  "logging/setLevel": "logging",
 };
 
 function createTransportOptions(
@@ -101,7 +124,25 @@ function createTransportOptions(
   };
 }
 
+function checkCapability(client: Client, method: string): void {
+  const requiredCapability = METHOD_CAPABILITY_MAP[method];
+  if (!requiredCapability) {
+    return; // discover, ping have no capability requirement
+  }
+
+  const capabilities = client.getServerCapabilities() ?? {};
+  if (!(capabilities as Record<string, unknown>)[requiredCapability]) {
+    throw new StructuredCliError(
+      `Server does not support ${requiredCapability} capability (required for ${method})`,
+      "capability",
+    );
+  }
+}
+
 async function callMethod(args: Args): Promise<void> {
+  clearCapturedLogs();
+  const startTime = Date.now();
+
   // Read package.json to get name and version for client identity
   const pathA = "../package.json"; // We're in package @modelcontextprotocol/inspector-cli
   const pathB = "../../package.json"; // We're in package @modelcontextprotocol/inspector
@@ -124,18 +165,23 @@ async function callMethod(args: Args): Promise<void> {
 
   const client = new Client(clientIdentity);
 
+  let result: McpResponse;
+  let hasApplicationError = false;
+
   try {
     await connect(client, transport);
 
-    let result: McpResponse;
+    // Capability gating: verify server supports this method
+    checkCapability(client, args.method!);
 
     // Tools methods
     if (args.method === "tools/list") {
       result = await listTools(client, args.metadata);
     } else if (args.method === "tools/call") {
       if (!args.toolName) {
-        throw new Error(
+        throw new StructuredCliError(
           "Tool name is required for tools/call method. Use --tool-name to specify the tool name.",
+          "validation",
         );
       }
 
@@ -146,14 +192,19 @@ async function callMethod(args: Args): Promise<void> {
         args.metadata,
         args.toolMeta,
       );
+      // Check if the tool returned an application-level error
+      if (result.isError) {
+        hasApplicationError = true;
+      }
     }
     // Resources methods
     else if (args.method === "resources/list") {
       result = await listResources(client, args.metadata);
     } else if (args.method === "resources/read") {
       if (!args.uri) {
-        throw new Error(
+        throw new StructuredCliError(
           "URI is required for resources/read method. Use --uri to specify the resource URI.",
+          "validation",
         );
       }
 
@@ -166,8 +217,9 @@ async function callMethod(args: Args): Promise<void> {
       result = await listPrompts(client, args.metadata);
     } else if (args.method === "prompts/get") {
       if (!args.promptName) {
-        throw new Error(
+        throw new StructuredCliError(
           "Prompt name is required for prompts/get method. Use --prompt-name to specify the prompt name.",
+          "validation",
         );
       }
 
@@ -181,19 +233,75 @@ async function callMethod(args: Args): Promise<void> {
     // Logging methods
     else if (args.method === "logging/setLevel") {
       if (!args.logLevel) {
-        throw new Error(
+        throw new StructuredCliError(
           "Log level is required for logging/setLevel method. Use --log-level to specify the log level.",
+          "validation",
         );
       }
 
       result = await setLoggingLevel(client, args.logLevel);
+    }
+    // Discovery pseudo-method
+    else if (args.method === "discover") {
+      result = (await discover(client)) as unknown as McpResponse;
+    }
+    // Ping method
+    else if (args.method === "ping") {
+      result = await client.ping();
     } else {
-      throw new Error(
-        `Unsupported method: ${args.method}. Supported methods include: tools/list, tools/call, resources/list, resources/read, resources/templates/list, prompts/list, prompts/get, logging/setLevel`,
+      throw new StructuredCliError(
+        `Unsupported method: ${args.method}. Supported methods include: tools/list, tools/call, resources/list, resources/read, resources/templates/list, prompts/list, prompts/get, logging/setLevel, discover, ping`,
+        "validation",
       );
     }
 
-    await awaitableLog(JSON.stringify(result, null, 2));
+    const durationMs = Date.now() - startTime;
+    const logs = getCapturedLogs();
+
+    if (args.structured) {
+      const output: StructuredOutput = {
+        structuredVersion: 1,
+        success: !hasApplicationError,
+        method: args.method!,
+        durationMs,
+        result: result as Record<string, unknown>,
+        error: null,
+        logs,
+      };
+      await awaitableLog(formatStructuredOutput(output));
+    } else {
+      // Raw mode: emit logs to stderr, result to stdout
+      for (const log of logs) {
+        console.error(
+          `[${log.timestamp}] [${log.level}]${log.logger ? ` [${log.logger}]` : ""} ${log.message}`,
+        );
+      }
+      await awaitableLog(JSON.stringify(result, null, 2));
+    }
+
+    if (args.failOnError && hasApplicationError) {
+      process.exit(1);
+    }
+  } catch (error) {
+    const durationMs = Date.now() - startTime;
+    const logs = getCapturedLogs();
+
+    if (args.structured) {
+      const structuredError = categorizeError(error);
+      const output: StructuredOutput = {
+        structuredVersion: 1,
+        success: false,
+        method: args.method ?? "unknown",
+        durationMs,
+        result: null,
+        error: structuredError,
+        logs,
+      };
+      await awaitableLog(formatStructuredOutput(output));
+      process.exit(1);
+    } else {
+      throw error;
+    }
   } finally {
     try {
       await disconnect(transport);
@@ -356,6 +464,17 @@ function parseArgs(): Args {
       "Tool-specific metadata as key=value pairs (for tools/call method only)",
       parseKeyValuePair,
       {},
+    )
+    //
+    // CI debugging output options
+    //
+    .option(
+      "--structured",
+      "Output structured envelope with error taxonomy, logs, and timing",
+    )
+    .option(
+      "--fail-on-error",
+      "Exit with code 1 on server-side application errors (isError: true)",
     );
 
   // Parse only the arguments before --
