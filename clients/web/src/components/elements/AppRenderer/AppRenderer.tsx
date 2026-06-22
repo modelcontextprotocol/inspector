@@ -5,11 +5,13 @@ import {
   useImperativeHandle,
   useRef,
   type Ref,
+  type RefObject,
 } from "react";
 import type {
   AppBridge,
   AppBridgeEventMap,
   McpUiDisplayMode,
+  McpUiHostContext,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -69,6 +71,14 @@ export interface AppRendererProps {
    * Nothing is sent when omitted/empty.
    */
   partialInputs?: Record<string, unknown>[];
+  /**
+   * The host-controlled box the app renders within, used to derive
+   * `hostContext.containerDimensions`. This MUST be an element whose size is
+   * driven by the host's layout (window resize, sidebar toggle, maximize) and
+   * NOT by the view's own `size-changed` reports — otherwise the two signals
+   * couple into a feedback loop. Falls back to the iframe element when omitted.
+   */
+  containerRef?: RefObject<HTMLElement | null>;
   ref?: Ref<AppRendererHandle>;
 }
 
@@ -120,9 +130,16 @@ export function AppRenderer({
   displayMode,
   onRequestDisplayMode,
   partialInputs,
+  containerRef,
   ref,
 }: AppRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  // Full host-context snapshot. AppBridge.setHostContext replaces its internal
+  // baseline with the object passed (it does NOT merge), so passing a partial
+  // here would make the next call's diff compare against a partial — and emit
+  // unchanged fields as changed. Every push site merges into this snapshot and
+  // passes the COMPLETE object so the SDK's per-field diff stays accurate.
+  const hostContextRef = useRef<McpUiHostContext>({});
   const bridgeRef = useRef<AppBridge | null>(null);
   const initializedRef = useRef(false);
   const pendingPartialsRef = useRef<Record<string, unknown>[]>([]);
@@ -144,13 +161,22 @@ export function AppRenderer({
   const displayModeRef = useRef(displayMode);
   const onRequestDisplayModeRef = useRef(onRequestDisplayMode);
   const partialInputsRef = useRef(partialInputs);
+  const containerElementRef = useRef(containerRef);
   useEffect(() => {
     onErrorRef.current = onError;
     onSizeChangeRef.current = onSizeChange;
     displayModeRef.current = displayMode;
     onRequestDisplayModeRef.current = onRequestDisplayMode;
     partialInputsRef.current = partialInputs;
+    containerElementRef.current = containerRef;
   });
+
+  // Merge a patch into the full host-context snapshot and push it to the live
+  // bridge (see the hostContextRef comment for why the complete object is sent).
+  const pushHostContext = useCallback((patch: Partial<McpUiHostContext>) => {
+    hostContextRef.current = { ...hostContextRef.current, ...patch };
+    bridgeRef.current?.setHostContext(hostContextRef.current);
+  }, []);
 
   // Flush buffered tool input/result to the view, but only once the bridge
   // exists AND the view has signalled `initialized`. The spec requires tool
@@ -265,19 +291,24 @@ export function AppRenderer({
         // drives), so the view's `initialized` signal is never missed.
         bridge.addEventListener("initialized", () => {
           initializedRef.current = true;
-          // Re-assert theme + derived styles + container size now the view is
-          // ready: any of these may have changed between bridge construction
-          // (which seeded the initial hostContext) and initialization.
-          // setHostContext diffs internally, so unchanged fields emit nothing.
+          // Seed the host-side snapshot from the live host state and push it.
+          // Any field may have changed between bridge construction (which the
+          // factory seeded into the handshake) and initialization; the SDK
+          // diffs and emits only what actually moved.
           const styles = currentStyles();
-          const containerDimensions = measureContainerDimensions(iframe);
+          const container =
+            containerElementRef.current?.current ?? iframeRef.current;
+          const containerDimensions = container
+            ? measureContainerDimensions(container)
+            : undefined;
           const mode = displayModeRef.current;
-          bridge.setHostContext({
+          hostContextRef.current = {
             theme: currentTheme(),
             ...(styles ? { styles } : {}),
             ...(containerDimensions ? { containerDimensions } : {}),
-            ...(mode ? { displayMode: mode } : {}),
-          });
+            ...(mode !== undefined ? { displayMode: mode } : {}),
+          };
+          bridge.setHostContext(hostContextRef.current);
           flushPending();
         });
         // Forward the view's content-size reports (ui/notifications/size-changed)
@@ -323,7 +354,7 @@ export function AppRenderer({
     }
     const observer = new MutationObserver(() => {
       const styles = currentStyles();
-      bridgeRef.current?.setHostContext({
+      pushHostContext({
         theme: currentTheme(),
         ...(styles ? { styles } : {}),
       });
@@ -333,40 +364,35 @@ export function AppRenderer({
       attributeFilter: ["data-mantine-color-scheme"],
     });
     return () => observer.disconnect();
-  }, []);
+  }, [pushHostContext]);
 
-  // Push live container size to the running view via the same setHostContext
-  // path. The factory seeds the initial containerDimensions from the iframe's
-  // box at bridge-build time; a ResizeObserver here re-measures on every box
-  // change (maximize/restore, window resize, sidebar toggle) and the SDK diffs
-  // it into a host-context-changed carrying only the changed field. Gated on
-  // the view's `initialized` signal so the notification only fires once the
-  // handshake is complete, and a 0×0 (not-yet-laid-out) measurement is skipped
-  // — both via measureContainerDimensions returning undefined and the
-  // `initializedRef` check.
+  // Push live container size to the running view. Observes the host-controlled
+  // container (or the iframe as a fallback) — NOT an element whose height is
+  // driven by the view's own size-changed reports, which would couple the two
+  // signals into a feedback loop. Gated on the view's `initialized` signal so
+  // the notification only fires once the handshake is complete, and a 0×0
+  // (not-yet-laid-out) measurement is skipped.
   useEffect(() => {
-    const iframe = iframeRef.current;
-    if (typeof ResizeObserver === "undefined" || !iframe) return;
+    const target = containerElementRef.current?.current ?? iframeRef.current;
+    if (typeof ResizeObserver === "undefined" || !target) return;
     const observer = new ResizeObserver(() => {
       if (!initializedRef.current) return;
-      const containerDimensions = measureContainerDimensions(iframe);
+      const containerDimensions = measureContainerDimensions(target);
       if (!containerDimensions) return;
-      bridgeRef.current?.setHostContext({ containerDimensions });
+      pushHostContext({ containerDimensions });
     });
-    observer.observe(iframe);
+    observer.observe(target);
     return () => observer.disconnect();
-  }, []);
+  }, [pushHostContext]);
 
   // Push the host's display mode to the running view whenever it changes
-  // (Maximize/Restore, or after we honored a ui/request-display-mode). The
-  // factory seeds `displayMode: "inline"` into the initial hostContext;
-  // setHostContext diffs internally so an unchanged mode emits nothing. Gated
+  // (Maximize/Restore, or after we honored a ui/request-display-mode). Gated
   // on `initialized` for the same reason as the other host-context pushes.
   useEffect(() => {
     if (displayMode === undefined) return;
     if (!initializedRef.current) return;
-    bridgeRef.current?.setHostContext({ displayMode });
-  }, [displayMode]);
+    pushHostContext({ displayMode });
+  }, [displayMode, pushHostContext]);
 
   useImperativeHandle(
     ref,

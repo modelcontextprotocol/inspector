@@ -80,6 +80,12 @@ export interface AppBridgeFactoryDeps {
   getClient: () => Client | null;
   /** Reads a UI resource (resources/read) and returns the SDK result. */
   readResource: (uri: string) => Promise<ReadResourceResult>;
+  /**
+   * Called when reading or posting the UI resource fails after the sandbox
+   * proxy is ready. Without this the user is left staring at a blank-but-live
+   * frame; the error is also always console.error'd.
+   */
+  onResourceError?: (err: Error) => void;
 }
 
 /**
@@ -202,6 +208,17 @@ export type ContainerDimensions = NonNullable<
  * Exported so AppRenderer's ResizeObserver can reuse the same measurement for
  * live `host-context-changed` pushes.
  */
+export function measureContainerDimensions(
+  element: HTMLElement,
+): ContainerDimensions | undefined {
+  if (typeof element.getBoundingClientRect !== "function") return undefined;
+  const rect = element.getBoundingClientRect();
+  const width = Math.round(rect.width);
+  const height = Math.round(rect.height);
+  if (width <= 0 || height <= 0) return undefined;
+  return { width, height };
+}
+
 /**
  * One MCP `notifications/message` log entry from a running app, stamped with a
  * host-side `id` (stable React key) and `timestamp` so the UI can render a
@@ -241,17 +258,6 @@ export function subscribeAppLogs(
   return () => bridge.removeEventListener("loggingmessage", handler);
 }
 
-export function measureContainerDimensions(
-  element: HTMLElement,
-): ContainerDimensions | undefined {
-  if (typeof element.getBoundingClientRect !== "function") return undefined;
-  const rect = element.getBoundingClientRect();
-  const width = Math.round(rect.width);
-  const height = Math.round(rect.height);
-  if (width <= 0 || height <= 0) return undefined;
-  return { width, height };
-}
-
 /** First text content block of a UI resource, plus its `_meta` (sandbox hints). */
 function extractHtmlAndMeta(result: ReadResourceResult): {
   html: string;
@@ -282,10 +288,19 @@ function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-/** Last path segment of a resource URI, used as the suggested filename. */
+/**
+ * Derive a safe suggested filename from a resource URI: the last path segment,
+ * stripped of control/format characters, path separators, and characters
+ * disallowed in filenames on common platforms. Falls back to `"download"` when
+ * nothing usable remains.
+ */
 function fileNameFromUri(uri: string): string {
-  const tail = uri.split(/[\\/]/).pop();
-  return tail && tail.length > 0 ? tail : "download";
+  const tail = uri.split(/[\\/]/).pop() ?? "";
+  const safe = tail
+    .replace(/[\p{Cc}\p{Cf}]+/gu, "")
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .trim();
+  return safe.length > 0 ? safe.slice(0, 255) : "download";
 }
 
 /**
@@ -308,9 +323,12 @@ function describeDownloadItem(item: EmbeddedResource | ResourceLink): string {
 
 /**
  * Trigger a browser download for a single MCP resource item. Inline
- * {@link EmbeddedResource}s (text or base64 blob) become an object-URL anchor
- * click; a {@link ResourceLink} is opened in a new tab so the browser fetches it
- * directly. Returns false when the item carries nothing downloadable.
+ * {@link EmbeddedResource}s (text or base64 blob) are written via an
+ * object-URL anchor click. A {@link ResourceLink} is *opened* in a new tab —
+ * the inspector does not fetch the URL to disk itself, since the link may
+ * require auth or content negotiation the browser can supply but we cannot.
+ * Returns false when the item carries nothing downloadable or its URI is
+ * rejected by the http(s)-only allowlist.
  */
 function downloadResourceItem(item: EmbeddedResource | ResourceLink): boolean {
   if (item.type === "resource_link") {
@@ -334,14 +352,17 @@ function downloadResourceItem(item: EmbeddedResource | ResourceLink): boolean {
         })
       : new Blob([resource.text], { type: resource.mimeType ?? "text/plain" });
   const url = URL.createObjectURL(blob);
-  try {
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileNameFromUri(resource.uri);
-    link.click();
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileNameFromUri(resource.uri);
+  // Some browsers ignore programmatic clicks on detached anchors.
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  // Defer the revoke: link.click() only schedules the download, and revoking
+  // the object URL synchronously can abort it before the browser reads the
+  // blob (Firefox/Safari, intermittently Chrome for larger blobs).
+  setTimeout(() => URL.revokeObjectURL(url), 0);
   return true;
 }
 
@@ -355,7 +376,10 @@ function downloadResourceItem(item: EmbeddedResource | ResourceLink): boolean {
  *     resource and pushes its HTML + sandbox/permissions/CSP into the inner
  *     iframe, echoing the applied sandbox config back via hostCapabilities,
  *  3. handles `openLinks` by opening http(s) URLs in a new tab,
- *  4. connects a {@link PostMessageTransport} to the iframe and returns the
+ *  4. handles `downloadFile` by confirming with the user, then writing each
+ *     embedded resource to disk via an object-URL anchor (resource links are
+ *     opened in a new tab),
+ *  5. connects a {@link PostMessageTransport} to the iframe and returns the
  *     live bridge.
  *
  * Host-initiated tool input/result are pushed separately through the renderer's
@@ -395,9 +419,11 @@ export function createAppBridgeFactory(
 
     // The double-iframe proxy posts `sandboxready` once it can receive content.
     // Read the tool's UI resource and hand its HTML (plus any sandbox/permission
-    // hints from the resource _meta) to the inner sandboxed iframe. Swallow
-    // failures: a read error leaves an empty (but live) app frame rather than
-    // tearing down the bridge mid-handshake.
+    // hints from the resource _meta) to the inner sandboxed iframe. A failure
+    // here is the case a developer most needs surfaced (their app's resource is
+    // erroring or malformed) — log it and report it via deps.onResourceError so
+    // the host can show something better than a blank frame. The bridge stays
+    // live so a retry path remains possible.
     bridge.addEventListener("sandboxready", () => {
       void (async () => {
         try {
@@ -424,8 +450,13 @@ export function createAppBridgeFactory(
             html: wrapSandboxedHtml(html, buildSandboxCspPolicy(approvedCsp)),
             permissions: meta?.permissions,
           });
-        } catch {
-          /* read/post failed (or bridge closed) — leave the frame empty */
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          console.error(
+            "[mcp-app] failed to load UI resource into sandbox:",
+            error,
+          );
+          deps.onResourceError?.(error);
         }
       })();
     });
@@ -453,15 +484,27 @@ export function createAppBridgeFactory(
         `This MCP App wants to download ${contents.length} file(s):\n\n${summary}`,
       );
       if (!approved) return { isError: true };
-      try {
-        let downloaded = false;
-        for (const item of contents) {
-          if (downloadResourceItem(item)) downloaded = true;
+      let succeeded = 0;
+      const skipped: string[] = [];
+      for (const item of contents) {
+        try {
+          if (downloadResourceItem(item)) {
+            succeeded++;
+          } else {
+            skipped.push(describeDownloadItem(item));
+          }
+        } catch (err) {
+          skipped.push(describeDownloadItem(item));
+          console.error("[mcp-app] download item failed:", err);
         }
-        return { isError: !downloaded };
-      } catch {
-        return { isError: true };
       }
+      if (skipped.length > 0) {
+        console.warn(
+          `[mcp-app] ${skipped.length} of ${contents.length} download item(s) skipped:`,
+          skipped,
+        );
+      }
+      return { isError: succeeded === 0 };
     };
 
     const transport = new PostMessageTransport(targetWindow, targetWindow);

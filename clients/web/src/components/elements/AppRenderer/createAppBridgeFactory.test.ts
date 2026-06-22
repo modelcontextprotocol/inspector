@@ -334,6 +334,7 @@ describe("createAppBridgeFactory", () => {
   });
 
   it("does not echo a sandbox capability before sandboxready or on read failure", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const factory = createAppBridgeFactory({
       getClient: () => fakeClient,
       readResource: vi.fn().mockRejectedValue(new Error("read boom")),
@@ -353,6 +354,28 @@ describe("createAppBridgeFactory", () => {
     expect(
       (bridge.ctorArgs[2] as { sandbox?: unknown }).sandbox,
     ).toBeUndefined();
+    errSpy.mockRestore();
+  });
+
+  it("logs and reports a UI-resource read failure via onResourceError", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onResourceError = vi.fn();
+    const factory = createAppBridgeFactory({
+      getClient: () => fakeClient,
+      readResource: vi.fn().mockRejectedValue(new Error("read boom")),
+      onResourceError,
+    });
+    await factory(makeIframe(), tool);
+    bridgeInstances[0].emit("sandboxready");
+    await flush();
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("failed to load UI resource"),
+      expect.any(Error),
+    );
+    expect(onResourceError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "read boom" }),
+    );
+    errSpy.mockRestore();
   });
 
   it("does not push when the tool has no UI resource uri", async () => {
@@ -448,6 +471,7 @@ describe("createAppBridgeFactory", () => {
     });
 
     it("downloads an inline text resource after confirmation", async () => {
+      vi.useFakeTimers();
       const confirm = stubConfirm(true);
       const createUrl = vi
         .spyOn(URL, "createObjectURL")
@@ -478,7 +502,68 @@ describe("createAppBridgeFactory", () => {
       expect(confirm).toHaveBeenCalledTimes(1);
       expect(createUrl).toHaveBeenCalledTimes(1);
       expect(click).toHaveBeenCalledTimes(1);
+      const clickedAnchor = click.mock.instances[0] as HTMLAnchorElement;
+      expect(clickedAnchor.download).toBe("report.csv");
+      // Revoke is deferred so the browser can read the blob before it's freed.
+      expect(revokeUrl).not.toHaveBeenCalled();
+      vi.runAllTimers();
       expect(revokeUrl).toHaveBeenCalledWith("blob:fake");
+      vi.useRealTimers();
+    });
+
+    it("falls back to a 'download' filename when the URI has no usable tail", async () => {
+      vi.useFakeTimers();
+      stubConfirm(true);
+      vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fake");
+      vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+      const click = vi
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(() => undefined);
+      const bridge = await buildBridge();
+      await bridge.ondownloadfile!({
+        contents: [
+          {
+            type: "resource",
+            resource: {
+              uri: "file:///path/",
+              mimeType: "text/plain",
+              text: "",
+            },
+          },
+        ],
+      });
+      expect((click.mock.instances[0] as HTMLAnchorElement).download).toBe(
+        "download",
+      );
+      vi.runAllTimers();
+      vi.useRealTimers();
+    });
+
+    it("warns and reports partial success when some items in a batch are skipped", async () => {
+      stubConfirm(true);
+      vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fake");
+      vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+        () => undefined,
+      );
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const bridge = await buildBridge();
+      await expect(
+        bridge.ondownloadfile!({
+          contents: [
+            {
+              type: "resource",
+              resource: { uri: "file:///ok.txt", text: "ok" },
+            },
+            { type: "resource_link", uri: "javascript:alert(1)" },
+          ],
+        }),
+      ).resolves.toEqual({ isError: false });
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("1 of 2 download item(s) skipped"),
+        expect.arrayContaining(["javascript:alert(1)"]),
+      );
+      warn.mockRestore();
     });
 
     it("decodes a base64 blob resource", async () => {
@@ -582,6 +667,7 @@ describe("createAppBridgeFactory", () => {
 
     it("rejects a non-http(s) resource_link without opening it", async () => {
       stubConfirm(true);
+      vi.spyOn(console, "warn").mockImplementation(() => {});
       const open = vi
         .spyOn(window, "open")
         .mockImplementation(() => null as never);

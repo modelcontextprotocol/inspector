@@ -361,9 +361,11 @@ describe("AppRenderer", () => {
       />,
     );
     await flushAsync();
-    expect(bridge.setHostContext).toHaveBeenCalledWith({
-      displayMode: "fullscreen",
-    });
+    // The full host-context snapshot is sent (the SDK replaces, not merges, its
+    // diff baseline) but the displayMode field carries the new value.
+    expect(bridge.setHostContext).toHaveBeenCalledWith(
+      expect.objectContaining({ displayMode: "fullscreen" }),
+    );
   });
 
   it("forwards sendToolCancelled through the bridge", async () => {
@@ -544,14 +546,31 @@ describe("AppRenderer", () => {
 
       setObservedSize(640, 480);
       await act(async () => resizeCallback?.());
-      expect(bridge.setHostContext).toHaveBeenCalledWith({
-        containerDimensions: { width: 640, height: 480 },
-      });
+      expect(bridge.setHostContext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          containerDimensions: { width: 640, height: 480 },
+        }),
+      );
 
       bridge.setHostContext.mockClear();
       setObservedSize(0, 0);
       await act(async () => resizeCallback?.());
       expect(bridge.setHostContext).not.toHaveBeenCalled();
+    });
+
+    it("observes the host-supplied containerRef element instead of the iframe when provided", async () => {
+      const bridge = createMockBridge();
+      const container = document.createElement("div");
+      renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={() => asBridge(bridge)}
+          containerRef={{ current: container }}
+        />,
+      );
+      await flushAsync();
+      expect(observedIframe).toBe(container);
     });
 
     it("disconnects the ResizeObserver on unmount", async () => {

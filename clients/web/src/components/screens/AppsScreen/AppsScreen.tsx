@@ -1,4 +1,4 @@
-import { useMemo, useState, type Ref } from "react";
+import { useMemo, useRef, useState, type Ref } from "react";
 import {
   ActionIcon,
   Badge,
@@ -138,6 +138,18 @@ const HeaderTitle = Text.withProps({
 const HeaderActions = Group.withProps({
   gap: "xs",
   wrap: "nowrap",
+});
+
+// The host-controlled box the running app sits within. Its size is driven by
+// the host's layout (window resize, sidebar toggle, maximize) and NOT by the
+// view's reported content height — that drives the inner RendererFrame — so
+// the renderer's containerDimensions observer can measure this element without
+// coupling host→view container size to view→host size-changed.
+const RendererContainer = Stack.withProps({
+  flex: 1,
+  miw: 0,
+  mih: 0,
+  gap: 0,
 });
 
 const RendererFrame = Stack.withProps({
@@ -304,6 +316,7 @@ export function AppsScreen({
   const { selectedAppName, formValues, search } = ui;
   const [running, setRunning] = useState(false);
   const [maximized, setMaximized] = useState(false);
+  const rendererContainerRef = useRef<HTMLDivElement | null>(null);
   // Height (px) the running view last reported via ui/notifications/size-changed.
   // Undefined until the view reports (or after it's torn down), in which case
   // the iframe fills the available card space as before. Local to the screen
@@ -535,32 +548,33 @@ export function AppsScreen({
               </HeaderActions>
             </HeaderRow>
             {running ? (
-              // When the view has reported a content height (and we're not
-              // maximized), size the frame to it and stop it flex-growing, but
-              // cap it at the card's available height (`mah`) so a tall widget
-              // scrolls/clips inside the card instead of overflowing the page.
-              // Otherwise the frame fills the card as before.
-              <RendererFrame
-                flex={contentHeight != null ? "0 0 auto" : 1}
-                h={contentHeight}
-                mah="100%"
-              >
-                {/* Keying by name forces the renderer to remount when the
-                    selected app changes, ensuring a fresh bridge and iframe
-                    rather than reusing the previous app's transport. */}
-                <AppRenderer
-                  key={selectedTool.name}
-                  sandboxPath={sandboxPath}
-                  tool={selectedTool}
-                  bridgeFactory={wrappedBridgeFactory}
-                  onError={onError}
-                  onSizeChange={handleSizeChange}
-                  displayMode={displayMode}
-                  onRequestDisplayMode={handleRequestDisplayMode}
-                  partialInputs={partialStages}
-                  ref={rendererRef}
-                />
-              </RendererFrame>
+              // RendererContainer is the host-controlled box (its size only
+              // changes with host layout); RendererFrame inside it is sized by
+              // the view's reported content height, capped at the container.
+              <RendererContainer ref={rendererContainerRef}>
+                <RendererFrame
+                  flex={contentHeight != null ? "0 0 auto" : 1}
+                  h={contentHeight}
+                  mah="100%"
+                >
+                  {/* Keying by name forces the renderer to remount when the
+                      selected app changes, ensuring a fresh bridge and iframe
+                      rather than reusing the previous app's transport. */}
+                  <AppRenderer
+                    key={selectedTool.name}
+                    sandboxPath={sandboxPath}
+                    tool={selectedTool}
+                    bridgeFactory={wrappedBridgeFactory}
+                    onError={onError}
+                    onSizeChange={handleSizeChange}
+                    displayMode={displayMode}
+                    onRequestDisplayMode={handleRequestDisplayMode}
+                    partialInputs={partialStages}
+                    containerRef={rendererContainerRef}
+                    ref={rendererRef}
+                  />
+                </RendererFrame>
+              </RendererContainer>
             ) : (
               // `isOpening` is always false here because `handleOpen`
               // synchronously flips `running` to true, swapping in the
