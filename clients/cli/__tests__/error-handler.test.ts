@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { handleError } from "../src/error-handler.js";
+import { CliExitCodeError, handleError } from "../src/error-handler.js";
 
 /**
  * `handleError` is the binary's last-resort error sink (wired up in
@@ -41,5 +41,16 @@ describe("handleError", () => {
     handleError({ unexpected: true });
 
     expect(errorSpy).toHaveBeenCalledWith("Unknown error");
+  });
+
+  it("uses a CliExitCodeError's exitCode instead of 1", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+
+    handleError(new CliExitCodeError(2, "no app"));
+
+    expect(exitSpy).toHaveBeenCalledWith(2);
   });
 });

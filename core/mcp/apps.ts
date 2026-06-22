@@ -1,5 +1,8 @@
 import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  ReadResourceResult,
+  Tool,
+} from "@modelcontextprotocol/sdk/types.js";
 
 /**
  * Returns the UI resource URI advertised by an MCP App tool, or `undefined`
@@ -34,4 +37,89 @@ export function getAppResourceUri(tool: Tool): string | undefined {
  */
 export function isAppTool(tool: Tool): boolean {
   return getAppResourceUri(tool) !== undefined;
+}
+
+/**
+ * Machine-readable summary of an MCP App's UI metadata, combining what the
+ * tool advertises (`resourceUri`, `visibility`) with what the UI resource
+ * itself declares (`csp`, `permissions`, `domain`, `prefersBorder`). Emitted by
+ * the CLI's `--app-info` mode and reusable by any client that needs to surface
+ * an app's security posture without rendering it.
+ */
+export interface AppInfo {
+  hasApp: boolean;
+  toolName: string;
+  resourceUri?: string;
+  visibility?: readonly string[];
+  /** From the UI resource's `_meta.ui` (per spec, csp/permissions/domain live on the resource, not the tool). Absent when the resource was not read. */
+  csp?: Readonly<Record<string, unknown>>;
+  permissions?: Readonly<Record<string, unknown>>;
+  domain?: string;
+  prefersBorder?: boolean;
+  resourceMimeType?: string;
+}
+
+type WithUiMeta = { _meta?: { ui?: unknown } };
+
+/**
+ * Structural shape for `_meta.ui` carriers — the ext-apps package's named
+ * types (`McpUiToolMeta`, `McpUiResourceMeta`) are not importable under
+ * NodeNext module resolution because of an extensionless re-export in the
+ * package's `.d.ts`, so we read the fields structurally instead. The values
+ * pass through verbatim into {@link AppInfo}; callers can narrow them against
+ * the published Zod schemas if they need strict typing.
+ */
+interface UiMetaShape {
+  visibility?: readonly string[];
+  csp?: Record<string, unknown>;
+  permissions?: Record<string, unknown>;
+  domain?: string;
+  prefersBorder?: boolean;
+}
+
+function readUiMeta(carrier: WithUiMeta | undefined): UiMetaShape | undefined {
+  const ui = carrier?._meta?.ui;
+  return ui !== null && typeof ui === "object"
+    ? (ui as UiMetaShape)
+    : undefined;
+}
+
+/**
+ * Build an {@link AppInfo} from a tool definition and (optionally) the
+ * `resources/read` result for its UI resource. Per the spec
+ * ({@link McpUiToolMeta}), `csp` / `permissions` / `domain` belong on the
+ * resource — not the tool — so a caller that wants the security posture must
+ * read the resource and pass it here.
+ *
+ * Returns `{ hasApp: false, toolName }` for non-App tools. Throws on a
+ * malformed `resourceUri` for the same reason {@link getAppResourceUri} does.
+ */
+export function extractAppInfo(
+  tool: Tool,
+  resource?: ReadResourceResult,
+): AppInfo {
+  const resourceUri = getAppResourceUri(tool);
+  if (resourceUri === undefined) {
+    return { hasApp: false, toolName: tool.name };
+  }
+  const toolUi = readUiMeta(tool as WithUiMeta);
+  const content = resource?.contents.find((c) => c.uri === resourceUri);
+  const resourceUi =
+    readUiMeta(content as WithUiMeta | undefined) ??
+    readUiMeta(resource as WithUiMeta | undefined);
+  return {
+    hasApp: true,
+    toolName: tool.name,
+    resourceUri,
+    ...(toolUi?.visibility ? { visibility: toolUi.visibility } : {}),
+    ...(resourceUi?.csp ? { csp: resourceUi.csp } : {}),
+    ...(resourceUi?.permissions ? { permissions: resourceUi.permissions } : {}),
+    ...(resourceUi?.domain ? { domain: resourceUi.domain } : {}),
+    ...(resourceUi?.prefersBorder !== undefined
+      ? { prefersBorder: resourceUi.prefersBorder }
+      : {}),
+    ...(typeof content?.mimeType === "string"
+      ? { resourceMimeType: content.mimeType }
+      : {}),
+  };
 }

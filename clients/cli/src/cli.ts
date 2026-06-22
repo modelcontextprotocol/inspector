@@ -22,6 +22,9 @@ import {
   parseHeaderPair,
 } from "@inspector/core/mcp/node/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
+import { extractAppInfo } from "@inspector/core/mcp/apps.js";
+import type { AppInfo } from "@inspector/core/mcp/apps.js";
+import { CliExitCodeError } from "./error-handler.js";
 import {
   LoggingLevelSchema,
   type LoggingLevel,
@@ -41,6 +44,7 @@ type MethodArgs = {
   toolArg?: Record<string, JsonValue>;
   toolMeta?: Record<string, string>;
   metadata?: Record<string, string>;
+  appInfo?: boolean;
 };
 
 async function callMethod(
@@ -84,6 +88,7 @@ async function callMethod(
     await inspectorClient.connect();
 
     let result: McpResponse;
+    let appInfo: AppInfo | undefined;
 
     if (args.method === "tools/list" || args.method === "tools/call") {
       managedToolsState = new ManagedToolsState(inspectorClient);
@@ -130,24 +135,32 @@ async function callMethod(
           isError: true,
         };
       } else {
-        const invocation = await inspectorClient.callTool(
-          tool,
-          args.toolArg || {},
-          args.metadata,
-          args.toolMeta,
-        );
-        if (invocation.result !== null) {
-          result = invocation.result;
+        appInfo = await collectAppInfo(inspectorClient, tool, args.metadata);
+        if (args.appInfo) {
+          // --app-info: probe-only — emit the app metadata and skip the tool
+          // call entirely. The result is the AppInfo block; the no-app exit
+          // code is handled after disconnect below.
+          result = { ...appInfo };
         } else {
-          result = {
-            content: [
-              {
-                type: "text" as const,
-                text: invocation.error || "Tool call failed",
-              },
-            ],
-            isError: true,
-          };
+          const invocation = await inspectorClient.callTool(
+            tool,
+            args.toolArg || {},
+            args.metadata,
+            args.toolMeta,
+          );
+          if (invocation.result !== null) {
+            result = invocation.result;
+          } else {
+            result = {
+              content: [
+                {
+                  type: "text" as const,
+                  text: invocation.error || "Tool call failed",
+                },
+              ],
+              isError: true,
+            };
+          }
         }
       }
     } else if (args.method === "resources/list") {
@@ -201,13 +214,51 @@ async function callMethod(
       );
     }
 
-    await awaitableLog(JSON.stringify(result, null, 2));
+    if (args.appInfo) {
+      // Single-line JSON so callers can `| jq` or parse the line directly.
+      const info = appInfo ?? { hasApp: false, toolName: args.toolName ?? "" };
+      await awaitableLog(JSON.stringify(info));
+      if (!info.hasApp) {
+        throw new CliExitCodeError(
+          2,
+          `Tool '${args.toolName}' has no MCP App UI resource (_meta.ui.resourceUri).`,
+        );
+      }
+    } else {
+      await awaitableLog(JSON.stringify(result, null, 2));
+      if (appInfo?.hasApp) {
+        await awaitableLog("\n--- MCP App Info ---");
+        await awaitableLog(JSON.stringify(appInfo, null, 2));
+      }
+    }
   } finally {
     managedToolsState?.destroy();
     managedResourcesState?.destroy();
     managedResourceTemplatesState?.destroy();
     managedPromptsState?.destroy();
     await inspectorClient.disconnect();
+  }
+}
+
+/**
+ * Build the CLI's {@link AppInfo} for a tool: extract the tool-side `_meta.ui`
+ * and, when the tool advertises a UI resource, follow it with a `resources/read`
+ * so the resource-side csp/permissions/domain are included. A read failure is
+ * tolerated — the tool-side info is still returned, since "tool says it has an
+ * app but the resource is unreadable" is itself a useful probe result.
+ */
+async function collectAppInfo(
+  client: InspectorClient,
+  tool: Parameters<typeof extractAppInfo>[0],
+  metadata: Record<string, string> | undefined,
+): Promise<AppInfo> {
+  const base = extractAppInfo(tool);
+  if (!base.hasApp || base.resourceUri === undefined) return base;
+  try {
+    const read = await client.readResource(base.resourceUri, metadata);
+    return extractAppInfo(tool, read.result);
+  } catch {
+    return base;
   }
 }
 
@@ -359,6 +410,10 @@ function parseArgs(argv?: string[]): {
       "Tool-specific metadata as key=value pairs (for tools/call method only)",
       parseKeyValuePair,
       {},
+    )
+    .option(
+      "--app-info",
+      "Probe the tool's MCP App UI metadata (resourceUri, csp, permissions, domain) and emit it as one JSON line; exit 2 when the tool has no app. Use with --method tools/call --tool-name <name>; the tool itself is not invoked.",
     );
 
   program.parse(preArgs);
@@ -381,6 +436,7 @@ function parseArgs(argv?: string[]): {
     transport?: "sse" | "http" | "stdio";
     serverUrl?: string;
     header?: Record<string, string>;
+    appInfo?: boolean;
   };
 
   const serverOptions = {
@@ -413,6 +469,12 @@ function parseArgs(argv?: string[]): {
     );
   }
 
+  if (options.appInfo && options.method !== "tools/call") {
+    throw new Error(
+      "--app-info requires --method tools/call (and --tool-name <name>).",
+    );
+  }
+
   const methodArgs: MethodArgs & { method: string } = {
     method: options.method,
     toolName: options.toolName,
@@ -437,6 +499,7 @@ function parseArgs(argv?: string[]): {
           ]),
         )
       : undefined,
+    appInfo: options.appInfo === true,
   };
 
   return {

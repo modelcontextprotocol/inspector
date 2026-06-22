@@ -1,4 +1,5 @@
 import { runCli as invokeCli } from "../../src/cli.js";
+import { CliExitCodeError } from "../../src/error-handler.js";
 
 export interface CliResult {
   exitCode: number | null;
@@ -127,7 +128,7 @@ export async function runCli(
   try {
     await Promise.race([invokeCli(argv), timeout]);
   } catch (error) {
-    exitCode = 1;
+    exitCode = error instanceof CliExitCodeError ? error.exitCode : 1;
     stderr += (error instanceof Error ? error.message : String(error)) + "\n";
   } finally {
     if (timer) clearTimeout(timer);
