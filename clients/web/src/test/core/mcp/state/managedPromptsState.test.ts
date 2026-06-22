@@ -84,10 +84,9 @@ describe("ManagedPromptsState", () => {
     promptless.setStatus("connected");
     const promptlessState = new ManagedPromptsState(promptless, 0);
 
+    const changePromise = waitForPromptsChange(promptlessState);
     promptless.dispatchTypedEvent("connect");
-    // Yield so the async refresh chained off connect runs.
-    await Promise.resolve();
-    await Promise.resolve();
+    await changePromise;
     expect(promptless.listPrompts).not.toHaveBeenCalled();
     expect(promptlessState.getPrompts()).toEqual([]);
   });

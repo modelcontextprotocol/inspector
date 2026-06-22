@@ -73,10 +73,9 @@ describe("ManagedRequestorTasksState", () => {
     taskless.setStatus("connected");
     const tasklessState = new ManagedRequestorTasksState(taskless);
 
+    const changePromise = waitForChange(tasklessState);
     taskless.dispatchTypedEvent("connect");
-    // Yield once so the async refresh chained off connect runs.
-    await Promise.resolve();
-    await Promise.resolve();
+    await changePromise;
     expect(taskless.listRequestorTasks).not.toHaveBeenCalled();
     expect(tasklessState.getTasks()).toEqual([]);
   });

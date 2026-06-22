@@ -84,10 +84,9 @@ describe("ManagedToolsState", () => {
     toolless.setStatus("connected");
     const toollessState = new ManagedToolsState(toolless, 0);
 
+    const changePromise = waitForToolsChange(toollessState);
     toolless.dispatchTypedEvent("connect");
-    // Yield so the async refresh chained off connect runs.
-    await Promise.resolve();
-    await Promise.resolve();
+    await changePromise;
     expect(toolless.listTools).not.toHaveBeenCalled();
     expect(toollessState.getTools()).toEqual([]);
   });

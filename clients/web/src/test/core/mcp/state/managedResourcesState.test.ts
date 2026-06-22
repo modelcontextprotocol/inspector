@@ -89,10 +89,9 @@ describe("ManagedResourcesState", () => {
     resourceless.setStatus("connected");
     const resourcelessState = new ManagedResourcesState(resourceless, 0);
 
+    const changePromise = waitForResourcesChange(resourcelessState);
     resourceless.dispatchTypedEvent("connect");
-    // Yield so the async refresh chained off connect runs.
-    await Promise.resolve();
-    await Promise.resolve();
+    await changePromise;
     expect(resourceless.listResources).not.toHaveBeenCalled();
     expect(resourcelessState.getResources()).toEqual([]);
   });

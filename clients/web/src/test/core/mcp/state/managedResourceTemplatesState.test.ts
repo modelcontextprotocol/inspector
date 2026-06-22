@@ -90,10 +90,9 @@ describe("ManagedResourceTemplatesState", () => {
       0,
     );
 
+    const changePromise = waitForChange(resourcelessState);
     resourceless.dispatchTypedEvent("connect");
-    // Yield so the async refresh chained off connect runs.
-    await Promise.resolve();
-    await Promise.resolve();
+    await changePromise;
     expect(resourceless.listResourceTemplates).not.toHaveBeenCalled();
     expect(resourcelessState.getResourceTemplates()).toEqual([]);
   });
