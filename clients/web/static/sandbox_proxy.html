@@ -4,15 +4,21 @@
     <meta charset="utf-8" />
     <meta name="color-scheme" content="light dark" />
     <!-- Isolation model: the iframe `sandbox` attribute set on the inner
-         frame below ("allow-scripts allow-same-origin allow-forms") and the
+         frame below is the structural isolation boundary, alongside the
          parent-origin allowlist (ALLOWED_REFERRER_PATTERN +
-         EXPECTED_HOST_ORIGIN check on incoming messages) are the structural
-         isolation boundary. On top of that, network/resource egress from the
-         inner document is constrained per app: the resource-ready handler
-         below translates the UI resource's _meta.ui.csp into a
-         `<meta http-equiv="Content-Security-Policy">` injected into the inner
-         document before it loads (see buildCspContent). No CSP *header* is set
-         by the sandbox controller; the per-document meta policy is the enforced
+         EXPECTED_HOST_ORIGIN check on incoming messages). The default sandbox
+         value ("allow-scripts allow-same-origin allow-forms") is just a
+         starting point — the resource-ready message may narrow or replace it
+         per app via its `sandbox` field.
+
+         Network/resource egress from the inner document is constrained by a
+         Content-Security-Policy that the HOST builds and bakes into the
+         delivered HTML before it reaches this proxy (see
+         src/lib/sandbox-csp.ts). The proxy writes that pre-wrapped document
+         verbatim — it never parses or injects into the untrusted bytes — so
+         the CSP `<meta>` is guaranteed to be the first `<head>` child of the
+         inner document. No CSP *header* is set by the sandbox controller; the
+         host-authored meta policy in the inner document is the enforced
          network boundary. -->
     <title>MCP-UI Proxy</title>
     <style>
@@ -54,105 +60,6 @@
         if (permissions["clipboardWrite"]) allowList.push("clipboard-write");
 
         return allowList.join("; ");
-      }
-
-      // Translate the UI resource's _meta.ui.csp (McpUiResourceCsp) into a CSP
-      // string enforced on the inner document. Per the MCP Apps spec the host
-      // MUST apply this policy. The inner HTML is delivered inline (document.write
-      // / srcdoc) into a sandboxed, server-less origin, so EVERY external origin
-      // the app touches must be declared — and an omitted list means "deny".
-      //
-      //   connectDomains  -> connect-src                     (fetch/XHR/WebSocket)
-      //   resourceDomains -> img/script/style/font/media-src  (static resources)
-      //   frameDomains    -> frame-src                        (nested iframes)
-      //   baseUriDomains  -> base-uri                         (document base URI)
-      //
-      // Secure defaults for omitted/empty lists: no connections, no external
-      // resources, frame-src 'none', base-uri 'self'. script-src/style-src also
-      // carry 'unsafe-inline' because the app's own inline <script>/<style> ship
-      // with the HTML and have no origin to allowlist; external script/style
-      // loads stay restricted to the declared resourceDomains.
-      //
-      // Each domain entry is server-supplied and untrusted: it is filtered
-      // against SAFE_CSP_SOURCE before use so it cannot inject extra directives
-      // (`;`) or break out of the meta attribute (`"`, `<`, `>`). Only common
-      // CSP source-expression shapes are accepted (scheme://host[:port][/path],
-      // scheme-only `data:`/`blob:`/etc., `*`, and wildcard hosts like
-      // `*.example.com` or `https://*.example.com`); anything else is dropped
-      // and logged. The assembled policy is also HTML-attribute-encoded by
-      // injectCsp as defense in depth.
-      const SAFE_CSP_SOURCE =
-        /^(?:\*|[a-z][a-z0-9+.-]*:(?:\/\/(?:\*\.)?[A-Za-z0-9._~%!$&'()*+,=@:-]+(?::\d+)?(?:\/[A-Za-z0-9._~%!$&'()*+,=@:/-]*)?)?|(?:\*\.)?[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?)$/;
-
-      function buildCspContent(csp) {
-        const c = csp || {};
-        const list = (domains) => {
-          if (!Array.isArray(domains)) return null;
-          const safe = [];
-          for (const d of domains) {
-            if (typeof d === "string" && SAFE_CSP_SOURCE.test(d)) {
-              safe.push(d);
-            } else {
-              console.warn("[mcp-app sandbox] dropping unsafe CSP source:", d);
-            }
-          }
-          return safe.length > 0 ? safe.join(" ") : null;
-        };
-
-        const resource = list(c.resourceDomains);
-        const connect = list(c.connectDomains);
-        const frame = list(c.frameDomains);
-        const baseUri = list(c.baseUriDomains);
-
-        const inlineResource = resource
-          ? "'unsafe-inline' " + resource
-          : "'unsafe-inline'";
-
-        // default-src 'none' is the catch-all so any fetch type not explicitly
-        // listed below (object/embed, workers, manifests, prefetch) is denied
-        // rather than falling through to no-policy.
-        return [
-          "default-src 'none'",
-          "connect-src " + (connect || "'none'"),
-          "script-src " + inlineResource,
-          "style-src " + inlineResource,
-          "img-src " + (resource || "'none'"),
-          "font-src " + (resource || "'none'"),
-          "media-src " + (resource || "'none'"),
-          "frame-src " + (frame || "'none'"),
-          "base-uri " + (baseUri || "'self'"),
-          "object-src 'none'",
-          "worker-src 'none'",
-        ].join("; ");
-      }
-
-      // Insert the policy as the first <head> child so it precedes — and thus
-      // governs — every resource the inner document loads. Falls back to wrapping
-      // a <head>, or prepending, when the HTML omits one.
-      function escapeHtmlAttr(s) {
-        return s
-          .replace(/&/g, "&amp;")
-          .replace(/"/g, "&quot;")
-          .replace(/'/g, "&#39;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;");
-      }
-
-      function injectCsp(html, cspContent) {
-        const meta =
-          '<meta http-equiv="Content-Security-Policy" content="' +
-          escapeHtmlAttr(cspContent) +
-          '">';
-        if (/<head[^>]*>/i.test(html)) {
-          return html.replace(/<head[^>]*>/i, (m) => m + meta);
-        }
-        if (/<html[^>]*>/i.test(html)) {
-          return html.replace(
-            /<html[^>]*>/i,
-            (m) => m + "<head>" + meta + "</head>",
-          );
-        }
-        return meta + html;
       }
 
       const ALLOWED_REFERRER_PATTERN =
@@ -225,9 +132,11 @@
       // intercepted here (not relayed) because the Sandbox uses it to configure and
       // load the inner iframe with the view HTML content.
       //
-      // Security: isolation comes from the iframe `sandbox` attribute and
-      // the origin allowlist above. No CSP header is set on this page (see
-      // the head comment); the sandbox attribute is the enforced boundary.
+      // Security: isolation comes from the iframe `sandbox` attribute and the
+      // origin allowlist above. The CSP for the inner document is built and
+      // wrapped by the host before the HTML reaches this proxy (see head
+      // comment); this script writes that pre-wrapped document verbatim and
+      // never parses or injects into the untrusted bytes.
 
       window.addEventListener("message", async (event) => {
         if (event.source === window.parent) {
@@ -244,7 +153,7 @@
           }
 
           if (event.data && event.data.method === RESOURCE_READY_NOTIFICATION) {
-            const { html, sandbox, permissions, csp } = event.data.params;
+            const { html, sandbox, permissions } = event.data.params;
             if (typeof sandbox === "string") {
               inner.setAttribute("sandbox", sandbox);
             }
@@ -255,24 +164,21 @@
               inner.setAttribute("allow", allowAttribute);
             }
             if (typeof html === "string") {
-              // Enforce the app's declared CSP (with secure defaults) by injecting
-              // a <meta http-equiv> before any of the inner document's content
-              // loads. Always applied — a resource that declares no csp still gets
-              // the locked-down secure defaults.
-              const securedHtml = injectCsp(html, buildCspContent(csp));
+              // The host has already wrapped the app's HTML in a fixed shell
+              // whose first <head> child is the CSP <meta>; write it verbatim.
               // Use document.write instead of srcdoc (which the CesiumJS Map won't work with)
               const doc =
                 inner.contentDocument || inner.contentWindow?.document;
               if (doc) {
                 doc.open();
-                doc.write(securedHtml);
+                doc.write(html);
                 doc.close();
               } else {
                 // Fallback to srcdoc if document is not accessible
                 console.warn(
                   "[Sandbox] document.write not available, falling back to srcdoc",
                 );
-                inner.srcdoc = securedHtml;
+                inner.srcdoc = html;
               }
             }
           } else {

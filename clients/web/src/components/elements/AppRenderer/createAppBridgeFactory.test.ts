@@ -223,11 +223,11 @@ describe("createAppBridgeFactory", () => {
     expect(options.hostContext?.styles).toBeUndefined();
   });
 
-  it("on sandboxready, reads the UI resource and pushes html + meta to the sandbox", async () => {
+  it("on sandboxready, reads the UI resource, wraps it with the host CSP shell, and pushes it to the sandbox", async () => {
     const readResource = vi.fn().mockResolvedValue(
       uiResource("<h1>weather</h1>", {
         permissions: { geolocation: {} },
-        csp: { connectSrc: ["https://api.example.com"] },
+        csp: { connectDomains: ["https://api.example.com"] },
       }),
     );
     const factory = createAppBridgeFactory({
@@ -241,11 +241,48 @@ describe("createAppBridgeFactory", () => {
     await flush();
 
     expect(readResource).toHaveBeenCalledWith("ui://weather/app.html");
-    expect(bridge.sendSandboxResourceReady).toHaveBeenCalledWith({
-      html: "<h1>weather</h1>",
-      permissions: { geolocation: {} },
-      csp: { connectSrc: ["https://api.example.com"] },
+    expect(bridge.sendSandboxResourceReady).toHaveBeenCalledOnce();
+    const sent = bridge.sendSandboxResourceReady.mock.calls[0][0] as {
+      html: string;
+      permissions: unknown;
+    };
+    expect(sent.permissions).toEqual({ geolocation: {} });
+    // The host wraps the app HTML in a fixed shell whose first <head> child is
+    // the CSP meta — the proxy writes this verbatim.
+    expect(sent.html.startsWith("<!DOCTYPE html><html><head><meta")).toBe(true);
+    expect(sent.html).toContain("Content-Security-Policy");
+    expect(sent.html).toContain("connect-src https://api.example.com");
+    expect(sent.html).toContain("<body><h1>weather</h1></body>");
+  });
+
+  it("filters unsafe csp sources before wrapping and echoes only the approved ones", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const readResource = vi.fn().mockResolvedValue(
+      uiResource("<p>app</p>", {
+        csp: {
+          connectDomains: ["https://ok.com", "https://x.com; script-src *"],
+        },
+      }),
+    );
+    const factory = createAppBridgeFactory({
+      getClient: () => fakeClient,
+      readResource,
     });
+    await factory(makeIframe(), tool);
+    const bridge = bridgeInstances[0];
+
+    bridge.emit("sandboxready");
+    await flush();
+
+    const sent = bridge.sendSandboxResourceReady.mock.calls[0][0] as {
+      html: string;
+    };
+    expect(sent.html).toContain("connect-src https://ok.com");
+    expect(sent.html).not.toContain("script-src *");
+    expect(bridge.ctorArgs[2]).toMatchObject({
+      sandbox: { csp: { connectDomains: ["https://ok.com"] } },
+    });
+    warn.mockRestore();
   });
 
   it("echoes the approved csp + permissions in hostCapabilities after sandboxready", async () => {

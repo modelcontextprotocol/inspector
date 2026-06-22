@@ -20,6 +20,11 @@ import type {
   ReadResourceResult,
   ResourceLink,
 } from "@modelcontextprotocol/sdk/types.js";
+import {
+  approveCspSources,
+  buildSandboxCspPolicy,
+  wrapSandboxedHtml,
+} from "../../../lib/sandbox-csp";
 import type { BridgeFactory } from "./AppRenderer";
 
 /**
@@ -400,20 +405,24 @@ export function createAppBridgeFactory(
           if (!uri) return;
           const result = await deps.readResource(uri);
           const { html, meta } = extractHtmlAndMeta(result);
-          // Echo the sandbox config the host applied so the view can read what was
-          // granted via hostCapabilities.sandbox. The CSP is always enforced (the
-          // sandbox proxy falls back to secure defaults), so advertise at least an
-          // empty csp object even when the resource declares none. Set before
-          // sendSandboxResourceReady: the view only sends ui/initialize once it has
-          // the HTML, so the bridge reflects this in the initialize result.
+          // Build the per-app CSP host-side: filter the requested sources to
+          // ones the host accepts, render the policy string, and wrap the
+          // app's HTML in a fixed shell whose first <head> child is the CSP
+          // <meta>. The proxy writes that document verbatim — it never parses
+          // the untrusted bytes — so the policy is guaranteed to apply before
+          // any app content loads. The approved (post-filter) csp is what we
+          // echo back via hostCapabilities.sandbox so the view sees what was
+          // granted, not what it asked for. Set before sendSandboxResourceReady:
+          // the view only sends ui/initialize once it has the HTML, so the
+          // bridge reflects this in the initialize result.
+          const approvedCsp = approveCspSources(meta?.csp);
           hostCapabilities.sandbox = {
             permissions: meta?.permissions,
-            csp: meta?.csp ?? {},
+            csp: approvedCsp,
           };
           await bridge.sendSandboxResourceReady({
-            html,
+            html: wrapSandboxedHtml(html, buildSandboxCspPolicy(approvedCsp)),
             permissions: meta?.permissions,
-            csp: meta?.csp,
           });
         } catch {
           /* read/post failed (or bridge closed) — leave the frame empty */
