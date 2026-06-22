@@ -1,7 +1,6 @@
 import { useMemo, useRef, useState, type Ref } from "react";
 import {
   ActionIcon,
-  Badge,
   Button,
   Card,
   Code,
@@ -37,6 +36,7 @@ import {
 import { AppDetailPanel } from "../../groups/AppDetailPanel/AppDetailPanel";
 import { AppControls } from "../../groups/AppControls/AppControls";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { LogLevelBadge } from "../../elements/LogLevelBadge/LogLevelBadge";
 import { hasInputFields, resolveDisplayLabel } from "../../../utils/toolUtils";
 import { collectSchemaDefaults } from "../../../utils/jsonUtils";
 
@@ -233,12 +233,6 @@ const AppLogRow = Group.withProps({
   align: "flex-start",
 });
 
-const AppLogLevelBadge = Badge.withProps({
-  size: "xs",
-  radius: "sm",
-  variant: "light",
-});
-
 const AppLogLogger = Text.withProps({
   size: "xs",
   c: "dimmed",
@@ -261,25 +255,6 @@ const PartialStageCount = Text.withProps({
   size: "xs",
   c: "dimmed",
 });
-
-/** Map an MCP log level to the inspector's log color tokens (App.css :root). */
-function logLevelColor(level: AppLogEntry["level"]): string {
-  switch (level) {
-    case "error":
-    case "critical":
-    case "alert":
-    case "emergency":
-      return "var(--inspector-log-error)";
-    case "warning":
-      return "var(--inspector-log-warning)";
-    case "debug":
-      return "var(--inspector-log-debug)";
-    case "info":
-    case "notice":
-    default:
-      return "var(--inspector-log-info)";
-  }
-}
 
 /** Render the log payload as a string for display. */
 function formatLogData(data: unknown): string {
@@ -669,9 +644,7 @@ export function AppsScreen({
                     <AppLogList>
                       {appLogs.map((entry) => (
                         <AppLogRow key={entry.id}>
-                          <AppLogLevelBadge color={logLevelColor(entry.level)}>
-                            {entry.level}
-                          </AppLogLevelBadge>
+                          <LogLevelBadge level={entry.level} />
                           {entry.logger && (
                             <AppLogLogger>{entry.logger}</AppLogLogger>
                           )}

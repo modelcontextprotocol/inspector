@@ -71,9 +71,9 @@ import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   createAppBridgeFactory,
   HOST_CAPABILITIES,
-  measureContainerDimensions,
   subscribeAppLogs,
 } from "./createAppBridgeFactory";
+import { measureContainerDimensions } from "./hostContext";
 
 const tool: Tool = {
   name: "weather_app",
@@ -435,7 +435,7 @@ describe("createAppBridgeFactory", () => {
       bridge.onopenlink!({ url: "https://example.com" }),
     ).resolves.toEqual({ isError: false });
     expect(open).toHaveBeenCalledWith(
-      "https://example.com",
+      "https://example.com/",
       "_blank",
       "noopener,noreferrer",
     );

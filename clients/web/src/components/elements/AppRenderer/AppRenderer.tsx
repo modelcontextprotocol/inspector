@@ -11,14 +11,14 @@ import type {
   AppBridge,
   AppBridgeEventMap,
   McpUiDisplayMode,
-  McpUiHostContext,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
   currentStyles,
   currentTheme,
   measureContainerDimensions,
-} from "./createAppBridgeFactory";
+  type ContainerDimensions,
+} from "./hostContext";
 
 /**
  * Constructs the `AppBridge` for a freshly mounted sandbox iframe. Wrap with
@@ -134,12 +134,6 @@ export function AppRenderer({
   ref,
 }: AppRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  // Full host-context snapshot. AppBridge.setHostContext replaces its internal
-  // baseline with the object passed (it does NOT merge), so passing a partial
-  // here would make the next call's diff compare against a partial — and emit
-  // unchanged fields as changed. Every push site merges into this snapshot and
-  // passes the COMPLETE object so the SDK's per-field diff stays accurate.
-  const hostContextRef = useRef<McpUiHostContext>({});
   const bridgeRef = useRef<AppBridge | null>(null);
   const initializedRef = useRef(false);
   const pendingPartialsRef = useRef<Record<string, unknown>[]>([]);
@@ -170,13 +164,6 @@ export function AppRenderer({
     partialInputsRef.current = partialInputs;
     containerElementRef.current = containerRef;
   });
-
-  // Merge a patch into the full host-context snapshot and push it to the live
-  // bridge (see the hostContextRef comment for why the complete object is sent).
-  const pushHostContext = useCallback((patch: Partial<McpUiHostContext>) => {
-    hostContextRef.current = { ...hostContextRef.current, ...patch };
-    bridgeRef.current?.setHostContext(hostContextRef.current);
-  }, []);
 
   // Flush buffered tool input/result to the view, but only once the bridge
   // exists AND the view has signalled `initialized`. The spec requires tool
@@ -291,24 +278,19 @@ export function AppRenderer({
         // drives), so the view's `initialized` signal is never missed.
         bridge.addEventListener("initialized", () => {
           initializedRef.current = true;
-          // Seed the host-side snapshot from the live host state and push it.
-          // Any field may have changed between bridge construction (which the
-          // factory seeded into the handshake) and initialization; the SDK
-          // diffs and emits only what actually moved.
-          const styles = currentStyles();
+          // The factory already seeded theme/styles/displayMode into the
+          // handshake hostContext; the observers below cover any subsequent
+          // changes. Only containerDimensions can plausibly differ between
+          // bridge construction and initialization (layout settles), so push
+          // that one field now via the SDK's partial-change notification.
           const container =
             containerElementRef.current?.current ?? iframeRef.current;
           const containerDimensions = container
             ? measureContainerDimensions(container)
             : undefined;
-          const mode = displayModeRef.current;
-          hostContextRef.current = {
-            theme: currentTheme(),
-            ...(styles ? { styles } : {}),
-            ...(containerDimensions ? { containerDimensions } : {}),
-            ...(mode !== undefined ? { displayMode: mode } : {}),
-          };
-          bridge.setHostContext(hostContextRef.current);
+          if (containerDimensions) {
+            void bridge.sendHostContextChange({ containerDimensions });
+          }
           flushPending();
         });
         // Forward the view's content-size reports (ui/notifications/size-changed)
@@ -335,16 +317,18 @@ export function AppRenderer({
     return scheduleDispose;
   }, [bridgeFactory, sandboxPath, tool, flushPending, scheduleDispose]);
 
-  // Push live host-context changes to the running view. The factory only seeds
-  // the INITIAL theme into the handshake hostContext, but the spec has the host
-  // push partial hostContext diffs (via ui/notifications/host-context-changed)
-  // as fields change — so a theme flip while an app is open must reach it too.
-  // Mantine writes the resolved scheme to `<html data-mantine-color-scheme>`;
-  // observe that attribute and forward changes through the live bridge.
-  // `setHostContext` diffs and emits only modified fields, so re-asserting an
-  // unchanged theme is a no-op. Reading `bridgeRef.current` at callback time
-  // (not capturing a bridge) means the observer always targets the live bridge,
-  // even though it resolves asynchronously after this effect runs.
+  // Push live host-context changes to the running view as discrete partial
+  // updates via AppBridge.sendHostContextChange (the SDK's
+  // ui/notifications/host-context-changed sender). Each effect observes one
+  // host signal and sends only the field(s) it owns, so the view receives the
+  // spec's "only changed fields" partials without any host-side snapshot
+  // bookkeeping. Reading `bridgeRef.current` at callback time (not capturing a
+  // bridge) means the observers always target the live bridge, even though it
+  // resolves asynchronously after these effects run.
+
+  // Theme + styles: Mantine writes the resolved scheme to
+  // `<html data-mantine-color-scheme>`; observe that attribute and forward
+  // changes through the live bridge.
   useEffect(() => {
     if (
       typeof MutationObserver === "undefined" ||
@@ -354,7 +338,7 @@ export function AppRenderer({
     }
     const observer = new MutationObserver(() => {
       const styles = currentStyles();
-      pushHostContext({
+      void bridgeRef.current?.sendHostContextChange({
         theme: currentTheme(),
         ...(styles ? { styles } : {}),
       });
@@ -364,35 +348,42 @@ export function AppRenderer({
       attributeFilter: ["data-mantine-color-scheme"],
     });
     return () => observer.disconnect();
-  }, [pushHostContext]);
+  }, []);
 
-  // Push live container size to the running view. Observes the host-controlled
-  // container (or the iframe as a fallback) — NOT an element whose height is
-  // driven by the view's own size-changed reports, which would couple the two
-  // signals into a feedback loop. Gated on the view's `initialized` signal so
-  // the notification only fires once the handshake is complete, and a 0×0
-  // (not-yet-laid-out) measurement is skipped.
+  // Container size: observes the host-controlled container (or the iframe as a
+  // fallback) — NOT an element whose height is driven by the view's own
+  // size-changed reports, which would couple the two signals into a feedback
+  // loop. Gated on the view's `initialized` signal so the notification only
+  // fires once the handshake is complete; a 0×0 (not-yet-laid-out) measurement
+  // and a value-equal repeat are both skipped.
   useEffect(() => {
     const target = containerElementRef.current?.current ?? iframeRef.current;
     if (typeof ResizeObserver === "undefined" || !target) return;
+    let last: ContainerDimensions | undefined;
     const observer = new ResizeObserver(() => {
       if (!initializedRef.current) return;
-      const containerDimensions = measureContainerDimensions(target);
-      if (!containerDimensions) return;
-      pushHostContext({ containerDimensions });
+      const next = measureContainerDimensions(target);
+      if (!next) return;
+      if (last && last.width === next.width && last.height === next.height) {
+        return;
+      }
+      last = next;
+      void bridgeRef.current?.sendHostContextChange({
+        containerDimensions: next,
+      });
     });
     observer.observe(target);
     return () => observer.disconnect();
-  }, [pushHostContext]);
+  }, []);
 
-  // Push the host's display mode to the running view whenever it changes
-  // (Maximize/Restore, or after we honored a ui/request-display-mode). Gated
-  // on `initialized` for the same reason as the other host-context pushes.
+  // Display mode: pushes whenever the prop changes (Maximize/Restore, or after
+  // we honored a ui/request-display-mode). Gated on `initialized` for the same
+  // reason as the other host-context pushes.
   useEffect(() => {
     if (displayMode === undefined) return;
     if (!initializedRef.current) return;
-    pushHostContext({ displayMode });
-  }, [displayMode, pushHostContext]);
+    void bridgeRef.current?.sendHostContextChange({ displayMode });
+  }, [displayMode]);
 
   useImperativeHandle(
     ref,

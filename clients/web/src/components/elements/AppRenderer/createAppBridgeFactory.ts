@@ -6,11 +6,7 @@ import {
 import type {
   McpUiDisplayMode,
   McpUiHostCapabilities,
-  McpUiHostContext,
-  McpUiHostStyles,
   McpUiResourceMeta,
-  McpUiStyles,
-  McpUiStyleVariableKey,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type {
@@ -25,6 +21,16 @@ import {
   buildSandboxCspPolicy,
   wrapSandboxedHtml,
 } from "../../../lib/sandbox-csp";
+import {
+  downloadBlob,
+  fileNameFromUri,
+  isHttpUrl,
+} from "../../../lib/downloadFile";
+import {
+  currentStyles,
+  currentTheme,
+  measureContainerDimensions,
+} from "./hostContext";
 import type { BridgeFactory } from "./AppRenderer";
 
 /**
@@ -86,137 +92,6 @@ export interface AppBridgeFactoryDeps {
    * frame; the error is also always console.error'd.
    */
   onResourceError?: (err: Error) => void;
-}
-
-/**
- * Resolve the host theme from the DOM at bridge-build time. Mantine writes the
- * resolved color scheme to `<html data-mantine-color-scheme>`. Reading it here
- * (rather than capturing React state in the factory deps) keeps the factory's
- * identity stable across theme toggles — the AppRenderer treats a new factory
- * identity as "rebuild the bridge", which would reload a running app's iframe on
- * every theme flip. The theme is read once per bridge build to seed the initial
- * hostContext; AppRenderer watches the same attribute and pushes live theme
- * changes to an already-open app via AppBridge.setHostContext, so it is exported
- * here to keep a single source of truth for "what theme is the host showing".
- *
- * The attribute is only ever `"light"` or `"dark"` — Mantine resolves
- * `defaultColorScheme="auto"` to the system value before paint and never writes
- * `"auto"` here, so no `auto` branch is needed. The matchMedia fallback only
- * covers the attribute being absent (e.g. a hydration race).
- */
-export function currentTheme(): "light" | "dark" {
-  if (typeof document !== "undefined") {
-    const attr = document.documentElement.getAttribute(
-      "data-mantine-color-scheme",
-    );
-    if (attr === "dark" || attr === "light") return attr;
-  }
-  if (
-    typeof window !== "undefined" &&
-    window.matchMedia?.("(prefers-color-scheme: dark)").matches
-  ) {
-    return "dark";
-  }
-  return "light";
-}
-
-/**
- * Maps the spec's host-style variable keys ({@link McpUiStyleVariableKey}) to
- * the inspector's underlying CSS custom properties. The inspector themes itself
- * with Mantine, so each spec token resolves to the matching Mantine design-token
- * variable (or an `--inspector-*` token layered on top of one). Only a curated
- * subset of the ~90 spec keys is mapped — the ones the inspector has a
- * meaningful equivalent for; the rest are omitted, which the spec allows (hosts
- * may provide any subset).
- */
-const STYLE_VARIABLE_SOURCES: Partial<Record<McpUiStyleVariableKey, string>> = {
-  "--color-background-primary": "--mantine-color-body",
-  "--color-background-secondary": "--inspector-surface-card",
-  "--color-background-tertiary": "--inspector-surface-subtle",
-  "--color-text-primary": "--mantine-color-text",
-  "--color-text-secondary": "--inspector-text-secondary",
-  "--color-text-inverse": "--inspector-text-inverse",
-  "--color-text-info": "--inspector-log-info",
-  "--color-text-danger": "--inspector-log-error",
-  "--color-text-success": "--inspector-status-connected",
-  "--color-text-warning": "--inspector-log-warning",
-  "--color-border-primary": "--inspector-border-default",
-  "--color-border-secondary": "--inspector-border-subtle",
-  "--font-sans": "--mantine-font-family",
-  "--font-mono": "--mantine-font-family-monospace",
-  "--font-text-xs-size": "--mantine-font-size-xs",
-  "--font-text-sm-size": "--mantine-font-size-sm",
-  "--font-text-md-size": "--mantine-font-size-md",
-  "--font-text-lg-size": "--mantine-font-size-lg",
-  "--border-radius-xs": "--mantine-radius-xs",
-  "--border-radius-sm": "--mantine-radius-sm",
-  "--border-radius-md": "--mantine-radius-md",
-  "--border-radius-lg": "--mantine-radius-lg",
-  "--border-radius-xl": "--mantine-radius-xl",
-  "--shadow-sm": "--mantine-shadow-sm",
-  "--shadow-md": "--mantine-shadow-md",
-  "--shadow-lg": "--mantine-shadow-lg",
-};
-
-/**
- * Resolve the inspector's design tokens into a {@link McpUiHostStyles} for
- * hostContext, so style-aware apps can theme themselves from the host instead of
- * falling back to their own defaults. Reads the computed value of each mapped
- * CSS variable from the document root — which reflects the active Mantine color
- * scheme — and keeps only the ones that resolve to a non-empty value. Returns
- * undefined when nothing resolves (e.g. a non-DOM/test environment) so we never
- * advertise an empty styles object.
- *
- * Like {@link currentTheme}, this is read at bridge-build time to seed the
- * initial hostContext. Pushing the refreshed styles to an already-open app on a
- * theme flip rides the same AppBridge.setHostContext follow-up the theme does;
- * the function is exported so that wiring can reuse a single source of truth.
- */
-export function currentStyles(): McpUiHostStyles | undefined {
-  if (typeof document === "undefined" || typeof window === "undefined") {
-    return undefined;
-  }
-  const computed = window.getComputedStyle(document.documentElement);
-  const variables: McpUiStyles = {} as McpUiStyles;
-  let resolved = false;
-  for (const [specKey, sourceVar] of Object.entries(STYLE_VARIABLE_SOURCES)) {
-    const value = computed.getPropertyValue(sourceVar).trim();
-    if (value) {
-      variables[specKey as McpUiStyleVariableKey] = value;
-      resolved = true;
-    }
-  }
-  return resolved ? { variables } : undefined;
-}
-
-/**
- * Spec shape for `hostContext.containerDimensions`. Derived from
- * {@link McpUiHostContext} so the seed and live-push paths share one source of
- * truth and stay in lockstep with the spec types.
- */
-export type ContainerDimensions = NonNullable<
-  McpUiHostContext["containerDimensions"]
->;
-
-/**
- * Measure the host container an app renders into and return it as the spec's
- * fixed `{ width, height }` shape (whole pixels). Returns undefined when the
- * element has no layout box yet (0×0 — e.g. before the iframe is attached, or
- * in a non-DOM/test environment) so a meaningless size is never seeded into
- * hostContext.
- *
- * Exported so AppRenderer's ResizeObserver can reuse the same measurement for
- * live `host-context-changed` pushes.
- */
-export function measureContainerDimensions(
-  element: HTMLElement,
-): ContainerDimensions | undefined {
-  if (typeof element.getBoundingClientRect !== "function") return undefined;
-  const rect = element.getBoundingClientRect();
-  const width = Math.round(rect.width);
-  const height = Math.round(rect.height);
-  if (width <= 0 || height <= 0) return undefined;
-  return { width, height };
 }
 
 /**
@@ -289,21 +164,6 @@ function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
 }
 
 /**
- * Derive a safe suggested filename from a resource URI: the last path segment,
- * stripped of control/format characters, path separators, and characters
- * disallowed in filenames on common platforms. Falls back to `"download"` when
- * nothing usable remains.
- */
-function fileNameFromUri(uri: string): string {
-  const tail = uri.split(/[\\/]/).pop() ?? "";
-  const safe = tail
-    .replace(/[\p{Cc}\p{Cf}]+/gu, "")
-    .replace(/[\\/:*?"<>|]+/g, "_")
-    .trim();
-  return safe.length > 0 ? safe.slice(0, 255) : "download";
-}
-
-/**
  * Strip control characters and clamp length so a server-supplied filename or
  * URI cannot forge additional lines in the confirmation prompt or push the
  * real summary off-screen.
@@ -323,8 +183,8 @@ function describeDownloadItem(item: EmbeddedResource | ResourceLink): string {
 
 /**
  * Trigger a browser download for a single MCP resource item. Inline
- * {@link EmbeddedResource}s (text or base64 blob) are written via an
- * object-URL anchor click. A {@link ResourceLink} is *opened* in a new tab —
+ * {@link EmbeddedResource}s (text or base64 blob) are written via
+ * {@link downloadBlob}. A {@link ResourceLink} is *opened* in a new tab —
  * the inspector does not fetch the URL to disk itself, since the link may
  * require auth or content negotiation the browser can supply but we cannot.
  * Returns false when the item carries nothing downloadable or its URI is
@@ -332,15 +192,8 @@ function describeDownloadItem(item: EmbeddedResource | ResourceLink): string {
  */
 function downloadResourceItem(item: EmbeddedResource | ResourceLink): boolean {
   if (item.type === "resource_link") {
-    let parsed: URL;
-    try {
-      parsed = new URL(item.uri);
-    } catch {
-      return false;
-    }
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      return false;
-    }
+    const parsed = isHttpUrl(item.uri);
+    if (!parsed) return false;
     window.open(parsed.href, "_blank", "noopener,noreferrer");
     return true;
   }
@@ -351,18 +204,7 @@ function downloadResourceItem(item: EmbeddedResource | ResourceLink): boolean {
           type: resource.mimeType ?? "application/octet-stream",
         })
       : new Blob([resource.text], { type: resource.mimeType ?? "text/plain" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileNameFromUri(resource.uri);
-  // Some browsers ignore programmatic clicks on detached anchors.
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  // Defer the revoke: link.click() only schedules the download, and revoking
-  // the object URL synchronously can abort it before the browser reads the
-  // blob (Firefox/Safari, intermittently Chrome for larger blobs).
-  setTimeout(() => URL.revokeObjectURL(url), 0);
+  downloadBlob(fileNameFromUri(resource.uri), blob);
   return true;
 }
 
@@ -462,11 +304,10 @@ export function createAppBridgeFactory(
     });
 
     bridge.onopenlink = async ({ url }) => {
-      if (/^https?:\/\//i.test(url)) {
-        window.open(url, "_blank", "noopener,noreferrer");
-        return { isError: false };
-      }
-      return { isError: true };
+      const parsed = isHttpUrl(url);
+      if (!parsed) return { isError: true };
+      window.open(parsed.href, "_blank", "noopener,noreferrer");
+      return { isError: false };
     };
 
     // The view asks the host to save MCP resource contents to disk (sandboxed
