@@ -50,6 +50,13 @@ function decodeAppArgs(encoded: string | null): Record<string, unknown> {
  * new capability — but a deep link can be crafted by a third party, and we do
  * not want a click to drive a `javascript:` / `file:` / `data:` value into the
  * connect path.
+ *
+ * Loopback and private-range hosts are intentionally **not** blocked here:
+ * connecting to a locally running MCP server is the inspector's primary
+ * development use case, and the manual connect form imposes no such
+ * restriction either. The CSRF gate on `autoConnect` (see
+ * {@link parseDeepLink}) is what prevents a third-party page from driving a
+ * connect the user did not initiate.
  */
 function validateServerUrl(raw: string): string | undefined {
   let url: URL;
@@ -72,6 +79,12 @@ function validateServerUrl(raw: string): string | undefined {
  * defeats the "send a developer a crafted localhost URL" SSRF / auto-invocation
  * vector while keeping the one-URL automated flow (the launcher knows the
  * token, so it can always build a valid link).
+ *
+ * Carrying the token in the URL is the same exposure surface as the existing
+ * `?MCP_INSPECTOR_API_TOKEN=…` query param the launcher banner already prints
+ * (see `getAuthToken()` in `App.tsx`): the value is ephemeral (regenerated per
+ * launch), the page is loopback-only, and it never crosses to a third-party
+ * referer because the inspector's own backend serves every navigation.
  */
 export function parseDeepLink(
   search: string,

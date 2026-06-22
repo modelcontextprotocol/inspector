@@ -777,8 +777,15 @@ const MCP_APP_DEMO_HTML = `<!doctype html>
     <pre id="ctx">waiting for ui/initialize…</pre>
     <script type="module">
       let nextId = 1;
+      // Captured from the first ui/initialize message; thereafter every send
+      // targets, and every receive is checked against, this exact origin so a
+      // sibling frame on a different origin cannot inject or intercept traffic.
+      let HOST_ORIGIN = null;
       const send = (msg) =>
-        window.parent.postMessage({ jsonrpc: "2.0", ...msg }, "*");
+        window.parent.postMessage(
+          { jsonrpc: "2.0", ...msg },
+          HOST_ORIGIN ?? "*",
+        );
       const renderCtx = (ctx) => {
         document.getElementById("ctx").textContent = JSON.stringify(
           {
@@ -791,9 +798,11 @@ const MCP_APP_DEMO_HTML = `<!doctype html>
         );
       };
       window.addEventListener("message", (ev) => {
+        if (HOST_ORIGIN !== null && ev.origin !== HOST_ORIGIN) return;
         const m = ev.data;
         if (!m || m.jsonrpc !== "2.0") return;
         if (m.method === "ui/initialize") {
+          HOST_ORIGIN = ev.origin;
           send({
             id: m.id,
             result: {
