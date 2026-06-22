@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { Task } from "@modelcontextprotocol/sdk/types.js";
 import { ManagedRequestorTasksState } from "@inspector/core/mcp/state/managedRequestorTasksState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
@@ -74,10 +74,9 @@ describe("ManagedRequestorTasksState", () => {
     const tasklessState = new ManagedRequestorTasksState(taskless);
 
     taskless.dispatchTypedEvent("connect");
-    // Yield once so the async refresh chained off connect runs.
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(taskless.listRequestorTasks).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(taskless.listRequestorTasks).not.toHaveBeenCalled();
+    });
     expect(tasklessState.getTasks()).toEqual([]);
   });
 
