@@ -455,7 +455,7 @@ export function AppsScreen({
         </Sidebar>
       )}
 
-      <ContentCard flex={1} h="100%">
+      <ContentCard flex={1} h="100%" data-testid="apps-form">
         {selectedTool ? (
           <ContentStack>
             <SpacedRow>

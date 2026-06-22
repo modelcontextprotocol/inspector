@@ -101,6 +101,11 @@ await page.locator('[data-testid="apps-stage"]').screenshot({ path: out });
 That is the entire browser interaction: one navigate, one click, one
 screenshot. Everything else is CLI.
 
+The form area (excluding the sidebar search filter) is
+`[data-testid="apps-form"]` — use `[data-testid="apps-form"] input` to assert
+that `appArgs` landed, or to fill a field the server requires that was not
+passed in the URL.
+
 ## Local fixture
 
 The bundled test server includes an `mcp_app_demo` tool (preset

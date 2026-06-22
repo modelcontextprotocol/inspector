@@ -647,6 +647,7 @@ function App() {
         : undefined,
     [],
   );
+  const deepLinkEnsureRef = useRef(false);
   const deepLinkConnectRef = useRef(false);
 
   // Tracks which progress streams currently have a live toast, so each new tick
@@ -1571,17 +1572,18 @@ function App() {
     await inspectorClient.disconnect();
   }, [inspectorClient]);
 
-  // Deep-link auto-connect (closes #1183 for the URL-driven case). Waits for
-  // the server list to hydrate so `addServer`'s backend is ready, then ensures
-  // an entry exists for the deep-link target and connects to it. The OAuth
-  // callback path takes precedence — a deep link on `/oauth/callback` would
-  // be a misconfiguration, and the callback handler clears the URL.
+  // Deep-link auto-connect (closes #1183 for the URL-driven case). Split into
+  // two effects so the connect step always runs against a `servers` array that
+  // actually contains the deep-link row — calling `onToggleConnection` in the
+  // same closure as `addServer` would resolve the just-added id against a
+  // stale (often empty) `servers` and silently no-op. The OAuth callback path
+  // takes precedence; a deep link on `/oauth/callback` would be a
+  // misconfiguration, and the callback handler clears the URL.
   useEffect(() => {
     if (!deepLink) return;
-    if (deepLinkConnectRef.current) return;
-    if (servers.length === 0) return;
+    if (deepLinkEnsureRef.current) return;
     if (window.location.pathname === OAUTH_CALLBACK_PATH) return;
-    deepLinkConnectRef.current = true;
+    deepLinkEnsureRef.current = true;
 
     void (async () => {
       const existing = servers.find((s) => s.id === deepLink.serverId);
@@ -1598,9 +1600,20 @@ function App() {
           deepLink.serverConfig,
         );
       }
+    })();
+  }, [deepLink, servers, addServer, updateServer]);
+
+  useEffect(() => {
+    if (!deepLink) return;
+    if (deepLinkConnectRef.current) return;
+    if (window.location.pathname === OAUTH_CALLBACK_PATH) return;
+    if (!servers.some((s) => s.id === deepLink.serverId)) return;
+    if (activeServerId === deepLink.serverId) return;
+    deepLinkConnectRef.current = true;
+    void (async () => {
       await onToggleConnection(deepLink.serverId);
     })();
-  }, [deepLink, servers, addServer, updateServer, onToggleConnection]);
+  }, [deepLink, servers, activeServerId, onToggleConnection]);
 
   // --- Action handlers that route directly to the InspectorClient. ---
 

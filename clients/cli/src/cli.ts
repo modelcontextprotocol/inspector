@@ -217,7 +217,7 @@ async function callMethod(
     if (args.appInfo) {
       // Single-line JSON so callers can `| jq` or parse the line directly.
       const info = appInfo ?? { hasApp: false, toolName: args.toolName ?? "" };
-      await awaitableLog(JSON.stringify(info));
+      await awaitableLog(JSON.stringify(info) + "\n");
       if (!info.hasApp) {
         throw new CliExitCodeError(
           2,
@@ -227,8 +227,8 @@ async function callMethod(
     } else {
       await awaitableLog(JSON.stringify(result, null, 2));
       if (appInfo?.hasApp) {
-        await awaitableLog("\n--- MCP App Info ---");
-        await awaitableLog(JSON.stringify(appInfo, null, 2));
+        await awaitableLog("\n--- MCP App Info ---\n");
+        await awaitableLog(JSON.stringify(appInfo, null, 2) + "\n");
       }
     }
   } finally {
