@@ -811,8 +811,8 @@ const MCP_APP_DEMO_HTML = `<!doctype html>
       };
       const onInitialized = (hostContext) => {
         renderCtx(hostContext);
-        // Signal the view is ready (host gates host-context-changed on this).
-        send({ method: "notifications/initialized" });
+        // Signal the view is ready (host gates view→host requests on this).
+        send({ method: "ui/notifications/initialized" });
         // Standard MCP log notification — surfaced by the host's log panel.
         send({
           method: "notifications/message",
