@@ -150,4 +150,15 @@ describe("wrapSandboxedHtml", () => {
     expect(ourHead).toBeLessThan(body);
     expect(evilHead).toBeGreaterThan(body);
   });
+
+  it("does not introduce a host-authored <iframe>, so the widget's window.parent remains the sandbox proxy", () => {
+    // The proxy writes the wrap output into the inner iframe via document.write.
+    // If the wrap inserted its own <iframe>, the widget's window.parent would
+    // point at the wrap's intermediate frame instead of the proxy, breaking the
+    // postMessage relay (and the proxy's event.source === inner.contentWindow
+    // check). The only <iframe>s in the output must be ones the untrusted app
+    // brought itself.
+    const wrapped = wrapSandboxedHtml("<p>no frames here</p>", "default-src *");
+    expect(wrapped).not.toMatch(/<iframe/i);
+  });
 });
