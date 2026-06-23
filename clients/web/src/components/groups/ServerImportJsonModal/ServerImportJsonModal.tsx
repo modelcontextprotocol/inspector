@@ -67,6 +67,12 @@ function resolveId(
 /** Debounce (ms) before a textarea edit re-triggers parse/validation. */
 const VALIDATE_DEBOUNCE_MS = 300;
 
+/**
+ * Delay (ms) after content is loaded/pasted before the File Contents disclosure
+ * auto-collapses — long enough to read as "the content was accepted".
+ */
+const COLLAPSE_DELAY_MS = 1000;
+
 interface Selection {
   parsed?: ParsedServerJson;
   selectedIndex: number;
@@ -125,6 +131,9 @@ export function ServerImportJsonModal({
   const [debouncedText, setDebouncedText] = useState<string>(
     EMPTY_DRAFT.rawText,
   );
+  // The File Contents disclosure starts open and auto-collapses shortly after
+  // content is loaded/pasted (see the effect below).
+  const [fileContentsOpen, setFileContentsOpen] = useState(true);
 
   // Reset the draft each time the modal transitions to open. Done during render
   // (React's "adjust state when a prop changes" pattern) rather than in an
@@ -136,6 +145,7 @@ export function ServerImportJsonModal({
       setDraft(EMPTY_DRAFT);
       setSubmitError(undefined);
       setDebouncedText(EMPTY_DRAFT.rawText);
+      setFileContentsOpen(true);
     }
   }
 
@@ -146,6 +156,16 @@ export function ServerImportJsonModal({
       () => setDebouncedText(draft.rawText),
       VALIDATE_DEBOUNCE_MS,
     );
+    return () => clearTimeout(id);
+  }, [draft.rawText]);
+
+  // Once there's content, collapse the File Contents disclosure after a beat so
+  // the (animated) collapse signals that the paste/file load was accepted and
+  // surfaces the validation / env-var sections below. Clearing the textarea
+  // re-opens it (handled in setRawText).
+  useEffect(() => {
+    if (!draft.rawText.trim()) return;
+    const id = setTimeout(() => setFileContentsOpen(false), COLLAPSE_DELAY_MS);
     return () => clearTimeout(id);
   }, [draft.rawText]);
 
@@ -220,6 +240,9 @@ export function ServerImportJsonModal({
   function setRawText(content: string) {
     setSubmitError(undefined);
     setDraft((d) => ({ ...d, rawText: content }));
+    // Re-open the disclosure when the textarea is cleared so it's ready to paste
+    // into again.
+    if (!content.trim()) setFileContentsOpen(true);
   }
 
   function selectPackage(index: number) {
@@ -301,6 +324,8 @@ export function ServerImportJsonModal({
         onServerNameChange={setServerName}
         onAddServer={() => void handleAddServer()}
         addDisabled={!canAdd}
+        fileContentsOpen={fileContentsOpen}
+        onFileContentsChange={setFileContentsOpen}
         onCancel={onClose}
         onPickFile={(file) => void pickFile(file)}
       />

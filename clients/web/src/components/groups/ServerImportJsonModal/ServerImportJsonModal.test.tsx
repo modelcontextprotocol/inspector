@@ -266,6 +266,41 @@ describe("ServerImportJsonModal", () => {
     );
   });
 
+  it("auto-collapses the File Contents disclosure after content loads", async () => {
+    renderWithMantine(
+      <ServerImportJsonModal
+        opened
+        existingIds={[]}
+        onClose={vi.fn()}
+        onAddServer={vi.fn()}
+      />,
+    );
+    const disclosure = screen.getByRole("button", { name: "File Contents" });
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    pasteJson(npmJson);
+    await waitFor(
+      () => expect(disclosure).toHaveAttribute("aria-expanded", "false"),
+      { timeout: 3000 },
+    );
+  });
+
+  it("re-opens File Contents when the textarea is cleared", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ServerImportJsonModal
+        opened
+        existingIds={[]}
+        onClose={vi.fn()}
+        onAddServer={vi.fn()}
+      />,
+    );
+    pasteJson(npmJson);
+    const disclosure = screen.getByRole("button", { name: "File Contents" });
+    // Clear via the textarea's Clear button while still expanded.
+    await user.click(screen.getAllByRole("button", { name: "Clear" })[0]);
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("rejects an invalid id override and blocks Add Server", async () => {
     const user = userEvent.setup();
     const onAddServer = vi.fn();

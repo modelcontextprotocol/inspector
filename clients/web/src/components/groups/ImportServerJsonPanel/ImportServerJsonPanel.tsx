@@ -44,6 +44,13 @@ export interface ImportServerJsonPanelProps {
   onAddServer: () => void;
   /** Disables the Add Server button while the pasted content isn't valid. */
   addDisabled?: boolean;
+  /**
+   * Controls the "File Contents" disclosure. When `onFileContentsChange` is
+   * provided the disclosure is controlled (the wiring layer can auto-collapse
+   * it after content loads); otherwise it's uncontrolled and defaults to open.
+   */
+  fileContentsOpen?: boolean;
+  onFileContentsChange?: (open: boolean) => void;
   onCancel: () => void;
   /**
    * Load server.json content from a file. When provided, a "Choose file…"
@@ -83,6 +90,8 @@ export function ImportServerJsonPanel({
   onServerNameChange,
   onAddServer,
   addDisabled,
+  fileContentsOpen,
+  onFileContentsChange,
   onCancel,
   onPickFile,
 }: ImportServerJsonPanelProps) {
@@ -101,7 +110,16 @@ export function ImportServerJsonPanel({
         ) : null}
       </Group>
 
-      <Accordion variant="separated" defaultValue="file-contents">
+      <Accordion
+        variant="separated"
+        {...(onFileContentsChange
+          ? {
+              value: fileContentsOpen ? "file-contents" : null,
+              onChange: (value: string | null) =>
+                onFileContentsChange(value === "file-contents"),
+            }
+          : { defaultValue: "file-contents" })}
+      >
         <Accordion.Item value="file-contents">
           <Accordion.Control>File Contents</Accordion.Control>
           <Accordion.Panel>
