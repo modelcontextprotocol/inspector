@@ -69,6 +69,8 @@ export interface ServerJsonImportViewModel {
   packages?: PackageInfo[];
   envVars: EnvVarInfo[];
   canAdd: boolean;
+  /** Derived id from the server.json `name` (before any override). */
+  defaultServerName: string;
   fileContentsOpen: boolean;
   fileContentsHighlight: boolean;
   setRawText: (content: string) => void;
@@ -292,6 +294,7 @@ export function useServerJsonImport({
     packages,
     envVars,
     canAdd,
+    defaultServerName: parsed?.serverName ?? "",
     fileContentsOpen,
     fileContentsHighlight,
     setRawText,

@@ -48,6 +48,7 @@ export function ServerImportJsonModal({
         onSelectPackage={vm.selectPackage}
         onEnvVarChange={vm.setEnvVar}
         onServerNameChange={vm.setServerName}
+        defaultServerName={vm.defaultServerName}
         onAddServer={() => {
           void vm.submit().then((added) => {
             if (added) onClose();

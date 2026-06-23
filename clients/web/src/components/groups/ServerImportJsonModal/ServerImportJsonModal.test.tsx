@@ -62,7 +62,7 @@ describe("ServerImportJsonModal", () => {
       />,
     );
     expect(screen.queryByText("Validation Results")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/Server Name/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Override")).not.toBeInTheDocument();
   });
 
   it("validates a pasted npm server.json and surfaces env vars", async () => {
@@ -153,7 +153,7 @@ describe("ServerImportJsonModal", () => {
       />,
     );
     pasteJson(npmJson);
-    await user.type(screen.getByLabelText(/Server Name/), "my-weather");
+    await user.type(screen.getByLabelText("Override"), "my-weather");
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Add Server" })).toBeEnabled(),
     );
@@ -312,7 +312,7 @@ describe("ServerImportJsonModal", () => {
       />,
     );
     pasteJson(npmJson);
-    await user.type(screen.getByLabelText(/Server Name/), "bad id!");
+    await user.type(screen.getByLabelText("Override"), "bad id!");
     expect(
       await screen.findByText(/Server id must use only letters/),
     ).toBeInTheDocument();

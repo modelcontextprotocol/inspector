@@ -213,7 +213,7 @@ describe("ImportServerJsonPanel", () => {
         envVars={[]}
       />,
     );
-    const nameInput = screen.getByLabelText(/Server Name/);
+    const nameInput = screen.getByLabelText("Override");
     await user.type(nameInput, "X");
     expect(onServerNameChange).toHaveBeenCalledWith("X");
   });
@@ -303,6 +303,21 @@ describe("ImportServerJsonPanel", () => {
     expect(screen.getByDisplayValue("Custom Name")).toBeInTheDocument();
   });
 
+  it("shows the derived name in a read-only From configuration field", () => {
+    renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        draft={draftWithContent}
+        defaultServerName="weather"
+        validation={[]}
+        envVars={[]}
+      />,
+    );
+    const fromConfig = screen.getByLabelText("From configuration");
+    expect(fromConfig).toHaveValue("weather");
+    expect(fromConfig).toHaveAttribute("readonly");
+  });
+
   it("hides validation results and the name override until content is present", () => {
     const validation: ValidationResult[] = [
       { type: "info", message: "Paste server.json content to validate." },
@@ -317,7 +332,7 @@ describe("ImportServerJsonPanel", () => {
     );
     // Empty draft: gated sections hidden.
     expect(screen.queryByText("Validation Results")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/Server Name/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Override")).not.toBeInTheDocument();
 
     // Once content is present, they appear.
     rerender(
@@ -329,6 +344,6 @@ describe("ImportServerJsonPanel", () => {
       />,
     );
     expect(screen.getByText("Validation Results")).toBeInTheDocument();
-    expect(screen.getByLabelText(/Server Name/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Override")).toBeInTheDocument();
   });
 });

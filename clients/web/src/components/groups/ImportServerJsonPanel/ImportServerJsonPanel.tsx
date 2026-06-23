@@ -41,6 +41,9 @@ export interface ImportServerJsonPanelProps {
   onSelectPackage: (index: number) => void;
   onEnvVarChange: (name: string, value: string) => void;
   onServerNameChange: (name: string) => void;
+  /** The id derived from the server.json `name`, shown read-only in the
+   *  Server Name disclosure (the override field replaces it when set). */
+  defaultServerName?: string;
   onAddServer: () => void;
   /** Disables the Add Server button while the pasted content isn't valid. */
   addDisabled?: boolean;
@@ -93,6 +96,7 @@ export function ImportServerJsonPanel({
   onSelectPackage,
   onEnvVarChange,
   onServerNameChange,
+  defaultServerName,
   onAddServer,
   addDisabled,
   fileContentsOpen,
@@ -227,19 +231,33 @@ export function ImportServerJsonPanel({
             </>
           )}
 
-          <Divider />
-
-          <TextInput
-            label="Server Name (optional override)"
-            value={draft.nameOverride ?? ""}
-            onChange={(e) => onServerNameChange(e.currentTarget.value)}
-            rightSectionPointerEvents="auto"
-            rightSection={
-              draft.nameOverride ? (
-                <ClearButton onClick={() => onServerNameChange("")} />
-              ) : null
-            }
-          />
+          <Accordion variant="separated" defaultValue="server-name">
+            <Accordion.Item value="server-name">
+              <Accordion.Control>Server Name</Accordion.Control>
+              <Accordion.Panel>
+                <Stack gap="sm">
+                  <TextInput
+                    label="From configuration"
+                    description="The id derived from the server.json name."
+                    value={defaultServerName ?? ""}
+                    readOnly
+                  />
+                  <TextInput
+                    label="Override"
+                    description="Optional. Used instead of the name above."
+                    value={draft.nameOverride ?? ""}
+                    onChange={(e) => onServerNameChange(e.currentTarget.value)}
+                    rightSectionPointerEvents="auto"
+                    rightSection={
+                      draft.nameOverride ? (
+                        <ClearButton onClick={() => onServerNameChange("")} />
+                      ) : null
+                    }
+                  />
+                </Stack>
+              </Accordion.Panel>
+            </Accordion.Item>
+          </Accordion>
         </>
       )}
 
