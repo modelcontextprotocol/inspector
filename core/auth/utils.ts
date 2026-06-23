@@ -36,20 +36,17 @@ export const parseOAuthCallbackParams = (location: string): CallbackParams => {
  * @returns A random state for the OAuth 2.0 flow.
  */
 export const generateOAuthState = (): string => {
-  // Generate a random state
-  const array = new Uint8Array(32);
-
-  // Use crypto.getRandomValues (available in both browser and Node.js)
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    crypto.getRandomValues(array);
-  } else {
-    // Fallback for environments without crypto.getRandomValues
-    // This should not happen in modern environments
-    for (let i = 0; i < array.length; i++) {
-      array[i] = Math.floor(Math.random() * 256);
-    }
+  // OAuth state is a CSRF token — it MUST be unpredictable. crypto.getRandomValues
+  // is available in every supported runtime (browsers, Node ≥15); if it's somehow
+  // missing, fail loudly rather than silently degrading to Math.random (whose
+  // output is predictable from a small amount of observed state).
+  if (typeof crypto === "undefined" || !crypto.getRandomValues) {
+    throw new Error(
+      "crypto.getRandomValues is not available; refusing to generate an OAuth state with a non-cryptographic RNG.",
+    );
   }
-
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
   return Array.from(array, (byte) => byte.toString(16).padStart(2, "0")).join(
     "",
   );
