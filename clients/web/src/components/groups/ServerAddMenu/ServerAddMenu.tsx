@@ -20,7 +20,9 @@ export function ServerAddMenu({
       </Menu.Target>
       <Menu.Dropdown>
         <Menu.Item onClick={onAddManually}>+ Add manually</Menu.Item>
-        <Menu.Item onClick={onImportConfig}>Import client config</Menu.Item>
+        <Menu.Item onClick={onImportConfig}>
+          Import from client config
+        </Menu.Item>
         <Menu.Item onClick={onImportServerJson}>
           Import from registry config
         </Menu.Item>

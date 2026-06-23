@@ -88,7 +88,7 @@ const OUTCOME_META: Record<
 };
 
 /**
- * Display shell for the "Import client config" flow (#1348): a source picker /
+ * Display shell for the "Import from client config" flow (#1348): a source picker /
  * file upload, a per-server review with conflict resolution, and an outcome
  * summary. All orchestration lives in `useImportClientConfig`.
  */
@@ -115,7 +115,7 @@ export function ServerImportConfigModal({
       onClose={onClose}
       size="lg"
       centered
-      title={<ModalTitle>Import client config</ModalTitle>}
+      title={<ModalTitle>Import from client config</ModalTitle>}
     >
       <SectionStack>
         {vm.error ? (

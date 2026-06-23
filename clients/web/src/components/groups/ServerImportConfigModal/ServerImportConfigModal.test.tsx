@@ -75,7 +75,9 @@ describe("ServerImportConfigModal", () => {
         onUpdateServer={vi.fn()}
       />,
     );
-    expect(screen.queryByText("Import client config")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Import from client config"),
+    ).not.toBeInTheDocument();
   });
 
   it("renders a client dropdown, an Import button, and a file picker", () => {

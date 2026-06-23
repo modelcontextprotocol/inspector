@@ -60,7 +60,7 @@ export interface ImportClientConfigViewModel {
 }
 
 /**
- * Wiring for the "Import client config" flow (#1348): owns the wizard phase,
+ * Wiring for the "Import from client config" flow (#1348): owns the wizard phase,
  * the parsed plan, per-server resolutions, and the apply loop. Keeps
  * `ServerImportConfigModal` a thin display component; the reusable parsing +
  * merge logic lives in `core/mcp/import`.

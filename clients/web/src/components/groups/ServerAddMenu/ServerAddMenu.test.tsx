@@ -36,7 +36,7 @@ describe("ServerAddMenu", () => {
     expect(onAddManually).toHaveBeenCalledTimes(1);
   });
 
-  it("invokes onImportConfig when 'Import client config' is clicked", async () => {
+  it("invokes onImportConfig when 'Import from client config' is clicked", async () => {
     const user = userEvent.setup();
     const onImportConfig = vi.fn();
     renderWithMantine(
@@ -48,7 +48,7 @@ describe("ServerAddMenu", () => {
     );
     await user.click(screen.getByRole("button", { name: /Add Servers/ }));
     const item = screen.getByRole("menuitem", {
-      name: /Import client config/,
+      name: /Import from client config/,
       hidden: true,
     });
     await user.click(item);
