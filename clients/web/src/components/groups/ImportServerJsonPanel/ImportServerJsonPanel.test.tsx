@@ -16,7 +16,6 @@ const emptyDraft: InspectorServerJsonDraft = {
 
 const baseHandlers = {
   onJsonChange: vi.fn(),
-  onValidate: vi.fn(),
   onSelectPackage: vi.fn(),
   onEnvVarChange: vi.fn(),
   onServerNameChange: vi.fn(),
@@ -25,7 +24,7 @@ const baseHandlers = {
 };
 
 describe("ImportServerJsonPanel", () => {
-  it("renders the title and the action buttons", () => {
+  it("renders the action buttons", () => {
     renderWithMantine(
       <ImportServerJsonPanel
         {...baseHandlers}
@@ -34,12 +33,6 @@ describe("ImportServerJsonPanel", () => {
         envVars={[]}
       />,
     );
-    expect(
-      screen.getByText("Import MCP Registry server.json"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Validate Again" }),
-    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Add Server" }),
@@ -65,15 +58,26 @@ describe("ImportServerJsonPanel", () => {
     expect(onJsonChange).toHaveBeenCalledWith("x");
   });
 
-  it("invokes onValidate, onCancel, and onAddServer when their buttons are clicked", async () => {
+  it("disables the Add Server button when addDisabled is set", () => {
+    renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        addDisabled
+        draft={emptyDraft}
+        validation={[]}
+        envVars={[]}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Add Server" })).toBeDisabled();
+  });
+
+  it("invokes onCancel and onAddServer when their buttons are clicked", async () => {
     const user = userEvent.setup();
-    const onValidate = vi.fn();
     const onCancel = vi.fn();
     const onAddServer = vi.fn();
     renderWithMantine(
       <ImportServerJsonPanel
         {...baseHandlers}
-        onValidate={onValidate}
         onCancel={onCancel}
         onAddServer={onAddServer}
         draft={emptyDraft}
@@ -81,10 +85,8 @@ describe("ImportServerJsonPanel", () => {
         envVars={[]}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Validate Again" }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     await user.click(screen.getByRole("button", { name: "Add Server" }));
-    expect(onValidate).toHaveBeenCalledTimes(1);
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(onAddServer).toHaveBeenCalledTimes(1);
   });
@@ -228,6 +230,45 @@ describe("ImportServerJsonPanel", () => {
     expect(onEnvVarChange).toHaveBeenCalledWith("DEBUG", "");
     await user.click(clearButtons[2]);
     expect(onServerNameChange).toHaveBeenCalledWith("");
+  });
+
+  it("does not render the file picker when onPickFile is absent", () => {
+    renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        draft={emptyDraft}
+        validation={[]}
+        envVars={[]}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: /Choose file/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders a file picker and invokes onPickFile on upload", async () => {
+    const user = userEvent.setup();
+    const onPickFile = vi.fn();
+    renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        onPickFile={onPickFile}
+        draft={emptyDraft}
+        validation={[]}
+        envVars={[]}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: /Choose file/ }),
+    ).toBeInTheDocument();
+    const file = new File(["{}"], "server.json", {
+      type: "application/json",
+    });
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    await user.upload(input, file);
+    expect(onPickFile).toHaveBeenCalledTimes(1);
   });
 
   it("renders the existing nameOverride value", () => {

@@ -51,6 +51,7 @@ interface FormState {
 const SectionStack = Stack.withProps({ gap: "md" });
 const FieldGrid = Stack.withProps({ gap: "sm" });
 const Actions = Group.withProps({ justify: "flex-end", gap: "sm", mt: "md" });
+const ModalTitle = Text.withProps({ fw: 700, span: true });
 
 const MODE_TITLES: Record<ServerConfigModalMode, string> = {
   add: "Add server",
@@ -255,7 +256,7 @@ export function ServerConfigModal({
       onClose={onClose}
       size="lg"
       centered
-      title={MODE_TITLES[mode]}
+      title={<ModalTitle>{MODE_TITLES[mode]}</ModalTitle>}
     >
       <SectionStack>
         <FieldGrid>

@@ -1,11 +1,13 @@
 /**
  * Hono-based remote server for MCP transports.
  * Hosts /api/config, /api/mcp/connect, send, events, disconnect, /api/fetch, /api/log,
- * /api/storage/:storeId, /api/servers (+ /api/servers/:id).
+ * /api/storage/:storeId, /api/servers (+ /api/servers/:id), /api/import-source.
  */
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { stat as fsStat } from "node:fs/promises";
+import { homedir } from "node:os";
 import type pino from "pino";
 import {
   getDefaultStorageDir,
@@ -25,7 +27,10 @@ import { streamSSE } from "hono/streaming";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
 import type { RemoteConnectRequest, RemoteSendRequest } from "../types.js";
-import { DEFAULT_MAX_FETCH_REQUESTS, DEFAULT_TASK_TTL_MS } from "../../types.js";
+import {
+  DEFAULT_MAX_FETCH_REQUESTS,
+  DEFAULT_TASK_TTL_MS,
+} from "../../types.js";
 import type {
   InspectorServerSettings,
   MCPConfig,
@@ -43,6 +48,7 @@ import {
   storedFieldsToInspectorSettings,
   stripInspectorFields,
 } from "../../serverList.js";
+import { resolveImportSource } from "../../import/resolveSource.js";
 import { RemoteSession } from "./remote-session.js";
 import { createTokenAuthProvider } from "./tokenAuthProvider.js";
 import { API_SERVER_ENV_VARS } from "../constants.js";
@@ -423,10 +429,7 @@ export function createRemoteApp(
     if (event !== "unlink") {
       try {
         const s = await fsStat(mcpConfigPath);
-        if (
-          lastWrittenMtimeMs !== null &&
-          s.mtimeMs === lastWrittenMtimeMs
-        ) {
+        if (lastWrittenMtimeMs !== null && s.mtimeMs === lastWrittenMtimeMs) {
           return;
         }
       } catch {
@@ -915,9 +918,7 @@ export function createRemoteApp(
   // A roots array: each entry must have a string `uri` and, when present, a
   // string `name` (SDK `Root`). Other keys (e.g. `_meta`) pass through — we
   // only gate the two fields the Inspector reads/writes.
-  const isRootArray = (
-    v: unknown,
-  ): v is { uri: string; name?: string }[] => {
+  const isRootArray = (v: unknown): v is { uri: string; name?: string }[] => {
     if (!Array.isArray(v)) return false;
     return v.every((e) => {
       if (e === null || typeof e !== "object") return false;
@@ -1328,7 +1329,9 @@ export function createRemoteApp(
     fields: string[],
   ): Promise<Record<string, string>> => {
     const values = await Promise.all(
-      fields.map(async (field) => [field, await secretStore.get(id, field)] as const),
+      fields.map(
+        async (field) => [field, await secretStore.get(id, field)] as const,
+      ),
     );
     const out: Record<string, string> = {};
     for (const [field, v] of values) {
@@ -1468,10 +1471,7 @@ export function createRemoteApp(
   // 404). Returns a Response to short-circuit, or undefined to proceed.
   const requireWritable = (c: Context): Response | undefined => {
     if (writable) return undefined;
-    return c.json(
-      { error: "Server list is read-only for this session." },
-      403,
-    );
+    return c.json({ error: "Server list is read-only for this session." }, 403);
   };
 
   app.get("/api/servers", async (c) => {
@@ -1529,9 +1529,9 @@ export function createRemoteApp(
           await writeMcpAndTrackMtime(serializeStore(DEFAULT_SEED_CONFIG));
           return DEFAULT_SEED_CONFIG;
         }
-        const parsedInside = parseStore(rawInside) as
-          | { mcpServers?: unknown }
-          | null;
+        const parsedInside = parseStore(rawInside) as {
+          mcpServers?: unknown;
+        } | null;
         const inside: MCPConfig = {
           mcpServers: normalizeMcpServers(parsedInside?.mcpServers),
         };
@@ -1552,6 +1552,31 @@ export function createRemoteApp(
       const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to read server list: ${msg}` }, 500);
     }
+  });
+
+  // Read another MCP client's well-known config file on this host and return
+  // its servers in canonical form, for the "Import config" source picker
+  // (#1348). Read-only: it never writes, so it's allowed even in a read-only
+  // session (the subsequent POST /api/servers per chosen entry is what's gated).
+  // `?type=` selects the strategy (claude-desktop | cursor | cline | vscode);
+  // an unknown type is a 400. When none of the strategy's well-known paths exist
+  // the response is `{ found: false, searched }` so the UI can fall back to the
+  // file picker; when a path exists but won't parse, `{ found: true, error }`.
+  app.get("/api/import-source", (c) => {
+    const type = c.req.query("type") ?? "";
+    const result = resolveImportSource(
+      type,
+      process.platform,
+      homedir(),
+      (path) => (existsSync(path) ? readFileSync(path, "utf-8") : null),
+    );
+    if (!result) {
+      return c.json(
+        { error: `Unknown import source: ${type || "(none)"}` },
+        400,
+      );
+    }
+    return c.json(result);
   });
 
   app.post("/api/servers", async (c) => {
@@ -1758,10 +1783,7 @@ export function createRemoteApp(
           // The `in` check above guarantees this branch is unreachable;
           // narrowing without the non-null assertion keeps TS happy and
           // makes the contract explicit for future refactors.
-          return c.json(
-            { error: `Server '${originalId}' not found` },
-            404,
-          );
+          return c.json({ error: `Server '${originalId}' not found` }, 404);
         }
         // Split the existing entry into its SDK-only config (no Inspector-
         // extension fields) and its lifted settings, then apply patch

@@ -107,6 +107,8 @@ import {
   type ServerConfigModalMode,
 } from "./components/groups/ServerConfigModal/ServerConfigModal";
 import { ServerSettingsModal } from "./components/groups/ServerSettingsModal/ServerSettingsModal";
+import { ServerImportConfigModal } from "./components/groups/ServerImportConfigModal/ServerImportConfigModal";
+import { ServerImportJsonModal } from "./components/groups/ServerImportJsonModal/ServerImportJsonModal";
 import { ConnectionInfoModal } from "./components/groups/ConnectionInfoModal/ConnectionInfoModal";
 import { OutputValidationModal } from "./components/groups/OutputValidationModal/OutputValidationModal";
 import { UrlElicitationErrorModal } from "./components/groups/UrlElicitationErrorModal/UrlElicitationErrorModal";
@@ -489,6 +491,7 @@ function App() {
     updateServerSettings,
     removeServer,
     reorderServers,
+    importSource,
   } = useServers({
     baseUrl:
       typeof window !== "undefined"
@@ -503,6 +506,10 @@ function App() {
     mode: ServerConfigModalMode;
     targetId?: string;
   } | null>(null);
+  // Import-flow modals (#1348): "Import config" (other-client config merge) and
+  // "Import server.json" (registry single-server import).
+  const [importConfigOpen, setImportConfigOpen] = useState(false);
+  const [importJsonOpen, setImportJsonOpen] = useState(false);
   const [settingsModalTargetId, setSettingsModalTargetId] = useState<
     string | undefined
   >(undefined);
@@ -2083,14 +2090,6 @@ function App() {
     );
   }, [logs, activeServerId]);
 
-  // Action stubs — these UI affordances exist but require additional
-  // wiring (server CRUD, history pinning, app sandbox round-trip, log
-  // export). Tracked separately; the noop keeps the prop interface
-  // satisfied without lying about behavior.
-  const todoNoop = useCallback(() => {
-    /* TODO: not wired yet */
-  }, []);
-
   // Download the current server list as a canonical mcp.json file. Uses the
   // in-memory `servers` list (kept in sync with disk by useServers' refresh-
   // after-mutate flow) so there's no extra HTTP roundtrip. Serialization
@@ -2400,8 +2399,8 @@ function App() {
           void onDisconnect();
         }}
         onServerAdd={() => setConfigModal({ mode: "add" })}
-        onServerImportConfig={todoNoop}
-        onServerImportJson={todoNoop}
+        onServerImportConfig={() => setImportConfigOpen(true)}
+        onServerImportJson={() => setImportJsonOpen(true)}
         onServerExport={onServerExport}
         onConnectionInfo={() => setConnectionInfoModalOpen(true)}
         onServerSettings={(id) => setSettingsModalTargetId(id)}
@@ -2489,6 +2488,20 @@ function App() {
         existingIds={existingIds}
         onClose={() => setConfigModal(null)}
         onSubmit={onConfigSubmit}
+      />
+      <ServerImportConfigModal
+        opened={importConfigOpen}
+        existingIds={existingIds}
+        onClose={() => setImportConfigOpen(false)}
+        onFetchSource={importSource}
+        onAddServer={addServer}
+        onUpdateServer={updateServer}
+      />
+      <ServerImportJsonModal
+        opened={importJsonOpen}
+        existingIds={existingIds}
+        onClose={() => setImportJsonOpen(false)}
+        onAddServer={addServer}
       />
       <ServerSettingsModal
         // Remount per open (and per target server) so the accordion resets to

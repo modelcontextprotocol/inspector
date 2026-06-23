@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { mcpConfigToServerEntries } from "../mcp/serverList.js";
+import type { ImportSourceResult } from "../mcp/import/types.js";
 import type {
   InspectorServerSettings,
   MCPConfig,
@@ -52,6 +53,13 @@ export interface UseServersResult {
    * back to disk truth. Routes through `PUT /api/servers/order`.
    */
   reorderServers: (orderedIds: string[]) => Promise<void>;
+  /**
+   * Read another MCP client's well-known config on the backend host and return
+   * its servers in canonical form (#1348). `type` is an import-strategy id
+   * (e.g. "claude-desktop"). Used by the "Import config" source picker; the
+   * resulting servers are written via `addServer` / `updateServer`.
+   */
+  importSource: (type: string) => Promise<ImportSourceResult>;
 }
 
 function buildHeaders(
@@ -191,6 +199,20 @@ export function useServers(opts: UseServersOptions): UseServersResult {
     [base, authToken, doFetch, refresh],
   );
 
+  const importSource = useCallback(
+    async (type: string): Promise<ImportSourceResult> => {
+      const res = await doFetch(
+        `${base}/api/import-source?type=${encodeURIComponent(type)}`,
+        { headers: buildHeaders(authToken, false) },
+      );
+      if (!res.ok) {
+        throw new Error(await readErrorMessage(res));
+      }
+      return (await res.json()) as ImportSourceResult;
+    },
+    [base, authToken, doFetch],
+  );
+
   const updateServer = useCallback(
     async (
       originalId: string,
@@ -309,5 +331,6 @@ export function useServers(opts: UseServersOptions): UseServersResult {
     updateServerSettings,
     removeServer,
     reorderServers,
+    importSource,
   };
 }

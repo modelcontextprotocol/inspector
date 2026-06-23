@@ -1,6 +1,7 @@
 import {
   Button,
   Divider,
+  FileButton,
   Group,
   Radio,
   Stack,
@@ -36,12 +37,19 @@ export interface ImportServerJsonPanelProps {
   packages?: PackageInfo[];
   envVars: EnvVarInfo[];
   onJsonChange: (content: string) => void;
-  onValidate: () => void;
   onSelectPackage: (index: number) => void;
   onEnvVarChange: (name: string, value: string) => void;
   onServerNameChange: (name: string) => void;
   onAddServer: () => void;
+  /** Disables the Add Server button while the pasted content isn't valid. */
+  addDisabled?: boolean;
   onCancel: () => void;
+  /**
+   * Load server.json content from a file. When provided, a "Choose file…"
+   * button is rendered next to the paste hint; the handler reads the file and
+   * feeds its text back through `onJsonChange`.
+   */
+  onPickFile?: (file: File | null) => void;
 }
 
 const validationIcons: Record<
@@ -69,18 +77,28 @@ export function ImportServerJsonPanel({
   packages,
   envVars,
   onJsonChange,
-  onValidate,
   onSelectPackage,
   onEnvVarChange,
   onServerNameChange,
   onAddServer,
+  addDisabled,
   onCancel,
+  onPickFile,
 }: ImportServerJsonPanelProps) {
   return (
     <Stack gap="md">
-      <Title order={4}>Import MCP Registry server.json</Title>
-
-      <HintText>Paste server.json content or drag and drop a file:</HintText>
+      <Group justify="space-between" align="center" wrap="nowrap">
+        <HintText>Paste server.json content, or load it from a file:</HintText>
+        {onPickFile ? (
+          <FileButton accept="application/json,.json" onChange={onPickFile}>
+            {(props) => (
+              <Button {...props} variant="default" size="xs">
+                Choose file…
+              </Button>
+            )}
+          </FileButton>
+        ) : null}
+      </Group>
 
       <Textarea
         value={draft.rawText}
@@ -174,13 +192,12 @@ export function ImportServerJsonPanel({
       />
 
       <Group justify="flex-end">
-        <Button variant="light" onClick={onValidate}>
-          Validate Again
-        </Button>
         <Button variant="light" onClick={onCancel}>
           Cancel
         </Button>
-        <Button onClick={onAddServer}>Add Server</Button>
+        <Button onClick={onAddServer} disabled={addDisabled}>
+          Add Server
+        </Button>
       </Group>
     </Stack>
   );

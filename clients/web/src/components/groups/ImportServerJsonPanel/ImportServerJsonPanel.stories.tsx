@@ -13,7 +13,6 @@ const meta: Meta<typeof ImportServerJsonPanel> = {
   component: ImportServerJsonPanel,
   args: {
     onJsonChange: fn(),
-    onValidate: fn(),
     onSelectPackage: fn(),
     onEnvVarChange: fn(),
     onServerNameChange: fn(),

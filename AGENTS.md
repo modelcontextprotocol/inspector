@@ -29,6 +29,11 @@ inspector/
 │   ├── json/                           # JSON utilities and parameter/argument conversion
 │   ├── logging/                        # Silent pino logger singleton
 │   ├── mcp/                            # InspectorClient runtime + state stores
+│   │   ├── import/                     # Config import strategies (#1348): client-config parsers
+│   │   │                               #   (Claude Desktop/Cursor/Cline/VS Code), registry
+│   │   │                               #   server.json parser, strategy registry + well-known
+│   │   │                               #   paths, strategy-agnostic merge. Pure/isomorphic;
+│   │   │                               #   used by the web file-upload path + /api/import-source.
 │   │   ├── node/                       # Node stdio transport factory
 │   │   ├── remote/                     # Browser HTTP/SSE transport + remote logger/fetch
 │   │   │   └── node/                   # Hono-based remote server backend (used by remote/ above)

@@ -95,6 +95,36 @@ describe("/api/servers routes", () => {
     await teardown(h);
   });
 
+  describe("GET /api/import-source", () => {
+    it("rejects an unknown source type with 400", async () => {
+      const res = await fetch(`${h.baseUrl}/api/import-source?type=bogus`);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toMatch(/Unknown import source/);
+    });
+
+    it("rejects a missing source type with 400", async () => {
+      const res = await fetch(`${h.baseUrl}/api/import-source`);
+      expect(res.status).toBe(400);
+    });
+
+    it("returns a 200 result for a known source type", async () => {
+      // Host-independent: whether the well-known file exists or not, a known
+      // strategy returns 200 with the resolved type + searched paths.
+      const res = await fetch(`${h.baseUrl}/api/import-source?type=cursor`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        type: string;
+        found: boolean;
+        searched: string[];
+      };
+      expect(body.type).toBe("cursor");
+      expect(typeof body.found).toBe("boolean");
+      expect(Array.isArray(body.searched)).toBe(true);
+      expect(body.searched.length).toBeGreaterThan(0);
+    });
+  });
+
   describe("GET /api/servers", () => {
     it("writes the seed config and returns it on first read (file absent)", async () => {
       expect(existsSync(h.configPath)).toBe(false);
