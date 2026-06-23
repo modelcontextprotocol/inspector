@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { createFetchTracker } from "@inspector/core/mcp/fetchTracking.js";
+import {
+  createFetchTracker,
+  redactSensitiveHeaders,
+  REDACTED_HEADER_VALUE,
+} from "@inspector/core/mcp/fetchTracking.js";
 import type { FetchRequestEntryBase } from "@inspector/core/mcp/types.js";
 
 // The tracker fires `trackRequest` synchronously with an entry whose
@@ -7,6 +11,16 @@ import type { FetchRequestEntryBase } from "@inspector/core/mcp/types.js";
 // and calls `updateResponseBody(id, body)` when done. This helper waits a
 // microtask so the background read can complete before assertions.
 const flush = () => new Promise((r) => setTimeout(r, 0));
+
+// happy-dom's Headers.forEach preserves the original key casing whereas
+// Node's lowercases — normalise in tests so assertions are env-independent.
+function lowerKeys(
+  headers: Record<string, string> | undefined,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers ?? {})) out[k.toLowerCase()] = v;
+  return out;
+}
 
 describe("createFetchTracker", () => {
   it("tracks a successful GET request and emits the response body asynchronously", async () => {
@@ -241,6 +255,85 @@ describe("createFetchTracker", () => {
     expect(tracked[0]?.requestBody).toBeUndefined();
   });
 
+  it("redacts Authorization and Cookie request headers in the recorded entry", async () => {
+    let outboundInit: RequestInit | undefined;
+    const baseFetch = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        outboundInit = init;
+        return new Response("ok");
+      },
+    );
+    const tracked: FetchRequestEntryBase[] = [];
+    const fetcher = createFetchTracker(baseFetch as typeof fetch, {
+      trackRequest: (entry) => tracked.push(entry),
+    });
+    await fetcher("https://example.com/mcp", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer live-access-token",
+        cookie: "session=secret",
+        "X-Api-Key": "sk-123",
+        "X-Custom": "kept",
+      },
+    });
+    const headers = lowerKeys(tracked[0]!.requestHeaders);
+    expect(headers["authorization"]).toBe(REDACTED_HEADER_VALUE);
+    expect(headers["cookie"]).toBe(REDACTED_HEADER_VALUE);
+    expect(headers["x-api-key"]).toBe(REDACTED_HEADER_VALUE);
+    expect(headers["x-custom"]).toBe("kept");
+    expect(JSON.stringify(tracked[0])).not.toContain("live-access-token");
+    expect(JSON.stringify(tracked[0])).not.toContain("session=secret");
+    // The actual outbound request still carries the live token — redaction is
+    // only for the recorded entry.
+    expect(new Headers(outboundInit?.headers).get("authorization")).toBe(
+      "Bearer live-access-token",
+    );
+  });
+
+  it("redacts Authorization on the error path too", async () => {
+    const baseFetch = vi.fn(async () => {
+      throw new Error("network down");
+    });
+    const tracked: FetchRequestEntryBase[] = [];
+    const fetcher = createFetchTracker(baseFetch as typeof fetch, {
+      trackRequest: (entry) => tracked.push(entry),
+    });
+    await expect(
+      fetcher("https://example.com/fail", {
+        headers: { Authorization: "Bearer leaked-on-error" },
+      }),
+    ).rejects.toThrow("network down");
+    expect(lowerKeys(tracked[0]!.requestHeaders)["authorization"]).toBe(
+      REDACTED_HEADER_VALUE,
+    );
+    expect(JSON.stringify(tracked[0])).not.toContain("leaked-on-error");
+  });
+
+  it("redacts sensitive response headers in the recorded entry", async () => {
+    // Set-Cookie is a forbidden response-header name in the Fetch API (the
+    // browser strips it from a constructed Response), so exercise the
+    // response-side redaction with x-api-key instead — it proves the same
+    // wiring without fighting the test environment.
+    const baseFetch = vi.fn(
+      async () =>
+        new Response("ok", {
+          headers: {
+            "x-api-key": "issued-secret",
+            "content-type": "text/plain",
+          },
+        }),
+    );
+    const tracked: FetchRequestEntryBase[] = [];
+    const fetcher = createFetchTracker(baseFetch as typeof fetch, {
+      trackRequest: (entry) => tracked.push(entry),
+    });
+    await fetcher("https://example.com/login");
+    const responseHeaders = lowerKeys(tracked[0]!.responseHeaders);
+    expect(responseHeaders["x-api-key"]).toBe(REDACTED_HEADER_VALUE);
+    expect(responseHeaders["content-type"]).toBe("text/plain");
+    expect(JSON.stringify(tracked[0])).not.toContain("issued-secret");
+  });
+
   it("does not call updateResponseBody when response.clone() throws", async () => {
     const tracked: FetchRequestEntryBase[] = [];
     const bodies: Array<{ id: string; body: string }> = [];
@@ -261,5 +354,27 @@ describe("createFetchTracker", () => {
     await flush();
     expect(tracked[0]?.responseBody).toBeUndefined();
     expect(bodies).toHaveLength(0);
+  });
+});
+
+describe("redactSensitiveHeaders", () => {
+  it("redacts case-insensitively while preserving the original key casing", () => {
+    const out = redactSensitiveHeaders({
+      Authorization: "Bearer x",
+      "PROXY-AUTHORIZATION": "Basic y",
+      "X-Trace": "abc",
+    });
+    expect(out).toEqual({
+      Authorization: REDACTED_HEADER_VALUE,
+      "PROXY-AUTHORIZATION": REDACTED_HEADER_VALUE,
+      "X-Trace": "abc",
+    });
+  });
+
+  it("returns a new object and never mutates the input", () => {
+    const input = { authorization: "Bearer x" };
+    const out = redactSensitiveHeaders(input);
+    expect(out).not.toBe(input);
+    expect(input.authorization).toBe("Bearer x");
   });
 });
