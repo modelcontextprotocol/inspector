@@ -203,6 +203,42 @@ describe("ServerImportConfigModal", () => {
     });
   });
 
+  it("flags an invalid/colliding rename target and blocks import", async () => {
+    const user = userEvent.setup();
+    setup();
+    await pickClientAndImport(user, "Cursor");
+    await waitFor(() => screen.getByText("Already exists (1)"));
+    await user.click(screen.getByText("Rename"));
+    const renameInput = screen.getByLabelText("New id for existing");
+
+    // Collides with the incoming addition "alpha".
+    await user.clear(renameInput);
+    await user.type(renameInput, "alpha");
+    expect(await screen.findByText(/already in use/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Import \d server/ }),
+    ).toBeDisabled();
+
+    // Invalid characters.
+    await user.clear(renameInput);
+    await user.type(renameInput, "bad id!");
+    expect(
+      await screen.findByText(/letters, numbers, hyphens/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Import \d server/ }),
+    ).toBeDisabled();
+
+    // A unique, valid id clears the error and re-enables import.
+    await user.clear(renameInput);
+    await user.type(renameInput, "existing-copy");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Import 2 servers/ }),
+      ).toBeEnabled(),
+    );
+  });
+
   it("reports a per-server failure in the summary", async () => {
     const user = userEvent.setup();
     const h = setup();

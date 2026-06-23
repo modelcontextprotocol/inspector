@@ -12,7 +12,9 @@ test-servers/build
 /.playwright-mcp/
 
 # Local debugging artifacts dropped at the repo root (e.g. attached to
-# Claude Code conversations): screenshots and exported Inspector history
-# dumps. Should never be part of the source tree.
+# Claude Code conversations): screenshots, exported Inspector history dumps,
+# and ad-hoc registry/client config fixtures used for manual import testing.
+# Should never be part of the source tree.
 /*.png
 /inspector-history-*.json
+/*.server.json

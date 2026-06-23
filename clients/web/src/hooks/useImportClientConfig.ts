@@ -7,6 +7,7 @@ import {
   type ImportPlan,
   type ImportSourceResult,
 } from "@inspector/core/mcp/import/index.js";
+import { validateStoreId } from "@inspector/core/storage/store-id.js";
 import type { MCPConfig, MCPServerConfig } from "@inspector/core/mcp/types.js";
 
 export type ImportPhase = "select" | "loading" | "review" | "summary";
@@ -49,6 +50,10 @@ export interface ImportClientConfigViewModel {
   outcomes: ImportOutcome[];
   selectedType: string | null;
   importCount: number;
+  /** Per-conflict validation message for an invalid/colliding rename target. */
+  renameErrors: Record<string, string>;
+  /** True when there's something to import and no rename is invalid. */
+  canImport: boolean;
   setSelectedType: (type: string | null) => void;
   pickSource: (type: string) => Promise<void>;
   pickFile: (file: File | null) => Promise<void>;
@@ -251,6 +256,47 @@ export function useImportClientConfig({
       ).length
     : 0;
 
+  // Validate each "rename" target inline: it must be a syntactically valid id
+  // that doesn't collide with an existing server, an imported addition, or
+  // another rename target — so the user learns before submitting rather than
+  // getting a 409 in the summary.
+  const renameErrors = useMemo<Record<string, string>>(() => {
+    if (!plan) return {};
+    const errors: Record<string, string> = {};
+    for (const conflict of plan.conflicts) {
+      const res = resolutions[conflict.id];
+      if (res?.action !== "rename") continue;
+      const newId = res.renameTo.trim();
+      if (!newId) {
+        errors[conflict.id] = "A new id is required.";
+        continue;
+      }
+      if (!validateStoreId(newId)) {
+        errors[conflict.id] =
+          "Use only letters, numbers, hyphens, underscores.";
+        continue;
+      }
+      // Ids that would already exist alongside this rename.
+      const taken = new Set<string>(existingIds);
+      for (const add of plan.additions) {
+        if ((additionActions[add.id] ?? "import") === "import") {
+          taken.add(add.id);
+        }
+      }
+      for (const other of plan.conflicts) {
+        if (other.id === conflict.id) continue;
+        const r = resolutions[other.id];
+        if (r?.action === "rename") taken.add(r.renameTo.trim());
+      }
+      if (taken.has(newId)) {
+        errors[conflict.id] = `"${newId}" is already in use.`;
+      }
+    }
+    return errors;
+  }, [plan, resolutions, additionActions, existingIds]);
+
+  const canImport = importCount > 0 && Object.keys(renameErrors).length === 0;
+
   return {
     phase,
     error,
@@ -261,6 +307,8 @@ export function useImportClientConfig({
     outcomes,
     selectedType,
     importCount,
+    renameErrors,
+    canImport,
     setSelectedType,
     pickSource,
     pickFile,

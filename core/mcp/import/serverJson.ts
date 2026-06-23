@@ -109,6 +109,10 @@ function parseEnvVars(rawList: unknown[]): ServerJsonEnvVar[] {
     if (!name) continue;
     const required = Boolean(pick(obj, "isRequired", "is_required"));
     const isSecret = Boolean(pick(obj, "isSecret", "is_secret"));
+    // The schema's `value` is a *fixed* value and `default` a suggestion; we
+    // prefill both as the (editable) input value. We don't currently lock a
+    // fixed `value` against editing — acceptable for an import preview the user
+    // reviews before saving.
     const def = asString(obj.default) ?? asString(obj.value);
     out.push({
       name,
@@ -199,16 +203,31 @@ function parsePackage(raw: Record<string, unknown>): ServerJsonOption | null {
     asArray(pick(raw, "packageArguments", "package_arguments")),
   );
 
+  const env = defaultEnv(envVars);
+
   // docker needs `run -i --rm` before the image; package args go to the
-  // container after the image. Other runtimes take the package ref then args.
+  // container after the image. Declared env vars must be forwarded into the
+  // container with `-e KEY` flags — otherwise they'd only set the `docker` CLI
+  // process's environment (via config.env) and never reach the server. `-e KEY`
+  // (no value) tells docker to pass KEY through from that process env, which is
+  // where buildServerConfig merges the user-supplied values. Other runtimes
+  // inherit config.env directly, so they need no extra flags.
+  const dockerEnvArgs = envVars.flatMap((v) => ["-e", v.name]);
   const args =
     runtime.command === "docker"
-      ? ["run", "-i", "--rm", ...runtimeArgs, runtime.ref, ...packageArgs]
+      ? [
+          "run",
+          "-i",
+          "--rm",
+          ...runtimeArgs,
+          ...dockerEnvArgs,
+          runtime.ref,
+          ...packageArgs,
+        ]
       : registryType === "npm"
         ? [...runtimeArgs, "-y", runtime.ref, ...packageArgs]
         : [...runtimeArgs, runtime.ref, ...packageArgs];
 
-  const env = defaultEnv(envVars);
   const baseConfig: StdioServerConfig = {
     type: "stdio",
     command: runtime.command,
@@ -328,13 +347,14 @@ export function buildServerConfig(
     if (value === "") delete merged[key];
     else merged[key] = value;
   }
-  const config: StdioServerConfig = {
-    ...option.baseConfig,
+  // Drop the original `env` from the base (via destructure) so it isn't spread
+  // back in; re-add it only when the merged map is non-empty. This keeps an
+  // entry whose overrides emptied everything out from persisting a stale env.
+  const { env: _baseEnv, ...base } = option.baseConfig;
+  return {
+    ...base,
     ...(Object.keys(merged).length > 0 ? { env: merged } : {}),
   };
-  // Strip an env key that ended up empty after overrides.
-  if (Object.keys(merged).length === 0) delete config.env;
-  return config;
 }
 
 /** The id a parsed server.json will be saved under: the override (if any) wins. */

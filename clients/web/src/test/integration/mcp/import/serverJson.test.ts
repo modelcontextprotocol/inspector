@@ -155,6 +155,34 @@ describe("parseServerJson — packages", () => {
     });
   });
 
+  it("forwards declared env vars into OCI containers via -e flags", () => {
+    const parsed = parseServerJson(
+      JSON.stringify({
+        name: "com.example/d",
+        packages: [
+          {
+            registryType: "oci",
+            identifier: "img:1",
+            environmentVariables: [
+              { name: "API_KEY", isRequired: true },
+              { name: "LOG", default: "info" },
+            ],
+          },
+        ],
+      }),
+    );
+    const opt = parsed.options[0];
+    // -e KEY flags go before the image so docker forwards them into the
+    // container (sourced from config.env at connect time).
+    expect(opt.baseConfig).toMatchObject({
+      command: "docker",
+      args: ["run", "-i", "--rm", "-e", "API_KEY", "-e", "LOG", "img:1"],
+    });
+    if (opt.baseConfig.type === "stdio") {
+      expect(opt.baseConfig.env).toEqual({ LOG: "info" });
+    }
+  });
+
   it("skips unsupported (mcpb) and malformed packages", () => {
     const parsed = parseServerJson(
       JSON.stringify({

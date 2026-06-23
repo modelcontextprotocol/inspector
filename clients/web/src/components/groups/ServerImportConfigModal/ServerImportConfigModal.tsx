@@ -221,6 +221,7 @@ export function ServerImportConfigModal({
                           size="xs"
                           aria-label={`New id for ${conflict.id}`}
                           value={res.renameTo}
+                          error={vm.renameErrors[conflict.id]}
                           onChange={(e) =>
                             vm.setRenameTo(conflict.id, e.currentTarget.value)
                           }
@@ -238,7 +239,7 @@ export function ServerImportConfigModal({
               </Button>
               <Button
                 onClick={() => void vm.runImport()}
-                disabled={vm.importCount === 0}
+                disabled={!vm.canImport}
               >
                 Import {vm.importCount} server{vm.importCount === 1 ? "" : "s"}
               </Button>
