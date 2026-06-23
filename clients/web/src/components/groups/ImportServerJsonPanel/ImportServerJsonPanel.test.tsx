@@ -71,6 +71,21 @@ describe("ImportServerJsonPanel", () => {
     expect(screen.getByRole("button", { name: "Add Server" })).toBeDisabled();
   });
 
+  it("renders the File Contents control with the highlight background", () => {
+    renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        fileContentsHighlight
+        draft={emptyDraft}
+        validation={[]}
+        envVars={[]}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "File Contents" }),
+    ).toBeInTheDocument();
+  });
+
   it("invokes onCancel and onAddServer when their buttons are clicked", async () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();

@@ -51,6 +51,12 @@ export interface ImportServerJsonPanelProps {
    */
   fileContentsOpen?: boolean;
   onFileContentsChange?: (open: boolean) => void;
+  /**
+   * When true, the "File Contents" control is painted with its hover
+   * background — used as a brief pre-collapse flash so the auto-collapse reads
+   * intentionally.
+   */
+  fileContentsHighlight?: boolean;
   onCancel: () => void;
   /**
    * Load server.json content from a file. When provided, a "Choose file…"
@@ -92,6 +98,7 @@ export function ImportServerJsonPanel({
   addDisabled,
   fileContentsOpen,
   onFileContentsChange,
+  fileContentsHighlight,
   onCancel,
   onPickFile,
 }: ImportServerJsonPanelProps) {
@@ -112,6 +119,7 @@ export function ImportServerJsonPanel({
 
       <Accordion
         variant="separated"
+        transitionDuration={325}
         {...(onFileContentsChange
           ? {
               value: fileContentsOpen ? "file-contents" : null,
@@ -121,7 +129,15 @@ export function ImportServerJsonPanel({
           : { defaultValue: "file-contents" })}
       >
         <Accordion.Item value="file-contents">
-          <Accordion.Control>File Contents</Accordion.Control>
+          <Accordion.Control
+            bg={
+              fileContentsHighlight
+                ? "var(--mantine-color-default-hover)"
+                : undefined
+            }
+          >
+            File Contents
+          </Accordion.Control>
           <Accordion.Panel>
             <Textarea
               value={draft.rawText}

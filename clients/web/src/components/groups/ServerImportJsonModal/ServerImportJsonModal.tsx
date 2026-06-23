@@ -73,6 +73,12 @@ const VALIDATE_DEBOUNCE_MS = 300;
  */
 const COLLAPSE_DELAY_MS = 1000;
 
+/**
+ * How long (ms) to flash the disclosure with its hover background just before it
+ * collapses, so the collapse reads as intentional rather than abrupt.
+ */
+const HIGHLIGHT_DURATION_MS = 250;
+
 interface Selection {
   parsed?: ParsedServerJson;
   selectedIndex: number;
@@ -132,8 +138,10 @@ export function ServerImportJsonModal({
     EMPTY_DRAFT.rawText,
   );
   // The File Contents disclosure starts open and auto-collapses shortly after
-  // content is loaded/pasted (see the effect below).
+  // content is loaded/pasted (see the effect below). `highlight` paints its
+  // hover background for a beat right before it collapses.
   const [fileContentsOpen, setFileContentsOpen] = useState(true);
+  const [fileContentsHighlight, setFileContentsHighlight] = useState(false);
 
   // Reset the draft each time the modal transitions to open. Done during render
   // (React's "adjust state when a prop changes" pattern) rather than in an
@@ -146,6 +154,7 @@ export function ServerImportJsonModal({
       setSubmitError(undefined);
       setDebouncedText(EMPTY_DRAFT.rawText);
       setFileContentsOpen(true);
+      setFileContentsHighlight(false);
     }
   }
 
@@ -159,14 +168,25 @@ export function ServerImportJsonModal({
     return () => clearTimeout(id);
   }, [draft.rawText]);
 
-  // Once there's content, collapse the File Contents disclosure after a beat so
-  // the (animated) collapse signals that the paste/file load was accepted and
-  // surfaces the validation / env-var sections below. Clearing the textarea
-  // re-opens it (handled in setRawText).
+  // Once there's content, flash the disclosure's hover highlight and then
+  // collapse it, so the (animated) collapse signals that the paste/file load
+  // was accepted and surfaces the validation / env-var sections below. Clearing
+  // the textarea re-opens it (handled in setRawText). setState lives only in the
+  // timeout callbacks, so this doesn't cascade-render.
   useEffect(() => {
     if (!draft.rawText.trim()) return;
-    const id = setTimeout(() => setFileContentsOpen(false), COLLAPSE_DELAY_MS);
-    return () => clearTimeout(id);
+    let collapseTimer: ReturnType<typeof setTimeout> | undefined;
+    const highlightTimer = setTimeout(() => {
+      setFileContentsHighlight(true);
+      collapseTimer = setTimeout(() => {
+        setFileContentsHighlight(false);
+        setFileContentsOpen(false);
+      }, HIGHLIGHT_DURATION_MS);
+    }, COLLAPSE_DELAY_MS);
+    return () => {
+      clearTimeout(highlightTimer);
+      if (collapseTimer) clearTimeout(collapseTimer);
+    };
   }, [draft.rawText]);
 
   const parseState = useMemo(() => parseDraft(debouncedText), [debouncedText]);
@@ -240,6 +260,8 @@ export function ServerImportJsonModal({
   function setRawText(content: string) {
     setSubmitError(undefined);
     setDraft((d) => ({ ...d, rawText: content }));
+    // A fresh edit cancels any in-flight pre-collapse highlight.
+    setFileContentsHighlight(false);
     // Re-open the disclosure when the textarea is cleared so it's ready to paste
     // into again.
     if (!content.trim()) setFileContentsOpen(true);
@@ -263,6 +285,7 @@ export function ServerImportJsonModal({
   async function pickFile(file: File | null) {
     if (!file) return;
     setSubmitError(undefined);
+    setFileContentsHighlight(false);
     try {
       const text = await file.text();
       setDraft((d) => ({ ...d, rawText: text }));
@@ -326,6 +349,7 @@ export function ServerImportJsonModal({
         addDisabled={!canAdd}
         fileContentsOpen={fileContentsOpen}
         onFileContentsChange={setFileContentsOpen}
+        fileContentsHighlight={fileContentsHighlight}
         onCancel={onClose}
         onPickFile={(file) => void pickFile(file)}
       />
