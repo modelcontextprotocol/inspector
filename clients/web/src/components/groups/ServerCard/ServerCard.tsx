@@ -153,6 +153,10 @@ export function ServerCard({
       ref={rootRef}
       withBorder
       padding="lg"
+      // BorderAnimate's wrapper is display:flex, so the card must stretch to
+      // fill it — otherwise the card shrinks to content width while the
+      // animated border spans the full grid cell.
+      w="100%"
       variant={isDimmed ? "disabled" : undefined}
       onClick={highlighted ? onClearHighlight : undefined}
       {...(isDimmed ? { "aria-disabled": true, inert: true } : {})}
@@ -225,12 +229,18 @@ export function ServerCard({
     </Card>
   );
 
-  if (highlighted) {
-    return (
-      <BorderAnimate show animate radius="md">
-        {card}
-      </BorderAnimate>
-    );
-  }
-  return card;
+  // Always render the wrapper and toggle `show`/`animate` rather than
+  // conditionally wrapping — swapping the element type on clear would remount
+  // the card (and its connect toggle / buttons), swallowing the click that
+  // triggered the clear.
+  return (
+    <BorderAnimate
+      show={highlighted}
+      animate={highlighted}
+      radius="md"
+      w="100%"
+    >
+      {card}
+    </BorderAnimate>
+  );
 }

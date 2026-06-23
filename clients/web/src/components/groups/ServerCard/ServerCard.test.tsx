@@ -326,5 +326,25 @@ describe("ServerCard", () => {
       await user.click(screen.getByText("My MCP Server"));
       expect(onClearHighlight).not.toHaveBeenCalled();
     });
+
+    it("still toggles the connection when the switch is clicked while highlighted", async () => {
+      const user = userEvent.setup();
+      const onToggleConnection = vi.fn();
+      const onClearHighlight = vi.fn();
+      renderWithMantine(
+        <ServerCard
+          {...baseProps}
+          connection={disconnected}
+          highlighted
+          onToggleConnection={onToggleConnection}
+          onClearHighlight={onClearHighlight}
+        />,
+      );
+      // A single click both connects and dismisses the highlight — the card
+      // isn't remounted, so the toggle's action isn't swallowed.
+      await user.click(screen.getByRole("switch"));
+      expect(onToggleConnection).toHaveBeenCalledWith("srv-1");
+      expect(onClearHighlight).toHaveBeenCalledTimes(1);
+    });
   });
 });
