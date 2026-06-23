@@ -135,4 +135,51 @@ describe("ServerListScreen", () => {
       expect(screen.queryByText("Read-only session")).not.toBeInTheDocument();
     });
   });
+
+  describe("freshly-added highlight", () => {
+    it("draws an animated border on every highlighted server", () => {
+      const { container } = renderWithMantine(
+        <ServerListScreen
+          {...baseProps}
+          highlightedServerIds={["alpha", "beta"]}
+        />,
+      );
+      // One animated border per highlighted card.
+      expect(
+        container.querySelectorAll(".mantine-BorderAnimate-border"),
+      ).toHaveLength(2);
+    });
+
+    it("scrolls only the first highlighted card into view", () => {
+      const scrollIntoView = vi.fn();
+      const orig = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoView;
+      try {
+        renderWithMantine(
+          <ServerListScreen
+            {...baseProps}
+            highlightedServerIds={["alpha", "beta"]}
+          />,
+        );
+        // Both highlighted, but only the first (alpha) scrolls.
+        expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      } finally {
+        Element.prototype.scrollIntoView = orig;
+      }
+    });
+
+    it("clears the highlight for the clicked card by id", async () => {
+      const user = userEvent.setup();
+      const onClearHighlight = vi.fn();
+      renderWithMantine(
+        <ServerListScreen
+          {...baseProps}
+          highlightedServerIds={["alpha", "beta"]}
+          onClearHighlight={onClearHighlight}
+        />,
+      );
+      await user.click(screen.getByText("Beta"));
+      expect(onClearHighlight).toHaveBeenCalledWith("beta");
+    });
+  });
 });

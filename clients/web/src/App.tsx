@@ -511,10 +511,17 @@ function App() {
   // import).
   const [importConfigOpen, setImportConfigOpen] = useState(false);
   const [importJsonOpen, setImportJsonOpen] = useState(false);
-  // Id of a freshly-added server (manual or import) — the list scrolls to it and
-  // draws an animated border until the card is clicked. (#1348)
-  const [highlightedServerId, setHighlightedServerId] = useState<string | null>(
-    null,
+  // Ids of freshly-added servers (manual or import) — their cards draw an
+  // animated border (and the first scrolls into view) until clicked. A batch
+  // import accumulates all of its ids here; opening an add/import modal starts a
+  // fresh batch. (#1348)
+  const [highlightedServerIds, setHighlightedServerIds] = useState<string[]>(
+    [],
+  );
+  const clearHighlight = useCallback(
+    (id: string) =>
+      setHighlightedServerIds((ids) => ids.filter((x) => x !== id)),
+    [],
   );
   const [settingsModalTargetId, setSettingsModalTargetId] = useState<
     string | undefined
@@ -2164,10 +2171,13 @@ function App() {
   // Add a server, then mark it as the freshly-added one so the list scrolls to
   // it and highlights it. Used by manual add/clone and both import flows; edits
   // and conflict-overwrites (updateServer) intentionally don't highlight.
+  // Accumulates into the current highlight batch (a multi-server import adds
+  // each id), deduped. The batch is reset to empty when an add/import modal
+  // opens (see the menu handlers).
   const addServerHighlighted = useCallback(
     async (id: string, config: MCPServerConfig) => {
       await addServer(id, config);
-      setHighlightedServerId(id);
+      setHighlightedServerIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
     },
     [addServer],
   );
@@ -2415,14 +2425,26 @@ function App() {
         onDisconnect={() => {
           void onDisconnect();
         }}
-        onServerAdd={() => setConfigModal({ mode: "add" })}
-        onServerImportConfig={() => setImportConfigOpen(true)}
-        onServerImportJson={() => setImportJsonOpen(true)}
+        onServerAdd={() => {
+          setHighlightedServerIds([]);
+          setConfigModal({ mode: "add" });
+        }}
+        onServerImportConfig={() => {
+          setHighlightedServerIds([]);
+          setImportConfigOpen(true);
+        }}
+        onServerImportJson={() => {
+          setHighlightedServerIds([]);
+          setImportJsonOpen(true);
+        }}
         onServerExport={onServerExport}
         onConnectionInfo={() => setConnectionInfoModalOpen(true)}
         onServerSettings={(id) => setSettingsModalTargetId(id)}
         onServerEdit={(id) => setConfigModal({ mode: "edit", targetId: id })}
-        onServerClone={(id) => setConfigModal({ mode: "clone", targetId: id })}
+        onServerClone={(id) => {
+          setHighlightedServerIds([]);
+          setConfigModal({ mode: "clone", targetId: id });
+        }}
         onServerRemove={(id) => {
           const target = servers.find((s) => s.id === id);
           if (target) setRemoveTarget(target);
@@ -2441,8 +2463,8 @@ function App() {
             });
           });
         }}
-        highlightedServerId={highlightedServerId ?? undefined}
-        onClearHighlight={() => setHighlightedServerId(null)}
+        highlightedServerIds={highlightedServerIds}
+        onClearHighlight={clearHighlight}
         serverSupportsTaskToolCalls={
           !!capabilities?.tasks?.requests?.tools?.call
         }

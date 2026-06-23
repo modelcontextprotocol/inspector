@@ -55,10 +55,11 @@ export interface ServerListScreenProps {
    * the desired order. Omit to render the list without reorder affordances.
    */
   onReorder?: (orderedIds: string[]) => void;
-  /** Id of a freshly-added server to scroll to and highlight (animated border). */
-  highlightedServerId?: string;
-  /** Clears the highlight (called when the highlighted card is clicked). */
-  onClearHighlight?: () => void;
+  /** Ids of freshly-added servers to highlight (animated border); the first is
+   *  also scrolled into view. */
+  highlightedServerIds?: string[];
+  /** Clears the highlight for a server (called when its card is clicked). */
+  onClearHighlight?: (id: string) => void;
   compact: boolean;
   onToggleCompact: () => void;
 }
@@ -88,7 +89,7 @@ export function ServerListScreen({
   onClone,
   onRemove,
   onReorder,
-  highlightedServerId,
+  highlightedServerIds,
   onClearHighlight,
   compact,
   onToggleCompact,
@@ -119,6 +120,13 @@ export function ServerListScreen({
     ? buildReorderAnnouncements(servers)
     : undefined;
 
+  // Only the first highlighted card (in display order) scrolls into view so a
+  // batch import jumps to the start of the batch instead of fighting over the
+  // viewport.
+  const firstHighlightedId = servers.find((s) =>
+    highlightedServerIds?.includes(s.id),
+  )?.id;
+
   const cardProps = (server: ServerEntry) => ({
     compact,
     writable,
@@ -129,8 +137,11 @@ export function ServerListScreen({
     onEdit,
     onClone,
     onRemove,
-    highlighted: server.id === highlightedServerId,
-    onClearHighlight,
+    highlighted: highlightedServerIds?.includes(server.id) ?? false,
+    scrollOnHighlight: server.id === firstHighlightedId,
+    onClearHighlight: onClearHighlight
+      ? () => onClearHighlight(server.id)
+      : undefined,
     ...server,
   });
 

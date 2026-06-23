@@ -35,11 +35,18 @@ export interface ServerCardProps extends ServerEntry {
    */
   dragHandle?: ReactNode;
   /**
-   * When true, the card is freshly added: it scrolls into view and draws an
-   * animated border (Mantine Border Animate) to draw the eye. Cleared by
-   * `onClearHighlight` on any click on the card.
+   * When true, the card is freshly added: it draws an animated border (Mantine
+   * Border Animate) to draw the eye. Cleared by `onClearHighlight` on any click
+   * on the card.
    */
   highlighted?: boolean;
+  /**
+   * Whether a highlighted card scrolls itself into view. When several cards are
+   * highlighted at once (a batch import) only the first should scroll, so the
+   * list jumps to the start of the batch rather than fighting over the viewport.
+   * Defaults to true.
+   */
+  scrollOnHighlight?: boolean;
   /** Called when a highlighted card is clicked, to dismiss the animated border. */
   onClearHighlight?: () => void;
 }
@@ -130,18 +137,19 @@ export function ServerCard({
   writable = true,
   dragHandle,
   highlighted = false,
+  scrollOnHighlight = true,
   onClearHighlight,
 }: ServerCardProps) {
   const isDimmed = activeServer !== undefined && activeServer !== id;
   const rootRef = useRef<HTMLDivElement>(null);
 
   // When freshly added, bring the card into view (it may be far down a long
-  // list). Fires on the false→true transition only.
+  // list). Only the designated card scrolls (the first of a highlighted batch).
   useEffect(() => {
-    if (highlighted) {
+    if (highlighted && scrollOnHighlight) {
       rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  }, [highlighted]);
+  }, [highlighted, scrollOnHighlight]);
   const transport = getTransport(config);
   const commandOrUrl = getCommandOrUrl(config);
   const version = info?.version;
