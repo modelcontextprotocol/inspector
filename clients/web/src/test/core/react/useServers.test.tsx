@@ -123,6 +123,29 @@ describe("useServers", () => {
     });
   });
 
+  it("importSource returns a result for a known source type", async () => {
+    const { result } = renderHook(() =>
+      useServers({ baseUrl: "http://test.local", fetchFn: h.fetchFn }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const res = await result.current.importSource("cursor");
+    expect(res.type).toBe("cursor");
+    expect(typeof res.found).toBe("boolean");
+    expect(Array.isArray(res.searched)).toBe(true);
+  });
+
+  it("importSource throws on an unknown source type", async () => {
+    const { result } = renderHook(() =>
+      useServers({ baseUrl: "http://test.local", fetchFn: h.fetchFn }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await expect(result.current.importSource("bogus")).rejects.toThrow(
+      /Unknown import source/,
+    );
+  });
+
   it("addServer throws on 409 (duplicate id)", async () => {
     const { result } = renderHook(() =>
       useServers({ baseUrl: "http://test.local", fetchFn: h.fetchFn }),

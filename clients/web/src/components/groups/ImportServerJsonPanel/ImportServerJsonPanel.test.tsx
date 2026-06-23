@@ -14,18 +14,24 @@ const emptyDraft: InspectorServerJsonDraft = {
   envOverrides: {},
 };
 
+// Validation results, package selection, env vars, and the name override are
+// only shown once content has been pasted/loaded, so tests for those sections
+// use a draft with non-empty rawText.
+const draftWithContent: InspectorServerJsonDraft = {
+  rawText: '{"name":"x"}',
+  envOverrides: {},
+};
+
 const baseHandlers = {
   onJsonChange: vi.fn(),
-  onValidate: vi.fn(),
   onSelectPackage: vi.fn(),
   onEnvVarChange: vi.fn(),
   onServerNameChange: vi.fn(),
   onAddServer: vi.fn(),
-  onCancel: vi.fn(),
 };
 
 describe("ImportServerJsonPanel", () => {
-  it("renders the title and the action buttons", () => {
+  it("renders the Add Server action", () => {
     renderWithMantine(
       <ImportServerJsonPanel
         {...baseHandlers}
@@ -35,15 +41,11 @@ describe("ImportServerJsonPanel", () => {
       />,
     );
     expect(
-      screen.getByText("Import MCP Registry server.json"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Validate Again" }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
-    expect(
       screen.getByRole("button", { name: "Add Server" }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Cancel" }),
+    ).not.toBeInTheDocument();
   });
 
   it("invokes onJsonChange when typing in the textarea", async () => {
@@ -65,27 +67,47 @@ describe("ImportServerJsonPanel", () => {
     expect(onJsonChange).toHaveBeenCalledWith("x");
   });
 
-  it("invokes onValidate, onCancel, and onAddServer when their buttons are clicked", async () => {
+  it("disables the Add Server button when addDisabled is set", () => {
+    renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        addDisabled
+        draft={emptyDraft}
+        validation={[]}
+        envVars={[]}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Add Server" })).toBeDisabled();
+  });
+
+  it("renders the File Contents control with the highlight background", () => {
+    renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        fileContentsHighlight
+        draft={emptyDraft}
+        validation={[]}
+        envVars={[]}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "File Contents" }),
+    ).toBeInTheDocument();
+  });
+
+  it("invokes onAddServer when the Add Server button is clicked", async () => {
     const user = userEvent.setup();
-    const onValidate = vi.fn();
-    const onCancel = vi.fn();
     const onAddServer = vi.fn();
     renderWithMantine(
       <ImportServerJsonPanel
         {...baseHandlers}
-        onValidate={onValidate}
-        onCancel={onCancel}
         onAddServer={onAddServer}
         draft={emptyDraft}
         validation={[]}
         envVars={[]}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Validate Again" }));
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
     await user.click(screen.getByRole("button", { name: "Add Server" }));
-    expect(onValidate).toHaveBeenCalledTimes(1);
-    expect(onCancel).toHaveBeenCalledTimes(1);
     expect(onAddServer).toHaveBeenCalledTimes(1);
   });
 
@@ -99,7 +121,7 @@ describe("ImportServerJsonPanel", () => {
     renderWithMantine(
       <ImportServerJsonPanel
         {...baseHandlers}
-        draft={emptyDraft}
+        draft={draftWithContent}
         validation={validation}
         envVars={[]}
       />,
@@ -117,7 +139,7 @@ describe("ImportServerJsonPanel", () => {
     renderWithMantine(
       <ImportServerJsonPanel
         {...baseHandlers}
-        draft={emptyDraft}
+        draft={draftWithContent}
         validation={[]}
         envVars={[]}
         packages={packages}
@@ -137,7 +159,7 @@ describe("ImportServerJsonPanel", () => {
       <ImportServerJsonPanel
         {...baseHandlers}
         onSelectPackage={onSelectPackage}
-        draft={emptyDraft}
+        draft={draftWithContent}
         validation={[]}
         envVars={[]}
         packages={packages}
@@ -167,7 +189,7 @@ describe("ImportServerJsonPanel", () => {
       <ImportServerJsonPanel
         {...baseHandlers}
         onEnvVarChange={onEnvVarChange}
-        draft={emptyDraft}
+        draft={draftWithContent}
         validation={[]}
         envVars={envVars}
       />,
@@ -186,12 +208,12 @@ describe("ImportServerJsonPanel", () => {
       <ImportServerJsonPanel
         {...baseHandlers}
         onServerNameChange={onServerNameChange}
-        draft={emptyDraft}
+        draft={draftWithContent}
         validation={[]}
         envVars={[]}
       />,
     );
-    const nameInput = screen.getByLabelText(/Server Name/);
+    const nameInput = screen.getByLabelText("Override");
     await user.type(nameInput, "X");
     expect(onServerNameChange).toHaveBeenCalledWith("X");
   });
@@ -230,15 +252,98 @@ describe("ImportServerJsonPanel", () => {
     expect(onServerNameChange).toHaveBeenCalledWith("");
   });
 
+  it("does not render the file picker when onPickFile is absent", () => {
+    renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        draft={emptyDraft}
+        validation={[]}
+        envVars={[]}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: /Choose file/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders a file picker and invokes onPickFile on upload", async () => {
+    const user = userEvent.setup();
+    const onPickFile = vi.fn();
+    renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        onPickFile={onPickFile}
+        draft={emptyDraft}
+        validation={[]}
+        envVars={[]}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: /Choose file/ }),
+    ).toBeInTheDocument();
+    const file = new File(["{}"], "server.json", {
+      type: "application/json",
+    });
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    await user.upload(input, file);
+    expect(onPickFile).toHaveBeenCalledTimes(1);
+  });
+
   it("renders the existing nameOverride value", () => {
     renderWithMantine(
       <ImportServerJsonPanel
         {...baseHandlers}
-        draft={{ ...emptyDraft, nameOverride: "Custom Name" }}
+        draft={{ ...draftWithContent, nameOverride: "Custom Name" }}
         validation={[]}
         envVars={[]}
       />,
     );
     expect(screen.getByDisplayValue("Custom Name")).toBeInTheDocument();
+  });
+
+  it("shows the derived name in a read-only From configuration field", () => {
+    renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        draft={draftWithContent}
+        defaultServerName="weather"
+        validation={[]}
+        envVars={[]}
+      />,
+    );
+    const fromConfig = screen.getByLabelText("From configuration");
+    expect(fromConfig).toHaveValue("weather");
+    expect(fromConfig).toHaveAttribute("readonly");
+  });
+
+  it("hides validation results and the name override until content is present", () => {
+    const validation: ValidationResult[] = [
+      { type: "info", message: "Paste server.json content to validate." },
+    ];
+    const { rerender } = renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        draft={emptyDraft}
+        validation={validation}
+        envVars={[]}
+      />,
+    );
+    // Empty draft: gated sections hidden.
+    expect(screen.queryByText("Validation Results")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Override")).not.toBeInTheDocument();
+
+    // Once content is present, they appear.
+    rerender(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        draft={draftWithContent}
+        validation={validation}
+        envVars={[]}
+      />,
+    );
+    expect(screen.getByText("Validation Results")).toBeInTheDocument();
+    expect(screen.getByLabelText("Override")).toBeInTheDocument();
   });
 });
