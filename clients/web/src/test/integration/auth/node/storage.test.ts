@@ -329,9 +329,9 @@ describe("NodeOAuthStorage", () => {
 
     it("clearCodeVerifier removes only the PKCE verifier", async () => {
       await storage.saveCodeVerifier(testServerUrl, "verifier");
-      expect(storage.getCodeVerifier(testServerUrl)).toBe("verifier");
+      expect(await storage.getCodeVerifier(testServerUrl)).toBe("verifier");
       storage.clearCodeVerifier(testServerUrl);
-      expect(storage.getCodeVerifier(testServerUrl)).toBeUndefined();
+      expect(await storage.getCodeVerifier(testServerUrl)).toBeUndefined();
     });
 
     it("clearScope removes only the scope", async () => {
@@ -349,9 +349,9 @@ describe("NodeOAuthStorage", () => {
         response_types_supported: ["code"],
       };
       await storage.saveServerMetadata(testServerUrl, metadata);
-      expect(storage.getServerMetadata(testServerUrl)).toEqual(metadata);
+      expect(await storage.getServerMetadata(testServerUrl)).toEqual(metadata);
       storage.clearServerMetadata(testServerUrl);
-      expect(storage.getServerMetadata(testServerUrl)).toBeNull();
+      expect(await storage.getServerMetadata(testServerUrl)).toBeNull();
     });
   });
 
@@ -562,7 +562,11 @@ describe("NodeOAuthStorage with custom storagePath", () => {
     );
 
     try {
+      // The store is created with skipHydration: true; OAuthStorageBase
+      // normally drives rehydrate(), but this test writes via the raw store
+      // so hydrate it explicitly first.
       const defaultStore = getOAuthStore();
+      await defaultStore.persist.rehydrate();
       defaultStore.getState().setServerState(testServerUrl, {
         tokens: {
           access_token: "default-token",

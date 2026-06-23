@@ -162,11 +162,11 @@
             if (typeof sandbox === "string") {
               // Never grant allow-same-origin even if the server asks for it —
               // that would let the untrusted app reach this proxy's DOM and
-              // bypass its own CSP via window.parent (the proxy has broader
-              // network rights than the app). Everything else is passed through.
+              // bypass its own CSP via window.parent. Sandbox tokens are
+              // ASCII case-insensitive, so compare lowercased.
               const safeSandbox = sandbox
                 .split(/\s+/)
-                .filter((t) => t && t !== "allow-same-origin")
+                .filter((t) => t && t.toLowerCase() !== "allow-same-origin")
                 .join(" ");
               inner.setAttribute("sandbox", safeSandbox);
             }

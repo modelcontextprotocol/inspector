@@ -273,6 +273,7 @@ describe("createFetchTracker", () => {
         Authorization: "Bearer live-access-token",
         cookie: "session=secret",
         "X-Api-Key": "sk-123",
+        "x-mcp-remote-auth": "Bearer inspector-backend-token",
         "X-Custom": "kept",
       },
     });
@@ -280,9 +281,11 @@ describe("createFetchTracker", () => {
     expect(headers["authorization"]).toBe(REDACTED_HEADER_VALUE);
     expect(headers["cookie"]).toBe(REDACTED_HEADER_VALUE);
     expect(headers["x-api-key"]).toBe(REDACTED_HEADER_VALUE);
+    expect(headers["x-mcp-remote-auth"]).toBe(REDACTED_HEADER_VALUE);
     expect(headers["x-custom"]).toBe("kept");
     expect(JSON.stringify(tracked[0])).not.toContain("live-access-token");
     expect(JSON.stringify(tracked[0])).not.toContain("session=secret");
+    expect(JSON.stringify(tracked[0])).not.toContain("inspector-backend-token");
     // The actual outbound request still carries the live token — redaction is
     // only for the recorded entry.
     expect(new Headers(outboundInit?.headers).get("authorization")).toBe(

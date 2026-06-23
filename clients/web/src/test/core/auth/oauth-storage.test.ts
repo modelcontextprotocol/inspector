@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createJSONStorage } from "zustand/middleware";
 import { OAuthStorageBase } from "@inspector/core/auth/oauth-storage.js";
 import { createOAuthStore } from "@inspector/core/auth/store.js";
@@ -100,7 +100,7 @@ describe("OAuthStorageBase — async hydration", () => {
     expect(ready).toBe(true);
   });
 
-  it("ready() resolves immediately when the adapter hydrates synchronously", async () => {
+  it("ready() resolves promptly when the adapter is synchronous", async () => {
     let mem: string | null = null;
     const syncAdapter = createJSONStorage(() => ({
       getItem: () => mem,
@@ -113,9 +113,53 @@ describe("OAuthStorageBase — async hydration", () => {
       },
     }));
     const storage = new OAuthStorageBase(createOAuthStore(syncAdapter));
-    // hasHydrated() is true at construction with a sync adapter, so ready()
-    // is already resolved — both forms should settle without any release step.
+    // With a sync adapter the constructor's rehydrate() resolves on the next
+    // microtask, so ready() and the getters settle without any release step.
     await storage.ready();
     expect(await storage.getCodeVerifier(SERVER)).toBeUndefined();
+  });
+
+  it("save* awaits hydration so a late merge cannot clobber the write", async () => {
+    const { storage, release } = makeAsyncBackedStorage({
+      [SERVER]: { codeVerifier: "persisted-old" },
+    });
+    // Kick off a save while hydration is still gated. It must not write until
+    // hydration completes, otherwise the persist merge would overwrite "new"
+    // with "persisted-old".
+    const save = storage.saveCodeVerifier(SERVER, "new");
+    let saved = false;
+    void save.then(() => {
+      saved = true;
+    });
+    await Promise.resolve();
+    expect(saved).toBe(false);
+    release();
+    await save;
+    expect(await storage.getCodeVerifier(SERVER)).toBe("new");
+  });
+
+  it("ready()/getters resolve (empty) when the adapter throws instead of hanging", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const throwingAdapter = createJSONStorage(() => ({
+        getItem: async () => {
+          throw new Error("Failed to read store: 500");
+        },
+        setItem: async () => {},
+        removeItem: async () => {},
+      }));
+      const storage = new OAuthStorageBase(createOAuthStore(throwingAdapter));
+      // Race ready() against a short timeout — if the catch path doesn't
+      // resolve `hydrated`, this would hit "TIMEOUT" instead of "ok".
+      const result = await Promise.race([
+        storage.ready().then(() => "ok"),
+        new Promise((r) => setTimeout(() => r("TIMEOUT"), 200)),
+      ]);
+      expect(result).toBe("ok");
+      expect(await storage.getTokens(SERVER)).toBeUndefined();
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

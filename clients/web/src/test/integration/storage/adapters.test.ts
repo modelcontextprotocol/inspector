@@ -173,10 +173,12 @@ describe("Storage adapters", () => {
       });
       await flushStoreFileWrites(filePath);
 
-      // Create new store instance (should load persisted state)
+      // Create new store instance (should load persisted state). The store is
+      // created with skipHydration: true (OAuthStorageBase normally drives
+      // this), so hydrate explicitly here.
       const storage2 = createFileStorageAdapter({ filePath });
       const store2 = createOAuthStore(storage2);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await store2.persist.rehydrate();
 
       const state = store2.getState().getServerState("https://example.com");
       expect(state.tokens).toEqual({
@@ -388,21 +390,16 @@ describe("Storage adapters", () => {
         );
       });
 
-      // Create new store instance (should load persisted state)
+      // Create new store instance (should load persisted state). The store is
+      // created with skipHydration: true (OAuthStorageBase normally drives
+      // this), so hydrate explicitly here.
       const storage2 = createRemoteStorageAdapter({
         baseUrl,
         storeId: "test-store",
         authToken,
       });
       const store2 = createOAuthStore(storage2);
-      await vi.waitFor(
-        () => {
-          const state = store2.getState().getServerState("https://example.com");
-          if (!state.tokens) throw new Error("Store not yet hydrated");
-          return state;
-        },
-        { timeout: 2000, interval: 50 },
-      );
+      await store2.persist.rehydrate();
 
       const state = store2.getState().getServerState("https://example.com");
       expect(state.tokens).toEqual({

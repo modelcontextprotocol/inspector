@@ -12,6 +12,9 @@ const SENSITIVE_HEADERS: ReadonlySet<string> = new Set([
   "set-cookie",
   "proxy-authorization",
   "x-api-key",
+  // The inspector backend's own bearer (createRemoteFetch stamps this on every
+  // proxied request); same exposure as Authorization.
+  "x-mcp-remote-auth",
 ]);
 
 /** Placeholder substituted for sensitive header values in recorded entries. */

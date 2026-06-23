@@ -47,21 +47,17 @@ export function createSandboxController(
   let server: Server | null = null;
   let sandboxUrl: string | null = null;
 
-  // Defense-in-depth for the proxy page itself: the inner iframe runs the
-  // untrusted app under an opaque origin (no allow-same-origin), so it cannot
-  // reach this document — but if a future change accidentally re-grants that,
-  // this header ensures escaping into the proxy still cannot fetch, embed
-  // remote script/style, or be framed by anything except the local inspector.
-  // The proxy's own bootstrap script and style are inline, hence the
-  // 'unsafe-inline' on those two directives only. frame-src is unrestricted so
-  // the inner srcdoc iframe (and any data:/blob: variants) can load.
-  const SANDBOX_PROXY_CSP = [
-    "default-src 'none'",
-    "script-src 'unsafe-inline'",
-    "style-src 'unsafe-inline'",
-    "frame-src data: blob: *",
-    "frame-ancestors http://127.0.0.1:* http://localhost:*",
-  ].join("; ");
+  // Defense-in-depth for the proxy page itself. Only `frame-ancestors` is set
+  // here — fetch directives (`default-src`, `connect-src`, etc.) are
+  // deliberately omitted because a `srcdoc` iframe clones its embedder's CSP
+  // policy container: any fetch directive on this header would be inherited by
+  // the inner app document and, since multiple CSPs intersect, would override
+  // the per-app `connect-src`/`img-src` allowlists the host bakes into the
+  // wrapped HTML (see src/lib/sandbox-csp.ts). The opaque-origin sandbox on
+  // the inner frame is the structural boundary; `frame-ancestors` ensures the
+  // proxy can only be embedded by the local inspector itself.
+  const SANDBOX_PROXY_CSP =
+    "frame-ancestors http://127.0.0.1:* http://localhost:*";
 
   let sandboxHtml: string;
   try {

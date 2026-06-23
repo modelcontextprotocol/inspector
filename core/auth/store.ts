@@ -75,6 +75,11 @@ export function createOAuthStore(
       {
         name: "mcp-inspector-oauth",
         storage,
+        // OAuthStorageBase drives `persist.rehydrate()` itself so it can await
+        // (and catch errors from) the single hydration. Auto-hydration here
+        // would race the explicit one and could clobber a save that landed
+        // between them.
+        skipHydration: true,
       },
     ),
   );

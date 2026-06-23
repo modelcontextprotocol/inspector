@@ -15,13 +15,16 @@ import { type createOAuthStore, type ServerOAuthState } from "./store.js";
  * The store carries the storage adapter (sessionStorage, file, remote HTTP, …),
  * so the same body works for browser, Node, and remote environments.
  *
- * With an async storage adapter (file, remote HTTP) the persist middleware
- * hydrates the store after construction, so `store.getState()` is empty until
- * that completes. Every read used on the post-OAuth-redirect callback path
+ * With an async storage adapter (file, remote HTTP) the store is empty until
+ * hydration completes. Every read used on the post-OAuth-redirect callback path
  * (`getCodeVerifier`, `getServerMetadata`, `getClientInformation`, `getTokens`)
- * therefore awaits {@link hydrated} before reading state. With a synchronous
- * adapter (sessionStorage) hydration finishes before the constructor returns,
- * so the await resolves immediately and the behaviour is unchanged.
+ * — and every save — therefore awaits {@link hydrated} first; saves wait so a
+ * late hydration merge cannot clobber a value written before it landed. The
+ * underlying store is created with `skipHydration: true`
+ * ({@link createOAuthStore}), so the constructor's `rehydrate()` is the single
+ * hydration and there is no auto-hydration to race it. With a synchronous
+ * adapter (sessionStorage) hydration resolves on the next microtask and the
+ * behaviour is effectively unchanged.
  */
 export class OAuthStorageBase implements OAuthStorage {
   private readonly store: ReturnType<typeof createOAuthStore>;
@@ -29,14 +32,34 @@ export class OAuthStorageBase implements OAuthStorage {
 
   constructor(store: ReturnType<typeof createOAuthStore>) {
     this.store = store;
+    // The store is created with `skipHydration: true` so this is the SOLE
+    // hydration. Driving it explicitly (rather than relying on persist's
+    // auto-hydration + onFinishHydration) lets us catch a rejecting adapter —
+    // onFinishHydration only fires on success, so a throwing getItem would
+    // otherwise leave `hydrated` pending forever and hang every getter.
+    // A failed hydration resolves to "empty store", which is the correct
+    // fallback (reads return undefined; writes proceed).
     this.hydrated = this.store.persist.hasHydrated()
       ? Promise.resolve()
-      : new Promise<void>((resolve) => {
-          const unsub = this.store.persist.onFinishHydration(() => {
-            unsub();
-            resolve();
-          });
-        });
+      : Promise.resolve(this.store.persist.rehydrate()).then(
+          () => {
+            // Zustand swallows getItem errors internally (routing them to
+            // onRehydrateStorage) and resolves rehydrate() regardless;
+            // hasHydrated() only flips true on success, so use it to surface
+            // a diagnostic when hydration silently failed.
+            if (!this.store.persist.hasHydrated()) {
+              console.warn(
+                "[OAuthStorage] hydration failed; continuing with empty state",
+              );
+            }
+          },
+          (err: unknown) => {
+            console.warn(
+              "[OAuthStorage] hydration failed; continuing with empty state:",
+              err,
+            );
+          },
+        );
   }
 
   /**
@@ -69,6 +92,7 @@ export class OAuthStorageBase implements OAuthStorage {
     serverUrl: string,
     clientInformation: OAuthClientInformation,
   ): Promise<void> {
+    await this.hydrated;
     this.store.getState().setServerState(serverUrl, {
       clientInformation,
     });
@@ -78,6 +102,7 @@ export class OAuthStorageBase implements OAuthStorage {
     serverUrl: string,
     clientInformation: OAuthClientInformation,
   ): Promise<void> {
+    await this.hydrated;
     this.store.getState().setServerState(serverUrl, {
       preregisteredClientInformation: clientInformation,
     });
@@ -106,6 +131,7 @@ export class OAuthStorageBase implements OAuthStorage {
   }
 
   async saveTokens(serverUrl: string, tokens: OAuthTokens): Promise<void> {
+    await this.hydrated;
     this.store.getState().setServerState(serverUrl, { tokens });
   }
 
@@ -123,6 +149,7 @@ export class OAuthStorageBase implements OAuthStorage {
     serverUrl: string,
     codeVerifier: string,
   ): Promise<void> {
+    await this.hydrated;
     this.store.getState().setServerState(serverUrl, { codeVerifier });
   }
 
@@ -146,6 +173,7 @@ export class OAuthStorageBase implements OAuthStorage {
   }
 
   async saveScope(serverUrl: string, scope: string | undefined): Promise<void> {
+    await this.hydrated;
     this.store.getState().setServerState(serverUrl, { scope });
   }
 
@@ -163,6 +191,7 @@ export class OAuthStorageBase implements OAuthStorage {
     serverUrl: string,
     metadata: OAuthMetadata,
   ): Promise<void> {
+    await this.hydrated;
     this.store
       .getState()
       .setServerState(serverUrl, { serverMetadata: metadata });

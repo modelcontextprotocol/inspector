@@ -66,7 +66,7 @@ describe("BrowserOAuthStorage", () => {
         client_secret: "test-secret",
       };
 
-      storage.saveClientInformation(testServerUrl, clientInfo);
+      await storage.saveClientInformation(testServerUrl, clientInfo);
       const result = await storage.getClientInformation(testServerUrl);
 
       expect(result).toEqual(clientInfo);
@@ -80,7 +80,7 @@ describe("BrowserOAuthStorage", () => {
 
       // Use the storage API instead of manually setting sessionStorage
       // since BrowserOAuthStorage now uses Zustand with a different storage format
-      storage.savePreregisteredClientInformation(
+      await storage.savePreregisteredClientInformation(
         testServerUrl,
         preregisteredInfo,
       );
@@ -100,7 +100,7 @@ describe("BrowserOAuthStorage", () => {
         client_id: "test-client-id",
       };
 
-      storage.saveClientInformation(testServerUrl, clientInfo);
+      await storage.saveClientInformation(testServerUrl, clientInfo);
       const result = await storage.getClientInformation(testServerUrl);
 
       expect(result).toEqual(clientInfo);
@@ -115,8 +115,8 @@ describe("BrowserOAuthStorage", () => {
         client_id: "second-id",
       };
 
-      storage.saveClientInformation(testServerUrl, firstInfo);
-      storage.saveClientInformation(testServerUrl, secondInfo);
+      await storage.saveClientInformation(testServerUrl, firstInfo);
+      await storage.saveClientInformation(testServerUrl, secondInfo);
       const result = await storage.getClientInformation(testServerUrl);
 
       expect(result).toEqual(secondInfo);
@@ -136,7 +136,7 @@ describe("BrowserOAuthStorage", () => {
         expires_in: 3600,
       };
 
-      storage.saveTokens(testServerUrl, tokens);
+      await storage.saveTokens(testServerUrl, tokens);
       const result = await storage.getTokens(testServerUrl);
 
       expect(result).toEqual(tokens);
@@ -150,7 +150,7 @@ describe("BrowserOAuthStorage", () => {
         token_type: "Bearer",
       };
 
-      storage.saveTokens(testServerUrl, tokens);
+      await storage.saveTokens(testServerUrl, tokens);
       const result = await storage.getTokens(testServerUrl);
 
       expect(result).toEqual(tokens);
@@ -166,7 +166,7 @@ describe("BrowserOAuthStorage", () => {
     it("should return stored code verifier", async () => {
       const codeVerifier = "test-code-verifier";
 
-      storage.saveCodeVerifier(testServerUrl, codeVerifier);
+      await storage.saveCodeVerifier(testServerUrl, codeVerifier);
       const result = await storage.getCodeVerifier(testServerUrl);
 
       expect(result).toBe(codeVerifier);
@@ -177,7 +177,7 @@ describe("BrowserOAuthStorage", () => {
     it("should save code verifier", async () => {
       const codeVerifier = "test-code-verifier";
 
-      storage.saveCodeVerifier(testServerUrl, codeVerifier);
+      await storage.saveCodeVerifier(testServerUrl, codeVerifier);
       const result = await storage.getCodeVerifier(testServerUrl);
 
       expect(result).toBe(codeVerifier);
@@ -193,7 +193,7 @@ describe("BrowserOAuthStorage", () => {
     it("should return stored scope", async () => {
       const scope = "read write";
 
-      storage.saveScope(testServerUrl, scope);
+      await storage.saveScope(testServerUrl, scope);
       const result = await storage.getScope(testServerUrl);
 
       expect(result).toBe(scope);
@@ -204,7 +204,7 @@ describe("BrowserOAuthStorage", () => {
     it("should save scope", async () => {
       const scope = "read write";
 
-      storage.saveScope(testServerUrl, scope);
+      await storage.saveScope(testServerUrl, scope);
       const result = await storage.getScope(testServerUrl);
 
       expect(result).toBe(scope);
@@ -225,7 +225,7 @@ describe("BrowserOAuthStorage", () => {
         response_types_supported: ["code"],
       };
 
-      storage.saveServerMetadata(testServerUrl, metadata);
+      await storage.saveServerMetadata(testServerUrl, metadata);
       const result = await storage.getServerMetadata(testServerUrl);
 
       expect(result).toEqual(metadata);
@@ -241,7 +241,7 @@ describe("BrowserOAuthStorage", () => {
         response_types_supported: ["code"],
       };
 
-      storage.saveServerMetadata(testServerUrl, metadata);
+      await storage.saveServerMetadata(testServerUrl, metadata);
       const result = await storage.getServerMetadata(testServerUrl);
 
       expect(result).toEqual(metadata);
@@ -250,7 +250,7 @@ describe("BrowserOAuthStorage", () => {
 
   describe("clearClientInformation", () => {
     it("removes the dynamically-registered client info by default", async () => {
-      storage.saveClientInformation(testServerUrl, { client_id: "dyn" });
+      await storage.saveClientInformation(testServerUrl, { client_id: "dyn" });
       expect(await storage.getClientInformation(testServerUrl)).toEqual({
         client_id: "dyn",
       });
@@ -259,7 +259,7 @@ describe("BrowserOAuthStorage", () => {
     });
 
     it("removes the preregistered client info when isPreregistered=true", async () => {
-      storage.savePreregisteredClientInformation(testServerUrl, {
+      await storage.savePreregisteredClientInformation(testServerUrl, {
         client_id: "pre",
       });
       expect(await storage.getClientInformation(testServerUrl, true)).toEqual({
@@ -274,7 +274,7 @@ describe("BrowserOAuthStorage", () => {
 
   describe("individual clear methods", () => {
     it("clearTokens removes only tokens", async () => {
-      storage.saveTokens(testServerUrl, {
+      await storage.saveTokens(testServerUrl, {
         access_token: "t",
         token_type: "Bearer",
       });
@@ -284,14 +284,14 @@ describe("BrowserOAuthStorage", () => {
     });
 
     it("clearCodeVerifier removes only the PKCE verifier", async () => {
-      storage.saveCodeVerifier(testServerUrl, "verifier");
+      await storage.saveCodeVerifier(testServerUrl, "verifier");
       expect(await storage.getCodeVerifier(testServerUrl)).toBe("verifier");
       storage.clearCodeVerifier(testServerUrl);
       expect(await storage.getCodeVerifier(testServerUrl)).toBeUndefined();
     });
 
     it("clearScope removes only the scope", async () => {
-      storage.saveScope(testServerUrl, "read");
+      await storage.saveScope(testServerUrl, "read");
       expect(storage.getScope(testServerUrl)).toBe("read");
       storage.clearScope(testServerUrl);
       expect(storage.getScope(testServerUrl)).toBeUndefined();
@@ -304,7 +304,7 @@ describe("BrowserOAuthStorage", () => {
         token_endpoint: "http://localhost:3000/token",
         response_types_supported: ["code"],
       };
-      storage.saveServerMetadata(testServerUrl, metadata);
+      await storage.saveServerMetadata(testServerUrl, metadata);
       expect(await storage.getServerMetadata(testServerUrl)).toEqual(metadata);
       storage.clearServerMetadata(testServerUrl);
       expect(await storage.getServerMetadata(testServerUrl)).toBeNull();
@@ -321,8 +321,8 @@ describe("BrowserOAuthStorage", () => {
         token_type: "Bearer",
       };
 
-      storage.saveClientInformation(testServerUrl, clientInfo);
-      storage.saveTokens(testServerUrl, tokens);
+      await storage.saveClientInformation(testServerUrl, clientInfo);
+      await storage.saveTokens(testServerUrl, tokens);
 
       storage.clear(testServerUrl);
 
@@ -336,8 +336,8 @@ describe("BrowserOAuthStorage", () => {
         client_id: "test-client-id",
       };
 
-      storage.saveClientInformation(testServerUrl, clientInfo);
-      storage.saveClientInformation(otherServerUrl, clientInfo);
+      await storage.saveClientInformation(testServerUrl, clientInfo);
+      await storage.saveClientInformation(otherServerUrl, clientInfo);
 
       storage.clear(testServerUrl);
 
@@ -361,8 +361,8 @@ describe("BrowserOAuthStorage", () => {
         client_id: "client-2",
       };
 
-      storage.saveClientInformation(server1Url, clientInfo1);
-      storage.saveClientInformation(server2Url, clientInfo2);
+      await storage.saveClientInformation(server1Url, clientInfo1);
+      await storage.saveClientInformation(server2Url, clientInfo2);
 
       expect(await storage.getClientInformation(server1Url)).toEqual(
         clientInfo1,
