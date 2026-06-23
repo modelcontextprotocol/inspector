@@ -318,7 +318,7 @@ export function ServerImportConfigModal({
       onClose={onClose}
       size="lg"
       centered
-      title={<ModalTitle>Import config</ModalTitle>}
+      title={<ModalTitle>Import client config</ModalTitle>}
     >
       <SectionStack>
         {error ? (
