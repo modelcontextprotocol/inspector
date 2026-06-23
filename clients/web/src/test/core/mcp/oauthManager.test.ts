@@ -21,14 +21,15 @@ function createMockParams(
   const dispatchOAuthError = vi.fn();
 
   const storage = {
-    getScope: vi.fn().mockResolvedValue(undefined),
+    ready: vi.fn().mockResolvedValue(undefined),
+    getScope: vi.fn().mockReturnValue(undefined),
     getClientInformation: vi.fn().mockResolvedValue(undefined),
     saveClientInformation: vi.fn().mockResolvedValue(undefined),
     savePreregisteredClientInformation: vi.fn().mockResolvedValue(undefined),
     saveScope: vi.fn().mockResolvedValue(undefined),
     getTokens: vi.fn().mockResolvedValue(undefined),
     saveTokens: vi.fn().mockResolvedValue(undefined),
-    getCodeVerifier: vi.fn().mockReturnValue("verifier"),
+    getCodeVerifier: vi.fn().mockResolvedValue("verifier"),
     saveCodeVerifier: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn(),
     clearClientInformation: vi.fn(),
@@ -36,7 +37,7 @@ function createMockParams(
     clearCodeVerifier: vi.fn(),
     clearScope: vi.fn(),
     clearServerMetadata: vi.fn(),
-    getServerMetadata: vi.fn().mockReturnValue(null),
+    getServerMetadata: vi.fn().mockResolvedValue(null),
     saveServerMetadata: vi.fn().mockResolvedValue(undefined),
   };
 

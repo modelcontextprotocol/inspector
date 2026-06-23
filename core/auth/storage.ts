@@ -10,6 +10,12 @@ import type {
  */
 export interface OAuthStorage {
   /**
+   * Resolves once any async hydration of the underlying store has completed.
+   * With a synchronous storage adapter this resolves immediately.
+   */
+  ready(): Promise<void>;
+
+  /**
    * Get client information (preregistered or dynamically registered)
    */
   getClientInformation(
@@ -56,7 +62,7 @@ export interface OAuthStorage {
   /**
    * Get code verifier (for PKCE)
    */
-  getCodeVerifier(serverUrl: string): string | undefined;
+  getCodeVerifier(serverUrl: string): Promise<string | undefined>;
 
   /**
    * Save code verifier (for PKCE)
@@ -86,7 +92,7 @@ export interface OAuthStorage {
   /**
    * Get server metadata (for guided mode)
    */
-  getServerMetadata(serverUrl: string): OAuthMetadata | null;
+  getServerMetadata(serverUrl: string): Promise<OAuthMetadata | null>;
 
   /**
    * Save server metadata (for guided mode)

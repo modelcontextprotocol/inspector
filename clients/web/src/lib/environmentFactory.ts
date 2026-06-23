@@ -4,10 +4,8 @@ import {
   createRemoteFetch,
   createRemoteLogger,
 } from "@inspector/core/mcp/remote/index.js";
-import {
-  BrowserOAuthStorage,
-  BrowserNavigation,
-} from "@inspector/core/auth/browser/index.js";
+import { BrowserNavigation } from "@inspector/core/auth/browser/index.js";
+import { RemoteOAuthStorage } from "@inspector/core/auth/remote/index.js";
 import type { RedirectUrlProvider } from "@inspector/core/auth/index.js";
 
 export interface WebEnvironmentResult {
@@ -20,8 +18,11 @@ export interface WebEnvironmentResult {
  *   - transport / fetch / logger all routed through the in-process Hono
  *     backend at `window.location.origin` (the `clients/web/server`
  *     dev-backend wires this in `/api/*`).
- *   - OAuth storage + navigation use the `BrowserOAuthStorage` (sessionStorage)
- *     and `BrowserNavigation` (full-page redirect) adapters.
+ *   - OAuth storage uses `RemoteOAuthStorage` (POSTs to the same backend's
+ *     `/api/storage/oauth`, which writes `~/.mcp-inspector/storage/oauth.json`
+ *     mode 0600), so a token obtained in this browser session is also
+ *     available to the CLI/TUI on the same host. Navigation still uses
+ *     `BrowserNavigation` (full-page redirect).
  *
  * Returns both the assembled environment and the logger so callers can share
  * the same pino instance for any direct logging they need to do, instead of
@@ -67,7 +68,7 @@ export function createWebEnvironment(
     }),
     logger,
     oauth: {
-      storage: new BrowserOAuthStorage(),
+      storage: new RemoteOAuthStorage({ baseUrl, authToken, fetchFn }),
       navigation: new BrowserNavigation(undefined, onBeforeOAuthRedirect),
       redirectUrlProvider,
     },

@@ -64,9 +64,9 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
 
   it("codeVerifier round-trip and clearCodeVerifier", async () => {
     await storage.saveCodeVerifier(serverUrl, "verifier");
-    expect(storage.getCodeVerifier(serverUrl)).toBe("verifier");
+    expect(await storage.getCodeVerifier(serverUrl)).toBe("verifier");
     storage.clearCodeVerifier(serverUrl);
-    expect(storage.getCodeVerifier(serverUrl)).toBeUndefined();
+    expect(await storage.getCodeVerifier(serverUrl)).toBeUndefined();
   });
 
   it("scope round-trip and clearScope", async () => {
@@ -84,9 +84,9 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
       response_types_supported: ["code"],
     };
     await storage.saveServerMetadata(serverUrl, md);
-    expect(storage.getServerMetadata(serverUrl)).toEqual(md);
+    expect(await storage.getServerMetadata(serverUrl)).toEqual(md);
     storage.clearServerMetadata(serverUrl);
-    expect(storage.getServerMetadata(serverUrl)).toBeNull();
+    expect(await storage.getServerMetadata(serverUrl)).toBeNull();
   });
 
   it("clear() wipes all state for a server", async () => {
@@ -98,6 +98,43 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
     storage.clear(serverUrl);
     expect(await storage.getClientInformation(serverUrl)).toBeUndefined();
     expect(await storage.getTokens(serverUrl)).toBeUndefined();
+  });
+
+  it("getCodeVerifier waits for the async hydration GET before reading", async () => {
+    // Unlike the other tests in this file (which write-then-read in the same
+    // session), this asserts that a value PERSISTED on the backend before the
+    // store was constructed is still returned — i.e. the getter awaits the
+    // remote storage adapter's hydration GET.
+    let releaseGet!: () => void;
+    const getGate = new Promise<void>((resolve) => {
+      releaseGet = resolve;
+    });
+    const fetchFn = vi.fn(
+      async (url: RequestInfo | URL, init?: RequestInit) => {
+        if ((init?.method ?? "GET") === "GET") {
+          await getGate;
+          return new Response(
+            JSON.stringify({
+              state: {
+                servers: { [serverUrl]: { codeVerifier: "from-disk" } },
+              },
+              version: 0,
+            }),
+            { status: 200 },
+          );
+        }
+        void url;
+        return new Response("{}", { status: 200 });
+      },
+    );
+    const s = new RemoteOAuthStorage({
+      baseUrl: "http://remote.example",
+      storeId: "hydration-test",
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
+    const p = s.getCodeVerifier(serverUrl);
+    releaseGet();
+    expect(await p).toBe("from-disk");
   });
 
   it("default storeId is 'oauth' when omitted", () => {

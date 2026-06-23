@@ -204,15 +204,15 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
 
   token_request: {
     canTransition: async (context) => {
-      const hasMetadata = !!context.provider.getServerMetadata();
+      const hasMetadata = !!(await context.provider.getServerMetadata());
       const clientInfo =
         context.state.oauthClientInfo ??
         (await context.provider.clientInformation());
       return !!context.state.authorizationCode && hasMetadata && !!clientInfo;
     },
     execute: async (context) => {
-      const codeVerifier = context.provider.codeVerifier();
-      const metadata = context.provider.getServerMetadata();
+      const codeVerifier = await context.provider.codeVerifier();
+      const metadata = await context.provider.getServerMetadata();
 
       if (!metadata) {
         throw new Error("OAuth metadata not available");

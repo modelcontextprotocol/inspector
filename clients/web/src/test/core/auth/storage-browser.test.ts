@@ -285,9 +285,9 @@ describe("BrowserOAuthStorage", () => {
 
     it("clearCodeVerifier removes only the PKCE verifier", async () => {
       storage.saveCodeVerifier(testServerUrl, "verifier");
-      expect(storage.getCodeVerifier(testServerUrl)).toBe("verifier");
+      expect(await storage.getCodeVerifier(testServerUrl)).toBe("verifier");
       storage.clearCodeVerifier(testServerUrl);
-      expect(storage.getCodeVerifier(testServerUrl)).toBeUndefined();
+      expect(await storage.getCodeVerifier(testServerUrl)).toBeUndefined();
     });
 
     it("clearScope removes only the scope", async () => {
@@ -305,9 +305,9 @@ describe("BrowserOAuthStorage", () => {
         response_types_supported: ["code"],
       };
       storage.saveServerMetadata(testServerUrl, metadata);
-      expect(storage.getServerMetadata(testServerUrl)).toEqual(metadata);
+      expect(await storage.getServerMetadata(testServerUrl)).toEqual(metadata);
       storage.clearServerMetadata(testServerUrl);
-      expect(storage.getServerMetadata(testServerUrl)).toBeNull();
+      expect(await storage.getServerMetadata(testServerUrl)).toBeNull();
     });
   });
 
