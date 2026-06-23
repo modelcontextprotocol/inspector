@@ -52,7 +52,7 @@ describe("ServerImportJsonModal", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows an info prompt before any JSON is pasted", () => {
+  it("hides validation results and the name override before any JSON is pasted", () => {
     renderWithMantine(
       <ServerImportJsonModal
         opened
@@ -61,9 +61,8 @@ describe("ServerImportJsonModal", () => {
         onAddServer={vi.fn()}
       />,
     );
-    expect(
-      screen.getByText(/Paste server.json content to validate/),
-    ).toBeInTheDocument();
+    expect(screen.queryByText("Validation Results:")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Server Name/)).not.toBeInTheDocument();
   });
 
   it("validates a pasted npm server.json and surfaces env vars", async () => {

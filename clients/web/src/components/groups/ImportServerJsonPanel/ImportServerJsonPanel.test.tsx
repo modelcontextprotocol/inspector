@@ -14,6 +14,14 @@ const emptyDraft: InspectorServerJsonDraft = {
   envOverrides: {},
 };
 
+// Validation results, package selection, env vars, and the name override are
+// only shown once content has been pasted/loaded, so tests for those sections
+// use a draft with non-empty rawText.
+const draftWithContent: InspectorServerJsonDraft = {
+  rawText: '{"name":"x"}',
+  envOverrides: {},
+};
+
 const baseHandlers = {
   onJsonChange: vi.fn(),
   onSelectPackage: vi.fn(),
@@ -113,7 +121,7 @@ describe("ImportServerJsonPanel", () => {
     renderWithMantine(
       <ImportServerJsonPanel
         {...baseHandlers}
-        draft={emptyDraft}
+        draft={draftWithContent}
         validation={validation}
         envVars={[]}
       />,
@@ -131,7 +139,7 @@ describe("ImportServerJsonPanel", () => {
     renderWithMantine(
       <ImportServerJsonPanel
         {...baseHandlers}
-        draft={emptyDraft}
+        draft={draftWithContent}
         validation={[]}
         envVars={[]}
         packages={packages}
@@ -151,7 +159,7 @@ describe("ImportServerJsonPanel", () => {
       <ImportServerJsonPanel
         {...baseHandlers}
         onSelectPackage={onSelectPackage}
-        draft={emptyDraft}
+        draft={draftWithContent}
         validation={[]}
         envVars={[]}
         packages={packages}
@@ -181,7 +189,7 @@ describe("ImportServerJsonPanel", () => {
       <ImportServerJsonPanel
         {...baseHandlers}
         onEnvVarChange={onEnvVarChange}
-        draft={emptyDraft}
+        draft={draftWithContent}
         validation={[]}
         envVars={envVars}
       />,
@@ -200,7 +208,7 @@ describe("ImportServerJsonPanel", () => {
       <ImportServerJsonPanel
         {...baseHandlers}
         onServerNameChange={onServerNameChange}
-        draft={emptyDraft}
+        draft={draftWithContent}
         validation={[]}
         envVars={[]}
       />,
@@ -287,11 +295,40 @@ describe("ImportServerJsonPanel", () => {
     renderWithMantine(
       <ImportServerJsonPanel
         {...baseHandlers}
-        draft={{ ...emptyDraft, nameOverride: "Custom Name" }}
+        draft={{ ...draftWithContent, nameOverride: "Custom Name" }}
         validation={[]}
         envVars={[]}
       />,
     );
     expect(screen.getByDisplayValue("Custom Name")).toBeInTheDocument();
+  });
+
+  it("hides validation results and the name override until content is present", () => {
+    const validation: ValidationResult[] = [
+      { type: "info", message: "Paste server.json content to validate." },
+    ];
+    const { rerender } = renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        draft={emptyDraft}
+        validation={validation}
+        envVars={[]}
+      />,
+    );
+    // Empty draft: gated sections hidden.
+    expect(screen.queryByText("Validation Results:")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Server Name/)).not.toBeInTheDocument();
+
+    // Once content is present, they appear.
+    rerender(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        draft={draftWithContent}
+        validation={validation}
+        envVars={[]}
+      />,
+    );
+    expect(screen.getByText("Validation Results:")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Server Name/)).toBeInTheDocument();
   });
 });

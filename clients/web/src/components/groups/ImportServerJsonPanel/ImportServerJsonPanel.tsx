@@ -100,6 +100,9 @@ export function ImportServerJsonPanel({
   fileContentsHighlight,
   onPickFile,
 }: ImportServerJsonPanelProps) {
+  // Validation results + the name-override field only make sense once there's
+  // something to validate, so they stay hidden until content is pasted/loaded.
+  const hasContent = draft.rawText.trim().length > 0;
   return (
     <Stack gap="md">
       <Group justify="space-between" align="center" wrap="nowrap">
@@ -155,81 +158,85 @@ export function ImportServerJsonPanel({
         </Accordion.Item>
       </Accordion>
 
-      <Divider />
-
-      <Title order={5}>Validation Results:</Title>
-
-      {validation.map((result, index) => {
-        const { icon, color } = validationIcons[result.type];
-        return (
-          <Group key={index} gap="xs">
-            <Text c={color}>{icon}</Text>
-            <Text size="sm">{result.message}</Text>
-          </Group>
-        );
-      })}
-
-      {packages && packages.length > 1 && (
+      {hasContent && (
         <>
           <Divider />
-          <Title order={5}>Package Selection:</Title>
-          <Radio.Group
-            value={String(draft.selectedPackageIndex ?? 0)}
-            onChange={(value) => onSelectPackage(Number(value))}
-          >
-            <Stack gap="xs">
-              {packages.map((pkg, index) => (
-                <Radio
-                  key={index}
-                  value={String(index)}
-                  label={formatPackageLabel(pkg)}
+
+          <Title order={5}>Validation Results:</Title>
+
+          {validation.map((result, index) => {
+            const { icon, color } = validationIcons[result.type];
+            return (
+              <Group key={index} gap="xs">
+                <Text c={color}>{icon}</Text>
+                <Text size="sm">{result.message}</Text>
+              </Group>
+            );
+          })}
+
+          {packages && packages.length > 1 && (
+            <>
+              <Divider />
+              <Title order={5}>Package Selection:</Title>
+              <Radio.Group
+                value={String(draft.selectedPackageIndex ?? 0)}
+                onChange={(value) => onSelectPackage(Number(value))}
+              >
+                <Stack gap="xs">
+                  {packages.map((pkg, index) => (
+                    <Radio
+                      key={index}
+                      value={String(index)}
+                      label={formatPackageLabel(pkg)}
+                    />
+                  ))}
+                </Stack>
+              </Radio.Group>
+            </>
+          )}
+
+          {envVars.length > 0 && (
+            <>
+              <Divider />
+              <Title order={5}>Environment Variables:</Title>
+              {envVars.map((envVar) => (
+                <TextInput
+                  key={envVar.name}
+                  label={envVar.name}
+                  description={envVar.description}
+                  withAsterisk={envVar.required}
+                  value={envVar.value}
+                  onChange={(e) =>
+                    onEnvVarChange(envVar.name, e.currentTarget.value)
+                  }
+                  rightSectionPointerEvents="auto"
+                  rightSection={
+                    envVar.value ? (
+                      <ClearButton
+                        onClick={() => onEnvVarChange(envVar.name, "")}
+                      />
+                    ) : null
+                  }
                 />
               ))}
-            </Stack>
-          </Radio.Group>
-        </>
-      )}
+            </>
+          )}
 
-      {envVars.length > 0 && (
-        <>
           <Divider />
-          <Title order={5}>Environment Variables:</Title>
-          {envVars.map((envVar) => (
-            <TextInput
-              key={envVar.name}
-              label={envVar.name}
-              description={envVar.description}
-              withAsterisk={envVar.required}
-              value={envVar.value}
-              onChange={(e) =>
-                onEnvVarChange(envVar.name, e.currentTarget.value)
-              }
-              rightSectionPointerEvents="auto"
-              rightSection={
-                envVar.value ? (
-                  <ClearButton
-                    onClick={() => onEnvVarChange(envVar.name, "")}
-                  />
-                ) : null
-              }
-            />
-          ))}
+
+          <TextInput
+            label="Server Name (optional override)"
+            value={draft.nameOverride ?? ""}
+            onChange={(e) => onServerNameChange(e.currentTarget.value)}
+            rightSectionPointerEvents="auto"
+            rightSection={
+              draft.nameOverride ? (
+                <ClearButton onClick={() => onServerNameChange("")} />
+              ) : null
+            }
+          />
         </>
       )}
-
-      <Divider />
-
-      <TextInput
-        label="Server Name (optional override)"
-        value={draft.nameOverride ?? ""}
-        onChange={(e) => onServerNameChange(e.currentTarget.value)}
-        rightSectionPointerEvents="auto"
-        rightSection={
-          draft.nameOverride ? (
-            <ClearButton onClick={() => onServerNameChange("")} />
-          ) : null
-        }
-      />
 
       <Group justify="flex-end">
         <Button onClick={onAddServer} disabled={addDisabled}>
