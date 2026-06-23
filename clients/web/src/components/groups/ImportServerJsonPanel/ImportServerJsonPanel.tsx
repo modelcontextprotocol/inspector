@@ -1,4 +1,5 @@
 import {
+  Accordion,
   Button,
   Divider,
   FileButton,
@@ -100,20 +101,27 @@ export function ImportServerJsonPanel({
         ) : null}
       </Group>
 
-      <Textarea
-        value={draft.rawText}
-        onChange={(e) => onJsonChange(e.currentTarget.value)}
-        ff="monospace"
-        autosize
-        minRows={8}
-        maxRows={15}
-        rightSectionPointerEvents="auto"
-        rightSection={
-          draft.rawText ? (
-            <ClearButton onClick={() => onJsonChange("")} />
-          ) : null
-        }
-      />
+      <Accordion variant="separated" defaultValue="file-contents">
+        <Accordion.Item value="file-contents">
+          <Accordion.Control>File Contents</Accordion.Control>
+          <Accordion.Panel>
+            <Textarea
+              value={draft.rawText}
+              onChange={(e) => onJsonChange(e.currentTarget.value)}
+              ff="monospace"
+              autosize
+              minRows={8}
+              maxRows={15}
+              rightSectionPointerEvents="auto"
+              rightSection={
+                draft.rawText ? (
+                  <ClearButton onClick={() => onJsonChange("")} />
+                ) : null
+              }
+            />
+          </Accordion.Panel>
+        </Accordion.Item>
+      </Accordion>
 
       <Divider />
 

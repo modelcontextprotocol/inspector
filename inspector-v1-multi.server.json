@@ -1,0 +1,53 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.modelcontextprotocol/inspector-multi",
+  "title": "MCP Inspector (multiple install methods)",
+  "description": "Sample registry entry describing one server (the MCP Inspector) installable several ways — npm, an OCI/Docker image, or a hosted remote — to exercise the package-selection UI.",
+  "repository": {
+    "url": "https://github.com/modelcontextprotocol/inspector",
+    "source": "github"
+  },
+  "version": "0.16.5",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@modelcontextprotocol/inspector",
+      "version": "0.16.5",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MCP_PROXY_AUTH_TOKEN",
+          "description": "Optional bearer token used to authenticate to the inspector proxy server.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "MCP_AUTO_OPEN_ENABLED",
+          "description": "Whether the inspector auto-opens a browser tab on launch.",
+          "default": "true"
+        }
+      ]
+    },
+    {
+      "registryType": "oci",
+      "identifier": "docker.io/modelcontextprotocol/inspector:0.16.5",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://{region}.inspector.example.com/mcp",
+      "variables": {
+        "region": {
+          "description": "Hosted inspector region.",
+          "default": "us-east-1"
+        }
+      }
+    }
+  ]
+}
