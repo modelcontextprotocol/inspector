@@ -85,3 +85,21 @@ export function parseVsCodeConfig(raw: string): MCPConfig {
     mcpServers: normalizeServerMap(servers as Record<string, unknown>),
   };
 }
+
+/**
+ * Parse a client config of unknown shape: try the common `{ mcpServers }` form
+ * first, then VS Code's `{ servers }` form. Used by the file-upload path where
+ * the source client isn't known up front. Surfaces the primary parser's error
+ * message (the common case) when neither shape matches.
+ */
+export function parseClientConfig(raw: string): MCPConfig {
+  try {
+    return parseMcpServersConfig(raw);
+  } catch (mcpErr) {
+    try {
+      return parseVsCodeConfig(raw);
+    } catch {
+      throw mcpErr instanceof Error ? mcpErr : new Error(String(mcpErr));
+    }
+  }
+}

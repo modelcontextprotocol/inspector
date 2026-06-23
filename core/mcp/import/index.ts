@@ -5,16 +5,24 @@
  * browser and from the Node backend route alike.
  */
 export type { ImportStrategy, ImportSourceResult } from "./types.js";
-export { parseMcpServersConfig, parseVsCodeConfig } from "./clientConfig.js";
+export {
+  parseMcpServersConfig,
+  parseVsCodeConfig,
+  parseClientConfig,
+} from "./clientConfig.js";
 export {
   parseServerJson,
   buildServerConfig,
+  buildServerConfigForSelection,
   deriveServerId,
+  resolveServerId,
+  selectServerJsonOption,
 } from "./serverJson.js";
 export type {
   ParsedServerJson,
   ServerJsonOption,
   ServerJsonEnvVar,
+  ServerJsonSelection,
 } from "./serverJson.js";
 export {
   IMPORT_STRATEGIES,

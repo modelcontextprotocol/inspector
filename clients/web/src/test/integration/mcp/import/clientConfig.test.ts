@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   parseMcpServersConfig,
   parseVsCodeConfig,
+  parseClientConfig,
 } from "@inspector/core/mcp/import/clientConfig.js";
 
 describe("parseMcpServersConfig", () => {
@@ -90,5 +91,29 @@ describe("parseVsCodeConfig", () => {
 
   it("throws on invalid JSON", () => {
     expect(() => parseVsCodeConfig("nope")).toThrow(/Invalid JSON/);
+  });
+});
+
+describe("parseClientConfig (unknown shape)", () => {
+  it("parses the { mcpServers } shape", () => {
+    const config = parseClientConfig(
+      JSON.stringify({ mcpServers: { a: { command: "node" } } }),
+    );
+    expect(config.mcpServers.a.type).toBe("stdio");
+  });
+
+  it("falls back to the VS Code { servers } shape", () => {
+    const config = parseClientConfig(
+      JSON.stringify({ servers: { b: { command: "node" } } }),
+    );
+    expect(config.mcpServers.b.type).toBe("stdio");
+  });
+
+  it("surfaces the mcpServers error when neither shape matches", () => {
+    expect(() => parseClientConfig("{}")).toThrow(/mcpServers/);
+  });
+
+  it("surfaces invalid JSON", () => {
+    expect(() => parseClientConfig("nope")).toThrow(/Invalid JSON/);
   });
 });

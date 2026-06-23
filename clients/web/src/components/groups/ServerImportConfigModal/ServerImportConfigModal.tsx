@@ -1,4 +1,3 @@
-import { useMemo, useState } from "react";
 import {
   Alert,
   Badge,
@@ -15,14 +14,15 @@ import {
 } from "@mantine/core";
 import {
   IMPORT_STRATEGY_LIST,
-  parseMcpServersConfig,
-  parseVsCodeConfig,
-  planImport,
-  uniqueId,
-  type ImportSourceResult,
   type ConflictResolution,
+  type ImportSourceResult,
 } from "@inspector/core/mcp/import/index.js";
-import type { MCPConfig, MCPServerConfig } from "@inspector/core/mcp/types.js";
+import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
+import {
+  useImportClientConfig,
+  type AdditionAction,
+  type ImportOutcome,
+} from "../../../hooks/useImportClientConfig";
 
 export interface ServerImportConfigModalProps {
   opened: boolean;
@@ -37,22 +37,6 @@ export interface ServerImportConfigModalProps {
     newId: string,
     config: MCPServerConfig,
   ) => Promise<void>;
-}
-
-type Phase = "select" | "loading" | "review" | "summary";
-
-interface Resolution {
-  action: ConflictResolution;
-  renameTo: string;
-}
-
-/** Per-row choice for a brand-new (non-conflicting) server. */
-type AdditionAction = "import" | "skip";
-
-interface ImportOutcome {
-  id: string;
-  status: "added" | "overwritten" | "renamed" | "skipped" | "failed";
-  detail?: string;
 }
 
 const SectionStack = Stack.withProps({ gap: "md" });
@@ -103,26 +87,10 @@ const OUTCOME_META: Record<
   failed: { label: "Failed", color: "red" },
 };
 
-/** Try the standard `{ mcpServers }` shape first, then VS Code's `servers`. */
-function parseAnyClientConfig(raw: string): MCPConfig {
-  try {
-    return parseMcpServersConfig(raw);
-  } catch (mcpErr) {
-    try {
-      return parseVsCodeConfig(raw);
-    } catch {
-      // Surface the primary parser's message — it's the common case.
-      throw mcpErr instanceof Error ? mcpErr : new Error(String(mcpErr));
-    }
-  }
-}
-
 /**
- * Source picker + conflict-resolution flow for importing another MCP client's
- * config (#1348). Phase 1 lets the user pick a known client (read on the
- * backend) or upload a file; phase 2 reviews the parsed servers, resolving any
- * id collisions (overwrite / skip / rename) before writing them through the
- * add/update callbacks; phase 3 shows a per-server outcome summary.
+ * Display shell for the "Import client config" flow (#1348): a source picker /
+ * file upload, a per-server review with conflict resolution, and an outcome
+ * summary. All orchestration lives in `useImportClientConfig`.
  */
 export function ServerImportConfigModal({
   opened,
@@ -132,185 +100,14 @@ export function ServerImportConfigModal({
   onAddServer,
   onUpdateServer,
 }: ServerImportConfigModalProps) {
-  const [phase, setPhase] = useState<Phase>("select");
-  const [error, setError] = useState<string | undefined>(undefined);
-  const [notice, setNotice] = useState<string | undefined>(undefined);
-  const [incoming, setIncoming] = useState<MCPConfig | null>(null);
-  const [resolutions, setResolutions] = useState<Record<string, Resolution>>(
-    {},
-  );
-  const [additionActions, setAdditionActions] = useState<
-    Record<string, AdditionAction>
-  >({});
-  const [outcomes, setOutcomes] = useState<ImportOutcome[]>([]);
-  const [selectedType, setSelectedType] = useState<string | null>(null);
-
-  // Reset the wizard each time the modal transitions to open. Done during
-  // render (React's "adjust state when a prop changes" pattern) rather than in
-  // an effect so there's no extra commit/cascade.
-  const [prevOpened, setPrevOpened] = useState(opened);
-  if (opened !== prevOpened) {
-    setPrevOpened(opened);
-    if (opened) {
-      setPhase("select");
-      setError(undefined);
-      setNotice(undefined);
-      setIncoming(null);
-      setResolutions({});
-      setAdditionActions({});
-      setOutcomes([]);
-      setSelectedType(null);
-    }
-  }
-
-  const plan = useMemo(
-    () => (incoming ? planImport(incoming, existingIds) : null),
-    [incoming, existingIds],
-  );
-
-  function beginReview(config: MCPConfig) {
-    const entries = Object.keys(config.mcpServers);
-    if (entries.length === 0) {
-      setError("No servers found in the selected source.");
-      setPhase("select");
-      return;
-    }
-    const fresh = planImport(config, existingIds);
-    const taken = [...existingIds, ...fresh.additions.map((a) => a.id)];
-    const initial: Record<string, Resolution> = {};
-    for (const conflict of fresh.conflicts) {
-      initial[conflict.id] = {
-        action: "skip",
-        renameTo: uniqueId(conflict.id, taken),
-      };
-    }
-    // New servers default to "import"; the user can opt individual ones out.
-    const initialAdds: Record<string, AdditionAction> = {};
-    for (const add of fresh.additions) {
-      initialAdds[add.id] = "import";
-    }
-    setIncoming(config);
-    setResolutions(initial);
-    setAdditionActions(initialAdds);
-    setError(undefined);
-    setPhase("review");
-  }
-
-  async function handlePickSource(type: string) {
-    setPhase("loading");
-    setError(undefined);
-    setNotice(undefined);
-    try {
-      const result = await onFetchSource(type);
-      if (result.error) {
-        setError(result.error);
-        setPhase("select");
-        return;
-      }
-      if (!result.found || !result.config) {
-        setNotice(
-          `No config found. Searched: ${result.searched.join(", ")}. Try uploading a file instead.`,
-        );
-        setPhase("select");
-        return;
-      }
-      beginReview(result.config);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setPhase("select");
-    }
-  }
-
-  async function handlePickFile(file: File | null) {
-    if (!file) return;
-    setError(undefined);
-    setNotice(undefined);
-    try {
-      const raw = await file.text();
-      beginReview(parseAnyClientConfig(raw));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  function setResolution(id: string, action: ConflictResolution) {
-    setResolutions((r) => ({ ...r, [id]: { ...r[id], action } }));
-  }
-
-  function setRenameTo(id: string, renameTo: string) {
-    setResolutions((r) => ({ ...r, [id]: { ...r[id], renameTo } }));
-  }
-
-  function setAdditionAction(id: string, action: AdditionAction) {
-    setAdditionActions((a) => ({ ...a, [id]: action }));
-  }
-
-  async function applyEntry(
-    id: string,
-    outcome: ImportOutcome["status"],
-    write: () => Promise<void>,
-  ): Promise<ImportOutcome> {
-    try {
-      await write();
-      return { id, status: outcome };
-    } catch (err) {
-      return {
-        id,
-        status: "failed",
-        detail: err instanceof Error ? err.message : String(err),
-      };
-    }
-  }
-
-  async function handleImport() {
-    if (!plan) return;
-    setPhase("loading");
-    const results: ImportOutcome[] = [];
-    for (const add of plan.additions) {
-      if ((additionActions[add.id] ?? "import") === "skip") {
-        results.push({ id: add.id, status: "skipped" });
-        continue;
-      }
-      results.push(
-        await applyEntry(add.id, "added", () =>
-          Promise.resolve(onAddServer(add.id, add.config)),
-        ),
-      );
-    }
-    for (const conflict of plan.conflicts) {
-      const res = resolutions[conflict.id] ?? {
-        action: "skip",
-        renameTo: conflict.id,
-      };
-      if (res.action === "skip") {
-        results.push({ id: conflict.id, status: "skipped" });
-      } else if (res.action === "overwrite") {
-        results.push(
-          await applyEntry(conflict.id, "overwritten", () =>
-            onUpdateServer(conflict.id, conflict.id, conflict.config),
-          ),
-        );
-      } else {
-        const newId = res.renameTo.trim() || conflict.id;
-        results.push(
-          await applyEntry(newId, "renamed", () =>
-            Promise.resolve(onAddServer(newId, conflict.config)),
-          ),
-        );
-      }
-    }
-    setOutcomes(results);
-    setPhase("summary");
-  }
-
-  const importCount = plan
-    ? plan.additions.filter(
-        (a) => (additionActions[a.id] ?? "import") === "import",
-      ).length +
-      plan.conflicts.filter(
-        (c) => (resolutions[c.id]?.action ?? "skip") !== "skip",
-      ).length
-    : 0;
+  const vm = useImportClientConfig({
+    opened,
+    existingIds,
+    onFetchSource,
+    onAddServer,
+    onUpdateServer,
+  });
+  const { plan } = vm;
 
   return (
     <Modal
@@ -321,14 +118,14 @@ export function ServerImportConfigModal({
       title={<ModalTitle>Import client config</ModalTitle>}
     >
       <SectionStack>
-        {error ? (
+        {vm.error ? (
           <Alert color="red" title="Import error">
-            {error}
+            {vm.error}
           </Alert>
         ) : null}
-        {notice ? <Alert color="yellow">{notice}</Alert> : null}
+        {vm.notice ? <Alert color="yellow">{vm.notice}</Alert> : null}
 
-        {phase === "select" ? (
+        {vm.phase === "select" ? (
           <SectionStack>
             <DimText>
               Import MCP servers from another client. Choose a known client
@@ -338,21 +135,23 @@ export function ServerImportConfigModal({
               <NativeSelect
                 label="Client"
                 data={SOURCE_OPTIONS}
-                value={selectedType ?? ""}
-                onChange={(e) => setSelectedType(e.currentTarget.value || null)}
+                value={vm.selectedType ?? ""}
+                onChange={(e) =>
+                  vm.setSelectedType(e.currentTarget.value || null)
+                }
                 flex={1}
               />
               <Button
-                disabled={!selectedType}
+                disabled={!vm.selectedType}
                 onClick={() => {
-                  if (selectedType) void handlePickSource(selectedType);
+                  if (vm.selectedType) void vm.pickSource(vm.selectedType);
                 }}
               >
                 Import
               </Button>
               <FileButton
                 accept="application/json,.json"
-                onChange={handlePickFile}
+                onChange={(file) => void vm.pickFile(file)}
               >
                 {(props) => (
                   <Button {...props} variant="default">
@@ -364,14 +163,14 @@ export function ServerImportConfigModal({
           </SectionStack>
         ) : null}
 
-        {phase === "loading" ? (
+        {vm.phase === "loading" ? (
           <Group gap="sm">
             <Loader size="sm" />
             <Text size="sm">Working…</Text>
           </Group>
         ) : null}
 
-        {phase === "review" && plan ? (
+        {vm.phase === "review" && plan ? (
           <SectionStack>
             {plan.additions.length > 0 ? (
               <Stack gap="xs">
@@ -384,9 +183,9 @@ export function ServerImportConfigModal({
                     <SegmentedControl
                       size="xs"
                       data={ADDITION_DATA}
-                      value={additionActions[a.id] ?? "import"}
+                      value={vm.additionActions[a.id] ?? "import"}
                       onChange={(value) =>
-                        setAdditionAction(a.id, value as AdditionAction)
+                        vm.setAdditionAction(a.id, value as AdditionAction)
                       }
                     />
                   </RowGroup>
@@ -400,7 +199,7 @@ export function ServerImportConfigModal({
                   Already exists ({plan.conflicts.length})
                 </Text>
                 {plan.conflicts.map((conflict) => {
-                  const res = resolutions[conflict.id];
+                  const res = vm.resolutions[conflict.id];
                   return (
                     <Stack key={conflict.id} gap="xs">
                       <RowGroup>
@@ -410,7 +209,7 @@ export function ServerImportConfigModal({
                           data={RESOLUTION_DATA}
                           value={res?.action ?? "skip"}
                           onChange={(value) =>
-                            setResolution(
+                            vm.setResolution(
                               conflict.id,
                               value as ConflictResolution,
                             )
@@ -423,7 +222,7 @@ export function ServerImportConfigModal({
                           aria-label={`New id for ${conflict.id}`}
                           value={res.renameTo}
                           onChange={(e) =>
-                            setRenameTo(conflict.id, e.currentTarget.value)
+                            vm.setRenameTo(conflict.id, e.currentTarget.value)
                           }
                         />
                       ) : null}
@@ -434,25 +233,25 @@ export function ServerImportConfigModal({
             ) : null}
 
             <Actions>
-              <Button variant="default" onClick={() => setPhase("select")}>
+              <Button variant="default" onClick={vm.back}>
                 Back
               </Button>
               <Button
-                onClick={() => void handleImport()}
-                disabled={importCount === 0}
+                onClick={() => void vm.runImport()}
+                disabled={vm.importCount === 0}
               >
-                Import {importCount} server{importCount === 1 ? "" : "s"}
+                Import {vm.importCount} server{vm.importCount === 1 ? "" : "s"}
               </Button>
             </Actions>
           </SectionStack>
         ) : null}
 
-        {phase === "summary" ? (
+        {vm.phase === "summary" ? (
           <SectionStack>
             <Text fw={600} size="sm">
               Import complete
             </Text>
-            {outcomes.map((o) => {
+            {vm.outcomes.map((o) => {
               const meta = OUTCOME_META[o.status];
               return (
                 <Stack key={`${o.id}-${o.status}`} gap={2}>

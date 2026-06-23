@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   parseServerJson,
   buildServerConfig,
+  buildServerConfigForSelection,
   deriveServerId,
+  resolveServerId,
+  selectServerJsonOption,
 } from "@inspector/core/mcp/import/serverJson.js";
 
 const npmServerJson = JSON.stringify({
@@ -330,5 +333,73 @@ describe("buildServerConfig", () => {
     ).options[0];
     const config = buildServerConfig(opt, { ANYTHING: "x" });
     expect(config).toEqual({ type: "streamable-http", url: "https://x/mcp" });
+  });
+});
+
+describe("resolveServerId", () => {
+  it("uses the trimmed override when present, else the derived name", () => {
+    const parsed = parseServerJson(npmServerJson);
+    expect(resolveServerId(parsed)).toBe("weather");
+    expect(resolveServerId(parsed, "  custom  ")).toBe("custom");
+    expect(resolveServerId(parsed, "   ")).toBe("weather");
+  });
+});
+
+describe("selectServerJsonOption", () => {
+  const multi = JSON.stringify({
+    name: "com.example/multi",
+    packages: [
+      { registryType: "npm", identifier: "@me/a" },
+      { registryType: "pypi", identifier: "b" },
+    ],
+  });
+
+  it("defaults to the first option with a valid, free id", () => {
+    const sel = selectServerJsonOption(parseServerJson(npmServerJson));
+    expect(sel.selectedIndex).toBe(0);
+    expect(sel.selectedOption.registryType).toBe("npm");
+    expect(sel.serverId).toBe("weather");
+    expect(sel.idIsValid).toBe(true);
+    expect(sel.idIsDuplicate).toBe(false);
+  });
+
+  it("clamps an out-of-range selected index", () => {
+    const sel = selectServerJsonOption(parseServerJson(multi), {
+      selectedIndex: 5,
+    });
+    expect(sel.selectedIndex).toBe(1);
+    expect(sel.selectedOption.registryType).toBe("pypi");
+  });
+
+  it("flags an invalid id override", () => {
+    const sel = selectServerJsonOption(parseServerJson(npmServerJson), {
+      idOverride: "bad id!",
+    });
+    expect(sel.serverId).toBe("bad id!");
+    expect(sel.idIsValid).toBe(false);
+  });
+
+  it("flags a duplicate id against existingIds", () => {
+    const sel = selectServerJsonOption(parseServerJson(npmServerJson), {
+      existingIds: ["weather"],
+    });
+    expect(sel.idIsDuplicate).toBe(true);
+  });
+});
+
+describe("buildServerConfigForSelection", () => {
+  it("merges only the selected option's declared env vars", () => {
+    const opt = parseServerJson(npmServerJson).options[0];
+    const config = buildServerConfigForSelection(opt, {
+      YOUR_API_KEY: "secret",
+      NOT_DECLARED: "ignored",
+    });
+    expect(config).toMatchObject({
+      type: "stdio",
+      env: { YOUR_API_KEY: "secret", LOG_LEVEL: "info" },
+    });
+    if (config.type === "stdio") {
+      expect(config.env?.NOT_DECLARED).toBeUndefined();
+    }
   });
 });

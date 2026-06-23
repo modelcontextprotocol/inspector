@@ -17,6 +17,7 @@
  * copied from either source imports cleanly.
  */
 import type { MCPServerConfig, StdioServerConfig } from "../types.js";
+import { validateStoreId } from "../../storage/store-id.js";
 
 /** A registry package's environment-variable declaration. */
 export interface ServerJsonEnvVar {
@@ -334,4 +335,66 @@ export function buildServerConfig(
   // Strip an env key that ended up empty after overrides.
   if (Object.keys(merged).length === 0) delete config.env;
   return config;
+}
+
+/** The id a parsed server.json will be saved under: the override (if any) wins. */
+export function resolveServerId(
+  parsed: ParsedServerJson,
+  idOverride?: string,
+): string {
+  const trimmed = (idOverride ?? "").trim();
+  return trimmed || parsed.serverName;
+}
+
+/** The chosen launch option plus the resulting id and its validity. */
+export interface ServerJsonSelection {
+  selectedIndex: number;
+  selectedOption: ServerJsonOption;
+  serverId: string;
+  idIsValid: boolean;
+  idIsDuplicate: boolean;
+}
+
+/**
+ * Resolve which option a parsed server.json will import as, the id it will use,
+ * and whether that id is valid + free. Pure, so both the web wiring and a future
+ * CLI/TUI import can share the selection logic. `selectedIndex` is clamped to the
+ * available options.
+ */
+export function selectServerJsonOption(
+  parsed: ParsedServerJson,
+  opts: {
+    selectedIndex?: number;
+    idOverride?: string;
+    existingIds?: readonly string[];
+  } = {},
+): ServerJsonSelection {
+  const selectedIndex = Math.min(
+    opts.selectedIndex ?? 0,
+    Math.max(parsed.options.length - 1, 0),
+  );
+  const serverId = resolveServerId(parsed, opts.idOverride);
+  return {
+    selectedIndex,
+    selectedOption: parsed.options[selectedIndex],
+    serverId,
+    idIsValid: validateStoreId(serverId),
+    idIsDuplicate: (opts.existingIds ?? []).includes(serverId),
+  };
+}
+
+/**
+ * Merge the user's env overrides for the *selected* option only (env vars the
+ * option doesn't declare are ignored) and build the runnable config.
+ */
+export function buildServerConfigForSelection(
+  option: ServerJsonOption,
+  envOverrides: Record<string, string>,
+): MCPServerConfig {
+  const overrides: Record<string, string> = {};
+  for (const v of option.envVars) {
+    const value = envOverrides[v.name];
+    if (value !== undefined) overrides[v.name] = value;
+  }
+  return buildServerConfig(option, overrides);
 }
