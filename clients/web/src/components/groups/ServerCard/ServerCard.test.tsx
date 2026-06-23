@@ -277,4 +277,54 @@ describe("ServerCard", () => {
       ).toBeInTheDocument();
     });
   });
+
+  describe("freshly-added highlight", () => {
+    it("scrolls into view when highlighted", () => {
+      const scrollIntoView = vi.fn();
+      const orig = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoView;
+      try {
+        renderWithMantine(<ServerCard {...baseProps} highlighted />);
+        expect(scrollIntoView).toHaveBeenCalled();
+      } finally {
+        Element.prototype.scrollIntoView = orig;
+      }
+    });
+
+    it("does not scroll when not highlighted", () => {
+      const scrollIntoView = vi.fn();
+      const orig = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoView;
+      try {
+        renderWithMantine(<ServerCard {...baseProps} />);
+        expect(scrollIntoView).not.toHaveBeenCalled();
+      } finally {
+        Element.prototype.scrollIntoView = orig;
+      }
+    });
+
+    it("clears the highlight when the card is clicked", async () => {
+      const user = userEvent.setup();
+      const onClearHighlight = vi.fn();
+      renderWithMantine(
+        <ServerCard
+          {...baseProps}
+          highlighted
+          onClearHighlight={onClearHighlight}
+        />,
+      );
+      await user.click(screen.getByText("My MCP Server"));
+      expect(onClearHighlight).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not clear on click when not highlighted", async () => {
+      const user = userEvent.setup();
+      const onClearHighlight = vi.fn();
+      renderWithMantine(
+        <ServerCard {...baseProps} onClearHighlight={onClearHighlight} />,
+      );
+      await user.click(screen.getByText("My MCP Server"));
+      expect(onClearHighlight).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -4,6 +4,7 @@ import { MantineProvider, type CSSVariablesResolver } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
+import "@gfazioli/mantine-border-animate/styles.css";
 import "./App.css";
 import { theme } from "./theme/theme";
 import App from "./App";

@@ -55,6 +55,10 @@ export interface ServerListScreenProps {
    * the desired order. Omit to render the list without reorder affordances.
    */
   onReorder?: (orderedIds: string[]) => void;
+  /** Id of a freshly-added server to scroll to and highlight (animated border). */
+  highlightedServerId?: string;
+  /** Clears the highlight (called when the highlighted card is clicked). */
+  onClearHighlight?: () => void;
   compact: boolean;
   onToggleCompact: () => void;
 }
@@ -84,6 +88,8 @@ export function ServerListScreen({
   onClone,
   onRemove,
   onReorder,
+  highlightedServerId,
+  onClearHighlight,
   compact,
   onToggleCompact,
 }: ServerListScreenProps) {
@@ -123,6 +129,8 @@ export function ServerListScreen({
     onEdit,
     onClone,
     onRemove,
+    highlighted: server.id === highlightedServerId,
+    onClearHighlight,
     ...server,
   });
 

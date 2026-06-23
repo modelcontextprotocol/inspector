@@ -36,6 +36,7 @@
     "@dnd-kit/sortable": "^8.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@emotion/react": "^11.14.0",
+    "@gfazioli/mantine-border-animate": "^2.0.3",
     "@hono/node-server": "^1.19.14",
     "@mantine/core": "^8.3.17",
     "@mantine/form": "^8.3.17",

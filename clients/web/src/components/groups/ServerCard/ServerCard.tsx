@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Badge, Button, Card, Group, Stack, Text } from "@mantine/core";
+import { BorderAnimate } from "@gfazioli/mantine-border-animate";
 import type {
   MCPServerConfig,
   ServerEntry,
@@ -33,6 +34,14 @@ export interface ServerCardProps extends ServerEntry {
    * drag-and-drop.
    */
   dragHandle?: ReactNode;
+  /**
+   * When true, the card is freshly added: it scrolls into view and draws an
+   * animated border (Mantine Border Animate) to draw the eye. Cleared by
+   * `onClearHighlight` on any click on the card.
+   */
+  highlighted?: boolean;
+  /** Called when a highlighted card is clicked, to dismiss the animated border. */
+  onClearHighlight?: () => void;
 }
 
 const HeaderLeft = Group.withProps({
@@ -120,19 +129,32 @@ export function ServerCard({
   compact = false,
   writable = true,
   dragHandle,
+  highlighted = false,
+  onClearHighlight,
 }: ServerCardProps) {
   const isDimmed = activeServer !== undefined && activeServer !== id;
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // When freshly added, bring the card into view (it may be far down a long
+  // list). Fires on the false→true transition only.
+  useEffect(() => {
+    if (highlighted) {
+      rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlighted]);
   const transport = getTransport(config);
   const commandOrUrl = getCommandOrUrl(config);
   const version = info?.version;
   const protocolVersion =
     connection.status === "connected" ? connection.protocolVersion : undefined;
 
-  return (
+  const card = (
     <Card
+      ref={rootRef}
       withBorder
       padding="lg"
       variant={isDimmed ? "disabled" : undefined}
+      onClick={highlighted ? onClearHighlight : undefined}
       {...(isDimmed ? { "aria-disabled": true, inert: true } : {})}
     >
       <Stack gap="sm">
@@ -202,4 +224,13 @@ export function ServerCard({
       </Stack>
     </Card>
   );
+
+  if (highlighted) {
+    return (
+      <BorderAnimate show animate radius="md">
+        {card}
+      </BorderAnimate>
+    );
+  }
+  return card;
 }

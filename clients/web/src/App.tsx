@@ -511,6 +511,11 @@ function App() {
   // import).
   const [importConfigOpen, setImportConfigOpen] = useState(false);
   const [importJsonOpen, setImportJsonOpen] = useState(false);
+  // Id of a freshly-added server (manual or import) — the list scrolls to it and
+  // draws an animated border until the card is clicked. (#1348)
+  const [highlightedServerId, setHighlightedServerId] = useState<string | null>(
+    null,
+  );
   const [settingsModalTargetId, setSettingsModalTargetId] = useState<
     string | undefined
   >(undefined);
@@ -2156,6 +2161,17 @@ function App() {
 
   // Submit handler for the Add / Edit / Clone modal. Add and Clone both go
   // through addServer; Edit uses updateServer (which supports id rename).
+  // Add a server, then mark it as the freshly-added one so the list scrolls to
+  // it and highlights it. Used by manual add/clone and both import flows; edits
+  // and conflict-overwrites (updateServer) intentionally don't highlight.
+  const addServerHighlighted = useCallback(
+    async (id: string, config: MCPServerConfig) => {
+      await addServer(id, config);
+      setHighlightedServerId(id);
+    },
+    [addServer],
+  );
+
   // On rename of the active server, keep activeServerId pointed at the new id.
   const onConfigSubmit = useCallback(
     async (id: string, config: MCPServerConfig) => {
@@ -2168,9 +2184,9 @@ function App() {
         return;
       }
       // add or clone
-      await addServer(id, config);
+      await addServerHighlighted(id, config);
     },
-    [configModal, addServer, updateServer, activeServerId],
+    [configModal, addServerHighlighted, updateServer, activeServerId],
   );
 
   // Derive the existingIds list the modal uses for uniqueness validation.
@@ -2425,6 +2441,8 @@ function App() {
             });
           });
         }}
+        highlightedServerId={highlightedServerId ?? undefined}
+        onClearHighlight={() => setHighlightedServerId(null)}
         serverSupportsTaskToolCalls={
           !!capabilities?.tasks?.requests?.tools?.call
         }
@@ -2495,14 +2513,14 @@ function App() {
         existingIds={existingIds}
         onClose={() => setImportConfigOpen(false)}
         onFetchSource={importSource}
-        onAddServer={addServer}
+        onAddServer={addServerHighlighted}
         onUpdateServer={updateServer}
       />
       <ServerImportJsonModal
         opened={importJsonOpen}
         existingIds={existingIds}
         onClose={() => setImportJsonOpen(false)}
-        onAddServer={addServer}
+        onAddServer={addServerHighlighted}
       />
       <ServerSettingsModal
         // Remount per open (and per target server) so the accordion resets to
