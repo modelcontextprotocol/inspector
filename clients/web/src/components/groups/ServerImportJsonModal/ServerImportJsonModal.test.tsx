@@ -322,7 +322,7 @@ describe("ServerImportJsonModal", () => {
     expect(onAddServer).not.toHaveBeenCalled();
   });
 
-  it("closes via Cancel", async () => {
+  it("closes via the Escape key (no Cancel button)", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     renderWithMantine(
@@ -333,7 +333,10 @@ describe("ServerImportJsonModal", () => {
         onAddServer={vi.fn()}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(
+      screen.queryByRole("button", { name: "Cancel" }),
+    ).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalled();
   });
 });

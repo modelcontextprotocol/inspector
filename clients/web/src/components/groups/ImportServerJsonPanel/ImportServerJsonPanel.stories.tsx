@@ -17,7 +17,6 @@ const meta: Meta<typeof ImportServerJsonPanel> = {
     onEnvVarChange: fn(),
     onServerNameChange: fn(),
     onAddServer: fn(),
-    onCancel: fn(),
     envVars: [],
     validation: [],
   },

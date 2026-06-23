@@ -57,7 +57,6 @@ export interface ImportServerJsonPanelProps {
    * intentionally.
    */
   fileContentsHighlight?: boolean;
-  onCancel: () => void;
   /**
    * Load server.json content from a file. When provided, a "Choose file…"
    * button is rendered next to the paste hint; the handler reads the file and
@@ -99,7 +98,6 @@ export function ImportServerJsonPanel({
   fileContentsOpen,
   onFileContentsChange,
   fileContentsHighlight,
-  onCancel,
   onPickFile,
 }: ImportServerJsonPanelProps) {
   return (
@@ -234,9 +232,6 @@ export function ImportServerJsonPanel({
       />
 
       <Group justify="flex-end">
-        <Button variant="light" onClick={onCancel}>
-          Cancel
-        </Button>
         <Button onClick={onAddServer} disabled={addDisabled}>
           Add Server
         </Button>

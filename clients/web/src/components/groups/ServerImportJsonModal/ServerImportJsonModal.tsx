@@ -54,7 +54,6 @@ export function ServerImportJsonModal({
           });
         }}
         onPickFile={(file) => void vm.pickFile(file)}
-        onCancel={onClose}
       />
     </Modal>
   );

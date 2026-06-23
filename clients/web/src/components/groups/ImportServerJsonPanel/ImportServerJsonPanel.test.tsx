@@ -20,11 +20,10 @@ const baseHandlers = {
   onEnvVarChange: vi.fn(),
   onServerNameChange: vi.fn(),
   onAddServer: vi.fn(),
-  onCancel: vi.fn(),
 };
 
 describe("ImportServerJsonPanel", () => {
-  it("renders the action buttons", () => {
+  it("renders the Add Server action", () => {
     renderWithMantine(
       <ImportServerJsonPanel
         {...baseHandlers}
@@ -33,10 +32,12 @@ describe("ImportServerJsonPanel", () => {
         envVars={[]}
       />,
     );
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Add Server" }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Cancel" }),
+    ).not.toBeInTheDocument();
   });
 
   it("invokes onJsonChange when typing in the textarea", async () => {
@@ -86,23 +87,19 @@ describe("ImportServerJsonPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("invokes onCancel and onAddServer when their buttons are clicked", async () => {
+  it("invokes onAddServer when the Add Server button is clicked", async () => {
     const user = userEvent.setup();
-    const onCancel = vi.fn();
     const onAddServer = vi.fn();
     renderWithMantine(
       <ImportServerJsonPanel
         {...baseHandlers}
-        onCancel={onCancel}
         onAddServer={onAddServer}
         draft={emptyDraft}
         validation={[]}
         envVars={[]}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
     await user.click(screen.getByRole("button", { name: "Add Server" }));
-    expect(onCancel).toHaveBeenCalledTimes(1);
     expect(onAddServer).toHaveBeenCalledTimes(1);
   });
 
