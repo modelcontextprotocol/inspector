@@ -47,6 +47,22 @@ export function createSandboxController(
   let server: Server | null = null;
   let sandboxUrl: string | null = null;
 
+  // Defense-in-depth for the proxy page itself: the inner iframe runs the
+  // untrusted app under an opaque origin (no allow-same-origin), so it cannot
+  // reach this document — but if a future change accidentally re-grants that,
+  // this header ensures escaping into the proxy still cannot fetch, embed
+  // remote script/style, or be framed by anything except the local inspector.
+  // The proxy's own bootstrap script and style are inline, hence the
+  // 'unsafe-inline' on those two directives only. frame-src is unrestricted so
+  // the inner srcdoc iframe (and any data:/blob: variants) can load.
+  const SANDBOX_PROXY_CSP = [
+    "default-src 'none'",
+    "script-src 'unsafe-inline'",
+    "style-src 'unsafe-inline'",
+    "frame-src data: blob: *",
+    "frame-ancestors http://127.0.0.1:* http://localhost:*",
+  ].join("; ");
+
   let sandboxHtml: string;
   try {
     const sandboxHtmlPath = join(__dirname, "../static/sandbox_proxy.html");
@@ -88,6 +104,7 @@ export function createSandboxController(
             "Content-Type": "text/html; charset=utf-8",
             "Cache-Control": "no-store, no-cache, must-revalidate",
             Pragma: "no-cache",
+            "Content-Security-Policy": SANDBOX_PROXY_CSP,
           });
           res.end(sandboxHtml);
         });

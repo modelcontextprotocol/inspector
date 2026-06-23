@@ -3,23 +3,25 @@
   <head>
     <meta charset="utf-8" />
     <meta name="color-scheme" content="light dark" />
-    <!-- Isolation model: the iframe `sandbox` attribute set on the inner
-         frame below is the structural isolation boundary, alongside the
-         parent-origin allowlist (ALLOWED_REFERRER_PATTERN +
-         EXPECTED_HOST_ORIGIN check on incoming messages). The default sandbox
-         value ("allow-scripts allow-same-origin allow-forms") is just a
-         starting point — the resource-ready message may narrow or replace it
-         per app via its `sandbox` field.
+    <!-- Isolation model: the inner iframe is sandboxed WITHOUT
+         `allow-same-origin`, so the untrusted app runs under an opaque
+         ("null") origin. That is the structural boundary — the app cannot
+         touch this proxy's DOM, window, or cookies, so it cannot bypass its
+         own CSP by executing in the parent's realm. The proxy itself is
+         additionally served with a restrictive CSP header (see
+         server/sandbox-controller.ts) so any future regression that re-grants
+         same-origin still gains nothing. The default sandbox value
+         ("allow-scripts allow-forms") may be narrowed per app via the
+         resource-ready message's `sandbox` field; `allow-same-origin` is
+         always stripped from a server-supplied value.
 
          Network/resource egress from the inner document is constrained by a
          Content-Security-Policy that the HOST builds and bakes into the
          delivered HTML before it reaches this proxy (see
-         src/lib/sandbox-csp.ts). The proxy writes that pre-wrapped document
-         verbatim — it never parses or injects into the untrusted bytes — so
-         the CSP `<meta>` is guaranteed to be the first `<head>` child of the
-         inner document. No CSP *header* is set by the sandbox controller; the
-         host-authored meta policy in the inner document is the enforced
-         network boundary. -->
+         src/lib/sandbox-csp.ts). The proxy assigns that pre-wrapped document
+         to `srcdoc` verbatim — it never parses or injects into the untrusted
+         bytes — so the CSP `<meta>` is guaranteed to be the first `<head>`
+         child of the inner document. -->
     <title>MCP-UI Proxy</title>
     <style>
       html,
@@ -83,7 +85,13 @@
       // This is the origin we expect all parent messages to come from.
       const EXPECTED_HOST_ORIGIN = new URL(document.referrer).origin;
 
-      const OWN_ORIGIN = new URL(window.location.href).origin;
+      // The inner iframe is sandboxed without allow-same-origin, so its
+      // document has an opaque origin and every postMessage from it arrives
+      // with event.origin === "null" (the literal string). That value is
+      // checked below as a defense-in-depth assertion; the actual identity
+      // proof is `event.source === inner.contentWindow`, which a sibling
+      // frame cannot forge.
+      const INNER_ORIGIN = "null";
 
       // Security self-test: verify iframe isolation is working correctly.
       // This MUST throw a SecurityError -- if `window.top` is accessible, the sandbox
@@ -107,10 +115,7 @@
       // origins.
       const inner = document.createElement("iframe");
       inner.style = "width:100%; height:100%; border:none;";
-      inner.setAttribute(
-        "sandbox",
-        "allow-scripts allow-same-origin allow-forms",
-      );
+      inner.setAttribute("sandbox", "allow-scripts allow-forms");
       // Note: allow attribute is set later when receiving sandbox-resource-ready notification
       // based on the permissions requested by the app
       document.body.appendChild(inner);
@@ -155,7 +160,15 @@
           if (event.data && event.data.method === RESOURCE_READY_NOTIFICATION) {
             const { html, sandbox, permissions } = event.data.params;
             if (typeof sandbox === "string") {
-              inner.setAttribute("sandbox", sandbox);
+              // Never grant allow-same-origin even if the server asks for it —
+              // that would let the untrusted app reach this proxy's DOM and
+              // bypass its own CSP via window.parent (the proxy has broader
+              // network rights than the app). Everything else is passed through.
+              const safeSandbox = sandbox
+                .split(/\s+/)
+                .filter((t) => t && t !== "allow-same-origin")
+                .join(" ");
+              inner.setAttribute("sandbox", safeSandbox);
             }
             // Set Permission Policy allow attribute if permissions are requested
             const allowAttribute = buildAllowAttribute(permissions);
@@ -165,21 +178,14 @@
             }
             if (typeof html === "string") {
               // The host has already wrapped the app's HTML in a fixed shell
-              // whose first <head> child is the CSP <meta>; write it verbatim.
-              // Use document.write instead of srcdoc (which the CesiumJS Map won't work with)
-              const doc =
-                inner.contentDocument || inner.contentWindow?.document;
-              if (doc) {
-                doc.open();
-                doc.write(html);
-                doc.close();
-              } else {
-                // Fallback to srcdoc if document is not accessible
-                console.warn(
-                  "[Sandbox] document.write not available, falling back to srcdoc",
-                );
-                inner.srcdoc = html;
-              }
+              // whose first <head> child is the CSP <meta>; assign it verbatim.
+              // srcdoc is the only delivery path that works without
+              // allow-same-origin (document.open/write would require reaching
+              // into the inner contentDocument across the opaque-origin
+              // boundary). Known trade-off: a small set of libraries (e.g.
+              // CesiumJS Map) don't initialise correctly under srcdoc — that
+              // is accepted in exchange for the isolation guarantee.
+              inner.srcdoc = html;
             }
           } else {
             if (inner && inner.contentWindow) {
@@ -187,12 +193,17 @@
             }
           }
         } else if (event.source === inner.contentWindow) {
-          if (event.origin !== OWN_ORIGIN) {
+          // `event.source === inner.contentWindow` is the unforgeable identity
+          // check — only the actual inner frame can satisfy it. The opaque
+          // sandbox means its origin serialises as the literal string "null";
+          // assert that as defense-in-depth so a future change that
+          // accidentally re-grants allow-same-origin is caught here.
+          if (event.origin !== INNER_ORIGIN) {
             console.error(
               "[Sandbox] Rejecting message from inner iframe with unexpected origin:",
               event.origin,
-              "expected:",
-              OWN_ORIGIN,
+              "expected opaque:",
+              INNER_ORIGIN,
             );
             return;
           }

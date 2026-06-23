@@ -79,6 +79,13 @@ describe("createSandboxController", () => {
       const res = await fetch(url);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toContain("text/html");
+      // Defense-in-depth CSP on the proxy itself: the inner sandboxed frame is
+      // opaque-origin, but if a future change re-grants allow-same-origin,
+      // this header is what stops an escaped widget from fetching or being
+      // re-framed by a non-local page.
+      const csp = res.headers.get("content-security-policy") ?? "";
+      expect(csp).toContain("default-src 'none'");
+      expect(csp).toContain("frame-ancestors http://127.0.0.1:*");
       const body = await res.text();
       // Either the real proxy file (sandbox-resource-ready) or the fallback
       // "Sandbox not loaded" string, depending on whether static/ resolves.
