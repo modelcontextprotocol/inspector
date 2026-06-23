@@ -61,7 +61,7 @@ describe("ServerImportJsonModal", () => {
         onAddServer={vi.fn()}
       />,
     );
-    expect(screen.queryByText("Validation Results:")).not.toBeInTheDocument();
+    expect(screen.queryByText("Validation Results")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Server Name/)).not.toBeInTheDocument();
   });
 

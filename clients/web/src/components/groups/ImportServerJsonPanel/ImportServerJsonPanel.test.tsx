@@ -316,7 +316,7 @@ describe("ImportServerJsonPanel", () => {
       />,
     );
     // Empty draft: gated sections hidden.
-    expect(screen.queryByText("Validation Results:")).not.toBeInTheDocument();
+    expect(screen.queryByText("Validation Results")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Server Name/)).not.toBeInTheDocument();
 
     // Once content is present, they appear.
@@ -328,7 +328,7 @@ describe("ImportServerJsonPanel", () => {
         envVars={[]}
       />,
     );
-    expect(screen.getByText("Validation Results:")).toBeInTheDocument();
+    expect(screen.getByText("Validation Results")).toBeInTheDocument();
     expect(screen.getByLabelText(/Server Name/)).toBeInTheDocument();
   });
 });

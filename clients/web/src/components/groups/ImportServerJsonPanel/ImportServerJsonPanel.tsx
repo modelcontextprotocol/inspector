@@ -160,19 +160,24 @@ export function ImportServerJsonPanel({
 
       {hasContent && (
         <>
-          <Divider />
-
-          <Title order={5}>Validation Results:</Title>
-
-          {validation.map((result, index) => {
-            const { icon, color } = validationIcons[result.type];
-            return (
-              <Group key={index} gap="xs">
-                <Text c={color}>{icon}</Text>
-                <Text size="sm">{result.message}</Text>
-              </Group>
-            );
-          })}
+          <Accordion variant="separated" defaultValue="validation">
+            <Accordion.Item value="validation">
+              <Accordion.Control>Validation Results</Accordion.Control>
+              <Accordion.Panel>
+                <Stack gap="xs">
+                  {validation.map((result, index) => {
+                    const { icon, color } = validationIcons[result.type];
+                    return (
+                      <Group key={index} gap="xs">
+                        <Text c={color}>{icon}</Text>
+                        <Text size="sm">{result.message}</Text>
+                      </Group>
+                    );
+                  })}
+                </Stack>
+              </Accordion.Panel>
+            </Accordion.Item>
+          </Accordion>
 
           {packages && packages.length > 1 && (
             <>
