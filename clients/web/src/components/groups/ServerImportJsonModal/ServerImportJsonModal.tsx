@@ -334,7 +334,7 @@ export function ServerImportJsonModal({
       onClose={onClose}
       size="lg"
       centered
-      title={<ModalTitle>Import MCP Registry server.json</ModalTitle>}
+      title={<ModalTitle>Import from registry config</ModalTitle>}
     >
       <ImportServerJsonPanel
         draft={{ ...draft, selectedPackageIndex: selectedIndex }}

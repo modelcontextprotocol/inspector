@@ -44,7 +44,7 @@ export const Empty: Story = {
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body);
     await expect(
-      await body.findByText("Import MCP Registry server.json"),
+      await body.findByText("Import from registry config"),
     ).toBeInTheDocument();
     await expect(
       body.getByRole("button", { name: "Add Server" }),

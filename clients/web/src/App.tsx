@@ -507,7 +507,7 @@ function App() {
     targetId?: string;
   } | null>(null);
   // Import-flow modals (#1348): "Import config" (other-client config merge) and
-  // "Import server.json" (registry single-server import).
+  // "Import from registry config" (registry single-server import).
   const [importConfigOpen, setImportConfigOpen] = useState(false);
   const [importJsonOpen, setImportJsonOpen] = useState(false);
   const [settingsModalTargetId, setSettingsModalTargetId] = useState<

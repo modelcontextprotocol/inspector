@@ -48,7 +48,7 @@ describe("ServerImportJsonModal", () => {
       />,
     );
     expect(
-      screen.queryByText("Import MCP Registry server.json"),
+      screen.queryByText("Import from registry config"),
     ).not.toBeInTheDocument();
   });
 
