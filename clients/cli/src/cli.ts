@@ -286,11 +286,11 @@ function parseKeyValuePair(
   return { ...previous, [key as string]: parsedValue };
 }
 
-function parseArgs(argv?: string[]): {
+async function parseArgs(argv?: string[]): Promise<{
   serverConfig: MCPServerConfig;
   serverSettings: InspectorServerSettings | undefined;
   methodArgs: MethodArgs & { method: string };
-} {
+}> {
   const program = new Command();
   // On a parse/usage ERROR (exitCode !== 0), throw the CommanderError instead
   // of letting commander call process.exit(). The binary entry (index.ts) still
@@ -414,6 +414,10 @@ function parseArgs(argv?: string[]): {
     .option(
       "--app-info",
       "Probe the tool's MCP App UI metadata (resourceUri, csp, permissions, domain) and emit it as one JSON line; exit 2 when the tool has no app. Use with --method tools/call --tool-name <name>; the tool itself is not invoked.",
+    )
+    .option(
+      "--use-stored-auth",
+      "Read the OAuth access token for --server-url from ~/.mcp-inspector/storage/oauth.json (written by the web inspector) and inject it as Authorization: Bearer.",
     );
 
   program.parse(preArgs);
@@ -437,6 +441,7 @@ function parseArgs(argv?: string[]): {
     serverUrl?: string;
     header?: Record<string, string>;
     appInfo?: boolean;
+    useStoredAuth?: boolean;
   };
 
   const serverOptions = {
@@ -453,6 +458,31 @@ function parseArgs(argv?: string[]): {
     // file-level headers); file timeouts/OAuth are preserved. See #1482.
     headers: options.header,
   };
+
+  if (options.useStoredAuth) {
+    if (!options.serverUrl) {
+      throw new Error("--use-stored-auth requires --server-url");
+    }
+    // NodeOAuthStorage reads ~/.mcp-inspector/storage/oauth.json (or
+    // MCP_INSPECTOR_OAUTH_STATE_PATH when set) via the same Zustand store the
+    // web inspector's RemoteOAuthStorage writes to. getTokens awaits the file
+    // adapter's hydration, so this works even though the read is async. Header
+    // injection is the prototype path — wiring NodeOAuthStorage into the SDK
+    // auth provider (so refresh works) is a follow-up.
+    const { NodeOAuthStorage } =
+      await import("@inspector/core/auth/node/storage-node.js");
+    const oauthStorage = new NodeOAuthStorage();
+    const tokens = await oauthStorage.getTokens(options.serverUrl);
+    if (!tokens?.access_token) {
+      throw new Error(
+        `No stored OAuth token for ${options.serverUrl} in ~/.mcp-inspector/storage/oauth.json. Complete the OAuth flow in the web inspector first.`,
+      );
+    }
+    serverOptions.headers = {
+      ...(serverOptions.headers ?? {}),
+      Authorization: `Bearer ${tokens.access_token}`,
+    };
+  }
 
   // Shared with the TUI: resolves the catalog/config source (or ad-hoc target),
   // enforces the conflict matrix, and lifts disk headers/timeouts/OAuth into
@@ -510,7 +540,7 @@ function parseArgs(argv?: string[]): {
 }
 
 export async function runCli(argv?: string[]): Promise<void> {
-  const { serverConfig, serverSettings, methodArgs } = parseArgs(
+  const { serverConfig, serverSettings, methodArgs } = await parseArgs(
     argv ?? process.argv,
   );
   await callMethod(serverConfig, serverSettings, methodArgs);
