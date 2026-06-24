@@ -1313,6 +1313,7 @@ function App() {
       // The settings node persisted in mcp.json for this server — distinct
       // from the InspectorClient options we're about to derive from it.
       const savedSettings = server.settings;
+      const activeIdp = getActiveEnterpriseManagedAuthIdp(clientConfig);
       // Flatten the persisted settings into the InspectorClient options shape.
       // Empty / zero values stay unset so the SDK defaults apply.
       const defaultMetadata = savedSettings?.metadata
@@ -1365,10 +1366,8 @@ function App() {
             defaultMetadata,
           }),
         ...(oauth && { oauth }),
-        ...(getActiveEnterpriseManagedAuthIdp(clientConfig) && {
-          enterpriseManagedAuth: {
-            idp: getActiveEnterpriseManagedAuthIdp(clientConfig)!,
-          },
+        ...(activeIdp && {
+          enterpriseManagedAuth: { idp: activeIdp },
         }),
         ...(clientConfig.enterpriseManagedAuth && {
           installEnterpriseManagedAuth: clientConfig.enterpriseManagedAuth,
