@@ -20,6 +20,7 @@ import type { Root } from "@modelcontextprotocol/sdk/types.js";
 
 export type ServerSettingsSection =
   | "options"
+  | "environment"
   | "headers"
   | "metadata"
   | "timeouts"
@@ -30,11 +31,21 @@ export interface ServerSettingsFormProps {
   settings: InspectorServerSettings;
   /** Transport type — EMA checkbox is hidden for stdio. Defaults to streamable-http. */
   serverType?: ServerType;
+  /**
+   * Whether the target server uses the stdio transport. Gates the Working
+   * Directory field and Environment Variables section in the Options area —
+   * both are stdio-only config concepts and hidden for sse / streamable-http.
+   */
+  isStdio: boolean;
   expandedSections: ServerSettingsSection[];
   onExpandedSectionsChange: (sections: ServerSettingsSection[]) => void;
   onAddHeader: () => void;
   onRemoveHeader: (index: number) => void;
   onHeaderChange: (index: number, key: string, value: string) => void;
+  onAddEnv: () => void;
+  onRemoveEnv: (index: number) => void;
+  onEnvChange: (index: number, key: string, value: string) => void;
+  onCwdChange: (value: string) => void;
   onAddMetadata: () => void;
   onRemoveMetadata: (index: number) => void;
   onMetadataChange: (index: number, key: string, value: string) => void;
@@ -170,11 +181,16 @@ function RootRows({
 export function ServerSettingsForm({
   settings,
   serverType = "streamable-http",
+  isStdio,
   expandedSections,
   onExpandedSectionsChange,
   onAddHeader,
   onRemoveHeader,
   onHeaderChange,
+  onAddEnv,
+  onRemoveEnv,
+  onEnvChange,
+  onCwdChange,
   onAddMetadata,
   onRemoveMetadata,
   onMetadataChange,
@@ -246,9 +262,51 @@ export function ServerSettingsForm({
               value={settings.maxFetchRequests}
               onChange={handleMaxFetchRequestsChange}
             />
+            {isStdio ? (
+              <TextInput
+                label="Working Directory"
+                description="Directory the stdio server process is launched in. Leave empty to inherit the Inspector's working directory."
+                placeholder="(inherit)"
+                value={settings.cwd ?? ""}
+                onChange={(e) => onCwdChange(e.currentTarget.value)}
+                rightSectionPointerEvents="auto"
+                rightSection={
+                  settings.cwd ? (
+                    <ClearButton onClick={() => onCwdChange("")} />
+                  ) : null
+                }
+              />
+            ) : null}
           </Stack>
         </Accordion.Panel>
       </Accordion.Item>
+
+      {isStdio ? (
+        <Accordion.Item value="environment">
+          <Accordion.Control>Environment Variables</Accordion.Control>
+          <Accordion.Panel>
+            <Stack gap="md">
+              <Group justify="space-between">
+                <HintText>
+                  Environment variables passed to the stdio server process.
+                </HintText>
+                <AddButton onClick={onAddEnv}>
+                  + Add Environment Variable
+                </AddButton>
+              </Group>
+              {settings.env.length === 0 ? (
+                <EmptyHint>No environment variables configured</EmptyHint>
+              ) : (
+                <KeyValueRows
+                  items={settings.env}
+                  onChange={onEnvChange}
+                  onRemove={onRemoveEnv}
+                />
+              )}
+            </Stack>
+          </Accordion.Panel>
+        </Accordion.Item>
+      ) : null}
 
       <Accordion.Item value="headers">
         <Accordion.Control>Custom Headers</Accordion.Control>

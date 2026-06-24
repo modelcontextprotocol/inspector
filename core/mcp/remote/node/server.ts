@@ -35,10 +35,12 @@ import type {
   InspectorServerSettings,
   MCPConfig,
   MCPServerConfig,
+  StdioServerConfig,
   StoredMCPServer,
 } from "../../types.js";
 import {
   DEFAULT_SEED_CONFIG,
+  envPairsToRecord,
   expectedSecretFields,
   extractSecretsFromStored,
   INSPECTOR_FIELD_KEYS,
@@ -62,6 +64,7 @@ import {
   readClientConfigStore,
   writeClientConfigStore,
 } from "../../../client/node-persistence.js";
+import { envSecretField } from "../../../auth/secret-fields.js";
 
 /**
  * Shape of the initial config returned by GET /api/config (defaults for client).
@@ -1134,6 +1137,47 @@ export function createRemoteApp(
     return normalized;
   };
 
+  // Write-through for the stdio `env` / `cwd` config fields edited via the
+  // Server Settings modal. They are NOT Inspector-extension fields (the
+  // transport reads them off `config`), so `inspectorSettingsToStoredFields`
+  // doesn't emit them. Instead, on a settings-only patch the settings mirror is
+  // authoritative: this maps `settings.env` / `settings.cwd` back onto the
+  // stored stdio config, including clearing (empty list / blank cwd → field
+  // removed) so a user can delete a value through the modal.
+  //
+  // Each field is only written when the caller actually *sent* it (`provided`).
+  // An absent field on the wire means "leave the stored value alone" — without
+  // this gate an `env`-unaware client doing a settings patch (e.g. just bumping
+  // a timeout) would silently wipe the server's `env`/`cwd`, since
+  // `validateSettings` coerces a missing `env` to `[]` (which otherwise reads as
+  // "clear"). The integrated web client always resends the full GET-rehydrated
+  // `env`, so it is unaffected either way; this protects the raw HTTP contract.
+  // No-op for non-stdio entries. Mutates `entry` in place.
+  const applyStdioSettingsToConfig = (
+    entry: StoredMCPServer,
+    settings: InspectorServerSettings,
+    provided: { env: boolean; cwd: boolean },
+  ): void => {
+    if (!(entry.type === "stdio" || entry.type === undefined)) return;
+    const stdio = entry as StdioServerConfig & StoredMCPServer;
+    if (provided.env) {
+      const env = envPairsToRecord(settings.env);
+      if (Object.keys(env).length > 0) {
+        stdio.env = env;
+      } else {
+        delete stdio.env;
+      }
+    }
+    if (provided.cwd) {
+      const cwd = settings.cwd?.trim();
+      if (cwd) {
+        stdio.cwd = cwd;
+      } else {
+        delete stdio.cwd;
+      }
+    }
+  };
+
   // Structurally validates an InspectorServerSettings payload off the wire so
   // a malformed body can't persist to disk and crash the UI later (e.g.
   // `settings: []` or `settings: { headers: "oops" }`). Mirrors the lenient
@@ -1142,7 +1186,16 @@ export function createRemoteApp(
   const validateSettings = (
     raw: unknown,
   ):
-    | { ok: true; value: InspectorServerSettings }
+    | {
+        ok: true;
+        value: InspectorServerSettings;
+        // Whether the caller actually sent `env` / `cwd` (vs. them being absent
+        // and defaulted). The write-through uses this to preserve a stored
+        // `config.env`/`cwd` on a patch that omits the field, rather than
+        // treating "absent" as "clear".
+        envProvided: boolean;
+        cwdProvided: boolean;
+      }
     | { ok: false; error: string } => {
     if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
       return { ok: false, error: "settings must be an object" };
@@ -1169,6 +1222,19 @@ export function createRemoteApp(
         ok: false,
         error: "settings.metadata must be an array of { key, value }",
       };
+    }
+    // env is optional on the wire (older clients / non-stdio servers won't send
+    // it); when present it must be an array of { key, value } like headers.
+    if (obj.env !== undefined && !isKvArray(obj.env)) {
+      return {
+        ok: false,
+        error: "settings.env must be an array of { key, value }",
+      };
+    }
+    // cwd is optional; when present it must be a string. Empty coerces to absent
+    // below (matching the read side), which the write-through reads as "clear".
+    if (obj.cwd !== undefined && typeof obj.cwd !== "string") {
+      return { ok: false, error: "settings.cwd must be a string" };
     }
     if (
       typeof obj.connectionTimeout !== "number" ||
@@ -1256,6 +1322,9 @@ export function createRemoteApp(
     // later be misread as "OAuth configured."
     const value: InspectorServerSettings = {
       headers: obj.headers as { key: string; value: string }[],
+      // Absent → empty list, matching the read side. The write-through drops
+      // empty-key rows and clears `config.env` when the list is empty.
+      env: isKvArray(obj.env) ? obj.env : [],
       metadata: obj.metadata as { key: string; value: string }[],
       connectionTimeout: obj.connectionTimeout as number,
       requestTimeout: obj.requestTimeout as number,
@@ -1296,7 +1365,18 @@ export function createRemoteApp(
     if (obj.enterpriseManaged === true) {
       value.enterpriseManaged = true;
     }
-    return { ok: true, value };
+    // Empty cwd coerces to absent on the value (matching the read side); the
+    // write-through distinguishes "sent cwd: '' " (clear) from "cwd omitted"
+    // (preserve) via `cwdProvided` below rather than the value alone.
+    if (typeof obj.cwd === "string" && obj.cwd !== "") {
+      value.cwd = obj.cwd;
+    }
+    return {
+      ok: true,
+      value,
+      envProvided: obj.env !== undefined,
+      cwdProvided: obj.cwd !== undefined,
+    };
   };
 
   // In-process serialization for the read-modify-write flow on the
@@ -1814,7 +1894,12 @@ export function createRemoteApp(
     type SettingsIntent =
       | { kind: "preserve" }
       | { kind: "clear" }
-      | { kind: "apply"; value: InspectorServerSettings };
+      | {
+          kind: "apply";
+          value: InspectorServerSettings;
+          envProvided: boolean;
+          cwdProvided: boolean;
+        };
     let settingsIntent: SettingsIntent;
     if (body.settings === undefined) {
       settingsIntent = { kind: "preserve" };
@@ -1823,7 +1908,12 @@ export function createRemoteApp(
     } else {
       const validated = validateSettings(body.settings);
       if (!validated.ok) return c.json({ error: validated.error }, 400);
-      settingsIntent = { kind: "apply", value: validated.value };
+      settingsIntent = {
+        kind: "apply",
+        value: validated.value,
+        envProvided: validated.envProvided,
+        cwdProvided: validated.cwdProvided,
+      };
     }
     const newId = typeof body.id === "string" ? body.id : originalId;
     if (!validateStoreId(newId)) {
@@ -1886,6 +1976,48 @@ export function createRemoteApp(
         // key dropped, OAuth secret cleared) gets cleaned up rather
         // than orphaned.
         const built = buildStoredEntry(newId, nextConfig, nextSettings);
+        // stdio env/cwd are config fields editable from both the Add/Edit modal
+        // (patches `config`) and the Server Settings modal (patches `settings`).
+        // On a settings-only *apply* (config preserved) the settings mirror is
+        // authoritative for the fields the caller actually sent — write those
+        // through onto the stored config so edits and explicit clears take
+        // effect, while a field the caller omitted leaves the stored value
+        // untouched. When a config body was provided it owns env/cwd and the
+        // settings mirror is ignored; a preserve/clear settings intent never
+        // touches config env/cwd. Runs before secret extraction so a removed env
+        // key reconciles out of the keychain.
+        if (body.config === undefined && settingsIntent.kind === "apply") {
+          applyStdioSettingsToConfig(built, settingsIntent.value, {
+            env: settingsIntent.envProvided,
+            cwd: settingsIntent.cwdProvided,
+          });
+          // When the caller omitted `env`, the stored env is preserved
+          // structurally but its values are blanked on disk (the real values
+          // live in the keychain). Rehydrate those onto `built` so the secret
+          // extraction + reconcile below re-persist them, instead of treating
+          // the blanked keys as "removed" and sweeping them from the keychain.
+          // The integrated web client always resends the full GET-rehydrated
+          // env, so this only matters for env-unaware raw HTTP callers.
+          if (
+            !settingsIntent.envProvided &&
+            (built.type === "stdio" || built.type === undefined)
+          ) {
+            const stdio = built as StdioServerConfig & StoredMCPServer;
+            if (stdio.env && Object.keys(stdio.env).length > 0) {
+              const keys = Object.keys(stdio.env);
+              const existingSecrets = await readKeychainEntriesFor(
+                originalId,
+                keys.map((k) => envSecretField(k)),
+              );
+              const rehydrated: Record<string, string> = { ...stdio.env };
+              for (const k of keys) {
+                const v = existingSecrets[envSecretField(k)];
+                if (v !== undefined) rehydrated[k] = v;
+              }
+              stdio.env = rehydrated;
+            }
+          }
+        }
         const { stripped, secrets } = extractSecretsFromStored(built);
         const next: MCPConfig = { mcpServers: {} };
         for (const [key, val] of Object.entries(current.mcpServers)) {

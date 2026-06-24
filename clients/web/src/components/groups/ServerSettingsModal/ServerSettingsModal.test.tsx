@@ -6,6 +6,7 @@ import { ServerSettingsModal } from "./ServerSettingsModal";
 
 const initialSettings: InspectorServerSettings = {
   headers: [{ key: "Authorization", value: "Bearer abc" }],
+  env: [],
   metadata: [{ key: "userId", value: "u-1" }],
   connectionTimeout: 30000,
   requestTimeout: 60000,
@@ -19,6 +20,7 @@ const initialSettings: InspectorServerSettings = {
 
 const emptySettings: InspectorServerSettings = {
   headers: [],
+  env: [],
   metadata: [],
   connectionTimeout: 30000,
   requestTimeout: 60000,
@@ -34,6 +36,7 @@ describe("ServerSettingsModal", () => {
         opened={false}
         settings={emptySettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={vi.fn()}
         onSettingsChange={vi.fn()}
       />,
@@ -47,6 +50,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={emptySettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={vi.fn()}
         onSettingsChange={vi.fn()}
       />,
@@ -61,6 +65,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={emptySettings}
         serverType="stdio"
+        isStdio
         onClose={vi.fn()}
         onSettingsChange={vi.fn()}
       />,
@@ -76,6 +81,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={emptySettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={onClose}
         onSettingsChange={vi.fn()}
       />,
@@ -97,6 +103,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={emptySettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -117,6 +124,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={initialSettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -138,6 +146,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={initialSettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -160,6 +169,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={emptySettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -180,6 +190,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={initialSettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -203,6 +214,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={initialSettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -224,6 +236,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={emptySettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -244,6 +257,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={emptySettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -264,6 +278,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={emptySettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -291,6 +306,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={emptySettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -311,6 +327,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={initialSettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -333,6 +350,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={initialSettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -354,6 +372,7 @@ describe("ServerSettingsModal", () => {
         opened
         settings={emptySettings}
         serverType="streamable-http"
+        isStdio={false}
         onClose={vi.fn()}
         onSettingsChange={vi.fn()}
       />,
@@ -387,5 +406,118 @@ describe("ServerSettingsModal", () => {
     await user.click(screen.getByRole("button", { name: "Collapse all" }));
     expect(optionsControl.getAttribute("aria-expanded")).toBe("false");
     expect(headersControl.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  describe("stdio env / cwd handlers", () => {
+    // The Options section is expanded on open, so the stdio fields are visible
+    // immediately when isStdio is true.
+    it("does not render the stdio fields when isStdio is false", () => {
+      renderWithMantine(
+        <ServerSettingsModal
+          opened
+          settings={emptySettings}
+          serverType="streamable-http"
+          isStdio={false}
+          onClose={vi.fn()}
+          onSettingsChange={vi.fn()}
+        />,
+      );
+      expect(
+        screen.queryByLabelText(/Working Directory/),
+      ).not.toBeInTheDocument();
+    });
+
+    it("calls onSettingsChange when adding an environment variable", async () => {
+      const user = userEvent.setup();
+      const onSettingsChange = vi.fn();
+      renderWithMantine(
+        <ServerSettingsModal
+          opened
+          settings={emptySettings}
+          serverType="stdio"
+          isStdio
+          onClose={vi.fn()}
+          onSettingsChange={onSettingsChange}
+        />,
+      );
+      // The Environment Variables section is collapsed on open — expand it.
+      await user.click(
+        screen.getByRole("button", { name: "Environment Variables" }),
+      );
+      await user.click(
+        screen.getByRole("button", { name: "+ Add Environment Variable" }),
+      );
+      expect(onSettingsChange).toHaveBeenCalledWith({
+        ...emptySettings,
+        env: [{ key: "", value: "" }],
+      });
+    });
+
+    it("calls onSettingsChange when removing an environment variable", async () => {
+      const user = userEvent.setup();
+      const onSettingsChange = vi.fn();
+      renderWithMantine(
+        <ServerSettingsModal
+          opened
+          settings={{ ...emptySettings, env: [{ key: "A", value: "1" }] }}
+          serverType="stdio"
+          isStdio
+          onClose={vi.fn()}
+          onSettingsChange={onSettingsChange}
+        />,
+      );
+      await user.click(
+        screen.getByRole("button", { name: "Environment Variables" }),
+      );
+      const removeButtons = screen.getAllByRole("button", { name: "X" });
+      await user.click(removeButtons[removeButtons.length - 1]);
+      expect(onSettingsChange).toHaveBeenCalledWith({
+        ...emptySettings,
+        env: [],
+      });
+    });
+
+    it("calls onSettingsChange with the updated env value when typing", async () => {
+      const user = userEvent.setup();
+      const onSettingsChange = vi.fn();
+      renderWithMantine(
+        <ServerSettingsModal
+          opened
+          settings={{ ...emptySettings, env: [{ key: "A", value: "1" }] }}
+          serverType="stdio"
+          isStdio
+          onClose={vi.fn()}
+          onSettingsChange={onSettingsChange}
+        />,
+      );
+      await user.click(
+        screen.getByRole("button", { name: "Environment Variables" }),
+      );
+      await user.type(screen.getByDisplayValue("1"), "2");
+      const lastCall = onSettingsChange.mock.calls.at(-1)?.[0];
+      expect(lastCall.env[0]).toEqual({ key: "A", value: "12" });
+    });
+
+    it("calls onSettingsChange when editing the working directory", async () => {
+      const user = userEvent.setup();
+      const onSettingsChange = vi.fn();
+      renderWithMantine(
+        <ServerSettingsModal
+          opened
+          settings={{ ...emptySettings, cwd: "/srv" }}
+          serverType="stdio"
+          isStdio
+          onClose={vi.fn()}
+          onSettingsChange={onSettingsChange}
+        />,
+      );
+      // Controlled input: the value prop stays "/srv" (the parent vi.fn does not
+      // feed edits back), so a single keystroke appends to that base.
+      await user.type(screen.getByLabelText(/Working Directory/), "X");
+      expect(onSettingsChange).toHaveBeenLastCalledWith({
+        ...emptySettings,
+        cwd: "/srvX",
+      });
+    });
   });
 });

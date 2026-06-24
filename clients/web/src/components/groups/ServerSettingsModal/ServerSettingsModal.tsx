@@ -12,24 +12,35 @@ import {
   type ServerSettingsSection,
 } from "../ServerSettingsForm/ServerSettingsForm";
 
-const BASE_SECTIONS: ServerSettingsSection[] = [
-  "options",
-  "headers",
-  "metadata",
-  "timeouts",
-  "roots",
-];
-
-function allSectionsFor(serverType: ServerType): ServerSettingsSection[] {
-  return isOAuthCapableServerType(serverType)
-    ? [...BASE_SECTIONS.slice(0, 4), "oauth", ...BASE_SECTIONS.slice(4)]
-    : BASE_SECTIONS;
+// The "environment" section only renders for stdio servers and the "oauth"
+// section only for OAuth-capable transports, so each joins the
+// expand/collapse-all set only when present — otherwise `allExpanded` could
+// never be reached (a section not in the DOM can't be expanded).
+function allSectionsFor(
+  serverType: ServerType,
+  isStdio: boolean,
+): ServerSettingsSection[] {
+  return [
+    "options",
+    ...(isStdio ? (["environment"] as const) : []),
+    "headers",
+    "metadata",
+    "timeouts",
+    ...(isOAuthCapableServerType(serverType) ? (["oauth"] as const) : []),
+    "roots",
+  ];
 }
 
 export interface ServerSettingsModalProps {
   opened: boolean;
   settings: InspectorServerSettings;
   serverType: ServerType;
+  /**
+   * Whether the target server uses the stdio transport. Forwarded to the form
+   * to gate the stdio-only Working Directory field and Environment Variables
+   * section.
+   */
+  isStdio: boolean;
   onClose: () => void;
   onSettingsChange: (settings: InspectorServerSettings) => void;
 }
@@ -38,10 +49,11 @@ export function ServerSettingsModal({
   opened,
   settings,
   serverType,
+  isStdio,
   onClose,
   onSettingsChange,
 }: ServerSettingsModalProps) {
-  const sections = allSectionsFor(serverType);
+  const sections = allSectionsFor(serverType, isStdio);
   // Initial expansion is the first ("options") section — where Network Log
   // Size lives, so a deep-link from the body-dropped toast lands on the
   // relevant control. The parent remounts this modal per open (via `key`), so
@@ -76,6 +88,29 @@ export function ServerSettingsModal({
       i === index ? { key, value } : h,
     );
     onSettingsChange({ ...settings, headers });
+  }
+
+  function handleAddEnv() {
+    onSettingsChange({
+      ...settings,
+      env: [...settings.env, { key: "", value: "" }],
+    });
+  }
+
+  function handleRemoveEnv(index: number) {
+    onSettingsChange({
+      ...settings,
+      env: settings.env.filter((_, i) => i !== index),
+    });
+  }
+
+  function handleEnvChange(index: number, key: string, value: string) {
+    const env = settings.env.map((e, i) => (i === index ? { key, value } : e));
+    onSettingsChange({ ...settings, env });
+  }
+
+  function handleCwdChange(value: string) {
+    onSettingsChange({ ...settings, cwd: value });
   }
 
   function handleAddMetadata() {
@@ -170,11 +205,16 @@ export function ServerSettingsModal({
         <ServerSettingsForm
           settings={settings}
           serverType={serverType}
+          isStdio={isStdio}
           expandedSections={expandedSections}
           onExpandedSectionsChange={setExpandedSections}
           onAddHeader={handleAddHeader}
           onRemoveHeader={handleRemoveHeader}
           onHeaderChange={handleHeaderChange}
+          onAddEnv={handleAddEnv}
+          onRemoveEnv={handleRemoveEnv}
+          onEnvChange={handleEnvChange}
+          onCwdChange={handleCwdChange}
           onAddMetadata={handleAddMetadata}
           onRemoveMetadata={handleRemoveMetadata}
           onMetadataChange={handleMetadataChange}

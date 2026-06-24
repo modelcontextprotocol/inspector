@@ -318,6 +318,7 @@ describe("InspectorClient", () => {
           environment: { transport: fakeFactory },
           serverSettings: {
             headers: [],
+            env: [],
             metadata: [],
             connectionTimeout: 50,
             requestTimeout: 0,
@@ -660,6 +661,7 @@ describe("InspectorClient", () => {
     it("getServerSettings returns the constructor settings; setServerSettings replaces them live (#1444)", () => {
       const initial = {
         headers: [],
+        env: [],
         metadata: [],
         connectionTimeout: 0,
         requestTimeout: 0,

@@ -13,6 +13,7 @@ const initialSettings: InspectorServerSettings = {
     { key: "Authorization", value: "Bearer token-abc-123" },
     { key: "X-Request-Id", value: "req-456" },
   ],
+  env: [],
   metadata: [{ key: "userId", value: "user-789" }],
   connectionTimeout: 30000,
   requestTimeout: 60000,
@@ -53,6 +54,7 @@ const meta: Meta<typeof ServerSettingsModal> = {
   args: {
     opened: true,
     serverType: "streamable-http",
+    isStdio: false,
     onClose: fn(),
     onSettingsChange: fn(),
   },
@@ -71,11 +73,35 @@ export const EmptySettings: Story = {
   args: {
     settings: {
       headers: [],
+      env: [],
       metadata: [],
       connectionTimeout: 30000,
       requestTimeout: 60000,
       taskTtl: 60000,
       maxFetchRequests: 1000,
+      roots: [],
+    },
+  },
+};
+
+// A stdio server surfaces the Working Directory field (Options) and a dedicated
+// Environment Variables section.
+export const StdioServer: Story = {
+  args: {
+    serverType: "stdio",
+    isStdio: true,
+    settings: {
+      headers: [],
+      env: [
+        { key: "API_KEY", value: "abc-123" },
+        { key: "LOG_LEVEL", value: "debug" },
+      ],
+      metadata: [],
+      connectionTimeout: 0,
+      requestTimeout: 0,
+      taskTtl: 60000,
+      maxFetchRequests: 1000,
+      cwd: "/srv/my-server",
       roots: [],
     },
   },

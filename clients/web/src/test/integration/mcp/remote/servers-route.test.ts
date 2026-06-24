@@ -1233,6 +1233,282 @@ describe("/api/servers routes", () => {
     });
   });
 
+  describe("stdio env / cwd write-through (settings modal)", () => {
+    it("writes settings.env / settings.cwd onto a stdio config on a settings-only PUT", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: { srv: { type: "stdio", command: "node" } },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/srv`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            env: [{ key: "API_KEY", value: "abc-123" }],
+            cwd: "/srv/app",
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.srv as {
+        env?: Record<string, string>;
+        cwd?: string;
+      };
+      // env key persisted on the config (value stripped to keychain), cwd set.
+      expect(stored.env).toEqual({ API_KEY: "" });
+      expect(stored.cwd).toBe("/srv/app");
+      expect(await h.secretStore.get("srv", envSecretField("API_KEY"))).toBe(
+        "abc-123",
+      );
+      // env / cwd are NOT persisted as a settings wrapper — they live on config.
+      expect(stored).not.toHaveProperty("settings");
+    });
+
+    it("preserves config.env / cwd and the keychain when a settings-only PUT omits them", async () => {
+      // An env-unaware caller patching just a timeout must not wipe the stored
+      // env/cwd. Absent env/cwd on the wire => preserve, distinct from explicit
+      // empty => clear.
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            srv: {
+              type: "stdio",
+              command: "node",
+              env: { API_KEY: "" },
+              cwd: "/srv/app",
+            },
+          },
+        }),
+      );
+      await h.secretStore.set("srv", envSecretField("API_KEY"), "abc-123");
+      const res = await fetch(`${h.baseUrl}/api/servers/srv`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        // env / cwd intentionally omitted; only a timeout is patched.
+        body: JSON.stringify({
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 5000,
+            requestTimeout: 0,
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.srv as {
+        env?: Record<string, string>;
+        cwd?: string;
+      };
+      // Disk keys + cwd preserved (env value blanked, as always — it lives in
+      // the keychain).
+      expect(stored.env).toEqual({ API_KEY: "" });
+      expect(stored.cwd).toBe("/srv/app");
+      // Keychain value survives: the omit path rehydrates it so the reconcile
+      // doesn't sweep the untouched secret.
+      expect(await h.secretStore.get("srv", envSecretField("API_KEY"))).toBe(
+        "abc-123",
+      );
+    });
+
+    it("GET lifts the stored env / cwd back into the wire config (round-trip)", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            srv: {
+              type: "stdio",
+              command: "node",
+              env: { API_KEY: "" },
+              cwd: "/srv/app",
+            },
+          },
+        }),
+      );
+      await h.secretStore.set("srv", envSecretField("API_KEY"), "abc-123");
+      const res = await fetch(`${h.baseUrl}/api/servers`);
+      const body = (await res.json()) as MCPConfig;
+      const srv = body.mcpServers.srv as {
+        env?: Record<string, string>;
+        cwd?: string;
+      };
+      expect(srv.env).toEqual({ API_KEY: "abc-123" });
+      expect(srv.cwd).toBe("/srv/app");
+    });
+
+    it("clears env / cwd from the config when the settings-only PUT sends an empty list / blank cwd", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            srv: {
+              type: "stdio",
+              command: "node",
+              env: { API_KEY: "" },
+              cwd: "/srv/app",
+            },
+          },
+        }),
+      );
+      await h.secretStore.set("srv", envSecretField("API_KEY"), "abc-123");
+      const res = await fetch(`${h.baseUrl}/api/servers/srv`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            env: [],
+            cwd: "",
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers
+        .srv as unknown as Record<string, unknown>;
+      expect(stored).not.toHaveProperty("env");
+      expect(stored).not.toHaveProperty("cwd");
+      // The removed env key reconciles out of the keychain.
+      expect(await h.secretStore.get("srv", envSecretField("API_KEY"))).toBe(
+        null,
+      );
+    });
+
+    it("drops empty-key env rows on a settings-only PUT", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: { srv: { type: "stdio", command: "node" } },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/srv`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            env: [
+              { key: "KEEP", value: "1" },
+              { key: "", value: "drop-me" },
+              { key: "  ", value: "drop-me-too" },
+            ],
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.srv as {
+        env?: Record<string, string>;
+      };
+      expect(Object.keys(stored.env ?? {})).toEqual(["KEEP"]);
+    });
+
+    it("a config-providing PUT owns env/cwd; the preserved settings mirror does not revert it", async () => {
+      // Pre-seed a stdio server with env A=1 (keychain-backed).
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            srv: {
+              type: "stdio",
+              command: "node",
+              env: { A: "" },
+              cwd: "/old",
+            },
+          },
+        }),
+      );
+      await h.secretStore.set("srv", envSecretField("A"), "1");
+      // Config-only PUT (settings omitted → preserved). The new config's env/cwd
+      // must win even though the preserved settings mirror still carries the old.
+      const res = await fetch(`${h.baseUrl}/api/servers/srv`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: {
+            type: "stdio",
+            command: "node",
+            env: { A: "2" },
+            cwd: "/new",
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.srv as {
+        env?: Record<string, string>;
+        cwd?: string;
+      };
+      expect(stored.cwd).toBe("/new");
+      expect(stored.env).toEqual({ A: "" });
+      expect(await h.secretStore.get("srv", envSecretField("A"))).toBe("2");
+    });
+
+    it("rejects a non-array settings.env with 400", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: { srv: { type: "stdio", command: "node" } },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/srv`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            env: "nope",
+          },
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/settings\.env/);
+    });
+
+    it("ignores settings env/cwd for a non-stdio server (no leak onto config)", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            srv: { type: "streamable-http", url: "https://x.test/mcp" },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/srv`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            env: [{ key: "API_KEY", value: "abc" }],
+            cwd: "/srv/app",
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers
+        .srv as unknown as Record<string, unknown>;
+      expect(stored).not.toHaveProperty("env");
+      expect(stored).not.toHaveProperty("cwd");
+    });
+  });
+
   describe("concurrent mutations", () => {
     it("does not lose updates when many adds fire in parallel (write-lock)", async () => {
       // Without the in-process mutex, concurrent POSTs would all read the

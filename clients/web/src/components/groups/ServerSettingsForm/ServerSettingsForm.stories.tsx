@@ -9,6 +9,7 @@ import {
 
 const defaultSettings: InspectorServerSettings = {
   headers: [],
+  env: [],
   metadata: [],
   connectionTimeout: 30000,
   requestTimeout: 60000,
@@ -85,6 +86,39 @@ function InteractiveRender(args: ServerSettingsFormProps) {
           },
         });
       }}
+      onAddEnv={() => {
+        args.onAddEnv();
+        updateArgs({
+          settings: {
+            ...args.settings,
+            env: [...args.settings.env, { key: "", value: "" }],
+          },
+        });
+      }}
+      onRemoveEnv={(index) => {
+        args.onRemoveEnv(index);
+        updateArgs({
+          settings: {
+            ...args.settings,
+            env: args.settings.env.filter((_, i) => i !== index),
+          },
+        });
+      }}
+      onEnvChange={(index, key, value) => {
+        args.onEnvChange(index, key, value);
+        updateArgs({
+          settings: {
+            ...args.settings,
+            env: args.settings.env.map((e, i) =>
+              i === index ? { key, value } : e,
+            ),
+          },
+        });
+      }}
+      onCwdChange={(value) => {
+        args.onCwdChange(value);
+        updateArgs({ settings: { ...args.settings, cwd: value } });
+      }}
       onTimeoutChange={(field, value) => {
         args.onTimeoutChange(field, value);
         updateArgs({
@@ -123,11 +157,16 @@ const meta: Meta<typeof ServerSettingsForm> = {
   component: ServerSettingsForm,
   render: InteractiveRender,
   args: {
+    isStdio: false,
     expandedSections: ["options"],
     onExpandedSectionsChange: fn(),
     onAddHeader: fn(),
     onRemoveHeader: fn(),
     onHeaderChange: fn(),
+    onAddEnv: fn(),
+    onRemoveEnv: fn(),
+    onEnvChange: fn(),
+    onCwdChange: fn(),
     onAddMetadata: fn(),
     onRemoveMetadata: fn(),
     onMetadataChange: fn(),
@@ -178,6 +217,7 @@ export const AllConfigured: Story = {
         { key: "Authorization", value: "Bearer token-abc-123" },
         { key: "X-Request-Id", value: "req-456" },
       ],
+      env: [],
       metadata: [
         { key: "userId", value: "user-789" },
         { key: "sessionId", value: "session-012" },
@@ -192,6 +232,21 @@ export const AllConfigured: Story = {
       roots: [
         { uri: "file:///home/user/project", name: "Project" },
         { uri: "file:///tmp" },
+      ],
+    },
+  },
+};
+
+export const StdioEnvironment: Story = {
+  args: {
+    isStdio: true,
+    expandedSections: ["options", "environment"],
+    settings: {
+      ...defaultSettings,
+      cwd: "/srv/my-server",
+      env: [
+        { key: "API_KEY", value: "abc-123" },
+        { key: "LOG_LEVEL", value: "debug" },
       ],
     },
   },

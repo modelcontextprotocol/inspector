@@ -3,6 +3,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { ManagedToolsState } from "@inspector/core/mcp/state/managedToolsState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
+import { waitForChangeEvent } from "./waitForChangeEvent";
 
 function tool(name: string): Tool {
   return { name, inputSchema: { type: "object" } };
@@ -10,6 +11,7 @@ function tool(name: string): Tool {
 
 const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
   headers: [],
+  env: [],
   metadata: [],
   connectionTimeout: 0,
   requestTimeout: 0,
@@ -20,19 +22,11 @@ const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
 };
 
 function waitForToolsChange(state: ManagedToolsState): Promise<Tool[]> {
-  return new Promise((resolve) => {
-    state.addEventListener("toolsChange", (e) => resolve(e.detail), {
-      once: true,
-    });
-  });
+  return waitForChangeEvent(state, "toolsChange");
 }
 
 function waitForListChanged(state: ManagedToolsState): Promise<boolean> {
-  return new Promise((resolve) => {
-    state.addEventListener("listChangedChange", (e) => resolve(e.detail), {
-      once: true,
-    });
-  });
+  return waitForChangeEvent(state, "listChangedChange");
 }
 
 describe("ManagedToolsState", () => {
@@ -84,10 +78,9 @@ describe("ManagedToolsState", () => {
     toolless.setStatus("connected");
     const toollessState = new ManagedToolsState(toolless, 0);
 
+    const changePromise = waitForToolsChange(toollessState);
     toolless.dispatchTypedEvent("connect");
-    // Yield so the async refresh chained off connect runs.
-    await Promise.resolve();
-    await Promise.resolve();
+    await changePromise;
     expect(toolless.listTools).not.toHaveBeenCalled();
     expect(toollessState.getTools()).toEqual([]);
   });

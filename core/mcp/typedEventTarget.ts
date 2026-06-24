@@ -6,7 +6,8 @@
 
 /**
  * Typed event class that extends CustomEvent with type-safe detail.
- * For void events, detail is undefined.
+ * For void events the detail is omitted; CustomEvent normalizes that to `null`,
+ * so listeners receive `null` (not `undefined`) for such events.
  */
 export class TypedEventGeneric<
   EventMap extends object,

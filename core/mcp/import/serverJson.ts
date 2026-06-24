@@ -228,6 +228,12 @@ function parsePackage(raw: Record<string, unknown>): ServerJsonOption | null {
         ? [...runtimeArgs, "-y", runtime.ref, ...packageArgs]
         : [...runtimeArgs, runtime.ref, ...packageArgs];
 
+  // No `cwd`: the registry `server.json` package schema (2025-12-11) carries no
+  // working-directory concept — its package fields are registryType,
+  // registryBaseUrl, identifier, version, fileSha256, runtimeHint,
+  // runtimeArguments, packageArguments, environmentVariables, transport. So
+  // there is nothing to map onto `config.cwd` here; the user can set one
+  // afterward via the Add/Edit or Server Settings modal.
   const baseConfig: StdioServerConfig = {
     type: "stdio",
     command: runtime.command,

@@ -22,13 +22,14 @@ describe("parseMcpServersConfig", () => {
     expect(config.mcpServers.sse.type).toBe("sse");
   });
 
-  it("preserves extension fields (env, headers) on entries", () => {
+  it("preserves extension fields (env, cwd, headers) on entries", () => {
     const raw = JSON.stringify({
       mcpServers: {
         s: {
           command: "node",
           args: ["server.js"],
           env: { API_KEY: "abc" },
+          cwd: "/srv/app",
         },
       },
     });
@@ -37,6 +38,7 @@ describe("parseMcpServersConfig", () => {
     expect(entry.type).toBe("stdio");
     if (entry.type === "stdio") {
       expect(entry.env).toEqual({ API_KEY: "abc" });
+      expect(entry.cwd).toBe("/srv/app");
     }
   });
 
