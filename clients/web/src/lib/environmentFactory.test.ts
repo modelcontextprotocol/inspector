@@ -19,4 +19,18 @@ describe("createWebEnvironment", () => {
     );
     expect(environment.oauth?.storage).toBeInstanceOf(RemoteOAuthStorage);
   });
+
+  it("returns the same RemoteOAuthStorage for the same {baseUrl, authToken}", () => {
+    const redirect = { getRedirectUrl: () => "http://localhost/callback" };
+    const a = createWebEnvironment("token-1", redirect, undefined);
+    const b = createWebEnvironment("token-1", redirect, undefined);
+    expect(a.environment.oauth?.storage).toBe(b.environment.oauth?.storage);
+  });
+
+  it("returns a distinct RemoteOAuthStorage when the authToken differs", () => {
+    const redirect = { getRedirectUrl: () => "http://localhost/callback" };
+    const a = createWebEnvironment("token-A", redirect, undefined);
+    const b = createWebEnvironment("token-B", redirect, undefined);
+    expect(a.environment.oauth?.storage).not.toBe(b.environment.oauth?.storage);
+  });
 });

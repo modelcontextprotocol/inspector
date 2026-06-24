@@ -62,16 +62,32 @@ export function createRemoteStorageAdapter(
         headers["x-mcp-remote-auth"] = `Bearer ${options.authToken}`;
       }
 
-      // Zustand gives us the full persisted format as a string
-      // Store it as-is (the API treats it as an opaque blob)
-      const res = await fetchFn(`${baseUrl}/api/storage/${options.storeId}`, {
-        method: "POST",
-        headers,
-        body: value, // Already a JSON string from Zustand
-      });
+      const url = `${baseUrl}/api/storage/${options.storeId}`;
+      try {
+        // Zustand gives us the full persisted format as a string
+        // Store it as-is (the API treats it as an opaque blob).
+        // `keepalive` lets this POST outlive an immediately-following
+        // full-page navigation (the OAuth authorize redirect): without it the
+        // browser may abort the request mid-flight and the just-saved
+        // codeVerifier/clientInformation never reaches disk.
+        const res = await fetchFn(url, {
+          method: "POST",
+          headers,
+          body: value, // Already a JSON string from Zustand
+          keepalive: true,
+        });
 
-      if (!res.ok) {
-        throw new Error(`Failed to write store: ${res.status}`);
+        if (!res.ok) {
+          throw new Error(
+            `Failed to write store '${options.storeId}' to ${url}: ${res.status}`,
+          );
+        }
+      } catch (err) {
+        // Zustand's persist middleware swallows setItem rejections — without
+        // this the user sees a green "Connected" while the token never landed
+        // on disk. Surface the failure so it's at least observable.
+        console.error("[remote-storage] persist write failed:", err);
+        throw err;
       }
     },
     removeItem: async (_name: string) => {
