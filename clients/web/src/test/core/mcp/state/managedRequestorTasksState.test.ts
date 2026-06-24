@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import type { Task } from "@modelcontextprotocol/sdk/types.js";
 import { ManagedRequestorTasksState } from "@inspector/core/mcp/state/managedRequestorTasksState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
+import { waitForChangeEvent } from "./waitForChangeEvent";
 
 function task(taskId: string, status: Task["status"] = "working"): Task {
   return {
@@ -14,11 +15,7 @@ function task(taskId: string, status: Task["status"] = "working"): Task {
 }
 
 function waitForChange(state: ManagedRequestorTasksState): Promise<Task[]> {
-  return new Promise((resolve) => {
-    state.addEventListener("tasksChange", (e) => resolve(e.detail), {
-      once: true,
-    });
-  });
+  return waitForChangeEvent(state, "tasksChange");
 }
 
 describe("ManagedRequestorTasksState", () => {
