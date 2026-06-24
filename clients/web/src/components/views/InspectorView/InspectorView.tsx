@@ -224,6 +224,13 @@ export interface InspectorViewProps {
   // Connection state — driven by the parent via `useInspectorClient`.
   activeServer?: string;
   connectionStatus: ConnectionStatus;
+  /**
+   * Last connection-level error message (handshake failure, OAuth start
+   * failure, deep-link automation failure). Surfaced as `data-error-message`
+   * on the header's `connection-status` testid so an automated driver can read
+   * *why* a connect failed without scraping a transient toast.
+   */
+  connectErrorMessage?: string;
   initializeResult?: InitializeResult;
   latencyMs?: number;
 
@@ -385,6 +392,7 @@ export function InspectorView({
   serverListWritable = true,
   activeServer,
   connectionStatus,
+  connectErrorMessage,
   initializeResult,
   latencyMs,
   tools,
@@ -640,6 +648,7 @@ export function InspectorView({
       <AppShell.Header
         data-testid="connection-status"
         data-status={connectionStatus}
+        data-error-message={connectErrorMessage}
       >
         {connectionStatus === "connected" && initializeResult ? (
           <ViewHeader

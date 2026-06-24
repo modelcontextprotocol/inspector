@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { parseDeepLink, DEEP_LINK_SERVER_ID } from "./deepLink";
+import {
+  parseDeepLink,
+  deepLinkConfigEquals,
+  DEEP_LINK_SERVER_ID,
+} from "./deepLink";
 
 const TOKEN = "tok-abc";
 
@@ -101,5 +105,51 @@ describe("parseDeepLink", () => {
       );
       expect(link?.appArgs).toEqual({});
     }
+  });
+
+  it("normalizes serverUrl (host case, trailing slash) to match the OAuth-store key form", () => {
+    const link = parseDeepLink(
+      "?serverUrl=" +
+        encodeURIComponent("https://Example.COM") +
+        "&autoConnect=" +
+        TOKEN,
+      TOKEN,
+    );
+    expect(link?.serverConfig).toEqual({
+      type: "streamable-http",
+      url: "https://example.com/",
+    });
+  });
+});
+
+describe("deepLinkConfigEquals", () => {
+  const URL_A = "https://example.com/mcp";
+  const URL_B = "https://example.com/sse";
+
+  it("matches when both type and url are identical", () => {
+    expect(
+      deepLinkConfigEquals(
+        { type: "streamable-http", url: URL_A },
+        { type: "streamable-http", url: URL_A },
+      ),
+    ).toBe(true);
+  });
+
+  it("differs when only the type changed (sse↔streamable-http)", () => {
+    expect(
+      deepLinkConfigEquals(
+        { type: "sse", url: URL_A },
+        { type: "streamable-http", url: URL_A },
+      ),
+    ).toBe(false);
+  });
+
+  it("differs when only the url changed", () => {
+    expect(
+      deepLinkConfigEquals(
+        { type: "streamable-http", url: URL_A },
+        { type: "streamable-http", url: URL_B },
+      ),
+    ).toBe(false);
   });
 });

@@ -1,4 +1,5 @@
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
+import { normalizeServerUrl } from "@inspector/core/auth/store.js";
 
 /**
  * Parsed deep-link parameters that drive an automated session: the inspector
@@ -66,7 +67,28 @@ function validateServerUrl(raw: string): string | undefined {
     return undefined;
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
-  return url.href;
+  // Canonicalize via the same normalizer the OAuth store keys on, so a token
+  // saved by the web inspector under the deep-link URL is found by the CLI's
+  // `--use-stored-auth` lookup (and vice versa) regardless of trailing-slash
+  // or host-case differences in how the URL was typed.
+  return normalizeServerUrl(url.href);
+}
+
+/**
+ * Shallow equality for the subset of {@link MCPServerConfig} a deep link can
+ * produce. Used by the auto-connect effect to decide whether the persisted
+ * `deep-link` catalog row needs updating before connecting — comparing only
+ * `url` (the previous behavior) misses a stale `type` (sse↔streamable-http)
+ * and would connect with the wrong transport.
+ */
+export function deepLinkConfigEquals(
+  a: MCPServerConfig,
+  b: MCPServerConfig,
+): boolean {
+  if (a.type !== b.type) return false;
+  const aUrl = "url" in a ? a.url : undefined;
+  const bUrl = "url" in b ? b.url : undefined;
+  return aUrl === bUrl;
 }
 
 /**

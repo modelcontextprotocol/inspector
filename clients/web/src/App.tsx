@@ -88,7 +88,7 @@ import type {
 import type { GetPromptState } from "./components/screens/PromptsScreen/PromptsScreen";
 import type { ReadResourceState } from "./components/screens/ResourcesScreen/ResourcesScreen";
 import type { TaskProgress } from "./components/groups/TaskCard/TaskCard";
-import { parseDeepLink } from "./utils/deepLink";
+import { parseDeepLink, deepLinkConfigEquals } from "./utils/deepLink";
 import type { DeepLink } from "./utils/deepLink";
 import {
   EMPTY_TOOLS_UI,
@@ -499,6 +499,25 @@ function App() {
     authToken: getAuthToken(),
   });
 
+  // Mirror of `servers` for callbacks that must always read the LATEST list
+  // even when invoked from a closure captured on an earlier render. The
+  // deep-link auto-connect IIFE awaits `updateServer` then calls
+  // `onToggleConnection` from the same closure; without this ref the connect
+  // would resolve `servers.find(id)` against the pre-update array and build a
+  // client from the stale config.
+  const serversRef = useRef(servers);
+  useEffect(() => {
+    serversRef.current = servers;
+  }, [servers]);
+
+  // Last connection-level error message, surfaced as `data-error-message` on
+  // the InspectorView header so an automated driver can read *why* a connect
+  // failed without scraping a transient toast. Cleared on the next connect
+  // attempt and on successful connection.
+  const [connectErrorMessage, setConnectErrorMessage] = useState<
+    string | undefined
+  >(undefined);
+
   // CRUD-modal state. `configModal` drives Add / Edit / Clone via a single
   // shared form modal; `removeTarget` drives the remove-confirmation modal.
   const [configModal, setConfigModal] = useState<{
@@ -560,6 +579,19 @@ function App() {
           if (!inspectorClient) throw new Error("No MCP client connected.");
           const invocation = await inspectorClient.readResource(uri);
           return invocation.result;
+        },
+        // The bridge's sandboxready handler reads + posts the UI resource
+        // inside a detached async block; without this hook a 404 / malformed
+        // resource is console.error-only and the user stares at a blank
+        // frame. Surface it as a toast. The renderer separately drives
+        // `data-app-status` so an automated driver can time out on
+        // never-reaching-"ready" and read the toast via screenshot.
+        onResourceError: (err) => {
+          notifications.show({
+            title: "App resource failed to load",
+            message: err.message,
+            color: "red",
+          });
         },
       }),
     [inspectorClient],
@@ -1495,8 +1527,14 @@ function App() {
         return;
       }
 
-      const target = servers.find((s) => s.id === id);
+      // Read from the ref so a caller that already awaited an
+      // addServer/updateServer in the same async tick (e.g. the deep-link
+      // auto-connect IIFE) sees the freshly-mutated list, not the stale array
+      // captured by this callback's closure.
+      const target = serversRef.current.find((s) => s.id === id);
       if (!target) return;
+
+      setConnectErrorMessage(undefined);
 
       // Always rebuild the InspectorClient on a (re)connect so the latest
       // `target.settings` (headers, metadata, timeouts, OAuth credentials)
@@ -1538,6 +1576,7 @@ function App() {
             window.sessionStorage.removeItem(OAUTH_PENDING_SERVER_KEY);
             const message =
               authErr instanceof Error ? authErr.message : String(authErr);
+            setConnectErrorMessage(message);
             notifications.show({
               title: `OAuth authorization failed for "${target.name}"`,
               message,
@@ -1551,6 +1590,7 @@ function App() {
         // instead of the ConnectionToggle silently reverting to
         // "disconnected".
         const message = err instanceof Error ? err.message : String(err);
+        setConnectErrorMessage(message);
         notifications.show({
           title: `Failed to connect to "${target.name}"`,
           message,
@@ -1558,13 +1598,7 @@ function App() {
         });
       }
     },
-    [
-      activeServerId,
-      connectionStatus,
-      inspectorClient,
-      servers,
-      setupClientForServer,
-    ],
+    [activeServerId, connectionStatus, inspectorClient, setupClientForServer],
   );
 
   const onDisconnect = useCallback(async () => {
@@ -1599,11 +1633,7 @@ function App() {
     if (deepLinkConnectRef.current) return;
     deepLinkConnectRef.current = true;
     void (async () => {
-      if (
-        "url" in existing.config &&
-        "url" in deepLink.serverConfig &&
-        existing.config.url !== deepLink.serverConfig.url
-      ) {
+      if (!deepLinkConfigEquals(existing.config, deepLink.serverConfig)) {
         await updateServer(
           deepLink.serverId,
           deepLink.serverId,
@@ -1613,7 +1643,14 @@ function App() {
       if (activeServerId !== deepLink.serverId) {
         await onToggleConnection(deepLink.serverId);
       }
-    })();
+    })().catch((err) => {
+      // Surface deep-link automation failures (updateServer 5xx, connect
+      // throw) on the machine-readable error attribute instead of dropping
+      // them. The toast still fires from inside `onToggleConnection` for the
+      // common cases; this catch covers the rest.
+      const message = err instanceof Error ? err.message : String(err);
+      setConnectErrorMessage(message);
+    });
   }, [
     deepLink,
     servers,
@@ -2429,6 +2466,7 @@ function App() {
         serverListWritable={serverListWritable}
         activeServer={activeServerId}
         connectionStatus={connectionStatus}
+        connectErrorMessage={connectErrorMessage}
         initializeResult={initializeResult}
         latencyMs={latencyMs}
         tools={tools}
