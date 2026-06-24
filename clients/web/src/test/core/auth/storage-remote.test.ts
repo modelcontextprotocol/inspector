@@ -138,7 +138,13 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
   });
 
   it("persist POST is sent with keepalive so it survives an immediate redirect", async () => {
-    const fetchFn = vi.fn(async () => new Response("{}", { status: 200 }));
+    const fetchFn = vi.fn(
+      async (url: RequestInfo | URL, init?: RequestInit) => {
+        void url;
+        void init;
+        return new Response("{}", { status: 200 });
+      },
+    );
     const s = new RemoteOAuthStorage({
       baseUrl: "http://remote.example",
       storeId: "keepalive-test",
@@ -150,11 +156,9 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
     // a couple of ticks so the POST has been issued.
     await Promise.resolve();
     await Promise.resolve();
-    const post = fetchFn.mock.calls.find(
-      (c) => (c[1] as RequestInit | undefined)?.method === "POST",
-    );
+    const post = fetchFn.mock.calls.find((c) => c[1]?.method === "POST");
     expect(post).toBeDefined();
-    expect((post?.[1] as RequestInit).keepalive).toBe(true);
+    expect(post?.[1]?.keepalive).toBe(true);
   });
 
   it("a failed persist POST is surfaced via console.error (Zustand swallows the rejection)", async () => {
