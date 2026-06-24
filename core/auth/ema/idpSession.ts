@@ -1,12 +1,10 @@
 import type { OAuthStorage } from "../storage.js";
 import { isJwtExpired } from "./jwt.js";
-import { idpOAuthStorageKey } from "./storage.js";
+import { idpOAuthStorageKey, normalizeIdpIssuer } from "./storage.js";
 
 export type EmaIdpLoginState = "none" | "logged_in" | "expired";
 
-export function normalizeIdpIssuer(issuer: string): string {
-  return issuer.replace(/\/$/, "");
-}
+export { normalizeIdpIssuer };
 
 /** Whether a cached IdP OIDC session exists for the configured issuer. */
 export async function getEmaIdpLoginState(

@@ -13,6 +13,7 @@ import {
 } from "./constants.js";
 import { parseHttpUrl } from "../utils.js";
 import { discoverResourceAsMetadata } from "./resourceContext.js";
+import { normalizeIdpIssuer } from "./storage.js";
 import {
   parseOAuthTokenErrorResponse,
   postOAuthTokenRequest,
@@ -27,7 +28,7 @@ export async function exchangeIdJag(params: {
   scope?: string;
   fetchFn?: typeof fetch;
 }): Promise<string> {
-  const issuer = params.idp.issuer.replace(/\/$/, "");
+  const issuer = normalizeIdpIssuer(params.idp.issuer);
   const issuerUrl = parseHttpUrl(issuer, "EMA IdP issuer (Client Settings)");
   const idpMetadata = await discoverAuthorizationServerMetadata(issuerUrl, {
     fetchFn: params.fetchFn,
