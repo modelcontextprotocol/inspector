@@ -63,6 +63,7 @@ import {
   loadClientConfigRemote,
   saveClientConfigRemote,
 } from "@inspector/core/client/remote.js";
+import { formatClientConfigLoadError } from "@inspector/core/client/config-parse.js";
 import { MessageLogState } from "@inspector/core/mcp/state/messageLogState.js";
 import { FetchRequestLogState } from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import type { FetchRequestLogStateEventMap } from "@inspector/core/mcp/state/fetchRequestLogState.js";
@@ -316,6 +317,8 @@ const EMPTY_SETTINGS: InspectorServerSettings = {
 function bodyDroppedToastId(serverId: string): string {
   return `fetch-body-dropped-${serverId}`;
 }
+
+const CLIENT_CONFIG_LOAD_ERROR_NOTIFICATION_ID = "client-config-load-error";
 
 // Body of the "response body dropped" warning toast: a one-line summary of what
 // happened, the likely causes, and a link that opens this server's settings
@@ -599,8 +602,15 @@ function App() {
       authToken: getAuthToken(),
     })
       .then(setClientConfig)
-      .catch(() => {
+      .catch((err) => {
         setClientConfig({});
+        notifications.show({
+          id: CLIENT_CONFIG_LOAD_ERROR_NOTIFICATION_ID,
+          title: "Could not load Client Settings",
+          message: `${formatClientConfigLoadError(err)}\n\nCheck ~/.mcp-inspector/storage/client.json or re-enter settings in Client Settings.`,
+          color: "red",
+          autoClose: false,
+        });
       });
   }, [configBaseUrl]);
 

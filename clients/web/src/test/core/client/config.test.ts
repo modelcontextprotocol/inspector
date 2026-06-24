@@ -7,6 +7,7 @@ import {
   parseClientConfig,
   saveClientConfig,
 } from "@inspector/core/client/config.js";
+import { formatClientConfigLoadError } from "@inspector/core/client/config-parse.js";
 import {
   getActiveEnterpriseManagedAuthIdp,
   isEnterpriseManagedAuthEnabled,
@@ -81,6 +82,28 @@ describe("client config", () => {
     const filePath = path.join(tmpDir, "client.json");
     const config = await loadClientConfig({ filePath });
     expect(config).toEqual({});
+  });
+
+  it("formatClientConfigLoadError summarizes Zod validation failures", () => {
+    try {
+      parseClientConfig({
+        enterpriseManagedAuth: {
+          idp: { issuer: "not-a-url", clientId: "c", clientSecret: "s" },
+        },
+      });
+    } catch (err) {
+      const message = formatClientConfigLoadError(err);
+      expect(message).toContain("issuer");
+      expect(message).toContain("Invalid URL");
+      return;
+    }
+    throw new Error("expected parseClientConfig to throw");
+  });
+
+  it("formatClientConfigLoadError passes through Error message", () => {
+    expect(formatClientConfigLoadError(new Error("network down"))).toBe(
+      "network down",
+    );
   });
 
   it("saveClientConfig round-trips via loadClientConfig", async () => {

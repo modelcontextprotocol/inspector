@@ -42,3 +42,20 @@ export function parseClientConfig(raw: unknown): ClientConfig {
 export function serializeClientConfig(config: ClientConfig): string {
   return JSON.stringify(config, null, 2);
 }
+
+/** Human-readable message for a failed client.json load (parse or transport). */
+export function formatClientConfigLoadError(error: unknown): string {
+  if (error instanceof z.ZodError) {
+    const issue = error.issues[0];
+    if (issue) {
+      const field =
+        issue.path.length > 0 ? issue.path.map(String).join(".") : "config";
+      return `${field}: ${issue.message}`;
+    }
+    return "Invalid client.json shape";
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
