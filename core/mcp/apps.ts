@@ -85,6 +85,40 @@ function readUiMeta(carrier: WithUiMeta | undefined): UiMetaShape | undefined {
 }
 
 /**
+ * Normalizes a `ui://…` URI for comparison so trivial server-side differences
+ * (case, trailing slash) don't cause us to miss the resource block and silently
+ * drop its `_meta.ui` (csp/permissions/domain). `ui://` is a non-special scheme
+ * so the WHATWG URL parser preserves case and trailing slashes verbatim — we
+ * apply a targeted lowercase + single trailing-slash strip instead.
+ */
+function normalizeResourceUri(uri: string): string {
+  const lowered = uri.toLowerCase();
+  return lowered.endsWith("/") ? lowered.slice(0, -1) : lowered;
+}
+
+/**
+ * Locates the content block in a `resources/read` result that corresponds to
+ * the requested UI resource. Tries exact match, then normalized-URI match, then
+ * falls back to the sole content block when there is only one — `resources/read`
+ * by definition returns the content for the URI we asked for, so a single-block
+ * response is the right block even when the server echoes the URI back in a
+ * slightly different form.
+ */
+function findResourceContent(
+  resource: ReadResourceResult,
+  requestedUri: string,
+): ReadResourceResult["contents"][number] | undefined {
+  const exact = resource.contents.find((c) => c.uri === requestedUri);
+  if (exact) return exact;
+  const norm = normalizeResourceUri(requestedUri);
+  const normalized = resource.contents.find(
+    (c) => normalizeResourceUri(c.uri) === norm,
+  );
+  if (normalized) return normalized;
+  return resource.contents.length === 1 ? resource.contents[0] : undefined;
+}
+
+/**
  * Build an {@link AppInfo} from a tool definition and (optionally) the
  * `resources/read` result for its UI resource. Per the spec
  * ({@link McpUiToolMeta}), `csp` / `permissions` / `domain` belong on the
@@ -103,7 +137,7 @@ export function extractAppInfo(
     return { hasApp: false, toolName: tool.name };
   }
   const toolUi = readUiMeta(tool as WithUiMeta);
-  const content = resource?.contents.find((c) => c.uri === resourceUri);
+  const content = resource && findResourceContent(resource, resourceUri);
   const resourceUi =
     readUiMeta(content as WithUiMeta | undefined) ??
     readUiMeta(resource as WithUiMeta | undefined);

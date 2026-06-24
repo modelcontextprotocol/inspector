@@ -175,4 +175,73 @@ describe("extractAppInfo", () => {
       extractAppInfo(toolWith({ ui: { resourceUri: "https://x" } })),
     ).toThrow(/Invalid UI resource URI/);
   });
+
+  describe("resource-content URI matching", () => {
+    const csp = { connectDomains: ["https://api.example.com"] };
+
+    function resourceAt(
+      uris: string[],
+      uiOn: number | "result" = 0,
+    ): ReadResourceResult {
+      return {
+        contents: uris.map((uri, i) => ({
+          uri,
+          mimeType: "text/html",
+          text: "<html></html>",
+          ...(uiOn === i ? { _meta: { ui: { csp } } } : {}),
+        })),
+        ...(uiOn === "result" ? { _meta: { ui: { csp } } } : {}),
+      };
+    }
+
+    it("finds the content block on exact URI match", () => {
+      expect(extractAppInfo(APP_TOOL, resourceAt([NESTED_URI])).csp).toEqual(
+        csp,
+      );
+    });
+
+    it("finds the content block when the server's URI differs only by case or trailing slash", () => {
+      const tool = toolWith({
+        ui: { resourceUri: "ui://Demo/Widget", visibility: ["app"] },
+      });
+      // Two blocks so the single-block fallback can't paper over a failed
+      // normalize — the match must be on the normalized URI.
+      const info = extractAppInfo(
+        tool,
+        resourceAt(["ui://other/x", "ui://demo/widget/"], 1),
+      );
+      expect(info.csp).toEqual(csp);
+      expect(info.resourceMimeType).toBe("text/html");
+    });
+
+    it("falls back to the sole content block when the URI does not match — resources/read returns the requested resource by definition", () => {
+      const info = extractAppInfo(
+        APP_TOOL,
+        resourceAt(["ui://demo/widget?v=2"]),
+      );
+      expect(info.csp).toEqual(csp);
+    });
+
+    it("does not pick an arbitrary block when multiple non-matching blocks are returned", () => {
+      const info = extractAppInfo(
+        APP_TOOL,
+        resourceAt(["ui://other/a", "ui://other/b"], "result"),
+      );
+      // No content match → no resourceMimeType from a content block …
+      expect(info.resourceMimeType).toBeUndefined();
+      // … but the result-level _meta.ui still flows through.
+      expect(info.csp).toEqual(csp);
+    });
+
+    it("normalize is just lowercase + trailing-slash strip; an empty URI does not match", () => {
+      const result: ReadResourceResult = {
+        contents: [
+          { uri: "", text: "x", _meta: { ui: { csp } } },
+          { uri: "ui://other", text: "y" },
+        ],
+      };
+      const info = extractAppInfo(APP_TOOL, result);
+      expect(info.csp).toBeUndefined();
+    });
+  });
 });
