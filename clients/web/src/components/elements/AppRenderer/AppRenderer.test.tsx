@@ -793,6 +793,94 @@ describe("AppRenderer", () => {
     expect(screen.getByTitle("Cohort App")).toBeInTheDocument();
   });
 
+  describe("onAppStatusChange", () => {
+    it("fires loading on build, then ready when the view signals initialized", async () => {
+      const bridge = createMockBridge();
+      const onAppStatusChange = vi.fn();
+      renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={() => asBridge(bridge)}
+          onAppStatusChange={onAppStatusChange}
+        />,
+      );
+      await flushAsync();
+      expect(onAppStatusChange).toHaveBeenCalledWith("loading");
+      expect(onAppStatusChange).not.toHaveBeenCalledWith("ready");
+      await act(async () => bridge.emit("initialized"));
+      expect(onAppStatusChange).toHaveBeenLastCalledWith("ready");
+      expect(onAppStatusChange).not.toHaveBeenCalledWith("error");
+    });
+
+    it("fires loading then error when the bridge factory throws synchronously", async () => {
+      const onAppStatusChange = vi.fn();
+      const factory: BridgeFactory = () => {
+        throw new Error("boom");
+      };
+      renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={factory}
+          onAppStatusChange={onAppStatusChange}
+        />,
+      );
+      await flushAsync();
+      expect(onAppStatusChange.mock.calls).toEqual([["loading"], ["error"]]);
+    });
+
+    it("fires loading then error when the bridge factory rejects", async () => {
+      const onAppStatusChange = vi.fn();
+      const factory: BridgeFactory = () => Promise.reject(new Error("nope"));
+      renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={factory}
+          onAppStatusChange={onAppStatusChange}
+        />,
+      );
+      await flushAsync();
+      expect(onAppStatusChange.mock.calls).toEqual([["loading"], ["error"]]);
+    });
+
+    it("fires loading again on a real rebuild and not on the StrictMode reuse path", async () => {
+      const bridge = createMockBridge();
+      const onAppStatusChange = vi.fn();
+      const { rerender } = renderWithMantine(
+        <StrictMode>
+          <AppRenderer
+            sandboxPath="/sandbox.html"
+            tool={tool}
+            bridgeFactory={() => asBridge(bridge)}
+            onAppStatusChange={onAppStatusChange}
+          />
+        </StrictMode>,
+      );
+      await flushAsync();
+      // StrictMode's setup→cleanup→setup reuses the bridge; only ONE loading.
+      expect(
+        onAppStatusChange.mock.calls.filter(([s]) => s === "loading"),
+      ).toHaveLength(1);
+      await act(async () => bridge.emit("initialized"));
+      onAppStatusChange.mockClear();
+      // Changing an input forces a real rebuild → loading fires again.
+      rerender(
+        <StrictMode>
+          <AppRenderer
+            sandboxPath="/sandbox-2.html"
+            tool={tool}
+            bridgeFactory={() => asBridge(bridge)}
+            onAppStatusChange={onAppStatusChange}
+          />
+        </StrictMode>,
+      );
+      await flushAsync();
+      expect(onAppStatusChange).toHaveBeenCalledWith("loading");
+    });
+  });
+
   it("rebuilds the bridge when sandboxPath changes", async () => {
     const first = createMockBridge();
     const second = createMockBridge();

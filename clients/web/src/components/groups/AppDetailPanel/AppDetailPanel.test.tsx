@@ -149,4 +149,10 @@ describe("AppDetailPanel", () => {
     await user.click(screen.getByRole("button", { name: /open app/i }));
     expect(onOpenApp).toHaveBeenCalledTimes(1);
   });
+
+  it("exposes the Open App button via the open-app testid", () => {
+    renderWithMantine(<AppDetailPanel {...baseProps} tool={noFieldsTool} />);
+    const button = screen.getByTestId("open-app");
+    expect(button).toBe(screen.getByRole("button", { name: /open app/i }));
+  });
 });
