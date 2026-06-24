@@ -11,6 +11,13 @@ export interface DeepLink {
   serverConfig: MCPServerConfig;
   openApp?: string;
   appArgs: Record<string, unknown>;
+  /**
+   * When true, the Apps screen opens the selected app automatically once it is
+   * pre-selected and `appArgs` are seeded — no explicit "Open App" click. Same
+   * CSRF gate as `autoConnect`: the URL value must equal the session's API
+   * token, so a third-party-minted link cannot auto-invoke a tool.
+   */
+  autoOpen: boolean;
 }
 
 /**
@@ -133,6 +140,16 @@ export function parseDeepLink(
 
   const openApp = params.get("openApp") ?? undefined;
   const appArgs = decodeAppArgs(params.get("appArgs"));
+  // autoOpen is gated on the same per-launch token as autoConnect (already
+  // validated above), so the mere presence of the param is sufficient here —
+  // a link that reached this line has already proven knowledge of the token.
+  const autoOpen = params.get("autoOpen") === authToken;
 
-  return { serverId: DEEP_LINK_SERVER_ID, serverConfig, openApp, appArgs };
+  return {
+    serverId: DEEP_LINK_SERVER_ID,
+    serverConfig,
+    openApp,
+    appArgs,
+    autoOpen,
+  };
 }

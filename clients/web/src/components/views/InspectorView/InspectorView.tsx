@@ -27,6 +27,7 @@ import type {
   ServerEntry,
 } from "@inspector/core/mcp/types.js";
 import { isAppTool } from "@inspector/core/mcp/apps.js";
+import { collectSchemaDefaults } from "../../../utils/jsonUtils";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
 import { ServerListScreen } from "../../screens/ServerListScreen/ServerListScreen";
 import {
@@ -591,12 +592,26 @@ export function InspectorView({
     const target = appTools.find((t) => t.name === deepLink.openApp);
     if (!target) return;
     deepLinkOpenAppRef.current = true;
+    // Seed with the schema's defaults THEN overlay the deep-link's appArgs.
+    // Without the defaults, a required field that the form would display with
+    // its default value is absent from `formValues`, the schema-form's
+    // validity check fails, and the Open App button is silently disabled —
+    // an automated driver's click then no-ops and the iframe-wait spins
+    // forever.
+    const formValues = {
+      ...collectSchemaDefaults(target.inputSchema),
+      ...deepLink.appArgs,
+    };
     onAppsUiChange({
       ...appsUi,
       selectedAppName: target.name,
-      formValues: deepLink.appArgs,
+      formValues,
     });
     onSelectApp(target.name);
+    // `deepLink.autoOpen` is parsed and exposed for AppsScreen to consume
+    // (the screen owns its `running` state and the iframe mount); calling
+    // `onOpenApp` here would fire the tool call without mounting the
+    // renderer, so the open is left to the screen layer.
   }, [
     deepLink,
     connectionStatus,

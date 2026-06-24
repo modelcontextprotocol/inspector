@@ -62,7 +62,21 @@ describe("parseDeepLink", () => {
       serverConfig: { type: "streamable-http", url: "https://example.com/mcp" },
       openApp: undefined,
       appArgs: {},
+      autoOpen: false,
     });
+  });
+
+  it("sets autoOpen only when the param equals the session token (same CSRF gate as autoConnect)", () => {
+    const ok = parseDeepLink(
+      `?serverUrl=https%3A%2F%2Fexample.com%2Fmcp&autoConnect=${TOKEN}&autoOpen=${TOKEN}`,
+      TOKEN,
+    );
+    expect(ok?.autoOpen).toBe(true);
+    const wrong = parseDeepLink(
+      `?serverUrl=https%3A%2F%2Fexample.com%2Fmcp&autoConnect=${TOKEN}&autoOpen=1`,
+      TOKEN,
+    );
+    expect(wrong?.autoOpen).toBe(false);
   });
 
   it("honors transport=sse and ignores unknown transport values", () => {
