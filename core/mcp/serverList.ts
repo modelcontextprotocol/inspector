@@ -372,12 +372,17 @@ export function mcpConfigToServerEntries(config: MCPConfig): ServerEntry[] {
     };
     // Mirror the stdio `env` / `cwd` (SDK config fields) into the settings so
     // the Server Settings modal can edit them. They stay on `config` for the
-    // transport; reading them off a non-stdio config yields `undefined`.
-    const stdioConfig = normalizedConfig as StdioServerConfig;
+    // transport. Gate on the stdio type rather than blindly casting — a non-
+    // stdio config carries neither field, matching the modal's stdio-only UI.
+    const isStdio =
+      normalizedConfig.type === "stdio" || normalizedConfig.type === undefined;
+    const stdioConfig = isStdio
+      ? (normalizedConfig as StdioServerConfig)
+      : undefined;
     const settings = storedFieldsToInspectorSettings({
       ...inspectorFields,
-      env: stdioConfig.env,
-      cwd: stdioConfig.cwd,
+      env: stdioConfig?.env,
+      cwd: stdioConfig?.cwd,
     });
     if (settings !== undefined) entry.settings = settings;
     return entry;

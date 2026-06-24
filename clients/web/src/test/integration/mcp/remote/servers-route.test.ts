@@ -1270,6 +1270,53 @@ describe("/api/servers routes", () => {
       expect(stored).not.toHaveProperty("settings");
     });
 
+    it("preserves config.env / cwd and the keychain when a settings-only PUT omits them", async () => {
+      // An env-unaware caller patching just a timeout must not wipe the stored
+      // env/cwd. Absent env/cwd on the wire => preserve, distinct from explicit
+      // empty => clear.
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            srv: {
+              type: "stdio",
+              command: "node",
+              env: { API_KEY: "" },
+              cwd: "/srv/app",
+            },
+          },
+        }),
+      );
+      await h.secretStore.set("srv", envSecretField("API_KEY"), "abc-123");
+      const res = await fetch(`${h.baseUrl}/api/servers/srv`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        // env / cwd intentionally omitted; only a timeout is patched.
+        body: JSON.stringify({
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 5000,
+            requestTimeout: 0,
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = readConfig(h.configPath).mcpServers.srv as {
+        env?: Record<string, string>;
+        cwd?: string;
+      };
+      // Disk keys + cwd preserved (env value blanked, as always — it lives in
+      // the keychain).
+      expect(stored.env).toEqual({ API_KEY: "" });
+      expect(stored.cwd).toBe("/srv/app");
+      // Keychain value survives: the omit path rehydrates it so the reconcile
+      // doesn't sweep the untouched secret.
+      expect(await h.secretStore.get("srv", envSecretField("API_KEY"))).toBe(
+        "abc-123",
+      );
+    });
+
     it("GET lifts the stored env / cwd back into the wire config (round-trip)", async () => {
       writeFileSync(
         h.configPath,
