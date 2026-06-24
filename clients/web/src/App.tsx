@@ -1438,8 +1438,9 @@ function App() {
   // `onToggleConnection` unloaded the previous one), so all React state is
   // reset and we recover the initiating server from sessionStorage. We wait for
   // `servers` to hydrate before acting; the ref guard keeps the exchange to a
-  // single run. The persisted PKCE verifier + DCR client info live in
-  // `BrowserOAuthStorage` and survive the redirect, so `completeOAuthFlow`
+  // single run. The persisted PKCE verifier + DCR client info live in the
+  // backend-backed `RemoteOAuthStorage` (`~/.mcp-inspector/storage/oauth.json`)
+  // and survive the redirect, so `completeOAuthFlow`
   // exchanges the code without needing the original in-memory state machine.
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1455,10 +1456,22 @@ function App() {
     // session key the pre-redirect page saved the fetch log under, so the
     // rebuilt client can restore those `auth` entries. Read it before the
     // URL is cleared below.
+    //
+    // CSRF binding: the inspector relies on PKCE (the SDK saves/reads the
+    // `code_verifier`, so an attacker-supplied authorization code cannot be
+    // exchanged without our verifier) and on `pendingId` from sessionStorage
+    // (only this origin can have set it, so a callback we never initiated is
+    // rejected below). The `state` value itself is not stored before
+    // redirect — `provider.state()` mints a fresh one inside the SDK call —
+    // so a byte-for-byte comparison is not possible here. We DO require that
+    // a returned `state` parses to our `{mode}:{authId}` shape; a callback
+    // carrying a `state` that does not parse is treated as a mismatch and
+    // rejected. Persisting and comparing the exact `state` value is a
+    // follow-up that needs a `saveState` hook on the OAuth provider.
     const stateParam = new URLSearchParams(window.location.search).get("state");
-    const sessionId = stateParam
-      ? (parseOAuthState(stateParam)?.authId ?? undefined)
-      : undefined;
+    const parsedState = stateParam ? parseOAuthState(stateParam) : null;
+    const stateRejected = stateParam !== null && parsedState === null;
+    const sessionId = parsedState?.authId ?? undefined;
     const pendingId =
       window.sessionStorage.getItem(OAUTH_PENDING_SERVER_KEY) ?? undefined;
     window.sessionStorage.removeItem(OAUTH_PENDING_SERVER_KEY);
@@ -1473,6 +1486,18 @@ function App() {
     // setState-in-effect is correct in general, but this is a ref-guarded
     // run-once effect.
     void (async () => {
+      if (stateRejected) {
+        const message =
+          "OAuth callback carried an unrecognized state parameter; rejecting to prevent a cross-site request. Please try connecting again.";
+        recordConnectError(message);
+        notifications.show({
+          title: "OAuth callback rejected",
+          message,
+          color: "red",
+        });
+        return;
+      }
+
       if (!params.successful) {
         const message = generateOAuthErrorDescription(params);
         recordConnectError(message);
