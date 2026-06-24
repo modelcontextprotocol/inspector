@@ -106,6 +106,78 @@ The form area (excluding the sidebar search filter) is
 that `appArgs` landed, or to fill a field the server requires that was not
 passed in the URL.
 
+## 5. OAuth-gated servers
+
+When the target server requires OAuth, complete the flow once in the **web**
+inspector — the credential is written through the backend to
+`~/.mcp-inspector/storage/oauth.json` (mode 0600), so the **CLI** on the same
+machine can reuse it:
+
+```bash
+npx @modelcontextprotocol/inspector --cli \
+  --transport http --server-url "$SERVER_URL" \
+  --use-stored-auth --method tools/list
+```
+
+`--use-stored-auth` looks up `state.servers[$SERVER_URL].tokens.access_token`
+and injects `Authorization: Bearer <token>`. The lookup is by exact URL string
+(after `new URL().href` normalization), so pass the same `--server-url` you
+gave the web inspector — including scheme and any trailing path. The token is
+not refreshed; if the call returns 401, re-run the OAuth flow in the web
+inspector.
+
+Connection state persists in `~/.mcp-inspector/` between runs. For a clean
+slate (e.g., between automated reviews of different servers), remove that
+directory before launching:
+
+```bash
+rm -rf ~/.mcp-inspector
+```
+
+## 6. Reaching the web inspector remotely (SSH port-forward)
+
+When the inspector backend runs on another host (a CI runner, a development
+container) and you want to complete OAuth or visually inspect a rendered App
+from your local browser, forward **both** ports:
+
+```bash
+ssh -L 16274:127.0.0.1:16274 -L 16275:127.0.0.1:16275 <remote-host>
+```
+
+Then open `http://127.0.0.1:16274/?MCP_INSPECTOR_API_TOKEN=$TOKEN` locally.
+
+- Use `127.0.0.1`, **not** `localhost` — the backend's origin guard checks the
+  literal `Origin` header against the configured `HOST`, and a `localhost`
+  origin is rejected when the server was started with `HOST=127.0.0.1`.
+- Forward `:16275` (`MCP_SANDBOX_PORT`) as well as `:16274`. The Apps tab
+  renders widgets in an iframe served from that second origin; without it the
+  App frame stays blank.
+- Forward the **same** local port number you bind on the remote (e.g.,
+  `16274:…:16274`). The browser sends `Origin: http://127.0.0.1:<local-port>`
+  and the backend compares it to its own port — a mismatch rejects every
+  `/api/*` call with no visible error.
+- The OAuth credential ends up in `~/.mcp-inspector/storage/oauth.json` on the
+  **remote** host (where the backend runs), so a CLI invocation on that host
+  can pick it up with `--use-stored-auth` (§ 5).
+
+## 7. Reaching the target server through an HTTP proxy
+
+The CLI's outbound connections honor the standard `HTTPS_PROXY` / `HTTP_PROXY`
+/ `NO_PROXY` environment variables. Set them when the target MCP server is only
+reachable via a forward proxy (corporate egress, a tunnel to another network):
+
+```bash
+HTTPS_PROXY=http://proxy.example:3128 \
+npx @modelcontextprotocol/inspector --cli \
+  --transport http --server-url "$SERVER_URL" --method tools/list
+```
+
+Per-scheme routing and `NO_PROXY` exclusions are handled by undici's
+`EnvHttpProxyAgent`; no inspector-specific configuration is needed. If the
+proxy variable is set but the `undici` package is missing (it ships with the
+CLI build), the CLI exits with a clear error rather than silently bypassing
+the proxy.
+
 ## Local fixture
 
 The bundled test server includes an `mcp_app_demo` tool (preset
