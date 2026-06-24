@@ -92,14 +92,24 @@ describe("Storage adapters", () => {
       await expect(adapter.getItem("x")).rejects.toThrow(/500/);
     });
 
-    it("setItem throws when the POST fails", async () => {
+    it("setItem throws (and console.errors) when the POST fails, naming the storeId and URL", async () => {
       const fetchFn = vi
         .fn<typeof fetch>()
         .mockResolvedValueOnce(new Response("nope", { status: 500 }));
       const adapter = makeAdapter(fetchFn as typeof fetch);
-      await expect(
-        adapter.setItem("name", { state: { a: 1 }, version: 0 }),
-      ).rejects.toThrow(/500/);
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await expect(
+          adapter.setItem("name", { state: { a: 1 }, version: 0 }),
+        ).rejects.toThrow(
+          /Failed to write store 'test' to http:\/\/remote\.example\/api\/storage\/test: 500/,
+        );
+        // The same failure is also surfaced via console.error since Zustand
+        // persist swallows setItem rejections when it drives the write.
+        expect(err).toHaveBeenCalled();
+      } finally {
+        err.mockRestore();
+      }
     });
 
     it("removeItem tolerates 404 but rethrows on other failures", async () => {

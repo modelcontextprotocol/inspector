@@ -161,37 +161,6 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
     expect(post?.[1]?.keepalive).toBe(true);
   });
 
-  it("a failed persist POST is surfaced via console.error (Zustand swallows the rejection)", async () => {
-    const fetchFn = vi.fn(
-      async (_url: RequestInfo | URL, init?: RequestInit) => {
-        return (init?.method ?? "GET") === "POST"
-          ? new Response("nope", { status: 500 })
-          : new Response("{}", { status: 200 });
-      },
-    );
-    const err = vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      const s = new RemoteOAuthStorage({
-        baseUrl: "http://remote.example",
-        storeId: "fail-test",
-        fetchFn: fetchFn as unknown as typeof fetch,
-      });
-      await s.ready();
-      await s.saveTokens(serverUrl, {
-        access_token: "t",
-        token_type: "Bearer",
-      });
-      await Promise.resolve();
-      await Promise.resolve();
-      expect(err).toHaveBeenCalled();
-      const msg = err.mock.calls.flat().map(String).join(" ");
-      expect(msg).toContain("persist write failed");
-      expect(msg).toContain("fail-test");
-    } finally {
-      err.mockRestore();
-    }
-  });
-
   it("default storeId is 'oauth' when omitted", () => {
     const s = new RemoteOAuthStorage({
       baseUrl: "http://r.example",
