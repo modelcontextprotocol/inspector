@@ -1,9 +1,9 @@
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { OAuthStorage } from "../storage.js";
 import type { EnterpriseManagedAuthIdpConfig } from "../../client/types.js";
-import { isJwtExpired } from "./jwt.js";
 import {
   completeIdpOidcAuthorization,
+  getValidIdToken,
   startIdpOidcAuthorization,
 } from "./idpOidc.js";
 import {
@@ -21,17 +21,6 @@ export interface EmaFlowConfig {
   redirectUrl: string;
   storage: OAuthStorage;
   fetchFn?: typeof fetch;
-}
-
-async function getValidIdToken(
-  storage: OAuthStorage,
-  issuer: string,
-): Promise<string | undefined> {
-  const session = await storage.getIdpSession(issuer);
-  if (!session?.idToken || isJwtExpired(session.idToken)) {
-    return undefined;
-  }
-  return session.idToken;
 }
 
 export async function mintEmaResourceTokens(
@@ -56,8 +45,11 @@ export async function mintEmaResourceTokens(
     );
   }
 
-  const issuer = config.idp.issuer.replace(/\/$/, "");
-  const idToken = await getValidIdToken(config.storage, issuer);
+  const idToken = await getValidIdToken({
+    idp: config.idp,
+    storage: config.storage,
+    fetchFn: config.fetchFn,
+  });
   if (!idToken) {
     throw new Error("Valid IdP ID Token required for EMA token mint");
   }
@@ -85,8 +77,11 @@ export async function mintEmaResourceTokens(
 
 /** Silent path: cached IdP session + legs 2–3. Returns false when IdP login is needed. */
 export async function trySilentEmaAuth(config: EmaFlowConfig): Promise<boolean> {
-  const issuer = config.idp.issuer.replace(/\/$/, "");
-  const idToken = await getValidIdToken(config.storage, issuer);
+  const idToken = await getValidIdToken({
+    idp: config.idp,
+    storage: config.storage,
+    fetchFn: config.fetchFn,
+  });
   if (!idToken) return false;
   try {
     const tokens = await mintEmaResourceTokens(config);
@@ -150,8 +145,12 @@ export async function completeEmaIdpAuthorizationAndMint(
 export async function refreshEmaResourceTokens(
   config: EmaFlowConfig,
 ): Promise<OAuthTokens | undefined> {
-  const issuer = config.idp.issuer.replace(/\/$/, "");
-  if (!(await getValidIdToken(config.storage, issuer))) {
+  const idToken = await getValidIdToken({
+    idp: config.idp,
+    storage: config.storage,
+    fetchFn: config.fetchFn,
+  });
+  if (!idToken) {
     return undefined;
   }
   const tokens = await mintEmaResourceTokens(config);

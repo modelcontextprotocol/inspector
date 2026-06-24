@@ -33,7 +33,10 @@ function jwtWithExp(expSec: number): string {
 }
 
 function createMemoryStorage(
-  idpSessions: Record<string, { idToken?: string }> = {},
+  idpSessions: Record<
+    string,
+    { idToken?: string; refreshToken?: string }
+  > = {},
   savedTokens: Record<string, unknown> = {},
 ): OAuthStorage {
   return {
@@ -42,6 +45,7 @@ function createMemoryStorage(
       idpSessions[issuer] = { ...idpSessions[issuer], ...updates };
     }),
     clearIdpSession: vi.fn(),
+    getServerMetadata: vi.fn(() => undefined),
     getTokens: vi.fn(async (url: string) => savedTokens[url] as never),
     saveTokens: vi.fn(async (url: string, tokens) => {
       savedTokens[url] = tokens;
@@ -100,6 +104,12 @@ function mockEmaFetch(idToken: string) {
     }
     if (url === `${IDP_ISSUER}/token`) {
       const body = new URLSearchParams(init?.body as string);
+      if (body.get("grant_type") === "refresh_token") {
+        const refreshed = jwtWithExp(Math.floor(Date.now() / 1000) + 3600);
+        return new Response(
+          JSON.stringify({ id_token: refreshed, token_type: "Bearer" }),
+        );
+      }
       expect(body.get("grant_type")).toBe(GRANT_TYPE_TOKEN_EXCHANGE);
       expect(body.get("subject_token")).toBe(idToken);
       return new Response(
@@ -193,5 +203,63 @@ describe("emaFlow", () => {
 
   it("trySilentEmaAuth returns false when IdP session is absent", async () => {
     expect(await trySilentEmaAuth(baseConfig(storage))).toBe(false);
+  });
+
+  it("mintEmaResourceTokens refreshes expired ID Token via refresh_token", async () => {
+    const expired = jwtWithExp(Math.floor(Date.now() / 1000) - 60);
+    const refreshed = jwtWithExp(Math.floor(Date.now() / 1000) + 3600);
+    idpSessions[IDP_ISSUER] = {
+      idToken: expired,
+      refreshToken: "rt-1",
+    };
+
+    const fetchFn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (
+        url.includes("/.well-known/oauth-authorization-server") &&
+        url.startsWith(IDP_ISSUER)
+      ) {
+        return new Response(JSON.stringify(minimalOAuthAsMetadata(IDP_ISSUER)));
+      }
+      if (url === `${IDP_ISSUER}/token`) {
+        const body = new URLSearchParams(init?.body as string);
+        if (body.get("grant_type") === "refresh_token") {
+          return new Response(
+            JSON.stringify({ id_token: refreshed, token_type: "Bearer" }),
+          );
+        }
+        expect(body.get("grant_type")).toBe(GRANT_TYPE_TOKEN_EXCHANGE);
+        expect(body.get("subject_token")).toBe(refreshed);
+        return new Response(
+          JSON.stringify({
+            access_token: "id-jag-from-mock",
+            issued_token_type: TOKEN_TYPE_ID_JAG,
+          }),
+        );
+      }
+      if (
+        url.includes("/.well-known/oauth-authorization-server") &&
+        url.startsWith(AS_ISSUER)
+      ) {
+        return new Response(JSON.stringify(minimalOAuthAsMetadata(AS_ISSUER)));
+      }
+      if (url === `${AS_ISSUER}/token`) {
+        return new Response(
+          JSON.stringify({
+            access_token: "resource-access-token",
+            token_type: "Bearer",
+          }),
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const tokens = await mintEmaResourceTokens(
+      { ...baseConfig(storage), fetchFn },
+      resourceContext(),
+    );
+
+    expect(tokens.access_token).toBe("resource-access-token");
+    expect(idpSessions[IDP_ISSUER]?.idToken).toBe(refreshed);
   });
 });

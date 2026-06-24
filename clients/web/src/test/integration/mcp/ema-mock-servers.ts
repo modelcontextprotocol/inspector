@@ -118,6 +118,27 @@ export async function startMockIdpServer(): Promise<StoppableMockServer> {
 
     if (req.method === "POST" && url.pathname === "/token") {
       const body = await readFormBody(req);
+      if (body.get("grant_type") === "refresh_token") {
+        if (
+          body.get("client_id") !== EMA_MOCK_IDP_CLIENT_ID ||
+          body.get("client_secret") !== EMA_MOCK_IDP_CLIENT_SECRET
+        ) {
+          sendJson(res, 401, { error: "invalid_client" });
+          return;
+        }
+        if (!body.get("refresh_token")) {
+          sendJson(res, 400, { error: "invalid_request" });
+          return;
+        }
+        const exp = Math.floor(Date.now() / 1000) + 3600;
+        const refreshedIdToken = await createMockIdToken(baseUrl, exp);
+        sendJson(res, 200, {
+          id_token: refreshedIdToken,
+          refresh_token: body.get("refresh_token"),
+          token_type: "Bearer",
+        });
+        return;
+      }
       if (body.get("grant_type") !== GRANT_TYPE_TOKEN_EXCHANGE) {
         sendJson(res, 400, {
           error: "unsupported_grant_type",
@@ -229,9 +250,12 @@ export async function startMockResourceAsServer(
 }
 
 /** Non-expired ID Token JWT for seeding IdP session in storage (leg 1 shortcut). */
-export async function createMockIdToken(issuer: string): Promise<string> {
+export async function createMockIdToken(
+  issuer: string,
+  expSec?: number,
+): Promise<string> {
   const { privateKey } = await generateKeyPair("RS256");
-  const exp = Math.floor(Date.now() / 1000) + 3600;
+  const exp = expSec ?? Math.floor(Date.now() / 1000) + 3600;
   return new SignJWT({ sub: "ema-test-user" })
     .setProtectedHeader({ alg: "RS256" })
     .setIssuer(issuer.replace(/\/$/, ""))

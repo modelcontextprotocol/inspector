@@ -12,8 +12,36 @@ import type { OAuthStorage } from "../storage.js";
 import type { EnterpriseManagedAuthIdpConfig } from "../../client/types.js";
 import { generateOAuthStateWithExecution, parseHttpUrl } from "../utils.js";
 import { IDP_OIDC_SCOPES } from "./constants.js";
-import { jwtExpiresAtMs } from "./jwt.js";
+import { isJwtExpired, jwtExpiresAtMs } from "./jwt.js";
+import { normalizeIdpIssuer } from "./idpSession.js";
 import { idpOAuthStorageKey } from "./storage.js";
+import {
+  parseOAuthTokenErrorResponse,
+  postOAuthTokenRequest,
+} from "./tokenEndpoint.js";
+
+function idpClientInformation(
+  idp: EnterpriseManagedAuthIdpConfig,
+): OAuthClientInformation {
+  return {
+    client_id: idp.clientId,
+    client_secret: idp.clientSecret,
+    token_endpoint_auth_method: "client_secret_post",
+  } as OAuthClientInformation;
+}
+
+async function resolveIdpMetadata(
+  issuer: string,
+  storage: OAuthStorage,
+  fetchFn?: typeof fetch,
+): Promise<OAuthMetadata> {
+  const storageKey = idpOAuthStorageKey(issuer);
+  const cached = storage.getServerMetadata(storageKey);
+  if (cached?.token_endpoint) {
+    return cached;
+  }
+  return discoverIdpMetadata(issuer, fetchFn);
+}
 
 export async function discoverIdpMetadata(
   issuer: string,
@@ -35,13 +63,9 @@ export async function startIdpOidcAuthorization(params: {
   storage: OAuthStorage;
   fetchFn?: typeof fetch;
 }): Promise<{ authorizationUrl: URL }> {
-  const issuer = params.idp.issuer.replace(/\/$/, "");
+  const issuer = normalizeIdpIssuer(params.idp.issuer);
   const metadata = await discoverIdpMetadata(issuer, params.fetchFn);
-  const clientInformation = {
-    client_id: params.idp.clientId,
-    client_secret: params.idp.clientSecret,
-    token_endpoint_auth_method: "client_secret_post",
-  } as OAuthClientInformation;
+  const clientInformation = idpClientInformation(params.idp);
   const storageKey = idpOAuthStorageKey(issuer);
   const state = generateOAuthStateWithExecution("quick");
   const issuerUrl = parseHttpUrl(issuer, "EMA IdP issuer (Client Settings)");
@@ -76,7 +100,7 @@ export async function completeIdpOidcAuthorization(params: {
   refreshToken?: string;
   idTokenExpiresAt?: number;
 }> {
-  const issuer = params.idp.issuer.replace(/\/$/, "");
+  const issuer = normalizeIdpIssuer(params.idp.issuer);
   const storageKey = idpOAuthStorageKey(issuer);
   const metadata = params.storage.getServerMetadata(storageKey);
   if (!metadata) {
@@ -121,4 +145,92 @@ export async function completeIdpOidcAuthorization(params: {
     refreshToken: tokens.refresh_token,
     idTokenExpiresAt,
   };
+}
+
+/** Redeem a cached IdP refresh token for a new ID Token (OIDC refresh grant). */
+export async function refreshIdpOidcSession(params: {
+  idp: EnterpriseManagedAuthIdpConfig;
+  storage: OAuthStorage;
+  fetchFn?: typeof fetch;
+}): Promise<string> {
+  const issuer = normalizeIdpIssuer(params.idp.issuer);
+  const session = await params.storage.getIdpSession(issuer);
+  if (!session?.refreshToken) {
+    throw new Error("IdP refresh token not available");
+  }
+
+  const metadata = await resolveIdpMetadata(
+    issuer,
+    params.storage,
+    params.fetchFn,
+  );
+  if (!metadata.token_endpoint) {
+    throw new Error("IdP metadata missing token_endpoint");
+  }
+
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: session.refreshToken,
+  });
+
+  const response = await postOAuthTokenRequest(
+    parseHttpUrl(
+      metadata.token_endpoint,
+      "IdP token_endpoint (from OIDC discovery)",
+    ),
+    body,
+    metadata,
+    idpClientInformation(params.idp),
+    params.fetchFn,
+  );
+  if (!response.ok) {
+    throw await parseOAuthTokenErrorResponse(
+      response,
+      "EMA IdP refresh (OIDC refresh_token grant)",
+    );
+  }
+
+  const json = (await response.json()) as {
+    id_token?: string;
+    refresh_token?: string;
+  };
+  const idToken = json.id_token;
+  if (!idToken) {
+    throw new Error("IdP refresh did not return an ID Token");
+  }
+
+  await params.storage.saveIdpSession(issuer, {
+    idToken,
+    refreshToken: json.refresh_token ?? session.refreshToken,
+    idTokenExpiresAt: jwtExpiresAtMs(idToken),
+  });
+
+  return idToken;
+}
+
+/**
+ * Returns a non-expired IdP ID Token from storage, refreshing via refresh_token
+ * when the cached ID Token has expired but a refresh token remains.
+ */
+export async function getValidIdToken(params: {
+  idp: EnterpriseManagedAuthIdpConfig;
+  storage: OAuthStorage;
+  fetchFn?: typeof fetch;
+}): Promise<string | undefined> {
+  const issuer = normalizeIdpIssuer(params.idp.issuer);
+  const session = await params.storage.getIdpSession(issuer);
+  if (!session?.idToken) {
+    return undefined;
+  }
+  if (!isJwtExpired(session.idToken)) {
+    return session.idToken;
+  }
+  if (!session.refreshToken) {
+    return undefined;
+  }
+  try {
+    return await refreshIdpOidcSession(params);
+  } catch {
+    return undefined;
+  }
 }

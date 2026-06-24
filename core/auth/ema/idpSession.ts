@@ -18,8 +18,9 @@ export async function getEmaIdpLoginState(
 
   const session = await storage.getIdpSession(normalized);
   if (!session?.idToken) return "none";
-  if (isJwtExpired(session.idToken)) return "expired";
-  return "logged_in";
+  if (!isJwtExpired(session.idToken)) return "logged_in";
+  if (session.refreshToken) return "logged_in";
+  return "expired";
 }
 
 export function clearEmaIdpSession(storage: OAuthStorage, issuer: string): void {

@@ -47,13 +47,24 @@ describe("idpSession", () => {
     expect(storage.getIdpSession).toHaveBeenCalledWith("https://idp.test");
   });
 
-  it("getEmaIdpLoginState returns expired for expired id token", async () => {
+  it("getEmaIdpLoginState returns expired for expired id token without refresh", async () => {
     const exp = Math.floor(Date.now() / 1000) - 3600;
     vi.mocked(storage.getIdpSession).mockResolvedValue({
       idToken: jwtWithExp(exp),
     });
     expect(await getEmaIdpLoginState(storage, "https://idp.test")).toBe(
       "expired",
+    );
+  });
+
+  it("getEmaIdpLoginState returns logged_in when id token expired but refresh_token remains", async () => {
+    const exp = Math.floor(Date.now() / 1000) - 3600;
+    vi.mocked(storage.getIdpSession).mockResolvedValue({
+      idToken: jwtWithExp(exp),
+      refreshToken: "rt-1",
+    });
+    expect(await getEmaIdpLoginState(storage, "https://idp.test")).toBe(
+      "logged_in",
     );
   });
 

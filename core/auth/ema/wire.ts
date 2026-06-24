@@ -1,7 +1,4 @@
-import {
-  discoverAuthorizationServerMetadata,
-  selectClientAuthMethod,
-} from "@modelcontextprotocol/sdk/client/auth.js";
+import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
   OAuthClientInformation,
   OAuthMetadata,
@@ -17,70 +14,10 @@ import {
 } from "./constants.js";
 import { parseHttpUrl } from "../utils.js";
 import { discoverResourceAsMetadata } from "./resourceContext.js";
-
-async function parseOAuthErrorResponse(
-  response: Response,
-  step: string,
-): Promise<Error> {
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    return new Error(`${step}: token request failed (HTTP ${response.status})`);
-  }
-  if (typeof body === "object" && body !== null) {
-    const record = body as { error?: string; error_description?: string };
-    const parts = [step];
-    if (record.error) parts.push(`error=${record.error}`);
-    if (record.error_description) parts.push(record.error_description);
-    if (parts.length > 1) {
-      return new Error(parts.join(": "));
-    }
-  }
-  return new Error(`${step}: token request failed (HTTP ${response.status})`);
-}
-
-function applyClientAuth(
-  metadata: OAuthMetadata | undefined,
-  clientInformation: OAuthClientInformation,
-  headers: Headers,
-  body: URLSearchParams,
-): void {
-  const supported = metadata?.token_endpoint_auth_methods_supported ?? [];
-  const method = selectClientAuthMethod(clientInformation, supported);
-  if (method === "client_secret_basic" && clientInformation.client_secret) {
-    const credentials = btoa(
-      `${clientInformation.client_id}:${clientInformation.client_secret}`,
-    );
-    headers.set("Authorization", `Basic ${credentials}`);
-    return;
-  }
-  if (method === "client_secret_post" && clientInformation.client_secret) {
-    body.set("client_id", clientInformation.client_id);
-    body.set("client_secret", clientInformation.client_secret);
-    return;
-  }
-  body.set("client_id", clientInformation.client_id);
-}
-
-async function postTokenRequest(
-  tokenUrl: URL,
-  body: URLSearchParams,
-  metadata: OAuthMetadata | undefined,
-  clientInformation: OAuthClientInformation,
-  fetchFn?: typeof fetch,
-): Promise<Response> {
-  const headers = new Headers({
-    "Content-Type": "application/x-www-form-urlencoded",
-    Accept: "application/json",
-  });
-  applyClientAuth(metadata, clientInformation, headers, body);
-  return (fetchFn ?? fetch)(tokenUrl, {
-    method: "POST",
-    headers,
-    body,
-  });
-}
+import {
+  parseOAuthTokenErrorResponse,
+  postOAuthTokenRequest,
+} from "./tokenEndpoint.js";
 
 /** Leg 2 — exchange ID Token for ID-JAG at the enterprise IdP (RFC 8693). */
 export async function exchangeIdJag(params: {
@@ -120,7 +57,7 @@ export async function exchangeIdJag(params: {
     body.set("scope", params.scope);
   }
 
-  const response = await postTokenRequest(
+  const response = await postOAuthTokenRequest(
     parseHttpUrl(
       idpMetadata.token_endpoint,
       "IdP token_endpoint (from OIDC discovery)",
@@ -131,7 +68,7 @@ export async function exchangeIdJag(params: {
     params.fetchFn,
   );
   if (!response.ok) {
-    throw await parseOAuthErrorResponse(
+    throw await parseOAuthTokenErrorResponse(
       response,
       "EMA leg 2 (IdP token exchange for ID-JAG)",
     );
@@ -187,7 +124,7 @@ export async function redeemIdJagForAccessToken(params: {
     body.set("resource", params.resource);
   }
 
-  const response = await postTokenRequest(
+  const response = await postOAuthTokenRequest(
     parseHttpUrl(
       asMetadata.token_endpoint,
       "resource authorization server token_endpoint (from AS discovery)",
@@ -198,7 +135,7 @@ export async function redeemIdJagForAccessToken(params: {
     params.fetchFn,
   );
   if (!response.ok) {
-    throw await parseOAuthErrorResponse(
+    throw await parseOAuthTokenErrorResponse(
       response,
       "EMA leg 3 (resource AS JWT bearer grant)",
     );
