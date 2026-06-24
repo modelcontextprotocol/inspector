@@ -277,4 +277,74 @@ describe("ServerCard", () => {
       ).toBeInTheDocument();
     });
   });
+
+  describe("freshly-added highlight", () => {
+    it("scrolls into view when highlighted", () => {
+      const scrollIntoView = vi.fn();
+      const orig = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoView;
+      try {
+        renderWithMantine(<ServerCard {...baseProps} highlighted />);
+        expect(scrollIntoView).toHaveBeenCalled();
+      } finally {
+        Element.prototype.scrollIntoView = orig;
+      }
+    });
+
+    it("does not scroll when not highlighted", () => {
+      const scrollIntoView = vi.fn();
+      const orig = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoView;
+      try {
+        renderWithMantine(<ServerCard {...baseProps} />);
+        expect(scrollIntoView).not.toHaveBeenCalled();
+      } finally {
+        Element.prototype.scrollIntoView = orig;
+      }
+    });
+
+    it("clears the highlight when the card is clicked", async () => {
+      const user = userEvent.setup();
+      const onClearHighlight = vi.fn();
+      renderWithMantine(
+        <ServerCard
+          {...baseProps}
+          highlighted
+          onClearHighlight={onClearHighlight}
+        />,
+      );
+      await user.click(screen.getByText("My MCP Server"));
+      expect(onClearHighlight).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not clear on click when not highlighted", async () => {
+      const user = userEvent.setup();
+      const onClearHighlight = vi.fn();
+      renderWithMantine(
+        <ServerCard {...baseProps} onClearHighlight={onClearHighlight} />,
+      );
+      await user.click(screen.getByText("My MCP Server"));
+      expect(onClearHighlight).not.toHaveBeenCalled();
+    });
+
+    it("still toggles the connection when the switch is clicked while highlighted", async () => {
+      const user = userEvent.setup();
+      const onToggleConnection = vi.fn();
+      const onClearHighlight = vi.fn();
+      renderWithMantine(
+        <ServerCard
+          {...baseProps}
+          connection={disconnected}
+          highlighted
+          onToggleConnection={onToggleConnection}
+          onClearHighlight={onClearHighlight}
+        />,
+      );
+      // A single click both connects and dismisses the highlight — the card
+      // isn't remounted, so the toggle's action isn't swallowed.
+      await user.click(screen.getByRole("switch"));
+      expect(onToggleConnection).toHaveBeenCalledWith("srv-1");
+      expect(onClearHighlight).toHaveBeenCalledTimes(1);
+    });
+  });
 });

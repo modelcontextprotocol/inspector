@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Badge, Button, Card, Group, Stack, Text } from "@mantine/core";
+import { BorderAnimate } from "@gfazioli/mantine-border-animate";
 import type {
   MCPServerConfig,
   ServerEntry,
@@ -33,6 +34,21 @@ export interface ServerCardProps extends ServerEntry {
    * drag-and-drop.
    */
   dragHandle?: ReactNode;
+  /**
+   * When true, the card is freshly added: it draws an animated border (Mantine
+   * Border Animate) to draw the eye. Cleared by `onClearHighlight` on any click
+   * on the card.
+   */
+  highlighted?: boolean;
+  /**
+   * Whether a highlighted card scrolls itself into view. When several cards are
+   * highlighted at once (a batch import) only the first should scroll, so the
+   * list jumps to the start of the batch rather than fighting over the viewport.
+   * Defaults to true.
+   */
+  scrollOnHighlight?: boolean;
+  /** Called when a highlighted card is clicked, to dismiss the animated border. */
+  onClearHighlight?: () => void;
 }
 
 const HeaderLeft = Group.withProps({
@@ -120,19 +136,37 @@ export function ServerCard({
   compact = false,
   writable = true,
   dragHandle,
+  highlighted = false,
+  scrollOnHighlight = true,
+  onClearHighlight,
 }: ServerCardProps) {
   const isDimmed = activeServer !== undefined && activeServer !== id;
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // When freshly added, bring the card into view (it may be far down a long
+  // list). Only the designated card scrolls (the first of a highlighted batch).
+  useEffect(() => {
+    if (highlighted && scrollOnHighlight) {
+      rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlighted, scrollOnHighlight]);
   const transport = getTransport(config);
   const commandOrUrl = getCommandOrUrl(config);
   const version = info?.version;
   const protocolVersion =
     connection.status === "connected" ? connection.protocolVersion : undefined;
 
-  return (
+  const card = (
     <Card
+      ref={rootRef}
       withBorder
       padding="lg"
+      // BorderAnimate's wrapper is display:flex, so the card must stretch to
+      // fill it — otherwise the card shrinks to content width while the
+      // animated border spans the full grid cell.
+      w="100%"
       variant={isDimmed ? "disabled" : undefined}
+      onClick={highlighted ? onClearHighlight : undefined}
       {...(isDimmed ? { "aria-disabled": true, inert: true } : {})}
     >
       <Stack gap="sm">
@@ -201,5 +235,20 @@ export function ServerCard({
         )}
       </Stack>
     </Card>
+  );
+
+  // Always render the wrapper and toggle `show`/`animate` rather than
+  // conditionally wrapping — swapping the element type on clear would remount
+  // the card (and its connect toggle / buttons), swallowing the click that
+  // triggered the clear.
+  return (
+    <BorderAnimate
+      show={highlighted}
+      animate={highlighted}
+      radius="md"
+      w="100%"
+    >
+      {card}
+    </BorderAnimate>
   );
 }

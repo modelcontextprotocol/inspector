@@ -7,6 +7,11 @@ import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import { readFile, writeFile } from "atomically";
 
+// Re-export the pure id validator so existing `store-io` importers are
+// unaffected; the implementation lives in the Node-free `store-id` module so
+// isomorphic code can reuse it without pulling Node deps into the browser.
+export { validateStoreId } from "./store-id.js";
+
 /**
  * Default storage directory (~/.mcp-inspector/storage or %USERPROFILE%\.mcp-inspector\storage on Windows).
  */
@@ -30,14 +35,6 @@ export function getDefaultMcpConfigPath(): string {
  */
 export function getStoreFilePath(storageDir: string, storeId: string): string {
   return path.join(storageDir, `${storeId}.json`);
-}
-
-/**
- * Validate storeId to prevent path traversal.
- * Store IDs must be alphanumeric, hyphens, underscores only, and not empty.
- */
-export function validateStoreId(storeId: string): boolean {
-  return /^[a-zA-Z0-9_-]+$/.test(storeId) && storeId.length > 0;
 }
 
 /**

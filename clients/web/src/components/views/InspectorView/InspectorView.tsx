@@ -279,6 +279,10 @@ export interface InspectorViewProps {
   onServerRemove: (id: string) => void;
   /** Persist a new server ordering (drag-and-drop / keyboard reorder). */
   onServerReorder: (orderedIds: string[]) => void;
+  /** Ids of freshly-added servers to highlight on the list (first is scrolled to). */
+  highlightedServerIds?: string[];
+  /** Clears the freshly-added highlight for a server (on click of its card). */
+  onClearHighlight?: (id: string) => void;
 
   // Per-primitive actions (route to `inspectorClient` methods / hook refresh).
   // Each `on{Screen}UiChange` persists that screen's lifted UI state (#1417).
@@ -405,6 +409,8 @@ export function InspectorView({
   onServerClone,
   onServerRemove,
   onServerReorder,
+  highlightedServerIds,
+  onClearHighlight,
   serverSupportsTaskToolCalls,
   onToolsUiChange,
   onCallTool,
@@ -618,6 +624,8 @@ export function InspectorView({
               onClone={onServerClone}
               onRemove={onServerRemove}
               onReorder={onServerReorder}
+              highlightedServerIds={highlightedServerIds}
+              onClearHighlight={onClearHighlight}
               compact={serversCompact}
               onToggleCompact={() => setServersCompact((c) => !c)}
             />

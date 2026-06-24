@@ -125,6 +125,8 @@ import {
   EMPTY_CLIENT_SETTINGS,
   formValuesToClientConfig,
 } from "./components/groups/ClientSettingsForm/clientSettingsValues";
+import { ServerImportConfigModal } from "./components/groups/ServerImportConfigModal/ServerImportConfigModal";
+import { ServerImportJsonModal } from "./components/groups/ServerImportJsonModal/ServerImportJsonModal";
 import { ConnectionInfoModal } from "./components/groups/ConnectionInfoModal/ConnectionInfoModal";
 import { oauthDetailsFromConnectionState } from "./components/groups/ConnectionInfoContent/oauthDetailsFromConnectionState";
 import { OutputValidationModal } from "./components/groups/OutputValidationModal/OutputValidationModal";
@@ -508,6 +510,7 @@ function App() {
     updateServerSettings,
     removeServer,
     reorderServers,
+    importSource,
   } = useServers({
     baseUrl:
       typeof window !== "undefined"
@@ -522,6 +525,23 @@ function App() {
     mode: ServerConfigModalMode;
     targetId?: string;
   } | null>(null);
+  // Import-flow modals (#1348): "Import from client config" (other-client
+  // config merge) and "Import from registry config" (registry single-server
+  // import).
+  const [importConfigOpen, setImportConfigOpen] = useState(false);
+  const [importJsonOpen, setImportJsonOpen] = useState(false);
+  // Ids of freshly-added servers (manual or import) — their cards draw an
+  // animated border (and the first scrolls into view) until clicked. A batch
+  // import accumulates all of its ids here; opening an add/import modal starts a
+  // fresh batch. (#1348)
+  const [highlightedServerIds, setHighlightedServerIds] = useState<string[]>(
+    [],
+  );
+  const clearHighlight = useCallback(
+    (id: string) =>
+      setHighlightedServerIds((ids) => ids.filter((x) => x !== id)),
+    [],
+  );
   const [settingsModalTargetId, setSettingsModalTargetId] = useState<
     string | undefined
   >(undefined);
@@ -2146,14 +2166,6 @@ function App() {
     );
   }, [logs, activeServerId]);
 
-  // Action stubs — these UI affordances exist but require additional
-  // wiring (server CRUD, history pinning, app sandbox round-trip, log
-  // export). Tracked separately; the noop keeps the prop interface
-  // satisfied without lying about behavior.
-  const todoNoop = useCallback(() => {
-    /* TODO: not wired yet */
-  }, []);
-
   // Download the current server list as a canonical mcp.json file. Uses the
   // in-memory `servers` list (kept in sync with disk by useServers' refresh-
   // after-mutate flow) so there's no extra HTTP roundtrip. Serialization
@@ -2219,6 +2231,20 @@ function App() {
 
   // Submit handler for the Add / Edit / Clone modal. Add and Clone both go
   // through addServer; Edit uses updateServer (which supports id rename).
+  // Add a server, then mark it as the freshly-added one so the list scrolls to
+  // it and highlights it. Used by manual add/clone and both import flows; edits
+  // and conflict-overwrites (updateServer) intentionally don't highlight.
+  // Accumulates into the current highlight batch (a multi-server import adds
+  // each id), deduped. The batch is reset to empty when an add/import modal
+  // opens (see the menu handlers).
+  const addServerHighlighted = useCallback(
+    async (id: string, config: MCPServerConfig) => {
+      await addServer(id, config);
+      setHighlightedServerIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
+    },
+    [addServer],
+  );
+
   // On rename of the active server, keep activeServerId pointed at the new id.
   const onConfigSubmit = useCallback(
     async (id: string, config: MCPServerConfig) => {
@@ -2231,9 +2257,9 @@ function App() {
         return;
       }
       // add or clone
-      await addServer(id, config);
+      await addServerHighlighted(id, config);
     },
-    [configModal, addServer, updateServer, activeServerId],
+    [configModal, addServerHighlighted, updateServer, activeServerId],
   );
 
   // Derive the existingIds list the modal uses for uniqueness validation.
@@ -2514,14 +2540,26 @@ function App() {
         onDisconnect={() => {
           void onDisconnect();
         }}
-        onServerAdd={() => setConfigModal({ mode: "add" })}
-        onServerImportConfig={todoNoop}
-        onServerImportJson={todoNoop}
+        onServerAdd={() => {
+          setHighlightedServerIds([]);
+          setConfigModal({ mode: "add" });
+        }}
+        onServerImportConfig={() => {
+          setHighlightedServerIds([]);
+          setImportConfigOpen(true);
+        }}
+        onServerImportJson={() => {
+          setHighlightedServerIds([]);
+          setImportJsonOpen(true);
+        }}
         onServerExport={onServerExport}
         onConnectionInfo={() => setConnectionInfoModalOpen(true)}
         onServerSettings={(id) => setSettingsModalTargetId(id)}
         onServerEdit={(id) => setConfigModal({ mode: "edit", targetId: id })}
-        onServerClone={(id) => setConfigModal({ mode: "clone", targetId: id })}
+        onServerClone={(id) => {
+          setHighlightedServerIds([]);
+          setConfigModal({ mode: "clone", targetId: id });
+        }}
         onServerRemove={(id) => {
           const target = servers.find((s) => s.id === id);
           if (target) setRemoveTarget(target);
@@ -2540,6 +2578,8 @@ function App() {
             });
           });
         }}
+        highlightedServerIds={highlightedServerIds}
+        onClearHighlight={clearHighlight}
         serverSupportsTaskToolCalls={
           !!capabilities?.tasks?.requests?.tools?.call
         }
@@ -2604,6 +2644,20 @@ function App() {
         existingIds={existingIds}
         onClose={() => setConfigModal(null)}
         onSubmit={onConfigSubmit}
+      />
+      <ServerImportConfigModal
+        opened={importConfigOpen}
+        existingIds={existingIds}
+        onClose={() => setImportConfigOpen(false)}
+        onFetchSource={importSource}
+        onAddServer={addServerHighlighted}
+        onUpdateServer={updateServer}
+      />
+      <ServerImportJsonModal
+        opened={importJsonOpen}
+        existingIds={existingIds}
+        onClose={() => setImportJsonOpen(false)}
+        onAddServer={addServerHighlighted}
       />
       <ServerSettingsModal
         // Remount per open (and per target server) so the accordion resets to
