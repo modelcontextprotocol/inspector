@@ -339,6 +339,133 @@ async function collectAppInfo(
 }
 
 /**
+ * Canonicalise a server URL the same way the web inspector does before storing
+ * OAuth state (`new URL().href` lowercases the host, normalises the scheme,
+ * and adds a trailing `/` for bare-origin URLs). The CLI must look up by the
+ * same key the web side wrote, so a trailing-slash or case mismatch doesn't
+ * miss a token that's sitting one key over.
+ *
+ * TODO: dedupe with `core/auth/store.ts` once that module exports the same
+ * normaliser.
+ */
+export function normalizeServerUrl(serverUrl: string): string {
+  try {
+    return new URL(serverUrl).href;
+  } catch {
+    return serverUrl;
+  }
+}
+
+/**
+ * Resolve the path to the OAuth state file. Precedence:
+ *  1. `MCP_INSPECTOR_OAUTH_STATE_PATH` (deprecated; kept for tests/scripts that
+ *     already pin to a fixture file)
+ *  2. `<MCP_STORAGE_DIR>/oauth.json` — `MCP_STORAGE_DIR` is what the web
+ *     backend honours, so setting it once points both sides at the same file
+ *  3. `~/.mcp-inspector/storage/oauth.json` (the default)
+ */
+export function resolveOAuthStatePath(): string {
+  const explicit = process.env.MCP_INSPECTOR_OAUTH_STATE_PATH;
+  if (explicit) return explicit;
+  const dir = process.env.MCP_STORAGE_DIR;
+  if (dir) return join(dir, "oauth.json");
+  // Fall through to NodeOAuthStorage's own default; the function in
+  // `core/auth/node/storage-node.ts` has the same `~/.mcp-inspector/storage`
+  // resolution. Returning an explicit path here lets `--list-stored-auth` and
+  // `--print-handoff` report the actual file location.
+  const home = process.env.HOME || process.env.USERPROFILE || ".";
+  return join(home, ".mcp-inspector", "storage", "oauth.json");
+}
+
+/** Shape of the Zustand-persist blob the OAuth store writes to disk. */
+type PersistedOAuthBlob = {
+  state?: {
+    servers?: Record<string, { tokens?: { access_token?: string } }>;
+  };
+};
+
+/**
+ * Read the OAuth state file directly (bypassing the Zustand store cache) so
+ * each call sees the current on-disk state. Returns the `servers` map, or an
+ * empty object when the file is absent or unreadable.
+ */
+async function readOAuthServers(
+  statePath: string,
+): Promise<NonNullable<NonNullable<PersistedOAuthBlob["state"]>["servers"]>> {
+  const { readFile } = await import("node:fs/promises");
+  try {
+    const text = await readFile(statePath, "utf8");
+    const blob = JSON.parse(text) as PersistedOAuthBlob;
+    return blob.state?.servers ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Poll the OAuth state file until a token for `serverUrl` appears (or the
+ * timeout elapses). Used by `--wait-for-auth` so an automated caller can hand
+ * off to a human for the OAuth dance and resume once the token lands. The
+ * lookup is normalised, so a trailing-slash mismatch between the URL the human
+ * opened and the one the agent passed still resolves.
+ */
+async function waitForStoredToken(
+  serverUrl: string,
+  statePath: string,
+  timeoutSec: number,
+): Promise<string> {
+  const key = normalizeServerUrl(serverUrl);
+  const deadline = Date.now() + timeoutSec * 1000;
+  for (;;) {
+    const servers = await readOAuthServers(statePath);
+    const token =
+      servers[key]?.tokens?.access_token ??
+      servers[serverUrl]?.tokens?.access_token;
+    if (token) return token;
+    if (Date.now() >= deadline) {
+      const stored = Object.keys(servers);
+      throw new CliExitCodeError(
+        EXIT_CODES.AUTH_REQUIRED,
+        `--wait-for-auth timed out after ${timeoutSec}s; no stored OAuth token for ${key} in ${statePath}.` +
+          (stored.length > 0
+            ? ` Stored keys: ${stored.join(", ")}.`
+            : " No tokens stored yet."),
+        { code: "auth_wait_timeout", url: serverUrl },
+      );
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+/**
+ * Build the JSON `--print-handoff` emits: everything an automated caller needs
+ * to relay to a human so they can complete OAuth via port-forward and have the
+ * token land where the CLI will find it.
+ */
+function buildHandoff(serverUrl: string, statePath: string): McpResponse {
+  const host = process.env.HOST || "127.0.0.1";
+  const clientPort = process.env.CLIENT_PORT || "6274";
+  const sandboxPort = process.env.MCP_SANDBOX_PORT || "6275";
+  const apiToken = process.env.MCP_INSPECTOR_API_TOKEN;
+  const params = new URLSearchParams({
+    serverUrl,
+    transport: "http",
+  });
+  if (apiToken) params.set("autoConnect", apiToken);
+  return {
+    serverUrl: normalizeServerUrl(serverUrl),
+    deepLink: `http://${host}:${clientPort}/?${params.toString()}`,
+    portForwardCmd: `coder port-forward <workspace> --tcp ${clientPort}:${clientPort} --tcp ${sandboxPort}:${sandboxPort}`,
+    oauthStatePath: statePath,
+    apiToken: apiToken ?? null,
+    note:
+      apiToken === undefined
+        ? "MCP_INSPECTOR_API_TOKEN is not set; deep-link autoConnect gate will reject — launch the web inspector with a known token first."
+        : undefined,
+  };
+}
+
+/**
  * Apply a connection timeout to a resolved server's settings, building a
  * minimal {@link InspectorServerSettings} when none came from the file. Ad-hoc
  * invocations get {@link DEFAULT_CONNECT_TIMEOUT_MS} so a black-holed host
@@ -387,11 +514,18 @@ function parseKeyValuePair(
   return { ...previous, [key as string]: parsedValue };
 }
 
-async function parseArgs(argv?: string[]): Promise<{
-  serverConfig: MCPServerConfig;
-  serverSettings: InspectorServerSettings | undefined;
-  methodArgs: MethodArgs & { method: string };
-}> {
+type ParseResult =
+  | {
+      shortCircuit?: undefined;
+      serverConfig: MCPServerConfig;
+      serverSettings: InspectorServerSettings | undefined;
+      methodArgs: MethodArgs & { method: string };
+    }
+  // Short-circuit modes (`--list-stored-auth`, `--print-handoff`) do their own
+  // output and need no server connection; runCli returns immediately.
+  | { shortCircuit: true };
+
+async function parseArgs(argv?: string[]): Promise<ParseResult> {
   const program = new Command();
   // On a parse/usage ERROR (exitCode !== 0), throw the CommanderError instead
   // of letting commander call process.exit(). The binary entry (index.ts) still
@@ -543,7 +677,28 @@ async function parseArgs(argv?: string[]): Promise<{
     )
     .option(
       "--use-stored-auth",
-      "Read the OAuth access token for --server-url from ~/.mcp-inspector/storage/oauth.json (written by the web inspector) and inject it as Authorization: Bearer.",
+      "Read the OAuth access token for --server-url from the OAuth state file (written by the web inspector) and inject it as Authorization: Bearer.",
+    )
+    .option(
+      "--wait-for-auth <sec>",
+      "Poll the OAuth state file until a token for --server-url appears (or the timeout elapses), then proceed as if --use-stored-auth were set. Use after handing off to a human to complete OAuth via port-forward.",
+      (v: string) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error(
+            `--wait-for-auth must be a positive number of seconds.`,
+          );
+        }
+        return n;
+      },
+    )
+    .option(
+      "--list-stored-auth",
+      "Print the server URLs that have a stored OAuth token (one JSON array on stdout) and exit. No server connection is made.",
+    )
+    .option(
+      "--print-handoff",
+      "Print a JSON handoff block (deepLink, portForwardCmd, oauthStatePath, apiToken) for --server-url and exit. No server connection is made.",
     );
 
   program.parse(preArgs);
@@ -571,7 +726,33 @@ async function parseArgs(argv?: string[]): Promise<{
     connectTimeout?: number;
     format?: OutputFormat;
     toolArgsJson?: string;
+    waitForAuth?: number;
+    listStoredAuth?: boolean;
+    printHandoff?: boolean;
   };
+
+  const oauthStatePath = resolveOAuthStatePath();
+
+  // Short-circuit modes that need no server connection.
+  if (options.listStoredAuth) {
+    const servers = await readOAuthServers(oauthStatePath);
+    const withToken = Object.entries(servers)
+      .filter(([, v]) => Boolean(v.tokens?.access_token))
+      .map(([k]) => k);
+    await awaitableLog(
+      JSON.stringify({ oauthStatePath, storedServerUrls: withToken }) + "\n",
+    );
+    return { shortCircuit: true };
+  }
+  if (options.printHandoff) {
+    if (!options.serverUrl) {
+      throw new Error("--print-handoff requires --server-url");
+    }
+    await awaitableLog(
+      JSON.stringify(buildHandoff(options.serverUrl, oauthStatePath)) + "\n",
+    );
+    return { shortCircuit: true };
+  }
 
   const serverOptions = {
     // `?.trim() ||` (not `??`) so an explicit empty `--catalog ""` still falls
@@ -588,28 +769,43 @@ async function parseArgs(argv?: string[]): Promise<{
     headers: options.header,
   };
 
-  if (options.useStoredAuth) {
+  if (options.waitForAuth !== undefined || options.useStoredAuth) {
     if (!options.serverUrl) {
-      throw new Error("--use-stored-auth requires --server-url");
-    }
-    // NodeOAuthStorage reads ~/.mcp-inspector/storage/oauth.json (or
-    // MCP_INSPECTOR_OAUTH_STATE_PATH when set) via the same Zustand store the
-    // web inspector's RemoteOAuthStorage writes to. getTokens awaits the file
-    // adapter's hydration, so this works even though the read is async. Header
-    // injection is the prototype path — wiring NodeOAuthStorage into the SDK
-    // auth provider (so refresh works) is a follow-up.
-    const { NodeOAuthStorage } =
-      await import("@inspector/core/auth/node/storage-node.js");
-    const oauthStorage = new NodeOAuthStorage();
-    const tokens = await oauthStorage.getTokens(options.serverUrl);
-    if (!tokens?.access_token) {
       throw new Error(
-        `No stored OAuth token for ${options.serverUrl} in ~/.mcp-inspector/storage/oauth.json. Complete the OAuth flow in the web inspector first.`,
+        `${options.waitForAuth !== undefined ? "--wait-for-auth" : "--use-stored-auth"} requires --server-url`,
       );
+    }
+    // Read the OAuth state file directly so the lookup is normalised the same
+    // way the web inspector wrote it (`new URL().href`), and so `--wait-for-
+    // auth` sees fresh on-disk state on each poll. Header injection is the
+    // prototype path — wiring NodeOAuthStorage into the SDK auth provider (so
+    // refresh works) is a follow-up.
+    let token: string | undefined;
+    if (options.waitForAuth !== undefined) {
+      token = await waitForStoredToken(
+        options.serverUrl,
+        oauthStatePath,
+        options.waitForAuth,
+      );
+    } else {
+      const servers = await readOAuthServers(oauthStatePath);
+      const key = normalizeServerUrl(options.serverUrl);
+      token =
+        servers[key]?.tokens?.access_token ??
+        servers[options.serverUrl]?.tokens?.access_token;
+      if (!token) {
+        const stored = Object.keys(servers);
+        throw new CliExitCodeError(
+          EXIT_CODES.AUTH_REQUIRED,
+          `No stored OAuth token for ${key} in ${oauthStatePath}. Complete the OAuth flow in the web inspector first.` +
+            (stored.length > 0 ? ` Stored keys: ${stored.join(", ")}.` : ""),
+          { code: "no_stored_token", url: options.serverUrl },
+        );
+      }
     }
     serverOptions.headers = {
       ...(serverOptions.headers ?? {}),
-      Authorization: `Bearer ${tokens.access_token}`,
+      Authorization: `Bearer ${token}`,
     };
   }
 
@@ -703,8 +899,11 @@ async function parseArgs(argv?: string[]): Promise<{
 }
 
 export async function runCli(argv?: string[]): Promise<void> {
-  const { serverConfig, serverSettings, methodArgs } = await parseArgs(
-    argv ?? process.argv,
+  const parsed = await parseArgs(argv ?? process.argv);
+  if (parsed.shortCircuit) return;
+  await callMethod(
+    parsed.serverConfig,
+    parsed.serverSettings,
+    parsed.methodArgs,
   );
-  await callMethod(serverConfig, serverSettings, methodArgs);
 }
