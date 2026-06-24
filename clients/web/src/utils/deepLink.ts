@@ -99,6 +99,30 @@ export function deepLinkConfigEquals(
 }
 
 /**
+ * Outcome of {@link parseDeepLink} for the page's initial URL, surfaced as
+ * `data-deeplink` on the `connection-status` testid so an automated driver can
+ * distinguish "no deep link" from "deep link present but rejected" (token
+ * mismatch / bad serverUrl) — both look the same to a poll on `data-status`.
+ */
+export type DeepLinkParseStatus = "none" | "parsed" | "rejected";
+
+/**
+ * Classify the initial-URL deep-link outcome without re-parsing. `undefined`
+ * from {@link parseDeepLink} is ambiguous (no params vs. rejected); this
+ * inspects the raw search string to tell them apart.
+ */
+export function deepLinkParseStatus(
+  search: string,
+  parsed: DeepLink | undefined,
+): DeepLinkParseStatus {
+  if (parsed) return "parsed";
+  const params = new URLSearchParams(search);
+  return params.has("serverUrl") || params.has("autoConnect")
+    ? "rejected"
+    : "none";
+}
+
+/**
  * Parse the page's query string into a {@link DeepLink}. Returns `undefined`
  * when no deep link is present **or** when the security gate fails.
  *

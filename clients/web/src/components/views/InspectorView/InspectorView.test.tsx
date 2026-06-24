@@ -192,6 +192,22 @@ describe("InspectorView", () => {
     ).toBeInTheDocument();
   });
 
+  it("surfaces connectErrorMessage and deepLinkStatus as data-* attributes on the connection-status header", () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          connectionStatus: "error",
+          connectErrorMessage: "fetch failed: ENOTFOUND",
+          deepLinkStatus: "rejected",
+        })}
+      />,
+    );
+    const header = screen.getByTestId("connection-status");
+    expect(header.dataset.status).toBe("error");
+    expect(header.dataset.errorMessage).toBe("fetch failed: ENOTFOUND");
+    expect(header.dataset.deeplink).toBe("rejected");
+  });
+
   it("renders the server card from the input list", () => {
     renderWithMantine(
       <InspectorView {...makeProps({ servers: [sampleServer] })} />,

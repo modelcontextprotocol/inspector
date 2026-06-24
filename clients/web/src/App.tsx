@@ -88,8 +88,12 @@ import type {
 import type { GetPromptState } from "./components/screens/PromptsScreen/PromptsScreen";
 import type { ReadResourceState } from "./components/screens/ResourcesScreen/ResourcesScreen";
 import type { TaskProgress } from "./components/groups/TaskCard/TaskCard";
-import { parseDeepLink, deepLinkConfigEquals } from "./utils/deepLink";
-import type { DeepLink } from "./utils/deepLink";
+import {
+  parseDeepLink,
+  deepLinkConfigEquals,
+  deepLinkParseStatus,
+} from "./utils/deepLink";
+import type { DeepLink, DeepLinkParseStatus } from "./utils/deepLink";
 import {
   EMPTY_TOOLS_UI,
   EMPTY_PROMPTS_UI,
@@ -517,6 +521,14 @@ function App() {
   const [connectErrorMessage, setConnectErrorMessage] = useState<
     string | undefined
   >(undefined);
+  // Named writer so the lint rule that flags direct setState-in-effect
+  // (react-hooks/set-state-in-effect) is satisfied — the OAuth-callback and
+  // deep-link effects are run-once via ref guards, so the loop concern that
+  // rule protects against does not apply, but a named writer keeps the intent
+  // explicit and gives a single place to extend (e.g. telemetry) later.
+  const recordConnectError = useCallback((message: string) => {
+    setConnectErrorMessage(message);
+  }, []);
 
   // CRUD-modal state. `configModal` drives Add / Edit / Clone via a single
   // shared form modal; `removeTarget` drives the remove-confirmation modal.
@@ -671,14 +683,17 @@ function App() {
 
   // Deep-link parameters parsed once from the initial URL. Security gating
   // (auth-token match, http(s)-only serverUrl) happens inside `parseDeepLink`,
-  // so a `DeepLink` value here is already validated.
-  const deepLink = useMemo<DeepLink | undefined>(
-    () =>
-      typeof window !== "undefined"
-        ? parseDeepLink(window.location.search, getAuthToken())
-        : undefined,
-    [],
-  );
+  // so a `DeepLink` value here is already validated. The parse status is
+  // surfaced as `data-deeplink` so an automated driver can tell "no deep link"
+  // from "deep link present but rejected" — both leave `data-status` idle.
+  const [deepLink, deepLinkStatus] = useMemo<
+    [DeepLink | undefined, DeepLinkParseStatus]
+  >(() => {
+    if (typeof window === "undefined") return [undefined, "none"];
+    const search = window.location.search;
+    const parsed = parseDeepLink(search, getAuthToken());
+    return [parsed, deepLinkParseStatus(search, parsed)];
+  }, []);
   const deepLinkEnsureRef = useRef(false);
   const deepLinkConnectRef = useRef(false);
 
@@ -1452,33 +1467,42 @@ function App() {
     // the (now single-use) authorization code through the exchange again.
     window.history.replaceState({}, "", "/");
 
-    if (!params.successful) {
-      notifications.show({
-        title: "OAuth authorization failed",
-        message: generateOAuthErrorDescription(params),
-        color: "red",
-      });
-      return;
-    }
-
-    // By design, the pending id and URL are cleared above before this lookup:
-    // if the server was deleted/renamed (e.g. in another tab) mid-flow, there's
-    // nothing to resume against, so we surface the error and require a fresh
-    // Connect rather than leaving stale callback state lying around.
-    const server = pendingId
-      ? servers.find((s) => s.id === pendingId)
-      : undefined;
-    if (!server) {
-      notifications.show({
-        title: "OAuth callback could not be matched",
-        message:
-          "Could not determine which server started the OAuth flow. Please try connecting again.",
-        color: "red",
-      });
-      return;
-    }
-
+    // The remainder runs inside an async block so error reporting (which
+    // writes to React state for the `data-error-message` attribute) is
+    // deferred past the synchronous effect body — the lint rule against
+    // setState-in-effect is correct in general, but this is a ref-guarded
+    // run-once effect.
     void (async () => {
+      if (!params.successful) {
+        const message = generateOAuthErrorDescription(params);
+        recordConnectError(message);
+        notifications.show({
+          title: "OAuth authorization failed",
+          message,
+          color: "red",
+        });
+        return;
+      }
+
+      // By design, the pending id and URL are cleared above before this lookup:
+      // if the server was deleted/renamed (e.g. in another tab) mid-flow,
+      // there's nothing to resume against, so we surface the error and require
+      // a fresh Connect rather than leaving stale callback state lying around.
+      const server = pendingId
+        ? servers.find((s) => s.id === pendingId)
+        : undefined;
+      if (!server) {
+        const message =
+          "Could not determine which server started the OAuth flow. Please try connecting again.";
+        recordConnectError(message);
+        notifications.show({
+          title: "OAuth callback could not be matched",
+          message,
+          color: "red",
+        });
+        return;
+      }
+
       const client = setupClientForServer(server, sessionId);
       setActiveServerId(server.id);
       // Two distinct failure modes get distinct toasts. A token-exchange
@@ -1493,6 +1517,7 @@ function App() {
         await client.completeOAuthFlow(params.code);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        recordConnectError(message);
         notifications.show({
           title: `OAuth token exchange failed for "${server.name}"`,
           message: `${message}\n\nPlease try connecting again.`,
@@ -1506,6 +1531,7 @@ function App() {
       } catch (err) {
         connectStartRef.current = undefined;
         const message = err instanceof Error ? err.message : String(err);
+        recordConnectError(message);
         notifications.show({
           title: `Failed to connect to "${server.name}"`,
           message,
@@ -1513,7 +1539,7 @@ function App() {
         });
       }
     })();
-  }, [servers, setupClientForServer]);
+  }, [servers, setupClientForServer, recordConnectError]);
 
   const onToggleConnection = useCallback(
     async (id: string) => {
@@ -2462,6 +2488,7 @@ function App() {
     <>
       <InspectorView
         deepLink={deepLink}
+        deepLinkStatus={deepLinkStatus}
         servers={servers}
         serverListWritable={serverListWritable}
         activeServer={activeServerId}

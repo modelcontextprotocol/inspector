@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   parseDeepLink,
   deepLinkConfigEquals,
+  deepLinkParseStatus,
   DEEP_LINK_SERVER_ID,
 } from "./deepLink";
 
@@ -133,6 +134,35 @@ describe("parseDeepLink", () => {
       type: "streamable-http",
       url: "https://example.com/",
     });
+  });
+});
+
+describe("deepLinkParseStatus", () => {
+  it("returns 'none' when no deep-link params are present", () => {
+    expect(deepLinkParseStatus("", undefined)).toBe("none");
+    expect(deepLinkParseStatus("?foo=bar", undefined)).toBe("none");
+  });
+
+  it("returns 'rejected' when deep-link params are present but parsing failed", () => {
+    expect(
+      deepLinkParseStatus(
+        "?serverUrl=https%3A%2F%2Fexample.com%2Fmcp&autoConnect=wrong",
+        undefined,
+      ),
+    ).toBe("rejected");
+    expect(deepLinkParseStatus("?serverUrl=javascript:x", undefined)).toBe(
+      "rejected",
+    );
+  });
+
+  it("returns 'parsed' when a DeepLink was produced", () => {
+    const link = parseDeepLink(
+      "?serverUrl=https%3A%2F%2Fexample.com%2Fmcp&autoConnect=" + TOKEN,
+      TOKEN,
+    );
+    expect(deepLinkParseStatus("?serverUrl=x&autoConnect=" + TOKEN, link)).toBe(
+      "parsed",
+    );
   });
 });
 

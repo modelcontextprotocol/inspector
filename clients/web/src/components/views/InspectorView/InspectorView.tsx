@@ -6,7 +6,7 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
-import type { DeepLink } from "../../../utils/deepLink";
+import type { DeepLink, DeepLinkParseStatus } from "../../../utils/deepLink";
 import { AppShell, Box, Stack, Transition } from "@mantine/core";
 import { useLocalStorage } from "@mantine/hooks";
 import type {
@@ -211,6 +211,13 @@ export interface InspectorViewProps {
    * the app list contains it. The connect itself is driven by the parent.
    */
   deepLink?: DeepLink;
+  /**
+   * Outcome of parsing the initial-URL deep link, surfaced as `data-deeplink`
+   * on the `connection-status` testid. Distinguishes "no deep link" from
+   * "rejected" (token mismatch / bad serverUrl) — both leave `data-status`
+   * idle, so an automated driver otherwise cannot tell them apart.
+   */
+  deepLinkStatus?: DeepLinkParseStatus;
 
   // Server list (static config; runtime connection state comes from the
   // separate fields below and is merged into each card by this component).
@@ -389,6 +396,7 @@ export interface InspectorViewProps {
 
 export function InspectorView({
   deepLink,
+  deepLinkStatus,
   servers: serversInput,
   serverListWritable = true,
   activeServer,
@@ -664,6 +672,7 @@ export function InspectorView({
         data-testid="connection-status"
         data-status={connectionStatus}
         data-error-message={connectErrorMessage}
+        data-deeplink={deepLinkStatus}
       >
         {connectionStatus === "connected" && initializeResult ? (
           <ViewHeader
