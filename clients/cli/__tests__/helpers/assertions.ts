@@ -44,15 +44,6 @@ export function expectValidJson(result: CliResult) {
 }
 
 /**
- * Assert that output contains JSON with error flag
- */
-export function expectJsonError(result: CliResult) {
-  const json = expectValidJson(result);
-  expect(json.isError).toBe(true);
-  return json;
-}
-
-/**
  * Assert that output contains expected JSON structure
  */
 export function expectJsonStructure(result: CliResult, expectedKeys: string[]) {

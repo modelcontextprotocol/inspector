@@ -113,10 +113,31 @@ describe("classifyError", () => {
   });
 
   it("derives a default envelope code for a bare CliExitCodeError", () => {
-    const { envelope } = classifyError(
-      new CliExitCodeError(EXIT_CODES.UNREACHABLE, "x"),
-    );
-    expect(envelope.code).toBe("unreachable");
+    expect(
+      classifyError(new CliExitCodeError(EXIT_CODES.UNREACHABLE, "x")).envelope
+        .code,
+    ).toBe("unreachable");
+    expect(
+      classifyError(new CliExitCodeError(EXIT_CODES.NO_APP, "x")).envelope.code,
+    ).toBe("no_app");
+    expect(
+      classifyError(new CliExitCodeError(EXIT_CODES.AUTH_REQUIRED, "x"))
+        .envelope.code,
+    ).toBe("auth_required");
+    expect(
+      classifyError(new CliExitCodeError(EXIT_CODES.TOOL_ERROR, "x")).envelope
+        .code,
+    ).toBe("tool_error");
+    expect(
+      classifyError(new CliExitCodeError(EXIT_CODES.USAGE, "x")).envelope.code,
+    ).toBe("error");
+  });
+
+  it("captures a non-Error cause as a string", () => {
+    const err = new Error("outer");
+    (err as { cause?: unknown }).cause = { reason: "blocked" };
+    const { envelope } = classifyError(err);
+    expect(envelope.cause).toBe("[object Object]");
   });
 
   it("reads a numeric SDK-style .code as an HTTP status", () => {
