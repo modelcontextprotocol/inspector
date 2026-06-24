@@ -4,6 +4,7 @@ import { waitForChangeEvent } from "./waitForChangeEvent";
 
 interface TestEventMap {
   ping: number;
+  poke: void;
 }
 
 describe("waitForChangeEvent", () => {
@@ -12,6 +13,16 @@ describe("waitForChangeEvent", () => {
     const pending = waitForChangeEvent(target, "ping", 1000);
     target.dispatchTypedEvent("ping", 42);
     await expect(pending).resolves.toBe(42);
+  });
+
+  it("resolves for a void-detail event", async () => {
+    // `connect` and other signal-only events carry no payload; the helper must
+    // still resolve rather than wait for a detail that never comes. CustomEvent
+    // normalizes an absent detail to null, so that's what the listener sees.
+    const target = new TypedEventTarget<TestEventMap>();
+    const pending = waitForChangeEvent(target, "poke", 1000);
+    target.dispatchTypedEvent("poke");
+    await expect(pending).resolves.toBeNull();
   });
 
   it("rejects with a readable message naming the event on timeout", async () => {
