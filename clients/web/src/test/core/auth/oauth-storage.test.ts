@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { createJSONStorage } from "zustand/middleware";
 import { OAuthStorageBase } from "@inspector/core/auth/oauth-storage.js";
-import { createOAuthStore } from "@inspector/core/auth/store.js";
+import {
+  createOAuthStore,
+  normalizeServerUrl,
+} from "@inspector/core/auth/store.js";
 
 /**
  * Builds an OAuthStorageBase backed by an *async* in-memory storage adapter
@@ -136,6 +139,52 @@ describe("OAuthStorageBase — async hydration", () => {
     release();
     await save;
     expect(await storage.getCodeVerifier(SERVER)).toBe("new");
+  });
+
+  it("normalizeServerUrl canonicalizes host case, bare-origin trailing slash, default port, and whitespace", () => {
+    expect(normalizeServerUrl("https://Example.COM/mcp")).toBe(
+      "https://example.com/mcp",
+    );
+    expect(normalizeServerUrl("https://example.com")).toBe(
+      "https://example.com/",
+    );
+    expect(normalizeServerUrl("https://example.com:443/mcp")).toBe(
+      "https://example.com/mcp",
+    );
+    expect(normalizeServerUrl("  https://example.com/mcp  ")).toBe(
+      "https://example.com/mcp",
+    );
+    // Non-URL strings (e.g. a stdio server name) are passed through trimmed.
+    expect(normalizeServerUrl("  my-stdio-server  ")).toBe("my-stdio-server");
+  });
+
+  it("store keys are normalized so save and get tolerate cosmetic URL differences", async () => {
+    const { storage, release } = makeAsyncBackedStorage();
+    release();
+    await storage.saveCodeVerifier("https://Example.COM/mcp", "v");
+    expect(await storage.getCodeVerifier("https://example.com/mcp")).toBe("v");
+    // Bare-origin: the web inspector stores `new URL().href` (trailing slash);
+    // a CLI caller passing the slash-less form must still hit it.
+    await storage.saveTokens("https://api.partner.dev/", {
+      access_token: "t",
+      token_type: "Bearer",
+    });
+    expect(await storage.getTokens("https://api.partner.dev")).toEqual({
+      access_token: "t",
+      token_type: "Bearer",
+    });
+  });
+
+  it("getServerState falls back to a pre-normalization persisted key", async () => {
+    // A blob persisted before normalization existed may carry a raw key that
+    // the canonical form differs from (here: bare-origin without slash).
+    const { storage, release } = makeAsyncBackedStorage({
+      "https://legacy.example": { codeVerifier: "legacy" },
+    });
+    release();
+    expect(await storage.getCodeVerifier("https://legacy.example")).toBe(
+      "legacy",
+    );
   });
 
   it("ready()/getters resolve (empty) when the adapter throws instead of hanging", async () => {
