@@ -42,7 +42,9 @@ export function createRemoteStorageAdapter(
         if (res.status === 404) {
           return null;
         }
-        throw new Error(`Failed to read store: ${res.status}`);
+        throw new Error(
+          `Failed to read store '${options.storeId}' from ${baseUrl}/api/storage/${options.storeId}: ${res.status}`,
+        );
       }
 
       const store = await res.json();

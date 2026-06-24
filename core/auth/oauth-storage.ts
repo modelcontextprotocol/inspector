@@ -29,6 +29,7 @@ import { type createOAuthStore, type ServerOAuthState } from "./store.js";
 export class OAuthStorageBase implements OAuthStorage {
   private readonly store: ReturnType<typeof createOAuthStore>;
   private readonly hydrated: Promise<void>;
+  private hydrationError?: Error;
 
   constructor(store: ReturnType<typeof createOAuthStore>) {
     this.store = store;
@@ -38,28 +39,46 @@ export class OAuthStorageBase implements OAuthStorage {
     // onFinishHydration only fires on success, so a throwing getItem would
     // otherwise leave `hydrated` pending forever and hang every getter.
     // A failed hydration resolves to "empty store", which is the correct
-    // fallback (reads return undefined; writes proceed).
+    // fallback (reads return undefined; writes proceed) — but the failure is
+    // recorded so callers can distinguish "no token stored" from "could not
+    // read the store" (e.g. corrupt file, EACCES, backend 500).
+    const recordFailure = (err: unknown) => {
+      this.hydrationError =
+        err instanceof Error
+          ? err
+          : new Error(
+              typeof err === "string"
+                ? err
+                : "OAuth storage hydration failed (adapter getItem threw or returned invalid data)",
+            );
+      console.warn(
+        "[OAuthStorage] hydration failed; continuing with empty state:",
+        this.hydrationError,
+      );
+    };
     this.hydrated = this.store.persist.hasHydrated()
       ? Promise.resolve()
       : Promise.resolve(this.store.persist.rehydrate()).then(
           () => {
             // Zustand swallows getItem errors internally (routing them to
             // onRehydrateStorage) and resolves rehydrate() regardless;
-            // hasHydrated() only flips true on success, so use it to surface
-            // a diagnostic when hydration silently failed.
-            if (!this.store.persist.hasHydrated()) {
-              console.warn(
-                "[OAuthStorage] hydration failed; continuing with empty state",
-              );
-            }
+            // hasHydrated() only flips true on success, so use it to detect a
+            // silently-failed hydration. The underlying error is lost in this
+            // path — record a generic one so getHydrationError() is non-null.
+            if (!this.store.persist.hasHydrated()) recordFailure(undefined);
           },
-          (err: unknown) => {
-            console.warn(
-              "[OAuthStorage] hydration failed; continuing with empty state:",
-              err,
-            );
-          },
+          (err: unknown) => recordFailure(err),
         );
+  }
+
+  /**
+   * If hydration failed (adapter threw, file unreadable/corrupt, backend
+   * non-2xx), the captured error. Undefined when hydration succeeded or has
+   * not yet completed — call after `await ready()`. Lets callers report
+   * "oauth.json is unreadable" instead of a misleading "no token stored".
+   */
+  getHydrationError(): Error | undefined {
+    return this.hydrationError;
   }
 
   /**

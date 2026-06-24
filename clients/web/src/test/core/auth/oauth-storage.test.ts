@@ -207,8 +207,18 @@ describe("OAuthStorageBase — async hydration", () => {
       expect(result).toBe("ok");
       expect(await storage.getTokens(SERVER)).toBeUndefined();
       expect(warn).toHaveBeenCalled();
+      // The failure is recorded so callers can distinguish "no token" from
+      // "store unreadable".
+      expect(storage.getHydrationError()).toBeInstanceOf(Error);
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it("getHydrationError() is undefined after a successful hydration", async () => {
+    const { storage, release } = makeAsyncBackedStorage();
+    release();
+    await storage.ready();
+    expect(storage.getHydrationError()).toBeUndefined();
   });
 });
