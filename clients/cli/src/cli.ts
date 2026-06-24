@@ -7,6 +7,10 @@ import type {
   InspectorServerSettings,
   MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
+import {
+  DEFAULT_MAX_FETCH_REQUESTS,
+  DEFAULT_TASK_TTL_MS,
+} from "@inspector/core/mcp/types.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import {
   ManagedToolsState,
@@ -34,6 +38,8 @@ export const validLogLevels: LoggingLevel[] = Object.values(
   LoggingLevelSchema.enum,
 );
 
+type OutputFormat = "text" | "json";
+
 type MethodArgs = {
   method?: string;
   promptName?: string;
@@ -45,7 +51,16 @@ type MethodArgs = {
   toolMeta?: Record<string, string>;
   metadata?: Record<string, string>;
   appInfo?: boolean;
+  format?: OutputFormat;
 };
+
+/**
+ * Default connect timeout (ms) for ad-hoc server invocations. Without this an
+ * unreachable server (e.g. a partner edge that drops the SYN) hangs the CLI
+ * indefinitely; the value is generous enough for cold-start OAuth discovery
+ * round-trips while still failing fast on a black-holed host.
+ */
+export const DEFAULT_CONNECT_TIMEOUT_MS = 15000;
 
 async function callMethod(
   serverConfig: MCPServerConfig,
@@ -199,6 +214,16 @@ async function callMethod(
         args.metadata,
       );
       result = invocation.result;
+    } else if (args.method === "initialize") {
+      // Connect-only probe: emit the cached InitializeResult fields so a
+      // caller can read serverInfo / protocolVersion / capabilities /
+      // instructions without picking a list method.
+      result = {
+        serverInfo: inspectorClient.getServerInfo(),
+        protocolVersion: inspectorClient.getProtocolVersion(),
+        capabilities: inspectorClient.getCapabilities(),
+        instructions: inspectorClient.getInstructions(),
+      };
     } else if (args.method === "logging/setLevel") {
       if (!args.logLevel) {
         throw new Error(
@@ -210,46 +235,73 @@ async function callMethod(
       result = {};
     } else {
       throw new Error(
-        `Unsupported method: ${args.method}. Supported methods include: tools/list, tools/call, resources/list, resources/read, resources/templates/list, prompts/list, prompts/get, logging/setLevel`,
+        `Unsupported method: ${args.method}. Supported methods include: initialize, tools/list, tools/call, resources/list, resources/read, resources/templates/list, prompts/list, prompts/get, logging/setLevel`,
       );
     }
 
-    if (args.appInfo) {
-      // Single-line JSON so callers can `| jq` or parse the line directly.
-      const info: CliAppInfo = appInfo ?? {
-        hasApp: false,
-        toolName: args.toolName ?? "",
-      };
-      await awaitableLog(JSON.stringify(info) + "\n");
-      if (!info.hasApp) {
-        throw new CliExitCodeError(
-          EXIT_CODES.NO_APP,
-          `Tool '${args.toolName}' has no MCP App UI resource (_meta.ui.resourceUri).`,
-        );
-      }
-    } else {
-      await awaitableLog(JSON.stringify(result, null, 2));
-      if (appInfo?.hasApp) {
-        await awaitableLog("\n--- MCP App Info ---\n");
-        await awaitableLog(JSON.stringify(appInfo, null, 2) + "\n");
-      }
-      // A tool that returned `isError:true` (or whose call failed) is still
-      // printed above so the caller sees the payload, but the process exits
-      // TOOL_ERROR so `&&` chains don't proceed on a failed call.
-      if ((result as { isError?: unknown }).isError === true) {
-        throw new CliExitCodeError(
-          EXIT_CODES.TOOL_ERROR,
-          `Tool '${args.toolName}' returned isError:true.`,
-          { code: "tool_is_error" },
-        );
-      }
-    }
+    await emitResult(result, appInfo, args);
   } finally {
     managedToolsState?.destroy();
     managedResourcesState?.destroy();
     managedResourceTemplatesState?.destroy();
     managedPromptsState?.destroy();
     await inspectorClient.disconnect();
+  }
+}
+
+/**
+ * Write the method result (and any app-info) to stdout, honouring `--format`
+ * and `--app-info`, then map `isError`/no-app outcomes onto the exit-code map.
+ * Extracted from `callMethod` so the format/exit handling is in one place.
+ */
+async function emitResult(
+  result: McpResponse,
+  appInfo: CliAppInfo | undefined,
+  args: MethodArgs,
+): Promise<void> {
+  const json = args.format === "json";
+
+  if (args.appInfo) {
+    const info: CliAppInfo = appInfo ?? {
+      hasApp: false,
+      toolName: args.toolName ?? "",
+    };
+    // Single-line JSON either way; --format json wraps it under an `appInfo`
+    // key so the envelope shape is uniform with the non-probe path.
+    await awaitableLog(JSON.stringify(json ? { appInfo: info } : info) + "\n");
+    if (!info.hasApp) {
+      throw new CliExitCodeError(
+        EXIT_CODES.NO_APP,
+        `Tool '${args.toolName}' has no MCP App UI resource (_meta.ui.resourceUri).`,
+      );
+    }
+    return;
+  }
+
+  if (json) {
+    // One JSON object on stdout — `result` plus, when present, `appInfo` as a
+    // sibling key. No `--- MCP App Info ---` banner, so `| jq` works for App
+    // tools as well as plain ones.
+    const envelope: Record<string, unknown> = { result };
+    if (appInfo?.hasApp) envelope.appInfo = appInfo;
+    await awaitableLog(JSON.stringify(envelope) + "\n");
+  } else {
+    await awaitableLog(JSON.stringify(result, null, 2));
+    if (appInfo?.hasApp) {
+      await awaitableLog("\n--- MCP App Info ---\n");
+      await awaitableLog(JSON.stringify(appInfo, null, 2) + "\n");
+    }
+  }
+
+  // A tool that returned `isError:true` (or whose call failed) is still
+  // printed above so the caller sees the payload, but the process exits
+  // TOOL_ERROR so `&&` chains don't proceed on a failed call.
+  if ((result as { isError?: unknown }).isError === true) {
+    throw new CliExitCodeError(
+      EXIT_CODES.TOOL_ERROR,
+      `Tool '${args.toolName}' returned isError:true.`,
+      { code: "tool_is_error" },
+    );
   }
 }
 
@@ -284,6 +336,31 @@ async function collectAppInfo(
       resourceError: e instanceof Error ? e.message : String(e),
     };
   }
+}
+
+/**
+ * Apply a connection timeout to a resolved server's settings, building a
+ * minimal {@link InspectorServerSettings} when none came from the file. Ad-hoc
+ * invocations get {@link DEFAULT_CONNECT_TIMEOUT_MS} so a black-holed host
+ * fails fast; catalog/config invocations keep their file-level timeout unless
+ * `--connect-timeout` is passed explicitly.
+ */
+function withConnectTimeout(
+  settings: InspectorServerSettings | undefined,
+  connectionTimeout: number | undefined,
+): InspectorServerSettings | undefined {
+  if (connectionTimeout === undefined) return settings;
+  if (settings) return { ...settings, connectionTimeout };
+  return {
+    headers: [],
+    metadata: [],
+    connectionTimeout,
+    requestTimeout: 0,
+    taskTtl: DEFAULT_TASK_TTL_MS,
+    maxFetchRequests: DEFAULT_MAX_FETCH_REQUESTS,
+    autoRefreshOnListChanged: false,
+    roots: [],
+  };
 }
 
 function parseKeyValuePair(
@@ -440,6 +517,31 @@ async function parseArgs(argv?: string[]): Promise<{
       "Probe the tool's MCP App UI metadata (resourceUri, csp, permissions, domain) and emit it as one JSON line; exit 2 when the tool has no app. Use with --method tools/call --tool-name <name>; the tool itself is not invoked.",
     )
     .option(
+      "--connect-timeout <ms>",
+      `Connection timeout in ms (default ${DEFAULT_CONNECT_TIMEOUT_MS} for ad-hoc --server-url / target invocations; 0 = no timeout).`,
+      (v: string) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0) {
+          throw new Error(`--connect-timeout must be a non-negative number.`);
+        }
+        return n;
+      },
+    )
+    .option(
+      "--format <format>",
+      "Output format: text (default; pretty-printed) or json (one JSON object on stdout, no banners).",
+      (v: string): OutputFormat => {
+        if (v !== "text" && v !== "json") {
+          throw new Error(`--format must be 'text' or 'json'.`);
+        }
+        return v;
+      },
+    )
+    .option(
+      "--tool-args-json <json>",
+      'Tool arguments as a single JSON object (e.g. \'{"zip":"10001"}\'). Values are passed verbatim — no key=value coercion. Mutually exclusive with --tool-arg.',
+    )
+    .option(
       "--use-stored-auth",
       "Read the OAuth access token for --server-url from ~/.mcp-inspector/storage/oauth.json (written by the web inspector) and inject it as Authorization: Bearer.",
     );
@@ -466,6 +568,9 @@ async function parseArgs(argv?: string[]): Promise<{
     header?: Record<string, string>;
     appInfo?: boolean;
     useStoredAuth?: boolean;
+    connectTimeout?: number;
+    format?: OutputFormat;
+    toolArgsJson?: string;
   };
 
   const serverOptions = {
@@ -512,9 +617,15 @@ async function parseArgs(argv?: string[]): Promise<{
   // enforces the conflict matrix, and lifts disk headers/timeouts/OAuth into
   // per-server settings. `--server` selects one when the file has several.
   const entries = loadServerEntries(serverOptions);
-  const { config: serverConfig, settings: serverSettings } = selectServerEntry(
-    entries,
-    options.server,
+  const selected = selectServerEntry(entries, options.server);
+  const serverConfig = selected.config;
+  const adHoc =
+    serverOptions.target !== undefined ||
+    Boolean(serverOptions.transport) ||
+    Boolean(serverOptions.serverUrl);
+  const serverSettings = withConnectTimeout(
+    selected.settings,
+    options.connectTimeout ?? (adHoc ? DEFAULT_CONNECT_TIMEOUT_MS : undefined),
   );
 
   if (!options.method) {
@@ -529,10 +640,37 @@ async function parseArgs(argv?: string[]): Promise<{
     );
   }
 
+  // --tool-args-json passes arguments verbatim with no key=value coercion (so
+  // `"012"` stays a string and nested objects work without shell escaping).
+  let toolArg = options.toolArg;
+  if (options.toolArgsJson !== undefined) {
+    if (toolArg && Object.keys(toolArg).length > 0) {
+      throw new Error(
+        "--tool-args-json cannot be combined with --tool-arg; pick one.",
+      );
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(options.toolArgsJson);
+    } catch (e) {
+      throw new Error(
+        `--tool-args-json is not valid JSON: ${(e as Error).message}`,
+      );
+    }
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      throw new Error("--tool-args-json must be a JSON object.");
+    }
+    toolArg = parsed as Record<string, JsonValue>;
+  }
+
   const methodArgs: MethodArgs & { method: string } = {
     method: options.method,
     toolName: options.toolName,
-    toolArg: options.toolArg,
+    toolArg,
     uri: options.uri,
     promptName: options.promptName,
     promptArgs: options.promptArgs,
@@ -554,6 +692,7 @@ async function parseArgs(argv?: string[]): Promise<{
         )
       : undefined,
     appInfo: options.appInfo === true,
+    format: options.format,
   };
 
   return {
