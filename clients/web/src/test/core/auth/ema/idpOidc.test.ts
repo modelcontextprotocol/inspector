@@ -49,22 +49,24 @@ describe("idpOidc refresh", () => {
       refreshToken: "rt-abc",
     };
 
-    const fetchFn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url === `${IDP_ISSUER}/token`) {
-        const body = new URLSearchParams(init?.body as string);
-        expect(body.get("grant_type")).toBe("refresh_token");
-        expect(body.get("refresh_token")).toBe("rt-abc");
-        return new Response(
-          JSON.stringify({
-            id_token: refreshed,
-            refresh_token: "rt-rotated",
-            token_type: "Bearer",
-          }),
-        );
-      }
-      throw new Error(`unexpected fetch: ${url}`);
-    });
+    const fetchFn = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === `${IDP_ISSUER}/token`) {
+          const body = new URLSearchParams(init?.body as string);
+          expect(body.get("grant_type")).toBe("refresh_token");
+          expect(body.get("refresh_token")).toBe("rt-abc");
+          return new Response(
+            JSON.stringify({
+              id_token: refreshed,
+              refresh_token: "rt-rotated",
+              token_type: "Bearer",
+            }),
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      },
+    );
 
     const idToken = await refreshIdpOidcSession({
       idp,
@@ -106,8 +108,11 @@ describe("idpOidc refresh", () => {
       refreshToken: "rt-bad",
     };
 
-    const fetchFn = vi.fn(async () =>
-      new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 }),
+    const fetchFn = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 400,
+        }),
     );
 
     expect(await getValidIdToken({ idp, storage, fetchFn })).toBeUndefined();

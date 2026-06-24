@@ -23,6 +23,18 @@ export interface EmaFlowConfig {
   fetchFn?: typeof fetch;
 }
 
+export type TrySilentEmaAuthResult =
+  | { status: "success" }
+  | { status: "no_idp_session" }
+  | { status: "mint_failed"; error: Error };
+
+function wrapEmaMintError(err: unknown): Error {
+  const message = err instanceof Error ? err.message : String(err);
+  return new Error(`EMA legs 2–3 (resource token mint): ${message}`, {
+    cause: err,
+  });
+}
+
 export async function mintEmaResourceTokens(
   config: EmaFlowConfig,
   resourceContext?: EmaResourceContext,
@@ -75,22 +87,26 @@ export async function mintEmaResourceTokens(
   });
 }
 
-/** Silent path: cached IdP session + legs 2–3. Returns false when IdP login is needed. */
-export async function trySilentEmaAuth(config: EmaFlowConfig): Promise<boolean> {
+/** Silent path: cached IdP session + legs 2–3. */
+export async function trySilentEmaAuth(
+  config: EmaFlowConfig,
+): Promise<TrySilentEmaAuthResult> {
   const idToken = await getValidIdToken({
     idp: config.idp,
     storage: config.storage,
     fetchFn: config.fetchFn,
   });
-  if (!idToken) return false;
+  if (!idToken) {
+    return { status: "no_idp_session" };
+  }
   try {
     const tokens = await mintEmaResourceTokens(config);
     await config.storage.saveTokens(config.serverUrl, tokens, {
       enterpriseManaged: true,
     });
-    return true;
-  } catch {
-    return false;
+    return { status: "success" };
+  } catch (err) {
+    return { status: "mint_failed", error: wrapEmaMintError(err) };
   }
 }
 
@@ -129,10 +145,7 @@ export async function completeEmaIdpAuthorizationAndMint(
   try {
     tokens = await mintEmaResourceTokens(config);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`EMA legs 2–3 (resource token mint): ${message}`, {
-      cause: err,
-    });
+    throw wrapEmaMintError(err);
   }
 
   await config.storage.saveTokens(config.serverUrl, tokens, {

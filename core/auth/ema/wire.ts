@@ -1,7 +1,6 @@
 import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
   OAuthClientInformation,
-  OAuthMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";

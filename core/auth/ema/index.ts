@@ -12,6 +12,7 @@ export {
   startEmaIdpAuthorization,
   trySilentEmaAuth,
   type EmaFlowConfig,
+  type TrySilentEmaAuthResult,
 } from "./emaFlow.js";
 export { EmaTransportOAuthProvider } from "./transportProvider.js";
 export { isJwtExpired, jwtExpiresAtMs } from "./jwt.js";

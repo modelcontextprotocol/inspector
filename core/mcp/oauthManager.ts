@@ -167,13 +167,20 @@ export class OAuthManager {
   /** Attempt silent EMA (cached IdP session + legs 2–3). */
   async trySilentEnterpriseManagedAuth(): Promise<boolean> {
     if (!this.isEnterpriseManaged()) return false;
-    return trySilentEmaAuth(this.getEmaFlowConfig());
+    const result = await trySilentEmaAuth(this.getEmaFlowConfig());
+    if (result.status === "success") return true;
+    if (result.status === "mint_failed") throw result.error;
+    return false;
   }
 
   private async authenticateEnterpriseManaged(): Promise<URL | undefined> {
     const config = this.getEmaFlowConfig();
-    if (await trySilentEmaAuth(config)) {
+    const silent = await trySilentEmaAuth(config);
+    if (silent.status === "success") {
       return undefined;
+    }
+    if (silent.status === "mint_failed") {
+      throw silent.error;
     }
 
     const authorizationUrl = await startEmaIdpAuthorization(config);

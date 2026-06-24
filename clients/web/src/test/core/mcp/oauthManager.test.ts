@@ -13,6 +13,7 @@ import {
   EmaClientNotConfiguredError,
   emaClientNotConfiguredMessage,
 } from "@inspector/core/auth/ema/clientConfigError.js";
+import * as emaFlow from "@inspector/core/auth/ema/emaFlow.js";
 
 const SERVER_URL = "https://example.com/mcp";
 
@@ -299,6 +300,45 @@ describe("OAuthManager", () => {
       await expect(manager.authenticate()).rejects.toThrow(
         emaClientNotConfiguredMessage("disabled"),
       );
+    });
+
+    it("surfaces mint failures without redirecting to the IdP", async () => {
+      const exp = Math.floor(Date.now() / 1000) + 3600;
+      const payload = btoa(JSON.stringify({ exp }))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
+      const idToken = `header.${payload}.sig`;
+      const issuer = "https://idp.example.com";
+
+      const params = createMockParams({
+        enterpriseManagedAuth: {
+          idp: {
+            issuer,
+            clientId: "app-client",
+            clientSecret: "secret",
+          },
+        },
+      });
+      params.initialConfig.storage!.getIdpSession = vi
+        .fn()
+        .mockResolvedValue({ idToken });
+      params.initialConfig.clientSecret = "";
+
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true });
+
+      const startIdpSpy = vi.spyOn(emaFlow, "startEmaIdpAuthorization");
+
+      await expect(manager.authenticate()).rejects.toThrow(
+        /EMA legs 2–3 \(resource token mint\)/,
+      );
+      expect(startIdpSpy).not.toHaveBeenCalled();
+      expect(
+        params.initialConfig.navigation!.navigateToAuthorization,
+      ).not.toHaveBeenCalled();
+
+      startIdpSpy.mockRestore();
     });
   });
 });

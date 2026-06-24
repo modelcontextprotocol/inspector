@@ -33,10 +33,7 @@ function jwtWithExp(expSec: number): string {
 }
 
 function createMemoryStorage(
-  idpSessions: Record<
-    string,
-    { idToken?: string; refreshToken?: string }
-  > = {},
+  idpSessions: Record<string, { idToken?: string; refreshToken?: string }> = {},
   savedTokens: Record<string, unknown> = {},
 ): OAuthStorage {
   return {
@@ -141,7 +138,10 @@ function mockEmaFetch(idToken: string) {
 
 describe("emaFlow", () => {
   let storage: OAuthStorage;
-  const idpSessions: Record<string, { idToken?: string }> = {};
+  const idpSessions: Record<
+    string,
+    { idToken?: string; refreshToken?: string }
+  > = {};
 
   beforeEach(() => {
     Object.keys(idpSessions).forEach((k) => delete idpSessions[k]);
@@ -188,12 +188,12 @@ describe("emaFlow", () => {
     const idToken = jwtWithExp(exp);
     idpSessions[IDP_ISSUER] = { idToken };
 
-    const ok = await trySilentEmaAuth({
+    const result = await trySilentEmaAuth({
       ...baseConfig(storage),
       fetchFn: mockEmaFetch(idToken),
     });
 
-    expect(ok).toBe(true);
+    expect(result).toEqual({ status: "success" });
     expect(storage.saveTokens).toHaveBeenCalledWith(
       SERVER_URL,
       expect.objectContaining({ access_token: "resource-access-token" }),
@@ -201,8 +201,33 @@ describe("emaFlow", () => {
     );
   });
 
-  it("trySilentEmaAuth returns false when IdP session is absent", async () => {
-    expect(await trySilentEmaAuth(baseConfig(storage))).toBe(false);
+  it("trySilentEmaAuth returns no_idp_session when IdP session is absent", async () => {
+    expect(await trySilentEmaAuth(baseConfig(storage))).toEqual({
+      status: "no_idp_session",
+    });
+  });
+
+  it("trySilentEmaAuth returns mint_failed when IdP session is valid but mint fails", async () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const idToken = jwtWithExp(exp);
+    idpSessions[IDP_ISSUER] = { idToken };
+
+    const result = await trySilentEmaAuth({
+      ...baseConfig(storage),
+      resourceClientSecret: "",
+      fetchFn: mockEmaFetch(idToken),
+    });
+
+    expect(result.status).toBe("mint_failed");
+    if (result.status === "mint_failed") {
+      expect(result.error.message).toMatch(
+        /EMA legs 2–3 \(resource token mint\)/,
+      );
+      expect(result.error.message).toMatch(
+        /resource authorization server client secret/,
+      );
+    }
+    expect(storage.saveTokens).not.toHaveBeenCalled();
   });
 
   it("mintEmaResourceTokens refreshes expired ID Token via refresh_token", async () => {
@@ -213,46 +238,52 @@ describe("emaFlow", () => {
       refreshToken: "rt-1",
     };
 
-    const fetchFn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (
-        url.includes("/.well-known/oauth-authorization-server") &&
-        url.startsWith(IDP_ISSUER)
-      ) {
-        return new Response(JSON.stringify(minimalOAuthAsMetadata(IDP_ISSUER)));
-      }
-      if (url === `${IDP_ISSUER}/token`) {
-        const body = new URLSearchParams(init?.body as string);
-        if (body.get("grant_type") === "refresh_token") {
+    const fetchFn = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.includes("/.well-known/oauth-authorization-server") &&
+          url.startsWith(IDP_ISSUER)
+        ) {
           return new Response(
-            JSON.stringify({ id_token: refreshed, token_type: "Bearer" }),
+            JSON.stringify(minimalOAuthAsMetadata(IDP_ISSUER)),
           );
         }
-        expect(body.get("grant_type")).toBe(GRANT_TYPE_TOKEN_EXCHANGE);
-        expect(body.get("subject_token")).toBe(refreshed);
-        return new Response(
-          JSON.stringify({
-            access_token: "id-jag-from-mock",
-            issued_token_type: TOKEN_TYPE_ID_JAG,
-          }),
-        );
-      }
-      if (
-        url.includes("/.well-known/oauth-authorization-server") &&
-        url.startsWith(AS_ISSUER)
-      ) {
-        return new Response(JSON.stringify(minimalOAuthAsMetadata(AS_ISSUER)));
-      }
-      if (url === `${AS_ISSUER}/token`) {
-        return new Response(
-          JSON.stringify({
-            access_token: "resource-access-token",
-            token_type: "Bearer",
-          }),
-        );
-      }
-      throw new Error(`unexpected fetch: ${url}`);
-    });
+        if (url === `${IDP_ISSUER}/token`) {
+          const body = new URLSearchParams(init?.body as string);
+          if (body.get("grant_type") === "refresh_token") {
+            return new Response(
+              JSON.stringify({ id_token: refreshed, token_type: "Bearer" }),
+            );
+          }
+          expect(body.get("grant_type")).toBe(GRANT_TYPE_TOKEN_EXCHANGE);
+          expect(body.get("subject_token")).toBe(refreshed);
+          return new Response(
+            JSON.stringify({
+              access_token: "id-jag-from-mock",
+              issued_token_type: TOKEN_TYPE_ID_JAG,
+            }),
+          );
+        }
+        if (
+          url.includes("/.well-known/oauth-authorization-server") &&
+          url.startsWith(AS_ISSUER)
+        ) {
+          return new Response(
+            JSON.stringify(minimalOAuthAsMetadata(AS_ISSUER)),
+          );
+        }
+        if (url === `${AS_ISSUER}/token`) {
+          return new Response(
+            JSON.stringify({
+              access_token: "resource-access-token",
+              token_type: "Bearer",
+            }),
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      },
+    );
 
     const tokens = await mintEmaResourceTokens(
       { ...baseConfig(storage), fetchFn },
