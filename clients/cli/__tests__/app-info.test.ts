@@ -90,7 +90,7 @@ describe("--app-info", () => {
     expect(info.resourceMimeType).toBe("text/html");
   });
 
-  it("appends an MCP App Info block after a normal tools/call on an App tool", async () => {
+  it("does not collect app-info on a plain text-mode tools/call (use --format json or --app-info)", async () => {
     const { command, args } = getTestMcpServerCommand();
     const result = await runCli([
       command,
@@ -103,8 +103,10 @@ describe("--app-info", () => {
       "title=hello",
     ]);
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("--- MCP App Info ---");
-    expect(result.stdout).toContain('"hasApp": true');
+    expect(result.stdout).not.toContain("--- MCP App Info ---");
+    expect(result.stdout).not.toContain("hasApp");
+    // stdout is now a single JSON value (the tool result) so `| jq` works.
+    expect(() => JSON.parse(result.stdout)).not.toThrow();
   });
 
   it("does not invoke the tool when --app-info is set", async () => {

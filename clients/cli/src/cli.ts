@@ -150,7 +150,13 @@ async function callMethod(
           { code: "tool_not_found" },
         );
       } else {
-        appInfo = await collectAppInfo(inspectorClient, tool, args.metadata);
+        // Only collect app-info when the caller asked for it (`--app-info` or
+        // `--format json`); a plain text-mode `tools/call` shouldn't fail just
+        // because the tool's `_meta.ui.resourceUri` is malformed or its
+        // resource is unreadable.
+        if (args.appInfo || args.format === "json") {
+          appInfo = await collectAppInfo(inspectorClient, tool, args.metadata);
+        }
         if (args.appInfo) {
           // --app-info: probe-only — emit the app metadata and skip the tool
           // call entirely. The result is the AppInfo block; the no-app exit
@@ -286,11 +292,9 @@ async function emitResult(
     if (appInfo?.hasApp) envelope.appInfo = appInfo;
     await awaitableLog(JSON.stringify(envelope) + "\n");
   } else {
-    await awaitableLog(JSON.stringify(result, null, 2));
-    if (appInfo?.hasApp) {
-      await awaitableLog("\n--- MCP App Info ---\n");
-      await awaitableLog(JSON.stringify(appInfo, null, 2) + "\n");
-    }
+    // Text mode emits the result only; app-info is not collected on this path
+    // (use `--format json` or `--app-info` to get it).
+    await awaitableLog(JSON.stringify(result, null, 2) + "\n");
   }
 
   // A tool that returned `isError:true` (or whose call failed) is still
@@ -754,10 +758,16 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     return { shortCircuit: true };
   }
 
+  // Honour MCP_CATALOG_PATH only when no ad-hoc target is given. Applying it
+  // unconditionally meant a homespace that exports the env var could never run
+  // `--server-url …` (serverSourceConflict rejects catalog + ad-hoc).
+  const adHoc =
+    targetArgs.length > 0 ||
+    Boolean(options.transport) ||
+    Boolean(options.serverUrl?.trim());
+  const envCatalog = adHoc ? undefined : process.env.MCP_CATALOG_PATH;
   const serverOptions = {
-    // `?.trim() ||` (not `??`) so an explicit empty `--catalog ""` still falls
-    // back to MCP_CATALOG_PATH — keeps CLI and TUI flag resolution identical.
-    catalogPath: options.catalog?.trim() || process.env.MCP_CATALOG_PATH,
+    catalogPath: options.catalog?.trim() || envCatalog,
     configPath: options.config?.trim() || undefined,
     target: targetArgs.length > 0 ? targetArgs : undefined,
     transport: options.transport,
@@ -815,10 +825,6 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   const entries = loadServerEntries(serverOptions);
   const selected = selectServerEntry(entries, options.server);
   const serverConfig = selected.config;
-  const adHoc =
-    serverOptions.target !== undefined ||
-    Boolean(serverOptions.transport) ||
-    Boolean(serverOptions.serverUrl);
   const serverSettings = withConnectTimeout(
     selected.settings,
     options.connectTimeout ?? (adHoc ? DEFAULT_CONNECT_TIMEOUT_MS : undefined),

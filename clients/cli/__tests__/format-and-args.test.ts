@@ -183,6 +183,17 @@ describe("--tool-args-json", () => {
   });
 });
 
+describe("MCP_CATALOG_PATH with ad-hoc --server-url", () => {
+  it("does not conflict with an ad-hoc target (env catalog is ignored)", async () => {
+    const { command, args } = getTestMcpServerCommand();
+    const result = await runCli(
+      [command, ...args, "--cli", "--method", "tools/list"],
+      { env: { MCP_CATALOG_PATH: "/no/such/catalog.json" } },
+    );
+    expectCliSuccess(result);
+  });
+});
+
 describe("--connect-timeout", () => {
   it("accepts a numeric value and connects within it", async () => {
     const { command, args } = getTestMcpServerCommand();
