@@ -3,6 +3,7 @@ import type { Resource } from "@modelcontextprotocol/sdk/types.js";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { ManagedResourcesState } from "@inspector/core/mcp/state/managedResourcesState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
+import { waitForChangeEvent } from "./waitForChangeEvent";
 
 function resource(uri: string): Resource {
   return { uri, name: uri };
@@ -22,19 +23,11 @@ const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
 function waitForResourcesChange(
   state: ManagedResourcesState,
 ): Promise<Resource[]> {
-  return new Promise((resolve) => {
-    state.addEventListener("resourcesChange", (e) => resolve(e.detail), {
-      once: true,
-    });
-  });
+  return waitForChangeEvent(state, "resourcesChange");
 }
 
 function waitForListChanged(state: ManagedResourcesState): Promise<boolean> {
-  return new Promise((resolve) => {
-    state.addEventListener("listChangedChange", (e) => resolve(e.detail), {
-      once: true,
-    });
-  });
+  return waitForChangeEvent(state, "listChangedChange");
 }
 
 describe("ManagedResourcesState", () => {
@@ -89,10 +82,9 @@ describe("ManagedResourcesState", () => {
     resourceless.setStatus("connected");
     const resourcelessState = new ManagedResourcesState(resourceless, 0);
 
+    const changePromise = waitForResourcesChange(resourcelessState);
     resourceless.dispatchTypedEvent("connect");
-    // Yield so the async refresh chained off connect runs.
-    await Promise.resolve();
-    await Promise.resolve();
+    await changePromise;
     expect(resourceless.listResources).not.toHaveBeenCalled();
     expect(resourcelessState.getResources()).toEqual([]);
   });

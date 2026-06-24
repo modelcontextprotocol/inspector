@@ -3,6 +3,7 @@ import type { ResourceTemplate } from "@modelcontextprotocol/sdk/types.js";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { ManagedResourceTemplatesState } from "@inspector/core/mcp/state/managedResourceTemplatesState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
+import { waitForChangeEvent } from "./waitForChangeEvent";
 
 function template(name: string): ResourceTemplate {
   return { uriTemplate: `tpl://{${name}}`, name };
@@ -22,13 +23,7 @@ const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
 function waitForChange(
   state: ManagedResourceTemplatesState,
 ): Promise<ResourceTemplate[]> {
-  return new Promise((resolve) => {
-    state.addEventListener(
-      "resourceTemplatesChange",
-      (e) => resolve(e.detail),
-      { once: true },
-    );
-  });
+  return waitForChangeEvent(state, "resourceTemplatesChange");
 }
 
 describe("ManagedResourceTemplatesState", () => {
@@ -90,10 +85,9 @@ describe("ManagedResourceTemplatesState", () => {
       0,
     );
 
+    const changePromise = waitForChange(resourcelessState);
     resourceless.dispatchTypedEvent("connect");
-    // Yield so the async refresh chained off connect runs.
-    await Promise.resolve();
-    await Promise.resolve();
+    await changePromise;
     expect(resourceless.listResourceTemplates).not.toHaveBeenCalled();
     expect(resourcelessState.getResourceTemplates()).toEqual([]);
   });

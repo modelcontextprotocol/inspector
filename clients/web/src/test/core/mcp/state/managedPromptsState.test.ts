@@ -3,6 +3,7 @@ import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { ManagedPromptsState } from "@inspector/core/mcp/state/managedPromptsState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
+import { waitForChangeEvent } from "./waitForChangeEvent";
 
 function prompt(name: string): Prompt {
   return { name };
@@ -20,19 +21,11 @@ const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
 };
 
 function waitForPromptsChange(state: ManagedPromptsState): Promise<Prompt[]> {
-  return new Promise((resolve) => {
-    state.addEventListener("promptsChange", (e) => resolve(e.detail), {
-      once: true,
-    });
-  });
+  return waitForChangeEvent(state, "promptsChange");
 }
 
 function waitForListChanged(state: ManagedPromptsState): Promise<boolean> {
-  return new Promise((resolve) => {
-    state.addEventListener("listChangedChange", (e) => resolve(e.detail), {
-      once: true,
-    });
-  });
+  return waitForChangeEvent(state, "listChangedChange");
 }
 
 describe("ManagedPromptsState", () => {
@@ -84,10 +77,9 @@ describe("ManagedPromptsState", () => {
     promptless.setStatus("connected");
     const promptlessState = new ManagedPromptsState(promptless, 0);
 
+    const changePromise = waitForPromptsChange(promptlessState);
     promptless.dispatchTypedEvent("connect");
-    // Yield so the async refresh chained off connect runs.
-    await Promise.resolve();
-    await Promise.resolve();
+    await changePromise;
     expect(promptless.listPrompts).not.toHaveBeenCalled();
     expect(promptlessState.getPrompts()).toEqual([]);
   });
