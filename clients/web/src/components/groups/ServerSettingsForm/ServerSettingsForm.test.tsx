@@ -18,6 +18,7 @@ function clearButtonFor(input: HTMLElement): HTMLElement {
 
 const emptySettings: InspectorServerSettings = {
   headers: [],
+  env: [],
   metadata: [],
   connectionTimeout: 30000,
   requestTimeout: 60000,
@@ -28,6 +29,7 @@ const emptySettings: InspectorServerSettings = {
 
 const populatedSettings: InspectorServerSettings = {
   headers: [{ key: "Authorization", value: "Bearer abc" }],
+  env: [],
   metadata: [{ key: "userId", value: "u-1" }],
   connectionTimeout: 30000,
   requestTimeout: 60000,
@@ -48,10 +50,16 @@ const allSections: ServerSettingsSection[] = [
 ];
 
 const baseHandlers = {
+  // Default to non-stdio; the stdio-only env / cwd tests override this to true.
+  isStdio: false,
   onExpandedSectionsChange: vi.fn(),
   onAddHeader: vi.fn(),
   onRemoveHeader: vi.fn(),
   onHeaderChange: vi.fn(),
+  onAddEnv: vi.fn(),
+  onRemoveEnv: vi.fn(),
+  onEnvChange: vi.fn(),
+  onCwdChange: vi.fn(),
   onAddMetadata: vi.fn(),
   onRemoveMetadata: vi.fn(),
   onMetadataChange: vi.fn(),
@@ -343,6 +351,128 @@ describe("ServerSettingsForm", () => {
     );
     await user.clear(screen.getByLabelText(/Network Log Size/));
     expect(onMaxFetchRequestsChange).toHaveBeenLastCalledWith(2500);
+  });
+
+  describe("stdio Working Directory (Options) / Environment Variables section", () => {
+    it("hides the Working Directory field and the Environment Variables section for non-stdio servers", () => {
+      renderWithMantine(
+        <ServerSettingsForm
+          {...baseHandlers}
+          isStdio={false}
+          settings={emptySettings}
+          expandedSections={["options", "environment"]}
+        />,
+      );
+      expect(
+        screen.queryByLabelText(/Working Directory/),
+      ).not.toBeInTheDocument();
+      // The whole Environment Variables accordion section is absent.
+      expect(
+        screen.queryByRole("button", { name: "Environment Variables" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/No environment variables configured/),
+      ).not.toBeInTheDocument();
+    });
+
+    it("shows the Working Directory field in Options and the Environment Variables section for stdio servers", () => {
+      renderWithMantine(
+        <ServerSettingsForm
+          {...baseHandlers}
+          isStdio
+          settings={emptySettings}
+          expandedSections={["options", "environment"]}
+        />,
+      );
+      expect(screen.getByLabelText(/Working Directory/)).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Environment Variables" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/No environment variables configured/),
+      ).toBeInTheDocument();
+    });
+
+    it("reflects the cwd value and invokes onCwdChange when typing", async () => {
+      const user = userEvent.setup();
+      const onCwdChange = vi.fn();
+      renderWithMantine(
+        <ServerSettingsForm
+          {...baseHandlers}
+          isStdio
+          onCwdChange={onCwdChange}
+          settings={{ ...emptySettings, cwd: "/srv" }}
+          expandedSections={["options"]}
+        />,
+      );
+      const input = screen.getByLabelText(/Working Directory/);
+      expect(input).toHaveValue("/srv");
+      await user.type(input, "X");
+      expect(onCwdChange).toHaveBeenLastCalledWith("/srvX");
+    });
+
+    it("clears the cwd via its Clear button", async () => {
+      const user = userEvent.setup();
+      const onCwdChange = vi.fn();
+      renderWithMantine(
+        <ServerSettingsForm
+          {...baseHandlers}
+          isStdio
+          onCwdChange={onCwdChange}
+          settings={{ ...emptySettings, cwd: "/srv" }}
+          expandedSections={["options"]}
+        />,
+      );
+      await user.click(
+        clearButtonFor(screen.getByLabelText(/Working Directory/)),
+      );
+      expect(onCwdChange).toHaveBeenCalledWith("");
+    });
+
+    it("invokes onAddEnv when the Add Environment Variable button is clicked", async () => {
+      const user = userEvent.setup();
+      const onAddEnv = vi.fn();
+      renderWithMantine(
+        <ServerSettingsForm
+          {...baseHandlers}
+          isStdio
+          onAddEnv={onAddEnv}
+          settings={emptySettings}
+          expandedSections={["environment"]}
+        />,
+      );
+      await user.click(
+        screen.getByRole("button", { name: /Add Environment Variable/ }),
+      );
+      expect(onAddEnv).toHaveBeenCalledTimes(1);
+    });
+
+    it("renders env rows and invokes onEnvChange / onRemoveEnv", async () => {
+      const user = userEvent.setup();
+      const onEnvChange = vi.fn();
+      const onRemoveEnv = vi.fn();
+      renderWithMantine(
+        <ServerSettingsForm
+          {...baseHandlers}
+          isStdio
+          onEnvChange={onEnvChange}
+          onRemoveEnv={onRemoveEnv}
+          settings={{
+            ...emptySettings,
+            env: [{ key: "API_KEY", value: "secret" }],
+          }}
+          expandedSections={["environment"]}
+        />,
+      );
+      const keyInput = screen.getByDisplayValue("API_KEY");
+      await user.type(keyInput, "2");
+      expect(onEnvChange).toHaveBeenLastCalledWith(0, "API_KEY2", "secret");
+
+      // The remove ("X") button sits alongside the row's key/value inputs.
+      const removeButtons = screen.getAllByRole("button", { name: "X" });
+      await user.click(removeButtons[removeButtons.length - 1]!);
+      expect(onRemoveEnv).toHaveBeenCalledWith(0);
+    });
   });
 
   it("invokes onOAuthChange when typing in client id", async () => {

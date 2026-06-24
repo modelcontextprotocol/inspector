@@ -64,6 +64,9 @@ describe("parseServerJson — packages", () => {
     // surfaced for the user to fill.
     if (opt.baseConfig.type === "stdio") {
       expect(opt.baseConfig.env).toEqual({ LOG_LEVEL: "info" });
+      // The registry server.json schema carries no working-directory concept,
+      // so a parsed package never sets cwd (documented in serverJson.ts).
+      expect(opt.baseConfig.cwd).toBeUndefined();
     }
     expect(opt.envVars).toEqual([
       {

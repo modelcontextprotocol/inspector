@@ -1261,6 +1261,7 @@ const settingsWithRoots = (
   roots: InspectorServerSettings["roots"],
 ): InspectorServerSettings => ({
   headers: [],
+  env: [],
   metadata: [],
   connectionTimeout: 0,
   requestTimeout: 0,

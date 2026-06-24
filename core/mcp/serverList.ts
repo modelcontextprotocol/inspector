@@ -99,6 +99,36 @@ type StoredInspectorFields = Pick<
 >;
 
 /**
+ * Convert a stored stdio `env` record into the controlled key/value rows the
+ * settings form edits, preserving the object's key insertion order. Empty when
+ * absent. Inverse of `envPairsToRecord`.
+ */
+export function envRecordToPairs(
+  env: Record<string, string> | undefined,
+): { key: string; value: string }[] {
+  return env
+    ? Object.entries(env).map(([key, value]) => ({ key, value }))
+    : [];
+}
+
+/**
+ * Collapse the form's controlled `env` rows back into a `Record`, dropping rows
+ * with an empty/whitespace key (the form lets users leave a new row blank
+ * mid-edit). Inverse of `envRecordToPairs`. Used by the `/api/servers` PUT
+ * write-through that maps `settings.env` back onto `config.env`.
+ */
+export function envPairsToRecord(
+  pairs: { key: string; value: string }[],
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const { key, value } of pairs) {
+    if (key.trim() === "") continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+/**
  * Lift the Inspector-extension fields off a freshly-read `StoredMCPServer`
  * into the pair-array / flat-OAuth `InspectorServerSettings` shape the form
  * and the rest of the in-memory layer consume. Returns `undefined` when none
@@ -109,9 +139,20 @@ type StoredInspectorFields = Pick<
  * `oauth.*` becomes the flat `oauthClientId` / `oauthClientSecret` /
  * `oauthScopes` fields. Numeric timeouts default to 0 when absent — the form
  * needs concrete values to render and 0 is the SDK's "no timeout" signal.
+ *
+ * `env` / `cwd` are SDK config fields (not Inspector-extension keys), but they
+ * are mirrored into the settings here so the Server Settings modal can edit
+ * them for stdio servers. They are NOT re-emitted by
+ * `inspectorSettingsToStoredFields` — the write side lives in the PUT route's
+ * write-through (config stays the single on-disk owner). Their presence alone
+ * is enough to materialize a settings node so a bare `{ command, env }` entry
+ * surfaces its env in the form.
  */
 export function storedFieldsToInspectorSettings(
-  stored: StoredInspectorFields,
+  stored: StoredInspectorFields & {
+    env?: Record<string, string>;
+    cwd?: string;
+  },
 ): InspectorServerSettings | undefined {
   const hasAny =
     stored.headers !== undefined ||
@@ -122,7 +163,9 @@ export function storedFieldsToInspectorSettings(
     stored.autoRefreshOnListChanged !== undefined ||
     stored.maxFetchRequests !== undefined ||
     stored.oauth !== undefined ||
-    stored.roots !== undefined;
+    stored.roots !== undefined ||
+    stored.env !== undefined ||
+    stored.cwd !== undefined;
   if (!hasAny) return undefined;
 
   const headersPairs: { key: string; value: string }[] = stored.headers
@@ -131,6 +174,7 @@ export function storedFieldsToInspectorSettings(
 
   const settings: InspectorServerSettings = {
     headers: headersPairs,
+    env: envRecordToPairs(stored.env),
     metadata: stored.metadata ?? [],
     connectionTimeout: stored.connectionTimeout ?? 0,
     requestTimeout: stored.requestTimeout ?? 0,
@@ -155,6 +199,9 @@ export function storedFieldsToInspectorSettings(
   if (stored.oauth?.clientSecret)
     settings.oauthClientSecret = stored.oauth.clientSecret;
   if (stored.oauth?.scopes) settings.oauthScopes = stored.oauth.scopes;
+  // Mirror the stdio working directory for the form. Like the OAuth fields, an
+  // empty string coerces to absent so the form's "(inherit)" placeholder shows.
+  if (stored.cwd) settings.cwd = stored.cwd;
   return settings;
 }
 
@@ -323,7 +370,20 @@ export function mcpConfigToServerEntries(config: MCPConfig): ServerEntry[] {
       config: normalizedConfig,
       connection: { status: "disconnected" },
     };
-    const settings = storedFieldsToInspectorSettings(inspectorFields);
+    // Mirror the stdio `env` / `cwd` (SDK config fields) into the settings so
+    // the Server Settings modal can edit them. They stay on `config` for the
+    // transport. Gate on the stdio type rather than blindly casting — a non-
+    // stdio config carries neither field, matching the modal's stdio-only UI.
+    const isStdio =
+      normalizedConfig.type === "stdio" || normalizedConfig.type === undefined;
+    const stdioConfig = isStdio
+      ? (normalizedConfig as StdioServerConfig)
+      : undefined;
+    const settings = storedFieldsToInspectorSettings({
+      ...inspectorFields,
+      env: stdioConfig?.env,
+      cwd: stdioConfig?.cwd,
+    });
     if (settings !== undefined) entry.settings = settings;
     return entry;
   });

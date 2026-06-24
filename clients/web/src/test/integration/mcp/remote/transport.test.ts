@@ -407,6 +407,7 @@ describe("Remote transport e2e", () => {
           { key: "X-Tenant", value: "acme" },
           { key: "X-Trace", value: "abc123" },
         ],
+        env: [],
         metadata: [],
         connectionTimeout: 0,
         requestTimeout: 0,
