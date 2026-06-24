@@ -11,7 +11,10 @@ import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import { createFileStorageAdapter } from "@inspector/core/storage/adapters/file-storage.js";
 import { createRemoteStorageAdapter } from "@inspector/core/storage/adapters/remote-storage.js";
-import { createOAuthStore } from "@inspector/core/auth/store.js";
+import {
+  createOAuthStore,
+  normalizeServerUrl,
+} from "@inspector/core/auth/store.js";
 import { createRemoteApp } from "@inspector/core/mcp/remote/node/server.js";
 import {
   writeStoreFile,
@@ -155,7 +158,9 @@ describe("Storage adapters", () => {
       await flushStoreFileWrites(filePath);
       const fileContent = readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(fileContent);
-      expect(parsed.state.servers["https://example.com"].tokens).toEqual({
+      expect(
+        parsed.state.servers[normalizeServerUrl("https://example.com")].tokens,
+      ).toEqual({
         access_token: "test-token",
         token_type: "Bearer",
       });
@@ -341,8 +346,8 @@ describe("Storage adapters", () => {
           };
         };
         return (
-          d?.state?.servers?.["https://example.com"]?.tokens?.access_token ===
-          "test-token"
+          d?.state?.servers?.[normalizeServerUrl("https://example.com")]?.tokens
+            ?.access_token === "test-token"
         );
       });
 
@@ -355,7 +360,10 @@ describe("Storage adapters", () => {
       });
       expect(res.status).toBe(200);
       const storeData = await res.json();
-      expect(storeData.state.servers["https://example.com"].tokens).toEqual({
+      expect(
+        storeData.state.servers[normalizeServerUrl("https://example.com")]
+          .tokens,
+      ).toEqual({
         access_token: "test-token",
         token_type: "Bearer",
       });
@@ -385,8 +393,8 @@ describe("Storage adapters", () => {
           };
         };
         return (
-          d?.state?.servers?.["https://example.com"]?.tokens?.access_token ===
-          "initial-token"
+          d?.state?.servers?.[normalizeServerUrl("https://example.com")]?.tokens
+            ?.access_token === "initial-token"
         );
       });
 

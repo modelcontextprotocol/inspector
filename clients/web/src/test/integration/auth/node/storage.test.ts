@@ -4,6 +4,7 @@ import {
   getOAuthStore,
   clearAllOAuthClientState,
 } from "@inspector/core/auth/node/storage-node.js";
+import { normalizeServerUrl } from "@inspector/core/auth/store.js";
 import type {
   OAuthClientInformation,
   OAuthTokens,
@@ -483,9 +484,9 @@ describe("OAuth Store (Zustand)", () => {
       const parsed = JSON.parse(
         await fs.readFile(persistTestPath, "utf-8"),
       ) as StateShape;
-      expect(parsed.state.servers[serverUrl]?.clientInformation).toEqual(
-        clientInfo,
-      );
+      expect(
+        parsed.state.servers[normalizeServerUrl(serverUrl)]?.clientInformation,
+      ).toEqual(clientInfo);
     } finally {
       try {
         await fs.unlink(persistTestPath);
@@ -525,9 +526,10 @@ describe("NodeOAuthStorage with custom storagePath", () => {
         await fs.readFile(customPath, "utf-8"),
       ) as StateShape;
 
-      expect(parsed.state.servers[testServerUrl]?.tokens?.access_token).toBe(
-        tokens.access_token,
-      );
+      expect(
+        parsed.state.servers[normalizeServerUrl(testServerUrl)]?.tokens
+          ?.access_token,
+      ).toBe(tokens.access_token);
 
       const stored = await storage.getTokens(testServerUrl);
       expect(stored?.access_token).toBe(tokens.access_token);
