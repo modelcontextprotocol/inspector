@@ -35,10 +35,12 @@ import type {
   InspectorServerSettings,
   MCPConfig,
   MCPServerConfig,
+  StdioServerConfig,
   StoredMCPServer,
 } from "../../types.js";
 import {
   DEFAULT_SEED_CONFIG,
+  envPairsToRecord,
   expectedSecretFields,
   extractSecretsFromStored,
   INSPECTOR_FIELD_KEYS,
@@ -1100,6 +1102,34 @@ export function createRemoteApp(
     return normalized;
   };
 
+  // Write-through for the stdio `env` / `cwd` config fields edited via the
+  // Server Settings modal. They are NOT Inspector-extension fields (the
+  // transport reads them off `config`), so `inspectorSettingsToStoredFields`
+  // doesn't emit them. Instead, on a settings-only patch the settings mirror is
+  // authoritative: this maps `settings.env` / `settings.cwd` back onto the
+  // stored stdio config, including clearing (empty list / blank cwd → field
+  // removed) so a user can delete a value through the modal. No-op for
+  // non-stdio entries. Mutates `entry` in place.
+  const applyStdioSettingsToConfig = (
+    entry: StoredMCPServer,
+    settings: InspectorServerSettings,
+  ): void => {
+    if (!(entry.type === "stdio" || entry.type === undefined)) return;
+    const stdio = entry as StdioServerConfig & StoredMCPServer;
+    const env = envPairsToRecord(settings.env);
+    if (Object.keys(env).length > 0) {
+      stdio.env = env;
+    } else {
+      delete stdio.env;
+    }
+    const cwd = settings.cwd?.trim();
+    if (cwd) {
+      stdio.cwd = cwd;
+    } else {
+      delete stdio.cwd;
+    }
+  };
+
   // Structurally validates an InspectorServerSettings payload off the wire so
   // a malformed body can't persist to disk and crash the UI later (e.g.
   // `settings: []` or `settings: { headers: "oops" }`). Mirrors the lenient
@@ -1135,6 +1165,19 @@ export function createRemoteApp(
         ok: false,
         error: "settings.metadata must be an array of { key, value }",
       };
+    }
+    // env is optional on the wire (older clients / non-stdio servers won't send
+    // it); when present it must be an array of { key, value } like headers.
+    if (obj.env !== undefined && !isKvArray(obj.env)) {
+      return {
+        ok: false,
+        error: "settings.env must be an array of { key, value }",
+      };
+    }
+    // cwd is optional; when present it must be a string. Empty coerces to absent
+    // below (matching the read side), which the write-through reads as "clear".
+    if (obj.cwd !== undefined && typeof obj.cwd !== "string") {
+      return { ok: false, error: "settings.cwd must be a string" };
     }
     if (
       typeof obj.connectionTimeout !== "number" ||
@@ -1213,6 +1256,9 @@ export function createRemoteApp(
     // later be misread as "OAuth configured."
     const value: InspectorServerSettings = {
       headers: obj.headers as { key: string; value: string }[],
+      // Absent → empty list, matching the read side. The write-through drops
+      // empty-key rows and clears `config.env` when the list is empty.
+      env: isKvArray(obj.env) ? obj.env : [],
       metadata: obj.metadata as { key: string; value: string }[],
       connectionTimeout: obj.connectionTimeout as number,
       requestTimeout: obj.requestTimeout as number,
@@ -1249,6 +1295,11 @@ export function createRemoteApp(
     }
     if (typeof obj.oauthScopes === "string" && obj.oauthScopes !== "") {
       value.oauthScopes = obj.oauthScopes;
+    }
+    // Empty cwd coerces to absent (matching the read side); the write-through
+    // reads an absent cwd as "clear the stored working directory".
+    if (typeof obj.cwd === "string" && obj.cwd !== "") {
+      value.cwd = obj.cwd;
     }
     return { ok: true, value };
   };
@@ -1819,6 +1870,16 @@ export function createRemoteApp(
         // key dropped, OAuth secret cleared) gets cleaned up rather
         // than orphaned.
         const built = buildStoredEntry(newId, nextConfig, nextSettings);
+        // stdio env/cwd are config fields editable from both the Add/Edit modal
+        // (patches `config`) and the Server Settings modal (patches `settings`).
+        // On a settings-only patch (config preserved) the settings mirror is
+        // authoritative — write it through onto the stored config so edits and
+        // clears take effect. When a config body was provided it owns env/cwd
+        // and the settings mirror is ignored. Runs before secret extraction so a
+        // removed env key reconciles out of the keychain.
+        if (body.config === undefined && nextSettings !== undefined) {
+          applyStdioSettingsToConfig(built, nextSettings);
+        }
         const { stripped, secrets } = extractSecretsFromStored(built);
         const next: MCPConfig = { mcpServers: {} };
         for (const [key, val] of Object.entries(current.mcpServers)) {

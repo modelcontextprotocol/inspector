@@ -11,6 +11,7 @@ function template(name: string): ResourceTemplate {
 
 const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
   headers: [],
+  env: [],
   metadata: [],
   connectionTimeout: 0,
   requestTimeout: 0,

@@ -2,13 +2,17 @@ import { describe, it, expect } from "vitest";
 import {
   cleanRoots,
   DEFAULT_SEED_CONFIG,
+  envPairsToRecord,
+  envRecordToPairs,
   expectedSecretFields,
   extractSecretsFromStored,
+  inspectorSettingsToStoredFields,
   mcpConfigToServerEntries,
   mergeSecretsIntoStored,
   normalizeServerType,
   serverEntriesToMcpConfig,
   serializeMcpConfig,
+  storedFieldsToInspectorSettings,
 } from "@inspector/core/mcp/serverList.js";
 import {
   SECRET_FIELD_OAUTH_CLIENT_SECRET,
@@ -314,6 +318,8 @@ describe("serverEntriesToMcpConfig", () => {
     expect(entry?.settings).toEqual({
       // Object headers on disk → pair-array headers in memory
       headers: [{ key: "X-Tenant", value: "acme" }],
+      // Non-stdio server → empty env mirror in memory (for the form)
+      env: [],
       metadata: [],
       connectionTimeout: 0,
       requestTimeout: 0,
@@ -393,6 +399,7 @@ describe("serverEntriesToMcpConfig", () => {
             { key: "", value: "stub" },
             { key: "   ", value: "whitespace" },
           ],
+          env: [],
           metadata: [],
           connectionTimeout: 0,
           requestTimeout: 0,
@@ -419,6 +426,7 @@ describe("serverEntriesToMcpConfig", () => {
         config: { type: "streamable-http", url: "https://x.test" },
         settings: {
           headers: [],
+          env: [],
           metadata: [],
           connectionTimeout: 0,
           requestTimeout: 0,
@@ -447,6 +455,7 @@ describe("serverEntriesToMcpConfig", () => {
         config: { type: "stdio", command: "node" },
         settings: {
           headers: [],
+          env: [],
           metadata: [],
           connectionTimeout: 0,
           requestTimeout: 0,
@@ -485,6 +494,7 @@ describe("serverEntriesToMcpConfig", () => {
         config: { type: "stdio", command: "node" },
         settings: {
           headers: [],
+          env: [],
           metadata: [],
           connectionTimeout: 0,
           requestTimeout: 0,
@@ -511,6 +521,7 @@ describe("serverEntriesToMcpConfig", () => {
         config: { type: "stdio", command: "node" },
         settings: {
           headers: [],
+          env: [],
           metadata: [],
           connectionTimeout: 0,
           requestTimeout: 0,
@@ -775,5 +786,132 @@ describe("expectedSecretFields", () => {
         command: "node",
       }),
     ).toEqual([SECRET_FIELD_OAUTH_CLIENT_SECRET]);
+  });
+});
+
+describe("envRecordToPairs / envPairsToRecord", () => {
+  it("envRecordToPairs preserves key insertion order", () => {
+    expect(envRecordToPairs({ B: "2", A: "1" })).toEqual([
+      { key: "B", value: "2" },
+      { key: "A", value: "1" },
+    ]);
+  });
+
+  it("envRecordToPairs returns an empty array for undefined", () => {
+    expect(envRecordToPairs(undefined)).toEqual([]);
+  });
+
+  it("envPairsToRecord drops empty / whitespace-only keys", () => {
+    expect(
+      envPairsToRecord([
+        { key: "API_KEY", value: "secret" },
+        { key: "", value: "ignored" },
+        { key: "   ", value: "ignored" },
+        { key: "DEBUG", value: "1" },
+      ]),
+    ).toEqual({ API_KEY: "secret", DEBUG: "1" });
+  });
+
+  it("round-trips a populated env through both converters", () => {
+    const record = { API_KEY: "secret", DEBUG: "1" };
+    expect(envPairsToRecord(envRecordToPairs(record))).toEqual(record);
+  });
+});
+
+describe("stdio env / cwd mirroring", () => {
+  it("lifts stdio env (object → pair-array) and cwd onto settings while keeping them on config", () => {
+    const cfg: MCPConfig = {
+      mcpServers: {
+        alpha: {
+          type: "stdio",
+          command: "node",
+          args: ["server.js"],
+          env: { API_KEY: "secret", DEBUG: "1" },
+          cwd: "/srv/app",
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(cfg);
+    expect(entry?.settings?.env).toEqual([
+      { key: "API_KEY", value: "secret" },
+      { key: "DEBUG", value: "1" },
+    ]);
+    expect(entry?.settings?.cwd).toBe("/srv/app");
+    // env / cwd remain on the SDK config so the transport still sees them.
+    expect(entry?.config).toMatchObject({
+      env: { API_KEY: "secret", DEBUG: "1" },
+      cwd: "/srv/app",
+    });
+  });
+
+  it("materializes a settings node for a bare stdio entry carrying only env", () => {
+    const cfg: MCPConfig = {
+      mcpServers: {
+        alpha: { type: "stdio", command: "node", env: { A: "1" } },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(cfg);
+    expect(entry?.settings?.env).toEqual([{ key: "A", value: "1" }]);
+  });
+
+  it("leaves env an empty list and cwd unset for a stdio entry without them", () => {
+    const settings = storedFieldsToInspectorSettings({
+      headers: { "X-A": "b" },
+    });
+    expect(settings?.env).toEqual([]);
+    expect(settings?.cwd).toBeUndefined();
+  });
+
+  it("mirrors empty env for non-stdio servers", () => {
+    const cfg: MCPConfig = {
+      mcpServers: {
+        alpha: {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          headers: { "X-Tenant": "acme" },
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(cfg);
+    expect(entry?.settings?.env).toEqual([]);
+  });
+
+  it("does NOT re-emit env / cwd from inspectorSettingsToStoredFields (config owns them on disk)", () => {
+    // env / cwd are config fields; the write side is the PUT route's
+    // write-through, not this converter. So even a populated settings.env must
+    // not leak back as a settings delta that would clobber config on merge.
+    const out = inspectorSettingsToStoredFields({
+      headers: [],
+      env: [{ key: "API_KEY", value: "secret" }],
+      cwd: "/srv/app",
+      metadata: [],
+      connectionTimeout: 0,
+      requestTimeout: 0,
+      taskTtl: 60000,
+      maxFetchRequests: 1000,
+      roots: [],
+    });
+    expect(out).not.toHaveProperty("env");
+    expect(out).not.toHaveProperty("cwd");
+  });
+
+  it("preserves stdio env / cwd through a config serialize round-trip", () => {
+    const cfg: MCPConfig = {
+      mcpServers: {
+        alpha: {
+          type: "stdio",
+          command: "node",
+          env: { API_KEY: "secret" },
+          cwd: "/srv/app",
+        },
+      },
+    };
+    const entries = mcpConfigToServerEntries(cfg);
+    const back = serverEntriesToMcpConfig(entries);
+    expect(back.mcpServers.alpha).toMatchObject({
+      command: "node",
+      env: { API_KEY: "secret" },
+      cwd: "/srv/app",
+    });
   });
 });

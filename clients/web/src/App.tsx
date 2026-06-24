@@ -20,6 +20,7 @@ import type {
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { getServerType } from "@inspector/core/mcp/config.js";
 import type {
   InspectorClientEventMap,
   JsonValue,
@@ -282,6 +283,7 @@ async function replayHistoryRequest(
 // React doesn't re-allocate on every render.
 const EMPTY_SETTINGS: InspectorServerSettings = {
   headers: [],
+  env: [],
   metadata: [],
   connectionTimeout: 0,
   requestTimeout: 0,
@@ -2257,6 +2259,16 @@ function App() {
   const settingsModalValue: InspectorServerSettings =
     settingsDraft ?? EMPTY_SETTINGS;
 
+  // Gate the stdio-only Working Directory / Environment Variables controls in
+  // the settings modal. Resolve the target server's transport from its config;
+  // default to non-stdio when the target isn't resolvable (modal closed).
+  const settingsModalTarget = servers.find(
+    (s) => s.id === settingsModalTargetId,
+  );
+  const settingsModalIsStdio = settingsModalTarget
+    ? getServerType(settingsModalTarget.config) === "stdio"
+    : false;
+
   const onSettingsModalClose = useCallback(() => {
     flushSettingsDraft();
     // Apply root edits to the live client once, on close — not on every
@@ -2551,6 +2563,7 @@ function App() {
         key={settingsModalTargetId ?? "closed"}
         opened={settingsModalTargetId !== undefined}
         settings={settingsModalValue}
+        isStdio={settingsModalIsStdio}
         onClose={onSettingsModalClose}
         onSettingsChange={onSettingsChange}
       />

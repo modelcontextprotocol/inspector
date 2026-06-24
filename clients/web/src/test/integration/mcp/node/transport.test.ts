@@ -213,6 +213,7 @@ describe("Transport", () => {
             { key: "X-Trace", value: "abc123" },
             { key: "", value: "ignored-empty-key" },
           ],
+          env: [],
           metadata: [],
           connectionTimeout: 0,
           requestTimeout: 0,
@@ -267,6 +268,7 @@ describe("Transport", () => {
         const config: MCPServerConfig = { type: "sse", url: server.url };
         const settings: InspectorServerSettings = {
           headers: [{ key: "X-Tenant", value: "acme" }],
+          env: [],
           metadata: [],
           connectionTimeout: 0,
           requestTimeout: 0,
@@ -311,6 +313,7 @@ describe("Transport", () => {
       };
       const settings: InspectorServerSettings = {
         headers: [],
+        env: [],
         metadata: [],
         connectionTimeout: 0,
         requestTimeout: 0,

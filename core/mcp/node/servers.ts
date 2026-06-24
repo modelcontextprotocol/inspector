@@ -42,6 +42,7 @@ export function headersToServerSettings(
   }
   return {
     headers: Object.entries(headers).map(([key, value]) => ({ key, value })),
+    env: [],
     metadata: [],
     connectionTimeout: 0,
     requestTimeout: 0,

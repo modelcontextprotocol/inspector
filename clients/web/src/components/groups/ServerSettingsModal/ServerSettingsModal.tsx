@@ -10,18 +10,30 @@ import {
   type ServerSettingsSection,
 } from "../ServerSettingsForm/ServerSettingsForm";
 
-const ALL_SECTIONS: ServerSettingsSection[] = [
-  "options",
-  "headers",
-  "metadata",
-  "timeouts",
-  "oauth",
-  "roots",
-];
+// The "environment" section only renders for stdio servers, so it joins the
+// expand/collapse-all set only then — otherwise `allExpanded` could never be
+// reached (the section isn't in the DOM to expand).
+function allSectionsFor(isStdio: boolean): ServerSettingsSection[] {
+  return [
+    "options",
+    ...(isStdio ? (["environment"] as const) : []),
+    "headers",
+    "metadata",
+    "timeouts",
+    "oauth",
+    "roots",
+  ];
+}
 
 export interface ServerSettingsModalProps {
   opened: boolean;
   settings: InspectorServerSettings;
+  /**
+   * Whether the target server uses the stdio transport. Forwarded to the form
+   * to gate the stdio-only Working Directory field and Environment Variables
+   * section.
+   */
+  isStdio: boolean;
   onClose: () => void;
   onSettingsChange: (settings: InspectorServerSettings) => void;
 }
@@ -29,6 +41,7 @@ export interface ServerSettingsModalProps {
 export function ServerSettingsModal({
   opened,
   settings,
+  isStdio,
   onClose,
   onSettingsChange,
 }: ServerSettingsModalProps) {
@@ -41,10 +54,11 @@ export function ServerSettingsModal({
     ServerSettingsSection[]
   >(["options"]);
 
-  const allExpanded = expandedSections.length === ALL_SECTIONS.length;
+  const allSections = allSectionsFor(isStdio);
+  const allExpanded = expandedSections.length === allSections.length;
 
   function handleToggleAll() {
-    setExpandedSections(allExpanded ? [] : ALL_SECTIONS);
+    setExpandedSections(allExpanded ? [] : allSections);
   }
 
   function handleAddHeader() {
@@ -66,6 +80,29 @@ export function ServerSettingsModal({
       i === index ? { key, value } : h,
     );
     onSettingsChange({ ...settings, headers });
+  }
+
+  function handleAddEnv() {
+    onSettingsChange({
+      ...settings,
+      env: [...settings.env, { key: "", value: "" }],
+    });
+  }
+
+  function handleRemoveEnv(index: number) {
+    onSettingsChange({
+      ...settings,
+      env: settings.env.filter((_, i) => i !== index),
+    });
+  }
+
+  function handleEnvChange(index: number, key: string, value: string) {
+    const env = settings.env.map((e, i) => (i === index ? { key, value } : e));
+    onSettingsChange({ ...settings, env });
+  }
+
+  function handleCwdChange(value: string) {
+    onSettingsChange({ ...settings, cwd: value });
   }
 
   function handleAddMetadata() {
@@ -158,11 +195,16 @@ export function ServerSettingsModal({
         </Group>
         <ServerSettingsForm
           settings={settings}
+          isStdio={isStdio}
           expandedSections={expandedSections}
           onExpandedSectionsChange={setExpandedSections}
           onAddHeader={handleAddHeader}
           onRemoveHeader={handleRemoveHeader}
           onHeaderChange={handleHeaderChange}
+          onAddEnv={handleAddEnv}
+          onRemoveEnv={handleRemoveEnv}
+          onEnvChange={handleEnvChange}
+          onCwdChange={handleCwdChange}
           onAddMetadata={handleAddMetadata}
           onRemoveMetadata={handleRemoveMetadata}
           onMetadataChange={handleMetadataChange}

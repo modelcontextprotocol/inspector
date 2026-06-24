@@ -422,6 +422,22 @@ export const DEFAULT_MAX_FETCH_REQUESTS = 1000;
 export interface InspectorServerSettings {
   headers: { key: string; value: string }[];
   metadata: { key: string; value: string }[];
+  /**
+   * Environment variables for stdio servers, edited as controlled key/value
+   * rows (mirrors `headers`). Only meaningful for stdio transports; non-stdio
+   * servers keep this an empty list. These do NOT live on disk as a settings
+   * field — they round-trip through the SDK config's `env` (the standard
+   * mcp.json location). The settings layer mirrors them for the form, and the
+   * `/api/servers` PUT route writes an edited list back onto `config.env` when
+   * the caller patches settings only. Empty-key rows are dropped on persist.
+   */
+  env: { key: string; value: string }[];
+  /**
+   * Working directory for stdio servers (`config.cwd`). Like `env`, this is a
+   * mirror of the SDK config field rather than a persisted settings field;
+   * empty/unset means "inherit". Only meaningful for stdio transports.
+   */
+  cwd?: string;
   connectionTimeout: number;
   requestTimeout: number;
   /** TTL (ms) for tasks created via "Run as task". Defaults to 60000. */

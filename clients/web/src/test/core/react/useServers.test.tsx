@@ -411,6 +411,7 @@ describe("useServers", () => {
     await act(async () => {
       await result.current.updateServerSettings("alpha", {
         headers: [{ key: "X-Tenant", value: "acme" }],
+        env: [],
         metadata: [{ key: "trace", value: "abc" }],
         connectionTimeout: 5000,
         requestTimeout: 30000,
@@ -423,6 +424,7 @@ describe("useServers", () => {
     await waitFor(() => {
       expect(result.current.servers[0]?.settings).toEqual({
         headers: [{ key: "X-Tenant", value: "acme" }],
+        env: [],
         metadata: [{ key: "trace", value: "abc" }],
         connectionTimeout: 5000,
         requestTimeout: 30000,
@@ -457,6 +459,7 @@ describe("useServers", () => {
       act(async () => {
         await result.current.updateServerSettings("nonexistent", {
           headers: [],
+          env: [],
           metadata: [],
           connectionTimeout: 0,
           requestTimeout: 0,
@@ -506,6 +509,7 @@ describe("useServers", () => {
     });
     expect(result.current.servers[0]?.settings).toEqual({
       headers: [{ key: "X-Keep", value: "yes" }],
+      env: [],
       metadata: [],
       connectionTimeout: 0,
       requestTimeout: 0,
