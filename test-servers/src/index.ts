@@ -8,4 +8,7 @@ export * from "./test-server-stdio.js";
 export * from "./test-server-http.js";
 export * from "./test-server-control.js";
 export * from "./test-server-oauth.js";
+export * from "./test-server-oauth-jwt.js";
 export * from "./test-helpers.js";
+export * from "./load-config.js";
+export * from "./resolve-config.js";

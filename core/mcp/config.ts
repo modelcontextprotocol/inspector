@@ -22,3 +22,8 @@ export function getServerType(config: MCPServerConfig): ServerType {
     `Invalid server type: ${type}. Valid types are: stdio, sse, streamable-http`,
   );
 }
+
+/** OAuth and enterprise-managed auth apply only to remote HTTP-based transports. */
+export function isOAuthCapableServerType(type: ServerType): boolean {
+  return type === "sse" || type === "streamable-http";
+}

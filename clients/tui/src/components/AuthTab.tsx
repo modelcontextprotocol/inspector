@@ -6,7 +6,7 @@ import type {
   MCPServerConfig,
   InspectorClient,
 } from "@inspector/core/mcp/index.js";
-import type { AuthGuidedState, OAuthStep } from "@inspector/core/auth/index.js";
+import type { OAuthFlowState, OAuthStep } from "@inspector/core/auth/index.js";
 
 const STEP_LABELS: Record<OAuthStep, string> = {
   metadata_discovery: "Metadata Discovery",
@@ -68,21 +68,21 @@ export function AuthTab({
   isOAuthCapable,
 }: AuthTabProps) {
   const scrollViewRef = useRef<ScrollViewRef>(null);
-  const [oauthState, setOauthState] = useState<AuthGuidedState | undefined>(
-    undefined,
-  );
+  const [oauthFlowState, setOauthFlowState] = useState<
+    OAuthFlowState | undefined
+  >(undefined);
   const [guidedStarted, setGuidedStarted] = useState(false);
   const [clearedConfirmation, setClearedConfirmation] = useState(false);
 
-  // Sync oauthState from InspectorClient
+  // Sync oauthFlowState from InspectorClient
   useEffect(() => {
     if (!inspectorClient) {
-      setOauthState(undefined);
+      setOauthFlowState(undefined);
       setGuidedStarted(false);
       return;
     }
 
-    const update = () => setOauthState(inspectorClient.getOAuthState());
+    const update = () => setOauthFlowState(inspectorClient.getOAuthFlowState());
     update();
 
     const onStepChange = () => update();
@@ -106,10 +106,10 @@ export function AuthTab({
     }
   }, [selectedAction]);
 
-  const guidedFlowStarted = !!oauthState?.oauthStep;
-  const currentStep = oauthState?.oauthStep ?? "metadata_discovery";
+  const guidedFlowStarted = !!oauthFlowState?.oauthStep;
+  const currentStep = oauthFlowState?.oauthStep ?? "metadata_discovery";
   const needsAuthCode =
-    currentStep === "authorization_code" && oauthState?.authorizationUrl;
+    currentStep === "authorization_code" && oauthFlowState?.authorizationUrl;
   const isComplete = currentStep === "complete";
 
   const handleContinue = useCallback(async () => {
@@ -268,8 +268,8 @@ export function AuthTab({
                     (step === currentStep && isComplete));
                 const inProgress =
                   guidedFlowStarted && step === currentStep && !isComplete;
-                const details = oauthState
-                  ? getStepDetails(oauthState, step)
+                const details = oauthFlowState
+                  ? getStepDetails(oauthFlowState, step)
                   : null;
 
                 const icon = completed ? "✓" : inProgress ? "→" : "○";
@@ -305,22 +305,24 @@ export function AuthTab({
               })}
 
               {/* Waiting for auth - URL was opened when we reached this step */}
-              {oauthState && needsAuthCode && oauthState?.authorizationUrl && (
-                <Box marginTop={2} flexDirection="column">
-                  <Text bold>Authorization URL opened in browser</Text>
-                  <Box marginTop={1}>
-                    <Text dimColor>
-                      {oauthState.authorizationUrl.toString()}
-                    </Text>
+              {oauthFlowState &&
+                needsAuthCode &&
+                oauthFlowState?.authorizationUrl && (
+                  <Box marginTop={2} flexDirection="column">
+                    <Text bold>Authorization URL opened in browser</Text>
+                    <Box marginTop={1}>
+                      <Text dimColor>
+                        {oauthFlowState.authorizationUrl.toString()}
+                      </Text>
+                    </Box>
+                    <Box marginTop={1}>
+                      <Text dimColor>
+                        Complete authorization in the browser. You will be
+                        redirected and the flow will complete automatically.
+                      </Text>
+                    </Box>
                   </Box>
-                  <Box marginTop={1}>
-                    <Text dimColor>
-                      Complete authorization in the browser. You will be
-                      redirected and the flow will complete automatically.
-                    </Text>
-                  </Box>
-                </Box>
-              )}
+                )}
             </Box>
           )}
 
@@ -333,24 +335,33 @@ export function AuthTab({
                 <Text color="red">{oauthMessage}</Text>
               )}
               {oauthStatus === "success" &&
-                oauthState &&
-                oauthState.authType === "normal" &&
-                (oauthState.oauthTokens || oauthState.oauthClientInfo) && (
+                oauthFlowState &&
+                oauthFlowState.execution === "quick" &&
+                (oauthFlowState.oauthTokens ||
+                  oauthFlowState.oauthClientInfo) && (
                   <>
                     <Text bold>Quick Auth Results</Text>
-                    {oauthState.oauthClientInfo && (
+                    {oauthFlowState.oauthClientInfo && (
                       <Box marginTop={1} flexDirection="column" paddingLeft={2}>
                         <Text dimColor>
                           Client:{" "}
-                          {JSON.stringify(oauthState.oauthClientInfo, null, 2)}
+                          {JSON.stringify(
+                            oauthFlowState.oauthClientInfo,
+                            null,
+                            2,
+                          )}
                         </Text>
                       </Box>
                     )}
-                    {oauthState.oauthTokens && (
+                    {oauthFlowState.oauthTokens && (
                       <Box marginTop={1} flexDirection="column" paddingLeft={2}>
                         <Text dimColor>
                           Access Token:{" "}
-                          {oauthState.oauthTokens.access_token?.slice(0, 20)}...
+                          {oauthFlowState.oauthTokens.access_token?.slice(
+                            0,
+                            20,
+                          )}
+                          ...
                         </Text>
                       </Box>
                     )}
@@ -383,10 +394,7 @@ export function AuthTab({
   );
 }
 
-function getStepDetails(
-  state: AuthGuidedState,
-  step: OAuthStep,
-): string | null {
+function getStepDetails(state: OAuthFlowState, step: OAuthStep): string | null {
   switch (step) {
     case "metadata_discovery":
       if (state.resourceMetadata || state.oauthMetadata) {

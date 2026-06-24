@@ -23,13 +23,45 @@ export interface StatusMessage {
   message: string;
 }
 
-// How the current auth flow was started (guided = state machine with step events; normal = SDK auth())
-export type OAuthAuthType = "guided" | "normal";
+/** How the auth flow is stepped through (orthogonal to {@link AuthProtocol}). */
+export type AuthExecution = "quick" | "guided";
 
-// Single state interface for OAuth state
-export interface AuthGuidedState {
-  /** How this auth flow was started; determines which fields are populated. */
-  authType: OAuthAuthType;
+/** Which authorization protocol applies (orthogonal to {@link AuthExecution}). */
+export type AuthProtocol = "standard" | "ema";
+
+/** Persisted OAuth authorization snapshot for an HTTP MCP server (storage + config). */
+export interface OAuthConnectionState {
+  authorized: boolean;
+  protocol: AuthProtocol;
+  serverUrl: string;
+  configuredScope?: string;
+  grantedScope?: string;
+  tokens?: OAuthTokens;
+  client?: {
+    source: "preregistered" | "dynamic";
+    clientId: string;
+    hasClientSecret: boolean;
+  };
+  authorizationServerMetadata?: OAuthMetadata;
+  enterpriseManaged?: boolean;
+  ema?: {
+    idpIssuer: string;
+    idpClientId: string;
+    idpSession: "none" | "logged_in" | "expired";
+    idpMetadata?: OAuthMetadata;
+  };
+}
+
+export function authProtocolFromEnterpriseManaged(
+  enterpriseManaged?: boolean,
+): AuthProtocol {
+  return enterpriseManaged ? "ema" : "standard";
+}
+
+/** In-memory snapshot while an OAuth flow is active or just completed (quick or guided). */
+export interface OAuthFlowState {
+  /** Quick (SDK / one-shot) vs guided (state machine with step events). */
+  execution: AuthExecution;
   /** When auth reached step "complete" (ms since epoch), if applicable. */
   completedAt: number | null;
   isInitiatingAuth: boolean;
@@ -48,8 +80,8 @@ export interface AuthGuidedState {
   validationError: string | null;
 }
 
-export const EMPTY_GUIDED_STATE: AuthGuidedState = {
-  authType: "guided",
+export const EMPTY_OAUTH_FLOW_STATE: OAuthFlowState = {
+  execution: "guided",
   completedAt: null,
   isInitiatingAuth: false,
   oauthTokens: null,

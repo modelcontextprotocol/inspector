@@ -118,7 +118,7 @@ import {
   UrlElicitationLoopError,
 } from "./urlElicitation.js";
 import { ToolCallCancelledError } from "./toolCallCancelledError.js";
-import type { AuthGuidedState, OAuthStep } from "../auth/types.js";
+import type { OAuthConnectionState, OAuthFlowState, OAuthStep } from "../auth/types.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { silentLogger, type InspectorLogger } from "../logging/logger.js";
 import { createFetchTracker } from "./fetchTracking.js";
@@ -306,6 +306,8 @@ export class InspectorClient extends InspectorClientEventTarget {
           return Promise.resolve();
         },
         initialConfig: oauthConfig,
+        enterpriseManagedAuth: options.enterpriseManagedAuth,
+        installEnterpriseManagedAuth: options.installEnterpriseManagedAuth,
         dispatchOAuthStepChange: (detail) =>
           this.dispatchTypedEvent("oauthStepChange", detail),
         dispatchOAuthComplete: (detail) =>
@@ -360,6 +362,11 @@ export class InspectorClient extends InspectorClientEventTarget {
           sampling: { createMessage: {} },
           elicitation: { create: {} },
         },
+      };
+    }
+    if (options.oauth?.enterpriseManaged) {
+      capabilities.extensions = {
+        "io.modelcontextprotocol/enterprise-managed-authorization": {},
       };
     }
     if (Object.keys(capabilities).length > 0) {
@@ -702,7 +709,21 @@ export class InspectorClient extends InspectorClientEventTarget {
       };
       const oauthManager = this.oauthManager;
       if (this.isHttpOAuthConfig() && oauthManager) {
+        if (oauthManager.isEnterpriseManaged()) {
+          await oauthManager.trySilentEnterpriseManagedAuth();
+        }
         const provider = await oauthManager.createOAuthProviderForTransport();
+        if (oauthManager.isEnterpriseManaged()) {
+          const tokens = await provider.tokens();
+          if (!tokens?.access_token) {
+            const err = new Error(
+              "Unauthorized: EMA resource access token unavailable",
+            ) as Error & { status?: number; code?: number };
+            err.status = 401;
+            err.code = 401;
+            throw err;
+          }
+        }
         transportOptions.authProvider = provider;
       }
       const { transport: baseTransport } = this.transportClientFactory(
@@ -2655,7 +2676,7 @@ export class InspectorClient extends InspectorClientEventTarget {
    * Initiates OAuth flow using SDK's auth() function (normal mode)
    * Can be called directly by user or automatically triggered by 401 errors
    */
-  async authenticate(): Promise<URL> {
+  async authenticate(): Promise<URL | undefined> {
     return this.ensureOAuthManager().authenticate();
   }
 
@@ -2733,17 +2754,30 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Get current OAuth state machine state (for guided mode)
+   * In-memory OAuth flow snapshot (quick or guided). Undefined when no flow
+   * has run on this client instance; use {@link getOAuthState} for persisted
+   * authorization state.
    */
-  getOAuthState(): AuthGuidedState | undefined {
-    return this.oauthManager?.getOAuthState();
+  getOAuthFlowState(): OAuthFlowState | undefined {
+    return this.oauthManager?.getOAuthFlowState();
   }
 
   /**
-   * Get current OAuth step (for guided mode)
+   * Current step when an OAuth flow is active (quick or guided).
    */
-  getOAuthStep(): OAuthStep | undefined {
-    return this.oauthManager?.getOAuthStep();
+  getOAuthFlowStep(): OAuthStep | undefined {
+    return this.oauthManager?.getOAuthFlowStep();
+  }
+
+  /**
+   * Persisted OAuth authorization snapshot for this HTTP server (storage +
+   * config). Undefined for stdio transports or when OAuth is not configured.
+   */
+  async getOAuthState(): Promise<OAuthConnectionState | undefined> {
+    if (!this.isHttpOAuthConfig() || !this.oauthManager) {
+      return undefined;
+    }
+    return this.oauthManager.getOAuthState();
   }
 
   /**

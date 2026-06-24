@@ -494,6 +494,7 @@ describe("InspectorClient OAuth", () => {
       // Auth-provider flow: authenticate first, complete OAuth, then connect.
       // connect() creates transport with authProvider; tokens are already in storage.
       const authorizationUrl = await testClient.authenticate();
+      if (!authorizationUrl) throw new Error("Expected authorization URL");
       const authCode = await completeOAuthAuthorization(authorizationUrl);
       await testClient.completeOAuthFlow(authCode);
 

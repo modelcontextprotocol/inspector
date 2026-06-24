@@ -9,11 +9,18 @@ import crypto from "node:crypto";
 import type { Request, Response } from "express";
 import express from "express";
 import type { ServerConfig } from "./composable-test-server.js";
+import { ExternalAccessTokenValidator } from "./test-server-oauth-jwt.js";
 
 /**
  * OAuth configuration from ServerConfig
  */
 export type OAuthConfig = NonNullable<ServerConfig["oauth"]>;
+
+export function getOAuthMode(
+  config: OAuthConfig,
+): "combined" | "protected-resource" {
+  return config.mode ?? "combined";
+}
 
 /**
  * Set up OAuth routes on an Express application
@@ -26,18 +33,14 @@ export function setupOAuthRoutes(
   app: express.Application,
   config: OAuthConfig,
 ): void {
-  // OAuth metadata endpoints (RFC 8414)
   setupMetadataEndpoints(app, config);
 
-  // OAuth authorization endpoint
-  setupAuthorizationEndpoint(app, config);
-
-  // OAuth token endpoint
-  setupTokenEndpoint(app, config);
-
-  // Dynamic Client Registration endpoint (if enabled)
-  if (config.supportDCR) {
-    setupDCREndpoint(app);
+  if (getOAuthMode(config) === "combined") {
+    setupAuthorizationEndpoint(app, config);
+    setupTokenEndpoint(app, config);
+    if (config.supportDCR) {
+      setupDCREndpoint(app);
+    }
   }
 }
 
@@ -51,6 +54,12 @@ export function setupOAuthRoutes(
 export function createBearerTokenMiddleware(
   config: OAuthConfig,
 ): express.RequestHandler {
+  const mode = getOAuthMode(config);
+  const externalValidator =
+    mode === "protected-resource"
+      ? new ExternalAccessTokenValidator(config)
+      : undefined;
+
   return async (req: Request, res: Response, next: express.NextFunction) => {
     if (!config.requireAuth) {
       return next();
@@ -77,8 +86,18 @@ export function createBearerTokenMiddleware(
 
     const token = authHeader.substring(7); // Remove "Bearer " prefix
 
-    // Verify token (simplified for test server - in production, use proper JWT verification)
-    if (!isValidToken(token)) {
+    let valid = false;
+    if (mode === "protected-resource") {
+      try {
+        valid = await externalValidator!.validateAccessToken(token);
+      } catch {
+        valid = false;
+      }
+    } else {
+      valid = isValidToken(token);
+    }
+
+    if (!valid) {
       // Return 401 - the SDK's transport should detect this and throw an error
       res.status(401);
       res.setHeader("Content-Type", "application/json");
@@ -109,47 +128,59 @@ function setupMetadataEndpoints(
   config: OAuthConfig,
 ): void {
   const scopes = config.scopesSupported || ["mcp"];
+  const mode = getOAuthMode(config);
 
-  // OAuth Authorization Server Metadata
-  app.get(
-    "/.well-known/oauth-authorization-server",
-    (req: Request, res: Response) => {
-      // Use request's host to get actual server URL (since port is assigned dynamically)
-      const requestBaseUrl = `${req.protocol}://${req.get("host")}`;
-      const actualIssuerUrl = new URL(requestBaseUrl);
-      const metadata = {
-        issuer: actualIssuerUrl.href,
-        authorization_endpoint: new URL("/oauth/authorize", actualIssuerUrl)
-          .href,
-        token_endpoint: new URL("/oauth/token", actualIssuerUrl).href,
-        scopes_supported: scopes,
-        response_types_supported: ["code"],
-        grant_types_supported: ["authorization_code", "refresh_token"],
-        code_challenge_methods_supported: ["S256"], // PKCE support
-        token_endpoint_auth_methods_supported: ["client_secret_basic", "none"],
-        ...(config.supportDCR && {
-          registration_endpoint: new URL("/oauth/register", actualIssuerUrl)
+  if (mode === "combined") {
+    // OAuth Authorization Server Metadata (local AS)
+    app.get(
+      "/.well-known/oauth-authorization-server",
+      (req: Request, res: Response) => {
+        const requestBaseUrl = `${req.protocol}://${req.get("host")}`;
+        const actualIssuerUrl = config.issuerUrl ?? new URL(requestBaseUrl);
+        const metadata = {
+          issuer: actualIssuerUrl.href.replace(/\/$/, "") + "/",
+          authorization_endpoint: new URL("/oauth/authorize", actualIssuerUrl)
             .href,
-        }),
-        ...(config.supportCIMD && {
-          client_id_metadata_document_supported: true,
-        }),
-      };
+          token_endpoint: new URL("/oauth/token", actualIssuerUrl).href,
+          scopes_supported: scopes,
+          response_types_supported: ["code"],
+          grant_types_supported: ["authorization_code", "refresh_token"],
+          code_challenge_methods_supported: ["S256"],
+          token_endpoint_auth_methods_supported: ["client_secret_basic", "none"],
+          ...(config.supportDCR && {
+            registration_endpoint: new URL("/oauth/register", actualIssuerUrl)
+              .href,
+          }),
+          ...(config.supportCIMD && {
+            client_id_metadata_document_supported: true,
+          }),
+        };
 
-      res.json(metadata);
-    },
-  );
+        res.json(metadata);
+      },
+    );
+  }
 
   // OAuth Protected Resource Metadata
   app.get(
     "/.well-known/oauth-protected-resource",
     (req: Request, res: Response) => {
-      // Use request's host so resource matches actual server URL (port 0 → assigned port)
       const requestBaseUrl = `${req.protocol}://${req.get("host")}`;
-      const actualResourceUrl = new URL("/", requestBaseUrl).href;
+      const resourceUrl =
+        config.resource ?? new URL("/", requestBaseUrl).href;
+      const localAsUrl = (config.issuerUrl ?? new URL(requestBaseUrl)).href.replace(
+        /\/$/,
+        "",
+      );
+      const authorizationServers =
+        mode === "protected-resource"
+          ? (config.authorizationServers ?? [])
+          : [localAsUrl];
       const metadata = {
-        resource: actualResourceUrl,
-        authorization_servers: [actualResourceUrl],
+        resource: resourceUrl,
+        authorization_servers: authorizationServers.map((url) =>
+          url.replace(/\/$/, ""),
+        ),
         scopes_supported: scopes,
       };
 

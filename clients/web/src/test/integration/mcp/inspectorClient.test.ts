@@ -4916,8 +4916,9 @@ describe("InspectorClient", () => {
         );
         await expect(c.getOAuthTokens()).resolves.toBeUndefined();
         await expect(c.isOAuthAuthorized()).resolves.toBe(false);
-        expect(c.getOAuthStep()).toBeUndefined();
-        expect(c.getOAuthState()).toBeUndefined();
+        expect(c.getOAuthFlowStep()).toBeUndefined();
+        expect(c.getOAuthFlowState()).toBeUndefined();
+        await expect(c.getOAuthState()).resolves.toBeUndefined();
         // clearOAuthTokens is a no-op when there is no manager
         expect(() => c.clearOAuthTokens()).not.toThrow();
       });

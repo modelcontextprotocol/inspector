@@ -904,11 +904,22 @@ export function createRemoteApp(
   };
   const isOauthObject = (
     v: unknown,
-  ): v is { clientId?: string; clientSecret?: string; scopes?: string } => {
+  ): v is {
+    clientId?: string;
+    clientSecret?: string;
+    scopes?: string;
+    enterpriseManaged?: boolean;
+  } => {
     if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
     const o = v as Record<string, unknown>;
     for (const k of ["clientId", "clientSecret", "scopes"] as const) {
       if (o[k] !== undefined && typeof o[k] !== "string") return false;
+    }
+    if (
+      o.enterpriseManaged !== undefined &&
+      typeof o.enterpriseManaged !== "boolean"
+    ) {
+      return false;
     }
     return true;
   };
@@ -1017,7 +1028,7 @@ export function createRemoteApp(
       if ("oauth" in valObj && !isOauthObject(valObj.oauth)) {
         logWarn(
           { route: "/api/servers", id, droppedKey: "oauth" },
-          "Dropping malformed `oauth` field — expected `{ clientId?, clientSecret?, scopes? }`.",
+          "Dropping malformed `oauth` field — expected `{ clientId?, clientSecret?, scopes?, enterpriseManaged? }`.",
         );
         delete valObj.oauth;
       }
@@ -1193,6 +1204,15 @@ export function createRemoteApp(
         return { ok: false, error: `settings.${optional} must be a string` };
       }
     }
+    if (
+      obj.enterpriseManaged !== undefined &&
+      typeof obj.enterpriseManaged !== "boolean"
+    ) {
+      return {
+        ok: false,
+        error: "settings.enterpriseManaged must be a boolean",
+      };
+    }
     // roots is optional on the wire (older clients won't send it); when
     // present it must be an array of `{ uri, name? }`. Reuses the same
     // module-scope `isRootArray` guard the read path applies in
@@ -1248,6 +1268,9 @@ export function createRemoteApp(
     }
     if (typeof obj.oauthScopes === "string" && obj.oauthScopes !== "") {
       value.oauthScopes = obj.oauthScopes;
+    }
+    if (obj.enterpriseManaged === true) {
+      value.enterpriseManaged = true;
     }
     return { ok: true, value };
   };
@@ -1439,6 +1462,27 @@ export function createRemoteApp(
       if (!nextFieldSet.has(field)) obsolete.push(field);
     }
     return obsolete;
+  };
+
+  /**
+   * Merge keychain secrets for a server-id rename. PUT payload values win
+   * over the old id's keychain entries; keychain fills fields missing from
+   * the payload (e.g. config-modal rename that does not re-send stripped
+   * secrets). Filtered to the new on-disk entry's expected fields so env
+   * keys removed during the rename are not carried over.
+   */
+  const mergeRenameKeychainSecrets = (
+    stripped: StoredMCPServer,
+    keychainSecrets: Record<string, string>,
+    nextSecrets: Record<string, string>,
+  ): Record<string, string> => {
+    const allowedFields = new Set(expectedSecretFields(stripped));
+    const merged = { ...keychainSecrets, ...nextSecrets };
+    const out: Record<string, string> = {};
+    for (const [field, value] of Object.entries(merged)) {
+      if (allowedFields.has(field)) out[field] = value;
+    }
+    return out;
   };
 
   // Parallel for symmetry with `readKeychainEntriesFor` /
@@ -1823,7 +1867,17 @@ export function createRemoteApp(
         //   write leaves orphan keychain entries — recoverable on the
         //   next reconcile or `deleteAllForServer` sweep.
         if (newId !== originalId) {
-          await writeKeychainEntriesFor(newId, secrets);
+          const previousFields = expectedSecretFields(existing);
+          const keychainSecrets = await readKeychainEntriesFor(
+            originalId,
+            previousFields,
+          );
+          const secretsToWrite = mergeRenameKeychainSecrets(
+            stripped,
+            keychainSecrets,
+            secrets,
+          );
+          await writeKeychainEntriesFor(newId, secretsToWrite);
           await writeMcpAndTrackMtime(serializeStore(next));
           await secretStore.deleteAllForServer(originalId);
         } else {

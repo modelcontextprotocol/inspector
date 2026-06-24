@@ -63,6 +63,8 @@ describe("ConnectionInfoModal", () => {
         clientCapabilities={clientCapabilities}
         transport="streamable-http"
         oauth={{
+          protocol: "standard",
+          authorized: true,
           authUrl: "https://auth.example.com/authorize",
           scopes: ["read", "write"],
           accessToken: "token-abc",

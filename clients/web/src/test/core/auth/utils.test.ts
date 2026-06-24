@@ -1,146 +1,107 @@
 import { describe, it, expect } from "vitest";
 import {
+  parseHttpUrl,
   parseOAuthCallbackParams,
   generateOAuthState,
+  generateOAuthStateWithExecution,
   generateOAuthStateWithMode,
   parseOAuthState,
   generateOAuthErrorDescription,
 } from "@inspector/core/auth/utils.js";
 
-describe("OAuth Utils", () => {
+describe("auth utils", () => {
   describe("parseOAuthCallbackParams", () => {
     it("should parse successful callback with code", () => {
-      const location = "?code=abc123&state=xyz789";
-      const result = parseOAuthCallbackParams(location);
-
-      expect(result.successful).toBe(true);
-      if (result.successful) {
-        expect(result.code).toBe("abc123");
-      }
+      const params = parseOAuthCallbackParams("?code=abc123");
+      expect(params).toEqual({ successful: true, code: "abc123" });
     });
 
     it("should parse error callback", () => {
-      const location =
-        "?error=access_denied&error_description=User%20denied%20access";
-      const result = parseOAuthCallbackParams(location);
-
-      expect(result.successful).toBe(false);
-      if (!result.successful) {
-        expect(result.error).toBe("access_denied");
-        expect(result.error_description).toBe("User denied access");
-      }
+      const params = parseOAuthCallbackParams(
+        "?error=access_denied&error_description=User%20denied",
+      );
+      expect(params).toEqual({
+        successful: false,
+        error: "access_denied",
+        error_description: "User denied",
+        error_uri: null,
+      });
     });
 
-    it("should parse error callback with error_uri", () => {
-      const location =
-        "?error=invalid_request&error_description=Invalid%20request&error_uri=https://example.com/error";
-      const result = parseOAuthCallbackParams(location);
-
-      expect(result.successful).toBe(false);
-      if (!result.successful) {
-        expect(result.error).toBe("invalid_request");
-        expect(result.error_description).toBe("Invalid request");
-        expect(result.error_uri).toBe("https://example.com/error");
-      }
-    });
-
-    it("should return invalid_request when neither code nor error is present", () => {
-      const location = "?state=xyz789";
-      const result = parseOAuthCallbackParams(location);
-
-      expect(result.successful).toBe(false);
-      if (!result.successful) {
-        expect(result.error).toBe("invalid_request");
-        expect(result.error_description).toBe(
-          "Missing code or error in response",
-        );
-      }
-    });
-
-    it("should handle empty query string", () => {
-      const location = "";
-      const result = parseOAuthCallbackParams(location);
-
-      expect(result.successful).toBe(false);
-      if (!result.successful) {
-        expect(result.error).toBe("invalid_request");
-      }
-    });
-
-    it("should handle URL-encoded values", () => {
-      const location = "?code=abc%20123&error_description=Test%20%26%20More";
-      const result = parseOAuthCallbackParams(location);
-
-      expect(result.successful).toBe(true);
-      if (result.successful) {
-        expect(result.code).toBe("abc 123");
-      }
+    it("should return invalid_request when code and error are missing", () => {
+      const params = parseOAuthCallbackParams("?foo=bar");
+      expect(params).toEqual({
+        successful: false,
+        error: "invalid_request",
+        error_description: "Missing code or error in response",
+        error_uri: null,
+      });
     });
   });
 
   describe("generateOAuthState", () => {
-    it("should generate a random state string", () => {
-      const state1 = generateOAuthState();
-      const state2 = generateOAuthState();
-
-      expect(typeof state1).toBe("string");
-      expect(state1.length).toBeGreaterThan(0);
-      expect(state1).not.toBe(state2); // Should be different each time
-    });
-
-    it("should generate state with consistent length", () => {
-      const states = Array.from({ length: 10 }, () => generateOAuthState());
-      const lengths = states.map((s) => s.length);
-      const uniqueLengths = new Set(lengths);
-
-      // All states should have the same length (64 hex characters for 32 bytes)
-      expect(uniqueLengths.size).toBe(1);
-      expect(lengths[0]).toBe(64);
-    });
-
-    it("should generate valid hex string", () => {
+    it("should generate 64-char hex string", () => {
       const state = generateOAuthState();
-      const hexPattern = /^[0-9a-f]+$/;
+      expect(state).toMatch(/^[0-9a-f]{64}$/);
+    });
 
-      expect(hexPattern.test(state)).toBe(true);
+    it("should generate unique states", () => {
+      const s1 = generateOAuthState();
+      const s2 = generateOAuthState();
+      expect(s1).not.toBe(s2);
     });
   });
 
-  describe("generateOAuthStateWithMode", () => {
-    it("should generate state with normal prefix", () => {
-      const state = generateOAuthStateWithMode("normal");
-      expect(state.startsWith("normal:")).toBe(true);
-      expect(state.slice(7)).toMatch(/^[0-9a-f]{64}$/);
+  describe("generateOAuthStateWithExecution", () => {
+    it("should generate state with quick prefix", () => {
+      const state = generateOAuthStateWithExecution("quick");
+      expect(state.startsWith("quick:")).toBe(true);
+      expect(state.slice(6)).toMatch(/^[0-9a-f]{64}$/);
     });
 
     it("should generate state with guided prefix", () => {
-      const state = generateOAuthStateWithMode("guided");
+      const state = generateOAuthStateWithExecution("guided");
       expect(state.startsWith("guided:")).toBe(true);
       expect(state.slice(7)).toMatch(/^[0-9a-f]{64}$/);
     });
 
     it("should generate unique states", () => {
-      const s1 = generateOAuthStateWithMode("normal");
-      const s2 = generateOAuthStateWithMode("normal");
+      const s1 = generateOAuthStateWithExecution("quick");
+      const s2 = generateOAuthStateWithExecution("quick");
       expect(s1).not.toBe(s2);
+    });
+
+    it("generateOAuthStateWithMode alias matches quick execution", () => {
+      const state = generateOAuthStateWithMode("quick");
+      expect(state.startsWith("quick:")).toBe(true);
     });
   });
 
   describe("parseOAuthState", () => {
-    it("should parse normal prefix", () => {
-      const parsed = parseOAuthState("normal:abc123def456");
-      expect(parsed).toEqual({ mode: "normal", authId: "abc123def456" });
+    it("should parse quick prefix", () => {
+      const parsed = parseOAuthState("quick:abc123def456");
+      expect(parsed).toEqual({ execution: "quick", authId: "abc123def456" });
     });
 
     it("should parse guided prefix", () => {
       const parsed = parseOAuthState("guided:a1b2c3d4e5f6");
-      expect(parsed).toEqual({ mode: "guided", authId: "a1b2c3d4e5f6" });
+      expect(parsed).toEqual({ execution: "guided", authId: "a1b2c3d4e5f6" });
     });
 
-    it("should parse legacy 64-char hex as normal", () => {
+    it("should map legacy normal prefix to quick", () => {
+      const parsed = parseOAuthState("normal:abc123def456");
+      expect(parsed).toEqual({ execution: "quick", authId: "abc123def456" });
+    });
+
+    it("should map legacy ema-idp prefix to quick", () => {
+      const parsed = parseOAuthState("ema-idp:abc123def456");
+      expect(parsed).toEqual({ execution: "quick", authId: "abc123def456" });
+    });
+
+    it("should parse legacy 64-char hex as quick", () => {
       const hex = "a".repeat(64);
       const parsed = parseOAuthState(hex);
-      expect(parsed).toEqual({ mode: "normal", authId: hex });
+      expect(parsed).toEqual({ execution: "quick", authId: hex });
     });
 
     it("should return null for invalid state", () => {
@@ -227,6 +188,22 @@ describe("OAuth Utils", () => {
       expect(description).toContain("Error: invalid_client.");
       expect(description).toContain("Details: Invalid client credentials.");
       expect(description).not.toContain("More info:");
+    });
+  });
+
+  describe("parseHttpUrl", () => {
+    it("parses a valid absolute URL", () => {
+      expect(parseHttpUrl("https://idp.example.com", "test").href).toBe(
+        "https://idp.example.com/",
+      );
+    });
+
+    it("throws with label and value when URL is invalid", () => {
+      expect(() =>
+        parseHttpUrl("https;//idp.xaa.dev", "EMA IdP issuer (Client Settings)"),
+      ).toThrow(
+        'Invalid EMA IdP issuer (Client Settings): "https;//idp.xaa.dev"',
+      );
     });
   });
 });

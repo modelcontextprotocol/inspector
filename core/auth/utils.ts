@@ -1,4 +1,19 @@
+import type { AuthExecution } from "./types.js";
 import type { CallbackParams } from "./types.js";
+
+/**
+ * Parse a string as an absolute URL. On failure, throws with `label` and the
+ * offending value so callers (and UI toasts) can show what to fix.
+ */
+export function parseHttpUrl(value: string, label: string): URL {
+  const trimmed = value.trim();
+  try {
+    return new URL(trimmed);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`Invalid ${label}: "${trimmed}" (${detail})`);
+  }
+}
 
 /**
  * Parses OAuth 2.1 callback parameters from a URL search string
@@ -55,36 +70,48 @@ export const generateOAuthState = (): string => {
   );
 };
 
-export type OAuthStateMode = "normal" | "guided";
-
 /**
- * Generate OAuth state with mode prefix for single-redirect-URL flow.
- * Format: {mode}:{authId} (e.g. "guided:a1b2c3...").
- * The authId part is 64 hex chars for CSRF protection and serves as session identifier.
+ * Generate OAuth `state` with execution prefix for single-redirect-URL flows.
+ * Format: `{execution}:{authId}` (e.g. "guided:a1b2c3...").
+ * Protocol (standard vs EMA) is not encoded here — it comes from server config.
+ * The authId is 64 hex chars for CSRF protection and serves as session identifier.
  */
-export const generateOAuthStateWithMode = (mode: OAuthStateMode): string => {
+export const generateOAuthStateWithExecution = (
+  execution: AuthExecution,
+): string => {
   const authId = generateOAuthState();
-  return `${mode}:${authId}`;
+  return `${execution}:${authId}`;
 };
 
+/** @deprecated Use {@link generateOAuthStateWithExecution}. */
+export const generateOAuthStateWithMode = generateOAuthStateWithExecution;
+
 /**
- * Parse OAuth state to extract mode and authId part.
+ * Parse OAuth `state` to extract execution and authId.
  * Returns null if invalid.
- * Legacy state (plain 64-char hex, no prefix) is treated as mode "normal".
+ * Legacy prefixes `normal:` and `ema-idp:` map to `quick`.
+ * Plain 64-char hex (no prefix) is treated as quick.
  */
 export const parseOAuthState = (
   state: string,
-): { mode: OAuthStateMode; authId: string } | null => {
+): { execution: AuthExecution; authId: string } | null => {
   if (!state || typeof state !== "string") return null;
-  if (state.startsWith("normal:")) {
-    return { mode: "normal", authId: state.slice(7) };
+  if (state.startsWith("quick:")) {
+    return { execution: "quick", authId: state.slice(6) };
   }
   if (state.startsWith("guided:")) {
-    return { mode: "guided", authId: state.slice(7) };
+    return { execution: "guided", authId: state.slice(7) };
+  }
+  // Legacy execution prefixes
+  if (state.startsWith("normal:")) {
+    return { execution: "quick", authId: state.slice(7) };
+  }
+  if (state.startsWith("ema-idp:")) {
+    return { execution: "quick", authId: state.slice(8) };
   }
   // Legacy: plain 64-char hex
   if (/^[a-f0-9]{64}$/i.test(state)) {
-    return { mode: "normal", authId: state };
+    return { execution: "quick", authId: state };
   }
   return null;
 };

@@ -33,6 +33,7 @@ describe("ServerSettingsModal", () => {
       <ServerSettingsModal
         opened={false}
         settings={emptySettings}
+        serverType="streamable-http"
         onClose={vi.fn()}
         onSettingsChange={vi.fn()}
       />,
@@ -45,12 +46,26 @@ describe("ServerSettingsModal", () => {
       <ServerSettingsModal
         opened
         settings={emptySettings}
+        serverType="streamable-http"
         onClose={vi.fn()}
         onSettingsChange={vi.fn()}
       />,
     );
     expect(screen.getByText("Server Settings")).toBeInTheDocument();
     expect(screen.getByText("Custom Headers")).toBeInTheDocument();
+  });
+
+  it("hides the OAuth Settings section for stdio servers", () => {
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={emptySettings}
+        serverType="stdio"
+        onClose={vi.fn()}
+        onSettingsChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("OAuth Settings")).not.toBeInTheDocument();
   });
 
   it("invokes onClose when the CloseButton is clicked", async () => {
@@ -60,6 +75,7 @@ describe("ServerSettingsModal", () => {
       <ServerSettingsModal
         opened
         settings={emptySettings}
+        serverType="streamable-http"
         onClose={onClose}
         onSettingsChange={vi.fn()}
       />,
@@ -80,6 +96,7 @@ describe("ServerSettingsModal", () => {
       <ServerSettingsModal
         opened
         settings={emptySettings}
+        serverType="streamable-http"
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -99,6 +116,7 @@ describe("ServerSettingsModal", () => {
       <ServerSettingsModal
         opened
         settings={initialSettings}
+        serverType="streamable-http"
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -119,6 +137,7 @@ describe("ServerSettingsModal", () => {
       <ServerSettingsModal
         opened
         settings={initialSettings}
+        serverType="streamable-http"
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -140,6 +159,7 @@ describe("ServerSettingsModal", () => {
       <ServerSettingsModal
         opened
         settings={emptySettings}
+        serverType="streamable-http"
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -159,6 +179,7 @@ describe("ServerSettingsModal", () => {
       <ServerSettingsModal
         opened
         settings={initialSettings}
+        serverType="streamable-http"
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -181,6 +202,7 @@ describe("ServerSettingsModal", () => {
       <ServerSettingsModal
         opened
         settings={initialSettings}
+        serverType="streamable-http"
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -201,6 +223,7 @@ describe("ServerSettingsModal", () => {
       <ServerSettingsModal
         opened
         settings={emptySettings}
+        serverType="streamable-http"
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -220,6 +243,7 @@ describe("ServerSettingsModal", () => {
       <ServerSettingsModal
         opened
         settings={emptySettings}
+        serverType="streamable-http"
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -232,6 +256,33 @@ describe("ServerSettingsModal", () => {
     expect(call.oauthClientId).toBe("a");
   });
 
+  it("calls onSettingsChange when toggling enterprise-managed authorization", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={emptySettings}
+        serverType="streamable-http"
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "OAuth Settings" }));
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "Enterprise-managed authorization",
+      }),
+    );
+    expect(onSettingsChange).toHaveBeenCalledWith({
+      ...emptySettings,
+      oauthClientId: "",
+      oauthClientSecret: "",
+      oauthScopes: "",
+      enterpriseManaged: true,
+    });
+  });
+
   it("calls onSettingsChange with a blank row when adding a root", async () => {
     const user = userEvent.setup();
     const onSettingsChange = vi.fn();
@@ -239,6 +290,7 @@ describe("ServerSettingsModal", () => {
       <ServerSettingsModal
         opened
         settings={emptySettings}
+        serverType="streamable-http"
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -258,6 +310,7 @@ describe("ServerSettingsModal", () => {
       <ServerSettingsModal
         opened
         settings={initialSettings}
+        serverType="streamable-http"
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -279,6 +332,7 @@ describe("ServerSettingsModal", () => {
       <ServerSettingsModal
         opened
         settings={initialSettings}
+        serverType="streamable-http"
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
@@ -299,6 +353,7 @@ describe("ServerSettingsModal", () => {
       <ServerSettingsModal
         opened
         settings={emptySettings}
+        serverType="streamable-http"
         onClose={vi.fn()}
         onSettingsChange={vi.fn()}
       />,

@@ -8,6 +8,11 @@ import type {
  * Abstract storage interface for OAuth state
  * Supports both browser (sessionStorage) and Node.js (Zustand) environments
  */
+export interface SaveTokensOptions {
+  /** Marks resource tokens minted via EMA (legs 2–3) for sign-out cleanup. */
+  enterpriseManaged?: boolean;
+}
+
 export interface OAuthStorage {
   /**
    * Get client information (preregistered or dynamically registered)
@@ -46,7 +51,11 @@ export interface OAuthStorage {
   /**
    * Save OAuth tokens
    */
-  saveTokens(serverUrl: string, tokens: OAuthTokens): Promise<void>;
+  saveTokens(
+    serverUrl: string,
+    tokens: OAuthTokens,
+    options?: SaveTokensOptions,
+  ): Promise<void>;
 
   /**
    * Clear OAuth tokens
@@ -102,6 +111,39 @@ export interface OAuthStorage {
    * Clear all OAuth data for a server
    */
   clear(serverUrl: string): void;
+
+  /**
+   * Get cached IdP OIDC session for EMA (keyed by issuer).
+   */
+  getIdpSession(issuer: string): Promise<IdpSessionState | undefined>;
+
+  /**
+   * Save IdP OIDC session fields for EMA.
+   */
+  saveIdpSession(
+    issuer: string,
+    session: Partial<IdpSessionState>,
+  ): Promise<void>;
+
+  /**
+   * Clear cached IdP session for an issuer.
+   */
+  clearIdpSession(issuer: string): void;
+
+  /**
+   * Remove per-server OAuth state for MCP servers whose tokens were minted via EMA.
+   */
+  clearEnterpriseManagedResourceServers(): void;
+}
+
+/**
+ * Cached IdP OIDC session for EMA leg 1.
+ */
+export interface IdpSessionState {
+  idToken?: string;
+  refreshToken?: string;
+  /** Epoch ms when the ID Token expires (when known). */
+  idTokenExpiresAt?: number;
 }
 
 /**

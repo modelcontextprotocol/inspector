@@ -29,6 +29,7 @@ const connectedProps = {
   onTabChange: vi.fn(),
   onDisconnect: vi.fn(),
   onToggleTheme: vi.fn(),
+  onOpenClientSettings: vi.fn(),
 };
 
 describe("ViewHeader", () => {
@@ -39,19 +40,44 @@ describe("ViewHeader", () => {
   describe("when not connected", () => {
     it("renders the title and theme toggle", () => {
       renderWithMantine(
-        <ViewHeader connected={false} onToggleTheme={vi.fn()} />,
+        <ViewHeader
+          connected={false}
+          onToggleTheme={vi.fn()}
+          onOpenClientSettings={vi.fn()}
+        />,
       );
       expect(screen.getByText("MCP Inspector")).toBeInTheDocument();
       expect(
+        screen.getByRole("button", { name: "Client settings" }),
+      ).toBeInTheDocument();
+      expect(
         screen.getByRole("button", { name: "Toggle color scheme" }),
       ).toBeInTheDocument();
+    });
+
+    it("invokes onOpenClientSettings when the client settings button is clicked", async () => {
+      const user = userEvent.setup();
+      const onOpenClientSettings = vi.fn();
+      renderWithMantine(
+        <ViewHeader
+          connected={false}
+          onToggleTheme={vi.fn()}
+          onOpenClientSettings={onOpenClientSettings}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: "Client settings" }));
+      expect(onOpenClientSettings).toHaveBeenCalled();
     });
 
     it("invokes onToggleTheme when the theme button is clicked", async () => {
       const user = userEvent.setup();
       const onToggleTheme = vi.fn();
       renderWithMantine(
-        <ViewHeader connected={false} onToggleTheme={onToggleTheme} />,
+        <ViewHeader
+          connected={false}
+          onToggleTheme={onToggleTheme}
+          onOpenClientSettings={vi.fn()}
+        />,
       );
       await user.click(
         screen.getByRole("button", { name: "Toggle color scheme" }),
@@ -141,7 +167,13 @@ describe("ViewHeader", () => {
       // Disconnect: the connected header is replaced, but the tab bar stays in
       // the DOM (now marked for the exit animation) until the keep-alive
       // Transition's exit window elapses — so it isn't removed synchronously.
-      rerender(<ViewHeader connected={false} onToggleTheme={vi.fn()} />);
+      rerender(
+        <ViewHeader
+          connected={false}
+          onToggleTheme={vi.fn()}
+          onOpenClientSettings={vi.fn()}
+        />,
+      );
       const exitingCell = screen
         .getAllByRole("radio")[0]!
         .closest("[data-anim]");
@@ -215,7 +247,13 @@ describe("ViewHeader", () => {
       ).toBe("in");
 
       // Disconnect: both stay mounted (animating out) before unmounting.
-      rerender(<ViewHeader connected={false} onToggleTheme={vi.fn()} />);
+      rerender(
+        <ViewHeader
+          connected={false}
+          onToggleTheme={vi.fn()}
+          onOpenClientSettings={vi.fn()}
+        />,
+      );
       expect(
         screen
           .getByText("my-mcp-server")

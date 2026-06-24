@@ -239,32 +239,55 @@ export interface ServerConfig {
    */
   taskMessageQueue?: TaskMessageQueue;
   /**
-   * OAuth 2.1 configuration for test server
-   * If enabled, server will act as an OAuth authorization server
+   * OAuth 2.1 configuration for test server.
+   * - **combined** (default): this server is both MCP resource and authorization server.
+   * - **protected-resource**: MCP resource only; metadata points at external authorization server(s).
    */
   oauth?: {
-    /**
-     * Whether OAuth is enabled for this test server
-     */
     enabled: boolean;
 
     /**
-     * OAuth authorization server issuer URL
-     * Used for metadata endpoints and token issuance
-     * If not provided, defaults to the test server's base URL
+     * combined — local AS + resource (existing behavior).
+     * protected-resource — external AS; JWT bearer validation against AS JWKS.
+     */
+    mode?: "combined" | "protected-resource";
+
+    /**
+     * External authorization server URLs for protected-resource metadata
+     * (`authorization_servers` in RFC 9728). Required when mode is protected-resource.
+     */
+    authorizationServers?: string[];
+
+    /**
+     * Protected resource identifier override for RFC 9728 metadata.
+     * Defaults to the MCP server base URL when omitted.
+     */
+    resource?: string;
+
+    /**
+     * OAuth authorization server issuer URL (combined mode AS metadata).
+     * If not provided, defaults to the test server's base URL.
      */
     issuerUrl?: URL;
 
     /**
-     * List of scopes supported by this authorization server
-     * Defaults to ["mcp"] if not provided
+     * Allowed JWT `iss` values for access tokens (protected-resource mode).
+     * Defaults to authorizationServers plus issuer from AS metadata discovery.
      */
-    scopesSupported?: string[];
+    accessTokenIssuers?: string[];
 
     /**
-     * If true, MCP endpoints require valid Bearer token
-     * Returns 401 Unauthorized if token is missing or invalid
+     * JWKS URI override for access-token signature verification.
+     * When omitted, discovered from authorization server metadata.
      */
+    jwksUri?: string;
+
+    /**
+     * When set, require JWT `aud` to match this resource identifier.
+     */
+    resourceAudience?: string;
+
+    scopesSupported?: string[];
     requireAuth?: boolean;
 
     /**

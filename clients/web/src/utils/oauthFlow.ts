@@ -14,7 +14,7 @@ export const OAUTH_CALLBACK_PATH = "/oauth/callback";
 
 /**
  * sessionStorage key holding the id of the server whose OAuth flow is in
- * flight. The OAuth `state` parameter only carries `{mode}:{authId}`, not which
+ * flight. The OAuth `state` parameter only carries `{execution}:{authId}`, not which
  * configured server initiated the flow, and the full-page redirect to the auth
  * server wipes all in-memory React state. The id is stashed here right before
  * redirecting so the post-callback page load can rebuild the right

@@ -13,3 +13,13 @@ export class BrowserOAuthStorage extends OAuthStorageBase {
     super(createOAuthStore(createJSONStorage(() => sessionStorage)));
   }
 }
+
+let sharedBrowserOAuthStorage: BrowserOAuthStorage | undefined;
+
+/** Shared sessionStorage-backed OAuth store for the web client (single in-memory view). */
+export function getBrowserOAuthStorage(): BrowserOAuthStorage {
+  if (!sharedBrowserOAuthStorage) {
+    sharedBrowserOAuthStorage = new BrowserOAuthStorage();
+  }
+  return sharedBrowserOAuthStorage;
+}

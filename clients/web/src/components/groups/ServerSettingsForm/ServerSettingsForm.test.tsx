@@ -362,7 +362,45 @@ describe("ServerSettingsForm", () => {
       clientId: "a",
       clientSecret: "",
       scopes: "",
+      enterpriseManaged: false,
     });
+  });
+
+  it("invokes onOAuthChange when enterprise-managed is toggled", async () => {
+    const user = userEvent.setup();
+    const onOAuthChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onOAuthChange={onOAuthChange}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /Enterprise-managed authorization/i,
+      }),
+    );
+    expect(onOAuthChange).toHaveBeenCalledWith({
+      clientId: "",
+      clientSecret: "",
+      scopes: "",
+      enterpriseManaged: true,
+    });
+  });
+
+  it("hides the OAuth Settings section for stdio servers", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        serverType="stdio"
+        expandedSections={[]}
+      />,
+    );
+    expect(screen.queryByText("OAuth Settings")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Client ID")).not.toBeInTheDocument();
   });
 
   it("invokes onOAuthChange when typing in scopes (uses existing oauth values)", async () => {
@@ -401,6 +439,7 @@ describe("ServerSettingsForm", () => {
       clientId: "",
       clientSecret: "z",
       scopes: "",
+      enterpriseManaged: false,
     });
   });
 

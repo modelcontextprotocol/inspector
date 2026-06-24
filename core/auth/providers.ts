@@ -6,19 +6,20 @@ import type {
   OAuthMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { OAuthStorage } from "./storage.js";
-import { generateOAuthStateWithMode } from "./utils.js";
+import type { AuthExecution } from "./types.js";
+import { generateOAuthStateWithExecution } from "./utils.js";
 
 /**
  * Redirect URL provider. Returns the redirect URL for the requested mode.
  * Caller populates the URLs before authenticate() (e.g. from callback server).
  */
 export interface RedirectUrlProvider {
-  getRedirectUrl(mode?: "normal" | "guided"): string;
+  getRedirectUrl(execution?: AuthExecution): string;
 }
 
 /**
  * Mutable redirect URL provider for TUI/CLI. Caller sets redirectUrl
- * before authenticate(); same URL is used for both normal and guided flows.
+ * before authenticate(); same URL is used for both quick and guided flows.
  */
 export class MutableRedirectUrlProvider implements RedirectUrlProvider {
   redirectUrl = "";
@@ -108,19 +109,19 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   protected redirectUrlProvider: RedirectUrlProvider;
   protected navigation: OAuthNavigation;
   public clientMetadataUrl?: string;
-  protected mode: "normal" | "guided";
+  protected execution: AuthExecution;
 
   constructor(
     serverUrl: string,
     oauthConfig: OAuthProviderConfig,
-    mode: "normal" | "guided" = "normal",
+    execution: AuthExecution = "quick",
   ) {
     this.serverUrl = serverUrl;
     this.storage = oauthConfig.storage;
     this.redirectUrlProvider = oauthConfig.redirectUrlProvider;
     this.navigation = oauthConfig.navigation;
     this.clientMetadataUrl = oauthConfig.clientMetadataUrl;
-    this.mode = mode;
+    this.execution = execution;
   }
 
   /**
@@ -148,13 +149,13 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     return this.storage.getScope(this.serverUrl);
   }
 
-  /** Redirect URL for the current flow (normal or guided). */
+  /** Redirect URL for the current flow (quick or guided). */
   get redirectUrl(): string {
-    return this.redirectUrlProvider.getRedirectUrl(this.mode);
+    return this.redirectUrlProvider.getRedirectUrl(this.execution);
   }
 
   get redirect_uris(): string[] {
-    return [this.redirectUrlProvider.getRedirectUrl("normal")];
+    return [this.redirectUrlProvider.getRedirectUrl("quick")];
   }
 
   get clientMetadata(): OAuthClientMetadata {
@@ -175,7 +176,7 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   }
 
   state(): string | Promise<string> {
-    return generateOAuthStateWithMode(this.mode);
+    return generateOAuthStateWithExecution(this.execution);
   }
 
   async clientInformation(): Promise<OAuthClientInformation | undefined> {

@@ -5,7 +5,7 @@ import {
   createRemoteLogger,
 } from "@inspector/core/mcp/remote/index.js";
 import {
-  BrowserOAuthStorage,
+  getBrowserOAuthStorage,
   BrowserNavigation,
 } from "@inspector/core/auth/browser/index.js";
 import type { RedirectUrlProvider } from "@inspector/core/auth/index.js";
@@ -67,7 +67,7 @@ export function createWebEnvironment(
     }),
     logger,
     oauth: {
-      storage: new BrowserOAuthStorage(),
+      storage: getBrowserOAuthStorage(),
       navigation: new BrowserNavigation(undefined, onBeforeOAuthRedirect),
       redirectUrlProvider,
     },

@@ -345,6 +345,7 @@ const meta: Meta<typeof InspectorView> = {
     // on dispatch. Real wiring routes these to InspectorClient methods (the
     // app shell at clients/web/src/App.tsx).
     onToggleTheme: fn(),
+    onOpenClientSettings: fn(),
     onToggleConnection: fn(),
     onDisconnect: fn(),
     onServerAdd: fn(),

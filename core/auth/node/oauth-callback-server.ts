@@ -52,7 +52,7 @@ export interface OAuthCallbackServerStartResult {
 
 /**
  * Minimal HTTP server that receives OAuth 2.1 redirects at GET /oauth/callback.
- * Used by TUI/CLI to complete the authorization code flow (both normal and guided).
+ * Used by TUI/CLI to complete the authorization code flow (both quick and guided).
  * Caller provides onCallback/onError; typically onCallback calls
  * InspectorClient.completeOAuthFlow(code) then stops the server.
  */

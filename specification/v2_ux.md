@@ -276,9 +276,14 @@ Shown as a modal or dedicated screen after successful connection.
 │                                                         │
 │  OAuth Details (if applicable)                          │
 │  ─────────────                                          │
-│  Auth URL:    https://auth.example.com                  │
-│  Scopes:      read, write                               │
-│  Access Token: eyJhbG... [Copy] [Decode JWT ▼]          │
+│  Protocol:    Standard OAuth | Enterprise-managed (EMA) │
+│  Authorized:  Yes | No                                  │
+│  Client ID:   my-client-id                              │
+│  IdP session: Signed in | Expired | Not signed in (EMA) │
+│  Auth URL:    https://auth.example.com (when cached)    │
+│  Scopes:      configured → granted                      │
+│  Access Token: eyJhbG... [Copy] [Decode JWT]            │
+│               (multi-line wrap; decode toggles in place)│
 │                                                         │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -289,7 +294,7 @@ Shown as a modal or dedicated screen after successful connection.
 - Server capabilities: Tools, Resources, Prompts, Logging, Completions, Tasks, Experimental
 - Client capabilities: Sampling, Elicitation, Roots, Tasks, Experimental
 - Display server instructions if provided
-- Show OAuth tokens with copy and JWT decode options
+- Show OAuth connection snapshot when applicable (`InspectorClient.getOAuthState()` → `OAuthConnectionState`): protocol, authorization status, client id, EMA IdP session, cached auth URL, scopes, access token with copy and in-place JWT decode (`OAuthAccessTokenField`)
 
 ### Feature Screens
 

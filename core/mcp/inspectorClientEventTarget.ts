@@ -39,7 +39,7 @@ import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import type { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
 import type { JsonValue } from "../json/jsonUtils.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
-import type { OAuthStep, AuthGuidedState } from "../auth/types.js";
+import type { OAuthStep, OAuthFlowState } from "../auth/types.js";
 
 /** Task with createdAt optional so we can emit synthetic tasks (e.g. on result/error) that omit it. */
 export type TaskWithOptionalCreatedAt = Omit<Task, "createdAt"> & {
@@ -149,7 +149,7 @@ export interface InspectorClientEventMap {
   oauthStepChange: {
     step: OAuthStep;
     previousStep: OAuthStep;
-    state: Partial<AuthGuidedState>;
+    state: Partial<OAuthFlowState>;
   };
   oauthComplete: { tokens: OAuthTokens };
   oauthAuthorizationRequired: { url: URL };

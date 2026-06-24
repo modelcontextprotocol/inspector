@@ -12,6 +12,28 @@ export interface PresetRef {
   params?: Record<string, unknown>;
 }
 
+export interface ConfigFileOAuth {
+  enabled: boolean;
+  mode?: "combined" | "protected-resource";
+  authorizationServers?: string[];
+  resource?: string;
+  issuerUrl?: string;
+  accessTokenIssuers?: string[];
+  jwksUri?: string;
+  resourceAudience?: string;
+  scopesSupported?: string[];
+  requireAuth?: boolean;
+  staticClients?: Array<{
+    clientId: string;
+    clientSecret?: string;
+    redirectUris?: string[];
+  }>;
+  supportDCR?: boolean;
+  supportCIMD?: boolean;
+  tokenExpirationSeconds?: number;
+  supportRefreshTokens?: boolean;
+}
+
 export interface ConfigFile {
   serverInfo: {
     name: string;
@@ -38,6 +60,7 @@ export interface ConfigFile {
     resourceTemplates?: number;
     prompts?: number;
   };
+  oauth?: ConfigFileOAuth;
   transport: {
     type: "stdio" | "streamable-http" | "sse";
     port?: number;
@@ -101,6 +124,48 @@ function validateConfig(
     throw new Error(
       `Invalid config in ${filePath}: transport.type must be stdio, streamable-http, or sse`,
     );
+  }
+
+  if (o.oauth && typeof o.oauth === "object") {
+    const oauth = o.oauth as Record<string, unknown>;
+    if (oauth.enabled !== true) {
+      throw new Error(
+        `Invalid config in ${filePath}: oauth.enabled must be true when oauth is present`,
+      );
+    }
+    const mode = oauth.mode;
+    if (
+      mode !== undefined &&
+      mode !== "combined" &&
+      mode !== "protected-resource"
+    ) {
+      throw new Error(
+        `Invalid config in ${filePath}: oauth.mode must be combined or protected-resource`,
+      );
+    }
+    if (mode === "protected-resource") {
+      const servers = oauth.authorizationServers;
+      if (!Array.isArray(servers) || servers.length === 0) {
+        throw new Error(
+          `Invalid config in ${filePath}: oauth.authorizationServers is required when oauth.mode is protected-resource`,
+        );
+      }
+      for (const url of servers) {
+        if (typeof url !== "string" || url.trim() === "") {
+          throw new Error(
+            `Invalid config in ${filePath}: oauth.authorizationServers must be non-empty URL strings`,
+          );
+        }
+      }
+    }
+    if (
+      (transportType === "stdio") &&
+      oauth.enabled === true
+    ) {
+      throw new Error(
+        `Invalid config in ${filePath}: oauth requires streamable-http or sse transport`,
+      );
+    }
   }
 }
 

@@ -102,6 +102,9 @@ describe("ConnectionInfoContent", () => {
         clientCapabilities={fullClientCaps}
         transport="streamable-http"
         oauth={{
+          protocol: "standard",
+          authorized: true,
+          clientId: "client-abc",
           authUrl: "https://auth.example.com/authorize",
           scopes: ["read", "write"],
           accessToken: "token-123",
@@ -109,6 +112,9 @@ describe("ConnectionInfoContent", () => {
       />,
     );
     expect(screen.getByText("OAuth Details")).toBeInTheDocument();
+    expect(screen.getByText("Standard")).toBeInTheDocument();
+    expect(screen.getByText("Authorized")).toBeInTheDocument();
+    expect(screen.getByText("client-abc")).toBeInTheDocument();
     expect(screen.getByText("Auth URL")).toBeInTheDocument();
     expect(
       screen.getByText("https://auth.example.com/authorize"),
@@ -117,16 +123,35 @@ describe("ConnectionInfoContent", () => {
     expect(screen.getByText("token-123")).toBeInTheDocument();
   });
 
-  it("hides OAuth fields that are not provided", () => {
+  it("renders EMA idp session when provided", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        oauth={{
+          protocol: "ema",
+          authorized: true,
+          idpSession: "logged_in",
+        }}
+      />,
+    );
+    expect(screen.getByText("Enterprise-managed")).toBeInTheDocument();
+    expect(screen.getByText("IdP session")).toBeInTheDocument();
+    expect(screen.getByText("Signed in")).toBeInTheDocument();
+  });
+
+  it("hides optional OAuth fields that are not provided", () => {
     renderWithMantine(
       <ConnectionInfoContent
         initializeResult={fullResult}
         clientCapabilities={fullClientCaps}
         transport="stdio"
-        oauth={{ scopes: [] }}
+        oauth={{ protocol: "standard", authorized: false }}
       />,
     );
     expect(screen.getByText("OAuth Details")).toBeInTheDocument();
+    expect(screen.getByText("Not authorized")).toBeInTheDocument();
     expect(screen.queryByText("Auth URL")).not.toBeInTheDocument();
     expect(screen.queryByText("Scopes")).not.toBeInTheDocument();
     expect(screen.queryByText("Access Token")).not.toBeInTheDocument();

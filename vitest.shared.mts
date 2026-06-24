@@ -72,7 +72,7 @@ export function vitestSharedPaths(clientDir: string) {
       replacement: path.resolve(dirname, 'node_modules/@napi-rs/keyring'),
     },
     { find: /^express$/, replacement: path.resolve(dirname, 'node_modules/express') },
-    { find: /^yaml$/, replacement: path.resolve(dirname, 'node_modules/yaml') },
+    { find: /^yaml$/, replacement: path.resolve(repoRoot, 'node_modules/yaml') },
     {
       find: /^@modelcontextprotocol\/sdk\/client\/auth\.js$/,
       replacement: path.resolve(

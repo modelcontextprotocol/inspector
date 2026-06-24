@@ -1,7 +1,7 @@
 /**
  * OAuthManager unit tests. Uses mocked getServerUrl, fetch, storage, and
  * dispatch callbacks to verify config merge, callback invocation, clearOAuthTokens,
- * error propagation, and getOAuthState/getOAuthStep after beginGuidedAuth.
+ * error propagation, and getOAuthFlowState/getOAuthFlowStep after beginGuidedAuth.
  */
 import { describe, it, expect, vi } from "vitest";
 import {
@@ -9,6 +9,10 @@ import {
   type OAuthManagerConfig,
   type OAuthManagerParams,
 } from "@inspector/core/mcp/oauthManager.js";
+import {
+  EmaClientNotConfiguredError,
+  emaClientNotConfiguredMessage,
+} from "@inspector/core/auth/ema/clientConfigError.js";
 
 const SERVER_URL = "https://example.com/mcp";
 
@@ -21,7 +25,7 @@ function createMockParams(
   const dispatchOAuthError = vi.fn();
 
   const storage = {
-    getScope: vi.fn().mockResolvedValue(undefined),
+    getScope: vi.fn().mockReturnValue(undefined),
     getClientInformation: vi.fn().mockResolvedValue(undefined),
     saveClientInformation: vi.fn().mockResolvedValue(undefined),
     savePreregisteredClientInformation: vi.fn().mockResolvedValue(undefined),
@@ -38,6 +42,10 @@ function createMockParams(
     clearServerMetadata: vi.fn(),
     getServerMetadata: vi.fn().mockReturnValue(null),
     saveServerMetadata: vi.fn().mockResolvedValue(undefined),
+    getIdpSession: vi.fn().mockResolvedValue(undefined),
+    saveIdpSession: vi.fn().mockResolvedValue(undefined),
+    clearIdpSession: vi.fn(),
+    clearEnterpriseManagedResourceServers: vi.fn(),
   };
 
   const redirectUrlProvider = {
@@ -103,8 +111,8 @@ describe("OAuthManager", () => {
       expect(params.initialConfig.storage!.clear).toHaveBeenCalledWith(
         SERVER_URL,
       );
-      expect(manager.getOAuthState()).toBeUndefined();
-      expect(manager.getOAuthStep()).toBeUndefined();
+      expect(manager.getOAuthFlowState()).toBeUndefined();
+      expect(manager.getOAuthFlowStep()).toBeUndefined();
     });
 
     it("no-ops when storage is not configured", () => {
@@ -122,12 +130,47 @@ describe("OAuthManager", () => {
     });
   });
 
-  describe("getOAuthState / getOAuthStep", () => {
+  describe("getOAuthState", () => {
+    it("returns undefined when oauth is not configured for the server", async () => {
+      const params = createMockParams({
+        initialConfig: {
+          storage: createMockParams().initialConfig.storage,
+          redirectUrlProvider: {
+            getRedirectUrl: vi
+              .fn()
+              .mockReturnValue("http://localhost/callback"),
+          },
+          navigation: { navigateToAuthorization: vi.fn() },
+        } as OAuthManagerConfig,
+      });
+      const manager = new OAuthManager(params);
+      await expect(manager.getOAuthState()).resolves.toBeUndefined();
+    });
+
+    it("returns connection state from storage", async () => {
+      const params = createMockParams();
+      (
+        params.initialConfig.storage as unknown as {
+          getTokens: ReturnType<typeof vi.fn>;
+        }
+      ).getTokens.mockResolvedValue({
+        access_token: "tok",
+        token_type: "Bearer",
+      });
+      const manager = new OAuthManager(params);
+      const state = await manager.getOAuthState();
+      expect(state?.authorized).toBe(true);
+      expect(state?.serverUrl).toBe(SERVER_URL);
+      expect(state?.protocol).toBe("standard");
+    });
+  });
+
+  describe("getOAuthFlowState / getOAuthFlowStep", () => {
     it("returns undefined before any flow", () => {
       const params = createMockParams();
       const manager = new OAuthManager(params);
-      expect(manager.getOAuthState()).toBeUndefined();
-      expect(manager.getOAuthStep()).toBeUndefined();
+      expect(manager.getOAuthFlowState()).toBeUndefined();
+      expect(manager.getOAuthFlowStep()).toBeUndefined();
     });
   });
 
@@ -218,6 +261,43 @@ describe("OAuthManager", () => {
       const manager = new OAuthManager(params);
       await expect(manager.proceedOAuthStep()).rejects.toThrow(
         "Not in guided OAuth flow",
+      );
+    });
+  });
+
+  describe("enterprise-managed auth", () => {
+    function createEmaManager(
+      overrides?: Partial<OAuthManagerParams>,
+    ): OAuthManager {
+      const params = createMockParams(overrides);
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true });
+      return manager;
+    }
+
+    it("throws not_configured when connecting without install IdP", async () => {
+      const manager = createEmaManager();
+      await expect(manager.authenticate()).rejects.toThrow(
+        EmaClientNotConfiguredError,
+      );
+      await expect(manager.authenticate()).rejects.toThrow(
+        emaClientNotConfiguredMessage("not_configured"),
+      );
+    });
+
+    it("throws disabled when Enterprise IdP is turned off in Client Settings", async () => {
+      const manager = createEmaManager({
+        installEnterpriseManagedAuth: {
+          enabled: false,
+          idp: {
+            issuer: "https://idp.example.com",
+            clientId: "app-client",
+            clientSecret: "secret",
+          },
+        },
+      });
+      await expect(manager.authenticate()).rejects.toThrow(
+        emaClientNotConfiguredMessage("disabled"),
       );
     });
   });

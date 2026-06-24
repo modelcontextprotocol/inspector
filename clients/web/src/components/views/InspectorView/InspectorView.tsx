@@ -259,6 +259,8 @@ export interface InspectorViewProps {
   // Theme toggle (lives in the parent so the color scheme can also flow
   // into other top-level UI later).
   onToggleTheme: () => void;
+  /** Open install-level client settings (client.json / EMA IdP). */
+  onOpenClientSettings: () => void;
 
   // Connection lifecycle (dispatched to `useInspectorClient.connect/disconnect`).
   onToggleConnection: (id: string) => void;
@@ -390,6 +392,7 @@ export function InspectorView({
   appRendererRef,
   pinnedHistoryIds,
   onToggleTheme,
+  onOpenClientSettings,
   onToggleConnection,
   onDisconnect,
   onServerAdd,
@@ -587,9 +590,14 @@ export function InspectorView({
             onTabChange={setSelectedTab}
             onDisconnect={onDisconnect}
             onToggleTheme={onToggleTheme}
+            onOpenClientSettings={onOpenClientSettings}
           />
         ) : (
-          <ViewHeader connected={false} onToggleTheme={onToggleTheme} />
+          <ViewHeader
+            connected={false}
+            onToggleTheme={onToggleTheme}
+            onOpenClientSettings={onOpenClientSettings}
+          />
         )}
       </AppShell.Header>
       <AppShell.Main>

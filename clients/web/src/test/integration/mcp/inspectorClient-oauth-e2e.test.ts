@@ -247,10 +247,11 @@ describe("InspectorClient OAuth E2E", () => {
 
         // Use authenticate() (normal mode) - should use SDK's auth()
         const authUrl = await client.authenticate();
+        if (!authUrl) throw new Error("Expected authorization URL");
         expect(authUrl.href).toContain("/oauth/authorize");
 
-        const stateAfterAuth = client.getOAuthState();
-        expect(stateAfterAuth?.authType).toBe("normal");
+        const stateAfterAuth = client.getOAuthFlowState();
+        expect(stateAfterAuth?.execution).toBe("quick");
         expect(stateAfterAuth?.oauthStep).toBe("authorization_code");
         expect(stateAfterAuth?.authorizationUrl?.href).toBe(authUrl.href);
         expect(stateAfterAuth?.oauthClientInfo).toBeDefined();
@@ -260,8 +261,8 @@ describe("InspectorClient OAuth E2E", () => {
         await client.completeOAuthFlow(authCode);
         await client.connect();
 
-        const stateAfterComplete = client.getOAuthState();
-        expect(stateAfterComplete?.authType).toBe("normal");
+        const stateAfterComplete = client.getOAuthFlowState();
+        expect(stateAfterComplete?.execution).toBe("quick");
         expect(stateAfterComplete?.oauthStep).toBe("complete");
         expect(stateAfterComplete?.oauthTokens).toBeDefined();
         expect(stateAfterComplete?.completedAt).toBeDefined();
@@ -333,6 +334,7 @@ describe("InspectorClient OAuth E2E", () => {
 
         // Auth-provider flow: authenticate first, complete OAuth, then connect.
         const authUrl = await client.authenticate();
+        if (!authUrl) throw new Error("Expected authorization URL");
         expect(authUrl.href).toContain("/oauth/authorize");
         const authCode = await completeOAuthAuthorization(authUrl);
         await client.completeOAuthFlow(authCode);
@@ -564,6 +566,7 @@ describe("InspectorClient OAuth E2E", () => {
         );
 
         const authUrl = await client.authenticate();
+        if (!authUrl) throw new Error("Expected authorization URL");
         expect(authUrl.href).toContain("/oauth/authorize");
         const authCode = await completeOAuthAuthorization(authUrl);
         await client.completeOAuthFlow(authCode);
@@ -622,10 +625,11 @@ describe("InspectorClient OAuth E2E", () => {
 
         // Use authenticate() (normal mode) - should trigger DCR via SDK's auth()
         const authUrl = await client.authenticate();
+        if (!authUrl) throw new Error("Expected authorization URL");
         expect(authUrl.href).toContain("/oauth/authorize");
 
-        const stateAfterAuth = client.getOAuthState();
-        expect(stateAfterAuth?.authType).toBe("normal");
+        const stateAfterAuth = client.getOAuthFlowState();
+        expect(stateAfterAuth?.execution).toBe("quick");
         expect(stateAfterAuth?.oauthStep).toBe("authorization_code");
         expect(stateAfterAuth?.oauthClientInfo).toBeDefined();
         expect(stateAfterAuth?.oauthClientInfo?.client_id).toBeDefined();
@@ -634,8 +638,8 @@ describe("InspectorClient OAuth E2E", () => {
         await client.completeOAuthFlow(authCode);
         await client.connect();
 
-        const stateAfterComplete = client.getOAuthState();
-        expect(stateAfterComplete?.authType).toBe("normal");
+        const stateAfterComplete = client.getOAuthFlowState();
+        expect(stateAfterComplete?.execution).toBe("quick");
         expect(stateAfterComplete?.oauthStep).toBe("complete");
         expect(stateAfterComplete?.oauthTokens).toBeDefined();
         expect(stateAfterComplete?.completedAt).toBeDefined();
@@ -699,8 +703,8 @@ describe("InspectorClient OAuth E2E", () => {
         await client.completeOAuthFlow(authCode);
         await client.connect();
 
-        const stateAfterComplete = client.getOAuthState();
-        expect(stateAfterComplete?.authType).toBe("guided");
+        const stateAfterComplete = client.getOAuthFlowState();
+        expect(stateAfterComplete?.execution).toBe("guided");
         expect(stateAfterComplete?.oauthStep).toBe("complete");
         expect(stateAfterComplete?.completedAt).toBeDefined();
 
@@ -769,7 +773,7 @@ describe("InspectorClient OAuth E2E", () => {
         await client.beginGuidedAuth();
 
         while (true) {
-          const state = client.getOAuthState();
+          const state = client.getOAuthFlowState();
           if (
             state?.oauthStep === "authorization_code" ||
             state?.oauthStep === "complete"
@@ -779,7 +783,7 @@ describe("InspectorClient OAuth E2E", () => {
           await client.proceedOAuthStep();
         }
 
-        const state = client.getOAuthState();
+        const state = client.getOAuthFlowState();
         const authUrl = state?.authorizationUrl;
         if (!authUrl) throw new Error("Expected authorizationUrl");
         expect(authUrl.href).toContain("/oauth/authorize");
@@ -788,8 +792,8 @@ describe("InspectorClient OAuth E2E", () => {
         await client.completeOAuthFlow(authCode);
         await client.connect();
 
-        const stateAfterComplete = client.getOAuthState();
-        expect(stateAfterComplete?.authType).toBe("guided");
+        const stateAfterComplete = client.getOAuthFlowState();
+        expect(stateAfterComplete?.execution).toBe("guided");
         expect(stateAfterComplete?.oauthStep).toBe("complete");
 
         const tokens = await client.getOAuthTokens();
@@ -857,14 +861,14 @@ describe("InspectorClient OAuth E2E", () => {
         // Start guided auth and progress to authorization_code step
         await client.beginGuidedAuth();
         while (true) {
-          const state = client.getOAuthState();
+          const state = client.getOAuthFlowState();
           if (state?.oauthStep === "authorization_code") {
             break;
           }
           await client.proceedOAuthStep();
         }
 
-        const stateBefore = client.getOAuthState();
+        const stateBefore = client.getOAuthFlowState();
         expect(stateBefore?.oauthStep).toBe("authorization_code");
         expect(stateBefore?.authorizationCode).toBe("");
 
@@ -884,7 +888,7 @@ describe("InspectorClient OAuth E2E", () => {
         await client.setGuidedAuthorizationCode(authCode, false);
 
         // Verify code was set but flow didn't complete
-        const stateAfter = client.getOAuthState();
+        const stateAfter = client.getOAuthFlowState();
         expect(stateAfter?.oauthStep).toBe("authorization_code");
         expect(stateAfter?.authorizationCode).toBe(authCode);
         expect(stateAfter?.oauthTokens).toBeFalsy();
@@ -898,7 +902,7 @@ describe("InspectorClient OAuth E2E", () => {
         await client.proceedOAuthStep(); // authorization_code -> token_request
         await client.proceedOAuthStep(); // token_request -> complete
 
-        const finalState = client.getOAuthState();
+        const finalState = client.getOAuthFlowState();
         expect(finalState?.oauthStep).toBe("complete");
         expect(finalState?.oauthTokens).toBeDefined();
       });
@@ -962,14 +966,14 @@ describe("InspectorClient OAuth E2E", () => {
         // Start guided auth and progress to authorization_code step
         await client.beginGuidedAuth();
         while (true) {
-          const state = client.getOAuthState();
+          const state = client.getOAuthFlowState();
           if (state?.oauthStep === "authorization_code") {
             break;
           }
           await client.proceedOAuthStep();
         }
 
-        const stateBefore = client.getOAuthState();
+        const stateBefore = client.getOAuthFlowState();
         expect(stateBefore?.oauthStep).toBe("authorization_code");
         expect(stateBefore?.authorizationCode).toBe("");
 
@@ -989,7 +993,7 @@ describe("InspectorClient OAuth E2E", () => {
         await client.setGuidedAuthorizationCode(authCode, true);
 
         // Verify flow completed automatically
-        const stateAfter = client.getOAuthState();
+        const stateAfter = client.getOAuthFlowState();
         expect(stateAfter?.oauthStep).toBe("complete");
         expect(stateAfter?.authorizationCode).toBe(authCode);
         expect(stateAfter?.oauthTokens).toBeDefined();
@@ -1060,7 +1064,7 @@ describe("InspectorClient OAuth E2E", () => {
         await client.beginGuidedAuth();
         await client.proceedOAuthStep();
 
-        const stateBeforeRun = client.getOAuthState();
+        const stateBeforeRun = client.getOAuthFlowState();
         expect(stateBeforeRun?.oauthStep).not.toBe("authorization_code");
         expect(stateBeforeRun?.oauthStep).not.toBe("complete");
 
@@ -1139,7 +1143,7 @@ describe("InspectorClient OAuth E2E", () => {
         const authCode = await completeOAuthAuthorization(authUrl);
         await client.completeOAuthFlow(authCode);
 
-        const stateAfterComplete = client.getOAuthState();
+        const stateAfterComplete = client.getOAuthFlowState();
         expect(stateAfterComplete?.oauthStep).toBe("complete");
 
         const authUrlAgain = await client.runGuidedAuth();
@@ -1199,6 +1203,7 @@ describe("InspectorClient OAuth E2E", () => {
         );
 
         const authUrl = await client.authenticate();
+        if (!authUrl) throw new Error("Expected authorization URL");
         const authCode = await completeOAuthAuthorization(authUrl);
         await client.completeOAuthFlow(authCode);
         await client.connect();
@@ -1255,6 +1260,7 @@ describe("InspectorClient OAuth E2E", () => {
         );
 
         const authUrlNormal = await client.authenticate();
+        if (!authUrlNormal) throw new Error("Expected authorization URL");
         const authCodeNormal = await completeOAuthAuthorization(authUrlNormal);
         await client.completeOAuthFlow(authCodeNormal);
         await client.connect();
@@ -1401,9 +1407,9 @@ describe("InspectorClient OAuth E2E", () => {
 
         await client.runGuidedAuth();
 
-        const state = client.getOAuthState();
+        const state = client.getOAuthFlowState();
         expect(state).toBeDefined();
-        expect(state?.authType).toBe("guided");
+        expect(state?.execution).toBe("guided");
         expect(state?.resourceMetadata).toBeDefined();
         expect(state?.resourceMetadata?.resource).toBeDefined();
         expect(
@@ -1513,8 +1519,8 @@ describe("InspectorClient OAuth E2E", () => {
           expect(typeof e?.state === "object" && e?.state !== null).toBe(true);
         }
 
-        const finalState = client.getOAuthState();
-        expect(finalState?.authType).toBe("guided");
+        const finalState = client.getOAuthFlowState();
+        expect(finalState?.execution).toBe("guided");
         expect(finalState?.oauthStep).toBe("complete");
         expect(finalState?.oauthTokens).toBeDefined();
         expect(finalState?.completedAt).toBeDefined();
@@ -1584,6 +1590,7 @@ describe("InspectorClient OAuth E2E", () => {
         );
 
         const authUrl = await client.authenticate();
+        if (!authUrl) throw new Error("Expected authorization URL");
         const authCode = await completeOAuthAuthorization(authUrl);
         await client.completeOAuthFlow(authCode);
         await client.connect();
@@ -1663,6 +1670,7 @@ describe("InspectorClient OAuth E2E", () => {
       );
 
       const authUrl = await client.authenticate();
+      if (!authUrl) throw new Error("Expected authorization URL");
       const authCode = await completeOAuthAuthorization(authUrl);
       await client.completeOAuthFlow(authCode);
       await client.connect();
@@ -1741,6 +1749,7 @@ describe("InspectorClient OAuth E2E", () => {
 
       try {
         const authUrl = await client.authenticate();
+        if (!authUrl) throw new Error("Expected authorization URL");
         const authCode = await completeOAuthAuthorization(authUrl);
         await client.completeOAuthFlow(authCode);
         await client.connect();

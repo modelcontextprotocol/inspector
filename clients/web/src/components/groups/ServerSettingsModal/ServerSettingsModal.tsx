@@ -3,25 +3,33 @@ import { CloseButton, Group, Modal, Stack, Title } from "@mantine/core";
 import type {
   InspectorServerSettings,
   OAuthSettings,
+  ServerType,
 } from "@inspector/core/mcp/types.js";
+import { isOAuthCapableServerType } from "@inspector/core/mcp/config.js";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import {
   ServerSettingsForm,
   type ServerSettingsSection,
 } from "../ServerSettingsForm/ServerSettingsForm";
 
-const ALL_SECTIONS: ServerSettingsSection[] = [
+const BASE_SECTIONS: ServerSettingsSection[] = [
   "options",
   "headers",
   "metadata",
   "timeouts",
-  "oauth",
   "roots",
 ];
+
+function allSectionsFor(serverType: ServerType): ServerSettingsSection[] {
+  return isOAuthCapableServerType(serverType)
+    ? [...BASE_SECTIONS.slice(0, 4), "oauth", ...BASE_SECTIONS.slice(4)]
+    : BASE_SECTIONS;
+}
 
 export interface ServerSettingsModalProps {
   opened: boolean;
   settings: InspectorServerSettings;
+  serverType: ServerType;
   onClose: () => void;
   onSettingsChange: (settings: InspectorServerSettings) => void;
 }
@@ -29,9 +37,11 @@ export interface ServerSettingsModalProps {
 export function ServerSettingsModal({
   opened,
   settings,
+  serverType,
   onClose,
   onSettingsChange,
 }: ServerSettingsModalProps) {
+  const sections = allSectionsFor(serverType);
   // Initial expansion is the first ("options") section — where Network Log
   // Size lives, so a deep-link from the body-dropped toast lands on the
   // relevant control. The parent remounts this modal per open (via `key`), so
@@ -41,10 +51,10 @@ export function ServerSettingsModal({
     ServerSettingsSection[]
   >(["options"]);
 
-  const allExpanded = expandedSections.length === ALL_SECTIONS.length;
+  const allExpanded = expandedSections.length === sections.length;
 
   function handleToggleAll() {
-    setExpandedSections(allExpanded ? [] : ALL_SECTIONS);
+    setExpandedSections(allExpanded ? [] : sections);
   }
 
   function handleAddHeader() {
@@ -102,6 +112,7 @@ export function ServerSettingsModal({
       oauthClientId: oauth.clientId,
       oauthClientSecret: oauth.clientSecret,
       oauthScopes: oauth.scopes,
+      enterpriseManaged: oauth.enterpriseManaged ? true : undefined,
     });
   }
 
@@ -158,6 +169,7 @@ export function ServerSettingsModal({
         </Group>
         <ServerSettingsForm
           settings={settings}
+          serverType={serverType}
           expandedSections={expandedSections}
           onExpandedSectionsChange={setExpandedSections}
           onAddHeader={handleAddHeader}

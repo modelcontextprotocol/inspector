@@ -82,5 +82,13 @@ export function resolveConfig(config: ConfigFile): ServerConfig {
     port: isHttp ? transport.port : undefined,
   };
 
+  if (config.oauth) {
+    const { issuerUrl, ...oauthRest } = config.oauth;
+    serverConfig.oauth = {
+      ...oauthRest,
+      ...(issuerUrl && { issuerUrl: new URL(issuerUrl) }),
+    };
+  }
+
   return serverConfig;
 }

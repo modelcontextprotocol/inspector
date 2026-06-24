@@ -52,6 +52,7 @@ const meta: Meta<typeof ServerSettingsModal> = {
   render: InteractiveRender,
   args: {
     opened: true,
+    serverType: "streamable-http",
     onClose: fn(),
     onSettingsChange: fn(),
   },

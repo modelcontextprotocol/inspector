@@ -77,6 +77,8 @@ export const WithOAuth: Story = {
     clientCapabilities,
     transport: "streamable-http",
     oauth: {
+      protocol: "standard",
+      authorized: true,
       authUrl: "https://auth.example.com/oauth2/authorize",
       scopes: ["read", "write"],
       accessToken: "eyJhbGciOiJSUzI1NiIs...truncated",

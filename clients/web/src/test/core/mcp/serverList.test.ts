@@ -4,11 +4,13 @@ import {
   DEFAULT_SEED_CONFIG,
   expectedSecretFields,
   extractSecretsFromStored,
+  inspectorSettingsToStoredFields,
   mcpConfigToServerEntries,
   mergeSecretsIntoStored,
   normalizeServerType,
   serverEntriesToMcpConfig,
   serializeMcpConfig,
+  storedFieldsToInspectorSettings,
 } from "@inspector/core/mcp/serverList.js";
 import {
   SECRET_FIELD_OAUTH_CLIENT_SECRET,
@@ -624,6 +626,35 @@ describe("extractSecretsFromStored", () => {
     });
   });
 
+  it("preserves oauth.enterpriseManaged when lifting clientSecret to keychain", () => {
+    const stored: StoredMCPServer = {
+      type: "streamable-http",
+      url: "https://x.test",
+      oauth: {
+        clientId: "resource-as",
+        clientSecret: "shh",
+        enterpriseManaged: true,
+      },
+    };
+    const { stripped, secrets } = extractSecretsFromStored(stored);
+    expect(secrets).toEqual({ [SECRET_FIELD_OAUTH_CLIENT_SECRET]: "shh" });
+    expect(stripped.oauth).toEqual({
+      clientId: "resource-as",
+      enterpriseManaged: true,
+    });
+  });
+
+  it("keeps oauth.enterpriseManaged on disk when it was the only non-secret field", () => {
+    const stored: StoredMCPServer = {
+      type: "streamable-http",
+      url: "https://x.test",
+      oauth: { clientSecret: "shh", enterpriseManaged: true },
+    };
+    const { stripped, secrets } = extractSecretsFromStored(stored);
+    expect(secrets).toEqual({ [SECRET_FIELD_OAUTH_CLIENT_SECRET]: "shh" });
+    expect(stripped.oauth).toEqual({ enterpriseManaged: true });
+  });
+
   it("removes the oauth block entirely when clientSecret was its only property", () => {
     const stored: StoredMCPServer = {
       type: "streamable-http",
@@ -775,5 +806,48 @@ describe("expectedSecretFields", () => {
         command: "node",
       }),
     ).toEqual([SECRET_FIELD_OAUTH_CLIENT_SECRET]);
+  });
+});
+
+describe("enterpriseManaged oauth settings", () => {
+  it("lifts oauth.enterpriseManaged to settings.enterpriseManaged", () => {
+    const settings = storedFieldsToInspectorSettings({
+      oauth: {
+        clientId: "resource-as",
+        enterpriseManaged: true,
+      },
+    });
+    expect(settings?.enterpriseManaged).toBe(true);
+    expect(settings?.oauthClientId).toBe("resource-as");
+  });
+
+  it("persists enterpriseManaged under oauth on disk", () => {
+    const stored = inspectorSettingsToStoredFields({
+      headers: [],
+      metadata: [],
+      connectionTimeout: 0,
+      requestTimeout: 0,
+      taskTtl: 60000,
+      maxFetchRequests: 1000,
+      roots: [],
+      oauthClientId: "resource-as",
+      enterpriseManaged: true,
+    });
+    expect(stored.oauth?.enterpriseManaged).toBe(true);
+    expect(stored.oauth?.clientId).toBe("resource-as");
+  });
+
+  it("omits enterpriseManaged when false", () => {
+    const stored = inspectorSettingsToStoredFields({
+      headers: [],
+      metadata: [],
+      connectionTimeout: 0,
+      requestTimeout: 0,
+      taskTtl: 60000,
+      maxFetchRequests: 1000,
+      roots: [],
+      enterpriseManaged: false,
+    });
+    expect(stored.oauth).toBeUndefined();
   });
 });

@@ -1493,6 +1493,86 @@ describe("/api/servers routes", () => {
       );
     });
 
+    it("PUT rename moves stdio env secret when it exists only in the keychain", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            "old-name": {
+              type: "stdio",
+              command: "node",
+              env: { K: "" },
+            },
+          },
+        }),
+      );
+      await h.secretStore.set("old-name", envSecretField("K"), "v");
+
+      const res = await fetch(`${h.baseUrl}/api/servers/old-name`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "new-name",
+          config: { type: "stdio", command: "node", env: { K: "" } },
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      expect(await h.secretStore.get("old-name", envSecretField("K"))).toBe(
+        null,
+      );
+      expect(await h.secretStore.get("new-name", envSecretField("K"))).toBe(
+        "v",
+      );
+    });
+
+    it("PUT rename moves OAuth client secret when it exists only in the keychain", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            "old-name": {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              oauth: { clientId: "cid", scopes: "read" },
+            },
+          },
+        }),
+      );
+      await h.secretStore.set(
+        "old-name",
+        SECRET_FIELD_OAUTH_CLIENT_SECRET,
+        "keychain-only-secret",
+      );
+
+      const res = await fetch(`${h.baseUrl}/api/servers/old-name`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "new-name",
+          config: { type: "streamable-http", url: "https://x.test/mcp" },
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      expect(
+        await h.secretStore.get("old-name", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe(null);
+      expect(
+        await h.secretStore.get("new-name", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe("keychain-only-secret");
+
+      const getRes = await fetch(`${h.baseUrl}/api/servers`);
+      expect(getRes.status).toBe(200);
+      const cfg = (await getRes.json()) as MCPConfig;
+      const srv = cfg.mcpServers["new-name"] as {
+        oauth?: { clientId?: string; clientSecret?: string; scopes?: string };
+      };
+      expect(srv.oauth?.clientId).toBe("cid");
+      expect(srv.oauth?.clientSecret).toBe("keychain-only-secret");
+      expect(srv.oauth?.scopes).toBe("read");
+    });
+
     it("DELETE sweeps every keychain entry for the deleted server", async () => {
       writeFileSync(
         h.configPath,

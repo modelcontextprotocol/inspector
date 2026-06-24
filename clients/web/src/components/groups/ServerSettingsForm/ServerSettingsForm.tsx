@@ -13,7 +13,9 @@ import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type {
   InspectorServerSettings,
   OAuthSettings,
+  ServerType,
 } from "@inspector/core/mcp/types.js";
+import { isOAuthCapableServerType } from "@inspector/core/mcp/config.js";
 import type { Root } from "@modelcontextprotocol/sdk/types.js";
 
 export type ServerSettingsSection =
@@ -26,6 +28,8 @@ export type ServerSettingsSection =
 
 export interface ServerSettingsFormProps {
   settings: InspectorServerSettings;
+  /** Transport type — EMA checkbox is hidden for stdio. Defaults to streamable-http. */
+  serverType?: ServerType;
   expandedSections: ServerSettingsSection[];
   onExpandedSectionsChange: (sections: ServerSettingsSection[]) => void;
   onAddHeader: () => void;
@@ -165,6 +169,7 @@ function RootRows({
 
 export function ServerSettingsForm({
   settings,
+  serverType = "streamable-http",
   expandedSections,
   onExpandedSectionsChange,
   onAddHeader,
@@ -181,6 +186,7 @@ export function ServerSettingsForm({
   onRemoveRoot,
   onRootChange,
 }: ServerSettingsFormProps) {
+  const oauthCapable = isOAuthCapableServerType(serverType);
   const handleMaxFetchRequestsChange = (value: number | string) => {
     if (typeof value === "number") {
       onMaxFetchRequestsChange(value);
@@ -209,6 +215,7 @@ export function ServerSettingsForm({
       clientId: settings.oauthClientId ?? "",
       clientSecret: settings.oauthClientSecret ?? "",
       scopes: settings.oauthScopes ?? "",
+      enterpriseManaged: settings.enterpriseManaged ?? false,
     };
   }
 
@@ -342,78 +349,91 @@ export function ServerSettingsForm({
         </Accordion.Panel>
       </Accordion.Item>
 
-      <Accordion.Item value="oauth">
-        <Accordion.Control>OAuth Settings</Accordion.Control>
-        <Accordion.Panel>
-          <Stack gap="md">
-            <HintText>
-              Pre-configure OAuth credentials for servers requiring
-              authentication
-            </HintText>
-            <TextInput
-              label="Client ID"
-              value={settings.oauthClientId ?? ""}
-              onChange={(e) =>
-                onOAuthChange({
-                  ...currentOAuth(),
-                  clientId: e.currentTarget.value,
-                })
-              }
-              rightSectionPointerEvents="auto"
-              rightSection={
-                settings.oauthClientId ? (
-                  <ClearButton
-                    onClick={() =>
-                      onOAuthChange({ ...currentOAuth(), clientId: "" })
-                    }
-                  />
-                ) : null
-              }
-            />
-            <TextInput
-              label="Client Secret"
-              value={settings.oauthClientSecret ?? ""}
-              type="password"
-              onChange={(e) =>
-                onOAuthChange({
-                  ...currentOAuth(),
-                  clientSecret: e.currentTarget.value,
-                })
-              }
-              rightSectionPointerEvents="auto"
-              rightSection={
-                settings.oauthClientSecret ? (
-                  <ClearButton
-                    onClick={() =>
-                      onOAuthChange({ ...currentOAuth(), clientSecret: "" })
-                    }
-                  />
-                ) : null
-              }
-            />
-            <TextInput
-              label="Scopes"
-              value={settings.oauthScopes ?? ""}
-              onChange={(e) =>
-                onOAuthChange({
-                  ...currentOAuth(),
-                  scopes: e.currentTarget.value,
-                })
-              }
-              rightSectionPointerEvents="auto"
-              rightSection={
-                settings.oauthScopes ? (
-                  <ClearButton
-                    onClick={() =>
-                      onOAuthChange({ ...currentOAuth(), scopes: "" })
-                    }
-                  />
-                ) : null
-              }
-            />
-          </Stack>
-        </Accordion.Panel>
-      </Accordion.Item>
+      {oauthCapable ? (
+        <Accordion.Item value="oauth">
+          <Accordion.Control>OAuth Settings</Accordion.Control>
+          <Accordion.Panel>
+            <Stack gap="md">
+              <Checkbox
+                label="Enterprise-managed authorization"
+                description="Connect via the configured enterprise IdP instead of interactive OAuth to the MCP authorization server. OAuth fields below are resource authorization server credentials."
+                checked={settings.enterpriseManaged ?? false}
+                onChange={(e) =>
+                  onOAuthChange({
+                    ...currentOAuth(),
+                    enterpriseManaged: e.currentTarget.checked,
+                  })
+                }
+              />
+              <HintText>
+                Pre-configure OAuth credentials for servers requiring
+                authentication
+              </HintText>
+              <TextInput
+                label="Client ID"
+                value={settings.oauthClientId ?? ""}
+                onChange={(e) =>
+                  onOAuthChange({
+                    ...currentOAuth(),
+                    clientId: e.currentTarget.value,
+                  })
+                }
+                rightSectionPointerEvents="auto"
+                rightSection={
+                  settings.oauthClientId ? (
+                    <ClearButton
+                      onClick={() =>
+                        onOAuthChange({ ...currentOAuth(), clientId: "" })
+                      }
+                    />
+                  ) : null
+                }
+              />
+              <TextInput
+                label="Client Secret"
+                value={settings.oauthClientSecret ?? ""}
+                type="password"
+                onChange={(e) =>
+                  onOAuthChange({
+                    ...currentOAuth(),
+                    clientSecret: e.currentTarget.value,
+                  })
+                }
+                rightSectionPointerEvents="auto"
+                rightSection={
+                  settings.oauthClientSecret ? (
+                    <ClearButton
+                      onClick={() =>
+                        onOAuthChange({ ...currentOAuth(), clientSecret: "" })
+                      }
+                    />
+                  ) : null
+                }
+              />
+              <TextInput
+                label="Scopes"
+                value={settings.oauthScopes ?? ""}
+                onChange={(e) =>
+                  onOAuthChange({
+                    ...currentOAuth(),
+                    scopes: e.currentTarget.value,
+                  })
+                }
+                rightSectionPointerEvents="auto"
+                rightSection={
+                  settings.oauthScopes ? (
+                    <ClearButton
+                      onClick={() =>
+                        onOAuthChange({ ...currentOAuth(), scopes: "" })
+                      }
+                    />
+                  ) : null
+                }
+              />
+            </Stack>
+          </Accordion.Panel>
+        </Accordion.Item>
+      ) : null}
     </Accordion>
   );
 }
