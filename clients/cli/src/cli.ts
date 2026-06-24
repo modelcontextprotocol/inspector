@@ -128,7 +128,21 @@ async function callMethod(
     }
 
     if (args.method === "tools/list") {
-      result = { tools: managedToolsState!.getTools() };
+      const tools = managedToolsState!.getTools();
+      if (args.appInfo) {
+        // NDJSON: one app-info line per tool, all on a single connection. A
+        // caller that wants only the App tools can `| jq -c 'select(.hasApp)'`.
+        for (const tool of tools) {
+          const info = await collectAppInfo(
+            inspectorClient,
+            tool,
+            args.metadata,
+          );
+          await awaitableLog(JSON.stringify(info) + "\n");
+        }
+        return;
+      }
+      result = { tools };
     } else if (args.method === "tools/call") {
       if (!args.toolName) {
         throw new Error(
@@ -836,9 +850,13 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     );
   }
 
-  if (options.appInfo && options.method !== "tools/call") {
+  if (
+    options.appInfo &&
+    options.method !== "tools/call" &&
+    options.method !== "tools/list"
+  ) {
     throw new Error(
-      "--app-info requires --method tools/call (and --tool-name <name>).",
+      "--app-info requires --method tools/call (with --tool-name) or --method tools/list.",
     );
   }
 

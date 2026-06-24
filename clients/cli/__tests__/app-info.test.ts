@@ -10,7 +10,22 @@ import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-se
  * `mcpAppDemo` fixture.
  */
 describe("--app-info", () => {
-  it("rejects --app-info without --method tools/call", async () => {
+  it("rejects --app-info on a method other than tools/call or tools/list", async () => {
+    const { command, args } = getTestMcpServerCommand();
+    const result = await runCli([
+      command,
+      ...args,
+      "--method",
+      "resources/list",
+      "--app-info",
+    ]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "--app-info requires --method tools/call (with --tool-name) or --method tools/list",
+    );
+  });
+
+  it("emits NDJSON (one app-info line per tool) on --method tools/list --app-info", async () => {
     const { command, args } = getTestMcpServerCommand();
     const result = await runCli([
       command,
@@ -19,8 +34,18 @@ describe("--app-info", () => {
       "tools/list",
       "--app-info",
     ]);
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("--app-info requires --method tools/call");
+    expect(result.exitCode).toBe(0);
+    const lines = result.stdout.trim().split("\n");
+    expect(lines.length).toBeGreaterThan(1);
+    const infos = lines.map(
+      (l) => JSON.parse(l) as { hasApp: boolean; toolName: string },
+    );
+    // Every line is a valid app-info object with a toolName.
+    expect(infos.every((i) => typeof i.toolName === "string")).toBe(true);
+    // The fixture's `mcp_app_demo` is the (only) App tool.
+    const demo = infos.find((i) => i.toolName === "mcp_app_demo");
+    expect(demo?.hasApp).toBe(true);
+    expect(infos.filter((i) => i.hasApp).length).toBe(1);
   });
 
   it("emits {hasApp:false} as one JSON line and exits 2 for a non-App tool", async () => {
