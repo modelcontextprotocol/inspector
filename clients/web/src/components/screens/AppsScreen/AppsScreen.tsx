@@ -30,6 +30,7 @@ import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps/app-bridge
 import {
   AppRenderer,
   type AppRendererHandle,
+  type AppRendererStatus,
   type BridgeFactory,
 } from "../../elements/AppRenderer/AppRenderer";
 import { HOST_AVAILABLE_DISPLAY_MODES } from "../../elements/AppRenderer/createAppBridgeFactory";
@@ -240,6 +241,23 @@ const PartialStageCount = Text.withProps({
   c: "dimmed",
 });
 
+const AppErrorPanel = Paper.withProps({
+  p: "md",
+  radius: "md",
+  withBorder: true,
+  c: "var(--inspector-log-error)",
+});
+
+const AppErrorTitle = Text.withProps({
+  fw: 600,
+  size: "sm",
+});
+
+const AppErrorMessage = Text.withProps({
+  size: "sm",
+  ff: "monospace",
+});
+
 /** Render a log payload as a string for display. */
 function formatLogData(data: unknown): string {
   if (typeof data === "string") return data;
@@ -304,7 +322,22 @@ export function AppsScreen({
   // these here they'd be silently dropped by the bridge. Same lifecycle as
   // `messages`: tied to the live bridge, cleared on open/close/switch.
   const [appLogs, setAppLogs] = useState<AppLogEntry[]>([]);
-  const [appLogsExpanded, setAppLogsExpanded] = useState(false);
+  // Expanded by default so an automated driver reading
+  // `[data-testid="apps-logs"]` `innerText` sees the entries without an extra
+  // click. The user can still collapse it for the rest of the run.
+  const [appLogsExpanded, setAppLogsExpanded] = useState(true);
+  // High-level renderer lifecycle, surfaced as `data-app-status` on the
+  // `apps-form` card so an automated driver can poll
+  // `[data-app-status="ready"]` instead of racing the iframe selector.
+  const [appStatus, setAppStatus] = useState<AppRendererStatus | "idle">(
+    "idle",
+  );
+  // The error that put the renderer into status="error" (factory throw, no
+  // connected client, resource read failure routed via the same `onError`
+  // chain). Shown in place of the blank iframe and surfaced as
+  // `data-app-error` on the `apps-form` card so an automated driver can read
+  // *why* the open failed without screenshotting a toast.
+  const [appError, setAppError] = useState<Error | undefined>(undefined);
   // Snapshots of the input form captured via "Stage partial input". On Open
   // App they're passed to AppRenderer as `partialInputs` and replayed via
   // ui/notifications/tool-input-partial before the complete tool-input, so a
@@ -321,9 +354,20 @@ export function AppsScreen({
     setAppHeight(undefined);
     setMessages([]);
     setAppLogs([]);
-    setAppLogsExpanded(false);
+    setAppLogsExpanded(true);
+    setAppStatus("idle");
+    setAppError(undefined);
     setMaximized(false);
     if (!opts?.keepPartials) setPartialStages([]);
+  }
+
+  // Capture the error locally (so it can be shown in the card and surfaced as
+  // `data-app-error`) and forward it to the parent's onError. The renderer
+  // already drives `data-app-status="error"` via onAppStatusChange; this adds
+  // the *reason* alongside it.
+  function handleAppError(err: Error) {
+    setAppError(err);
+    onError?.(err);
   }
 
   const selectedTool = tools.find((t) => t.name === selectedAppName);
@@ -455,7 +499,13 @@ export function AppsScreen({
         </Sidebar>
       )}
 
-      <ContentCard flex={1} h="100%" data-testid="apps-form">
+      <ContentCard
+        flex={1}
+        h="100%"
+        data-testid="apps-form"
+        data-app-status={running ? appStatus : "idle"}
+        data-app-error={appError?.message}
+      >
         {selectedTool ? (
           <ContentStack>
             <SpacedRow>
@@ -512,7 +562,8 @@ export function AppsScreen({
                     sandboxPath={sandboxPath}
                     tool={selectedTool}
                     bridgeFactory={bridgeFactory}
-                    onError={onError}
+                    onError={handleAppError}
+                    onAppStatusChange={setAppStatus}
                     onSizeChange={handleSizeChange}
                     onMessage={handleMessage}
                     onLog={handleLog}
@@ -523,6 +574,12 @@ export function AppsScreen({
                     ref={rendererRef}
                   />
                 </RendererContainer>
+                {appError && (
+                  <AppErrorPanel data-testid="apps-error">
+                    <AppErrorTitle>App failed to load</AppErrorTitle>
+                    <AppErrorMessage>{appError.message}</AppErrorMessage>
+                  </AppErrorPanel>
+                )}
               </RendererContainer>
             ) : (
               // `isOpening` is always false here because `handleOpen`
@@ -564,7 +621,7 @@ export function AppsScreen({
               </>
             )}
             {running && messages.length > 0 && (
-              <PinnedPanel>
+              <PinnedPanel data-testid="apps-messages">
                 <Title order={5}>Messages from app ({messages.length})</Title>
                 <LogScroll>
                   <MessageLogStack>
@@ -589,7 +646,7 @@ export function AppsScreen({
               </PinnedPanel>
             )}
             {running && appLogs.length > 0 && (
-              <PinnedPanel>
+              <PinnedPanel data-testid="apps-logs">
                 <SpacedRow>
                   <CompactSubtleButton
                     onClick={() => setAppLogsExpanded((e) => !e)}

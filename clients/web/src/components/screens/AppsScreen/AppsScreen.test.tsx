@@ -205,6 +205,31 @@ describe("AppsScreen", () => {
     expect((onError.mock.calls[0][0] as Error).message).toContain(
       "no connected MCP client",
     );
+    // The error is also captured locally and surfaced visibly + as a data
+    // attribute, so an automated driver can read *why* without scraping a toast.
+    const card = screen.getByTestId("apps-form");
+    expect(card.getAttribute("data-app-status")).toBe("error");
+    expect(card.getAttribute("data-app-error")).toBe("no connected MCP client");
+    expect(screen.getByTestId("apps-error")).toBeInTheDocument();
+    expect(screen.getByText("App failed to load")).toBeInTheDocument();
+    expect(screen.getByText("no connected MCP client")).toBeInTheDocument();
+  });
+
+  it("clears the app error when the app is closed", async () => {
+    const user = userEvent.setup();
+    const throwingFactory: BridgeFactory = () => {
+      throw new Error("transient");
+    };
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={throwingFactory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await vi.waitFor(() =>
+      expect(screen.getByTestId("apps-error")).toBeInTheDocument(),
+    );
+    await user.click(screen.getByLabelText("Close"));
+    expect(screen.queryByTestId("apps-error")).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("apps-form").getAttribute("data-app-error"),
+    ).toBeNull();
   });
 
   it("filters the list via the search input", async () => {
@@ -453,6 +478,7 @@ describe("AppsScreen", () => {
     ]);
     expect(screen.getByText(/Messages from app \(1\)/)).toBeInTheDocument();
     expect(screen.getByText(/hello from the app/)).toBeInTheDocument();
+    expect(screen.getByTestId("apps-messages")).toBeInTheDocument();
   });
 
   it("returns an empty ui/message result (no conversation content leak)", async () => {
@@ -485,7 +511,7 @@ describe("AppsScreen", () => {
     expect(screen.queryByText(/Messages from app/)).not.toBeInTheDocument();
   });
 
-  it("surfaces app log notifications in a collapsible log panel with a working Clear", async () => {
+  it("surfaces app log notifications in a (default-expanded) collapsible log panel with a working Clear", async () => {
     const user = userEvent.setup();
     const { factory, emit } = createEventBridgeFactory();
     renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
@@ -505,12 +531,79 @@ describe("AppsScreen", () => {
     });
     const toggle = screen.getByRole("button", { name: /App logs \(2\)/ });
     expect(toggle).toBeInTheDocument();
-    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    // Default-expanded: entries are visible without clicking the toggle, so an
+    // automated driver reading `[data-testid="apps-logs"]` innerText sees them.
     expect(screen.getByText("disk almost full")).toBeInTheDocument();
     expect(screen.getByText("render")).toBeInTheDocument();
     expect(screen.getByText('{"code":500}')).toBeInTheDocument();
+    expect(screen.getByTestId("apps-logs")).toBeInTheDocument();
+    // Collapsing still works.
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
     await user.click(screen.getByRole("button", { name: "Clear" }));
     expect(screen.queryByText(/App logs/)).not.toBeInTheDocument();
+  });
+
+  describe("data-app-status", () => {
+    function getStatus(): string | null {
+      return screen.getByTestId("apps-form").getAttribute("data-app-status");
+    }
+
+    it("is idle when no app is running", () => {
+      renderWithMantine(
+        <ControlledAppsScreen
+          ui={{ ...EMPTY_APPS_UI, selectedAppName: "weather" }}
+        />,
+      );
+      expect(getStatus()).toBe("idle");
+    });
+
+    it("transitions idle → loading → ready around the view's initialized signal", async () => {
+      const user = userEvent.setup();
+      const { factory, emit } = createEventBridgeFactory();
+      renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+      expect(getStatus()).toBe("idle");
+      await user.click(screen.getByText("Ops Dashboard"));
+      // Auto-launch mounts the renderer and starts the bridge build.
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(getStatus()).toBe("loading");
+      await act(async () => emit("initialized"));
+      expect(getStatus()).toBe("ready");
+    });
+
+    it("reports error when the bridge factory rejects", async () => {
+      const user = userEvent.setup();
+      const failingFactory: BridgeFactory = () =>
+        Promise.reject(new Error("connect refused"));
+      renderWithMantine(
+        <ControlledAppsScreen bridgeFactory={failingFactory} />,
+      );
+      await user.click(screen.getByText("Ops Dashboard"));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(getStatus()).toBe("error");
+    });
+
+    it("resets to idle when the running app is closed", async () => {
+      const user = userEvent.setup();
+      const { factory, emit } = createEventBridgeFactory();
+      renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+      await user.click(screen.getByText("Ops Dashboard"));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      await act(async () => emit("initialized"));
+      expect(getStatus()).toBe("ready");
+      await user.click(screen.getByLabelText("Close"));
+      expect(getStatus()).toBe("idle");
+    });
   });
 
   it("stages partial-input snapshots from the form and clears them", async () => {
