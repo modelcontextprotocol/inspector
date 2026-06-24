@@ -57,6 +57,11 @@ import {
   KeyringSecretStore,
   type SecretStore,
 } from "../../../auth/node/secret-store.js";
+import {
+  deleteClientConfigStore,
+  readClientConfigStore,
+  writeClientConfigStore,
+} from "../../../client/node-persistence.js";
 
 /**
  * Shape of the initial config returned by GET /api/config (defaults for client).
@@ -805,6 +810,11 @@ export function createRemoteApp(
     const filePath = getStoreFilePath(storageDir, storeId);
 
     try {
+      if (storeId === "client") {
+        const config = await readClientConfigStore(filePath, secretStore);
+        return c.json(config);
+      }
+
       const raw = await readStoreFile(filePath);
       if (raw === null) {
         return c.json({}, 200);
@@ -833,10 +843,18 @@ export function createRemoteApp(
     const filePath = getStoreFilePath(storageDir, storeId);
 
     try {
+      if (storeId === "client") {
+        await writeClientConfigStore(filePath, body, secretStore);
+        return c.json({ ok: true });
+      }
+
       const jsonData = serializeStore(body);
       await writeStoreFile(filePath, jsonData);
       return c.json({ ok: true });
     } catch (error) {
+      const keychainResp =
+        storeId === "client" ? keychainErrorResponse(c, error) : undefined;
+      if (keychainResp) return keychainResp;
       const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to write store: ${msg}` }, 500);
     }
@@ -851,6 +869,11 @@ export function createRemoteApp(
     const filePath = getStoreFilePath(storageDir, storeId);
 
     try {
+      if (storeId === "client") {
+        await deleteClientConfigStore(filePath, secretStore);
+        return c.json({ ok: true });
+      }
+
       await deleteStoreFile(filePath);
       return c.json({ ok: true });
     } catch (error) {

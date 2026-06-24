@@ -18,7 +18,7 @@ const HttpUrlStringSchema = z.string().min(1).superRefine((val, ctx) => {
 const EnterpriseManagedAuthIdpConfigSchema = z.object({
   issuer: HttpUrlStringSchema,
   clientId: z.string().min(1),
-  clientSecret: z.string(),
+  clientSecret: z.string().optional(),
 });
 
 const ClientConfigSchema = z.object({

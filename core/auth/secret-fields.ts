@@ -10,5 +10,8 @@
 /** Field name for an entry's OAuth client secret. */
 export const SECRET_FIELD_OAUTH_CLIENT_SECRET = "oauth-client-secret";
 
+/** Field name for the install-level enterprise IdP OIDC client secret (client.json). */
+export const SECRET_FIELD_IDP_CLIENT_SECRET = "idp-client-secret";
+
 /** Field name for one stdio env-variable value. */
 export const envSecretField = (envKey: string): string => `env:${envKey}`;

@@ -7,7 +7,8 @@
 export interface EnterpriseManagedAuthIdpConfig {
   issuer: string;
   clientId: string;
-  clientSecret: string;
+  /** Present after keychain merge; omitted from on-disk client.json. */
+  clientSecret?: string;
 }
 
 export interface ClientConfig {

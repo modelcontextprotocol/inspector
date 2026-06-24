@@ -22,6 +22,7 @@ const SERVICE_NAME = "mcp-inspector";
 
 export {
   SECRET_FIELD_OAUTH_CLIENT_SECRET,
+  SECRET_FIELD_IDP_CLIENT_SECRET,
   envSecretField,
 } from "../secret-fields.js";
 

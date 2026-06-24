@@ -27,7 +27,7 @@ export function clientConfigToFormValues(
     emaEnabled: ema.enabled !== false,
     issuer: idp.issuer,
     clientId: idp.clientId,
-    clientSecret: idp.clientSecret,
+    clientSecret: idp.clientSecret ?? "",
   };
 }
 
