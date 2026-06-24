@@ -1,5 +1,5 @@
 import { runCli as invokeCli } from "../../src/cli.js";
-import { CliExitCodeError } from "../../src/error-handler.js";
+import { formatErrorOutput } from "../../src/error-handler.js";
 
 export interface CliResult {
   exitCode: number | null;
@@ -128,8 +128,11 @@ export async function runCli(
   try {
     await Promise.race([invokeCli(argv), timeout]);
   } catch (error) {
-    exitCode = error instanceof CliExitCodeError ? error.exitCode : 1;
-    stderr += (error instanceof Error ? error.message : String(error)) + "\n";
+    // Mirror the binary's `handleError` exactly so tests observe the same exit
+    // code and stderr (one JSON envelope line) the real CLI would emit.
+    const out = formatErrorOutput(error);
+    exitCode = out.exitCode;
+    stderr += out.stderr;
   } finally {
     if (timer) clearTimeout(timer);
     process.stdout.write = originalStdoutWrite;

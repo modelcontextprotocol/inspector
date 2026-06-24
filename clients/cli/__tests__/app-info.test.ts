@@ -41,7 +41,7 @@ describe("--app-info", () => {
     expect(result.stderr).toContain("has no MCP App UI resource");
   });
 
-  it("emits {hasApp:false} and exits 2 when the tool is not found", async () => {
+  it("exits 5 (TOOL_ERROR, code:tool_not_found) when the tool is not found — distinct from the no-app exit-2", async () => {
     const { command, args } = getTestMcpServerCommand();
     const result = await runCli([
       command,
@@ -52,11 +52,12 @@ describe("--app-info", () => {
       "no-such-tool",
       "--app-info",
     ]);
-    expect(result.exitCode).toBe(2);
-    const info = JSON.parse(result.stdout.trim().split("\n")[0]) as {
-      hasApp: boolean;
+    expect(result.exitCode).toBe(5);
+    expect(result.stdout).toBe("");
+    const envelope = JSON.parse(result.stderr.trim()) as {
+      error: { code: string };
     };
-    expect(info.hasApp).toBe(false);
+    expect(envelope.error.code).toBe("tool_not_found");
   });
 
   it("emits the resource-side csp/permissions and exits 0 for an App tool", async () => {

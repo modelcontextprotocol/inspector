@@ -24,7 +24,7 @@ import {
 import type { JsonValue } from "@inspector/core/mcp/index.js";
 import { extractAppInfo } from "@inspector/core/mcp/apps.js";
 import type { AppInfo } from "@inspector/core/mcp/apps.js";
-import { CliExitCodeError } from "./error-handler.js";
+import { CliExitCodeError, EXIT_CODES } from "./error-handler.js";
 import {
   LoggingLevelSchema,
   type LoggingLevel,
@@ -88,7 +88,7 @@ async function callMethod(
     await inspectorClient.connect();
 
     let result: McpResponse;
-    let appInfo: AppInfo | undefined;
+    let appInfo: CliAppInfo | undefined;
 
     if (args.method === "tools/list" || args.method === "tools/call") {
       managedToolsState = new ManagedToolsState(inspectorClient);
@@ -125,15 +125,15 @@ async function callMethod(
         .getTools()
         .find((t) => t.name === args.toolName);
       if (!tool) {
-        result = {
-          content: [
-            {
-              type: "text" as const,
-              text: `Tool '${args.toolName}' not found.`,
-            },
-          ],
-          isError: true,
-        };
+        // Distinct from `isError:true` and (for --app-info) from "tool has no
+        // app": the named tool does not exist on the server. Exit TOOL_ERROR
+        // with `code: "tool_not_found"` so a caller can tell a typo/rename
+        // apart from a real tool failure or a no-app probe result.
+        throw new CliExitCodeError(
+          EXIT_CODES.TOOL_ERROR,
+          `Tool '${args.toolName}' not found on server.`,
+          { code: "tool_not_found" },
+        );
       } else {
         appInfo = await collectAppInfo(inspectorClient, tool, args.metadata);
         if (args.appInfo) {
@@ -216,11 +216,14 @@ async function callMethod(
 
     if (args.appInfo) {
       // Single-line JSON so callers can `| jq` or parse the line directly.
-      const info = appInfo ?? { hasApp: false, toolName: args.toolName ?? "" };
+      const info: CliAppInfo = appInfo ?? {
+        hasApp: false,
+        toolName: args.toolName ?? "",
+      };
       await awaitableLog(JSON.stringify(info) + "\n");
       if (!info.hasApp) {
         throw new CliExitCodeError(
-          2,
+          EXIT_CODES.NO_APP,
           `Tool '${args.toolName}' has no MCP App UI resource (_meta.ui.resourceUri).`,
         );
       }
@@ -229,6 +232,16 @@ async function callMethod(
       if (appInfo?.hasApp) {
         await awaitableLog("\n--- MCP App Info ---\n");
         await awaitableLog(JSON.stringify(appInfo, null, 2) + "\n");
+      }
+      // A tool that returned `isError:true` (or whose call failed) is still
+      // printed above so the caller sees the payload, but the process exits
+      // TOOL_ERROR so `&&` chains don't proceed on a failed call.
+      if ((result as { isError?: unknown }).isError === true) {
+        throw new CliExitCodeError(
+          EXIT_CODES.TOOL_ERROR,
+          `Tool '${args.toolName}' returned isError:true.`,
+          { code: "tool_is_error" },
+        );
       }
     }
   } finally {
@@ -241,24 +254,35 @@ async function callMethod(
 }
 
 /**
- * Build the CLI's {@link AppInfo} for a tool: extract the tool-side `_meta.ui`
- * and, when the tool advertises a UI resource, follow it with a `resources/read`
- * so the resource-side csp/permissions/domain are included. A read failure is
- * tolerated — the tool-side info is still returned, since "tool says it has an
- * app but the resource is unreadable" is itself a useful probe result.
+ * {@link AppInfo} plus a CLI-only `resourceError` so a `resources/read` failure
+ * during the probe is reported instead of being silently swallowed (which would
+ * make "no CSP declared" indistinguishable from "resource unreadable").
+ */
+type CliAppInfo = AppInfo & { resourceError?: string };
+
+/**
+ * Build the CLI's app-info for a tool: extract the tool-side `_meta.ui` and,
+ * when the tool advertises a UI resource, follow it with a `resources/read` so
+ * the resource-side csp/permissions/domain are included. A read failure is
+ * tolerated — the tool-side info is still returned with `resourceError` set,
+ * since "tool says it has an app but the resource is unreadable" is itself a
+ * useful probe result.
  */
 async function collectAppInfo(
   client: InspectorClient,
   tool: Parameters<typeof extractAppInfo>[0],
   metadata: Record<string, string> | undefined,
-): Promise<AppInfo> {
+): Promise<CliAppInfo> {
   const base = extractAppInfo(tool);
   if (!base.hasApp || base.resourceUri === undefined) return base;
   try {
     const read = await client.readResource(base.resourceUri, metadata);
     return extractAppInfo(tool, read.result);
-  } catch {
-    return base;
+  } catch (e) {
+    return {
+      ...base,
+      resourceError: e instanceof Error ? e.message : String(e),
+    };
   }
 }
 
