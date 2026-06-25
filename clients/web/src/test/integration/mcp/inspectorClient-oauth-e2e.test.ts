@@ -425,8 +425,8 @@ describe("InspectorClient OAuth E2E", () => {
           clientConfig,
         );
 
-        // CIMD uses guided mode (HTTP clientMetadataUrl); auth() requires HTTPS
-        const authUrl = await client.runGuidedAuth();
+        // Quick auth with CIMD pre-registration (supports http:// test metadata URLs)
+        const authUrl = await client.authenticate();
         if (!authUrl) throw new Error("Expected authorization URL");
         expect(authUrl.href).toContain("/oauth/authorize");
 
@@ -504,7 +504,7 @@ describe("InspectorClient OAuth E2E", () => {
           clientConfig,
         );
 
-        const authUrl = await client.runGuidedAuth();
+        const authUrl = await client.authenticate();
         if (!authUrl) throw new Error("Expected authorization URL");
         const authCode = await completeOAuthAuthorization(authUrl);
         await client.completeOAuthFlow(authCode);

@@ -21,6 +21,8 @@ export {
 } from "./connection-state.js";
 export type { BuildOAuthConnectionStateParams } from "./connection-state.js";
 
+export { ensureCimdClientRegistration } from "./cimd.js";
+
 // Storage
 export type { OAuthStorage, IdpSessionState } from "./storage.js";
 export { getServerSpecificKey, OAUTH_STORAGE_KEYS } from "./storage.js";

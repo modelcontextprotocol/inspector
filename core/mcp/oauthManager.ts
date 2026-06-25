@@ -27,6 +27,7 @@ import {
   isServerOAuthConfigured,
   protocolFromOAuthConfig,
 } from "../auth/connection-state.js";
+import { ensureCimdClientRegistration } from "../auth/cimd.js";
 import type { OAuthConnectionState } from "../auth/types.js";
 import { EmaTransportOAuthProvider } from "../auth/ema/transportProvider.js";
 import type {
@@ -211,6 +212,12 @@ export class OAuthManager {
     const serverUrl = this.getServerUrl();
 
     provider.clearCapturedAuthUrl();
+
+    await ensureCimdClientRegistration({
+      serverUrl,
+      provider,
+      fetchFn: this.params.effectiveAuthFetch,
+    });
 
     const result = await auth(provider, {
       serverUrl,
