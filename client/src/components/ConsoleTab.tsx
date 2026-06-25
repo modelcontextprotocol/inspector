@@ -36,10 +36,6 @@ const ConsoleTab = ({
   const logEntries = allLogEntries.slice(clearedCount);
 
   useEffect(() => {
-    setClearedCount((prev) => Math.min(prev, allLogEntries.length));
-  }, [allLogEntries.length]);
-
-  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logEntries.length]);
 
