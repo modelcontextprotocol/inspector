@@ -294,9 +294,17 @@ const demoNetwork: FetchRequestEntry[] = [
   },
 ];
 
+// Advertise every primitive capability so the Connected story shows the full
+// tab list — each header tab is gated on the matching capability field (#1516).
 const demoInitializeResult: InitializeResult = {
   protocolVersion: "2025-06-18",
-  capabilities: {},
+  capabilities: {
+    tools: {},
+    prompts: {},
+    resources: {},
+    logging: {},
+    tasks: {},
+  },
   serverInfo: { name: "Local Dev Server", version: "1.2.0" },
 };
 
