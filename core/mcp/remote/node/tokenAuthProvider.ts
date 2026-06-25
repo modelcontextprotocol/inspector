@@ -1,13 +1,22 @@
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
-import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type {
+  OAuthClientMetadata,
+  OAuthTokens,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { RemoteConnectRequest } from "../types.js";
+
+const REMOTE_OAUTH_STUB_METADATA: OAuthClientMetadata = {
+  redirect_uris: [],
+  scope: "",
+};
 
 /**
  * Simple OAuth client provider that just returns tokens.
  * Used by the remote server to inject Bearer tokens into transport requests.
- * The other OAuthClientProvider methods are required by the interface but never
- * exercised in the remote-server path (the SDK only calls `tokens()` for Bearer
- * injection); they are kept as no-op stubs.
+ *
+ * The SDK may invoke {@link auth} on 401; stubs must satisfy the full provider
+ * surface so that path fails with a clear error instead of throwing on
+ * undefined `clientMetadata.scope`.
  */
 export function createTokenAuthProvider(
   tokens: RemoteConnectRequest["oauthTokens"],
@@ -15,6 +24,12 @@ export function createTokenAuthProvider(
   if (!tokens) return undefined;
 
   return {
+    get clientMetadata(): OAuthClientMetadata {
+      return REMOTE_OAUTH_STUB_METADATA;
+    },
+    get redirectUrl(): string {
+      return "";
+    },
     async tokens(): Promise<OAuthTokens | undefined> {
       return tokens as OAuthTokens;
     },
@@ -33,8 +48,10 @@ export function createTokenAuthProvider(
     clear() {
       // No-op
     },
-    redirectToAuthorization() {
-      // No-op
+    async redirectToAuthorization() {
+      throw new Error(
+        "OAuth re-authorization must be performed in the Inspector web client (remote server cannot complete OAuth flows)",
+      );
     },
     state() {
       return "";

@@ -17,11 +17,17 @@ import {
   type CapabilityKey,
 } from "../../elements/CapabilityItem/CapabilityItem";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { OAuthAccessTokenField } from "./OAuthAccessTokenField";
 
 export interface OAuthDetails {
+  protocol: "standard" | "ema";
+  authorized: boolean;
+  clientId?: string;
   authUrl?: string;
   scopes?: string[];
   accessToken?: string;
+  /** EMA only — install-level IdP session for legs 1–2. */
+  idpSession?: "none" | "logged_in" | "expired";
 }
 
 export interface ConnectionInfoContentProps {
@@ -43,6 +49,23 @@ const SectionHeading = Title.withProps({
 
 function formatScopes(scopes: string[]): string {
   return scopes.join(", ");
+}
+
+function formatProtocol(protocol: OAuthDetails["protocol"]): string {
+  return protocol === "ema" ? "Enterprise-managed" : "Standard";
+}
+
+function formatIdpSession(
+  session: NonNullable<OAuthDetails["idpSession"]>,
+): string {
+  switch (session) {
+    case "logged_in":
+      return "Signed in";
+    case "expired":
+      return "Session expired";
+    default:
+      return "Not signed in";
+  }
 }
 
 const SERVER_CAPABILITY_KEYS: CapabilityKey[] = [
@@ -148,6 +171,30 @@ export function ConnectionInfoContent({
         <Stack gap="xs">
           <SectionHeading>OAuth Details</SectionHeading>
           <Stack gap="xs">
+            <SimpleGrid cols={2}>
+              <Text size="sm">Protocol</Text>
+              <ValueText>{formatProtocol(oauth.protocol)}</ValueText>
+
+              <Text size="sm">Status</Text>
+              <Badge
+                variant="outline"
+                color={oauth.authorized ? "green" : "gray"}
+              >
+                {oauth.authorized ? "Authorized" : "Not authorized"}
+              </Badge>
+            </SimpleGrid>
+            {oauth.clientId && (
+              <SimpleGrid cols={2}>
+                <Text size="sm">Client ID</Text>
+                <Code>{oauth.clientId}</Code>
+              </SimpleGrid>
+            )}
+            {oauth.protocol === "ema" && oauth.idpSession && (
+              <SimpleGrid cols={2}>
+                <Text size="sm">IdP session</Text>
+                <ValueText>{formatIdpSession(oauth.idpSession)}</ValueText>
+              </SimpleGrid>
+            )}
             {oauth.authUrl && (
               <SimpleGrid cols={2}>
                 <Text size="sm">Auth URL</Text>
@@ -161,10 +208,7 @@ export function ConnectionInfoContent({
               </SimpleGrid>
             )}
             {oauth.accessToken && (
-              <SimpleGrid cols={2}>
-                <Text size="sm">Access Token</Text>
-                <Code>{oauth.accessToken}</Code>
-              </SimpleGrid>
+              <OAuthAccessTokenField accessToken={oauth.accessToken} />
             )}
           </Stack>
         </Stack>

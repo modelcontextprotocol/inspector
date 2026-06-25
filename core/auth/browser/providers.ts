@@ -3,7 +3,7 @@ import type {
   OAuthNavigationCallback,
 } from "../providers.js";
 import { CallbackNavigation, BaseOAuthClientProvider } from "../providers.js";
-import { BrowserOAuthStorage } from "./storage.js";
+import { getBrowserOAuthStorage } from "./storage.js";
 
 export type { OAuthNavigationCallback } from "../providers.js";
 
@@ -49,12 +49,12 @@ export class BrowserOAuthClientProvider extends BaseOAuthClientProvider {
         "BrowserOAuthClientProvider requires browser environment",
       );
     }
-    const storage = new BrowserOAuthStorage();
+    const storage = getBrowserOAuthStorage();
     const redirectUrlProvider: RedirectUrlProvider = {
       getRedirectUrl: () => `${window.location.origin}/oauth/callback`,
     };
     const navigation = new BrowserNavigation();
 
-    super(serverUrl, { storage, redirectUrlProvider, navigation }, "normal");
+    super(serverUrl, { storage, redirectUrlProvider, navigation }, "quick");
   }
 }

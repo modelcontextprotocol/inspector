@@ -41,7 +41,9 @@ const { messageLogClear } = vi.hoisted(() => ({ messageLogClear: vi.fn() }));
 // Extends EventTarget so the App's `addEventListener("disconnect", …)` wiring
 // is real; the test fires `dispatchEvent(new Event("disconnect"))` to simulate
 // any of the three disconnect paths (toggle, header button, transport failure).
-vi.mock("@inspector/core/mcp/index.js", () => {
+vi.mock("@inspector/core/mcp/index.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@inspector/core/mcp/index.js")>();
   class FakeInspectorClient extends EventTarget {
     connect = vi.fn().mockResolvedValue(undefined);
     disconnect = vi.fn().mockResolvedValue(undefined);
@@ -66,7 +68,8 @@ vi.mock("@inspector/core/mcp/index.js", () => {
       .mockResolvedValue({ resourceTemplates: [] });
     listRequestorTasks = vi.fn().mockResolvedValue({ tasks: [] });
     ping = vi.fn().mockResolvedValue(undefined);
-    getOAuthState = vi.fn().mockReturnValue(undefined);
+    getOAuthFlowState = vi.fn().mockReturnValue(undefined);
+    getOAuthState = vi.fn().mockResolvedValue(undefined);
     getPendingSamples = vi.fn().mockReturnValue([]);
     getPendingElicitations = vi.fn().mockReturnValue([]);
     getRoots = vi.fn().mockReturnValue([]);
@@ -75,6 +78,7 @@ vi.mock("@inspector/core/mcp/index.js", () => {
   }
   const instances: FakeInspectorClient[] = [];
   return {
+    ...actual,
     InspectorClient: vi.fn(function () {
       const client = new FakeInspectorClient();
       instances.push(client);

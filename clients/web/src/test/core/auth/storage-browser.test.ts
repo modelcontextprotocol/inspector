@@ -155,6 +155,23 @@ describe("BrowserOAuthStorage", () => {
 
       expect(result).toEqual(tokens);
     });
+
+    it("should tag EMA resource tokens", async () => {
+      const emaUrl = "https://mcp.test/mcp";
+      const standardUrl = "https://other.test/sse";
+      const tokens: OAuthTokens = {
+        access_token: "ema-token",
+        token_type: "Bearer",
+      };
+
+      await storage.saveTokens(emaUrl, tokens, { enterpriseManaged: true });
+      await storage.saveTokens(standardUrl, tokens);
+
+      storage.clearEnterpriseManagedResourceServers();
+
+      expect(await storage.getTokens(emaUrl)).toBeUndefined();
+      expect(await storage.getTokens(standardUrl)).toEqual(tokens);
+    });
   });
 
   describe("getCodeVerifier", () => {

@@ -24,6 +24,10 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { InspectorLogger } from "../logging/logger.js";
 import type { JsonValue } from "../json/jsonUtils.js";
 import type {
+  ClientConfig,
+  EnterpriseManagedAuthIdpConfig,
+} from "../client/types.js";
+import type {
   OAuthNavigation,
   RedirectUrlProvider,
 } from "../auth/providers.js";
@@ -128,6 +132,8 @@ export type StoredMCPServer = MCPServerConfig & {
     clientId?: string;
     clientSecret?: string;
     scopes?: string;
+    /** When true, connect via enterprise IdP (EMA) instead of standard resource OAuth. */
+    enterpriseManaged?: boolean;
   };
   /**
    * Filesystem/URI roots advertised to the server via the `roots` client
@@ -397,6 +403,7 @@ export interface OAuthSettings {
   clientId: string;
   clientSecret: string;
   scopes: string;
+  enterpriseManaged?: boolean;
 }
 
 /**
@@ -445,6 +452,12 @@ export interface InspectorServerSettings {
   oauthClientId?: string;
   oauthClientSecret?: string;
   oauthScopes?: string;
+  /**
+   * When true, connect via the configured enterprise IdP (EMA) instead of
+   * interactive OAuth to the MCP authorization server. Per-server OAuth
+   * fields below are resource AS credentials. (#1509)
+   */
+  enterpriseManaged?: boolean;
   /**
    * When true, lists auto-refresh on `list_changed` notifications; when
    * false (default), the notification only lights the list-changed indicator
@@ -715,7 +728,23 @@ export interface InspectorClientOptions {
     clientSecret?: string;
     clientMetadataUrl?: string;
     scope?: string;
+    /** Route to EMA flow when true (resource AS creds in clientId/clientSecret). */
+    enterpriseManaged?: boolean;
   };
+
+  /**
+   * Global enterprise IdP credentials (from client.json). Used for EMA legs 1–2
+   * when {@link oauth.enterpriseManaged} is true on the server.
+   */
+  enterpriseManagedAuth?: {
+    idp: EnterpriseManagedAuthIdpConfig;
+  };
+
+  /**
+   * Full install-level EMA config from client.json (including when disabled).
+   * Used to produce friendly errors when a server expects EMA but IdP is inactive.
+   */
+  installEnterpriseManagedAuth?: ClientConfig["enterpriseManagedAuth"];
 
   /**
    * Optional session ID. If not provided, will be extracted from OAuth state

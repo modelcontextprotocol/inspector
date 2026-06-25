@@ -80,6 +80,7 @@ function makeProps(
     historyUi: EMPTY_HISTORY_UI,
     networkUi: EMPTY_NETWORK_UI,
     onToggleTheme: vi.fn(),
+    onOpenClientSettings: vi.fn(),
     onToggleConnection: vi.fn(),
     onDisconnect: vi.fn(),
     onServerAdd: vi.fn(),

@@ -9,6 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { OAuthStorage } from "./storage.js";
 import { type createOAuthStore, type ServerOAuthState } from "./store.js";
+import type { IdpSessionState, SaveTokensOptions } from "./storage.js";
 
 /**
  * Concrete OAuthStorage implementation parameterized on a Zustand store.
@@ -77,8 +78,15 @@ export class OAuthStorageBase implements OAuthStorage {
     return await OAuthTokensSchema.parseAsync(state.tokens);
   }
 
-  async saveTokens(serverUrl: string, tokens: OAuthTokens): Promise<void> {
-    this.store.getState().setServerState(serverUrl, { tokens });
+  async saveTokens(
+    serverUrl: string,
+    tokens: OAuthTokens,
+    options?: SaveTokensOptions,
+  ): Promise<void> {
+    this.store.getState().setServerState(serverUrl, {
+      tokens,
+      ...(options?.enterpriseManaged === true && { enterpriseManaged: true }),
+    });
   }
 
   clearTokens(serverUrl: string): void {
@@ -138,5 +146,32 @@ export class OAuthStorageBase implements OAuthStorage {
 
   clear(serverUrl: string): void {
     this.store.getState().clearServerState(serverUrl);
+  }
+
+  async getIdpSession(issuer: string): Promise<IdpSessionState | undefined> {
+    const session = this.store.getState().getIdpSession(issuer);
+    if (
+      !session.idToken &&
+      !session.refreshToken &&
+      session.idTokenExpiresAt === undefined
+    ) {
+      return undefined;
+    }
+    return session;
+  }
+
+  async saveIdpSession(
+    issuer: string,
+    session: Partial<IdpSessionState>,
+  ): Promise<void> {
+    this.store.getState().setIdpSession(issuer, session);
+  }
+
+  clearIdpSession(issuer: string): void {
+    this.store.getState().clearIdpSession(issuer);
+  }
+
+  clearEnterpriseManagedResourceServers(): void {
+    this.store.getState().clearEnterpriseManagedResourceServers();
   }
 }

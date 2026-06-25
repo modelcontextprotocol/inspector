@@ -1,4 +1,4 @@
-import type { OAuthStep, AuthGuidedState } from "./types.js";
+import type { OAuthStep, OAuthFlowState } from "./types.js";
 import type { BaseOAuthClientProvider } from "./providers.js";
 import { discoverScopes, getAuthorizationServerUrl } from "./discovery.js";
 import {
@@ -15,10 +15,10 @@ import {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 
 export interface StateMachineContext {
-  state: AuthGuidedState;
+  state: OAuthFlowState;
   serverUrl: string;
   provider: BaseOAuthClientProvider;
-  updateState: (updates: Partial<AuthGuidedState>) => void;
+  updateState: (updates: Partial<OAuthFlowState>) => void;
   fetchFn?: typeof fetch;
 }
 
@@ -258,13 +258,13 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
 export class OAuthStateMachine {
   private serverUrl: string;
   private provider: BaseOAuthClientProvider;
-  private updateState: (updates: Partial<AuthGuidedState>) => void;
+  private updateState: (updates: Partial<OAuthFlowState>) => void;
   private fetchFn?: typeof fetch;
 
   constructor(
     serverUrl: string,
     provider: BaseOAuthClientProvider,
-    updateState: (updates: Partial<AuthGuidedState>) => void,
+    updateState: (updates: Partial<OAuthFlowState>) => void,
     fetchFn?: typeof fetch,
   ) {
     this.serverUrl = serverUrl;
@@ -273,7 +273,7 @@ export class OAuthStateMachine {
     this.fetchFn = fetchFn;
   }
 
-  async executeStep(state: AuthGuidedState): Promise<void> {
+  async executeStep(state: OAuthFlowState): Promise<void> {
     const context: StateMachineContext = {
       state,
       serverUrl: this.serverUrl,

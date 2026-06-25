@@ -3,24 +3,30 @@ import { CloseButton, Group, Modal, Stack, Title } from "@mantine/core";
 import type {
   InspectorServerSettings,
   OAuthSettings,
+  ServerType,
 } from "@inspector/core/mcp/types.js";
+import { isOAuthCapableServerType } from "@inspector/core/mcp/config.js";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import {
   ServerSettingsForm,
   type ServerSettingsSection,
 } from "../ServerSettingsForm/ServerSettingsForm";
 
-// The "environment" section only renders for stdio servers, so it joins the
-// expand/collapse-all set only then — otherwise `allExpanded` could never be
-// reached (the section isn't in the DOM to expand).
-function allSectionsFor(isStdio: boolean): ServerSettingsSection[] {
+// The "environment" section only renders for stdio servers and the "oauth"
+// section only for OAuth-capable transports, so each joins the
+// expand/collapse-all set only when present — otherwise `allExpanded` could
+// never be reached (a section not in the DOM can't be expanded).
+function allSectionsFor(
+  serverType: ServerType,
+  isStdio: boolean,
+): ServerSettingsSection[] {
   return [
     "options",
     ...(isStdio ? (["environment"] as const) : []),
     "headers",
     "metadata",
     "timeouts",
-    "oauth",
+    ...(isOAuthCapableServerType(serverType) ? (["oauth"] as const) : []),
     "roots",
   ];
 }
@@ -28,6 +34,7 @@ function allSectionsFor(isStdio: boolean): ServerSettingsSection[] {
 export interface ServerSettingsModalProps {
   opened: boolean;
   settings: InspectorServerSettings;
+  serverType: ServerType;
   /**
    * Whether the target server uses the stdio transport. Forwarded to the form
    * to gate the stdio-only Working Directory field and Environment Variables
@@ -41,10 +48,12 @@ export interface ServerSettingsModalProps {
 export function ServerSettingsModal({
   opened,
   settings,
+  serverType,
   isStdio,
   onClose,
   onSettingsChange,
 }: ServerSettingsModalProps) {
+  const sections = allSectionsFor(serverType, isStdio);
   // Initial expansion is the first ("options") section — where Network Log
   // Size lives, so a deep-link from the body-dropped toast lands on the
   // relevant control. The parent remounts this modal per open (via `key`), so
@@ -54,11 +63,10 @@ export function ServerSettingsModal({
     ServerSettingsSection[]
   >(["options"]);
 
-  const allSections = allSectionsFor(isStdio);
-  const allExpanded = expandedSections.length === allSections.length;
+  const allExpanded = expandedSections.length === sections.length;
 
   function handleToggleAll() {
-    setExpandedSections(allExpanded ? [] : allSections);
+    setExpandedSections(allExpanded ? [] : sections);
   }
 
   function handleAddHeader() {
@@ -139,6 +147,7 @@ export function ServerSettingsModal({
       oauthClientId: oauth.clientId,
       oauthClientSecret: oauth.clientSecret,
       oauthScopes: oauth.scopes,
+      enterpriseManaged: oauth.enterpriseManaged ? true : undefined,
     });
   }
 
@@ -195,6 +204,7 @@ export function ServerSettingsModal({
         </Group>
         <ServerSettingsForm
           settings={settings}
+          serverType={serverType}
           isStdio={isStdio}
           expandedSections={expandedSections}
           onExpandedSectionsChange={setExpandedSections}

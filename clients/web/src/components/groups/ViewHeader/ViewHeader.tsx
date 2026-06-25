@@ -15,7 +15,7 @@ import {
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
-import { MdLightMode, MdDarkMode, MdLinkOff } from "react-icons/md";
+import { MdLightMode, MdDarkMode, MdLinkOff, MdSettings } from "react-icons/md";
 import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
 import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/ServerStatusIndicator";
 import mcpLogo from "../../../theme/assets/MCP.svg";
@@ -31,11 +31,13 @@ interface ConnectedProps {
   onTabChange: (tab: string) => void;
   onDisconnect: () => void;
   onToggleTheme: () => void;
+  onOpenClientSettings: () => void;
 }
 
 interface UnconnectedProps {
   connected: false;
   onToggleTheme: () => void;
+  onOpenClientSettings: () => void;
 }
 
 export type ViewHeaderProps = ConnectedProps | UnconnectedProps;
@@ -176,6 +178,12 @@ const DisconnectIcon = ActionIcon.withProps({
   c: "red",
   size: 36,
   "aria-label": "Disconnect",
+});
+
+const ClientSettingsToggle = ActionIcon.withProps({
+  variant: "subtle",
+  size: 36,
+  "aria-label": "Client settings",
 });
 
 const ThemeToggle = ActionIcon.withProps({
@@ -374,6 +382,9 @@ export function ViewHeader(props: ViewHeaderProps) {
             )
           }
         </Transition>
+        <ClientSettingsToggle onClick={props.onOpenClientSettings}>
+          <MdSettings size={20} />
+        </ClientSettingsToggle>
         <ThemeToggle onClick={props.onToggleTheme}>
           <ThemeIcon size={20} />
         </ThemeToggle>

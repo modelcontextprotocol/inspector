@@ -3,8 +3,8 @@ import {
   OAuthStateMachine,
   oauthTransitions,
 } from "@inspector/core/auth/state-machine.js";
-import type { AuthGuidedState, OAuthStep } from "@inspector/core/auth/types.js";
-import { EMPTY_GUIDED_STATE } from "@inspector/core/auth/types.js";
+import type { OAuthFlowState, OAuthStep } from "@inspector/core/auth/types.js";
+import { EMPTY_OAUTH_FLOW_STATE } from "@inspector/core/auth/types.js";
 import type { BaseOAuthClientProvider } from "@inspector/core/auth/providers.js";
 import type {
   OAuthMetadata,
@@ -23,12 +23,12 @@ vi.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
 
 describe("OAuthStateMachine", () => {
   let mockProvider: BaseOAuthClientProvider;
-  let updateState: (updates: Partial<AuthGuidedState>) => void;
-  let state: AuthGuidedState;
+  let updateState: (updates: Partial<OAuthFlowState>) => void;
+  let state: OAuthFlowState;
 
   beforeEach(() => {
-    state = { ...EMPTY_GUIDED_STATE };
-    updateState = vi.fn((updates: Partial<AuthGuidedState>) => {
+    state = { ...EMPTY_OAUTH_FLOW_STATE };
+    updateState = vi.fn((updates: Partial<OAuthFlowState>) => {
       state = { ...state, ...updates };
     });
 
@@ -347,8 +347,8 @@ describe("OAuthStateMachine", () => {
         getServerMetadata: vi.fn(() => metadata),
       } as unknown as BaseOAuthClientProvider;
 
-      const tokenRequestState: AuthGuidedState = {
-        ...EMPTY_GUIDED_STATE,
+      const tokenRequestState: OAuthFlowState = {
+        ...EMPTY_OAUTH_FLOW_STATE,
         oauthStep: "token_request",
         oauthMetadata: metadata as OAuthMetadata,
         oauthClientInfo: { client_id: "test-client" },
@@ -384,8 +384,8 @@ describe("OAuthStateMachine", () => {
         clientInformation: vi.fn(async () => undefined),
       } as unknown as BaseOAuthClientProvider;
 
-      const tokenState: AuthGuidedState = {
-        ...EMPTY_GUIDED_STATE,
+      const tokenState: OAuthFlowState = {
+        ...EMPTY_OAUTH_FLOW_STATE,
         oauthStep: "token_request",
         oauthMetadata: metadata as OAuthMetadata,
         authorizationCode: "code-without-client",
@@ -403,7 +403,7 @@ describe("OAuthStateMachine", () => {
 
     it("complete.canTransition always returns false (terminal state)", async () => {
       const result = await oauthTransitions.complete.canTransition({
-        state: { ...EMPTY_GUIDED_STATE, oauthStep: "complete" },
+        state: { ...EMPTY_OAUTH_FLOW_STATE, oauthStep: "complete" },
         serverUrl: "http://localhost:3000",
         provider: mockProvider,
         updateState,
@@ -412,7 +412,7 @@ describe("OAuthStateMachine", () => {
       // execute is a no-op
       await expect(
         oauthTransitions.complete.execute({
-          state: { ...EMPTY_GUIDED_STATE, oauthStep: "complete" },
+          state: { ...EMPTY_OAUTH_FLOW_STATE, oauthStep: "complete" },
           serverUrl: "http://localhost:3000",
           provider: mockProvider,
           updateState,
@@ -429,8 +429,8 @@ describe("OAuthStateMachine", () => {
         mockProvider,
         updateState,
       );
-      const blockedState: AuthGuidedState = {
-        ...EMPTY_GUIDED_STATE,
+      const blockedState: OAuthFlowState = {
+        ...EMPTY_OAUTH_FLOW_STATE,
         oauthStep: "token_request",
       };
       await expect(stateMachine.executeStep(blockedState)).rejects.toThrow(

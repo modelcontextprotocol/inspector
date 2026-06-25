@@ -496,6 +496,41 @@ describe("OAuth Store (Zustand)", () => {
   });
 });
 
+describe("NodeOAuthStorage idpSessions (EMA)", () => {
+  let storage: NodeOAuthStorage;
+  const testStatePath = path.join(
+    os.tmpdir(),
+    `mcp-inspector-oauth-idp-${Date.now()}-${Math.random().toString(36).slice(2)}.json`,
+  );
+  const issuer = "https://idp.example.com";
+
+  afterEach(async () => {
+    try {
+      await fs.unlink(testStatePath);
+    } catch {
+      /* ignore */
+    }
+  });
+
+  it("persists IdP session keyed by issuer", async () => {
+    storage = new NodeOAuthStorage(testStatePath);
+    await storage.saveIdpSession(issuer, {
+      idToken: "eyJ.id.token",
+      refreshToken: "rt-1",
+      idTokenExpiresAt: 1_700_000_000_000,
+    });
+    await flushStoreFileWrites(testStatePath);
+
+    const session = await storage.getIdpSession(issuer);
+    expect(session?.idToken).toBe("eyJ.id.token");
+    expect(session?.refreshToken).toBe("rt-1");
+
+    storage.clearIdpSession(issuer);
+    await flushStoreFileWrites(testStatePath);
+    expect(await storage.getIdpSession(issuer)).toBeUndefined();
+  });
+});
+
 describe("NodeOAuthStorage with custom storagePath", () => {
   const testServerUrl = "http://localhost:3999";
 

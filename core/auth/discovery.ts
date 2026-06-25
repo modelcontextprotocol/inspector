@@ -1,5 +1,6 @@
 import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { parseHttpUrl } from "./utils.js";
 
 /**
  * Returns the URL to use for OAuth authorization server metadata discovery.
@@ -11,7 +12,15 @@ export function getAuthorizationServerUrl(
 ): URL {
   const first = resourceMetadata?.authorization_servers?.[0];
   // Use truthy check to match original state-machine: empty string falls back to serverUrl
-  return first ? new URL(first) : new URL("/", serverUrl);
+  if (first) {
+    return parseHttpUrl(first, "protected resource authorization_servers[0]");
+  }
+  try {
+    return new URL("/", serverUrl);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`Invalid MCP server URL: "${serverUrl}" (${detail})`);
+  }
 }
 
 /**

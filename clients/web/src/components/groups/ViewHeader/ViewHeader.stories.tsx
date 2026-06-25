@@ -38,6 +38,7 @@ export const Connected: Story = {
     onTabChange: fn(),
     onDisconnect: fn(),
     onToggleTheme: fn(),
+    onOpenClientSettings: fn(),
   },
 };
 
@@ -45,5 +46,6 @@ export const Unconnected: Story = {
   args: {
     connected: false,
     onToggleTheme: fn(),
+    onOpenClientSettings: fn(),
   },
 };

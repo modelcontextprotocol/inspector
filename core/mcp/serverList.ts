@@ -199,6 +199,9 @@ export function storedFieldsToInspectorSettings(
   if (stored.oauth?.clientSecret)
     settings.oauthClientSecret = stored.oauth.clientSecret;
   if (stored.oauth?.scopes) settings.oauthScopes = stored.oauth.scopes;
+  if (stored.oauth?.enterpriseManaged === true) {
+    settings.enterpriseManaged = true;
+  }
   // Mirror the stdio working directory for the form. Like the OAuth fields, an
   // empty string coerces to absent so the form's "(inherit)" placeholder shows.
   if (stored.cwd) settings.cwd = stored.cwd;
@@ -268,11 +271,15 @@ export function inspectorSettingsToStoredFields(
     clientId?: string;
     clientSecret?: string;
     scopes?: string;
+    enterpriseManaged?: boolean;
   } = {};
   if (settings.oauthClientId) oauthFields.clientId = settings.oauthClientId;
   if (settings.oauthClientSecret)
     oauthFields.clientSecret = settings.oauthClientSecret;
   if (settings.oauthScopes) oauthFields.scopes = settings.oauthScopes;
+  if (settings.enterpriseManaged === true) {
+    oauthFields.enterpriseManaged = true;
+  }
   if (Object.keys(oauthFields).length > 0) {
     out.oauth = oauthFields;
   }
@@ -467,11 +474,18 @@ export function extractSecretsFromStored(
 
   if (stored.oauth?.clientSecret) {
     secrets[SECRET_FIELD_OAUTH_CLIENT_SECRET] = stored.oauth.clientSecret;
-    const restOauth: { clientId?: string; scopes?: string } = {};
+    const restOauth: {
+      clientId?: string;
+      scopes?: string;
+      enterpriseManaged?: boolean;
+    } = {};
     if (stored.oauth.clientId !== undefined)
       restOauth.clientId = stored.oauth.clientId;
     if (stored.oauth.scopes !== undefined)
       restOauth.scopes = stored.oauth.scopes;
+    if (stored.oauth.enterpriseManaged === true) {
+      restOauth.enterpriseManaged = true;
+    }
     if (Object.keys(restOauth).length > 0) {
       stripped.oauth = restOauth;
     } else {

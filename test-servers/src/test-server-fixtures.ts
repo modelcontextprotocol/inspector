@@ -1922,6 +1922,7 @@ export function createOAuthTestServerConfig(options: {
   return {
     oauth: {
       enabled: true,
+      mode: "combined",
       requireAuth: options.requireAuth ?? false,
       scopesSupported: options.scopesSupported ?? ["mcp"],
       staticClients: options.staticClients,
@@ -1929,6 +1930,34 @@ export function createOAuthTestServerConfig(options: {
       supportCIMD: options.supportCIMD ?? false,
       tokenExpirationSeconds: options.tokenExpirationSeconds ?? 3600,
       supportRefreshTokens: options.supportRefreshTokens ?? true,
+    },
+  };
+}
+
+/**
+ * MCP resource server that delegates authorization to an external AS (EMA / XAA testing).
+ * Access tokens must be JWTs from that AS (signature + iss validated via JWKS).
+ */
+export function createExternalResourceOAuthTestServerConfig(options: {
+  authorizationServers: string[];
+  requireAuth?: boolean;
+  scopesSupported?: string[];
+  resource?: string;
+  accessTokenIssuers?: string[];
+  jwksUri?: string;
+  resourceAudience?: string;
+}): Partial<ServerConfig> {
+  return {
+    oauth: {
+      enabled: true,
+      mode: "protected-resource",
+      authorizationServers: options.authorizationServers,
+      requireAuth: options.requireAuth ?? true,
+      scopesSupported: options.scopesSupported ?? ["mcp"],
+      resource: options.resource,
+      accessTokenIssuers: options.accessTokenIssuers,
+      jwksUri: options.jwksUri,
+      resourceAudience: options.resourceAudience,
     },
   };
 }

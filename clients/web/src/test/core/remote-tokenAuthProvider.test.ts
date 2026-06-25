@@ -31,7 +31,7 @@ describe("createTokenAuthProvider", () => {
       codeVerifier: () => string | undefined;
       saveCodeVerifier: (v: string) => Promise<void>;
       clear: () => void;
-      redirectToAuthorization: (url: URL) => void;
+      redirectToAuthorization: (url: URL) => Promise<void>;
       state: () => string;
     };
 
@@ -42,9 +42,17 @@ describe("createTokenAuthProvider", () => {
     expect(p.codeVerifier()).toBeUndefined();
     await expect(p.saveCodeVerifier("v")).resolves.toBeUndefined();
     expect(() => p.clear()).not.toThrow();
-    expect(() =>
+    await expect(
       p.redirectToAuthorization(new URL("https://example.com/")),
-    ).not.toThrow();
+    ).rejects.toThrow(/remote server cannot complete OAuth flows/);
     expect(p.state()).toBe("");
+  });
+
+  it("exposes clientMetadata so SDK auth() does not throw on 401 retry", () => {
+    const provider = createTokenAuthProvider({
+      access_token: "abc",
+      token_type: "Bearer",
+    });
+    expect(provider!.clientMetadata.scope).toBe("");
   });
 });

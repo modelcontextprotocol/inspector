@@ -18,6 +18,7 @@ export function CopyButton({ value }: CopyButtonProps) {
             color={copied ? "green" : "var(--inspector-text-primary)"}
             onClick={copy}
             fz={24}
+            aria-label={copied ? "Copied" : "Copy"}
           >
             {copied ? "\u2713" : "\u2398"}
           </ActionIcon>

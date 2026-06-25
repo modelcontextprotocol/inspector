@@ -53,6 +53,7 @@ const meta: Meta<typeof ServerSettingsModal> = {
   render: InteractiveRender,
   args: {
     opened: true,
+    serverType: "streamable-http",
     isStdio: false,
     onClose: fn(),
     onSettingsChange: fn(),
@@ -87,6 +88,7 @@ export const EmptySettings: Story = {
 // Environment Variables section.
 export const StdioServer: Story = {
   args: {
+    serverType: "stdio",
     isStdio: true,
     settings: {
       headers: [],

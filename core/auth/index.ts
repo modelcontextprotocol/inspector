@@ -1,16 +1,28 @@
 // Types
 export type {
   OAuthStep,
-  OAuthAuthType,
+  AuthExecution,
+  AuthProtocol,
   MessageType,
   StatusMessage,
-  AuthGuidedState,
+  OAuthFlowState,
+  OAuthConnectionState,
   CallbackParams,
 } from "./types.js";
-export { EMPTY_GUIDED_STATE } from "./types.js";
+export {
+  EMPTY_OAUTH_FLOW_STATE,
+  authProtocolFromEnterpriseManaged,
+} from "./types.js";
+
+export {
+  buildOAuthConnectionState,
+  isServerOAuthConfigured,
+  protocolFromOAuthConfig,
+} from "./connection-state.js";
+export type { BuildOAuthConnectionStateParams } from "./connection-state.js";
 
 // Storage
-export type { OAuthStorage } from "./storage.js";
+export type { OAuthStorage, IdpSessionState } from "./storage.js";
 export { getServerSpecificKey, OAUTH_STORAGE_KEYS } from "./storage.js";
 
 // Providers
@@ -29,13 +41,14 @@ export {
 
 // Utilities
 export {
+  parseHttpUrl,
   parseOAuthCallbackParams,
   generateOAuthState,
+  generateOAuthStateWithExecution,
   generateOAuthStateWithMode,
   parseOAuthState,
   generateOAuthErrorDescription,
 } from "./utils.js";
-export type { OAuthStateMode } from "./utils.js";
 
 // Discovery
 export { discoverScopes } from "./discovery.js";

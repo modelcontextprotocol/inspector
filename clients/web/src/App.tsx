@@ -56,6 +56,14 @@ import {
   cleanRoots,
   serializeMcpConfig,
 } from "@inspector/core/mcp/serverList.js";
+import type { ClientConfig } from "@inspector/core/client/types.js";
+import { getActiveEnterpriseManagedAuthIdp } from "@inspector/core/client/types.js";
+import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
+import {
+  loadClientConfigRemote,
+  saveClientConfigRemote,
+} from "@inspector/core/client/remote.js";
+import { formatClientConfigLoadError } from "@inspector/core/client/config-parse.js";
 import { MessageLogState } from "@inspector/core/mcp/state/messageLogState.js";
 import { FetchRequestLogState } from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import type { FetchRequestLogStateEventMap } from "@inspector/core/mcp/state/fetchRequestLogState.js";
@@ -70,6 +78,9 @@ import { RemoteInspectorClientStorage } from "@inspector/core/mcp/remote/index.j
 import { useInspectorClient } from "@inspector/core/react/useInspectorClient.js";
 import { useServers } from "@inspector/core/react/useServers.js";
 import { useSettingsDraft } from "@inspector/core/react/useSettingsDraft.js";
+import { useClientSettingsDraft } from "@inspector/core/react/useClientSettingsDraft.js";
+import { useEmaIdpLoginState } from "@inspector/core/react/useEmaIdpLoginState.js";
+import { getBrowserOAuthStorage } from "@inspector/core/auth/browser/index.js";
 import { useManagedTools } from "@inspector/core/react/useManagedTools.js";
 import { useManagedPrompts } from "@inspector/core/react/useManagedPrompts.js";
 import { useManagedResources } from "@inspector/core/react/useManagedResources.js";
@@ -108,9 +119,17 @@ import {
   type ServerConfigModalMode,
 } from "./components/groups/ServerConfigModal/ServerConfigModal";
 import { ServerSettingsModal } from "./components/groups/ServerSettingsModal/ServerSettingsModal";
+import { ClientSettingsModal } from "./components/groups/ClientSettingsModal/ClientSettingsModal";
+import {
+  canPersistClientSettingsDraft,
+  clientConfigToFormValues,
+  EMPTY_CLIENT_SETTINGS,
+  formValuesToClientConfig,
+} from "./components/groups/ClientSettingsForm/clientSettingsValues";
 import { ServerImportConfigModal } from "./components/groups/ServerImportConfigModal/ServerImportConfigModal";
 import { ServerImportJsonModal } from "./components/groups/ServerImportJsonModal/ServerImportJsonModal";
 import { ConnectionInfoModal } from "./components/groups/ConnectionInfoModal/ConnectionInfoModal";
+import { oauthDetailsFromConnectionState } from "./components/groups/ConnectionInfoContent/oauthDetailsFromConnectionState";
 import { OutputValidationModal } from "./components/groups/OutputValidationModal/OutputValidationModal";
 import { UrlElicitationErrorModal } from "./components/groups/UrlElicitationErrorModal/UrlElicitationErrorModal";
 import { isReplayableHistoryMethod } from "./components/groups/historyUtils.js";
@@ -299,6 +318,8 @@ const EMPTY_SETTINGS: InspectorServerSettings = {
 function bodyDroppedToastId(serverId: string): string {
   return `fetch-body-dropped-${serverId}`;
 }
+
+const CLIENT_CONFIG_LOAD_ERROR_NOTIFICATION_ID = "client-config-load-error";
 
 // Body of the "response body dropped" warning toast: a one-line summary of what
 // happened, the likely causes, and a link that opens this server's settings
@@ -528,6 +549,7 @@ function App() {
   const [settingsModalTargetId, setSettingsModalTargetId] = useState<
     string | undefined
   >(undefined);
+  const [clientSettingsOpen, setClientSettingsOpen] = useState(false);
   const [connectionInfoModalOpen, setConnectionInfoModalOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<ServerEntry | null>(null);
   // Details for the output-schema-mismatch modal opened from the warning toast.
@@ -572,6 +594,27 @@ function App() {
     baseUrl: configBaseUrl,
     authToken: getAuthToken(),
   });
+
+  const [clientConfig, setClientConfig] = useState<ClientConfig>({});
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    void loadClientConfigRemote({
+      baseUrl: configBaseUrl,
+      authToken: getAuthToken(),
+    })
+      .then(setClientConfig)
+      .catch((err) => {
+        setClientConfig({});
+        notifications.show({
+          id: CLIENT_CONFIG_LOAD_ERROR_NOTIFICATION_ID,
+          title: "Could not load Client Settings",
+          message: `${formatClientConfigLoadError(err)}\n\nCheck ~/.mcp-inspector/storage/client.json or re-enter settings in Client Settings.`,
+          color: "red",
+          autoClose: false,
+        });
+      });
+  }, [configBaseUrl]);
+
   const sandboxBridgeFactory = useMemo(
     () =>
       createAppBridgeFactory({
@@ -1147,55 +1190,39 @@ function App() {
   const connectionInfoTransport: ServerType =
     activeServer?.config.type ?? "stdio";
 
-  // OAuth details rendered in the Connection Info modal — read from the
-  // active InspectorClient's guided-OAuth state machine snapshot
-  // (synchronous), with configured scopes pulled from the server's
-  // persisted settings. All three fields are independently optional; if
-  // none are populated we return undefined so the modal hides the OAuth
-  // section entirely.
-  //
-  // Snapshot-at-last-derivation semantics: the memo deps
-  // (`connectionStatus`, `inspectorClient`, `activeServer`) don't
-  // include `oauthStepChange` / `oauthComplete`, so a token refresh
-  // that happens while none of those change won't update the rendered
-  // token. The memo will still re-run on the natural triggers — server
-  // switch, reconnect, or a settings edit that re-references
-  // `activeServer` — which matches the modal's overall framing
-  // ("info about the connection at this moment") and avoids
-  // subscribing to a third event source from a dialog whose primary
-  // job is read-only. If we ever surface live token refresh state,
-  // switch to subscribing on those events.
-  //
-  // For `authUrl` we prefer the authorization-server-advertised
-  // `authorization_endpoint` over the full `authorizationUrl`. The
-  // latter is the per-flight URL the user was redirected to (with
-  // `state`, `code_challenge`, etc.) — informative for a debugger,
-  // noisy for a connection summary; the endpoint is the stable
-  // identifier of "which AS is in use here."
-  //
-  // Scope splitter: OAuth 2.1 §3.3 specifies space-separated scopes;
-  // the persisted value is config-controlled (user-typed into the
-  // server settings form), so the literal `" "` split is sufficient
-  // and matches the spec.
-  const connectionInfoOAuth = useMemo<OAuthDetails | undefined>(() => {
-    if (connectionStatus !== "connected" || !inspectorClient) return undefined;
-    const oauthState = inspectorClient.getOAuthState();
-    const authUrl =
-      oauthState?.oauthMetadata?.authorization_endpoint ??
-      oauthState?.authorizationUrl?.toString();
-    const accessToken = oauthState?.oauthTokens?.access_token;
-    const scopes = activeServer?.settings?.oauthScopes
-      ?.split(" ")
-      .filter(Boolean);
-    if (!authUrl && !accessToken && !(scopes && scopes.length > 0)) {
-      return undefined;
+  const [
+    connectionInfoOAuthWhenConnected,
+    setConnectionInfoOAuthWhenConnected,
+  ] = useState<OAuthDetails | undefined>(undefined);
+
+  const connectionInfoOAuth =
+    connectionStatus === "connected" && inspectorClient
+      ? connectionInfoOAuthWhenConnected
+      : undefined;
+
+  useEffect(() => {
+    if (connectionStatus !== "connected" || !inspectorClient) {
+      return;
     }
-    return {
-      ...(authUrl && { authUrl }),
-      ...(scopes && scopes.length > 0 && { scopes }),
-      ...(accessToken && { accessToken }),
+
+    let cancelled = false;
+
+    const refresh = (): void => {
+      void inspectorClient.getOAuthState().then((state) => {
+        if (cancelled) return;
+        setConnectionInfoOAuthWhenConnected(
+          state ? oauthDetailsFromConnectionState(state) : undefined,
+        );
+      });
     };
-  }, [connectionStatus, inspectorClient, activeServer]);
+
+    refresh();
+    inspectorClient.addEventListener("oauthComplete", refresh);
+    return () => {
+      cancelled = true;
+      inspectorClient.removeEventListener("oauthComplete", refresh);
+    };
+  }, [connectionStatus, inspectorClient]);
 
   // Derive log entries from the message log. Filters for
   // `notifications/message` (the response to `logging/setLevel`).
@@ -1287,6 +1314,7 @@ function App() {
       // The settings node persisted in mcp.json for this server — distinct
       // from the InspectorClient options we're about to derive from it.
       const savedSettings = server.settings;
+      const activeIdp = getActiveEnterpriseManagedAuthIdp(clientConfig);
       // Flatten the persisted settings into the InspectorClient options shape.
       // Empty / zero values stay unset so the SDK defaults apply.
       const defaultMetadata = savedSettings?.metadata
@@ -1300,7 +1328,8 @@ function App() {
         savedSettings &&
         (savedSettings.oauthClientId ||
           savedSettings.oauthClientSecret ||
-          savedSettings.oauthScopes)
+          savedSettings.oauthScopes ||
+          savedSettings.enterpriseManaged)
           ? {
               ...(savedSettings.oauthClientId && {
                 clientId: savedSettings.oauthClientId,
@@ -1310,6 +1339,9 @@ function App() {
               }),
               ...(savedSettings.oauthScopes && {
                 scope: savedSettings.oauthScopes,
+              }),
+              ...(savedSettings.enterpriseManaged && {
+                enterpriseManaged: true,
               }),
             }
           : undefined;
@@ -1335,6 +1367,12 @@ function App() {
             defaultMetadata,
           }),
         ...(oauth && { oauth }),
+        ...(activeIdp && {
+          enterpriseManagedAuth: { idp: activeIdp },
+        }),
+        ...(clientConfig.enterpriseManagedAuth && {
+          installEnterpriseManagedAuth: clientConfig.enterpriseManagedAuth,
+        }),
         ...(savedSettings && { serverSettings: savedSettings }),
         // Set on the `/oauth/callback` rebuild so the client's `saveSession`
         // events (and any later persistence) key off the same OAuth authId
@@ -1390,6 +1428,7 @@ function App() {
       stderrLogState,
       sessionStorageAdapter,
       onBeforeOAuthRedirect,
+      clientConfig,
     ],
   );
 
@@ -1411,7 +1450,7 @@ function App() {
     oauthCallbackHandledRef.current = true;
 
     const params = parseOAuthCallbackParams(window.location.search);
-    // The OAuth `state` round-trips `{mode}:{authId}`; the authId is the
+    // The OAuth `state` round-trips `{execution}:{authId}`; the authId is the
     // session key the pre-redirect page saved the fetch log under, so the
     // rebuilt client can restore those `auth` entries. Read it before the
     // URL is cleared below.
@@ -1480,6 +1519,15 @@ function App() {
         await client.connect();
       } catch (err) {
         connectStartRef.current = undefined;
+        if (isEmaClientNotConfiguredError(err)) {
+          notifications.show({
+            title: `Cannot connect to "${server.name}"`,
+            message: err.message,
+            color: "red",
+            autoClose: false,
+          });
+          return;
+        }
         const message = err instanceof Error ? err.message : String(err);
         notifications.show({
           title: `Failed to connect to "${server.name}"`,
@@ -1529,6 +1577,16 @@ function App() {
         // (#1323).
         connectStartRef.current = undefined;
 
+        if (isEmaClientNotConfiguredError(err)) {
+          notifications.show({
+            title: `Cannot connect to "${target.name}"`,
+            message: err.message,
+            color: "red",
+            autoClose: false,
+          });
+          return;
+        }
+
         // A 401 from an OAuth-protected server means we have no (valid) token
         // yet. Kick off the authorization-code flow: `authenticate()` runs
         // discovery + DCR (proxied through the backend), then redirects the
@@ -1539,10 +1597,23 @@ function App() {
         if (isUnauthorizedError(err)) {
           try {
             window.sessionStorage.setItem(OAUTH_PENDING_SERVER_KEY, id);
-            await client.authenticate();
+            const authUrl = await client.authenticate();
+            if (authUrl === undefined) {
+              connectStartRef.current = Date.now();
+              await client.connect();
+            }
             return;
           } catch (authErr) {
             window.sessionStorage.removeItem(OAUTH_PENDING_SERVER_KEY);
+            if (isEmaClientNotConfiguredError(authErr)) {
+              notifications.show({
+                title: `Cannot connect to "${target.name}"`,
+                message: authErr.message,
+                color: "red",
+                autoClose: false,
+              });
+              return;
+            }
             const message =
               authErr instanceof Error ? authErr.message : String(authErr);
             notifications.show({
@@ -2217,6 +2288,15 @@ function App() {
     return servers.find((s) => s.id === configModal.targetId);
   }, [configModal, servers]);
 
+  const settingsModalTarget = useMemo(() => {
+    if (!settingsModalTargetId) return undefined;
+    return servers.find((s) => s.id === settingsModalTargetId);
+  }, [settingsModalTargetId, servers]);
+
+  const settingsModalServerType = settingsModalTarget
+    ? getServerType(settingsModalTarget.config)
+    : "stdio";
+
   // The settings modal is fully controlled — every input change fires
   // `onSettingsChange` back up here, and the input's `value` prop only
   // updates when this component re-renders with a new `settings` prop.
@@ -2259,15 +2339,53 @@ function App() {
   const settingsModalValue: InspectorServerSettings =
     settingsDraft ?? EMPTY_SETTINGS;
 
+  const {
+    draft: clientSettingsDraft,
+    onChange: onClientSettingsChange,
+    flush: flushClientSettingsDraft,
+  } = useClientSettingsDraft({
+    opened: clientSettingsOpen,
+    resolveInitial: () => clientConfigToFormValues(clientConfig),
+    onPersist: async (values) => {
+      if (!canPersistClientSettingsDraft(values)) return;
+      const next = formValuesToClientConfig(values);
+      await saveClientConfigRemote(next, {
+        baseUrl: configBaseUrl,
+        authToken: getAuthToken(),
+      });
+      setClientConfig(next);
+    },
+    onError: (err) => {
+      notifications.show({
+        title: "Failed to save client settings",
+        message: err instanceof Error ? err.message : String(err),
+        color: "red",
+      });
+    },
+  });
+
+  const clientSettingsModalValue = clientSettingsDraft ?? EMPTY_CLIENT_SETTINGS;
+
+  const emaOAuthStorage = useMemo(() => getBrowserOAuthStorage(), []);
+  const { loginState: emaIdpLoginState, logout: logoutEmaIdp } =
+    useEmaIdpLoginState(
+      emaOAuthStorage,
+      clientSettingsModalValue.emaEnabled
+        ? clientSettingsModalValue.issuer
+        : undefined,
+      clientSettingsOpen,
+    );
+
+  const onClientSettingsModalClose = useCallback(() => {
+    flushClientSettingsDraft();
+    setClientSettingsOpen(false);
+  }, [flushClientSettingsDraft]);
+
   // Gate the stdio-only Working Directory / Environment Variables controls in
-  // the settings modal. Resolve the target server's transport from its config;
-  // default to non-stdio when the target isn't resolvable (modal closed).
-  const settingsModalTarget = servers.find(
-    (s) => s.id === settingsModalTargetId,
-  );
-  const settingsModalIsStdio = settingsModalTarget
-    ? getServerType(settingsModalTarget.config) === "stdio"
-    : false;
+  // the settings modal. Derived from the resolved target server's transport
+  // (see `settingsModalServerType` above), which defaults to "stdio" when the
+  // target isn't resolvable.
+  const settingsModalIsStdio = settingsModalServerType === "stdio";
 
   const onSettingsModalClose = useCallback(() => {
     flushSettingsDraft();
@@ -2431,6 +2549,7 @@ function App() {
         bridgeFactory={sandboxBridgeFactory}
         appRendererRef={appRendererRef}
         onToggleTheme={onToggleTheme}
+        onOpenClientSettings={() => setClientSettingsOpen(true)}
         onToggleConnection={(id) => {
           void onToggleConnection(id);
         }}
@@ -2560,12 +2679,24 @@ function App() {
         // Remount per open (and per target server) so the accordion resets to
         // its initial "options" section — the body-dropped toast deep-links
         // here expecting the Network Log Size control to be visible.
-        key={settingsModalTargetId ?? "closed"}
+        key={settingsModalTargetId ?? "server-settings-closed"}
         opened={settingsModalTargetId !== undefined}
         settings={settingsModalValue}
+        serverType={settingsModalServerType}
         isStdio={settingsModalIsStdio}
         onClose={onSettingsModalClose}
         onSettingsChange={onSettingsChange}
+      />
+      <ClientSettingsModal
+        key={
+          clientSettingsOpen ? "client-settings-open" : "client-settings-closed"
+        }
+        opened={clientSettingsOpen}
+        settings={clientSettingsModalValue}
+        onClose={onClientSettingsModalClose}
+        onSettingsChange={onClientSettingsChange}
+        emaIdpLoginState={emaIdpLoginState}
+        onEmaIdpLogout={logoutEmaIdp}
       />
       {initializeResult && activeServer && (
         <ConnectionInfoModal

@@ -10,6 +10,7 @@ import type {
   OAuthTokens,
   OAuthMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { IdpSessionState } from "./storage.js";
 
 /**
  * OAuth state for a single server
@@ -21,6 +22,8 @@ export interface ServerOAuthState {
   codeVerifier?: string;
   scope?: string;
   serverMetadata?: OAuthMetadata;
+  /** Set when resource tokens were minted via EMA (legs 2–3). */
+  enterpriseManaged?: boolean;
 }
 
 /**
@@ -28,9 +31,14 @@ export interface ServerOAuthState {
  */
 export interface OAuthStoreState {
   servers: Record<string, ServerOAuthState>;
+  idpSessions: Record<string, IdpSessionState>;
   getServerState: (serverUrl: string) => ServerOAuthState;
   setServerState: (serverUrl: string, state: Partial<ServerOAuthState>) => void;
   clearServerState: (serverUrl: string) => void;
+  getIdpSession: (issuer: string) => IdpSessionState;
+  setIdpSession: (issuer: string, updates: Partial<IdpSessionState>) => void;
+  clearIdpSession: (issuer: string) => void;
+  clearEnterpriseManagedResourceServers: () => void;
 }
 
 /**
@@ -47,6 +55,7 @@ export function createOAuthStore(
     persist(
       (set, get) => ({
         servers: {},
+        idpSessions: {},
         getServerState: (serverUrl: string) => {
           return get().servers[serverUrl] || {};
         },
@@ -68,6 +77,38 @@ export function createOAuthStore(
           set((state) => {
             const rest = { ...state.servers };
             delete rest[serverUrl];
+            return { servers: rest };
+          });
+        },
+        getIdpSession: (issuer: string) => {
+          return get().idpSessions[issuer] || {};
+        },
+        setIdpSession: (issuer: string, updates: Partial<IdpSessionState>) => {
+          set((state) => ({
+            idpSessions: {
+              ...state.idpSessions,
+              [issuer]: {
+                ...state.idpSessions[issuer],
+                ...updates,
+              },
+            },
+          }));
+        },
+        clearIdpSession: (issuer: string) => {
+          set((state) => {
+            const rest = { ...state.idpSessions };
+            delete rest[issuer];
+            return { idpSessions: rest };
+          });
+        },
+        clearEnterpriseManagedResourceServers: () => {
+          set((state) => {
+            const rest = { ...state.servers };
+            for (const [url, serverState] of Object.entries(state.servers)) {
+              if (serverState.enterpriseManaged === true) {
+                delete rest[url];
+              }
+            }
             return { servers: rest };
           });
         },

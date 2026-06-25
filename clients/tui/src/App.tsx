@@ -561,7 +561,7 @@ function App({
   // Shared ref for OAuth callback server; stop before starting new (avoids EADDRINUSE when prior auth failed without redirect)
   const callbackServerRef = useRef<OAuthCallbackServer | null>(null);
 
-  // OAuth Quick Auth (normal mode; callback server + open URL)
+  // OAuth Quick Auth (quick execution; callback server + open URL)
   const handleQuickAuth = useCallback(async () => {
     if (
       !selectedServer ||
@@ -620,8 +620,10 @@ function App({
       if (redirectUrlProvider) {
         redirectUrlProvider.redirectUrl = redirectUrl;
       }
-      await selectedInspectorClient.authenticate();
-      await flowDone;
+      const authUrl = await selectedInspectorClient.authenticate();
+      if (authUrl !== undefined) {
+        await flowDone;
+      }
       setOauthStatus("success");
       setOauthMessage("OAuth complete. Press C to connect.");
     } catch (err) {
@@ -719,7 +721,7 @@ function App({
     );
     try {
       await selectedInspectorClient.proceedOAuthStep();
-      const state = selectedInspectorClient.getOAuthState();
+      const state = selectedInspectorClient.getOAuthFlowState();
       if (state?.oauthStep === "authorization_code" && state.authorizationUrl) {
         await openUrl(state.authorizationUrl);
       }
