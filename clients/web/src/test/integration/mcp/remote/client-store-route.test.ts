@@ -4,6 +4,7 @@
 
 import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -165,6 +166,37 @@ describe("/api/storage/client keychain", () => {
         SECRET_FIELD_IDP_CLIENT_SECRET,
       ),
     ).toBe("very-secret-idp");
+  });
+
+  it("POST rejects a malformed client config with 400 and a formatted message", async () => {
+    // `issuer` is required and must be an absolute URL; an empty string fails
+    // the schema, so `parseClientConfig` throws a ZodError. The route should
+    // surface that as a 400 (client error) with the load-path formatting,
+    // not a generic 500 "Failed to write store".
+    const res = await fetch(`${h.baseUrl}/api/storage/client`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enterpriseManagedAuth: {
+          idp: { issuer: "", clientId: "inspector-app" },
+        },
+      }),
+    });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string };
+    // Formatted as "<field>: <message>" by formatClientConfigLoadError, and
+    // not the generic 500 wording.
+    expect(json.error).toContain("enterpriseManagedAuth.idp.issuer");
+    expect(json.error).not.toContain("Failed to write store");
+
+    // Nothing was persisted — neither to disk nor the keychain.
+    expect(existsSync(h.clientPath)).toBe(false);
+    expect(
+      await h.secretStore.get(
+        CLIENT_KEYCHAIN_ID,
+        SECRET_FIELD_IDP_CLIENT_SECRET,
+      ),
+    ).toBeNull();
   });
 
   it("DELETE removes client.json and keychain IdP secret", async () => {

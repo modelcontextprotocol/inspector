@@ -64,7 +64,9 @@ import {
   readClientConfigStore,
   writeClientConfigStore,
 } from "../../../client/node-persistence.js";
+import { formatClientConfigLoadError } from "../../../client/config-parse.js";
 import { envSecretField } from "../../../auth/secret-fields.js";
+import { ZodError } from "zod";
 
 /**
  * Shape of the initial config returned by GET /api/config (defaults for client).
@@ -855,6 +857,13 @@ export function createRemoteApp(
       await writeStoreFile(filePath, jsonData);
       return c.json({ ok: true });
     } catch (error) {
+      // A malformed client.json body fails `parseClientConfig` with a ZodError
+      // — that's a client error (bad request), not a server failure. Return 400
+      // with the same human-readable formatting the load path uses, rather than
+      // letting it fall through to the generic 500 below.
+      if (error instanceof ZodError) {
+        return c.json({ error: formatClientConfigLoadError(error) }, 400);
+      }
       const keychainResp =
         storeId === "client" ? keychainErrorResponse(c, error) : undefined;
       if (keychainResp) return keychainResp;

@@ -13,8 +13,7 @@ import type { EnterpriseManagedAuthIdpConfig } from "../../client/types.js";
 import { generateOAuthStateWithExecution, parseHttpUrl } from "../utils.js";
 import { IDP_OIDC_SCOPES } from "./constants.js";
 import { isJwtExpired, jwtExpiresAtMs } from "./jwt.js";
-import { normalizeIdpIssuer } from "./idpSession.js";
-import { idpOAuthStorageKey } from "./storage.js";
+import { idpOAuthStorageKey, normalizeIdpIssuer } from "./storage.js";
 import {
   parseOAuthTokenErrorResponse,
   postOAuthTokenRequest,
