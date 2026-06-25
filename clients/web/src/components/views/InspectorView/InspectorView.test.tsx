@@ -920,6 +920,76 @@ describe("InspectorView", () => {
     ).toBeInTheDocument();
   });
 
+  it("dims the other server cards while a connection is live", () => {
+    const betaServer: ServerEntry = {
+      id: "beta",
+      name: "Beta",
+      config: { type: "stdio", command: "echo" },
+      connection: { status: "disconnected" },
+    };
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer, betaServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+        })}
+      />,
+    );
+    // The non-active card is inert while alpha holds a live session, so the
+    // user can't start a second connection mid-session.
+    const betaCard = screen.getByText("Beta").closest(".mantine-Card-root");
+    expect(betaCard?.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("re-enables the other server cards when the active connection goes to error (#1521)", () => {
+    const betaServer: ServerEntry = {
+      id: "beta",
+      name: "Beta",
+      config: { type: "stdio", command: "echo" },
+      connection: { status: "disconnected" },
+    };
+    // Live session on alpha → beta starts out dimmed/inert.
+    const { rerender } = renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer, betaServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+        })}
+      />,
+    );
+    expect(
+      screen
+        .getByText("Beta")
+        .closest(".mantine-Card-root")
+        ?.getAttribute("aria-disabled"),
+    ).toBe("true");
+
+    // alpha's connection errors. App does NOT clear `activeServer` here — a
+    // terminal `error` fires no InspectorClient `disconnect` event — so the
+    // id still points at alpha. The other cards must re-enable anyway; only a
+    // *live* session should dim them.
+    rerender(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer, betaServer],
+          activeServer: "alpha",
+          connectionStatus: "error",
+          initializeResult: undefined,
+        })}
+      />,
+    );
+    expect(
+      screen
+        .getByText("Beta")
+        .closest(".mantine-Card-root")
+        ?.getAttribute("aria-disabled"),
+    ).toBeNull();
+  });
+
   describe("listChanged indicator wiring (#1402)", () => {
     // The indicator only mounts on the active screen, so each case connects,
     // navigates to the target tab, and asserts the "List updated" affordance.

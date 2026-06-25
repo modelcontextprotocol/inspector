@@ -18,6 +18,7 @@ import type {
   MessageEntry,
   ServerEntry,
 } from "@inspector/core/mcp/types.js";
+import { isTerminalStatus } from "@inspector/core/mcp/types.js";
 import { isAppTool } from "@inspector/core/mcp/apps.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
 import { ServerListScreen } from "../../screens/ServerListScreen/ServerListScreen";
@@ -576,6 +577,24 @@ export function InspectorView({
     [serversInput, activeServer, connectionStatus, initializeResult],
   );
 
+  // The other server cards are dimmed/`inert` only while a connection is
+  // actively live (connecting or connected), so the user can't kick off a
+  // second connection mid-session. Once the active session settles into a
+  // terminal state — `disconnected` or `error` — the rest must re-enable
+  // (#1521). A connect-time handshake failure (and a mid-session transport
+  // `onerror`) resolves to `error` *without* firing the InspectorClient
+  // `disconnect` event that App uses to clear `activeServerId`, so the id
+  // lingers; gating the dim source on liveness here is what un-dims the
+  // others. The errored card itself still shows its real status via the
+  // merged `servers` list above (keyed off the real `activeServer`), so
+  // passing `undefined` here lifts only the *other* cards' dimming, not the
+  // error indicator on the active one. `isTerminalStatus` (the #1490 teardown
+  // convention) is the single source of truth for "session is over" so this
+  // gate can't silently desync from a future status addition.
+  const dimCardsAgainst = isTerminalStatus(connectionStatus)
+    ? undefined
+    : activeServer;
+
   return (
     // padding={0}: each screen fills `calc(100dvh - header)` and supplies its
     // own `xl` padding, so Main must contribute only the fixed-header offset.
@@ -612,7 +631,7 @@ export function InspectorView({
             <ServerListScreen
               servers={servers}
               writable={serverListWritable}
-              activeServer={activeServer}
+              activeServer={dimCardsAgainst}
               onAddManually={onServerAdd}
               onImportConfig={onServerImportConfig}
               onImportServerJson={onServerImportJson}
