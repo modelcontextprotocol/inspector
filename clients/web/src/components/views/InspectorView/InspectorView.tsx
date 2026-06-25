@@ -18,6 +18,7 @@ import type {
   MessageEntry,
   ServerEntry,
 } from "@inspector/core/mcp/types.js";
+import { isTerminalStatus } from "@inspector/core/mcp/types.js";
 import { isAppTool } from "@inspector/core/mcp/apps.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
 import { ServerListScreen } from "../../screens/ServerListScreen/ServerListScreen";
@@ -587,10 +588,12 @@ export function InspectorView({
   // others. The errored card itself still shows its real status via the
   // merged `servers` list above (keyed off the real `activeServer`), so
   // passing `undefined` here lifts only the *other* cards' dimming, not the
-  // error indicator on the active one.
-  const sessionLive =
-    connectionStatus === "connecting" || connectionStatus === "connected";
-  const dimCardsAgainst = sessionLive ? activeServer : undefined;
+  // error indicator on the active one. `isTerminalStatus` (the #1490 teardown
+  // convention) is the single source of truth for "session is over" so this
+  // gate can't silently desync from a future status addition.
+  const dimCardsAgainst = isTerminalStatus(connectionStatus)
+    ? undefined
+    : activeServer;
 
   return (
     // padding={0}: each screen fills `calc(100dvh - header)` and supplies its
