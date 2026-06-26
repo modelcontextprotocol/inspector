@@ -496,45 +496,60 @@ export function InspectorView({
     });
   }, [tools]);
 
-  // Only show the non-Servers tabs when actually connected. Network is
-  // additionally hidden for stdio servers — there is no HTTP traffic to
-  // surface there, so the tab would always be empty. Apps, Prompts,
-  // Resources, and Tasks are content-gated (#1450): each is hidden unless its
-  // list has at least one entry, so an empty screen is never reachable.
-  // Resources is gated on resources OR templates, since a server may expose
-  // only templates; Tasks appear once a task-augmented tool call creates one
-  // (the "run as task" affordance lives on the Tools screen, gated by the
-  // server's task support). These memo dependencies make the tabs
-  // appear/disappear live as the lists change (list-changed refresh, server
-  // switch) — when app tools exist but the sandbox is unavailable the Apps
-  // tab stays visible so its "unavailable" message remains reachable. Users
-  // who want to inspect a server's advertised capabilities regardless of
-  // current contents can open the Connection Info modal.
+  // Only show the non-Servers tabs when actually connected. Each
+  // server-capability tab is gated on the matching field of the server's
+  // advertised `capabilities` (from the MCP `initialize` result), not on
+  // current content (#1516): a server that advertises a capability but
+  // currently has zero items still shows its tab, and a server that doesn't
+  // advertise the capability never does — even if a stale/optimistic list is
+  // briefly non-empty. The capability object rides along on `initializeResult`
+  // (App builds it from the handshake), which is only truthy while connected.
+  //
+  //   Tools     → capabilities.tools
+  //   Logs      → capabilities.logging
+  //   Prompts   → capabilities.prompts
+  //   Resources → capabilities.resources
+  //   Tasks     → capabilities.tasks (the "run as task" affordance on the
+  //               Tools screen separately keys off tasks.requests.tools.call)
+  //   Apps      → capabilities.tools (MCP Apps build on tools) AND at least one
+  //               app tool — Apps is a filtered view of tools, not its own
+  //               capability, so it keeps the content check; when app tools
+  //               exist but the sandbox is unavailable the tab stays visible so
+  //               its "unavailable" message remains reachable.
+  //
+  // Network is hidden for stdio servers (no HTTP traffic to surface).
+  // Servers and History are never capability-gated — History is a local
+  // client-side log, and any future client capabilities (sampling /
+  // elicitation / roots) are inspector-offered, not server-advertised, so
+  // they must not be gated here either. These memo dependencies make the tabs
+  // recompute live as capabilities change (server switch, reconnect).
   const availableTabs = useMemo<string[]>(() => {
     if (connectionStatus !== "connected") return [SERVERS_TAB];
     const active = serversInput.find((s) => s.id === activeServer);
     const isStdio = active ? getServerType(active.config) === "stdio" : false;
-    const hasApps = appTools.length > 0;
-    const hasPrompts = prompts.length > 0;
-    const hasResources = resources.length > 0 || resourceTemplates.length > 0;
-    const hasTasks = tasks.length > 0;
+    const capabilities = initializeResult?.capabilities;
+    const hasTools = capabilities?.tools !== undefined;
+    const hasApps = hasTools && appTools.length > 0;
+    const hasPrompts = capabilities?.prompts !== undefined;
+    const hasResources = capabilities?.resources !== undefined;
+    const hasTasks = capabilities?.tasks !== undefined;
+    const hasLogging = capabilities?.logging !== undefined;
     return ALL_TABS.filter((t) => {
       if (t === NETWORK_TAB && isStdio) return false;
+      if (t === "Tools" && !hasTools) return false;
       if (t === "Apps" && !hasApps) return false;
       if (t === "Prompts" && !hasPrompts) return false;
       if (t === "Resources" && !hasResources) return false;
       if (t === "Tasks" && !hasTasks) return false;
+      if (t === "Logs" && !hasLogging) return false;
       return true;
     });
   }, [
     connectionStatus,
     serversInput,
     activeServer,
+    initializeResult,
     appTools,
-    prompts,
-    resources,
-    resourceTemplates,
-    tasks,
   ]);
 
   // Clamp the rendered tab to whatever's currently available. If the user
