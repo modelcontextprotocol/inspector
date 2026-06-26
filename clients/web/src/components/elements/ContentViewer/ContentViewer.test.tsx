@@ -120,6 +120,26 @@ describe("ContentViewer", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
+  it("renders plain text in a wrapping code block by default", () => {
+    const block: ContentBlock = { type: "text", text: "some long command" };
+    const { container } = renderWithMantine(<ContentViewer block={block} />);
+    expect(container.querySelector(".mantine-Code-root")).toHaveAttribute(
+      "data-variant",
+      "wrapping",
+    );
+  });
+
+  it("renders plain text in a non-wrapping code block when wrap is false", () => {
+    const block: ContentBlock = { type: "text", text: "some long command" };
+    const { container } = renderWithMantine(
+      <ContentViewer block={block} wrap={false} />,
+    );
+    expect(container.querySelector(".mantine-Code-root")).toHaveAttribute(
+      "data-variant",
+      "nowrap",
+    );
+  });
+
   it("renders text as markdown when mimeType is text/markdown", () => {
     const block: ContentBlock = {
       type: "text",

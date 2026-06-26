@@ -147,7 +147,15 @@ export function ServerListScreen({
 
   const grid = (
     <SimpleGrid
-      cols={{ base: 1, sm: 2, lg: 3 }}
+      // Container queries (not viewport) so column count tracks the actual
+      // space the grid occupies. Thresholds are set so each card stays ≥ ~500px
+      // wide at every column count: below ~500px a connected card's action row
+      // (Clone/Edit/Remove + Connection Info/Settings, ~440px with padding)
+      // wraps and stacks, making that card taller than its neighbours. Dropping
+      // to fewer, wider columns instead keeps every card the same height. The
+      // thresholds are 2*500+gap and 3*500+2*gap respectively. (#1528)
+      type="container"
+      cols={{ base: 1, "1040px": 2, "1560px": 3 }}
       spacing="lg"
       className="grid-align-start"
     >

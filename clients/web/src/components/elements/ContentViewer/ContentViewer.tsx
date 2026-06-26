@@ -14,6 +14,14 @@ export interface ContentViewerProps {
    * instead of as preformatted code.
    */
   mimeType?: string;
+  /**
+   * Whether long plain-text content wraps onto multiple lines. When `false`,
+   * text is kept to a single line (overflow clipped with an ellipsis) so the
+   * viewer keeps a fixed height — used by hosts like the server card where the
+   * box height must stay constant regardless of command/URL length. The full
+   * value remains available via the copy button. Defaults to `true`.
+   */
+  wrap?: boolean;
 }
 
 function formatJson(content: string): string {
@@ -66,6 +74,7 @@ export function ContentViewer({
   block,
   copyable = false,
   mimeType,
+  wrap = true,
 }: ContentViewerProps) {
   switch (block.type) {
     case "text": {
@@ -93,7 +102,7 @@ export function ContentViewer({
       return (
         <Stack gap="xs">
           <ContentWrapper>
-            <Code block p={36} variant="wrapping">
+            <Code block p={36} variant={wrap ? "wrapping" : "nowrap"}>
               {displayText}
             </Code>
             {copyable && (
