@@ -19,7 +19,12 @@ export interface ContentViewerProps {
    * text is kept to a single line (overflow clipped with an ellipsis) so the
    * viewer keeps a fixed height — used by hosts like the server card where the
    * box height must stay constant regardless of command/URL length. The full
-   * value remains available via the copy button. Defaults to `true`.
+   * value remains available via the copy button (and a native `title`
+   * tooltip). Defaults to `true`.
+   *
+   * Intended for single-line values only: `false` applies `white-space:
+   * nowrap`, which collapses embedded newlines (e.g. pretty-printed JSON) onto
+   * one line — don't pass it for multi-line content.
    */
   wrap?: boolean;
 }
@@ -102,7 +107,14 @@ export function ContentViewer({
       return (
         <Stack gap="xs">
           <ContentWrapper>
-            <Code block p={36} variant={wrap ? "wrapping" : "nowrap"}>
+            <Code
+              block
+              p={36}
+              variant={wrap ? "wrapping" : "nowrap"}
+              // When not wrapping, the value may be clipped with an ellipsis;
+              // expose the full text on hover so it's readable without copying.
+              title={wrap ? undefined : displayText}
+            >
               {displayText}
             </Code>
             {copyable && (

@@ -134,9 +134,17 @@ describe("ContentViewer", () => {
     const { container } = renderWithMantine(
       <ContentViewer block={block} wrap={false} />,
     );
-    expect(container.querySelector(".mantine-Code-root")).toHaveAttribute(
-      "data-variant",
-      "nowrap",
+    const code = container.querySelector(".mantine-Code-root");
+    expect(code).toHaveAttribute("data-variant", "nowrap");
+    // Full value exposed on hover since it may be clipped with an ellipsis.
+    expect(code).toHaveAttribute("title", "some long command");
+  });
+
+  it("does not set a title tooltip when wrapping (default)", () => {
+    const block: ContentBlock = { type: "text", text: "some long command" };
+    const { container } = renderWithMantine(<ContentViewer block={block} />);
+    expect(container.querySelector(".mantine-Code-root")).not.toHaveAttribute(
+      "title",
     );
   });
 
