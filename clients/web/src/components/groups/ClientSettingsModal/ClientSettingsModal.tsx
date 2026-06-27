@@ -8,13 +8,17 @@ import {
 import type { EmaIdpLoginState } from "@inspector/core/auth/ema/idpSession.js";
 import type { ClientSettingsFormValues } from "../ClientSettingsForm/clientSettingsValues.js";
 
-const ALL_SECTIONS: ClientSettingsSection[] = ["ema"];
+const ALL_SECTIONS: ClientSettingsSection[] = ["ema", "cimd"];
 
 export interface ClientSettingsModalProps {
   opened: boolean;
   settings: ClientSettingsFormValues;
   onClose: () => void;
-  onSettingsChange: (settings: ClientSettingsFormValues) => void;
+  onSettingsChange: (
+    settings:
+      | ClientSettingsFormValues
+      | ((prev: ClientSettingsFormValues) => ClientSettingsFormValues),
+  ) => void;
   emaIdpLoginState?: EmaIdpLoginState;
   onEmaIdpLogout?: () => void;
 }

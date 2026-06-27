@@ -11,7 +11,10 @@ import { createServer, type InlineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import type { WebServerConfig } from "./web-server-config.js";
 import { honoMiddlewarePlugin } from "./vite-hono-plugin.js";
-import { getViteBaseConfig } from "./vite-base-config.js";
+import {
+  clearViteDepsCache,
+  getViteDevOptimizeDeps,
+} from "./vite-base-config.js";
 import { vitestSharedPaths } from "../../../vitest.shared.mts";
 import type { WebServerHandle } from "./types.js";
 
@@ -25,9 +28,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export async function startViteDevServer(
   config: WebServerConfig,
 ): Promise<WebServerHandle> {
-  // Canonicalize so Vite's config hash is stable and matches the deps cache.
+  // Canonicalize paths under clients/web.
   const root = resolve(join(__dirname, ".."));
-  const baseConfig = getViteBaseConfig();
+  clearViteDepsCache(root);
   // `configFile: false` means this in-process server never loads
   // `vite.config.ts`, so it must reproduce that file's `resolve` block and
   // `server.fs.allow` here. Without them, App.tsx's `@inspector/core/*`
@@ -38,7 +41,7 @@ export async function startViteDevServer(
   const { repoRoot, sharedAliases, sharedDedupe, nodeModulesAliases } =
     vitestSharedPaths(root);
   const inlineConfig: InlineConfig = {
-    ...baseConfig,
+    optimizeDeps: getViteDevOptimizeDeps(),
     configFile: false,
     root,
     resolve: {

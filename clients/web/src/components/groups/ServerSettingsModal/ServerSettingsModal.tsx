@@ -43,6 +43,7 @@ export interface ServerSettingsModalProps {
   isStdio: boolean;
   onClose: () => void;
   onSettingsChange: (settings: InspectorServerSettings) => void;
+  onClearStoredOAuth?: () => void;
 }
 
 export function ServerSettingsModal({
@@ -52,6 +53,7 @@ export function ServerSettingsModal({
   isStdio,
   onClose,
   onSettingsChange,
+  onClearStoredOAuth,
 }: ServerSettingsModalProps) {
   const sections = allSectionsFor(serverType, isStdio);
   // Initial expansion is the first ("options") section — where Network Log
@@ -222,6 +224,7 @@ export function ServerSettingsModal({
           onAutoRefreshChange={handleAutoRefreshChange}
           onMaxFetchRequestsChange={handleMaxFetchRequestsChange}
           onOAuthChange={handleOAuthChange}
+          onClearStoredOAuth={onClearStoredOAuth}
           onAddRoot={handleAddRoot}
           onRemoveRoot={handleRemoveRoot}
           onRootChange={handleRootChange}

@@ -5,7 +5,7 @@
 import { z } from "zod";
 import type { ClientConfig } from "./types.js";
 
-const HttpUrlStringSchema = z.string().min(1).superRefine((val, ctx) => {
+function refineAbsoluteUrl(val: string, ctx: z.RefinementCtx): void {
   const trimmed = val.trim();
   if (!URL.canParse(trimmed)) {
     ctx.addIssue({
@@ -13,7 +13,56 @@ const HttpUrlStringSchema = z.string().min(1).superRefine((val, ctx) => {
       message: `Invalid URL: "${trimmed}" — must be an absolute URL (e.g. https://idp.example.com)`,
     });
   }
+}
+
+const HttpUrlStringSchema = z.string().min(1).superRefine((val, ctx) => {
+  refineAbsoluteUrl(val, ctx);
 });
+
+function refineCimdMetadataUrl(
+  val: string,
+  ctx: z.RefinementCtx,
+  required: boolean,
+): void {
+  const trimmed = val.trim();
+  if (trimmed === "") {
+    if (required) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "CIMD client metadata URL is required when CIMD is enabled",
+      });
+    }
+    return;
+  }
+  refineAbsoluteUrl(trimmed, ctx);
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "https:") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "CIMD client metadata URL must use HTTPS",
+      });
+    }
+    if (url.pathname === "/" || url.pathname === "") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "CIMD client metadata URL must include a path (not the site root)",
+      });
+    }
+  } catch {
+    // refineAbsoluteUrl already reported invalid URL
+  }
+}
+
+const CimdConfigSchema = z
+  .object({
+    enabled: z.boolean(),
+    clientMetadataUrl: z.string(),
+  })
+  .superRefine((data, ctx) => {
+    refineCimdMetadataUrl(data.clientMetadataUrl, ctx, data.enabled === true);
+  });
 
 const EnterpriseManagedAuthIdpConfigSchema = z.object({
   issuer: HttpUrlStringSchema,
@@ -28,6 +77,7 @@ const ClientConfigSchema = z.object({
       idp: EnterpriseManagedAuthIdpConfigSchema,
     })
     .optional(),
+  cimd: CimdConfigSchema.optional(),
 });
 
 /**

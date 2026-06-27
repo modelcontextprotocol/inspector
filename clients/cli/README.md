@@ -100,6 +100,49 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--metadata <key=value>`      | General metadata (key=value); applied to all methods.                                     |
 | `--tool-metadata <key=value>` | Tool-specific metadata for `tools/call`.                                                  |
 
+### CLI-specific (OAuth for HTTP servers)
+
+The CLI **reuses** OAuth tokens from `~/.mcp-inspector/storage/oauth.json` (same file as the TUI). Complete first-time authorization in the **web** or **TUI** client, then run one-shot CLI commands against HTTP/SSE servers without signing in again.
+
+The CLI does **not** start a local callback server or retry connect on 401. If tokens are missing or expired, connect fails; `ConsoleNavigation` may print an authorize URL to stdout, but the CLI cannot finish the redirect flow. Use the TUI for interactive runner OAuth until Phase 4 adds a CLI callback server.
+
+**Shared with TUI** (config only, not interactive login):
+
+- Per-server OAuth fields from `mcp.json` (static client, EMA resource credentials, scopes)
+- Install-level settings from **`~/.mcp-inspector/storage/client.json`** (or `--client-config` / `MCP_CLIENT_CONFIG_PATH`) — EMA IdP, CIMD
+- CLI flags `--client-id`, `--client-secret`, `--client-metadata-url` override `client.json` when set
+- Keychain-backed secrets in `mcp.json` are rehydrated on catalog load (same as TUI)
+
+#### OAuth callback URL
+
+| Surface | Default callback |
+| ------- | ---------------- |
+| **Web** | `http://localhost:6274/oauth/callback` |
+| **TUI** | `http://127.0.0.1:6276/oauth/callback` (interactive — callback server) |
+| **CLI** | `http://127.0.0.1:6276/oauth/callback` (redirect URI in OAuth metadata only; no listener) |
+
+Register `http://127.0.0.1:6276/oauth/callback` on static or enterprise IdPs that require pre-registered redirect URIs before using the **TUI** (or when your OAuth app expects that URI). Override with `--callback-url` or `MCP_OAUTH_CALLBACK_URL`. The CLI passes this value as `redirect_uri` when an OAuth flow runs, but does not listen on the port.
+
+#### Flags
+
+| Option | Env | Description |
+| ------ | --- | ----------- |
+| `--client-config <path>` | `MCP_CLIENT_CONFIG_PATH` | Install-level client config (default: `~/.mcp-inspector/storage/client.json`). |
+| `--client-id <id>` | — | OAuth client ID (static client); overrides `client.json`. |
+| `--client-secret <secret>` | — | OAuth client secret; overrides `client.json`. |
+| `--client-metadata-url <url>` | — | CIMD metadata URL; overrides `client.json`. |
+| `--callback-url <url>` | `MCP_OAUTH_CALLBACK_URL` | Redirect URI sent to the authorization server (default: `http://127.0.0.1:6276/oauth/callback`). |
+
+**Example** — list tools on an OAuth-protected server using stored tokens and CIMD from the command line:
+
+```bash
+npx @modelcontextprotocol/inspector --cli --catalog mcp.json --server my-http-server \
+  --client-metadata-url https://example.com/.well-known/oauth/client-metadata.json \
+  --method tools/list
+```
+
+See [EMA / enterprise-managed auth](../../specification/v2_auth_ema.md) and [OAuth smoke testing](../../specification/v2_auth_smoke_testing.md) for configuration details and staging servers.
+
 ## Why use the CLI?
 
 While the Web Client provides a rich visual interface, the CLI is designed for:

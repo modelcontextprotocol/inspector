@@ -11,7 +11,7 @@ export function getAuthorizationServerUrl(
   resourceMetadata?: OAuthProtectedResourceMetadata | null,
 ): URL {
   const first = resourceMetadata?.authorization_servers?.[0];
-  // Use truthy check to match original state-machine: empty string falls back to serverUrl
+  // Empty string falls back to serverUrl
   if (first) {
     return parseHttpUrl(first, "protected resource authorization_servers[0]");
   }

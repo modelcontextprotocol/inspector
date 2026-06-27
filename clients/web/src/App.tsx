@@ -57,7 +57,10 @@ import {
   serializeMcpConfig,
 } from "@inspector/core/mcp/serverList.js";
 import type { ClientConfig } from "@inspector/core/client/types.js";
-import { getActiveEnterpriseManagedAuthIdp } from "@inspector/core/client/types.js";
+import {
+  getActiveCimdClientMetadataUrl,
+  getActiveEnterpriseManagedAuthIdp,
+} from "@inspector/core/client/types.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
 import {
   loadClientConfigRemote,
@@ -146,6 +149,7 @@ import {
   OAUTH_PENDING_SERVER_KEY,
   isUnauthorizedError,
 } from "./utils/oauthFlow";
+import { clearServerOAuthState } from "./utils/clearServerOAuthState";
 
 // OAuth redirect URL provider — points at the dev backend's `/oauth/callback`
 // handler. The InspectorClient only consults this when the active server
@@ -1224,6 +1228,12 @@ function App() {
     };
   }, [connectionStatus, inspectorClient]);
 
+  const connectionInfoCanClearOAuth =
+    connectionStatus === "connected" &&
+    !!inspectorClient &&
+    (connectionInfoTransport === "streamable-http" ||
+      connectionInfoTransport === "sse");
+
   // Derive log entries from the message log. Filters for
   // `notifications/message` (the response to `logging/setLevel`).
   const logs = useMemo<LogEntryData[]>(
@@ -1315,6 +1325,7 @@ function App() {
       // from the InspectorClient options we're about to derive from it.
       const savedSettings = server.settings;
       const activeIdp = getActiveEnterpriseManagedAuthIdp(clientConfig);
+      const activeCimdUrl = getActiveCimdClientMetadataUrl(clientConfig);
       // Flatten the persisted settings into the InspectorClient options shape.
       // Empty / zero values stay unset so the SDK defaults apply.
       const defaultMetadata = savedSettings?.metadata
@@ -1324,7 +1335,7 @@ function App() {
               .map((m) => [m.key, m.value]),
           )
         : undefined;
-      const oauth =
+      const oauthFromServer =
         savedSettings &&
         (savedSettings.oauthClientId ||
           savedSettings.oauthClientSecret ||
@@ -1343,6 +1354,13 @@ function App() {
               ...(savedSettings.enterpriseManaged && {
                 enterpriseManaged: true,
               }),
+            }
+          : undefined;
+      const oauth =
+        oauthFromServer || activeCimdUrl
+          ? {
+              ...(oauthFromServer ?? {}),
+              ...(activeCimdUrl && { clientMetadataUrl: activeCimdUrl }),
             }
           : undefined;
       const client = new InspectorClient(server.config, {
@@ -1450,7 +1468,7 @@ function App() {
     oauthCallbackHandledRef.current = true;
 
     const params = parseOAuthCallbackParams(window.location.search);
-    // The OAuth `state` round-trips `{execution}:{authId}`; the authId is the
+    // The OAuth `state` round-trips the auth session id; the authId is the
     // session key the pre-redirect page saved the fetch log under, so the
     // rebuilt client can restore those `auth` entries. Read it before the
     // URL is cleared below.
@@ -2387,6 +2405,42 @@ function App() {
   // target isn't resolvable.
   const settingsModalIsStdio = settingsModalServerType === "stdio";
 
+  const clearServerOAuthAndDisconnect = useCallback(
+    async (server: { id: string; name: string; config: MCPServerConfig }) => {
+      const isActive = server.id === activeServerId;
+      const cleared = clearServerOAuthState({
+        config: server.config,
+        inspectorClient: isActive ? inspectorClient : null,
+        isActiveConnection: isActive,
+      });
+      if (!cleared) return;
+
+      if (isActive && inspectorClient) {
+        await inspectorClient.disconnect();
+        setConnectionInfoOAuthWhenConnected(undefined);
+      }
+
+      notifications.show({
+        title: "OAuth state cleared",
+        message: isActive
+          ? "Stored tokens and client registration were removed. Reconnect to run a fresh authorization flow."
+          : `Stored OAuth state was removed for "${server.name}". Connect to authorize again.`,
+        color: "blue",
+      });
+    },
+    [activeServerId, inspectorClient],
+  );
+
+  const handleClearConnectionOAuth = useCallback(() => {
+    if (!activeServer) return;
+    void clearServerOAuthAndDisconnect(activeServer);
+  }, [activeServer, clearServerOAuthAndDisconnect]);
+
+  const handleClearStoredOAuthFromSettings = useCallback(() => {
+    if (!settingsModalTarget) return;
+    void clearServerOAuthAndDisconnect(settingsModalTarget);
+  }, [settingsModalTarget, clearServerOAuthAndDisconnect]);
+
   const onSettingsModalClose = useCallback(() => {
     flushSettingsDraft();
     // Apply root edits to the live client once, on close — not on every
@@ -2686,6 +2740,9 @@ function App() {
         isStdio={settingsModalIsStdio}
         onClose={onSettingsModalClose}
         onSettingsChange={onSettingsChange}
+        onClearStoredOAuth={
+          settingsModalIsStdio ? undefined : handleClearStoredOAuthFromSettings
+        }
       />
       <ClientSettingsModal
         key={
@@ -2706,6 +2763,9 @@ function App() {
           clientCapabilities={clientCapabilities}
           transport={connectionInfoTransport}
           oauth={connectionInfoOAuth}
+          onClearOAuth={
+            connectionInfoCanClearOAuth ? handleClearConnectionOAuth : undefined
+          }
         />
       )}
       <ServerRemoveConfirmModal

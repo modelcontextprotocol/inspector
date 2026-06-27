@@ -72,7 +72,9 @@ describe("NodeOAuthStorage", () => {
         client_secret: "test-secret",
       };
 
-      await storage.saveClientInformation(testServerUrl, clientInfo);
+      await storage.saveClientInformation(testServerUrl, clientInfo, {
+        registrationKind: "dcr",
+      });
 
       const result = await storage.getClientInformation(testServerUrl);
       expect(result).toBeDefined();
@@ -106,7 +108,9 @@ describe("NodeOAuthStorage", () => {
         client_id: "test-client-id",
       };
 
-      await storage.saveClientInformation(testServerUrl, clientInfo);
+      await storage.saveClientInformation(testServerUrl, clientInfo, {
+        registrationKind: "dcr",
+      });
       const result = await storage.getClientInformation(testServerUrl);
 
       expect(result).toBeDefined();
@@ -122,8 +126,12 @@ describe("NodeOAuthStorage", () => {
         client_id: "second-id",
       };
 
-      storage.saveClientInformation(testServerUrl, firstInfo);
-      storage.saveClientInformation(testServerUrl, secondInfo);
+      storage.saveClientInformation(testServerUrl, firstInfo, {
+        registrationKind: "dcr",
+      });
+      storage.saveClientInformation(testServerUrl, secondInfo, {
+        registrationKind: "dcr",
+      });
       const result = await storage.getClientInformation(testServerUrl);
 
       expect(result).toBeDefined();
@@ -292,9 +300,13 @@ describe("NodeOAuthStorage", () => {
 
   describe("clearClientInformation", () => {
     it("removes the dynamically-registered client information by default", async () => {
-      await storage.saveClientInformation(testServerUrl, {
-        client_id: "dyn",
-      });
+      await storage.saveClientInformation(
+        testServerUrl,
+        {
+          client_id: "dyn",
+        },
+        { registrationKind: "dcr" },
+      );
       expect(await storage.getClientInformation(testServerUrl)).toEqual({
         client_id: "dyn",
       });
@@ -365,7 +377,9 @@ describe("NodeOAuthStorage", () => {
         token_type: "Bearer",
       };
 
-      await storage.saveClientInformation(testServerUrl, clientInfo);
+      await storage.saveClientInformation(testServerUrl, clientInfo, {
+        registrationKind: "dcr",
+      });
       await storage.saveTokens(testServerUrl, tokens);
 
       storage.clear(testServerUrl);
@@ -380,8 +394,12 @@ describe("NodeOAuthStorage", () => {
         client_id: "test-client-id",
       };
 
-      await storage.saveClientInformation(testServerUrl, clientInfo);
-      await storage.saveClientInformation(otherServerUrl, clientInfo);
+      await storage.saveClientInformation(testServerUrl, clientInfo, {
+        registrationKind: "dcr",
+      });
+      await storage.saveClientInformation(otherServerUrl, clientInfo, {
+        registrationKind: "dcr",
+      });
 
       storage.clear(testServerUrl);
 
@@ -406,8 +424,12 @@ describe("NodeOAuthStorage", () => {
         client_id: "client-2",
       };
 
-      storage.saveClientInformation(server1Url, clientInfo1);
-      storage.saveClientInformation(server2Url, clientInfo2);
+      storage.saveClientInformation(server1Url, clientInfo1, {
+        registrationKind: "dcr",
+      });
+      storage.saveClientInformation(server2Url, clientInfo2, {
+        registrationKind: "dcr",
+      });
 
       const result1 = await storage.getClientInformation(server1Url);
       const result2 = await storage.getClientInformation(server2Url);

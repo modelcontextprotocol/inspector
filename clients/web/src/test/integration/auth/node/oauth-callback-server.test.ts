@@ -78,12 +78,12 @@ describe("OAuthCallbackServer", () => {
     expect(received.state).toBeUndefined();
   });
 
-  it("GET /oauth/callback/guided returns 404 (single path only)", async () => {
+  it("GET /oauth/callback/extra returns 404 (single path only)", async () => {
     server = createOAuthCallbackServer();
     const result = await server.start({ port: 0 });
 
     const res = await fetch(
-      `http://localhost:${result.port}/oauth/callback/guided?code=guided-code`,
+      `http://localhost:${result.port}/oauth/callback/extra?code=test-code`,
     );
 
     expect(res.status).toBe(404);

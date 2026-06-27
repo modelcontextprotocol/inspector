@@ -1,10 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import type {
   ClientCapabilities,
   InitializeResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { ConnectionInfoContent } from "./ConnectionInfoContent";
+import {
+  CLEAR_OAUTH_STATE_AND_DISCONNECT_LABEL,
+  ConnectionInfoContent,
+} from "./ConnectionInfoContent";
 
 const fullResult: InitializeResult = {
   protocolVersion: "2025-03-26",
@@ -95,6 +99,25 @@ describe("ConnectionInfoContent", () => {
     expect(screen.queryByText("Server Instructions")).not.toBeInTheDocument();
   });
 
+  it("renders client registration kind when provided", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        oauth={{
+          protocol: "standard",
+          authorized: true,
+          clientId:
+            "https://www.mcpjam.com/.well-known/oauth/client-metadata.json",
+          clientRegistrationKind: "cimd",
+        }}
+      />,
+    );
+    expect(screen.getByText("Client registration")).toBeInTheDocument();
+    expect(screen.getByText("Client ID Metadata (CIMD)")).toBeInTheDocument();
+  });
+
   it("renders OAuth details when provided", () => {
     renderWithMantine(
       <ConnectionInfoContent
@@ -166,5 +189,29 @@ describe("ConnectionInfoContent", () => {
       />,
     );
     expect(screen.queryByText("OAuth Details")).not.toBeInTheDocument();
+  });
+
+  it("calls onClearOAuth from the OAuth section", async () => {
+    const user = userEvent.setup();
+    const onClearOAuth = vi.fn();
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        oauth={{
+          protocol: "standard",
+          authorized: true,
+          clientId: "client-abc",
+        }}
+        onClearOAuth={onClearOAuth}
+      />,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: CLEAR_OAUTH_STATE_AND_DISCONNECT_LABEL,
+      }),
+    );
+    expect(onClearOAuth).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,7 +1,7 @@
 /**
  * OAuthManager unit tests. Uses mocked getServerUrl, fetch, storage, and
  * dispatch callbacks to verify config merge, callback invocation, clearOAuthTokens,
- * error propagation, and getOAuthFlowState/getOAuthFlowStep after beginGuidedAuth.
+ * error propagation, and getOAuthFlowState/getOAuthFlowStep.
  */
 import { describe, it, expect, vi } from "vitest";
 import {
@@ -20,7 +20,6 @@ const SERVER_URL = "https://example.com/mcp";
 function createMockParams(
   overrides?: Partial<OAuthManagerParams>,
 ): OAuthManagerParams {
-  const dispatchOAuthStepChange = vi.fn();
   const dispatchOAuthComplete = vi.fn();
   const dispatchOAuthAuthorizationRequired = vi.fn();
   const dispatchOAuthError = vi.fn();
@@ -28,6 +27,7 @@ function createMockParams(
   const storage = {
     getScope: vi.fn().mockReturnValue(undefined),
     getClientInformation: vi.fn().mockResolvedValue(undefined),
+    getClientRegistrationKind: vi.fn().mockReturnValue(undefined),
     saveClientInformation: vi.fn().mockResolvedValue(undefined),
     savePreregisteredClientInformation: vi.fn().mockResolvedValue(undefined),
     saveScope: vi.fn().mockResolvedValue(undefined),
@@ -70,7 +70,6 @@ function createMockParams(
     effectiveAuthFetch: vi.fn().mockResolvedValue(new Response("{}")),
     getEventTarget: vi.fn().mockReturnValue(new EventTarget()),
     initialConfig,
-    dispatchOAuthStepChange,
     dispatchOAuthComplete,
     dispatchOAuthAuthorizationRequired,
     dispatchOAuthError,
@@ -176,10 +175,9 @@ describe("OAuthManager", () => {
   });
 
   describe("dispatch callbacks", () => {
-    it("completeOAuthFlow calls dispatchOAuthError when normal path throws", async () => {
+    it("completeOAuthFlow calls dispatchOAuthError when auth() throws", async () => {
       const params = createMockParams();
       const manager = new OAuthManager(params);
-      // Normal path (no guided state): auth() will run and fail (no real server), so catch calls dispatchOAuthError
       await expect(manager.completeOAuthFlow("bad-code")).rejects.toThrow();
       expect(params.dispatchOAuthError).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -243,26 +241,6 @@ describe("OAuthManager", () => {
       });
       const manager = new OAuthManager(params);
       expect(await manager.isOAuthAuthorized()).toBe(true);
-    });
-  });
-
-  describe("setGuidedAuthorizationCode", () => {
-    it("throws when not in guided flow", async () => {
-      const params = createMockParams();
-      const manager = new OAuthManager(params);
-      await expect(
-        manager.setGuidedAuthorizationCode("code", true),
-      ).rejects.toThrow("Not in guided OAuth flow");
-    });
-  });
-
-  describe("proceedOAuthStep", () => {
-    it("throws when not in guided flow", async () => {
-      const params = createMockParams();
-      const manager = new OAuthManager(params);
-      await expect(manager.proceedOAuthStep()).rejects.toThrow(
-        "Not in guided OAuth flow",
-      );
     });
   });
 

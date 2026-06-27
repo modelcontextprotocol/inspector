@@ -6,6 +6,8 @@ export interface ClientSettingsFormValues {
   issuer: string;
   clientId: string;
   clientSecret: string;
+  cimdEnabled: boolean;
+  clientMetadataUrl: string;
 }
 
 export const EMPTY_CLIENT_SETTINGS: ClientSettingsFormValues = {
@@ -13,6 +15,8 @@ export const EMPTY_CLIENT_SETTINGS: ClientSettingsFormValues = {
   issuer: "",
   clientId: "",
   clientSecret: "",
+  cimdEnabled: false,
+  clientMetadataUrl: "",
 };
 
 export function clientConfigToFormValues(
@@ -20,14 +24,15 @@ export function clientConfigToFormValues(
 ): ClientSettingsFormValues {
   const ema = config.enterpriseManagedAuth;
   const idp = ema?.idp;
-  if (!idp) {
-    return { ...EMPTY_CLIENT_SETTINGS };
-  }
+  const cimd = config.cimd;
+
   return {
-    emaEnabled: ema.enabled !== false,
-    issuer: idp.issuer,
-    clientId: idp.clientId,
-    clientSecret: idp.clientSecret ?? "",
+    emaEnabled: idp ? ema!.enabled !== false : false,
+    issuer: idp?.issuer ?? "",
+    clientId: idp?.clientId ?? "",
+    clientSecret: idp?.clientSecret ?? "",
+    cimdEnabled: cimd?.enabled === true,
+    clientMetadataUrl: cimd?.clientMetadataUrl ?? "",
   };
 }
 
@@ -39,31 +44,40 @@ function hasStoredIdpFields(values: ClientSettingsFormValues): boolean {
   );
 }
 
+/** Serialize the full dialog state. POST replaces client.json wholesale. */
 export function formValuesToClientConfig(
   values: ClientSettingsFormValues,
 ): ClientConfig {
-  if (!hasStoredIdpFields(values)) {
-    return {};
-  }
-
-  const idp = {
-    issuer: values.issuer.trim(),
-    clientId: values.clientId.trim(),
-    clientSecret: values.clientSecret,
-  };
-
-  return {
-    enterpriseManagedAuth: {
-      enabled: values.emaEnabled,
-      idp,
+  const result: ClientConfig = {
+    cimd: {
+      enabled: values.cimdEnabled,
+      clientMetadataUrl: values.clientMetadataUrl.trim(),
     },
   };
+
+  if (hasStoredIdpFields(values) || values.emaEnabled) {
+    result.enterpriseManagedAuth = {
+      enabled: values.emaEnabled,
+      idp: {
+        issuer: values.issuer.trim(),
+        clientId: values.clientId.trim(),
+        clientSecret: values.clientSecret,
+      },
+    };
+  }
+
+  return result;
 }
 
-/** Skip debounced persist while EMA is enabled but required IdP fields are blank. */
+/** Skip debounced persist while required fields are blank for enabled features. */
 export function canPersistClientSettingsDraft(
   values: ClientSettingsFormValues,
 ): boolean {
-  if (!values.emaEnabled) return true;
-  return values.issuer.trim() !== "" && values.clientId.trim() !== "";
+  if (values.emaEnabled) {
+    if (!values.issuer.trim() || !values.clientId.trim()) return false;
+  }
+  if (values.cimdEnabled) {
+    if (!values.clientMetadataUrl.trim()) return false;
+  }
+  return true;
 }

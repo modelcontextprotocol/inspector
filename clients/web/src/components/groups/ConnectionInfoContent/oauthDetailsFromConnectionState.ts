@@ -12,6 +12,9 @@ export function oauthDetailsFromConnectionState(
     protocol: state.protocol,
     authorized: state.authorized,
     ...(state.client?.clientId && { clientId: state.client.clientId }),
+    ...(state.client?.registrationKind && {
+      clientRegistrationKind: state.client.registrationKind,
+    }),
     ...(state.authorizationServerMetadata?.authorization_endpoint && {
       authUrl: state.authorizationServerMetadata.authorization_endpoint,
     }),

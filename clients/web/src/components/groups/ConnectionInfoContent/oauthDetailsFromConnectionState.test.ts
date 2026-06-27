@@ -11,7 +11,7 @@ describe("oauthDetailsFromConnectionState", () => {
       grantedScope: "read write",
       tokens: { access_token: "tok", token_type: "Bearer" },
       client: {
-        source: "preregistered",
+        registrationKind: "static",
         clientId: "client-1",
         hasClientSecret: true,
       },
@@ -27,6 +27,7 @@ describe("oauthDetailsFromConnectionState", () => {
       protocol: "standard",
       authorized: true,
       clientId: "client-1",
+      clientRegistrationKind: "static",
       authUrl: "https://auth.example.com/authorize",
       scopes: ["read", "write"],
       accessToken: "tok",

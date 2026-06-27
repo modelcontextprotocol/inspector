@@ -9,7 +9,12 @@ import {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { OAuthStorage } from "./storage.js";
 import { type createOAuthStore, type ServerOAuthState } from "./store.js";
-import type { IdpSessionState, SaveTokensOptions } from "./storage.js";
+import type {
+  IdpSessionState,
+  OAuthClientRegistrationKind,
+  SaveClientInformationOptions,
+  SaveTokensOptions,
+} from "./storage.js";
 
 /**
  * Concrete OAuthStorage implementation parameterized on a Zustand store.
@@ -39,12 +44,21 @@ export class OAuthStorageBase implements OAuthStorage {
     return await OAuthClientInformationSchema.parseAsync(clientInfo);
   }
 
+  getClientRegistrationKind(
+    serverUrl: string,
+  ): OAuthClientRegistrationKind | undefined {
+    return this.store.getState().getServerState(serverUrl)
+      .clientRegistrationKind;
+  }
+
   async saveClientInformation(
     serverUrl: string,
     clientInformation: OAuthClientInformation,
+    options: SaveClientInformationOptions,
   ): Promise<void> {
     this.store.getState().setServerState(serverUrl, {
       clientInformation,
+      clientRegistrationKind: options.registrationKind,
     });
   }
 
@@ -54,6 +68,7 @@ export class OAuthStorageBase implements OAuthStorage {
   ): Promise<void> {
     this.store.getState().setServerState(serverUrl, {
       preregisteredClientInformation: clientInformation,
+      clientRegistrationKind: "static",
     });
   }
 
@@ -64,6 +79,7 @@ export class OAuthStorageBase implements OAuthStorage {
       updates.preregisteredClientInformation = undefined;
     } else {
       updates.clientInformation = undefined;
+      updates.clientRegistrationKind = undefined;
     }
 
     this.store.getState().setServerState(serverUrl, updates);

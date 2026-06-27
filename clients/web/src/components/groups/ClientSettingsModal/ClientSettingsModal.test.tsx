@@ -2,7 +2,19 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { ClientSettingsModal } from "./ClientSettingsModal";
-import { EMPTY_CLIENT_SETTINGS } from "../ClientSettingsForm/clientSettingsValues";
+import {
+  EMPTY_CLIENT_SETTINGS,
+  type ClientSettingsFormValues,
+} from "../ClientSettingsForm/clientSettingsValues";
+
+function resolveSettingsChange(
+  call: unknown,
+  prev: ClientSettingsFormValues,
+): ClientSettingsFormValues {
+  return typeof call === "function"
+    ? (call as (p: ClientSettingsFormValues) => ClientSettingsFormValues)(prev)
+    : (call as ClientSettingsFormValues);
+}
 
 describe("ClientSettingsModal", () => {
   it("renders the title when opened", () => {
@@ -50,7 +62,13 @@ describe("ClientSettingsModal", () => {
         name: "Enable enterprise IdP configuration",
       }),
     );
-    expect(onSettingsChange).toHaveBeenCalledWith({
+    expect(onSettingsChange).toHaveBeenCalledWith(expect.any(Function));
+    expect(
+      resolveSettingsChange(
+        onSettingsChange.mock.calls[0]![0],
+        EMPTY_CLIENT_SETTINGS,
+      ),
+    ).toEqual({
       ...EMPTY_CLIENT_SETTINGS,
       emaEnabled: true,
     });
@@ -81,10 +99,11 @@ describe("ClientSettingsModal", () => {
         onSettingsChange={onSettingsChange}
       />,
     );
+    const initial = { ...EMPTY_CLIENT_SETTINGS, emaEnabled: true };
     await user.type(screen.getByLabelText("Issuer"), "h");
     expect(onSettingsChange).toHaveBeenCalled();
     const call =
-      onSettingsChange.mock.calls[onSettingsChange.mock.calls.length - 1][0];
-    expect(call.issuer).toBe("h");
+      onSettingsChange.mock.calls[onSettingsChange.mock.calls.length - 1]![0];
+    expect(resolveSettingsChange(call, initial).issuer).toBe("h");
   });
 });

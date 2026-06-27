@@ -48,5 +48,7 @@ export async function ensureCimdClientRegistration(params: {
   const clientInformation: OAuthClientInformation = {
     client_id: clientMetadataUrl,
   };
-  await params.provider.saveClientInformation(clientInformation);
+  await params.provider.saveClientInformation(clientInformation, {
+    registrationKind: "cimd",
+  });
 }

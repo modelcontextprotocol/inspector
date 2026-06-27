@@ -118,7 +118,16 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
       };
 
       server.httpServer.once("listening", () => {
-        setImmediate(logBanner);
+        setImmediate(async () => {
+          // Pre-bundle the app entry before opening the browser so the first
+          // page load does not race Vite's dep optimizer (504 Outdated Optimize Dep).
+          try {
+            await server.warmupRequest("/src/main.tsx");
+          } catch (err) {
+            console.warn("[vite] entry warmup failed:", err);
+          }
+          logBanner();
+        });
       });
 
       const honoMiddleware = async (

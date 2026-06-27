@@ -9,6 +9,9 @@ export const ThemeCode = Code.extend({
       root.wordBreak = "break-all";
       root.whiteSpace = "pre-wrap";
     }
+    if (props.block) {
+      root.margin = "0";
+    }
     return { root };
   },
 });

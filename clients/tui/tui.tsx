@@ -6,6 +6,11 @@ import {
   parseKeyValuePair,
   parseHeaderPair,
 } from "@inspector/core/mcp/node/index.js";
+import { loadRunnerClientConfig } from "@inspector/core/client/runner.js";
+import {
+  parseRunnerOAuthCallbackUrl,
+  DEFAULT_RUNNER_OAUTH_CALLBACK_URL,
+} from "@inspector/core/auth/node/runner-oauth-callback.js";
 import App from "./src/App.js";
 import { loadTuiServers } from "./src/tui-servers.js";
 
@@ -49,8 +54,12 @@ export async function runTui(args?: string[]): Promise<void> {
       "OAuth Client ID Metadata Document URL (CIMD) for HTTP servers",
     )
     .option(
+      "--client-config <path>",
+      "Install-level client config (default: ~/.mcp-inspector/storage/client.json, or MCP_CLIENT_CONFIG_PATH)",
+    )
+    .option(
       "--callback-url <url>",
-      "OAuth redirect/callback listener URL (default: http://127.0.0.1:0/oauth/callback)",
+      `OAuth redirect/callback listener URL (default: ${DEFAULT_RUNNER_OAUTH_CALLBACK_URL}, or MCP_OAUTH_CALLBACK_URL)`,
     )
     .argument(
       "[target...]",
@@ -72,6 +81,7 @@ export async function runTui(args?: string[]): Promise<void> {
     clientId?: string;
     clientSecret?: string;
     clientMetadataUrl?: string;
+    clientConfig?: string;
     callbackUrl?: string;
     transport?: "stdio" | "sse" | "http";
     serverUrl?: string;
@@ -89,52 +99,13 @@ export async function runTui(args?: string[]): Promise<void> {
     serverUrl: options.serverUrl?.trim() || undefined,
   };
 
-  const mcpServers = loadTuiServers(serverOptions);
+  const mcpServers = await loadTuiServers(serverOptions);
 
-  interface CallbackUrlConfig {
-    hostname: string;
-    port: number;
-    pathname: string;
-  }
+  const callbackUrlConfig = parseRunnerOAuthCallbackUrl(options.callbackUrl);
 
-  function parseCallbackUrl(raw?: string): CallbackUrlConfig {
-    if (!raw) {
-      return { hostname: "127.0.0.1", port: 0, pathname: "/oauth/callback" };
-    }
-    let url: URL;
-    try {
-      url = new URL(raw);
-    } catch (err) {
-      throw new Error(
-        `Invalid callback URL: ${(err as Error)?.message ?? String(err)}`,
-      );
-    }
-    if (url.protocol !== "http:") {
-      throw new Error("Callback URL must use http scheme");
-    }
-    const hostname = url.hostname;
-    if (!hostname) {
-      throw new Error("Callback URL must include a hostname");
-    }
-    const pathname = url.pathname || "/";
-    let port: number;
-    if (url.port === "") {
-      port = 80;
-    } else {
-      port = Number(url.port);
-      if (
-        !Number.isFinite(port) ||
-        !Number.isInteger(port) ||
-        port < 0 ||
-        port > 65535
-      ) {
-        throw new Error("Callback URL port must be between 0 and 65535");
-      }
-    }
-    return { hostname, port, pathname };
-  }
-
-  const callbackUrlConfig = parseCallbackUrl(options.callbackUrl);
+  const clientConfig = await loadRunnerClientConfig({
+    clientConfigPath: options.clientConfig,
+  });
 
   const ansiEraseSavedLines = new RegExp(
     String.fromCharCode(0x1b) + "\\[3J",
@@ -181,6 +152,7 @@ export async function runTui(args?: string[]): Promise<void> {
   const instance = render(
     <App
       mcpServers={mcpServers}
+      clientConfig={clientConfig}
       clientId={options.clientId}
       clientSecret={options.clientSecret}
       clientMetadataUrl={options.clientMetadataUrl}

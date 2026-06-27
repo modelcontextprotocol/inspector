@@ -793,6 +793,23 @@ describe("ServerSettingsForm", () => {
     expect(arg.scopes).toBe("read");
   });
 
+  it("calls onClearStoredOAuth from the OAuth section", async () => {
+    const user = userEvent.setup();
+    const onClearStoredOAuth = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={populatedSettings}
+        expandedSections={["oauth"]}
+        onClearStoredOAuth={onClearStoredOAuth}
+      />,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Clear stored OAuth state" }),
+    );
+    expect(onClearStoredOAuth).toHaveBeenCalledTimes(1);
+  });
+
   it("clears a metadata value via its Clear button (onMetadataChange with empty value)", async () => {
     const user = userEvent.setup();
     const onMetadataChange = vi.fn();

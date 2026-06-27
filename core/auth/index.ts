@@ -1,8 +1,8 @@
 // Types
 export type {
   OAuthStep,
-  AuthExecution,
   AuthProtocol,
+  OAuthClientRegistrationKind,
   MessageType,
   StatusMessage,
   OAuthFlowState,
@@ -16,6 +16,7 @@ export {
 
 export {
   buildOAuthConnectionState,
+  hasPersistedOAuthServerState,
   isServerOAuthConfigured,
   protocolFromOAuthConfig,
 } from "./connection-state.js";
@@ -24,7 +25,7 @@ export type { BuildOAuthConnectionStateParams } from "./connection-state.js";
 export { ensureCimdClientRegistration } from "./cimd.js";
 
 // Storage
-export type { OAuthStorage, IdpSessionState } from "./storage.js";
+export type { OAuthStorage, IdpSessionState, SaveClientInformationOptions } from "./storage.js";
 export { getServerSpecificKey, OAUTH_STORAGE_KEYS } from "./storage.js";
 
 // Providers
@@ -46,10 +47,9 @@ export {
   parseHttpUrl,
   parseOAuthCallbackParams,
   generateOAuthState,
-  generateOAuthStateWithExecution,
-  generateOAuthStateWithMode,
   parseOAuthState,
   generateOAuthErrorDescription,
+  isUnauthorizedError,
 } from "./utils.js";
 
 // Discovery
@@ -57,6 +57,3 @@ export { discoverScopes } from "./discovery.js";
 
 // Logging (re-exported from core/logging)
 export { silentLogger } from "../logging/index.js";
-// State Machine
-export type { StateMachineContext, StateTransition } from "./state-machine.js";
-export { oauthTransitions, OAuthStateMachine } from "./state-machine.js";

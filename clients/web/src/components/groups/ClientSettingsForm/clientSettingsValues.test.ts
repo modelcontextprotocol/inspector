@@ -5,6 +5,8 @@ import {
   formValuesToClientConfig,
 } from "./clientSettingsValues";
 
+const emptyCimd = { cimdEnabled: false, clientMetadataUrl: "" };
+
 describe("clientSettingsValues", () => {
   it("clientConfigToFormValues maps enterpriseManagedAuth.idp", () => {
     expect(
@@ -22,6 +24,7 @@ describe("clientSettingsValues", () => {
       issuer: "https://idp.test",
       clientId: "cid",
       clientSecret: "sec",
+      ...emptyCimd,
     });
   });
 
@@ -42,6 +45,60 @@ describe("clientSettingsValues", () => {
       issuer: "https://idp.test",
       clientId: "cid",
       clientSecret: "sec",
+      ...emptyCimd,
+    });
+  });
+
+  it("clientConfigToFormValues maps cimd when EMA is absent", () => {
+    expect(
+      clientConfigToFormValues({
+        cimd: {
+          enabled: true,
+          clientMetadataUrl: "https://example.com/cimd.json",
+        },
+      }),
+    ).toEqual({
+      emaEnabled: false,
+      issuer: "",
+      clientId: "",
+      clientSecret: "",
+      cimdEnabled: true,
+      clientMetadataUrl: "https://example.com/cimd.json",
+    });
+  });
+
+  it("clientConfigToFormValues preserves CIMD URL when disabled", () => {
+    expect(
+      clientConfigToFormValues({
+        cimd: {
+          enabled: false,
+          clientMetadataUrl: "https://example.com/cimd.json",
+        },
+      }),
+    ).toEqual({
+      emaEnabled: false,
+      issuer: "",
+      clientId: "",
+      clientSecret: "",
+      cimdEnabled: false,
+      clientMetadataUrl: "https://example.com/cimd.json",
+    });
+  });
+
+  it("formValuesToClientConfig always writes the cimd block from the dialog", () => {
+    expect(
+      formValuesToClientConfig({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        ...emptyCimd,
+      }),
+    ).toEqual({
+      cimd: {
+        enabled: false,
+        clientMetadataUrl: "",
+      },
     });
   });
 
@@ -52,6 +109,7 @@ describe("clientSettingsValues", () => {
         issuer: "https://idp.test",
         clientId: "cid",
         clientSecret: "sec",
+        ...emptyCimd,
       }),
     ).toEqual({
       enterpriseManagedAuth: {
@@ -62,18 +120,55 @@ describe("clientSettingsValues", () => {
           clientSecret: "sec",
         },
       },
+      cimd: {
+        enabled: false,
+        clientMetadataUrl: "",
+      },
     });
   });
 
-  it("formValuesToClientConfig omits block when disabled with no stored fields", () => {
+  it("formValuesToClientConfig keeps CIMD URL when disabled", () => {
     expect(
       formValuesToClientConfig({
         emaEnabled: false,
         issuer: "",
         clientId: "",
         clientSecret: "",
+        cimdEnabled: false,
+        clientMetadataUrl: "https://example.com/cimd.json",
       }),
-    ).toEqual({});
+    ).toEqual({
+      cimd: {
+        enabled: false,
+        clientMetadataUrl: "https://example.com/cimd.json",
+      },
+    });
+  });
+
+  it("formValuesToClientConfig serializes EMA and CIMD together", () => {
+    expect(
+      formValuesToClientConfig({
+        emaEnabled: true,
+        issuer: "https://idp.test",
+        clientId: "cid",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "https://example.com/cimd.json",
+      }),
+    ).toEqual({
+      enterpriseManagedAuth: {
+        enabled: true,
+        idp: {
+          issuer: "https://idp.test",
+          clientId: "cid",
+          clientSecret: "",
+        },
+      },
+      cimd: {
+        enabled: true,
+        clientMetadataUrl: "https://example.com/cimd.json",
+      },
+    });
   });
 
   it("formValuesToClientConfig trims issuer and clientId when enabled", () => {
@@ -83,6 +178,7 @@ describe("clientSettingsValues", () => {
         issuer: "  https://idp.test  ",
         clientId: "  cid  ",
         clientSecret: "sec",
+        ...emptyCimd,
       }),
     ).toEqual({
       enterpriseManagedAuth: {
@@ -92,6 +188,28 @@ describe("clientSettingsValues", () => {
           clientId: "cid",
           clientSecret: "sec",
         },
+      },
+      cimd: {
+        enabled: false,
+        clientMetadataUrl: "",
+      },
+    });
+  });
+
+  it("formValuesToClientConfig trims CIMD URL", () => {
+    expect(
+      formValuesToClientConfig({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "  https://example.com/cimd.json  ",
+      }),
+    ).toEqual({
+      cimd: {
+        enabled: true,
+        clientMetadataUrl: "https://example.com/cimd.json",
       },
     });
   });
@@ -103,6 +221,7 @@ describe("clientSettingsValues", () => {
         issuer: "",
         clientId: "",
         clientSecret: "",
+        ...emptyCimd,
       }),
     ).toBe(true);
     expect(
@@ -111,6 +230,7 @@ describe("clientSettingsValues", () => {
         issuer: "https://idp.test",
         clientId: "cid",
         clientSecret: "",
+        ...emptyCimd,
       }),
     ).toBe(true);
     expect(
@@ -119,7 +239,44 @@ describe("clientSettingsValues", () => {
         issuer: "",
         clientId: "cid",
         clientSecret: "",
+        ...emptyCimd,
       }),
     ).toBe(false);
+  });
+
+  it("canPersistClientSettingsDraft requires CIMD URL when enabled", () => {
+    expect(
+      canPersistClientSettingsDraft({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "",
+      }),
+    ).toBe(false);
+    expect(
+      canPersistClientSettingsDraft({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "https://example.com/cimd.json",
+      }),
+    ).toBe(true);
+  });
+
+  it("canPersistClientSettingsDraft allows disabling CIMD while keeping the URL", () => {
+    expect(
+      canPersistClientSettingsDraft({
+        emaEnabled: true,
+        issuer: "https://idp.test",
+        clientId: "cid",
+        clientSecret: "",
+        cimdEnabled: false,
+        clientMetadataUrl: "https://example.com/cimd.json",
+      }),
+    ).toBe(true);
   });
 });

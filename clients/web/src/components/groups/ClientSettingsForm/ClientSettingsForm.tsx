@@ -12,13 +12,17 @@ import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { EmaIdpLoginState } from "@inspector/core/auth/ema/idpSession.js";
 import type { ClientSettingsFormValues } from "./clientSettingsValues.js";
 
-export type ClientSettingsSection = "ema";
+export type ClientSettingsSection = "ema" | "cimd";
 
 export interface ClientSettingsFormProps {
   settings: ClientSettingsFormValues;
   expandedSections: ClientSettingsSection[];
   onExpandedSectionsChange: (sections: ClientSettingsSection[]) => void;
-  onSettingsChange: (settings: ClientSettingsFormValues) => void;
+  onSettingsChange: (
+    settings:
+      | ClientSettingsFormValues
+      | ((prev: ClientSettingsFormValues) => ClientSettingsFormValues),
+  ) => void;
   emaIdpLoginState?: EmaIdpLoginState;
   onEmaIdpLogout?: () => void;
 }
@@ -37,7 +41,7 @@ export function ClientSettingsForm({
   onEmaIdpLogout,
 }: ClientSettingsFormProps) {
   function patch(partial: Partial<ClientSettingsFormValues>) {
-    onSettingsChange({ ...settings, ...partial });
+    onSettingsChange((prev) => ({ ...prev, ...partial }));
   }
 
   const showIdpSession =
@@ -164,6 +168,46 @@ export function ClientSettingsForm({
                     ) : null}
                   </Group>
                 )}
+              </>
+            )}
+          </Stack>
+        </Accordion.Panel>
+      </Accordion.Item>
+      <Accordion.Item value="cimd">
+        <Accordion.Control>OAuth Client ID Metadata Document</Accordion.Control>
+        <Accordion.Panel>
+          <Stack gap="md">
+            <Checkbox
+              label="Use Client ID Metadata Document"
+              description="When the authorization server supports CIMD, Inspector uses this metadata document URL as the client id. The server fetches and verifies the document during OAuth."
+              checked={settings.cimdEnabled}
+              onChange={(e) => patch({ cimdEnabled: e.currentTarget.checked })}
+            />
+            {settings.cimdEnabled && (
+              <>
+                <HintText>
+                  The metadata document must be served over HTTPS and list this
+                  redirect URI:{" "}
+                  {typeof window !== "undefined"
+                    ? `${window.location.origin}/oauth/callback`
+                    : "http://localhost:6274/oauth/callback"}
+                </HintText>
+                <TextInput
+                  label="Client ID metadata document URL"
+                  description="Public HTTPS URL of your OAuth client metadata JSON document."
+                  value={settings.clientMetadataUrl}
+                  onChange={(e) =>
+                    patch({ clientMetadataUrl: e.currentTarget.value })
+                  }
+                  rightSectionPointerEvents="auto"
+                  rightSection={
+                    settings.clientMetadataUrl ? (
+                      <ClearButton
+                        onClick={() => patch({ clientMetadataUrl: "" })}
+                      />
+                    ) : null
+                  }
+                />
               </>
             )}
           </Stack>

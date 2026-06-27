@@ -1,4 +1,3 @@
-import type { AuthExecution } from "./types.js";
 import type { CallbackParams } from "./types.js";
 
 /**
@@ -71,47 +70,13 @@ export const generateOAuthState = (): string => {
 };
 
 /**
- * Generate OAuth `state` with execution prefix for single-redirect-URL flows.
- * Format: `{execution}:{authId}` (e.g. "guided:a1b2c3...").
- * Protocol (standard vs EMA) is not encoded here — it comes from server config.
- * The authId is 64 hex chars for CSRF protection and serves as session identifier.
+ * Parse OAuth `state` to extract the auth session id (CSRF token).
+ * Must be the 64-char hex value from {@link generateOAuthState}.
  */
-export const generateOAuthStateWithExecution = (
-  execution: AuthExecution,
-): string => {
-  const authId = generateOAuthState();
-  return `${execution}:${authId}`;
-};
-
-/** @deprecated Use {@link generateOAuthStateWithExecution}. */
-export const generateOAuthStateWithMode = generateOAuthStateWithExecution;
-
-/**
- * Parse OAuth `state` to extract execution and authId.
- * Returns null if invalid.
- * Legacy prefixes `normal:` and `ema-idp:` map to `quick`.
- * Plain 64-char hex (no prefix) is treated as quick.
- */
-export const parseOAuthState = (
-  state: string,
-): { execution: AuthExecution; authId: string } | null => {
+export const parseOAuthState = (state: string): { authId: string } | null => {
   if (!state || typeof state !== "string") return null;
-  if (state.startsWith("quick:")) {
-    return { execution: "quick", authId: state.slice(6) };
-  }
-  if (state.startsWith("guided:")) {
-    return { execution: "guided", authId: state.slice(7) };
-  }
-  // Legacy execution prefixes
-  if (state.startsWith("normal:")) {
-    return { execution: "quick", authId: state.slice(7) };
-  }
-  if (state.startsWith("ema-idp:")) {
-    return { execution: "quick", authId: state.slice(8) };
-  }
-  // Legacy: plain 64-char hex
   if (/^[a-f0-9]{64}$/i.test(state)) {
-    return { execution: "quick", authId: state };
+    return { authId: state };
   }
   return null;
 };
@@ -136,3 +101,19 @@ export const generateOAuthErrorDescription = (
     .filter(Boolean)
     .join("\n");
 };
+
+/**
+ * True when a thrown connect error represents an upstream 401. The remote
+ * transport preserves the status on the error object; as a fallback, match
+ * transport wording `"failed …(401)"` so unrelated `(401)` in messages does
+ * not trigger OAuth.
+ */
+export function isUnauthorizedError(err: unknown): boolean {
+  if (typeof err === "object" && err !== null) {
+    const status = (err as { status?: number; code?: number }).status;
+    const code = (err as { code?: number }).code;
+    if (status === 401 || code === 401) return true;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return /\bfailed\b[^\n]*\(401\)/i.test(message);
+}

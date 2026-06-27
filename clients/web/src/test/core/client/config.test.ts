@@ -19,7 +19,9 @@ import {
 } from "@inspector/core/client/config.js";
 import { formatClientConfigLoadError } from "@inspector/core/client/config-parse.js";
 import {
+  getActiveCimdClientMetadataUrl,
   getActiveEnterpriseManagedAuthIdp,
+  isCimdEnabled,
   isEnterpriseManagedAuthEnabled,
 } from "@inspector/core/client/types.js";
 
@@ -85,6 +87,80 @@ describe("client config", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("parseClientConfig accepts cimd clientMetadataUrl", () => {
+    const config = parseClientConfig({
+      cimd: {
+        enabled: true,
+        clientMetadataUrl: "https://example.com/oauth/client.json",
+      },
+    });
+    expect(config.cimd?.clientMetadataUrl).toBe(
+      "https://example.com/oauth/client.json",
+    );
+    expect(isCimdEnabled(config)).toBe(true);
+    expect(getActiveCimdClientMetadataUrl(config)).toBe(
+      "https://example.com/oauth/client.json",
+    );
+  });
+
+  it("parseClientConfig accepts enabled: false with stored CIMD URL", () => {
+    const config = parseClientConfig({
+      cimd: {
+        enabled: false,
+        clientMetadataUrl: "https://example.com/oauth/client.json",
+      },
+    });
+    expect(config.cimd?.enabled).toBe(false);
+    expect(isCimdEnabled(config)).toBe(false);
+    expect(getActiveCimdClientMetadataUrl(config)).toBeUndefined();
+  });
+
+  it("parseClientConfig accepts disabled CIMD with empty URL", () => {
+    const config = parseClientConfig({
+      cimd: {
+        enabled: false,
+        clientMetadataUrl: "",
+      },
+    });
+    expect(config.cimd).toEqual({
+      enabled: false,
+      clientMetadataUrl: "",
+    });
+  });
+
+  it("parseClientConfig rejects enabled CIMD with empty URL", () => {
+    expect(() =>
+      parseClientConfig({
+        cimd: {
+          enabled: true,
+          clientMetadataUrl: "",
+        },
+      }),
+    ).toThrow(/required when CIMD is enabled/);
+  });
+
+  it("parseClientConfig rejects non-HTTPS CIMD URL", () => {
+    expect(() =>
+      parseClientConfig({
+        cimd: {
+          enabled: true,
+          clientMetadataUrl: "http://example.com/oauth/client.json",
+        },
+      }),
+    ).toThrow(/HTTPS/);
+  });
+
+  it("parseClientConfig rejects CIMD URL without path", () => {
+    expect(() =>
+      parseClientConfig({
+        cimd: {
+          enabled: true,
+          clientMetadataUrl: "https://example.com/",
+        },
+      }),
+    ).toThrow(/path/);
   });
 
   it("loadClientConfig returns {} when file is absent", async () => {

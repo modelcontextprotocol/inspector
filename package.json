@@ -30,7 +30,8 @@
   ],
   "scripts": {
     "web": "node clients/launcher/build/index.js --web",
-    "web:dev": "node clients/launcher/build/index.js --web --dev",
+    "build:web:runner": "cd clients/web && npm run build:runner",
+    "web:dev": "npm run build:web:runner && node clients/launcher/build/index.js --web --dev",
     "build": "npm run build:web && npm run build:cli && npm run build:tui && npm run build:launcher",
     "build:cli": "cd clients/cli && npm run build",
     "build:tui": "cd clients/tui && npm run build",

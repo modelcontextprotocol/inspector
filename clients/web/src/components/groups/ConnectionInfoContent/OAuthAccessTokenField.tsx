@@ -5,11 +5,48 @@ import { CopyButton } from "../../elements/CopyButton/CopyButton";
 
 export interface OAuthAccessTokenFieldProps {
   accessToken: string;
+  onClear?: () => void;
+  clearLabel?: string;
 }
 
-const DecodeButton = Button.withProps({
+const CaptionRow = Flex.withProps({
+  justify: "space-between",
+  align: "center",
+  gap: "sm",
+  wrap: "nowrap",
+});
+
+const Caption = Text.withProps({ size: "sm" });
+
+const Toolbar = Flex.withProps({
+  gap: 4,
+  align: "center",
+  wrap: "nowrap",
+});
+
+const ToolbarButton = Button.withProps({
   variant: "subtle",
   size: "compact-xs",
+});
+
+const TokenRow = Flex.withProps({
+  align: "flex-start",
+  gap: 4,
+  wrap: "nowrap",
+});
+
+const TokenColumn = Flex.withProps({
+  flex: 1,
+  miw: 0,
+  direction: "column",
+});
+
+const TokenCode = Code.withProps({
+  block: true,
+  py: "xs",
+  ps: "xs",
+  pe: 0,
+  variant: "wrapping",
 });
 
 /** Wrap JWT at segment boundaries; break long segments without orphaning `.`. */
@@ -20,7 +57,7 @@ function JwtTokenText({ token }: { token: string }) {
       {parts.map((part, index) => (
         <Fragment key={index}>
           {index > 0 && "."}
-          <span style={{ wordBreak: "break-all" }}>{part}</span>
+          {part}
         </Fragment>
       ))}
     </>
@@ -29,6 +66,8 @@ function JwtTokenText({ token }: { token: string }) {
 
 export function OAuthAccessTokenField({
   accessToken,
+  onClear,
+  clearLabel = "Clear",
 }: OAuthAccessTokenFieldProps) {
   const [showDecoded, setShowDecoded] = useState(false);
   const isJwt = isJwtFormat(accessToken);
@@ -46,31 +85,42 @@ export function OAuthAccessTokenField({
     );
   }, [jwtDecoded]);
 
+  const copyValue = showDecoded && decodedText ? decodedText : accessToken;
+
   return (
     <Stack gap="xs">
-      <Flex justify="space-between" align="center" gap="sm" wrap="nowrap">
-        <Text size="sm">Access Token</Text>
-        <Flex gap={4} align="center" wrap="nowrap">
+      <CaptionRow>
+        <Caption>Access Token</Caption>
+        <Toolbar>
           {jwtDecoded && (
-            <DecodeButton
+            <ToolbarButton
               onClick={() => setShowDecoded((open) => !open)}
               aria-pressed={showDecoded}
             >
               {showDecoded ? "Show token" : "Decode JWT"}
-            </DecodeButton>
+            </ToolbarButton>
           )}
-          <CopyButton value={accessToken} />
-        </Flex>
-      </Flex>
-      <Code block p="sm" variant="wrapping">
-        {showDecoded && decodedText ? (
-          decodedText
-        ) : isJwt ? (
-          <JwtTokenText token={accessToken} />
-        ) : (
-          accessToken
-        )}
-      </Code>
+          {onClear && (
+            <ToolbarButton color="red" onClick={onClear}>
+              {clearLabel}
+            </ToolbarButton>
+          )}
+        </Toolbar>
+      </CaptionRow>
+      <TokenRow>
+        <TokenColumn>
+          <TokenCode>
+            {showDecoded && decodedText ? (
+              decodedText
+            ) : isJwt ? (
+              <JwtTokenText token={accessToken} />
+            ) : (
+              accessToken
+            )}
+          </TokenCode>
+        </TokenColumn>
+        <CopyButton value={copyValue} flush />
+      </TokenRow>
     </Stack>
   );
 }

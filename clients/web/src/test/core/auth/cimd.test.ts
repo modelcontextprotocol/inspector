@@ -7,18 +7,14 @@ const SERVER_URL = "http://127.0.0.1:9999/mcp";
 const METADATA_URL = "http://127.0.0.1:8888/client-metadata.json";
 
 function createProvider(storage: OAuthStorage): BaseOAuthClientProvider {
-  return new BaseOAuthClientProvider(
-    SERVER_URL,
-    {
-      storage,
-      redirectUrlProvider: {
-        getRedirectUrl: () => "http://127.0.0.1:3000/oauth/callback",
-      },
-      navigation: { navigateToAuthorization: vi.fn() },
-      clientMetadataUrl: METADATA_URL,
+  return new BaseOAuthClientProvider(SERVER_URL, {
+    storage,
+    redirectUrlProvider: {
+      getRedirectUrl: () => "http://127.0.0.1:3000/oauth/callback",
     },
-    "quick",
-  );
+    navigation: { navigateToAuthorization: vi.fn() },
+    clientMetadataUrl: METADATA_URL,
+  });
 }
 
 describe("ensureCimdClientRegistration", () => {
@@ -62,9 +58,13 @@ describe("ensureCimdClientRegistration", () => {
       fetchFn,
     });
 
-    expect(storage.saveClientInformation).toHaveBeenCalledWith(SERVER_URL, {
-      client_id: METADATA_URL,
-    });
+    expect(storage.saveClientInformation).toHaveBeenCalledWith(
+      SERVER_URL,
+      {
+        client_id: METADATA_URL,
+      },
+      { registrationKind: "cimd" },
+    );
   });
 
   it("no-ops when client information is already stored", async () => {

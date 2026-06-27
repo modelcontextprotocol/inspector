@@ -4939,7 +4939,7 @@ describe("InspectorClient", () => {
         );
       });
 
-      it("authenticate / runGuidedAuth / proceedOAuthStep throw via ensureOAuthManager when oauthManager is unset", async () => {
+      it("authenticate throws via ensureOAuthManager when oauthManager is unset", async () => {
         const c = new InspectorClient(
           {
             type: "stdio",
@@ -4949,10 +4949,6 @@ describe("InspectorClient", () => {
           { environment: { transport: createTransportNode } },
         );
         await expect(c.authenticate()).rejects.toThrow(/OAuth not configured/);
-        await expect(c.runGuidedAuth()).rejects.toThrow(/OAuth not configured/);
-        await expect(c.proceedOAuthStep()).rejects.toThrow(
-          /OAuth not configured/,
-        );
       });
 
       it("simple session/roots/subscription accessors return empty defaults before connect", () => {

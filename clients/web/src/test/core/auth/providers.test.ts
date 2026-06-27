@@ -85,7 +85,9 @@ describe("OAuthNavigation", () => {
       // observe the still-current document (location.href not yet reassigned)
       // so a keepalive request it fires outlives the navigation.
       const order: string[] = [];
-      const authUrl = new URL("http://example.com/authorize?state=normal:abc");
+      const authUrl = new URL(
+        `http://example.com/authorize?state=${"a".repeat(64)}`,
+      );
       const navigation = new BrowserNavigation(undefined, (url) => {
         order.push("before");
         // At hook time the redirect has not happened yet.

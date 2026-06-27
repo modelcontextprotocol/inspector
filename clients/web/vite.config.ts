@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
 import { honoMiddlewarePlugin } from './server/vite-hono-plugin';
-import { getViteBaseConfig } from './server/vite-base-config';
+import { getViteBaseConfig, getViteDevOptimizeDeps } from './server/vite-base-config';
 import { buildWebServerConfigFromEnv } from './server/web-server-config';
 import { vitestSharedPaths } from '../../vitest.shared.mts';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
@@ -28,7 +28,9 @@ const { repoRoot, sharedDedupe, nodeModulesAliases, projectResolve, sharedAliase
 const integrationGlob = 'clients/web/src/test/integration/**/*.test.{ts,tsx}';
 
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
-export default defineConfig({
+export default defineConfig(({ command }) => {
+  const isDevServer = command === "serve" && !process.env.VITEST;
+  return {
   // `honoMiddlewarePlugin` is gated by `apply: 'serve'` so it only attaches
   // during `vite dev` / `vite preview` — vitest projects share this config
   // but never invoke `configureServer`, so the plugin stays inert there.
@@ -49,7 +51,10 @@ export default defineConfig({
   // (`@modelcontextprotocol/sdk/client/stdio.js`, `cross-spawn`, `which`)
   // consumed by the dev backend aren't scanned for browser pre-bundling.
   // Browser code reaches the node-side stack via the Hono plugin only.
-  ...getViteBaseConfig(),
+  // Dev server: force a full dep pre-bundle each launch (no stale cache).
+  optimizeDeps: isDevServer
+    ? getViteDevOptimizeDeps()
+    : getViteBaseConfig().optimizeDeps,
   resolve: {
     // NOTE: the unit vitest project (below) overrides this — see comment there.
     //
@@ -250,4 +255,5 @@ export default defineConfig({
       },
     ],
   },
+};
 });
