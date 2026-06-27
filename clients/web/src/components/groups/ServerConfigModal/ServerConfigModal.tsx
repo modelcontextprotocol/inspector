@@ -138,6 +138,9 @@ function parseEnv(raw: string):
     // env values preserve trailing whitespace — they're shell-style strings
     // where spaces / tabs can be load-bearing.
     const value = line.slice(eq + 1);
+    /* v8 ignore next 2 -- unreachable: the line is already trimmed and eq>0,
+       so the key slice always starts with a non-whitespace char and can never
+       trim to empty; kept as a defensive guard. */
     if (!key)
       return { ok: false, error: `Invalid env line "${line}". Empty key.` };
     out[key] = value;

@@ -36,6 +36,11 @@ describe("idpSession", () => {
     expect(await getEmaIdpLoginState(storage, "https://idp.test")).toBe("none");
   });
 
+  it("getEmaIdpLoginState returns none when issuer normalizes to empty", async () => {
+    expect(await getEmaIdpLoginState(storage, "")).toBe("none");
+    expect(storage.getIdpSession).not.toHaveBeenCalled();
+  });
+
   it("getEmaIdpLoginState returns logged_in for valid id token", async () => {
     const exp = Math.floor(Date.now() / 1000) + 3600;
     vi.mocked(storage.getIdpSession).mockResolvedValue({
@@ -73,5 +78,14 @@ describe("idpSession", () => {
     expect(storage.clearIdpSession).toHaveBeenCalledWith("https://idp.test");
     expect(storage.clear).toHaveBeenCalledWith("ema-idp:https://idp.test");
     expect(storage.clearEnterpriseManagedResourceServers).toHaveBeenCalled();
+  });
+
+  it("clearEmaIdpSession no-ops when issuer normalizes to empty", () => {
+    clearEmaIdpSession(storage, "");
+    expect(storage.clearIdpSession).not.toHaveBeenCalled();
+    expect(storage.clear).not.toHaveBeenCalled();
+    expect(
+      storage.clearEnterpriseManagedResourceServers,
+    ).not.toHaveBeenCalled();
   });
 });

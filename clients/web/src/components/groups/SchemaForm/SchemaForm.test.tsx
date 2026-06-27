@@ -109,6 +109,90 @@ describe("SchemaForm", () => {
     expect(onChange).toHaveBeenCalledWith({ format: "csv" });
   });
 
+  it("clears a string field via its Clear button", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const schema: JsonSchemaType = {
+      type: "object",
+      properties: {
+        name: { type: "string", title: "Name" },
+      },
+    };
+    renderWithMantine(
+      <SchemaForm
+        schema={schema}
+        values={{ name: "Alice" }}
+        onChange={onChange}
+      />,
+    );
+    // The Clear button only renders while the value is truthy.
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(onChange).toHaveBeenCalledWith({ name: "" });
+  });
+
+  it("passes undefined to onChange when a number field is cleared", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const schema: JsonSchemaType = {
+      type: "object",
+      properties: {
+        count: { type: "integer", title: "Count" },
+      },
+    };
+    renderWithMantine(
+      <SchemaForm schema={schema} values={{ count: 5 }} onChange={onChange} />,
+    );
+    const input = screen.getByLabelText(/Count/) as HTMLInputElement;
+    // Clearing the input makes Mantine NumberInput emit "" (a string),
+    // which the handler maps to undefined.
+    await user.clear(input);
+    expect(onChange).toHaveBeenCalled();
+    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    expect(lastCall.count).toBeUndefined();
+  });
+
+  it("falls back to empty/const labels for oneOf items missing const and title", () => {
+    const onChange = vi.fn();
+    const schema: JsonSchemaType = {
+      type: "object",
+      properties: {
+        choice: {
+          type: "string",
+          title: "Choice",
+          // One item has neither const nor title — exercises the
+          // `const ?? ""` and `title ?? String(const ?? "")` fallbacks.
+          oneOf: [{}, { const: "b" }],
+        },
+      },
+    };
+    renderWithMantine(
+      <SchemaForm schema={schema} values={{}} onChange={onChange} />,
+    );
+    expect(screen.getByText("Choice")).toBeInTheDocument();
+  });
+
+  it("falls back to empty/const labels for anyOf items missing const and title", () => {
+    const onChange = vi.fn();
+    const schema: JsonSchemaType = {
+      type: "object",
+      properties: {
+        tags: {
+          type: "array",
+          title: "Tags",
+          items: {
+            // First item has neither const nor title — exercises the
+            // `const ?? ""` and `title ?? String(const ?? "")` fallbacks.
+            anyOf: [{}, { const: "b" }],
+          },
+        },
+      },
+    };
+    renderWithMantine(
+      <SchemaForm schema={schema} values={{}} onChange={onChange} />,
+    );
+    expect(screen.getByText("Tags")).toBeInTheDocument();
+  });
+
   it("renders an oneOf Select using titles for labels", () => {
     const onChange = vi.fn();
     const schema: JsonSchemaType = {

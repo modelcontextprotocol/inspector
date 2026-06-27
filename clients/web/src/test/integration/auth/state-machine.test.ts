@@ -401,6 +401,268 @@ describe("OAuthStateMachine", () => {
       ).rejects.toThrow("Client information not available for token exchange");
     });
 
+    it("wraps a non-Error thrown by resource metadata discovery into an Error", async () => {
+      const { discoverOAuthProtectedResourceMetadata } =
+        await import("@modelcontextprotocol/sdk/client/auth.js");
+      // Reject with a non-Error so the catch takes the `new Error(String(e))`
+      // branch (line 45).
+      vi.mocked(discoverOAuthProtectedResourceMetadata).mockRejectedValue(
+        "string-rejection",
+      );
+
+      const stateMachine = new OAuthStateMachine(
+        serverUrl,
+        mockProvider,
+        updateState,
+      );
+      await stateMachine.executeStep(state);
+
+      const call = vi
+        .mocked(updateState)
+        .mock.calls.find((c) => "resourceMetadataError" in c[0]);
+      expect(call?.[0].resourceMetadataError).toBeInstanceOf(Error);
+      expect(call?.[0].resourceMetadataError?.message).toBe("string-rejection");
+    });
+
+    it("throws when authorization server metadata discovery returns nothing", async () => {
+      const {
+        discoverOAuthProtectedResourceMetadata,
+        discoverAuthorizationServerMetadata,
+      } = await import("@modelcontextprotocol/sdk/client/auth.js");
+      vi.mocked(discoverOAuthProtectedResourceMetadata).mockRejectedValue(
+        new Error("no resource metadata"),
+      );
+      // SDK returns undefined → execute throws "Failed to discover OAuth
+      // metadata" (line 69).
+      vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue(
+        undefined as unknown as OAuthMetadata,
+      );
+
+      const stateMachine = new OAuthStateMachine(
+        serverUrl,
+        mockProvider,
+        updateState,
+      );
+      await expect(stateMachine.executeStep(state)).rejects.toThrow(
+        "Failed to discover OAuth metadata",
+      );
+    });
+
+    it("client_registration falls back to metadata.scopes_supported when provider scope is empty", async () => {
+      const { registerClient } =
+        await import("@modelcontextprotocol/sdk/client/auth.js");
+      vi.mocked(registerClient).mockResolvedValue({
+        redirect_uris: ["http://localhost/callback"],
+        client_id: "registered",
+      });
+
+      // provider.scope empty → falls into the scope-derivation block; the
+      // resourceMetadata has no scopes_supported so it uses metadata's.
+      const providerEmptyScope = {
+        ...mockProvider,
+        scope: "",
+        clientMetadata: {
+          redirect_uris: ["http://localhost:3000/callback"],
+          token_endpoint_auth_method: "none",
+          grant_types: ["authorization_code"],
+          response_types: ["code"],
+          client_name: "Test Client",
+          scope: "",
+        },
+        clientInformation: vi.fn(async () => undefined),
+      } as unknown as BaseOAuthClientProvider;
+
+      const regState: OAuthFlowState = {
+        ...EMPTY_OAUTH_FLOW_STATE,
+        oauthStep: "client_registration",
+        oauthMetadata: {
+          issuer: "http://localhost:3000",
+          authorization_endpoint: "http://localhost:3000/authorize",
+          token_endpoint: "http://localhost:3000/token",
+          response_types_supported: ["code"],
+          scopes_supported: ["alpha", "beta"],
+        } as OAuthMetadata,
+        resourceMetadata: {
+          resource: "http://localhost:3000",
+        } as OAuthProtectedResourceMetadata,
+      };
+
+      await oauthTransitions.client_registration.execute({
+        state: regState,
+        serverUrl,
+        provider: providerEmptyScope,
+        updateState,
+      });
+
+      expect(providerEmptyScope.clientMetadata.scope).toBe("alpha beta");
+      expect(registerClient).toHaveBeenCalled();
+    });
+
+    it("authorization_redirect discovers scopes when provider scope is empty", async () => {
+      const { startAuthorization } =
+        await import("@modelcontextprotocol/sdk/client/auth.js");
+      vi.mocked(startAuthorization).mockResolvedValue({
+        authorizationUrl: new URL("http://localhost:3000/authorize?x=1"),
+        codeVerifier: "verifier-xyz",
+      });
+
+      const providerEmptyScope = {
+        ...mockProvider,
+        scope: "",
+        saveCodeVerifier: vi.fn(),
+        state: vi.fn(() => "st"),
+        redirectUrl: "http://localhost:3000/callback",
+      } as unknown as BaseOAuthClientProvider;
+
+      const redirectState: OAuthFlowState = {
+        ...EMPTY_OAUTH_FLOW_STATE,
+        oauthStep: "authorization_redirect",
+        oauthMetadata: {
+          issuer: "http://localhost:3000",
+          authorization_endpoint: "http://localhost:3000/authorize",
+          token_endpoint: "http://localhost:3000/token",
+          response_types_supported: ["code"],
+        } as OAuthMetadata,
+        oauthClientInfo: { client_id: "test-client" },
+        // resourceMetadata with scopes_supported so discoverScopes resolves.
+        resourceMetadata: {
+          resource: "http://localhost:3000",
+          scopes_supported: ["s1", "s2"],
+        } as OAuthProtectedResourceMetadata,
+      };
+
+      await oauthTransitions.authorization_redirect.execute({
+        state: redirectState,
+        serverUrl,
+        provider: providerEmptyScope,
+        updateState,
+      });
+
+      expect(startAuthorization).toHaveBeenCalledWith(
+        serverUrl,
+        expect.objectContaining({ scope: "s1 s2" }),
+      );
+      expect(providerEmptyScope.saveCodeVerifier).toHaveBeenCalledWith(
+        "verifier-xyz",
+      );
+    });
+
+    it("authorization_code execute sets a validation error and throws when code is blank", async () => {
+      const codeState: OAuthFlowState = {
+        ...EMPTY_OAUTH_FLOW_STATE,
+        oauthStep: "authorization_code",
+        authorizationCode: "   ",
+      };
+
+      await expect(
+        oauthTransitions.authorization_code.execute({
+          state: codeState,
+          serverUrl,
+          provider: mockProvider,
+          updateState,
+        }),
+      ).rejects.toThrow("Authorization code required");
+
+      expect(updateState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          validationError: "You need to provide an authorization code",
+        }),
+      );
+    });
+
+    it("authorization_code execute advances to token_request when a code is present", async () => {
+      const codeState: OAuthFlowState = {
+        ...EMPTY_OAUTH_FLOW_STATE,
+        oauthStep: "authorization_code",
+        authorizationCode: "good-code",
+      };
+
+      await oauthTransitions.authorization_code.execute({
+        state: codeState,
+        serverUrl,
+        provider: mockProvider,
+        updateState,
+      });
+
+      expect(updateState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          validationError: null,
+          oauthStep: "token_request",
+        }),
+      );
+    });
+
+    it("token_request execute throws when provider metadata is unavailable", async () => {
+      const providerNoMeta = {
+        ...mockProvider,
+        codeVerifier: vi.fn(() => "cv"),
+        getServerMetadata: vi.fn(() => null),
+      } as unknown as BaseOAuthClientProvider;
+
+      const tokenState: OAuthFlowState = {
+        ...EMPTY_OAUTH_FLOW_STATE,
+        oauthStep: "token_request",
+        authorizationCode: "code",
+        oauthClientInfo: { client_id: "c" },
+      };
+
+      await expect(
+        oauthTransitions.token_request.execute({
+          state: tokenState,
+          serverUrl,
+          provider: providerNoMeta,
+          updateState,
+        }),
+      ).rejects.toThrow("OAuth metadata not available");
+    });
+
+    it("token_request execute coerces a string resource into a URL for exchange", async () => {
+      const { exchangeAuthorization } =
+        await import("@modelcontextprotocol/sdk/client/auth.js");
+      const metadata = {
+        issuer: "http://localhost:3000",
+        authorization_endpoint: "http://localhost:3000/authorize",
+        token_endpoint: "http://localhost:3000/token",
+        response_types_supported: ["code"],
+      };
+      vi.mocked(exchangeAuthorization).mockResolvedValue({
+        access_token: "tok",
+        token_type: "Bearer",
+      });
+
+      const providerWithMeta = {
+        ...mockProvider,
+        codeVerifier: vi.fn(() => "cv"),
+        getServerMetadata: vi.fn(() => metadata),
+        clientInformation: vi.fn(async () => ({ client_id: "c" })),
+        saveTokens: vi.fn(),
+        redirectUrl: "http://localhost:3000/callback",
+      } as unknown as BaseOAuthClientProvider;
+
+      const tokenState: OAuthFlowState = {
+        ...EMPTY_OAUTH_FLOW_STATE,
+        oauthStep: "token_request",
+        authorizationCode: "code",
+        oauthClientInfo: { client_id: "c" },
+        // resource as a *string* exercises the `new URL(resource)` branch.
+        resource: "http://localhost:3000/resource" as unknown as URL,
+      };
+
+      await oauthTransitions.token_request.execute({
+        state: tokenState,
+        serverUrl,
+        provider: providerWithMeta,
+        updateState,
+      });
+
+      expect(exchangeAuthorization).toHaveBeenCalledWith(
+        serverUrl,
+        expect.objectContaining({
+          resource: new URL("http://localhost:3000/resource"),
+        }),
+      );
+    });
+
     it("complete.canTransition always returns false (terminal state)", async () => {
       const result = await oauthTransitions.complete.canTransition({
         state: { ...EMPTY_OAUTH_FLOW_STATE, oauthStep: "complete" },

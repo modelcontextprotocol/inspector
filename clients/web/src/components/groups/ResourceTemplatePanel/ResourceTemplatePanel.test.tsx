@@ -300,6 +300,167 @@ describe("ResourceTemplatePanel", () => {
       expect(screen.queryByText("alphabet")).not.toBeInTheDocument();
     });
 
+    it("surfaces an empty dropdown when the completion request rejects", async () => {
+      const user = userEvent.setup();
+      // Focus call resolves with options; the debounced keystroke call
+      // rejects. The rejection (not aborted) must reset the dropdown to [].
+      const onCompleteArgument = vi
+        .fn<
+          (
+            argName: string,
+            value: string,
+            context: Record<string, string>,
+          ) => Promise<string[]>
+        >()
+        .mockResolvedValueOnce(["alpha", "alphabet"])
+        .mockRejectedValueOnce(new Error("completion failed"));
+
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={singleVarTemplate}
+          onReadResource={vi.fn()}
+          completionsSupported
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+
+      const input = screen.getByRole("textbox", { name: "userId" });
+      await user.click(input);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(await screen.findByText("alpha")).toBeInTheDocument();
+
+      await user.type(input, "z");
+      await new Promise((r) => setTimeout(r, 400));
+      expect(screen.queryByText("alpha")).not.toBeInTheDocument();
+      expect(screen.queryByText("alphabet")).not.toBeInTheDocument();
+    });
+
+    it("cancels a pending debounce timer when the input is re-focused", async () => {
+      const user = userEvent.setup();
+      const onCompleteArgument = vi
+        .fn<
+          (
+            argName: string,
+            value: string,
+            context: Record<string, string>,
+          ) => Promise<string[]>
+        >()
+        .mockResolvedValue([]);
+
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={titledTemplate}
+          onReadResource={vi.fn()}
+          completionsSupported
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+
+      const tableInput = screen.getByRole("textbox", { name: "tableName" });
+      const rowInput = screen.getByRole("textbox", { name: "rowId" });
+
+      // Type into tableName → schedules a debounce timer. Move focus away
+      // and back before the 300ms fires so handleVariableFocus sees a
+      // pending timer for "tableName" and clears it.
+      await user.type(tableInput, "u");
+      await user.click(rowInput);
+      await user.click(tableInput);
+      onCompleteArgument.mockClear();
+      await new Promise((r) => setTimeout(r, 400));
+      const tableCalls = onCompleteArgument.mock.calls.filter(
+        ([n]) => n === "tableName",
+      );
+      // Only the focus-fire call (value "u"), never the cancelled debounce.
+      expect(tableCalls.every(([, v]) => v === "u")).toBe(true);
+    });
+
+    it("drops a stale in-flight response when a faster keystroke arrives", async () => {
+      const user = userEvent.setup();
+      const calls: Array<{
+        value: string;
+        resolve: (values: string[]) => void;
+      }> = [];
+      const onCompleteArgument = vi.fn(
+        (_argName: string, value: string) =>
+          new Promise<string[]>((resolve) => {
+            calls.push({ value, resolve });
+          }),
+      );
+
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={singleVarTemplate}
+          onReadResource={vi.fn()}
+          completionsSupported
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+
+      // Focus → first call (value=""). Type "h" → second call after
+      // debounce. Type "i" → third call after debounce, which aborts the
+      // "h" controller.
+      const input = screen.getByRole("textbox", { name: "userId" });
+      await user.type(input, "h");
+      await new Promise((r) => setTimeout(r, 350));
+      await user.type(input, "i");
+      await new Promise((r) => setTimeout(r, 350));
+
+      const hi = calls.find((c) => c.value === "hi");
+      const h = calls.find((c) => c.value === "h");
+      expect(hi).toBeDefined();
+      expect(h).toBeDefined();
+      // Resolve the stale "h" after it was aborted — its signal.aborted
+      // guard drops the response so it can't overwrite the fresh one.
+      h?.resolve(["from-stale-h"]);
+      hi?.resolve(["from-fresh-hi"]);
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(await screen.findByText("from-fresh-hi")).toBeInTheDocument();
+      expect(screen.queryByText("from-stale-h")).not.toBeInTheDocument();
+    });
+
+    it("aborts in-flight completion requests on unmount", async () => {
+      const user = userEvent.setup();
+      // A request that never settles, so it is still in flight at unmount.
+      const onCompleteArgument = vi.fn(() => new Promise<string[]>(() => {}));
+
+      const { unmount } = renderWithMantine(
+        <ResourceTemplatePanel
+          template={singleVarTemplate}
+          onReadResource={vi.fn()}
+          completionsSupported
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+
+      // Focus fires a completion immediately, leaving an in-flight request.
+      await user.click(screen.getByRole("textbox", { name: "userId" }));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(onCompleteArgument).toHaveBeenCalled();
+
+      // The unmount-cleanup effect iterates the in-flight controllers and
+      // aborts each — this must not throw.
+      expect(() => unmount()).not.toThrow();
+    });
+
+    it("does not fire completions on focus when completions are unsupported", async () => {
+      const user = userEvent.setup();
+      const onCompleteArgument = vi.fn();
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={singleVarTemplate}
+          onReadResource={vi.fn()}
+          completionsSupported={false}
+          onCompleteArgument={onCompleteArgument}
+        />,
+      );
+      // Focusing the plain TextInput hits the early `!useAutocomplete`
+      // return in handleVariableFocus.
+      await user.click(screen.getByLabelText("userId"));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(onCompleteArgument).not.toHaveBeenCalled();
+    });
+
     it("does not call onCompleteArgument when completions are unsupported", async () => {
       const user = userEvent.setup();
       const onCompleteArgument = vi.fn();

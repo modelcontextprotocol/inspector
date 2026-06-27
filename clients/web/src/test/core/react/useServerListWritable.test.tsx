@@ -102,4 +102,76 @@ describe("useServerListWritable", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.writable).toBe(true);
   });
+
+  it("falls back to globalThis.fetch when no fetchFn is provided", async () => {
+    const globalFetch = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ writable: false }));
+    const original = globalThis.fetch;
+    globalThis.fetch = globalFetch as unknown as typeof fetch;
+    try {
+      const { result } = renderHook(() =>
+        useServerListWritable({ baseUrl: "http://test.local" }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(globalFetch).toHaveBeenCalledWith(
+        "http://test.local/api/config",
+        expect.objectContaining({ method: "GET" }),
+      );
+      expect(result.current.writable).toBe(false);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("drops a response that resolves after unmount (no state update)", async () => {
+    // Gate the fetch so it is still in flight at unmount; the isCancelled()
+    // guards (after fetch and in finally) short-circuit so no setState runs on
+    // the dead component and `loading` is never flipped.
+    let resolveFetch: ((r: Response) => void) | undefined;
+    const fetchFn = vi.fn().mockReturnValue(
+      new Promise<Response>((r) => {
+        resolveFetch = r;
+      }),
+    );
+
+    const { result, unmount } = renderHook(() =>
+      useServerListWritable({ baseUrl: "http://test.local", fetchFn }),
+    );
+    expect(result.current.loading).toBe(true);
+
+    unmount();
+    resolveFetch?.(jsonResponse({ writable: false }));
+    await Promise.resolve();
+    await Promise.resolve();
+    // Guards held: the post-unmount value stayed at the writable default.
+    expect(result.current.writable).toBe(true);
+  });
+
+  it("drops a response whose json resolves after unmount", async () => {
+    // Fetch resolves before unmount but json() resolves after, exercising the
+    // second isCancelled() guard (post-json).
+    let resolveJson: ((v: unknown) => void) | undefined;
+    const res = {
+      ok: true,
+      status: 200,
+      json: () =>
+        new Promise((r) => {
+          resolveJson = r;
+        }),
+    } as unknown as Response;
+    const fetchFn = vi.fn().mockResolvedValue(res);
+
+    const { result, unmount } = renderHook(() =>
+      useServerListWritable({ baseUrl: "http://test.local", fetchFn }),
+    );
+    await waitFor(() => expect(fetchFn).toHaveBeenCalled());
+    await Promise.resolve();
+
+    unmount();
+    resolveJson?.({ writable: false });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(result.current.writable).toBe(true);
+  });
 });

@@ -6,7 +6,22 @@ import {
   screen,
   waitFor,
 } from "../../../test/renderWithMantine";
+import { render } from "@testing-library/react";
+import { MantineProvider } from "@mantine/core";
+import { theme } from "../../../theme/theme";
 import { ViewHeader } from "./ViewHeader";
+
+// Render under a forced-dark MantineProvider so `useComputedColorScheme`
+// returns "dark" (the light/dark icon + logo branches).
+function renderDark(ui: React.ReactElement) {
+  return render(ui, {
+    wrapper: ({ children }) => (
+      <MantineProvider theme={theme} defaultColorScheme="dark">
+        {children}
+      </MantineProvider>
+    ),
+  });
+}
 
 // Mock @mantine/hooks so we can control useMediaQuery results per test.
 const mediaQueryMock = vi.hoisted(() => ({ value: false }));
@@ -273,6 +288,80 @@ describe("ViewHeader", () => {
       expect(
         screen.queryByRole("button", { name: "Disconnect" }),
       ).not.toBeInTheDocument();
+    });
+
+    it("renders the dark-scheme icon/logo branch under a dark color scheme", () => {
+      // Rendering under a forced-dark provider exercises the
+      // `colorScheme === "dark"` branches for the theme icon and the logo src.
+      renderDark(<ViewHeader {...connectedProps} />);
+      expect(
+        screen.getByRole("button", { name: "Toggle color scheme" }),
+      ).toBeInTheDocument();
+      expect(screen.getByAltText("MCP")).toBeInTheDocument();
+    });
+
+    it("crossfades the title out and the connected header in on connect (#1450)", async () => {
+      mediaQueryMock.value = true;
+      // Start disconnected: the title cell is the entering one.
+      const { rerender } = renderWithMantine(
+        <ViewHeader
+          connected={false}
+          onToggleTheme={vi.fn()}
+          onOpenClientSettings={vi.fn()}
+        />,
+      );
+      expect(
+        screen
+          .getByText("MCP Inspector")
+          .closest("[data-anim]")
+          ?.getAttribute("data-anim"),
+      ).toBe("in");
+
+      // Connect: the title cell stays mounted while it exits ("out"), and the
+      // connected snapshot is adopted from a previously-null snapshot (the
+      // `snapshot ? … : ""` and `seenTabsKey ? … : []` empty-base branches).
+      rerender(<ViewHeader {...connectedProps} />);
+      expect(
+        screen
+          .getByText("MCP Inspector")
+          .closest("[data-anim]")
+          ?.getAttribute("data-anim"),
+      ).toBe("out");
+      // The connected server name enters once the keep-alive Transition mounts.
+      expect(await screen.findByText("my-mcp-server")).toBeInTheDocument();
+    });
+
+    it("disarms the tab glow when the connection drops after the grace window", () => {
+      vi.useFakeTimers();
+      try {
+        mediaQueryMock.value = true;
+        const { rerender } = renderWithMantine(
+          <ViewHeader {...connectedProps} />,
+        );
+        // Arm the glow by letting the grace window elapse.
+        act(() => {
+          vi.advanceTimersByTime(2000);
+        });
+        // Disconnect resets glowArmed via adjust-state-during-render.
+        rerender(
+          <ViewHeader
+            connected={false}
+            onToggleTheme={vi.fn()}
+            onOpenClientSettings={vi.fn()}
+          />,
+        );
+        // Reconnect with a new tab: because glowArmed was reset, the freshly
+        // re-seen tab set is treated as initial and nothing glows.
+        rerender(
+          <ViewHeader
+            {...connectedProps}
+            availableTabs={["Tools", "Resources", "Prompts", "Tasks"]}
+          />,
+        );
+        expect(document.querySelector('[data-glow="on"]')).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("invokes onTabChange when a different tab is picked from the Select", async () => {

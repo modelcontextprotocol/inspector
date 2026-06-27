@@ -1,5 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runCli } from "./helpers/cli-runner.js";
+import { runCli as runCliDirect } from "../src/cli.js";
 import {
   expectCliSuccess,
   expectCliFailure,
@@ -1016,6 +1020,35 @@ describe("CLI Tests", () => {
       ]);
 
       expectCliFailure(result);
+    });
+  });
+
+  describe("argv placeholder fallbacks", () => {
+    // The cli-runner helper always prepends `["node", "inspector-cli", ...]`, so
+    // `rawArgs[0]`/`rawArgs[1]` are never undefined through it. Call `runCli`
+    // directly with a too-short argv to exercise the `?? "node"` /
+    // `?? "inspector-cli"` fallbacks in parseArgs (commander's `name()`/program
+    // bootstrap). With no method present, parseArgs throws "Method is required"
+    // before any connection, so this stays fully in-process and fast.
+    it("defaults the node/script argv slots when rawArgs has fewer than two entries", async () => {
+      // Point the catalog at a fresh temp file so the empty-argv run resolves
+      // deterministically (the default ~/.mcp-inspector catalog may already hold
+      // several servers on the dev machine). Either way the rawArgs[0]/[1]
+      // fallbacks have already run by the time parseArgs throws.
+      const tempCatalog = join(
+        mkdtempSync(join(tmpdir(), "cli-argv-")),
+        "mcp.json",
+      );
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const prev = process.env.MCP_CATALOG_PATH;
+      process.env.MCP_CATALOG_PATH = tempCatalog;
+      try {
+        await expect(runCliDirect([])).rejects.toThrow();
+      } finally {
+        if (prev === undefined) delete process.env.MCP_CATALOG_PATH;
+        else process.env.MCP_CATALOG_PATH = prev;
+        errorSpy.mockRestore();
+      }
     });
   });
 });

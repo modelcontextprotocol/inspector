@@ -1083,6 +1083,86 @@ describe("InspectorView", () => {
     ).toBeNull();
   });
 
+  it("toggles the Servers list compact state from the list toggle", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <InspectorView {...makeProps({ servers: [sampleServer] })} />,
+    );
+    // Servers default to expanded (compact=false), so the toggle reads
+    // "Collapse all"; clicking it flips serversCompact via the inline callback.
+    const toggle = await screen.findByRole("button", { name: "Collapse all" });
+    await user.click(toggle);
+    expect(
+      await screen.findByRole("button", { name: "Expand all" }),
+    ).toBeInTheDocument();
+  });
+
+  it("toggles the Network list compact state from the list toggle", async () => {
+    const user = userEvent.setup();
+    const httpServer: ServerEntry = {
+      id: "beta",
+      name: "Beta",
+      config: { type: "streamable-http", url: "http://localhost:3000/mcp" },
+      connection: { status: "connected" },
+    };
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [httpServer],
+          activeServer: "beta",
+          connectionStatus: "connected",
+          initializeResult: initWithCapabilities({}),
+          // The Network list toggle only renders when there's at least one
+          // request to show.
+          network: [
+            {
+              id: "n-1",
+              timestamp: new Date("2026-03-17T10:00:00Z"),
+              method: "POST",
+              url: "http://localhost:3000/mcp",
+              requestHeaders: {},
+              responseStatus: 200,
+              category: "transport",
+            },
+          ],
+        })}
+      />,
+    );
+    const tabSelect = await screen.findByDisplayValue("Servers");
+    await user.click(tabSelect);
+    await user.click(await screen.findByText("Network"));
+    // Network defaults to compact=true → "Expand all"; clicking flips it.
+    const toggle = await screen.findByRole("button", { name: "Expand all" });
+    await user.click(toggle);
+    expect(
+      await screen.findByRole("button", { name: "Collapse all" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the Network tab when the active server id is not in the list (non-stdio fallback)", async () => {
+    // connectionStatus is connected but activeServer points at an id absent
+    // from the list — `active` is undefined, so isStdio falls back to false and
+    // the Network tab is not hidden.
+    const httpServer: ServerEntry = {
+      id: "beta",
+      name: "Beta",
+      config: { type: "streamable-http", url: "http://localhost:3000/mcp" },
+      connection: { status: "connected" },
+    };
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [httpServer],
+          activeServer: "ghost",
+          connectionStatus: "connected",
+          initializeResult: initWithCapabilities({}),
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).toContain("Network");
+  });
+
   describe("listChanged indicator wiring (#1402)", () => {
     // The indicator only mounts on the active screen, so each case connects,
     // navigates to the target tab, and asserts the "List updated" affordance.

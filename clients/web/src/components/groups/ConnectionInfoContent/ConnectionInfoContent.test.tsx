@@ -141,6 +141,53 @@ describe("ConnectionInfoContent", () => {
     expect(screen.getByText("Signed in")).toBeInTheDocument();
   });
 
+  it("renders the EMA idp session as Session expired", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        oauth={{
+          protocol: "ema",
+          authorized: false,
+          idpSession: "expired",
+        }}
+      />,
+    );
+    expect(screen.getByText("IdP session")).toBeInTheDocument();
+    expect(screen.getByText("Session expired")).toBeInTheDocument();
+  });
+
+  it("renders the EMA idp session as Not signed in for the none state", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        oauth={{
+          protocol: "ema",
+          authorized: false,
+          idpSession: "none",
+        }}
+      />,
+    );
+    expect(screen.getByText("IdP session")).toBeInTheDocument();
+    expect(screen.getByText("Not signed in")).toBeInTheDocument();
+  });
+
+  it("omits the IdP session row when EMA oauth has no idpSession", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        oauth={{ protocol: "ema", authorized: true }}
+      />,
+    );
+    expect(screen.getByText("Enterprise-managed")).toBeInTheDocument();
+    expect(screen.queryByText("IdP session")).not.toBeInTheDocument();
+  });
+
   it("hides optional OAuth fields that are not provided", () => {
     renderWithMantine(
       <ConnectionInfoContent

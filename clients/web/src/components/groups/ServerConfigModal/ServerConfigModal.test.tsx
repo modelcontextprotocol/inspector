@@ -390,6 +390,57 @@ describe("ServerConfigModal", () => {
     expect(cwdInput).toHaveValue("");
   });
 
+  it("switches transport via the Transport select, revealing the URL field", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ServerConfigModal {...base()} />);
+
+    // Starts on stdio — Command is shown, URL is not.
+    expect(screen.getByLabelText(/^Command/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("textbox", { name: /Transport/i }));
+    const option = await screen.findByRole("option", {
+      name: /sse \(Server-Sent Events\)/,
+      hidden: true,
+    });
+    await user.click(option);
+
+    // The onChange handler set transport to sse, so the URL field renders
+    // and the stdio Command field is gone.
+    expect(await screen.findByLabelText(/^URL/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Command/)).not.toBeInTheDocument();
+  });
+
+  it("requires a server id before submitting", async () => {
+    const user = userEvent.setup();
+    const props = base();
+    renderWithMantine(<ServerConfigModal {...props} />);
+
+    // No id typed at all — handleSubmit short-circuits on the empty id
+    // before it ever validates the transport config.
+    await user.type(screen.getByLabelText(/Command/i), "node");
+    await user.click(screen.getByRole("button", { name: /^Add$/ }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /Server id is required/i,
+    );
+    expect(props.onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("rejects an env line whose '=' is at the start (no key)", async () => {
+    const user = userEvent.setup();
+    const props = base();
+    renderWithMantine(<ServerConfigModal {...props} />);
+
+    await user.type(screen.getByLabelText(/Server ID/i), "alpha");
+    await user.type(screen.getByLabelText(/Command/i), "node");
+    // "=value" has the "=" at index 0 (eq === 0), the falsy-index guard.
+    await user.type(screen.getByLabelText(/Environment/i), "=value");
+    await user.click(screen.getByRole("button", { name: /^Add$/ }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/Use KEY=VALUE/i);
+    expect(props.onSubmit).not.toHaveBeenCalled();
+  });
+
   it("calls onClose when Cancel is clicked", async () => {
     const user = userEvent.setup();
     const props = base();

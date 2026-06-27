@@ -279,6 +279,9 @@ export function ViewHeader(props: ViewHeaderProps) {
                 {headerData.serverName}
               </ServerName>
             ) : (
+              /* v8 ignore next -- unreachable: this Transition only mounts
+                 while connected, by which point headerData is set; the render
+                 prop must still return an element, never null. */
               <></>
             )
           }
@@ -332,6 +335,7 @@ export function ViewHeader(props: ViewHeaderProps) {
               // Unreachable in practice — the Transition only mounts while
               // connected, by which point the snapshot is set — but the render
               // prop must return an element, never null.
+              /* v8 ignore next */
               <></>
             )
           }
@@ -378,6 +382,9 @@ export function ViewHeader(props: ViewHeaderProps) {
                 )}
               </RightConnectedGroup>
             ) : (
+              /* v8 ignore next -- unreachable: this Transition only mounts
+                 while connected, by which point headerData is set; the render
+                 prop must still return an element, never null. */
               <></>
             )
           }

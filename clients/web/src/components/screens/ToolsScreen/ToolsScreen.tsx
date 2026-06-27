@@ -144,10 +144,16 @@ export function ToolsScreen({
               // form shows defaults via resolveValue, but onChange only writes
               // edited fields).
               const tool = tools.find((t) => t.name === name);
+              // `name` always comes from the rendered tools list (ToolControls
+              // only emits names it was given), so the lookup never misses; the
+              // empty-object fallback is an unreachable defensive default.
+              let formValues: Record<string, unknown> = {};
+              /* v8 ignore next -- unreachable: onSelectTool always names a tool in the list */
+              if (tool) formValues = collectSchemaDefaults(tool.inputSchema);
               onUiChange({
                 ...ui,
                 selectedToolName: name,
-                formValues: tool ? collectSchemaDefaults(tool.inputSchema) : {},
+                formValues,
               });
             }}
           />

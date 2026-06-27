@@ -42,4 +42,25 @@ describe("SortToggle", () => {
     await user.click(await screen.findByText("Oldest First"));
     expect(onChange).toHaveBeenCalledWith("oldest-first");
   });
+
+  it("invokes onChange when picking the descending (newest-first) option", async () => {
+    // Covers the `value === "newest-first"` arm of the isSortDirection guard.
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderWithMantine(<SortToggle value="oldest-first" onChange={onChange} />);
+    await user.click(screen.getByRole("textbox", { name: "Sort direction" }));
+    await user.click(await screen.findByText("Newest First"));
+    expect(onChange).toHaveBeenCalledWith("newest-first");
+  });
+
+  it("does not invoke onChange when re-selecting the already-current option", async () => {
+    // allowDeselect={false} means clicking the selected option is a no-op:
+    // Mantine does not fire onChange, so the parent callback stays silent.
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderWithMantine(<SortToggle value="newest-first" onChange={onChange} />);
+    await user.click(screen.getByRole("textbox", { name: "Sort direction" }));
+    await user.click(await screen.findByText("Newest First"));
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });

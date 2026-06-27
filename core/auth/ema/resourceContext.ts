@@ -37,11 +37,16 @@ export async function discoverEmaResourceContext(
     undefined,
     fetchFn,
   );
+  /* v8 ignore start -- defensive: the SDK's discoverOAuthProtectedResourceMetadata
+     validates the response against a Zod schema that requires `resource` to be a
+     valid URL, so a metadata object reaching here always has a truthy `resource`.
+     This guard is unreachable through the public discovery path. */
   if (!resourceMetadata.resource) {
     throw new Error(
       "EMA requires protected resource metadata with a resource identifier",
     );
   }
+  /* v8 ignore stop */
   const resourceAsUrl = getAuthorizationServerUrl(serverUrl, resourceMetadata);
   const resourceUrl = await selectResourceURL(
     serverUrl,
@@ -70,7 +75,9 @@ export async function discoverResourceAsMetadata(
     fetchFn,
   });
   if (!metadata) {
-    throw new Error("Failed to discover resource authorization server metadata");
+    throw new Error(
+      "Failed to discover resource authorization server metadata",
+    );
   }
   return metadata;
 }
