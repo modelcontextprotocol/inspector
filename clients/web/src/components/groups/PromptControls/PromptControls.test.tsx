@@ -139,6 +139,20 @@ describe("PromptControls", () => {
     expect(onRefreshList).toHaveBeenCalledTimes(1);
   });
 
+  it("clears the search via the Clear button (onSearchChange with empty value)", async () => {
+    const user = userEvent.setup();
+    const onSearchChange = vi.fn();
+    renderWithMantine(
+      <ControlledPromptControls
+        searchText="trans"
+        onSearchChange={onSearchChange}
+      />,
+    );
+    // The Clear button only renders while searchText is non-empty.
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(onSearchChange).toHaveBeenLastCalledWith("");
+  });
+
   it("renders empty list when no prompts", () => {
     renderWithMantine(<PromptControls {...baseProps} prompts={[]} />);
     expect(screen.getByText("Prompts")).toBeInTheDocument();

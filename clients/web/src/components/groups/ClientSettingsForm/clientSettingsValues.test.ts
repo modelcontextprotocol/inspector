@@ -2,12 +2,18 @@ import { describe, it, expect } from "vitest";
 import {
   canPersistClientSettingsDraft,
   clientConfigToFormValues,
+  EMPTY_CLIENT_SETTINGS,
   formValuesToClientConfig,
   ISSUER_URL_ERROR,
   validateClientSettings,
 } from "./clientSettingsValues";
 
 describe("clientSettingsValues", () => {
+  it("clientConfigToFormValues returns empty settings when there is no enterpriseManagedAuth", () => {
+    // Exercises the `!idp` early return (line 24) via an absent EMA block.
+    expect(clientConfigToFormValues({})).toEqual(EMPTY_CLIENT_SETTINGS);
+  });
+
   it("clientConfigToFormValues maps enterpriseManagedAuth.idp", () => {
     expect(
       clientConfigToFormValues({

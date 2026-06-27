@@ -70,6 +70,9 @@ export function createSandboxController(
         // first signal wins.
         let settled = false;
         const settle = (value: { port: number; url: string }) => {
+          /* v8 ignore next -- defensive double-settle guard: for a TCP listen
+             the `error` and `listening` events are mutually exclusive, so the
+             second-signal early-return is unreachable in practice. */
           if (settled) return;
           settled = true;
           resolve(value);
@@ -111,7 +114,11 @@ export function createSandboxController(
           const actualPort =
             typeof addr === "object" && addr !== null && "port" in addr
               ? addr.port
-              : (addr as unknown as number);
+              : /* v8 ignore next -- unreachable for a TCP listen: `address()`
+                   always returns an `AddressInfo` object with `port`. The
+                   string form only occurs for unix-socket/pipe listens, which
+                   this controller never performs. */
+                (addr as unknown as number);
           sandboxUrl = `http://${host}:${actualPort}/sandbox`;
           settle({ port: actualPort, url: sandboxUrl });
         });

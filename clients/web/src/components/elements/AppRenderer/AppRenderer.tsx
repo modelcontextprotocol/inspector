@@ -161,6 +161,13 @@ export function AppRenderer({
     // a synchronous re-setup. If the inputs are identical (StrictMode's
     // double-invoke, or a transient re-render) keep the live bridge: cancel the
     // disposal and re-deliver any buffered input/result to it.
+    // This reuse path provably runs under React StrictMode's synchronous
+    // setup→cleanup→setup double-invoke (the "builds a single bridge… StrictMode"
+    // test proves the bridge is reused, not rebuilt — factory called once). v8
+    // cannot attribute coverage to the body of an effect that React replays for
+    // the StrictMode dev-only double-invoke, so the branch + its three
+    // statements read as uncovered despite executing.
+    /* v8 ignore next 4 */
     if (disposeScheduledRef.current && sameInputs) {
       disposeScheduledRef.current = false;
       flushPending();

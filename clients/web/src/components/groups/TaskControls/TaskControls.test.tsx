@@ -55,6 +55,22 @@ describe("TaskControls", () => {
     expect(inputs.length).toBeGreaterThan(0);
   });
 
+  it("invokes onStatusFilterChange with the picked status", async () => {
+    const user = userEvent.setup();
+    const onStatusFilterChange = vi.fn();
+    renderWithMantine(
+      <TaskControls
+        {...baseProps}
+        onStatusFilterChange={onStatusFilterChange}
+      />,
+    );
+    // Open the Select and choose a real status — the truthy branch of
+    // `value && STATUS_OPTIONS.includes(value)` passes it straight through.
+    await user.click(screen.getByPlaceholderText("All statuses"));
+    await user.click(await screen.findByText("completed"));
+    expect(onStatusFilterChange).toHaveBeenCalledWith("completed");
+  });
+
   it("invokes onStatusFilterChange with undefined when cleared", async () => {
     const user = userEvent.setup();
     const onStatusFilterChange = vi.fn();

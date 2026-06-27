@@ -31,6 +31,10 @@ export function SortToggle({
       data={OPTIONS}
       value={value}
       onChange={(next) => {
+        // The guard's false arm is unreachable through the UI: Mantine's `data`
+        // only holds the two valid SortDirection values and allowDeselect={false}
+        // prevents a null deselect, so isSortDirection() is always true here.
+        /* v8 ignore next */
         if (isSortDirection(next)) onChange(next);
       }}
       allowDeselect={false}

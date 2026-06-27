@@ -97,6 +97,20 @@ describe("AppControls", () => {
     expect(screen.getByText("No matching apps")).toBeInTheDocument();
   });
 
+  it("clears the search via the clear button, invoking onSearchChange with empty string", async () => {
+    const user = userEvent.setup();
+    const onSearchChange = vi.fn();
+    renderWithMantine(
+      <ControlledAppControls onSearchChange={onSearchChange} />,
+    );
+    const input = screen.getByPlaceholderText("Search apps...");
+    await user.type(input, "git");
+    // The clear button only renders once searchText is non-empty (line 67).
+    const clearButton = screen.getByRole("button", { name: /clear/i });
+    await user.click(clearButton);
+    expect(onSearchChange).toHaveBeenLastCalledWith("");
+  });
+
   it("invokes onSelectApp when an unselected app is clicked", async () => {
     const user = userEvent.setup();
     const onSelectApp = vi.fn();

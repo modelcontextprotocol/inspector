@@ -408,6 +408,130 @@ describe("ServerSettingsModal", () => {
     expect(headersControl.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("calls onSettingsChange when toggling Auto Refresh in the Options section", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={emptySettings}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    // The Options section is expanded on open, so the checkbox is visible.
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /Auto Refresh on List Changed Notifications/,
+      }),
+    );
+    expect(onSettingsChange).toHaveBeenCalledWith({
+      ...emptySettings,
+      autoRefreshOnListChanged: true,
+    });
+  });
+
+  it("calls onSettingsChange when changing the Network Log Size", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={{ ...emptySettings, maxFetchRequests: 1000 }}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.type(screen.getByLabelText(/Network Log Size/), "2");
+    expect(onSettingsChange).toHaveBeenCalled();
+    const call = onSettingsChange.mock.calls.at(-1)?.[0];
+    expect(typeof call.maxFetchRequests).toBe("number");
+  });
+
+  it("preserves sibling rows when editing one of several headers", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    const twoHeaders: InspectorServerSettings = {
+      ...emptySettings,
+      headers: [
+        { key: "A", value: "1" },
+        { key: "B", value: "2" },
+      ],
+    };
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={twoHeaders}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Custom Headers" }));
+    // Editing the first header's value must leave the second row untouched
+    // (the `i === index ? … : h` non-matching branch).
+    await user.type(screen.getByDisplayValue("1"), "0");
+    const lastCall = onSettingsChange.mock.calls.at(-1)?.[0];
+    expect(lastCall.headers[1]).toEqual({ key: "B", value: "2" });
+  });
+
+  it("preserves sibling rows when editing one of several metadata entries", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    const twoMeta: InspectorServerSettings = {
+      ...emptySettings,
+      metadata: [
+        { key: "m1", value: "v1" },
+        { key: "m2", value: "v2" },
+      ],
+    };
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={twoMeta}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Request Metadata" }));
+    await user.type(screen.getByDisplayValue("v1"), "x");
+    const lastCall = onSettingsChange.mock.calls.at(-1)?.[0];
+    expect(lastCall.metadata[1]).toEqual({ key: "m2", value: "v2" });
+  });
+
+  it("preserves sibling rows when editing one of several roots", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    const twoRoots: InspectorServerSettings = {
+      ...emptySettings,
+      roots: [
+        { uri: "file:///a", name: "A" },
+        { uri: "file:///b", name: "B" },
+      ],
+    };
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={twoRoots}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Roots" }));
+    await user.type(screen.getByDisplayValue("file:///a"), "1");
+    const lastCall = onSettingsChange.mock.calls.at(-1)?.[0];
+    expect(lastCall.roots[1]).toEqual({ uri: "file:///b", name: "B" });
+  });
+
   describe("stdio env / cwd handlers", () => {
     // The Options section is expanded on open, so the stdio fields are visible
     // immediately when isStdio is true.
@@ -496,6 +620,35 @@ describe("ServerSettingsModal", () => {
       await user.type(screen.getByDisplayValue("1"), "2");
       const lastCall = onSettingsChange.mock.calls.at(-1)?.[0];
       expect(lastCall.env[0]).toEqual({ key: "A", value: "12" });
+    });
+
+    it("preserves sibling rows when editing one of several env vars", async () => {
+      const user = userEvent.setup();
+      const onSettingsChange = vi.fn();
+      renderWithMantine(
+        <ServerSettingsModal
+          opened
+          settings={{
+            ...emptySettings,
+            env: [
+              { key: "A", value: "1" },
+              { key: "B", value: "2" },
+            ],
+          }}
+          serverType="stdio"
+          isStdio
+          onClose={vi.fn()}
+          onSettingsChange={onSettingsChange}
+        />,
+      );
+      await user.click(
+        screen.getByRole("button", { name: "Environment Variables" }),
+      );
+      await user.type(screen.getByDisplayValue("1"), "0");
+      const lastCall = onSettingsChange.mock.calls.at(-1)?.[0];
+      // The untouched second env row survives the edit (the non-matching map
+      // branch).
+      expect(lastCall.env[1]).toEqual({ key: "B", value: "2" });
     });
 
     it("calls onSettingsChange when editing the working directory", async () => {

@@ -23,6 +23,15 @@ const httpTarget: ServerEntry = {
   connection: { status: "disconnected" },
 };
 
+const stdioNoTypeNoArgs: ServerEntry = {
+  id: "bare",
+  name: "bare",
+  // No `type` field and no `args` — exercises the `type ?? "stdio"` fallback
+  // and the `args ?? []` fallback in summarize().
+  config: { command: "run-it" },
+  connection: { status: "disconnected" },
+};
+
 describe("ServerRemoveConfirmModal", () => {
   it("does not render when opened is false", () => {
     renderWithMantine(
@@ -112,6 +121,40 @@ describe("ServerRemoveConfirmModal", () => {
       expect(screen.getByRole("alert")).toHaveTextContent(/disk full/);
     });
     expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it("defaults the transport label to stdio and omits args when neither is set", () => {
+    renderWithMantine(
+      <ServerRemoveConfirmModal
+        opened
+        target={stdioNoTypeNoArgs}
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    // `type ?? "stdio"` falls back to "stdio"; summarize joins just the command
+    // since `args` is undefined (`args ?? []`).
+    expect(screen.getByText(/stdio · run-it/)).toBeInTheDocument();
+  });
+
+  it("stringifies a non-Error rejection value in the alert", async () => {
+    const user = userEvent.setup();
+    // Rejecting with a plain string takes the `String(err)` branch.
+    const onConfirm = vi.fn().mockRejectedValue("plain string failure");
+    renderWithMantine(
+      <ServerRemoveConfirmModal
+        opened
+        target={stdioTarget}
+        onCancel={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /^Remove$/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /plain string failure/,
+      );
+    });
   });
 
   it("is a no-op when Remove is clicked with no target", async () => {

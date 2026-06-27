@@ -131,7 +131,11 @@ export function PromptsScreen({
     // Re-clicking the active prompt in the sidebar shouldn't wipe the
     // user's typed argument values or trigger a re-fetch — sidebar is
     // for navigation, ✕ is for dismiss. Closing-then-reselecting is
-    // its own thing (the close handler clears submittedFor).
+    // its own thing (the close handler clears submittedFor). PromptControls
+    // already swallows a re-click on the active item (it only fires
+    // onSelectPrompt when the name differs), so this is a redundant guard
+    // that never fires through the UI.
+    /* v8 ignore next -- unreachable: PromptControls never re-emits the active name */
     if (name === selectedPromptName) return;
     // Auto-fetch no-argument prompts the moment they're selected — the
     // form pane would otherwise just render a bare Get Prompt button
@@ -148,6 +152,10 @@ export function PromptsScreen({
   }
 
   function handleSubmit() {
+    // Defensive guard: handleSubmit is only wired to the argument form's
+    // onGetPrompt, which renders solely when `selectedPrompt` is truthy, so
+    // this never fires through the UI.
+    /* v8 ignore next -- unreachable: form only renders with a selected prompt */
     if (!selectedPrompt) return;
     onUiChange({ ...ui, submittedFor: selectedPrompt.name });
     onGetPrompt(selectedPrompt.name, argumentValues);
@@ -182,6 +190,10 @@ export function PromptsScreen({
     getPromptState.promptName === selectedPrompt.name;
 
   function renderPreview() {
+    // Defensive guard: renderPreview is only invoked from the `previewActive`
+    // branch below, and `previewActive` already requires a truthy
+    // `getPromptState`, so neither arm of this condition is reachable here.
+    /* v8 ignore next -- unreachable: only called when previewActive && getPromptState */
     if (!previewActive || !getPromptState) return null;
     if (getPromptState.status === "pending") {
       return (

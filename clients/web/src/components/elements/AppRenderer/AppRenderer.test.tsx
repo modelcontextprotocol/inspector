@@ -481,6 +481,46 @@ describe("AppRenderer", () => {
     expect(first.close).toHaveBeenCalledTimes(1);
   });
 
+  it("rebuilds the bridge when only the tool changes (same factory and sandboxPath)", async () => {
+    // Keeps bridgeFactory and sandboxPath stable while swapping the tool, so the
+    // sameInputs short-circuit evaluates all the way to `prev.tool === tool` and
+    // takes its false arm — driving a real rebuild, not a reuse.
+    const first = createMockBridge();
+    const second = createMockBridge();
+    const factory = vi
+      .fn<BridgeFactory>()
+      .mockReturnValueOnce(asBridge(first))
+      .mockReturnValueOnce(asBridge(second));
+    const otherTool: Tool = {
+      name: "other_app",
+      title: "Other App",
+      inputSchema: { type: "object" },
+    };
+
+    const { rerender } = renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={factory}
+      />,
+    );
+    await flushAsync();
+
+    rerender(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={otherTool}
+        bridgeFactory={factory}
+      />,
+    );
+    await flushAsync();
+
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(factory.mock.calls[1]?.[1]).toBe(otherTool);
+    expect(first.teardownResource).toHaveBeenCalledTimes(1);
+    expect(first.close).toHaveBeenCalledTimes(1);
+  });
+
   it("swallows teardownResource errors but still closes the transport", async () => {
     const bridge = createMockBridge();
     bridge.teardownResource.mockRejectedValueOnce(new Error("teardown failed"));
