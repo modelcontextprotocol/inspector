@@ -17,7 +17,10 @@ import {
   parseClientConfig,
   saveClientConfig,
 } from "@inspector/core/client/config.js";
-import { formatClientConfigLoadError } from "@inspector/core/client/config-parse.js";
+import {
+  formatClientConfigLoadError,
+  isAbsoluteUrl,
+} from "@inspector/core/client/config-parse.js";
 import {
   getActiveEnterpriseManagedAuthIdp,
   isEnterpriseManagedAuthEnabled,
@@ -85,6 +88,13 @@ describe("client config", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("isAbsoluteUrl accepts absolute URLs and trims, rejects others", () => {
+    expect(isAbsoluteUrl("https://idp.example.com")).toBe(true);
+    expect(isAbsoluteUrl("  https://idp.example.com  ")).toBe(true);
+    expect(isAbsoluteUrl("not-a-url")).toBe(false);
+    expect(isAbsoluteUrl("")).toBe(false);
   });
 
   it("loadClientConfig returns {} when file is absent", async () => {

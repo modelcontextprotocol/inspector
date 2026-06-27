@@ -5,9 +5,14 @@
 import { z } from "zod";
 import type { ClientConfig } from "./types.js";
 
+/** True when `value` (trimmed) parses as an absolute URL. */
+export function isAbsoluteUrl(value: string): boolean {
+  return URL.canParse(value.trim());
+}
+
 const HttpUrlStringSchema = z.string().min(1).superRefine((val, ctx) => {
   const trimmed = val.trim();
-  if (!URL.canParse(trimmed)) {
+  if (!isAbsoluteUrl(trimmed)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: `Invalid URL: "${trimmed}" — must be an absolute URL (e.g. https://idp.example.com)`,
