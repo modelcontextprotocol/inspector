@@ -202,6 +202,7 @@ export function ServerCard({
             <ContentViewer
               block={{ type: "text", text: commandOrUrl }}
               copyable
+              wrap={false}
             />
 
             <Group justify="space-between">
