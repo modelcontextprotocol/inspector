@@ -1,6 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Badge, Button, Card, Group, Stack, Text } from "@mantine/core";
-import { BorderAnimate } from "@gfazioli/mantine-border-animate";
 import type {
   MCPServerConfig,
   ServerEntry,
@@ -35,9 +34,8 @@ export interface ServerCardProps extends ServerEntry {
    */
   dragHandle?: ReactNode;
   /**
-   * When true, the card is freshly added: it draws an animated border (Mantine
-   * Border Animate) to draw the eye. Cleared by `onClearHighlight` on any click
-   * on the card.
+   * When true, the card is freshly added: it draws a green border to draw the
+   * eye. Cleared by `onClearHighlight` on any click on the card.
    */
   highlighted?: boolean;
   /**
@@ -47,7 +45,7 @@ export interface ServerCardProps extends ServerEntry {
    * Defaults to true.
    */
   scrollOnHighlight?: boolean;
-  /** Called when a highlighted card is clicked, to dismiss the animated border. */
+  /** Called when a highlighted card is clicked, to dismiss the green border. */
   onClearHighlight?: () => void;
 }
 
@@ -156,16 +154,20 @@ export function ServerCard({
   const protocolVersion =
     connection.status === "connected" ? connection.protocolVersion : undefined;
 
-  const card = (
+  // A dimmed card (another server is active) is inert, so the disabled variant
+  // wins; otherwise a freshly-added card draws the highlighted green border.
+  const variant = isDimmed
+    ? "disabled"
+    : highlighted
+      ? "highlighted"
+      : undefined;
+
+  return (
     <Card
       ref={rootRef}
       withBorder
       padding="lg"
-      // BorderAnimate's wrapper is display:flex, so the card must stretch to
-      // fill it — otherwise the card shrinks to content width while the
-      // animated border spans the full grid cell.
-      w="100%"
-      variant={isDimmed ? "disabled" : undefined}
+      variant={variant}
       onClick={highlighted ? onClearHighlight : undefined}
       {...(isDimmed ? { "aria-disabled": true, inert: true } : {})}
     >
@@ -236,20 +238,5 @@ export function ServerCard({
         )}
       </Stack>
     </Card>
-  );
-
-  // Always render the wrapper and toggle `show`/`animate` rather than
-  // conditionally wrapping — swapping the element type on clear would remount
-  // the card (and its connect toggle / buttons), swallowing the click that
-  // triggered the clear.
-  return (
-    <BorderAnimate
-      show={highlighted}
-      animate={highlighted}
-      radius="md"
-      w="100%"
-    >
-      {card}
-    </BorderAnimate>
   );
 }

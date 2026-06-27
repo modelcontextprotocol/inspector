@@ -37,6 +37,17 @@ export const ThemeCard = Card.extend({
         },
       };
     }
+    if (props.variant === "highlighted") {
+      // Freshly-added / called-out server card: a prominent green border draws
+      // the eye until the highlight is dismissed (#1535).
+      return {
+        root: {
+          backgroundColor: "var(--inspector-surface-card)",
+          borderColor: "var(--inspector-highlight-border)",
+          borderWidth: 2,
+        },
+      };
+    }
     if (props.variant === "preview") {
       // Container for the resource preview / template form panels: sizes to
       // content (no forced height) but caps at the screen's available area
