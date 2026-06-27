@@ -22,7 +22,7 @@ const HttpUrlStringSchema = z.string().min(1).superRefine((val, ctx) => {
   if (!isAbsoluteHttpUrl(trimmed)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: `Invalid URL: "${trimmed}" — must be an absolute URL (e.g. https://idp.example.com)`,
+      message: `Invalid URL: "${trimmed}" — must be an http(s) URL (e.g. https://idp.example.com)`,
     });
   }
 });

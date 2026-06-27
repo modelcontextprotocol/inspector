@@ -1,9 +1,9 @@
 import type { ClientConfig } from "@inspector/core/client/types.js";
 import { isAbsoluteHttpUrl } from "@inspector/core/client/config-parse.js";
 
-/** Field-level error message for an issuer that is not an absolute URL. */
+/** Field-level error message for an issuer that is not an http(s) URL. */
 export const ISSUER_URL_ERROR =
-  "Must be an absolute URL, like https://idp.example.com";
+  "Must be an http(s) URL, like https://idp.example.com";
 
 /** Field-level validation errors for the client settings form. */
 export interface ClientSettingsErrors {
