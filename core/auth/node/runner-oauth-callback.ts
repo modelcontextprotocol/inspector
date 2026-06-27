@@ -72,7 +72,11 @@ export function parseRunnerOAuthCallbackUrl(
   return { hostname, port, pathname };
 }
 
-/** Build the redirect_uri string sent to the authorization server. */
+/**
+ * Build the redirect_uri string sent to the authorization server.
+ * Port 0 yields `…:0/…`; the TUI overwrites `redirectUrlProvider.redirectUrl`
+ * with the bound listener URL before OAuth starts, so :0 is never sent to the AS.
+ */
 export function formatRunnerOAuthRedirectUrl(
   config: RunnerOAuthCallbackConfig,
 ): string {
