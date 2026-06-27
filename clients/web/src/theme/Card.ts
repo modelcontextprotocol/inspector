@@ -39,7 +39,9 @@ export const ThemeCard = Card.extend({
     }
     if (props.variant === "highlighted") {
       // Freshly-added / called-out server card: a prominent green border draws
-      // the eye until the highlight is dismissed (#1535).
+      // the eye until the highlight is dismissed (#1535). Only the color/width
+      // are set here — the border itself comes from the inherited
+      // `withBorder: true` default above, so keep that default if changing it.
       return {
         root: {
           backgroundColor: "var(--inspector-surface-card)",
