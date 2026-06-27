@@ -5,6 +5,7 @@ import type {
   InitializeResult,
   Prompt,
   Resource,
+  ServerCapabilities,
   Task,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -154,11 +155,33 @@ const sampleServer: ServerEntry = {
   connection: { status: "disconnected" },
 };
 
+// A server that advertises every primitive capability. Each header tab is
+// gated on the matching capability field (#1516), so most connected-mode
+// tests use this fixture to make the corresponding tabs present; the
+// capability-gating tests below override `capabilities` to drop or restore
+// individual fields.
+const allCapabilities: ServerCapabilities = {
+  tools: {},
+  prompts: {},
+  resources: {},
+  logging: {},
+  tasks: {},
+};
+
 const connectedInit: InitializeResult = {
   protocolVersion: "2025-06-18",
-  capabilities: {},
+  capabilities: allCapabilities,
   serverInfo: { name: "Alpha", version: "1.0.0" },
 };
+
+// Builds an initialize result with a specific capability set, otherwise
+// identical to `connectedInit`. Used by the capability-gating tests to assert
+// a tab appears/disappears purely on the advertised capability.
+function initWithCapabilities(
+  capabilities: ServerCapabilities,
+): InitializeResult {
+  return { ...connectedInit, capabilities };
+}
 
 // A tool the `isAppTool` filter recognizes (it carries `_meta.ui.resourceUri`),
 // so its presence in the tool list makes the Apps tab available (#1450).
@@ -169,9 +192,9 @@ const sampleAppTool: Tool = {
   _meta: { ui: { resourceUri: "ui://apps/ops" } },
 };
 
-// Prompts, Resources, and Tasks tabs are content-gated like Apps (#1450):
-// each is hidden until its list has an entry. These fixtures populate the
-// lists so the associated tab is available.
+// Prompts, Resources, and Tasks tabs are gated on the server's advertised
+// capability (#1516), not on content. These fixtures populate the lists where
+// a test needs an entry rendered on the screen (e.g. list-changed indicator).
 const samplePrompt: Prompt = { name: "greet" };
 const sampleResource: Resource = {
   uri: "file:///readme.md",
@@ -380,6 +403,116 @@ describe("InspectorView", () => {
     expect(labels).toContain("Network");
   });
 
+  it("hides the Tools tab when the server does not advertise the tools capability", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          // No `tools` capability — only logging is advertised.
+          initializeResult: initWithCapabilities({ logging: {} }),
+          // A non-empty tool list must not override the missing capability.
+          tools: [{ name: "echo", inputSchema: { type: "object" } }],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).not.toContain("Tools");
+    // Sibling capability is independent — Logs is present, Apps stays hidden
+    // (Apps build on the tools capability).
+    expect(labels).toContain("Logs");
+    expect(labels).not.toContain("Apps");
+  });
+
+  it("shows the Tools tab when the server advertises tools even with an empty list", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: initWithCapabilities({ tools: {} }),
+          tools: [],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).toContain("Tools");
+  });
+
+  it("hides the Logs tab when the server does not advertise the logging capability", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: initWithCapabilities({ tools: {} }),
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Tools");
+    expect(labels).not.toContain("Logs");
+  });
+
+  it("shows the Logs tab when the server advertises the logging capability", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: initWithCapabilities({ logging: {} }),
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).toContain("Logs");
+  });
+
+  it("keeps History available regardless of advertised server capabilities", async () => {
+    // History is a local client-side log — never gated on server capabilities.
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          // Empty capability set: every server-capability tab is hidden.
+          initializeResult: initWithCapabilities({}),
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Servers");
+    expect(labels).toContain("History");
+    expect(labels).not.toContain("Tools");
+    expect(labels).not.toContain("Logs");
+  });
+
+  it("hides the Apps tab when app tools exist but the server omits the tools capability", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          // Logging only — no tools capability, even though an app tool is
+          // present in the (stale/optimistic) list.
+          initializeResult: initWithCapabilities({ logging: {} }),
+          tools: [sampleAppTool],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).not.toContain("Apps");
+  });
+
   it("filters tools to apps and auto-launches a no-fields app on the Apps tab", async () => {
     const user = userEvent.setup();
     // Plain (non-app) tool plus a tool with a malformed UI resource URI
@@ -535,15 +668,18 @@ describe("InspectorView", () => {
     expect(screen.getByDisplayValue("Servers")).toBeInTheDocument();
   });
 
-  it("hides the Prompts tab when the server exposes no prompts", async () => {
+  it("hides the Prompts tab when the server does not advertise the prompts capability", async () => {
     renderWithMantine(
       <InspectorView
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
           connectionStatus: "connected",
-          initializeResult: connectedInit,
-          prompts: [],
+          // Advertise tools but not prompts.
+          initializeResult: initWithCapabilities({ tools: {} }),
+          // Content is irrelevant to gating now — even a populated list stays
+          // hidden when the capability is absent.
+          prompts: [samplePrompt],
         })}
       />,
     );
@@ -553,48 +689,35 @@ describe("InspectorView", () => {
     expect(labels).not.toContain("Prompts");
   });
 
-  it("reveals the Prompts tab live when a prompt arrives via list-changed refresh", async () => {
-    const { rerender } = renderWithMantine(
-      <InspectorView
-        {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          prompts: [],
-        })}
-      />,
-    );
-    let radios = await screen.findAllByRole("radio");
-    expect(radios.map((r) => r.getAttribute("value"))).not.toContain("Prompts");
-
-    rerender(
-      <InspectorView
-        {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          prompts: [samplePrompt],
-        })}
-      />,
-    );
-    await waitFor(async () => {
-      radios = await screen.findAllByRole("radio");
-      expect(radios.map((r) => r.getAttribute("value"))).toContain("Prompts");
-    });
-  });
-
-  it("hides the Resources tab when the server exposes no resources or templates", async () => {
+  it("shows the Prompts tab when the server advertises prompts even with an empty list", async () => {
     renderWithMantine(
       <InspectorView
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
           connectionStatus: "connected",
-          initializeResult: connectedInit,
-          resources: [],
-          resourceTemplates: [],
+          initializeResult: initWithCapabilities({ prompts: {} }),
+          // No prompts yet — the tab is still available because the server
+          // advertises the capability (#1516).
+          prompts: [],
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).toContain("Prompts");
+  });
+
+  it("hides the Resources tab when the server does not advertise the resources capability", async () => {
+    renderWithMantine(
+      <InspectorView
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: initWithCapabilities({ tools: {} }),
+          // Populated lists are ignored when the capability is absent.
+          resources: [sampleResource],
+          resourceTemplates: [{ uriTemplate: "file:///{path}", name: "Files" }],
         })}
       />,
     );
@@ -604,16 +727,16 @@ describe("InspectorView", () => {
     expect(labels).not.toContain("Resources");
   });
 
-  it("shows the Resources tab when the server exposes only resource templates", async () => {
+  it("shows the Resources tab when the server advertises resources even with empty lists", async () => {
     renderWithMantine(
       <InspectorView
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
           connectionStatus: "connected",
-          initializeResult: connectedInit,
+          initializeResult: initWithCapabilities({ resources: {} }),
           resources: [],
-          resourceTemplates: [{ uriTemplate: "file:///{path}", name: "Files" }],
+          resourceTemplates: [],
         })}
       />,
     );
@@ -621,51 +744,16 @@ describe("InspectorView", () => {
     expect(radios.map((r) => r.getAttribute("value"))).toContain("Resources");
   });
 
-  it("reveals the Resources tab live when a resource arrives via list-changed refresh", async () => {
-    const { rerender } = renderWithMantine(
-      <InspectorView
-        {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          resources: [],
-          resourceTemplates: [],
-        })}
-      />,
-    );
-    let radios = await screen.findAllByRole("radio");
-    expect(radios.map((r) => r.getAttribute("value"))).not.toContain(
-      "Resources",
-    );
-
-    rerender(
-      <InspectorView
-        {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          resources: [sampleResource],
-          resourceTemplates: [],
-        })}
-      />,
-    );
-    await waitFor(async () => {
-      radios = await screen.findAllByRole("radio");
-      expect(radios.map((r) => r.getAttribute("value"))).toContain("Resources");
-    });
-  });
-
-  it("hides the Tasks tab when the server has created no tasks", async () => {
+  it("hides the Tasks tab when the server does not advertise the tasks capability", async () => {
     renderWithMantine(
       <InspectorView
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
           connectionStatus: "connected",
-          initializeResult: connectedInit,
-          tasks: [],
+          initializeResult: initWithCapabilities({ tools: {} }),
+          // An existing task is ignored when the capability is absent.
+          tasks: [sampleTask],
         })}
       />,
     );
@@ -675,15 +763,15 @@ describe("InspectorView", () => {
     expect(labels).not.toContain("Tasks");
   });
 
-  it("shows the Tasks tab when at least one task exists", async () => {
+  it("shows the Tasks tab when the server advertises tasks even with no tasks yet", async () => {
     renderWithMantine(
       <InspectorView
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
           connectionStatus: "connected",
-          initializeResult: connectedInit,
-          tasks: [sampleTask],
+          initializeResult: initWithCapabilities({ tasks: {} }),
+          tasks: [],
         })}
       />,
     );
@@ -691,35 +779,40 @@ describe("InspectorView", () => {
     expect(radios.map((r) => r.getAttribute("value"))).toContain("Tasks");
   });
 
-  it("reveals the Tasks tab live when a task is created", async () => {
+  it("recomputes tabs from the new capability set when reconnecting to a different server", async () => {
+    // First server advertises tasks but not logging.
     const { rerender } = renderWithMantine(
       <InspectorView
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
           connectionStatus: "connected",
-          initializeResult: connectedInit,
-          tasks: [],
+          initializeResult: initWithCapabilities({ tools: {}, tasks: {} }),
         })}
       />,
     );
     let radios = await screen.findAllByRole("radio");
-    expect(radios.map((r) => r.getAttribute("value"))).not.toContain("Tasks");
+    let labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Tasks");
+    expect(labels).not.toContain("Logs");
 
+    // Reconnect to a server that advertises logging but not tasks — the tabs
+    // recompute purely from the new capability set.
     rerender(
       <InspectorView
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
           connectionStatus: "connected",
-          initializeResult: connectedInit,
-          tasks: [sampleTask],
+          initializeResult: initWithCapabilities({ tools: {}, logging: {} }),
         })}
       />,
     );
     await waitFor(async () => {
       radios = await screen.findAllByRole("radio");
-      expect(radios.map((r) => r.getAttribute("value"))).toContain("Tasks");
+      labels = radios.map((r) => r.getAttribute("value"));
+      expect(labels).toContain("Logs");
+      expect(labels).not.toContain("Tasks");
     });
   });
 
@@ -1025,7 +1118,8 @@ describe("InspectorView", () => {
             activeServer: "alpha",
             connectionStatus: "connected",
             initializeResult: connectedInit,
-            // An app tool is required for the Apps tab to be available (#1450).
+            // An app tool is required for the Apps tab to be available — Apps
+            // keeps a content check on top of the tools capability (#1516).
             tools: [sampleAppTool],
             toolsListChanged: true,
           })}
@@ -1043,7 +1137,8 @@ describe("InspectorView", () => {
             activeServer: "alpha",
             connectionStatus: "connected",
             initializeResult: connectedInit,
-            // A prompt is required for the Prompts tab to be available (#1450).
+            // connectedInit advertises prompts, so the tab is available; the
+            // prompt populates the screen so the indicator has a list to mark.
             prompts: [samplePrompt],
             promptsListChanged: true,
           })}
@@ -1061,7 +1156,8 @@ describe("InspectorView", () => {
             activeServer: "alpha",
             connectionStatus: "connected",
             initializeResult: connectedInit,
-            // A resource is required for the Resources tab to be available (#1450).
+            // connectedInit advertises resources, so the tab is available; the
+            // resource populates the screen so the indicator has a list to mark.
             resources: [sampleResource],
             resourcesListChanged: true,
           })}
@@ -1079,7 +1175,7 @@ describe("InspectorView", () => {
             activeServer: "alpha",
             connectionStatus: "connected",
             initializeResult: connectedInit,
-            // A prompt is required for the Prompts tab to be available (#1450).
+            // connectedInit advertises prompts, so the Prompts tab is available.
             prompts: [samplePrompt],
             // Tools changed, but Prompts did not — the Prompts screen must
             // stay quiet.
