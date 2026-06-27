@@ -31,19 +31,11 @@ prompts directly shape what gets built.
 
 ## How to contribute a bug report or feature request
 
-Open a well-scoped issue on the appropriate version board. The Inspector
-maintains three lines of development, each with its own board and base branch:
-
-| Target | Board | Base branch | Label |
-| --- | --- | --- | --- |
-| v2 (current focus) | [v2 board](https://github.com/orgs/modelcontextprotocol/projects/28) | `v2/main` | `v2` |
-| v1.5 | [v1.5 board](https://github.com/orgs/modelcontextprotocol/projects/39) | `v1.5/main` | `v1.5` |
-| v1 (legacy) | [v1 board](https://github.com/orgs/modelcontextprotocol/projects/11) | `main` | `v1` |
-
-Most new work targets **v2** — open it on the v2 board and label it `v2`. Apply
-the label that matches the target version (`v1` / `v1.5` / `v2`) so the issue
-can be filtered correctly; see the "Label by version" convention in
-[`AGENTS.md`](./AGENTS.md).
+Open a well-formed issue describing the bug or the feature you have in mind.
+A great issue gives us everything we need to act on it without a round-trip —
+see [What makes a good issue or prompt submission](#what-makes-a-good-issue-or-prompt-submission)
+below. That's the whole process: you describe the intent, we handle the design
+and implementation.
 
 ## If you've already fixed it locally
 
@@ -75,5 +67,5 @@ A great submission gives us everything we need to act without a round-trip:
 
 ## Questions
 
-If you're unsure which board or label applies, open the issue on the v2 board
-and say so — we'll route it. Thanks for helping make the Inspector better.
+If you're unsure how to scope something, open the issue anyway and say so —
+we'll help shape it. Thanks for helping make the Inspector better.
