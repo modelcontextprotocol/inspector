@@ -4,6 +4,8 @@ import {
   clientConfigToFormValues,
   EMPTY_CLIENT_SETTINGS,
   formValuesToClientConfig,
+  ISSUER_URL_ERROR,
+  validateClientSettings,
 } from "./clientSettingsValues";
 
 describe("clientSettingsValues", () => {
@@ -127,5 +129,60 @@ describe("clientSettingsValues", () => {
         clientSecret: "",
       }),
     ).toBe(false);
+  });
+
+  it("canPersistClientSettingsDraft blocks an invalid issuer URL", () => {
+    expect(
+      canPersistClientSettingsDraft({
+        emaEnabled: true,
+        issuer: "not-a-url",
+        clientId: "cid",
+        clientSecret: "",
+      }),
+    ).toBe(false);
+  });
+
+  it("validateClientSettings flags an invalid issuer URL", () => {
+    expect(
+      validateClientSettings({
+        emaEnabled: true,
+        issuer: "not-a-url",
+        clientId: "cid",
+        clientSecret: "",
+      }),
+    ).toEqual({ issuer: ISSUER_URL_ERROR });
+  });
+
+  it("validateClientSettings passes a valid issuer URL", () => {
+    expect(
+      validateClientSettings({
+        emaEnabled: true,
+        issuer: "https://idp.test",
+        clientId: "cid",
+        clientSecret: "",
+      }),
+    ).toEqual({});
+  });
+
+  it("validateClientSettings ignores an empty issuer", () => {
+    expect(
+      validateClientSettings({
+        emaEnabled: true,
+        issuer: "",
+        clientId: "cid",
+        clientSecret: "",
+      }),
+    ).toEqual({});
+  });
+
+  it("validateClientSettings ignores issuer when EMA disabled", () => {
+    expect(
+      validateClientSettings({
+        emaEnabled: false,
+        issuer: "not-a-url",
+        clientId: "cid",
+        clientSecret: "",
+      }),
+    ).toEqual({});
   });
 });

@@ -2,7 +2,10 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { ClientSettingsForm } from "./ClientSettingsForm";
-import { EMPTY_CLIENT_SETTINGS } from "./clientSettingsValues";
+import {
+  EMPTY_CLIENT_SETTINGS,
+  ISSUER_URL_ERROR,
+} from "./clientSettingsValues";
 
 describe("ClientSettingsForm EMA IdP session", () => {
   it("shows signed-in state and sign out", async () => {
@@ -48,6 +51,42 @@ describe("ClientSettingsForm EMA IdP session", () => {
     expect(
       screen.queryByRole("button", { name: "Sign out" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows an inline error for an invalid issuer URL", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={{
+          ...EMPTY_CLIENT_SETTINGS,
+          emaEnabled: true,
+          issuer: "not-a-url",
+        }}
+        expandedSections={["ema"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        emaIdpLoginState="none"
+      />,
+    );
+
+    expect(screen.getByText(ISSUER_URL_ERROR)).toBeInTheDocument();
+  });
+
+  it("shows no issuer error for a valid URL", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={{
+          ...EMPTY_CLIENT_SETTINGS,
+          emaEnabled: true,
+          issuer: "https://idp.test",
+        }}
+        expandedSections={["ema"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        emaIdpLoginState="none"
+      />,
+    );
+
+    expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
   });
 
   it("shows expired state with sign out", () => {

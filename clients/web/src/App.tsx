@@ -2358,7 +2358,7 @@ function App() {
     onError: (err) => {
       notifications.show({
         title: "Failed to save client settings",
-        message: err instanceof Error ? err.message : String(err),
+        message: formatClientConfigLoadError(err),
         color: "red",
       });
     },
