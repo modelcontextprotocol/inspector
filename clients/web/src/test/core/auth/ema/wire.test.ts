@@ -77,6 +77,64 @@ describe("ema wire", () => {
       expect(idJag).toBe(ID_JAG);
     });
 
+    it("throws when IdP metadata is missing a token_endpoint", async () => {
+      const errorSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      // All discovery endpoints 404 → SDK returns undefined metadata.
+      const fetchFn = vi.fn(
+        async () => new Response("not found", { status: 404 }),
+      );
+
+      await expect(
+        exchangeIdJag({
+          idp: {
+            issuer: IDP_ISSUER,
+            clientId: EMA_MOCK_IDP_CLIENT_ID,
+            clientSecret: EMA_MOCK_IDP_CLIENT_SECRET,
+          },
+          idToken: ID_TOKEN,
+          audience: AS_ISSUER,
+          fetchFn,
+        }),
+      ).rejects.toThrow(/IdP metadata missing token_endpoint/);
+      errorSpy.mockRestore();
+    });
+
+    it("sets resource and scope params and throws when no ID-JAG is returned", async () => {
+      const fetchFn = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url.includes("/.well-known/oauth-authorization-server")) {
+            return new Response(JSON.stringify(idpMetadata()));
+          }
+          if (url === `${IDP_ISSUER}/token`) {
+            const body = new URLSearchParams(init?.body as string);
+            expect(body.get("resource")).toBe("https://mcp.test/resource");
+            expect(body.get("scope")).toBe("mcp profile");
+            // 200 OK but empty access_token → ID-JAG missing branch.
+            return new Response(JSON.stringify({ issued_token_type: "x" }));
+          }
+          throw new Error(`unexpected fetch: ${url}`);
+        },
+      );
+
+      await expect(
+        exchangeIdJag({
+          idp: {
+            issuer: IDP_ISSUER,
+            clientId: EMA_MOCK_IDP_CLIENT_ID,
+            clientSecret: EMA_MOCK_IDP_CLIENT_SECRET,
+          },
+          idToken: ID_TOKEN,
+          audience: AS_ISSUER,
+          resource: "https://mcp.test/resource",
+          scope: "mcp profile",
+          fetchFn,
+        }),
+      ).rejects.toThrow(/did not return an ID-JAG/);
+    });
+
     it("throws when IdP token exchange fails", async () => {
       const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
@@ -145,6 +203,71 @@ describe("ema wire", () => {
 
       expect(tokens.access_token).toBe(ACCESS_TOKEN);
       expect(tokens.token_type).toBe("Bearer");
+    });
+
+    it("sets resource and scope params and uses public-client auth when no secret", async () => {
+      const fetchFn = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url.includes("/.well-known/oauth-authorization-server")) {
+            return new Response(JSON.stringify(asMetadata()));
+          }
+          if (url === `${AS_ISSUER}/token`) {
+            const body = new URLSearchParams(init?.body as string);
+            expect(body.get("scope")).toBe("mcp");
+            expect(body.get("resource")).toBe("https://mcp.test/resource");
+            expect(body.get("client_id")).toBe(EMA_MOCK_RESOURCE_CLIENT_ID);
+            expect(body.get("client_secret")).toBeNull();
+            return new Response(
+              JSON.stringify({
+                access_token: ACCESS_TOKEN,
+                token_type: "Bearer",
+              }),
+            );
+          }
+          throw new Error(`unexpected fetch: ${url}`);
+        },
+      );
+
+      const tokens = await redeemIdJagForAccessToken({
+        resourceAsUrl: new URL(AS_ISSUER),
+        idJag: ID_JAG,
+        resourceClientId: EMA_MOCK_RESOURCE_CLIENT_ID,
+        resource: "https://mcp.test/resource",
+        scope: "mcp",
+        fetchFn,
+      });
+
+      expect(tokens.access_token).toBe(ACCESS_TOKEN);
+    });
+
+    it("throws when the resource AS JWT bearer grant fails", async () => {
+      const errorSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/.well-known/oauth-authorization-server")) {
+          return new Response(JSON.stringify(asMetadata()));
+        }
+        if (url === `${AS_ISSUER}/token`) {
+          return new Response(JSON.stringify({ error: "invalid_grant" }), {
+            status: 400,
+          });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+
+      await expect(
+        redeemIdJagForAccessToken({
+          resourceAsUrl: new URL(AS_ISSUER),
+          idJag: ID_JAG,
+          resourceClientId: EMA_MOCK_RESOURCE_CLIENT_ID,
+          resourceClientSecret: EMA_MOCK_RESOURCE_CLIENT_SECRET,
+          fetchFn,
+        }),
+      ).rejects.toThrow(/EMA leg 3/);
+      errorSpy.mockRestore();
     });
   });
 });

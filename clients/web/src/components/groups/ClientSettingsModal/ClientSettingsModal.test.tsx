@@ -87,4 +87,48 @@ describe("ClientSettingsModal", () => {
       onSettingsChange.mock.calls[onSettingsChange.mock.calls.length - 1][0];
     expect(call.issuer).toBe("h");
   });
+
+  it("collapses then re-expands all sections via the list toggle", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ClientSettingsModal
+        opened
+        settings={EMPTY_CLIENT_SETTINGS}
+        onClose={vi.fn()}
+        onSettingsChange={vi.fn()}
+      />,
+    );
+
+    // Starts fully expanded (all sections open), so the toggle offers "Collapse all".
+    const collapse = screen.getByRole("button", { name: "Collapse all" });
+    expect(collapse).toBeInTheDocument();
+    // The EMA section panel content is visible while expanded.
+    expect(
+      screen.getByText("Enable enterprise IdP configuration"),
+    ).toBeInTheDocument();
+
+    // Collapse all -> handleToggleAll sets expandedSections to [].
+    await user.click(collapse);
+    expect(
+      screen.getByRole("button", { name: "Expand all" }),
+    ).toBeInTheDocument();
+
+    // Expand all -> handleToggleAll restores ALL_SECTIONS.
+    await user.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(
+      screen.getByRole("button", { name: "Collapse all" }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not render the modal body when closed", () => {
+    renderWithMantine(
+      <ClientSettingsModal
+        opened={false}
+        settings={EMPTY_CLIENT_SETTINGS}
+        onClose={vi.fn()}
+        onSettingsChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Client Settings")).not.toBeInTheDocument();
+  });
 });

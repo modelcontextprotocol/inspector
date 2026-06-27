@@ -3,6 +3,9 @@ import type { OAuthStorage } from "@inspector/core/auth/storage.js";
 import {
   mintEmaResourceTokens,
   trySilentEmaAuth,
+  startEmaIdpAuthorization,
+  completeEmaIdpAuthorizationAndMint,
+  refreshEmaResourceTokens,
   type EmaFlowConfig,
 } from "@inspector/core/auth/ema/emaFlow.js";
 import type { EmaResourceContext } from "@inspector/core/auth/ema/resourceContext.js";
@@ -36,13 +39,30 @@ function createMemoryStorage(
   idpSessions: Record<string, { idToken?: string; refreshToken?: string }> = {},
   savedTokens: Record<string, unknown> = {},
 ): OAuthStorage {
+  const metadataByKey: Record<string, unknown> = {};
+  const clientInfoByKey: Record<string, unknown> = {};
+  const codeVerifierByKey: Record<string, string> = {};
   return {
     getIdpSession: vi.fn(async (issuer: string) => idpSessions[issuer]),
     saveIdpSession: vi.fn(async (issuer: string, updates) => {
       idpSessions[issuer] = { ...idpSessions[issuer], ...updates };
     }),
     clearIdpSession: vi.fn(),
-    getServerMetadata: vi.fn(() => undefined),
+    getServerMetadata: vi.fn((key: string) => metadataByKey[key]),
+    saveServerMetadata: vi.fn((key: string, metadata: unknown) => {
+      metadataByKey[key] = metadata;
+    }),
+    getClientInformation: vi.fn((key: string) => clientInfoByKey[key]),
+    savePreregisteredClientInformation: vi.fn((key: string, info: unknown) => {
+      clientInfoByKey[key] = info;
+    }),
+    getCodeVerifier: vi.fn((key: string) => codeVerifierByKey[key]),
+    saveCodeVerifier: vi.fn((key: string, verifier: string) => {
+      codeVerifierByKey[key] = verifier;
+    }),
+    clearCodeVerifier: vi.fn((key: string) => {
+      delete codeVerifierByKey[key];
+    }),
     getTokens: vi.fn(async (url: string) => savedTokens[url] as never),
     saveTokens: vi.fn(async (url: string, tokens) => {
       savedTokens[url] = tokens;
@@ -105,6 +125,16 @@ function mockEmaFetch(idToken: string) {
         const refreshed = jwtWithExp(Math.floor(Date.now() / 1000) + 3600);
         return new Response(
           JSON.stringify({ id_token: refreshed, token_type: "Bearer" }),
+        );
+      }
+      if (body.get("grant_type") === "authorization_code") {
+        return new Response(
+          JSON.stringify({
+            access_token: "idp-access",
+            id_token: idToken,
+            refresh_token: "idp-refresh",
+            token_type: "Bearer",
+          }),
         );
       }
       expect(body.get("grant_type")).toBe(GRANT_TYPE_TOKEN_EXCHANGE);
@@ -292,5 +322,119 @@ describe("emaFlow", () => {
 
     expect(tokens.access_token).toBe("resource-access-token");
     expect(idpSessions[IDP_ISSUER]?.idToken).toBe(refreshed);
+  });
+
+  it("mintEmaResourceTokens throws when resourceClientId is missing", async () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const idToken = jwtWithExp(exp);
+    idpSessions[IDP_ISSUER] = { idToken };
+
+    await expect(
+      mintEmaResourceTokens(
+        {
+          ...baseConfig(storage),
+          resourceClientId: undefined,
+          fetchFn: mockEmaFetch(idToken),
+        },
+        resourceContext(),
+      ),
+    ).rejects.toThrow(/resource authorization server clientId/);
+  });
+
+  it("mintEmaResourceTokens discovers resource context when none is passed", async () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const idToken = jwtWithExp(exp);
+    idpSessions[IDP_ISSUER] = { idToken };
+
+    const tokens = await mintEmaResourceTokens({
+      ...baseConfig(storage),
+      fetchFn: mockEmaFetch(idToken),
+    });
+
+    expect(tokens.access_token).toBe("resource-access-token");
+  });
+
+  it("startEmaIdpAuthorization returns the IdP authorization URL", async () => {
+    const idToken = jwtWithExp(Math.floor(Date.now() / 1000) + 3600);
+    const url = await startEmaIdpAuthorization({
+      ...baseConfig(storage),
+      fetchFn: mockEmaFetch(idToken),
+    });
+
+    expect(url).toBeInstanceOf(URL);
+    expect(url.href).toContain(`${IDP_ISSUER}/authorize`);
+    expect(storage.saveCodeVerifier).toHaveBeenCalled();
+  });
+
+  it("completeEmaIdpAuthorizationAndMint exchanges code, mints, and saves tokens", async () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const idToken = jwtWithExp(exp);
+    const fetchFn = mockEmaFetch(idToken);
+    const config = { ...baseConfig(storage), fetchFn };
+
+    // Seed code verifier / client info / metadata for the callback exchange.
+    await startEmaIdpAuthorization(config);
+
+    const tokens = await completeEmaIdpAuthorizationAndMint(
+      config,
+      "auth-code",
+    );
+
+    expect(tokens.access_token).toBe("resource-access-token");
+    expect(storage.saveTokens).toHaveBeenCalledWith(
+      SERVER_URL,
+      expect.objectContaining({ access_token: "resource-access-token" }),
+      { enterpriseManaged: true },
+    );
+  });
+
+  it("completeEmaIdpAuthorizationAndMint wraps leg 1 errors", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    // No startEmaIdpAuthorization → no metadata seeded → leg 1 fails.
+    await expect(
+      completeEmaIdpAuthorizationAndMint(baseConfig(storage), "auth-code"),
+    ).rejects.toThrow(/EMA leg 1 \(IdP authorization code exchange\)/);
+    errorSpy.mockRestore();
+  });
+
+  it("completeEmaIdpAuthorizationAndMint wraps mint failures from legs 2–3", async () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const idToken = jwtWithExp(exp);
+    const fetchFn = mockEmaFetch(idToken);
+    const config = {
+      ...baseConfig(storage),
+      resourceClientSecret: "",
+      fetchFn,
+    };
+
+    await startEmaIdpAuthorization(config);
+
+    await expect(
+      completeEmaIdpAuthorizationAndMint(config, "auth-code"),
+    ).rejects.toThrow(/EMA legs 2–3 \(resource token mint\)/);
+  });
+
+  it("refreshEmaResourceTokens re-runs legs 2–3 and saves tagged tokens", async () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const idToken = jwtWithExp(exp);
+    idpSessions[IDP_ISSUER] = { idToken };
+
+    const tokens = await refreshEmaResourceTokens({
+      ...baseConfig(storage),
+      fetchFn: mockEmaFetch(idToken),
+    });
+
+    expect(tokens?.access_token).toBe("resource-access-token");
+    expect(storage.saveTokens).toHaveBeenCalledWith(
+      SERVER_URL,
+      expect.objectContaining({ access_token: "resource-access-token" }),
+      { enterpriseManaged: true },
+    );
+  });
+
+  it("refreshEmaResourceTokens returns undefined without an IdP session", async () => {
+    expect(await refreshEmaResourceTokens(baseConfig(storage))).toBeUndefined();
   });
 });

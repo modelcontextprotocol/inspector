@@ -147,7 +147,13 @@ export default defineConfig({
         lines: 90,
         statements: 85,
         functions: 80,
-        branches: 50,
+        // Raised from 50 → 70 after auditing every per-file branch outlier
+        // (#1271). Mantine `useComputedColorScheme` dark-theme branches are now
+        // covered by mocking the hook; the remaining sub-100 files are purely
+        // defensive guards or happy-dom-inherent (portal / `useMediaQuery` /
+        // `typeof window` fallbacks) branches that can't be exercised. New
+        // business-logic branches must clear 70.
+        branches: 70,
       },
     },
     projects: [
