@@ -88,3 +88,20 @@ export function createInvalidConfig(): string {
 export function deleteConfigFile(configPath: string): void {
   cleanupTempDir(path.dirname(configPath));
 }
+
+/**
+ * Create a temporary install-level client.json for --client-config tests.
+ */
+export function createClientConfigFile(config: Record<string, unknown>): string {
+  const tempDir = createTempDir("mcp-inspector-client-config-");
+  const configPath = path.join(tempDir, "client.json");
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  return configPath;
+}
+
+/**
+ * Delete a client config file and its containing directory
+ */
+export function deleteClientConfigFile(configPath: string): void {
+  cleanupTempDir(path.dirname(configPath));
+}
