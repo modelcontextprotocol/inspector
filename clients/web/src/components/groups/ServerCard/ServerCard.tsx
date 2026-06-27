@@ -165,8 +165,6 @@ export function ServerCard({
   return (
     <Card
       ref={rootRef}
-      withBorder
-      padding="lg"
       variant={variant}
       onClick={highlighted ? onClearHighlight : undefined}
       {...(isDimmed ? { "aria-disabled": true, inert: true } : {})}
