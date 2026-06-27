@@ -19,6 +19,8 @@ const Summary = Paper.withProps({
 });
 
 function summarize(config: ServerEntry["config"] | undefined): string {
+  /* v8 ignore next -- defensive guard: every ServerEntry has a non-optional
+     config, so summarize is never called with undefined in practice. */
   if (!config) return "";
   // StdioServerConfig has `type?: "stdio"` (optional), which means
   // `config.type === "stdio"` doesn't narrow away the undefined-type stdio

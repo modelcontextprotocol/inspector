@@ -437,4 +437,49 @@ describe("emaFlow", () => {
   it("refreshEmaResourceTokens returns undefined without an IdP session", async () => {
     expect(await refreshEmaResourceTokens(baseConfig(storage))).toBeUndefined();
   });
+
+  it("trySilentEmaAuth wraps non-Error mint failures (String(err) branch)", async () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const idToken = jwtWithExp(exp);
+    idpSessions[IDP_ISSUER] = { idToken };
+
+    // Mint itself succeeds; saveTokens throws a non-Error string so the
+    // try/catch wraps it via wrapEmaMintError's String(err) branch.
+    vi.mocked(storage.saveTokens).mockImplementation(() => {
+      throw "boom-non-error";
+    });
+
+    const result = await trySilentEmaAuth({
+      ...baseConfig(storage),
+      fetchFn: mockEmaFetch(idToken),
+    });
+
+    expect(result.status).toBe("mint_failed");
+    if (result.status === "mint_failed") {
+      expect(result.error.message).toBe(
+        "EMA legs 2–3 (resource token mint): boom-non-error",
+      );
+    }
+  });
+
+  it("completeEmaIdpAuthorizationAndMint wraps non-Error leg-1 failures (String(err) branch)", async () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const idToken = jwtWithExp(exp);
+    const fetchFn = mockEmaFetch(idToken);
+    const config = { ...baseConfig(storage), fetchFn };
+
+    // Seed metadata/verifier so leg 1 would otherwise succeed, then make
+    // saveIdpSession (called at the end of leg 1) throw a non-Error so the
+    // leg-1 catch takes its String(err) branch.
+    await startEmaIdpAuthorization(config);
+    vi.mocked(storage.saveIdpSession).mockImplementation(() => {
+      throw "leg1-non-error";
+    });
+
+    await expect(
+      completeEmaIdpAuthorizationAndMint(config, "auth-code"),
+    ).rejects.toThrow(
+      "EMA leg 1 (IdP authorization code exchange): leg1-non-error",
+    );
+  });
 });

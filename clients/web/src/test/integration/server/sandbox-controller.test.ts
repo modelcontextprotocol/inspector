@@ -159,6 +159,34 @@ describe("createSandboxController", () => {
     }
   });
 
+  it("resolves with empty values + logs generically when listen fails with a non-EADDRINUSE error", async () => {
+    // An unresolvable bind host makes Node emit an `error` whose `code` is
+    // not EADDRINUSE (ENOTFOUND/EADDRNOTAVAIL depending on platform). This
+    // drives the non-EADDRINUSE branch of the error handler: a generic
+    // "Sandbox server error" log plus the same resolve-with-empty contract.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const controller = createSandboxController({
+      port: 0,
+      host: "256.256.256.256",
+    });
+    try {
+      const result = await controller.start();
+      expect(result).toEqual({ port: 0, url: "" });
+      expect(controller.getUrl()).toBeNull();
+      await expect(controller.close()).resolves.toBeUndefined();
+      expect(errorSpy).toHaveBeenCalledWith(
+        "Sandbox server error:",
+        expect.objectContaining({ code: expect.any(String) }),
+      );
+      // It must NOT have taken the EADDRINUSE branch.
+      expect(errorSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("in use"),
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it("resolves with empty values when listen fails (EADDRINUSE)", async () => {
     // Bind a placeholder HTTP server to claim a port, then point a sandbox
     // controller at the same port to force EADDRINUSE. The Vite plugin awaits
@@ -189,6 +217,40 @@ describe("createSandboxController", () => {
     } finally {
       errorSpy.mockRestore();
       await new Promise<void>((resolve) => blocker.close(() => resolve()));
+    }
+  });
+
+  it("serves a fallback page when the sandbox HTML file can't be read", async () => {
+    // The static `sandbox_proxy.html` always ships, so the only way to reach
+    // the read-failure fallback is to make `readFileSync` throw. Mock
+    // `node:fs` for an isolated module instance so the rest of the suite keeps
+    // the real fs.
+    vi.resetModules();
+    vi.doMock("node:fs", async () => {
+      const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+      return {
+        ...actual,
+        readFileSync: () => {
+          throw new Error("disk gone");
+        },
+      };
+    });
+    try {
+      const mod = await import("../../../../server/sandbox-controller.js");
+      const controller = mod.createSandboxController({ port: 0 });
+      try {
+        const { port } = await controller.start();
+        const res = await fetch(`http://localhost:${port}/sandbox`);
+        expect(res.status).toBe(200);
+        const body = await res.text();
+        expect(body).toContain("Sandbox not loaded");
+        expect(body).toContain("disk gone");
+      } finally {
+        await controller.close();
+      }
+    } finally {
+      vi.doUnmock("node:fs");
+      vi.resetModules();
     }
   });
 });

@@ -139,6 +139,11 @@ async function callMethod(
         if (invocation.result !== null) {
           result = invocation.result;
         } else {
+          /* v8 ignore next 9 -- unreachable: InspectorClient.callTool either
+             throws on a tool-execution/transport error (caught by the outer
+             try) or returns an invocation whose `result` is guaranteed
+             non-null (attemptToolCall throws if finalResult is falsy). This
+             else is defensive only. */
           result = {
             content: [
               {
@@ -250,6 +255,10 @@ function parseArgs(argv?: string[]): {
   // (exitCode 0) we return without throwing, so commander falls through to its
   // normal clean process.exit(0) after printing — preserving that UX. See #1484.
   program.exitOverride((err) => {
+    /* v8 ignore next -- the `exitCode === 0` arm only fires for --help/--version,
+       which cannot run through the in-process test runner (it would call the
+       real process.exit(0) and tear down the vitest worker). That UX is covered
+       out-of-process in e2e.test.ts; here only the throwing arm is exercised. */
     if (err.exitCode !== 0) throw err;
   });
   const rawArgs = argv ?? process.argv;

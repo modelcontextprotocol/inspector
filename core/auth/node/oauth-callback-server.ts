@@ -93,6 +93,10 @@ export class OAuthCallbackServer {
       this.server.on("error", reject);
       this.server.listen(port, hostname, () => {
         const a = this.server!.address();
+        /* v8 ignore next 4 -- defensive: a TCP server that has fired its
+           `listen` callback always reports an AddressInfo object (never null
+           and never a string, which only happens for a pipe/unix socket),
+           so this guard is unreachable from a successful `listen(port, host)`. */
         if (!a || typeof a === "string") {
           reject(new Error("Failed to get server address"));
           return;
@@ -143,7 +147,12 @@ export class OAuthCallbackServer {
     let search: string;
     let state: string | undefined;
     try {
-      const u = new URL(req.url ?? "", "http://placeholder");
+      const u = new URL(
+        /* v8 ignore next -- defensive: Node always populates req.url for an
+           HTTP request, so the `?? ""` fallback is never taken. */
+        req.url ?? "",
+        "http://placeholder",
+      );
       pathname = u.pathname;
       search = u.search;
       state = u.searchParams.get("state") ?? undefined;

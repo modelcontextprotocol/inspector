@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   ConsoleNavigation,
   CallbackNavigation,
+  MutableRedirectUrlProvider,
+  BaseOAuthClientProvider,
+  type OAuthProviderConfig,
 } from "@inspector/core/auth/providers.js";
+import type { OAuthStorage } from "@inspector/core/auth/storage.js";
 import {
   BrowserNavigation,
   BrowserOAuthClientProvider,
@@ -38,6 +42,30 @@ describe("OAuthNavigation", () => {
 
       expect(callback).toHaveBeenCalledWith(authUrl);
       expect(navigation.getAuthorizationUrl()).toBe(authUrl);
+    });
+
+    it("tolerates a callback that returns a Promise (fire-and-forget)", () => {
+      const callback = vi.fn(async () => undefined);
+      const navigation = new CallbackNavigation(callback);
+      const authUrl = new URL("http://example.com/authorize?async=1");
+
+      // Should not throw even though the returned Promise is not awaited; the
+      // `void result` branch handles the Promise case.
+      expect(() => navigation.navigateToAuthorization(authUrl)).not.toThrow();
+      expect(callback).toHaveBeenCalledWith(authUrl);
+      expect(navigation.getAuthorizationUrl()).toBe(authUrl);
+    });
+  });
+
+  describe("MutableRedirectUrlProvider", () => {
+    it("returns the mutable redirectUrl for any execution mode", () => {
+      const provider = new MutableRedirectUrlProvider();
+      expect(provider.getRedirectUrl()).toBe("");
+
+      provider.redirectUrl = "http://127.0.0.1:9000/oauth/callback";
+      expect(provider.getRedirectUrl()).toBe(
+        "http://127.0.0.1:9000/oauth/callback",
+      );
     });
   });
 
@@ -175,6 +203,161 @@ describe("OAuthNavigation", () => {
       expect(
         () => new BrowserOAuthClientProvider("https://mcp.example.com"),
       ).toThrow(/requires browser environment/);
+    });
+  });
+
+  describe("BaseOAuthClientProvider", () => {
+    const SERVER = "https://mcp.example.com";
+
+    function makeStorage(): OAuthStorage {
+      return {
+        getScope: vi.fn(() => undefined),
+        getClientInformation: vi.fn(async () => undefined),
+        saveClientInformation: vi.fn(async () => undefined),
+        savePreregisteredClientInformation: vi.fn(async () => undefined),
+        saveScope: vi.fn(async () => undefined),
+        getTokens: vi.fn(async () => undefined),
+        saveTokens: vi.fn(async () => undefined),
+        saveCodeVerifier: vi.fn(async () => undefined),
+        getCodeVerifier: vi.fn(() => undefined),
+        clear: vi.fn(),
+        getServerMetadata: vi.fn(() => null),
+        saveServerMetadata: vi.fn(async () => undefined),
+      } as unknown as OAuthStorage;
+    }
+
+    function makeProvider(
+      storage: OAuthStorage,
+      navCallback = vi.fn(),
+    ): BaseOAuthClientProvider {
+      const config: OAuthProviderConfig = {
+        storage,
+        redirectUrlProvider: new MutableRedirectUrlProvider(),
+        navigation: new CallbackNavigation(navCallback),
+      };
+      return new BaseOAuthClientProvider(SERVER, config);
+    }
+
+    it("clear() delegates to storage.clear with the server url", () => {
+      const storage = makeStorage();
+      const provider = makeProvider(storage);
+
+      provider.clear();
+
+      expect(storage.clear).toHaveBeenCalledWith(SERVER);
+    });
+
+    it("clientInformation() returns preregistered info when present", async () => {
+      const storage = makeStorage();
+      vi.mocked(storage.getClientInformation).mockImplementation(
+        async (_url: string, preregistered?: boolean) =>
+          preregistered ? { client_id: "pre" } : { client_id: "dyn" },
+      );
+      const provider = makeProvider(storage);
+
+      expect(await provider.clientInformation()).toEqual({ client_id: "pre" });
+    });
+
+    it("clientInformation() falls back to dynamic info when no preregistered info", async () => {
+      const storage = makeStorage();
+      vi.mocked(storage.getClientInformation).mockImplementation(
+        async (_url: string, preregistered?: boolean) =>
+          preregistered ? undefined : { client_id: "dyn" },
+      );
+      const provider = makeProvider(storage);
+
+      expect(await provider.clientInformation()).toEqual({ client_id: "dyn" });
+    });
+
+    it("codeVerifier() throws when none is saved", () => {
+      const storage = makeStorage();
+      const provider = makeProvider(storage);
+
+      expect(() => provider.codeVerifier()).toThrow(
+        /No code verifier saved for session/,
+      );
+    });
+
+    it("codeVerifier() returns the saved verifier", () => {
+      const storage = makeStorage();
+      vi.mocked(storage.getCodeVerifier).mockReturnValue("cv-1");
+      const provider = makeProvider(storage);
+
+      expect(provider.codeVerifier()).toBe("cv-1");
+    });
+
+    it("clientMetadata reflects the stored scope when present", () => {
+      const storage = makeStorage();
+      vi.mocked(storage.getScope).mockReturnValue("read write");
+      const provider = makeProvider(storage);
+
+      expect(provider.clientMetadata.scope).toBe("read write");
+    });
+
+    it("redirectToAuthorization dispatches an event when an event target is set", () => {
+      const storage = makeStorage();
+      const navCallback = vi.fn();
+      const provider = makeProvider(storage, navCallback);
+      const target = new EventTarget();
+      const handler = vi.fn();
+      target.addEventListener("oauthAuthorizationRequired", handler);
+      provider.setEventTarget(target);
+
+      const url = new URL("https://mcp.example.com/authorize");
+      provider.redirectToAuthorization(url);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(provider.getCapturedAuthUrl()).toBe(url);
+      expect(navCallback).toHaveBeenCalledWith(url);
+
+      provider.clearCapturedAuthUrl();
+      expect(provider.getCapturedAuthUrl()).toBeNull();
+    });
+
+    it("redirectToAuthorization works without an event target", () => {
+      const storage = makeStorage();
+      const navCallback = vi.fn();
+      const provider = makeProvider(storage, navCallback);
+
+      const url = new URL("https://mcp.example.com/authorize");
+      expect(() => provider.redirectToAuthorization(url)).not.toThrow();
+      expect(provider.getCapturedAuthUrl()).toBe(url);
+      expect(navCallback).toHaveBeenCalledWith(url);
+    });
+
+    it("delegates token and scope persistence to storage", async () => {
+      const storage = makeStorage();
+      const provider = makeProvider(storage);
+
+      await provider.saveTokens({ access_token: "t", token_type: "Bearer" });
+      await provider.saveScope("openid");
+      await provider.saveClientInformation({ client_id: "c" });
+      await provider.savePreregisteredClientInformation({ client_id: "p" });
+      await provider.saveCodeVerifier("cv");
+      await provider.saveServerMetadata({
+        issuer: SERVER,
+        authorization_endpoint: `${SERVER}/a`,
+        token_endpoint: `${SERVER}/t`,
+        response_types_supported: ["code"],
+      });
+
+      expect(storage.saveTokens).toHaveBeenCalledWith(SERVER, {
+        access_token: "t",
+        token_type: "Bearer",
+      });
+      expect(storage.saveScope).toHaveBeenCalledWith(SERVER, "openid");
+      expect(storage.saveClientInformation).toHaveBeenCalledWith(SERVER, {
+        client_id: "c",
+      });
+      expect(storage.savePreregisteredClientInformation).toHaveBeenCalledWith(
+        SERVER,
+        { client_id: "p" },
+      );
+      expect(storage.saveCodeVerifier).toHaveBeenCalledWith(SERVER, "cv");
+      expect(storage.saveServerMetadata).toHaveBeenCalled();
+      expect(await provider.tokens()).toBeUndefined();
+      expect(provider.getServerMetadata()).toBeNull();
+      expect(await provider.state()).toMatch(/quick/);
     });
   });
 });

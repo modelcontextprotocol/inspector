@@ -9,6 +9,7 @@ class FakeTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
   onclose?: () => void;
   onerror?: (error: Error) => void;
+  sessionId?: string;
   // Optional on the SDK Transport interface; stdio omits it, HTTP defines it.
   setProtocolVersion?: (version: string) => void;
   async start(): Promise<void> {}
@@ -86,6 +87,56 @@ describe("MessageTrackingTransport.send", () => {
     await tracked.send(request);
     expect(base.sent).toEqual([request]);
   });
+
+  it("fires no callback for an id-bearing message with neither method/result/error", async () => {
+    const { callbacks, base, tracked } = makeTracked();
+    // An id present but no method, result, or error — none of the three
+    // tracking callbacks should fire, yet the message still forwards.
+    const malformed = { jsonrpc: "2.0", id: 5 } as unknown as JSONRPCMessage;
+    await tracked.send(malformed);
+    expect(callbacks.trackRequest).not.toHaveBeenCalled();
+    expect(callbacks.trackResponse).not.toHaveBeenCalled();
+    expect(callbacks.trackNotification).not.toHaveBeenCalled();
+    expect(base.sent).toEqual([malformed]);
+  });
+
+  it("fires no callback for a message lacking both id and method", async () => {
+    // No id and no method — the outer notification branch's `method in message`
+    // check is false, so none of the callbacks fire.
+    const { callbacks, base, tracked } = makeTracked();
+    const bare = { jsonrpc: "2.0" } as unknown as JSONRPCMessage;
+    await tracked.send(bare);
+    expect(callbacks.trackRequest).not.toHaveBeenCalled();
+    expect(callbacks.trackResponse).not.toHaveBeenCalled();
+    expect(callbacks.trackNotification).not.toHaveBeenCalled();
+    expect(base.sent).toEqual([bare]);
+  });
+
+  it("treats a null-id message as a notification (no id) path", async () => {
+    const { callbacks, tracked } = makeTracked();
+    const nullId = {
+      jsonrpc: "2.0",
+      id: null,
+      method: "notifications/ping",
+    } as unknown as JSONRPCMessage;
+    await tracked.send(nullId);
+    expect(callbacks.trackNotification).toHaveBeenCalledWith(nullId, "client");
+  });
+
+  it("does not throw when tracking callbacks are all undefined", async () => {
+    const base = new FakeTransport();
+    const tracked = new MessageTrackingTransport(base, {});
+    const request = { jsonrpc: "2.0", id: 1, method: "tools/list" } as const;
+    const response = { jsonrpc: "2.0", id: 1, result: {} } as const;
+    const notification = {
+      jsonrpc: "2.0",
+      method: "notifications/ping",
+    } as const;
+    await expect(tracked.send(request)).resolves.toBeUndefined();
+    await expect(tracked.send(response)).resolves.toBeUndefined();
+    await expect(tracked.send(notification)).resolves.toBeUndefined();
+    expect(base.sent).toEqual([request, response, notification]);
+  });
 });
 
 describe("MessageTrackingTransport.onmessage", () => {
@@ -120,6 +171,77 @@ describe("MessageTrackingTransport.onmessage", () => {
     );
     // The wrapped handler still receives every message.
     expect(handler).toHaveBeenCalledTimes(3);
+  });
+
+  it("fires no callback for an incoming id-bearing message with neither method/result/error", () => {
+    const { callbacks, base, tracked } = makeTracked();
+    const handler = vi.fn();
+    tracked.onmessage = handler;
+    const malformed = { jsonrpc: "2.0", id: 9 } as unknown as JSONRPCMessage;
+    base.onmessage?.(malformed);
+    expect(callbacks.trackRequest).not.toHaveBeenCalled();
+    expect(callbacks.trackResponse).not.toHaveBeenCalled();
+    expect(callbacks.trackNotification).not.toHaveBeenCalled();
+    expect(handler).toHaveBeenCalledWith(malformed, undefined);
+  });
+
+  it("fires no callback for an incoming message lacking both id and method", () => {
+    const { callbacks, base, tracked } = makeTracked();
+    const handler = vi.fn();
+    tracked.onmessage = handler;
+    const bare = { jsonrpc: "2.0" } as unknown as JSONRPCMessage;
+    base.onmessage?.(bare);
+    expect(callbacks.trackRequest).not.toHaveBeenCalled();
+    expect(callbacks.trackResponse).not.toHaveBeenCalled();
+    expect(callbacks.trackNotification).not.toHaveBeenCalled();
+    expect(handler).toHaveBeenCalledWith(bare, undefined);
+  });
+
+  it("exposes the wrapped handler via the onmessage getter", () => {
+    const { tracked } = makeTracked();
+    expect(tracked.onmessage).toBeUndefined();
+    tracked.onmessage = vi.fn();
+    expect(typeof tracked.onmessage).toBe("function");
+  });
+
+  it("clears the base transport onmessage when set to undefined", () => {
+    const { base, tracked } = makeTracked();
+    tracked.onmessage = vi.fn();
+    expect(base.onmessage).toBeTypeOf("function");
+    tracked.onmessage = undefined;
+    expect(base.onmessage).toBeUndefined();
+  });
+});
+
+describe("MessageTrackingTransport lifecycle + delegation", () => {
+  it("delegates start() and close() to the base transport", async () => {
+    const base = new FakeTransport();
+    const startSpy = vi.spyOn(base, "start");
+    const closeSpy = vi.spyOn(base, "close");
+    const tracked = new MessageTrackingTransport(base, {});
+    await tracked.start();
+    await tracked.close();
+    expect(startSpy).toHaveBeenCalledTimes(1);
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("proxies onclose / onerror getters and setters to the base transport", () => {
+    const { base, tracked } = makeTracked();
+    const onclose = vi.fn();
+    const onerror = vi.fn();
+    tracked.onclose = onclose;
+    tracked.onerror = onerror;
+    expect(base.onclose).toBe(onclose);
+    expect(base.onerror).toBe(onerror);
+    expect(tracked.onclose).toBe(onclose);
+    expect(tracked.onerror).toBe(onerror);
+  });
+
+  it("exposes the base transport sessionId via the getter", () => {
+    const { base, tracked } = makeTracked();
+    expect(tracked.sessionId).toBeUndefined();
+    base.sessionId = "session-123";
+    expect(tracked.sessionId).toBe("session-123");
   });
 });
 

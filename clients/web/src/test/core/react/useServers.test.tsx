@@ -659,6 +659,336 @@ describe("useServers", () => {
     ]);
   });
 
+  it("updateServer throws the backend error message on a non-ok response", async () => {
+    // Drive the mutator through a fetchFn that serves the initial GET from the
+    // real app but fails the PUT, so the updateServer !res.ok throw path runs.
+    const { result } = renderHook(() =>
+      useServers({
+        baseUrl: "http://test.local",
+        fetchFn: async (input, init) => {
+          const url = input instanceof Request ? input.url : String(input);
+          if (init?.method === "PUT") {
+            return new Response(JSON.stringify({ error: "put blew up" }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          return h.fetchFn(url, init);
+        },
+      }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await expect(
+      act(async () => {
+        await result.current.updateServer("alpha", "alpha", {
+          type: "stdio",
+          command: "node",
+        });
+      }),
+    ).rejects.toThrow("put blew up");
+  });
+
+  it("removeServer throws the backend error message on a non-ok response", async () => {
+    const { result } = renderHook(() =>
+      useServers({
+        baseUrl: "http://test.local",
+        fetchFn: async (input, init) => {
+          const url = input instanceof Request ? input.url : String(input);
+          if (init?.method === "DELETE") {
+            return new Response(JSON.stringify({ error: "delete blew up" }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          return h.fetchFn(url, init);
+        },
+      }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await expect(
+      act(async () => {
+        await result.current.removeServer("filesystem-server-default");
+      }),
+    ).rejects.toThrow("delete blew up");
+  });
+
+  it("importSource throws the backend error message on a non-ok response", async () => {
+    const { result } = renderHook(() =>
+      useServers({
+        baseUrl: "http://test.local",
+        fetchFn: async (input, init) => {
+          const url = input instanceof Request ? input.url : String(input);
+          if (url.includes("/api/import-source")) {
+            return new Response(JSON.stringify({ error: "import blew up" }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          return h.fetchFn(url, init);
+        },
+      }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await expect(result.current.importSource("cursor")).rejects.toThrow(
+      "import blew up",
+    );
+  });
+
+  it("reorderServers rethrows a non-Error rejection wrapped as an Error", async () => {
+    writeFileSync(
+      h.configPath,
+      JSON.stringify({
+        mcpServers: {
+          alpha: { type: "stdio", command: "a" },
+          beta: { type: "stdio", command: "b" },
+        },
+      }),
+    );
+
+    const { result } = renderHook(() =>
+      useServers({
+        baseUrl: "http://test.local",
+        fetchFn: async (input, init) => {
+          const url = input instanceof Request ? input.url : String(input);
+          if (init?.method === "PUT" && url.endsWith("/api/servers/order")) {
+            // Reject with a non-Error so the `err instanceof Error` false
+            // branch (wrap-as-Error) is taken.
+            return Promise.reject("string failure");
+          }
+          return h.fetchFn(url, init);
+        },
+      }),
+    );
+    await waitFor(() =>
+      expect(result.current.servers.map((s) => s.id)).toEqual([
+        "alpha",
+        "beta",
+      ]),
+    );
+
+    await expect(
+      act(async () => {
+        await result.current.reorderServers(["beta", "alpha"]);
+      }),
+    ).rejects.toThrow("string failure");
+
+    // Reverted to disk truth after the failed round-trip.
+    await waitFor(() => {
+      expect(result.current.servers.map((s) => s.id)).toEqual([
+        "alpha",
+        "beta",
+      ]);
+    });
+  });
+
+  it("reorderServers keeps stray entries the requested order omitted", async () => {
+    // Defensive stray-keep branch: pass an order that drops `beta`. The
+    // optimistic setter appends the un-listed entry at the end so nothing
+    // vanishes before the failed-reorder refresh reconciles. The PUT 409s
+    // (incomplete set), so the list reverts — but the optimistic stray-keep
+    // ran first, which is the branch under test.
+    writeFileSync(
+      h.configPath,
+      JSON.stringify({
+        mcpServers: {
+          alpha: { type: "stdio", command: "a" },
+          beta: { type: "stdio", command: "b" },
+        },
+      }),
+    );
+
+    let resolvePut: (() => void) | undefined;
+    const observed: string[][] = [];
+    const { result } = renderHook(() =>
+      useServers({
+        baseUrl: "http://test.local",
+        fetchFn: async (input, init) => {
+          const url = input instanceof Request ? input.url : String(input);
+          if (init?.method === "PUT" && url.endsWith("/api/servers/order")) {
+            // Hold the PUT so we can sample the optimistic stray-kept order.
+            await new Promise<void>((r) => {
+              resolvePut = r;
+            });
+          }
+          return h.fetchFn(url, init);
+        },
+      }),
+    );
+    await waitFor(() =>
+      expect(result.current.servers.map((s) => s.id)).toEqual([
+        "alpha",
+        "beta",
+      ]),
+    );
+
+    let pending: Promise<void>;
+    act(() => {
+      // Only `alpha` in the order; `beta` is the stray that must be kept.
+      pending = result.current.reorderServers(["alpha"]);
+    });
+
+    await waitFor(() => {
+      observed.push(result.current.servers.map((s) => s.id));
+      // alpha first (requested), beta appended as the stray.
+      expect(result.current.servers.map((s) => s.id)).toEqual([
+        "alpha",
+        "beta",
+      ]);
+    });
+
+    await act(async () => {
+      resolvePut?.();
+      await pending.catch(() => undefined);
+    });
+  });
+
+  it("ignores an SSE channel that responds non-ok (no crash, list stays)", async () => {
+    // The events subscription returns !ok, hitting the `!res.ok || !res.body`
+    // early return so the reader loop is never entered.
+    const { result } = renderHook(() =>
+      useServers({
+        baseUrl: "http://test.local",
+        fetchFn: async (input, init) => {
+          const url = input instanceof Request ? input.url : String(input);
+          if (url.endsWith("/api/servers/events")) {
+            return new Response("nope", { status: 503 });
+          }
+          return h.fetchFn(url, init);
+        },
+      }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    // The hook still loaded the list from the (real) GET handler.
+    expect(result.current.servers.length).toBeGreaterThan(0);
+  });
+
+  it("ignores an SSE channel with no body (no crash)", async () => {
+    // ok:true but a null body — exercises the `!res.body` half of the guard.
+    const { result } = renderHook(() =>
+      useServers({
+        baseUrl: "http://test.local",
+        fetchFn: async (input, init) => {
+          const url = input instanceof Request ? input.url : String(input);
+          if (url.endsWith("/api/servers/events")) {
+            return { ok: true, body: null } as unknown as Response;
+          }
+          return h.fetchFn(url, init);
+        },
+      }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.servers.length).toBeGreaterThan(0);
+  });
+
+  it("survives an SSE reader that throws mid-stream (catch swallows it)", async () => {
+    // A body whose reader.read() rejects — the reader-loop catch swallows the
+    // error and the hook stays in last-known-good state.
+    const { result } = renderHook(() =>
+      useServers({
+        baseUrl: "http://test.local",
+        fetchFn: async (input, init) => {
+          const url = input instanceof Request ? input.url : String(input);
+          if (url.endsWith("/api/servers/events")) {
+            const body = {
+              getReader: () => ({
+                read: () => Promise.reject(new Error("stream broke")),
+              }),
+            };
+            return { ok: true, body } as unknown as Response;
+          }
+          return h.fetchFn(url, init);
+        },
+      }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.servers.length).toBeGreaterThan(0);
+  });
+
+  it("SSE reader loop fires a background refresh once per multi-frame chunk", async () => {
+    // A single decode chunk carrying two `\n\n`-separated frames must collapse
+    // to one refresh (sawFrame true once), then the stream ends (done:true).
+    writeFileSync(
+      h.configPath,
+      JSON.stringify({
+        mcpServers: { seed: { type: "stdio", command: "s" } },
+      }),
+    );
+
+    let reads = 0;
+    const encoder = new TextEncoder();
+    const { result } = renderHook(() =>
+      useServers({
+        baseUrl: "http://test.local",
+        fetchFn: async (input, init) => {
+          const url = input instanceof Request ? input.url : String(input);
+          if (url.endsWith("/api/servers/events")) {
+            const body = {
+              getReader: () => ({
+                read: async () => {
+                  reads += 1;
+                  if (reads === 1) {
+                    // Two frames in one chunk → one background refresh.
+                    return {
+                      done: false,
+                      value: encoder.encode("event: change\n\n\n\n"),
+                    };
+                  }
+                  return { done: true, value: undefined };
+                },
+              }),
+            };
+            return { ok: true, body } as unknown as Response;
+          }
+          return h.fetchFn(url, init);
+        },
+      }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Mutate disk, then the queued background refresh re-reads it.
+    writeFileSync(
+      h.configPath,
+      JSON.stringify({
+        mcpServers: { afterframe: { type: "stdio", command: "x" } },
+      }),
+    );
+
+    // The two-frame chunk triggers exactly one refreshInternal(true); allow it
+    // to resolve and pick up the new disk state.
+    await waitFor(
+      () => {
+        expect(result.current.servers.map((s) => s.id)).toEqual(["afterframe"]);
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("falls back to globalThis.fetch when no fetchFn is provided", async () => {
+    // No fetchFn → the `doFetch = fetchFn ?? globalThis.fetch` default branch.
+    const globalFetch = vi
+      .fn<typeof fetch>()
+      .mockImplementation((input, init) => {
+        const url = input instanceof Request ? input.url : String(input);
+        return h.fetchFn(url, init);
+      });
+    const original = globalThis.fetch;
+    globalThis.fetch = globalFetch as unknown as typeof fetch;
+    try {
+      const { result } = renderHook(() =>
+        useServers({ baseUrl: "http://test.local" }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(globalFetch).toHaveBeenCalled();
+      expect(result.current.servers.length).toBeGreaterThan(0);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("uses DEFAULT_SEED_CONFIG keys on the first load (seed-write contract)", async () => {
     const { result } = renderHook(() =>
       useServers({ baseUrl: "http://test.local", fetchFn: h.fetchFn }),

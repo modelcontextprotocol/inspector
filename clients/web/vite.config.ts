@@ -129,6 +129,8 @@ export default defineConfig({
         path.join(repoRoot, 'core/mcp/sessionStorage.ts'),
         path.join(repoRoot, 'core/mcp/inspectorClientProtocol.ts'),
         path.join(repoRoot, 'core/mcp/remote/types.ts'),
+        path.join(repoRoot, 'core/mcp/import/types.ts'),
+        'clients/web/server/types.ts',
         // .d.ts files are declaration-only.
         path.join(repoRoot, '**/*.d.ts'),
         // inspectorClientEventTarget.ts is types + a single empty-body class
@@ -144,16 +146,18 @@ export default defineConfig({
       ],
       thresholds: {
         perFile: true,
+        // Uniform 90 per-file gate across every dimension. The branch floor was
+        // lifted 50 → 70 (#1271) and then the whole gate raised to 90 after a
+        // codebase-wide coverage audit added real tests for every outlier.
+        // Genuinely-unreachable branches (Mantine portal / `useMediaQuery` /
+        // `typeof window` SSR guards, React StrictMode effect replay, and
+        // provably-dead defensive guards) are annotated with justified
+        // `/* v8 ignore … */` comments at the source rather than relaxing the
+        // gate. New code must clear 90 on all four dimensions.
         lines: 90,
-        statements: 85,
-        functions: 80,
-        // Raised from 50 → 70 after auditing every per-file branch outlier
-        // (#1271). Mantine `useComputedColorScheme` dark-theme branches are now
-        // covered by mocking the hook; the remaining sub-100 files are purely
-        // defensive guards or happy-dom-inherent (portal / `useMediaQuery` /
-        // `typeof window` fallbacks) branches that can't be exercised. New
-        // business-logic branches must clear 70.
-        branches: 70,
+        statements: 90,
+        functions: 90,
+        branches: 90,
       },
     },
     projects: [

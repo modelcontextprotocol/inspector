@@ -114,6 +114,20 @@ describe("ToolControls", () => {
     expect(onRefreshList).toHaveBeenCalledTimes(1);
   });
 
+  it("clears the search via the Clear button", async () => {
+    const user = userEvent.setup();
+    const onSearchChange = vi.fn();
+    renderWithMantine(
+      <ToolControls
+        {...baseProps}
+        searchText="git"
+        onSearchChange={onSearchChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(onSearchChange).toHaveBeenCalledWith("");
+  });
+
   it("renders empty list when no tools provided", () => {
     renderWithMantine(<ToolControls {...baseProps} tools={[]} />);
     expect(screen.getByText("Tools")).toBeInTheDocument();

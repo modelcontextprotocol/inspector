@@ -65,6 +65,7 @@ async function* parseSSE(
 
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
+    /* v8 ignore next -- String.split always returns a non-empty array, so pop() is never undefined; the ?? "" fallback is unreachable. */
     buffer = lines.pop() ?? "";
 
     let currentEvent = "message";
@@ -150,6 +151,7 @@ export class RemoteClientTransport implements Transport {
   }
 
   async start(): Promise<void> {
+    /* v8 ignore next -- the sessionId getter is hardcoded to return undefined (see its doc comment), so this guard is never taken; it exists to satisfy the Transport contract. */
     if (this.sessionId) return;
     if (this.closed) throw new Error("Transport is closed");
 
@@ -223,6 +225,7 @@ export class RemoteClientTransport implements Transport {
   }
 
   private async consumeEventStream(): Promise<void> {
+    /* v8 ignore next -- consumeEventStream is only called at the end of start(), immediately after eventStreamReader is assigned from getReader(), so it is always set here. */
     if (!this.eventStreamReader) return;
 
     try {

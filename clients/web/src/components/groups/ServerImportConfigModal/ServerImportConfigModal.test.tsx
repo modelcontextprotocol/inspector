@@ -351,6 +351,69 @@ describe("ServerImportConfigModal", () => {
     );
   });
 
+  it("reflects the chosen client as the dropdown value", async () => {
+    const user = userEvent.setup();
+    setup();
+    // Selecting a client makes the dropdown's value non-empty (the truthy
+    // branch of `vm.selectedType ?? ""`).
+    await user.selectOptions(screen.getByLabelText("Client"), "Cursor");
+    expect(screen.getByLabelText("Client")).toHaveValue("cursor");
+  });
+
+  it("resets the dropdown to no selection when the placeholder is re-chosen", async () => {
+    const user = userEvent.setup();
+    setup();
+    const dropdown = screen.getByLabelText("Client");
+    await user.selectOptions(dropdown, "Cursor");
+    expect(dropdown).toHaveValue("cursor");
+    // Re-selecting the leading placeholder emits "" → `value || null` resolves
+    // to null and the Import button disables again.
+    await user.selectOptions(dropdown, "Select a client…");
+    expect(dropdown).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Import" })).toBeDisabled();
+  });
+
+  it("renders a conflicts-only review without a new-servers section", async () => {
+    const user = userEvent.setup();
+    // Every incoming server already exists → no additions, only conflicts (the
+    // false branch of `plan.additions.length > 0`).
+    setup(
+      {
+        type: "cursor",
+        found: true,
+        path: "/home/u/.cursor/mcp.json",
+        searched: ["/home/u/.cursor/mcp.json"],
+        config: { mcpServers: { existing: { type: "stdio", command: "e" } } },
+      },
+      ["existing"],
+    );
+    await pickClientAndImport(user, "Cursor");
+    await waitFor(() =>
+      expect(screen.getByText("Already exists (1)")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/New servers/)).not.toBeInTheDocument();
+  });
+
+  it("renders an additions-only review without a conflicts section", async () => {
+    const user = userEvent.setup();
+    // No existing ids → every incoming server is a brand-new addition, so the
+    // "Already exists" conflicts section never renders (the false branch of
+    // `plan.conflicts.length > 0`).
+    setup(sourceWithConflict, []);
+    await pickClientAndImport(user, "Cursor");
+    await waitFor(() =>
+      expect(screen.getByText("New servers (2)")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/Already exists/)).not.toBeInTheDocument();
+    // The default per-addition action renders as "import"; flipping one to Skip
+    // exercises the explicit-action branch of `additionActions[a.id] ?? "import"`.
+    const alphaRow = screen.getByText("alpha").parentElement as HTMLElement;
+    await user.click(within(alphaRow).getByText("Skip"));
+    expect(
+      screen.getByRole("button", { name: /Import 1 server/ }),
+    ).toBeInTheDocument();
+  });
+
   it("goes back from review to the source picker", async () => {
     const user = userEvent.setup();
     setup();

@@ -143,6 +143,8 @@ export function ResourceTemplatePanel({
 
   const runCompletion = useCallback(
     async (varName: string, value: string, context: Record<string, string>) => {
+      /* v8 ignore next -- unreachable: runCompletion is only invoked when
+         useAutocomplete is true, which already requires onCompleteArgument. */
       if (!onCompleteArgument) return;
       requestsRef.current.get(varName)?.abort();
       const controller = new AbortController();
@@ -203,6 +205,8 @@ export function ResourceTemplatePanel({
   }
 
   function handleVariableFocus(varName: string) {
+    /* v8 ignore next -- unreachable: the plain (non-autocomplete) TextInput
+       has no onFocus, so this handler only runs when useAutocomplete is true. */
     if (!useAutocomplete) return;
     // Fire immediately so the dropdown isn't empty when the user first
     // clicks in. Cancel any pending debounce for this variable so a
@@ -214,6 +218,8 @@ export function ResourceTemplatePanel({
       clearTimeout(existing);
       timersRef.current.delete(varName);
     }
+    /* v8 ignore next -- the `?? ""` fallback is unreachable: `variables` (and
+       its ref) is seeded with every declared variable, so the key is present. */
     const value = variablesRef.current[varName] ?? "";
     void runCompletion(varName, value, buildContext(varName));
   }
@@ -237,13 +243,15 @@ export function ResourceTemplatePanel({
       </HeaderRow>
       {description && <DescriptionText>{description}</DescriptionText>}
       <Stack gap="sm">
-        {variableNames.map((varName) =>
-          useAutocomplete ? (
+        {variableNames.map((varName) => {
+          /* v8 ignore next -- `?? ""` fallback unreachable: `variables` is seeded with every declared variable, so the key is always present. */
+          const fieldValue = variables[varName] ?? "";
+          return useAutocomplete ? (
             <Autocomplete
               key={varName}
               label={varName}
               placeholder={`Enter ${varName}`}
-              value={variables[varName] ?? ""}
+              value={fieldValue}
               data={completions[varName] ?? []}
               // The server already filtered the values for the typed
               // prefix; passing options through verbatim avoids hiding
@@ -258,7 +266,7 @@ export function ResourceTemplatePanel({
               key={varName}
               label={varName}
               placeholder={`Enter ${varName}`}
-              value={variables[varName] ?? ""}
+              value={fieldValue}
               onChange={(e) =>
                 handleVariableChange(varName, e.currentTarget.value)
               }
@@ -271,8 +279,8 @@ export function ResourceTemplatePanel({
                 ) : null
               }
             />
-          ),
-        )}
+          );
+        })}
       </Stack>
       <FooterRow>
         <AnnotationGroup>

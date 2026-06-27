@@ -1,8 +1,29 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { connect } from "node:net";
 import {
   createOAuthCallbackServer,
   type OAuthCallbackServer,
 } from "@inspector/core/auth/node/oauth-callback-server.js";
+
+/**
+ * Send a raw HTTP request line over a socket so we can use request targets
+ * (like `//`) that `fetch` would normalize/reject before they reach the
+ * server. Returns the raw response text.
+ */
+function rawRequest(port: number, requestLine: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1", () => {
+      socket.write(`${requestLine}\r\nHost: localhost\r\n\r\n`);
+    });
+    let data = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => {
+      data += chunk;
+    });
+    socket.on("end", () => resolve(data));
+    socket.on("error", reject);
+  });
+}
 
 describe("OAuthCallbackServer", () => {
   let server: OAuthCallbackServer;
@@ -219,6 +240,90 @@ describe("OAuthCallbackServer", () => {
     expect(first.status).toBe(200);
   });
 
+  it("returns 400 when the request target is an unparseable URL", async () => {
+    server = createOAuthCallbackServer();
+    const result = await server.start({ port: 0 });
+
+    // `GET //` makes req.url === "//", which `new URL("//", base)` rejects,
+    // exercising the try/catch 400 branch in handleRequest.
+    const raw = await rawRequest(result.port, "GET // HTTP/1.1");
+    expect(raw).toContain("400 Bad Request");
+    expect(raw).toContain("OAuth complete");
+  });
+
+  it("returns 400 JSON for an unparseable URL when Accept: application/json", async () => {
+    server = createOAuthCallbackServer();
+    const result = await server.start({ port: 0 });
+
+    const raw = await rawRequest(
+      result.port,
+      "GET // HTTP/1.1\r\nAccept: application/json",
+    );
+    expect(raw).toContain("400 Bad Request");
+    expect(raw).toContain('{"error":"Bad Request"}');
+  });
+
+  it("start() rejects when the callback path is not absolute", async () => {
+    server = createOAuthCallbackServer();
+    await expect(
+      server.start({ port: 0, path: "no-leading-slash" }),
+    ).rejects.toThrow(/Callback path must start with '\/'/);
+  });
+
+  it("POST returns 405 with a JSON body when Accept: application/json", async () => {
+    server = createOAuthCallbackServer();
+    const result = await server.start({ port: 0 });
+
+    const res = await fetch(
+      `http://localhost:${result.port}/oauth/callback?code=x`,
+      { method: "POST", headers: { Accept: "application/json" } },
+    );
+
+    expect(res.status).toBe(405);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(await res.json()).toEqual({ error: "Method Not Allowed" });
+  });
+
+  it("returns 404 with a JSON body when Accept: application/json", async () => {
+    server = createOAuthCallbackServer();
+    const result = await server.start({ port: 0 });
+
+    const res = await fetch(`http://localhost:${result.port}/nope`, {
+      headers: { Accept: "application/json" },
+    });
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Not Found" });
+  });
+
+  it("returns 409 with a JSON body when Accept: application/json", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    server = createOAuthCallbackServer();
+    const result = await server.start({
+      port: 0,
+      onCallback: async () => {
+        await gate;
+      },
+    });
+
+    const firstP = fetch(
+      `http://localhost:${result.port}/oauth/callback?code=first`,
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    const second = await fetch(
+      `http://localhost:${result.port}/oauth/callback?code=second`,
+      { headers: { Accept: "application/json" } },
+    );
+    expect(second.status).toBe(409);
+    expect(await second.json()).toEqual({ error: "Callback already handled" });
+    release();
+    await firstP;
+  });
+
   it("onCallback rejection returns 500 and error HTML", async () => {
     server = createOAuthCallbackServer();
     const result = await server.start({
@@ -236,5 +341,52 @@ describe("OAuthCallbackServer", () => {
     const html = await res.text();
     expect(html).toContain("OAuth failed");
     expect(html).toContain("exchange failed");
+  });
+
+  it("onCallback rejection with a non-Error stringifies the value (500)", async () => {
+    server = createOAuthCallbackServer();
+    const result = await server.start({
+      port: 0,
+      onCallback: async () => {
+        throw "string-failure";
+      },
+    });
+
+    const res = await fetch(
+      `http://localhost:${result.port}/oauth/callback?code=abc`,
+    );
+
+    expect(res.status).toBe(500);
+    expect(await res.text()).toContain("string-failure");
+  });
+
+  it("GET with error but no error_description still returns 400 and calls onError", async () => {
+    server = createOAuthCallbackServer();
+    const errors: Array<{
+      error: string;
+      error_description?: string | null;
+    }> = [];
+    const result = await server.start({
+      port: 0,
+      onError: (p) => errors.push(p),
+    });
+
+    const res = await fetch(
+      `http://localhost:${result.port}/oauth/callback?error=invalid_request`,
+    );
+
+    expect(res.status).toBe(400);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.error).toBe("invalid_request");
+    expect(errors[0]!.error_description).toBeUndefined();
+  });
+
+  it("builds a bracketed redirect URL for an IPv6 hostname", async () => {
+    server = createOAuthCallbackServer();
+    const result = await server.start({ port: 0, hostname: "::1" });
+
+    expect(result.redirectUrl).toBe(
+      `http://[::1]:${result.port}/oauth/callback`,
+    );
   });
 });

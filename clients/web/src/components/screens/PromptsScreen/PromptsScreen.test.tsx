@@ -309,6 +309,56 @@ describe("PromptsScreen", () => {
     ).toBeInTheDocument();
   });
 
+  it("re-clicking the active arg-bearing prompt is a no-op (early return)", async () => {
+    const user = userEvent.setup();
+    const onUiChange = vi.fn();
+    const onGetPrompt = vi.fn();
+    renderWithMantine(
+      <ControlledPromptsScreen
+        onUiChange={onUiChange}
+        onGetPrompt={onGetPrompt}
+      />,
+    );
+    // First click selects "summarize" (arg-bearing → form, no auto-fetch).
+    await user.click(screen.getByText("summarize"));
+    const callsAfterSelect = onUiChange.mock.calls.length;
+    // Re-clicking the already-selected sidebar entry must early-return:
+    // no further onUiChange (selection unchanged) and no fetch. The form
+    // pane now also shows "summarize", so target the sidebar entry (first).
+    await user.click(screen.getAllByText("summarize")[0]);
+    expect(onUiChange.mock.calls.length).toBe(callsAfterSelect);
+    expect(onGetPrompt).not.toHaveBeenCalled();
+  });
+
+  it("routes sidebar search text through onUiChange", async () => {
+    const user = userEvent.setup();
+    const onUiChange = vi.fn();
+    renderWithMantine(<ControlledPromptsScreen onUiChange={onUiChange} />);
+    await user.type(screen.getByPlaceholderText("Search prompts..."), "sum");
+    expect(onUiChange).toHaveBeenCalled();
+    const last = onUiChange.mock.calls.at(-1)?.[0] as PromptsUiState;
+    expect(last.search).toBe("sum");
+  });
+
+  it("renders nothing in the preview when an ok state carries no result", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ControlledPromptsScreen
+        // previewActive but status ok with no messages result — the
+        // renderPreview path falls through to `return null`.
+        getPromptState={{ status: "ok", promptName: "summarize" }}
+      />,
+    );
+    await user.click(screen.getByText("summarize"));
+    await user.type(screen.getByPlaceholderText("Enter topic..."), "x");
+    await user.click(screen.getByRole("button", { name: "Get Prompt" }));
+    // No messages panel and no form (preview branch is active but empty).
+    expect(screen.queryByText("Messages")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Get Prompt" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("threads onCompleteArgument with a ref/prompt envelope", async () => {
     const user = userEvent.setup();
     const onCompleteArgument = vi

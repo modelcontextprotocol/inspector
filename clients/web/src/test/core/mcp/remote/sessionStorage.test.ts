@@ -80,7 +80,7 @@ describe("RemoteInspectorClientStorage", () => {
   });
 
   it("loadSession converts ISO-string timestamps back into Date objects", async () => {
-    const fetchFn = vi.fn(
+    const fetchFn = vi.fn<typeof fetch>(
       async () =>
         new Response(
           JSON.stringify({
@@ -111,7 +111,7 @@ describe("RemoteInspectorClientStorage", () => {
   });
 
   it("loadSession preserves Date timestamps already provided as Date instances", async () => {
-    const fetchFn = vi.fn(
+    const fetchFn = vi.fn<typeof fetch>(
       async () =>
         new Response(
           JSON.stringify({
@@ -134,6 +134,109 @@ describe("RemoteInspectorClientStorage", () => {
     expect((state?.fetchRequests[0]?.timestamp as Date).getTime()).toBe(
       new Date("2026-02-02T00:00:00Z").getTime(),
     );
+  });
+
+  it("loadSession converts numeric timestamps into Date objects", async () => {
+    // A timestamp that is neither a string nor a Date hits the final
+    // `new Date(req.timestamp)` branch of the deserialization ternary.
+    const epoch = 1735689600000;
+    const fetchFn = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          JSON.stringify({
+            fetchRequests: [
+              {
+                id: "1",
+                timestamp: epoch,
+                method: "GET",
+                url: "http://example.com/",
+                requestHeaders: {},
+              },
+            ],
+            createdAt: 1,
+            updatedAt: 2,
+          }),
+        ),
+    );
+    const storage = makeStorage(fetchFn as unknown as typeof fetch);
+    const state = await storage.loadSession("sid");
+    expect(state?.fetchRequests[0]?.timestamp).toBeInstanceOf(Date);
+    expect((state?.fetchRequests[0]?.timestamp as Date).getTime()).toBe(epoch);
+  });
+
+  it("loadSession preserves an actual Date instance via the instanceof branch", async () => {
+    // JSON cannot carry a Date, so inject a parsed payload directly through a
+    // fetch stub whose json() yields a real Date instance — exercising the
+    // ternary's middle (instanceof Date) branch.
+    const realDate = new Date("2026-03-03T00:00:00Z");
+    const fetchFn = vi.fn<typeof fetch>(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            fetchRequests: [
+              {
+                id: "1",
+                timestamp: realDate,
+                method: "GET",
+                url: "http://example.com/",
+                requestHeaders: {},
+              },
+            ],
+            createdAt: 1,
+            updatedAt: 2,
+          }),
+        }) as unknown as Response,
+    );
+    const storage = makeStorage(fetchFn as unknown as typeof fetch);
+    const state = await storage.loadSession("sid");
+    expect(state?.fetchRequests[0]?.timestamp).toBe(realDate);
+  });
+
+  it("loadSession omits the auth header when no token is configured", async () => {
+    const fetchFn = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          JSON.stringify({ fetchRequests: [], createdAt: 1, updatedAt: 2 }),
+        ),
+    );
+    const storage = makeStorage(fetchFn as unknown as typeof fetch);
+    await storage.loadSession("sid");
+    expect(
+      (fetchFn.mock.calls[0]?.[1]?.headers as Record<string, string>)[
+        "x-mcp-remote-auth"
+      ],
+    ).toBeUndefined();
+  });
+
+  it("loadSession sends the auth header when a token is configured", async () => {
+    const fetchFn = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          JSON.stringify({ fetchRequests: [], createdAt: 1, updatedAt: 2 }),
+        ),
+    );
+    const storage = makeStorage(fetchFn as unknown as typeof fetch, "tok");
+    await storage.loadSession("sid");
+    expect(
+      (fetchFn.mock.calls[0]?.[1]?.headers as Record<string, string>)[
+        "x-mcp-remote-auth"
+      ],
+    ).toBe("Bearer tok");
+  });
+
+  it("deleteSession sends the auth header when a token is configured", async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    const storage = makeStorage(fetchFn as unknown as typeof fetch, "tok");
+    await storage.deleteSession("sid");
+    expect(
+      (fetchFn.mock.calls[0]?.[1]?.headers as Record<string, string>)[
+        "x-mcp-remote-auth"
+      ],
+    ).toBe("Bearer tok");
   });
 
   it("deleteSession tolerates 404 and rethrows on other errors", async () => {

@@ -77,6 +77,22 @@ describe("LogControls", () => {
     expect(onFilterChange).toHaveBeenCalledWith("x");
   });
 
+  it("clears the search via the clear button, invoking onFilterChange with empty string", async () => {
+    const user = userEvent.setup();
+    const onFilterChange = vi.fn();
+    renderWithMantine(
+      <LogControls
+        {...baseProps}
+        filterText="warn"
+        onFilterChange={onFilterChange}
+      />,
+    );
+    // The clear button only renders when filterText is non-empty (line 62).
+    const clearButton = screen.getByRole("button", { name: "Clear" });
+    await user.click(clearButton);
+    expect(onFilterChange).toHaveBeenCalledWith("");
+  });
+
   it("invokes onSetLevel when Set is clicked", async () => {
     const user = userEvent.setup();
     const onSetLevel = vi.fn();
@@ -104,6 +120,23 @@ describe("LogControls", () => {
     });
     await user.click(errorOption);
     expect(onSetLevel).toHaveBeenCalledWith("error");
+  });
+
+  it("does not invoke onSetLevel when the dropdown selection is cleared", async () => {
+    // The Select allows deselect (no allowDeselect override): clicking the
+    // already-selected option fires onChange(null), exercising the falsy-`value`
+    // arm of the guard (line 73) so onSetLevel is not called.
+    const user = userEvent.setup();
+    const onSetLevel = vi.fn();
+    renderWithMantine(<LogControls {...baseProps} onSetLevel={onSetLevel} />);
+    const inputs = screen.getAllByDisplayValue("info");
+    await user.click(inputs[0]);
+    const infoOption = await screen.findByRole("option", {
+      name: "info",
+      hidden: true,
+    });
+    await user.click(infoOption);
+    expect(onSetLevel).not.toHaveBeenCalled();
   });
 
   it("renders Deselect All when all levels are visible", () => {

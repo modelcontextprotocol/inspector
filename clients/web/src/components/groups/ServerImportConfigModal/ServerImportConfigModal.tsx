@@ -183,6 +183,10 @@ export function ServerImportConfigModal({
                     <SegmentedControl
                       size="xs"
                       data={ADDITION_DATA}
+                      /* v8 ignore next -- the `?? "import"` fallback is dead:
+                         the hook seeds additionActions[id] = "import" for every
+                         addition before review renders, so the value is always
+                         present. */
                       value={vm.additionActions[a.id] ?? "import"}
                       onChange={(value) =>
                         vm.setAdditionAction(a.id, value as AdditionAction)
@@ -207,6 +211,11 @@ export function ServerImportConfigModal({
                         <SegmentedControl
                           size="xs"
                           data={RESOLUTION_DATA}
+                          /* v8 ignore next -- the `res?.` / `?? "skip"`
+                             fallback is dead: the hook seeds resolutions[id]
+                             with action "skip" for every conflict before review
+                             renders, so `res` and `res.action` are always
+                             present. */
                           value={res?.action ?? "skip"}
                           onChange={(value) =>
                             vm.setResolution(
