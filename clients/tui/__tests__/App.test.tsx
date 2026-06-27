@@ -199,6 +199,11 @@ import type { TuiServer } from "../src/tui-servers.js";
 const tick = () => new Promise((r) => setTimeout(r, 25));
 const callbackUrlConfig = { hostname: "127.0.0.1", port: 0, pathname: "/cb" };
 
+// App attaches a process.stdout "resize" listener per mount; across this
+// file's many mount/unmount cycles the transient count can exceed Node's
+// default warning threshold of 10. Raise it to keep test output clean.
+process.stdout.setMaxListeners(50);
+
 function stdioServer(): Record<string, TuiServer> {
   return {
     alpha: {
