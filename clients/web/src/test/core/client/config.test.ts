@@ -19,7 +19,7 @@ import {
 } from "@inspector/core/client/config.js";
 import {
   formatClientConfigLoadError,
-  isAbsoluteUrl,
+  isAbsoluteHttpUrl,
 } from "@inspector/core/client/config-parse.js";
 import {
   getActiveEnterpriseManagedAuthIdp,
@@ -90,11 +90,29 @@ describe("client config", () => {
     ).toThrow();
   });
 
-  it("isAbsoluteUrl accepts absolute URLs and trims, rejects others", () => {
-    expect(isAbsoluteUrl("https://idp.example.com")).toBe(true);
-    expect(isAbsoluteUrl("  https://idp.example.com  ")).toBe(true);
-    expect(isAbsoluteUrl("not-a-url")).toBe(false);
-    expect(isAbsoluteUrl("")).toBe(false);
+  it("isAbsoluteHttpUrl accepts http(s) URLs and trims, rejects others", () => {
+    expect(isAbsoluteHttpUrl("https://idp.example.com")).toBe(true);
+    expect(isAbsoluteHttpUrl("http://localhost:6274")).toBe(true);
+    expect(isAbsoluteHttpUrl("  https://idp.example.com  ")).toBe(true);
+    expect(isAbsoluteHttpUrl("not-a-url")).toBe(false);
+    expect(isAbsoluteHttpUrl("")).toBe(false);
+  });
+
+  it("isAbsoluteHttpUrl rejects non-http(s) schemes", () => {
+    expect(isAbsoluteHttpUrl("foo:bar")).toBe(false);
+    expect(isAbsoluteHttpUrl("mailto:a@b.com")).toBe(false);
+    expect(isAbsoluteHttpUrl("ftp://idp.example.com")).toBe(false);
+    expect(isAbsoluteHttpUrl("javascript:void(0)")).toBe(false);
+  });
+
+  it("parseClientConfig rejects a non-http(s) issuer scheme", () => {
+    expect(() =>
+      parseClientConfig({
+        enterpriseManagedAuth: {
+          idp: { issuer: "mailto:idp@example.com", clientId: "c" },
+        },
+      }),
+    ).toThrow(/Invalid URL/);
   });
 
   it("loadClientConfig returns {} when file is absent", async () => {

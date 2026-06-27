@@ -1,5 +1,5 @@
 import type { ClientConfig } from "@inspector/core/client/types.js";
-import { isAbsoluteUrl } from "@inspector/core/client/config-parse.js";
+import { isAbsoluteHttpUrl } from "@inspector/core/client/config-parse.js";
 
 /** Field-level error message for an issuer that is not an absolute URL. */
 export const ISSUER_URL_ERROR =
@@ -22,7 +22,7 @@ export function validateClientSettings(
   if (
     values.emaEnabled &&
     values.issuer.trim() !== "" &&
-    !isAbsoluteUrl(values.issuer)
+    !isAbsoluteHttpUrl(values.issuer)
   ) {
     errors.issuer = ISSUER_URL_ERROR;
   }
@@ -96,7 +96,8 @@ export function canPersistClientSettingsDraft(
   if (!values.emaEnabled) return true;
   if (values.issuer.trim() === "" || values.clientId.trim() === "")
     return false;
-  // Never send an invalid issuer to the backend — the inline field error guides
-  // the user instead of a raw validation failure toast.
-  return isAbsoluteUrl(values.issuer);
+  // Defer to validateClientSettings so the persist gate and the inline field
+  // errors can never drift: an invalid issuer is never sent to the backend, and
+  // the field error guides the user instead of a raw validation failure toast.
+  return Object.keys(validateClientSettings(values)).length === 0;
 }

@@ -5,14 +5,21 @@
 import { z } from "zod";
 import type { ClientConfig } from "./types.js";
 
-/** True when `value` (trimmed) parses as an absolute URL. */
-export function isAbsoluteUrl(value: string): boolean {
-  return URL.canParse(value.trim());
+/**
+ * True when `value` (trimmed) is an absolute `http:`/`https:` URL. An OAuth IdP
+ * issuer is always http(s), so other parseable schemes (`mailto:`, `foo:bar`,
+ * `javascript:`) are rejected rather than deferred to a later connect failure.
+ */
+export function isAbsoluteHttpUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!URL.canParse(trimmed)) return false;
+  const { protocol } = new URL(trimmed);
+  return protocol === "https:" || protocol === "http:";
 }
 
 const HttpUrlStringSchema = z.string().min(1).superRefine((val, ctx) => {
   const trimmed = val.trim();
-  if (!isAbsoluteUrl(trimmed)) {
+  if (!isAbsoluteHttpUrl(trimmed)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: `Invalid URL: "${trimmed}" — must be an absolute URL (e.g. https://idp.example.com)`,
