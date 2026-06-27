@@ -15,12 +15,13 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "json-summary"],
-      // The Ink components and the useSelectableList hook are now under the
-      // gate via ink-testing-library renderer tests (#1501): components mount
-      // through the ink-scroll-view / ink-form passthrough doubles in
-      // __tests__/helpers/, and keypresses are driven through stdin. The only
-      // remaining React-surface exclusion is App.tsx (see below). New logic
-      // added under src/ — React or not — is automatically held to the gate.
+      // The entire React surface — App.tsx, every Ink component, and the
+      // useSelectableList hook — is under the gate via ink-testing-library
+      // renderer tests (#1501): components mount through the ink-scroll-view /
+      // ink-form passthrough doubles in __tests__/helpers/, App.tsx mounts
+      // against a controllable mock of the @inspector/core surface, and
+      // keypresses are driven through stdin. No React-surface exclusions
+      // remain; all new logic under src/ is automatically held to the gate.
       include: ["src/**/*.{ts,tsx}"],
       exclude: [
         // Pure re-export + type alias of core's server resolver (no runtime
@@ -28,10 +29,6 @@ export default defineConfig({
         // suite). tui-servers.test.ts still exercises it behaviorally; it's
         // excluded here only so it doesn't surface as a misleading 0/0 row.
         "src/tui-servers.ts",
-        // App.tsx (~1885 lines) is the last React-surface exclusion: it wires
-        // InspectorClient + the core react hooks together and needs module
-        // mocking to exercise. Tracked as the final step of #1501.
-        "src/App.tsx",
         "**/*.test.ts",
         "**/*.test.tsx",
         "**/*.d.ts",
