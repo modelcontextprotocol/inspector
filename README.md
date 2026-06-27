@@ -29,6 +29,13 @@ npx @modelcontextprotocol/inspector
 
 The server will start up and the UI will be accessible at `http://localhost:6274`.
 
+### Discover MCP servers
+
+Need a server to test? Try these:
+
+- **[MCP Registry](https://github.com/modelcontextprotocol/registry)** — official list of published MCP servers.
+- **[RAGMap](https://ragmap-api.web.app)** — RAG-focused subregistry: search by meaning or keywords, filter by transport/category. [Browse](https://ragmap-api.web.app/browse) and copy a streamable-http URL into the Inspector.
+
 ### Docker Container
 
 You can also start it in a Docker container with the following command:
