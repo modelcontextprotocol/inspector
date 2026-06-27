@@ -92,7 +92,9 @@ export function deleteConfigFile(configPath: string): void {
 /**
  * Create a temporary install-level client.json for --client-config tests.
  */
-export function createClientConfigFile(config: Record<string, unknown>): string {
+export function createClientConfigFile(
+  config: Record<string, unknown>,
+): string {
   const tempDir = createTempDir("mcp-inspector-client-config-");
   const configPath = path.join(tempDir, "client.json");
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));

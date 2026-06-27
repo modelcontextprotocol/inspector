@@ -4,6 +4,10 @@
  * Web uses the main Hono server (`localhost:6274` by default). Runners spin up
  * a minimal loopback listener; default port 6276 (T9 "MCPO", MCP OAuth) avoids colliding
  * with the web dev server while staying in the Inspector 627x family.
+ *
+ * Port 6276 is fixed so EMA, CIMD, and static OAuth apps can pre-register
+ * `http://127.0.0.1:6276/oauth/callback`. Concurrent TUI OAuth on that port is
+ * unsupported; override via `--callback-url` / `MCP_OAUTH_CALLBACK_URL`.
  */
 
 export const RUNNER_OAUTH_CALLBACK_DEFAULT_HOSTNAME = "127.0.0.1";

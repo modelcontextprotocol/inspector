@@ -145,17 +145,11 @@ describe("CLI OAuth runner flags", () => {
     try {
       await server.start();
       const result = await runCli(
-        [
-          server.url,
-          "--cli",
-          "--method",
-          "tools/list",
-          "--transport",
-          "http",
-        ],
+        [server.url, "--cli", "--method", "tools/list", "--transport", "http"],
         {
           env: {
-            MCP_OAUTH_CALLBACK_URL: "http://127.0.0.1:8888/custom/oauth/callback",
+            MCP_OAUTH_CALLBACK_URL:
+              "http://127.0.0.1:8888/custom/oauth/callback",
           },
         },
       );

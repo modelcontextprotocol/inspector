@@ -44,9 +44,11 @@ The TUI starts a small loopback HTTP server to receive the authorization redirec
 | **Web** | `http://localhost:6274/oauth/callback` (main app server) |
 | **TUI** | `http://127.0.0.1:6276/oauth/callback` (dedicated runner port; avoids colliding with web on 6274) |
 
-OAuth redirect URIs must match **exactly** what you register on the authorization server — `localhost` and `127.0.0.1` are different URIs. Register the TUI default on your OAuth app / IdP when using pre-registered (static) or enterprise-managed clients.
+**Why a fixed default port?** Enterprise-managed auth (EMA), CIMD, and many static OAuth apps require **pre-registered redirect URIs**. A predictable default (`http://127.0.0.1:6276/oauth/callback`) lets you register once on the IdP and reuse it across TUI sessions. Dynamic registration (DCR) can use ephemeral ports instead — see below.
 
-Override the TUI listener with `--callback-url` or `MCP_OAUTH_CALLBACK_URL`. Use `http://127.0.0.1:0/oauth/callback` for an OS-assigned ephemeral port when the authorization server registers redirect URIs dynamically (DCR).
+**Trade-off:** only **one TUI OAuth flow at a time** can listen on the default port. A second instance starting OAuth while another is in progress may fail with `EADDRINUSE`. Override the listener with `--callback-url` or `MCP_OAUTH_CALLBACK_URL` (e.g. a different fixed port per instance, or `http://127.0.0.1:0/oauth/callback` when the authorization server accepts dynamically registered redirect URIs).
+
+OAuth redirect URIs must match **exactly** what you register on the authorization server — `localhost` and `127.0.0.1` are different URIs. Register the TUI default on your OAuth app / IdP when using pre-registered (static), CIMD, or enterprise-managed clients. Override the listener with `--callback-url` or `MCP_OAUTH_CALLBACK_URL`; use `http://127.0.0.1:0/oauth/callback` for an OS-assigned ephemeral port when the authorization server registers redirect URIs dynamically (DCR).
 
 #### Flags
 
