@@ -17,7 +17,12 @@ import { ToolTestModal } from "../src/components/ToolTestModal.js";
 // transitions they drive — rather than on lastFrame() content. React still
 // EXECUTES the inner results/error/loading JSX, so its coverage is collected.
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const tick = async () => {
+  // Flush several macrotask cycles so an effect -> setState -> re-render chain
+  // settles before assertions, even on slow/loaded CI (a single tick can race).
+  for (let i = 0; i < 8; i++)
+    await new Promise((resolve) => setTimeout(resolve, 4));
+};
 const ESC = String.fromCharCode(27);
 const UP = `${ESC}[A`;
 const DOWN = `${ESC}[B`;

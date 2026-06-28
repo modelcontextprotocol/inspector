@@ -8,7 +8,12 @@ import {
 } from "../src/hooks/useSelectableList.js";
 
 /** Let ink flush an async stdin keypress / re-render before asserting. */
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const tick = async () => {
+  // Flush several macrotask cycles so an effect -> setState -> re-render chain
+  // settles before assertions, even on slow/loaded CI (a single tick can race).
+  for (let i = 0; i < 8; i++)
+    await new Promise((resolve) => setTimeout(resolve, 4));
+};
 
 /**
  * Harness that surfaces the hook's state as rendered text and forwards

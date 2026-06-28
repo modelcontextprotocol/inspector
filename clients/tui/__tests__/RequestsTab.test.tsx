@@ -11,7 +11,12 @@ vi.mock("ink-scroll-view", () => import("./helpers/inkScrollViewMock.js"));
 import { RequestsTab } from "../src/components/RequestsTab.js";
 
 // Ink processes stdin keypresses asynchronously — await this after stdin.write.
-const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
+const tick = async () => {
+  // Flush several macrotask cycles so an effect -> setState -> re-render chain
+  // settles before assertions, even on slow/loaded CI (a single tick can race).
+  for (let i = 0; i < 8; i++)
+    await new Promise((resolve) => setTimeout(resolve, 4));
+};
 
 const ESC = String.fromCharCode(27);
 const UP = `${ESC}[A`;

@@ -12,7 +12,12 @@ import { ToolsTab } from "../src/components/ToolsTab.js";
 
 // Ink processes stdin keypresses asynchronously — await this after stdin.write
 // and after rerender() before asserting.
-const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
+const tick = async () => {
+  // Flush several macrotask cycles so an effect -> setState -> re-render chain
+  // settles before assertions, even on slow/loaded CI (a single tick can race).
+  for (let i = 0; i < 8; i++)
+    await new Promise((resolve) => setTimeout(resolve, 4));
+};
 
 // Real terminal escape sequences so ink parses them as arrow / page keys.
 const ESC = String.fromCharCode(27);
