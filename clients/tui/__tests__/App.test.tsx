@@ -392,12 +392,46 @@ const STAB = `${ESC}[Z`;
 const TAB = "\t";
 const ENTER = "\r";
 
-/** Write each key in order, flushing ink's async keypress queue between them. */
+/**
+ * Write each key in order. ink re-subscribes the active component's useInput on
+ * re-render, so a key that changes focus/tab must let that re-render flush
+ * before the next key — otherwise the next key is routed to the old handler.
+ * Two ticks per key keeps multi-step navigation deterministic under the heavier
+ * v8 coverage instrumentation (where a single tick can race the render).
+ */
 async function press(r: RenderResult, keys: string[]) {
   for (const k of keys) {
     r.stdin.write(k);
     await tick();
+    await tick();
   }
+}
+
+/**
+ * Poll until `predicate` is true (or the tries run out). React + ink schedule
+ * renders across several macrotasks, so async state set by a flow can take more
+ * than one fixed tick to land under coverage instrumentation.
+ */
+async function waitUntil(predicate: () => boolean, tries = 25) {
+  for (let i = 0; i < tries; i++) {
+    if (predicate()) return;
+    await tick();
+  }
+}
+
+/**
+ * Poll the frame until it contains `substr` (or the tries run out). Render
+ * settling races a single fixed tick under v8 coverage instrumentation, so
+ * frame assertions that follow a mount/keypress use this instead of one tick.
+ */
+async function waitForFrame(r: RenderResult, substr: string, tries = 25) {
+  await waitUntil(() => (r.lastFrame() ?? "").includes(substr), tries);
+}
+
+/** Poll until the frame contains `substr`, then assert it — stable under load. */
+async function expectFrame(r: RenderResult, substr: string) {
+  await waitForFrame(r, substr);
+  expect(r.lastFrame() ?? "").toContain(substr);
 }
 
 beforeEach(() => {
@@ -444,28 +478,22 @@ afterEach(() => {
 
 describe("App (foundation)", () => {
   it("renders the server list with the MCP Servers header", async () => {
-    const { lastFrame } = renderApp(stdioServer());
-    await tick();
-    const frame = lastFrame() ?? "";
-    expect(frame).toContain("MCP Servers");
+    const r = renderApp(stdioServer());
+    await expectFrame(r, "MCP Servers");
+    const frame = r.lastFrame() ?? "";
     expect(frame).toContain("alpha");
     expect(frame).toContain("beta");
   });
 
-  it("selects a server with down arrow and shows its config", async () => {
-    const { lastFrame, stdin } = renderApp(stdioServer());
-    await tick();
-    stdin.write("[B");
-    await tick();
-    expect(lastFrame() ?? "").toContain("Server Configuration");
+  it("auto-selects the first server and shows its config", async () => {
+    const r = renderApp(stdioServer());
+    await expectFrame(r, "Server Configuration");
   });
 
-  it("wraps server selection with up arrow from the unselected state", async () => {
-    const { lastFrame, stdin } = renderApp(stdioServer());
-    await tick();
-    stdin.write("[A");
-    await tick();
-    expect(lastFrame() ?? "").toContain("Server Configuration");
+  it("moves selection down to the next server with the down arrow", async () => {
+    const r = await mount(stdioServer());
+    await press(r, [DOWN]); // alpha -> beta
+    await expectFrame(r, "b.js");
   });
 
   it("connects with 'c' when disconnected", async () => {
@@ -484,13 +512,9 @@ describe("App (foundation)", () => {
   });
 
   it("switches tabs via accelerator keys", async () => {
-    const { lastFrame, stdin } = renderApp(stdioServer());
-    await tick();
-    stdin.write("[B"); // select a server
-    await tick();
-    stdin.write("t"); // tools tab
-    await tick();
-    expect(lastFrame() ?? "").toContain("Tools");
+    const r = await mount(stdioServer());
+    await press(r, ["t"]); // tools tab (server is auto-selected)
+    await expectFrame(r, "Tools");
   });
 
   it("cycles focus with tab and shift+tab", async () => {
@@ -508,46 +532,45 @@ describe("App (foundation)", () => {
 
   it("shows the Auth tab and G/Q/S accelerators for an OAuth-capable server", async () => {
     h.ctrl.serverType = "streamable-http";
-    const { lastFrame, stdin } = await mount(httpServer());
-    stdin.write("g"); // guided auth accelerator -> Auth tab
-    await tick();
-    expect(lastFrame() ?? "").toContain("Auth");
+    const r = await mount(httpServer());
+    await press(r, ["g"]); // guided auth accelerator -> Auth tab
+    await expectFrame(r, "Auth");
   });
 
   it("renders connected status with capabilities", async () => {
     h.ctrl.status = "connected";
     h.ctrl.capabilities = { tools: {}, resources: {}, prompts: {} };
     h.ctrl.serverInfo = { name: "srv", version: "1.0.0" };
-    const { lastFrame } = await mount(oneStdio());
-    expect(lastFrame() ?? "").toContain("connected");
+    const r = await mount(oneStdio());
+    await expectFrame(r, "connected");
   });
 });
 
 describe("App (status, layout, modals)", () => {
   it("renders the connecting status symbol/color", async () => {
     h.ctrl.status = "connecting";
-    const { lastFrame } = await mount(oneStdio());
-    expect(lastFrame() ?? "").toContain("connecting");
+    const r = await mount(oneStdio());
+    await expectFrame(r, "connecting");
   });
 
   it("renders the error status symbol/color", async () => {
     h.ctrl.status = "error";
-    const { lastFrame } = await mount(oneStdio());
-    expect(lastFrame() ?? "").toContain("error");
+    const r = await mount(oneStdio());
+    await expectFrame(r, "error");
   });
 
   it("shows the 401 auth hint for an http server with a 401 response", async () => {
     h.ctrl.status = "error";
     h.ctrl.fetchRequests = [{ ...errorRequest, responseStatus: 401 }];
-    const { lastFrame } = await mount(oneHttp());
-    expect(lastFrame() ?? "").toContain("401 Unauthorized");
+    const r = await mount(oneHttp());
+    await expectFrame(r, "401 Unauthorized");
   });
 
   it("updates dimensions when the terminal resizes", async () => {
     const r = await mount(oneStdio());
     process.stdout.emit("resize");
     await tick();
-    expect(r.lastFrame() ?? "").toContain("MCP Servers");
+    await expectFrame(r, "MCP Servers");
   });
 
   it("renders Tools tab content when connected", async () => {
@@ -565,7 +588,7 @@ describe("App (status, layout, modals)", () => {
     h.ctrl.tools = [sampleTool];
     const r = await mount(oneStdio());
     await press(r, ["t", TAB, ENTER]);
-    expect(r.lastFrame() ?? "").toContain("MOCK_FORM");
+    await expectFrame(r, "MOCK_FORM");
     await press(r, [ESC]); // ESC closes the modal
     expect(r.lastFrame() ?? "").not.toContain("MOCK_FORM");
   });
@@ -575,9 +598,8 @@ describe("App (status, layout, modals)", () => {
     h.ctrl.tools = [sampleTool];
     const r = await mount(oneStdio());
     await press(r, ["t", TAB, TAB, "+"]);
-    const f = r.lastFrame() ?? "";
-    expect(f).toContain("Input Schema:");
-    expect(f).toContain("Full JSON:");
+    await expectFrame(r, "Input Schema:");
+    expect(r.lastFrame() ?? "").toContain("Full JSON:");
     await press(r, [ESC]);
     expect(r.lastFrame() ?? "").not.toContain("Full JSON:");
   });
@@ -589,7 +611,7 @@ describe("App (status, layout, modals)", () => {
     await press(r, ["r", TAB, ENTER]);
     await tick();
     await press(r, [TAB, "+"]);
-    expect(r.lastFrame() ?? "").toContain("Full JSON:");
+    await expectFrame(r, "Full JSON:");
   });
 
   it("opens the resource template test modal via Enter on a template", async () => {
@@ -598,7 +620,7 @@ describe("App (status, layout, modals)", () => {
     h.ctrl.resourceTemplates = [sampleTemplate];
     const r = await mount(oneStdio());
     await press(r, ["r", TAB, DOWN, ENTER]);
-    expect(r.lastFrame() ?? "").toContain("MOCK_FORM");
+    await expectFrame(r, "MOCK_FORM");
     await press(r, [ESC]);
     expect(r.lastFrame() ?? "").not.toContain("MOCK_FORM");
   });
@@ -608,7 +630,7 @@ describe("App (status, layout, modals)", () => {
     h.ctrl.prompts = [promptWithArgs];
     const r = await mount(oneStdio());
     await press(r, ["p", TAB, ENTER]);
-    expect(r.lastFrame() ?? "").toContain("MOCK_FORM");
+    await expectFrame(r, "MOCK_FORM");
     await press(r, [ESC]);
     expect(r.lastFrame() ?? "").not.toContain("MOCK_FORM");
   });
@@ -646,14 +668,14 @@ describe("App (status, layout, modals)", () => {
     h.ctrl.messages = [notifMessage];
     const r = await mount(oneStdio());
     await press(r, ["m", TAB, TAB, "+"]);
-    expect(r.lastFrame() ?? "").toContain("Notification:");
+    await expectFrame(r, "Notification:");
   });
 
   it("opens message details for a response message", async () => {
     h.ctrl.messages = [respMessage];
     const r = await mount(oneStdio());
     await press(r, ["m", TAB, TAB, "+"]);
-    expect(r.lastFrame() ?? "").toContain("Response:");
+    await expectFrame(r, "Response:");
   });
 
   it("opens in-progress request details (no status, error, or bodies)", async () => {
@@ -661,7 +683,7 @@ describe("App (status, layout, modals)", () => {
     h.ctrl.fetchRequests = [bareRequest];
     const r = await mount(oneHttp());
     await press(r, ["h", TAB, TAB, "+"]);
-    expect(r.lastFrame() ?? "").toContain("Request Headers:");
+    await expectFrame(r, "Request Headers:");
   });
 
   it("connects with 'c' from the error state", async () => {
@@ -695,7 +717,7 @@ describe("App (status, layout, modals)", () => {
     h.ctrl.fetchRequests = [errorRequest];
     const r = await mount(oneHttp());
     await press(r, ["h", TAB, TAB, "+"]);
-    expect(r.lastFrame() ?? "").toContain("Error: boom");
+    await expectFrame(r, "Error: boom");
   });
 
   it("renders the Logging tab for a stdio server", async () => {
@@ -715,7 +737,7 @@ describe("App (input handling, focus, effects)", () => {
     const r = await mount(oneHttp());
     await press(r, [TAB]); // serverList -> tabs
     await press(r, [LEFT, RIGHT, RIGHT, LEFT]); // wrap + cycle both directions
-    expect(r.lastFrame() ?? "").toContain("MCP Servers");
+    await expectFrame(r, "MCP Servers");
   });
 
   it("switches tabs with arrows on a stdio server (logging tab, no requests)", async () => {
@@ -723,7 +745,7 @@ describe("App (input handling, focus, effects)", () => {
     const r = await mount(oneStdio());
     await press(r, [TAB]); // serverList -> tabs
     await press(r, [RIGHT, RIGHT, LEFT]);
-    expect(r.lastFrame() ?? "").toContain("MCP Servers");
+    await expectFrame(r, "MCP Servers");
   });
 
   it("updates the resources tab count when the resource list changes", async () => {
@@ -734,7 +756,7 @@ describe("App (input handling, focus, effects)", () => {
     h.ctrl.resources = [sampleResource];
     await press(r, [TAB]); // a focus change forces a re-render with new resources
     await tick();
-    expect(r.lastFrame() ?? "").toContain("Resources (1)");
+    await expectFrame(r, "Resources (1)");
   });
 
   it("exits on Ctrl+C", async () => {
@@ -756,13 +778,13 @@ describe("App (input handling, focus, effects)", () => {
     await press(r, [UP]); // beta -> alpha (up, index-1)
     await press(r, [UP]); // alpha -> beta (up wrap to last)
     await press(r, [DOWN]); // beta -> alpha (down wrap to first)
-    expect(r.lastFrame() ?? "").toContain("Server Configuration");
+    await expectFrame(r, "Server Configuration");
   });
 
   it("handles arrow keys with an empty server catalog", async () => {
     const r = await mount({});
     await press(r, [UP, DOWN]);
-    expect(r.lastFrame() ?? "").toContain("MCP Servers");
+    await expectFrame(r, "MCP Servers");
   });
 
   it("cycles focus order through the messages tab panes", async () => {
@@ -771,7 +793,7 @@ describe("App (input handling, focus, effects)", () => {
     await press(r, ["m"]);
     await press(r, [TAB, TAB, TAB, TAB]); // forward through messages focusOrder
     await press(r, [STAB, STAB]); // reverse
-    expect(r.lastFrame() ?? "").toContain("Messages");
+    await expectFrame(r, "Messages");
   });
 
   it("cycles focus order through the requests tab panes", async () => {
@@ -781,7 +803,7 @@ describe("App (input handling, focus, effects)", () => {
     await press(r, ["h"]);
     await press(r, [TAB, TAB, TAB, TAB]);
     await press(r, [STAB, STAB]);
-    expect(r.lastFrame() ?? "").toContain("Requests");
+    await expectFrame(r, "Requests");
   });
 
   it("switches away from the Auth tab when selecting a non-OAuth server", async () => {
@@ -789,7 +811,7 @@ describe("App (input handling, focus, effects)", () => {
     await press(r, ["a"]); // Auth tab (http is OAuth-capable)
     await press(r, [STAB]); // tabs -> serverList
     await press(r, [DOWN]); // select the stdio server -> effect leaves Auth
-    expect(r.lastFrame() ?? "").toContain("Server Configuration");
+    await expectFrame(r, "Server Configuration");
   });
 
   it("switches away from the Logging tab when selecting a non-stdio server", async () => {
@@ -797,7 +819,7 @@ describe("App (input handling, focus, effects)", () => {
     await press(r, ["l"]); // Logging tab (stdio)
     await press(r, [STAB]); // tabs -> serverList
     await press(r, [DOWN]); // select the http server -> effect leaves Logging
-    expect(r.lastFrame() ?? "").toContain("Server Configuration");
+    await expectFrame(r, "Server Configuration");
   });
 
   it("swallows connect errors", async () => {
@@ -810,7 +832,7 @@ describe("App (input handling, focus, effects)", () => {
 
   it("builds a client with saved settings (metadata, oauth, timeout)", async () => {
     const r = await mount(httpWithSettings());
-    expect(r.lastFrame() ?? "").toContain("MCP Servers");
+    await expectFrame(r, "MCP Servers");
   });
 
   it("passes top-level oauth client credentials into an http client", async () => {
@@ -825,7 +847,7 @@ describe("App (input handling, focus, effects)", () => {
     );
     mounted.push(r);
     await tick();
-    expect(r.lastFrame() ?? "").toContain("MCP Servers");
+    await expectFrame(r, "MCP Servers");
   });
 });
 
@@ -837,28 +859,28 @@ describe("App (OAuth flows)", () => {
     await tick();
     expect(h.callbackStart).toHaveBeenCalled();
     expect(h.clientSpies.authenticate).toHaveBeenCalled();
-    expect(r.lastFrame() ?? "").toContain("OAuth complete");
+    await expectFrame(r, "OAuth complete");
   });
 
   it("completes quick auth when the OAuth callback fires", async () => {
     const r = await mount(oneHttp());
     await press(r, ["q", ENTER]);
-    await tick();
+    await waitUntil(() => h.cb.opts !== null);
     expect(h.cb.opts).not.toBeNull();
     await h.cb.opts!.onCallback({ code: "abc" });
     await tick();
     expect(h.clientSpies.completeOAuthFlow).toHaveBeenCalledWith("abc");
-    expect(r.lastFrame() ?? "").toContain("OAuth complete");
+    await expectFrame(r, "OAuth complete");
   });
 
   it("reports an error when the OAuth callback errors", async () => {
     const r = await mount(oneHttp());
     await press(r, ["q", ENTER]);
-    await tick();
+    await waitUntil(() => h.cb.opts !== null);
     expect(h.cb.opts).not.toBeNull();
     h.cb.opts!.onError({ error_description: "denied" });
     await tick();
-    expect(r.lastFrame() ?? "").toContain("denied");
+    await expectFrame(r, "denied");
   });
 
   it("runs guided auth to completion and opens the auth URL", async () => {
@@ -875,7 +897,7 @@ describe("App (OAuth flows)", () => {
     const r = await mount(oneHttp());
     await press(r, ["g", ENTER]);
     await tick();
-    expect(r.lastFrame() ?? "").toContain("nope");
+    await expectFrame(r, "nope");
   });
 
   it("starts guided auth then advances a step, opening the auth URL", async () => {
@@ -909,7 +931,7 @@ describe("App (OAuth flows)", () => {
     const r = await mount(oneHttp());
     await press(r, ["g", " "]);
     await tick();
-    expect(r.lastFrame() ?? "").toContain("startfail");
+    await expectFrame(r, "startfail");
   });
 
   it("reports an error when advancing guided auth fails", async () => {
@@ -919,7 +941,7 @@ describe("App (OAuth flows)", () => {
     await tick();
     await press(r, [" "]);
     await tick();
-    expect(r.lastFrame() ?? "").toContain("advfail");
+    await expectFrame(r, "advfail");
   });
 
   it("clears OAuth state via the Clear action", async () => {
@@ -927,18 +949,18 @@ describe("App (OAuth flows)", () => {
     await press(r, ["s", ENTER]);
     await tick();
     expect(h.clientSpies.clearOAuthTokens).toHaveBeenCalled();
-    expect(r.lastFrame() ?? "").toContain("OAuth state cleared");
+    await expectFrame(r, "OAuth state cleared");
   });
 
   it("reports an error when quick callback completion fails", async () => {
     h.clientSpies.completeOAuthFlow.mockRejectedValue(new Error("qcfail"));
     const r = await mount(oneHttp());
     await press(r, ["q", ENTER]);
-    await tick();
+    await waitUntil(() => h.cb.opts !== null);
     expect(h.cb.opts).not.toBeNull();
     await h.cb.opts!.onCallback({ code: "x" });
     await tick();
-    expect(r.lastFrame() ?? "").toContain("qcfail");
+    await expectFrame(r, "qcfail");
   });
 
   it("stops a prior callback server before starting quick auth again", async () => {
@@ -954,53 +976,53 @@ describe("App (OAuth flows)", () => {
   it("completes guided auth when the callback fires", async () => {
     const r = await mount(oneHttp());
     await press(r, ["g", " "]); // Space starts guided + registers callback server
-    await tick();
+    await waitUntil(() => h.cb.opts !== null);
     expect(h.cb.opts).not.toBeNull();
     await h.cb.opts!.onCallback({ code: "gc" });
     await tick();
     expect(h.clientSpies.completeOAuthFlow).toHaveBeenCalledWith("gc");
-    expect(r.lastFrame() ?? "").toContain("OAuth complete");
+    await expectFrame(r, "OAuth complete");
   });
 
   it("reports an error when the guided callback errors", async () => {
     const r = await mount(oneHttp());
     await press(r, ["g", " "]);
-    await tick();
+    await waitUntil(() => h.cb.opts !== null);
     expect(h.cb.opts).not.toBeNull();
     h.cb.opts!.onError({ error: "guided-bad" });
     await tick();
-    expect(r.lastFrame() ?? "").toContain("guided-bad");
+    await expectFrame(r, "guided-bad");
   });
 
   it("reports an error when guided callback completion fails", async () => {
     h.clientSpies.completeOAuthFlow.mockRejectedValue(new Error("gfail"));
     const r = await mount(oneHttp());
     await press(r, ["g", " "]);
-    await tick();
+    await waitUntil(() => h.cb.opts !== null);
     await h.cb.opts!.onCallback({ code: "x" });
     await tick();
-    expect(r.lastFrame() ?? "").toContain("gfail");
+    await expectFrame(r, "gfail");
   });
 
   it("completes run-to-completion auth when the callback fires", async () => {
     const r = await mount(oneHttp());
     await press(r, ["g", ENTER]); // runs to completion -> ensureCallbackServer
-    await tick();
+    await waitUntil(() => h.cb.opts !== null);
     expect(h.cb.opts).not.toBeNull();
     await h.cb.opts!.onCallback({ code: "rc" });
     await tick();
     expect(h.clientSpies.completeOAuthFlow).toHaveBeenCalledWith("rc");
-    expect(r.lastFrame() ?? "").toContain("OAuth complete");
+    await expectFrame(r, "OAuth complete");
   });
 
   it("reports an error when the run-to-completion callback errors", async () => {
     const r = await mount(oneHttp());
     await press(r, ["g", ENTER]);
-    await tick();
+    await waitUntil(() => h.cb.opts !== null);
     expect(h.cb.opts).not.toBeNull();
     h.cb.opts!.onError({ error: "rc-bad" });
     await tick();
-    expect(r.lastFrame() ?? "").toContain("rc-bad");
+    await expectFrame(r, "rc-bad");
   });
 
   it("stringifies a non-Error quick auth rejection", async () => {
@@ -1008,53 +1030,109 @@ describe("App (OAuth flows)", () => {
     const r = await mount(oneHttp());
     await press(r, ["q", ENTER]);
     await tick();
-    expect(r.lastFrame() ?? "").toContain("plainstring");
+    await expectFrame(r, "plainstring");
   });
 
   it("uses the default OAuth error label when the callback error is empty", async () => {
     const r = await mount(oneHttp());
     await press(r, ["q", ENTER]);
-    await tick();
+    await waitUntil(() => h.cb.opts !== null);
     expect(h.cb.opts).not.toBeNull();
     h.cb.opts!.onError({});
     await tick();
-    expect(r.lastFrame() ?? "").toContain("OAuth error");
+    await expectFrame(r, "OAuth error");
   });
 
   it("stringifies a non-Error guided callback completion failure", async () => {
     h.clientSpies.completeOAuthFlow.mockRejectedValue("guided-string");
     const r = await mount(oneHttp());
     await press(r, ["g", " "]);
-    await tick();
+    await waitUntil(() => h.cb.opts !== null);
     await h.cb.opts!.onCallback({ code: "x" });
     await tick();
-    expect(r.lastFrame() ?? "").toContain("guided-string");
+    await expectFrame(r, "guided-string");
   });
 
   it("falls back to params.error when the quick callback has no description", async () => {
     const r = await mount(oneHttp());
     await press(r, ["q", ENTER]);
-    await tick();
+    await waitUntil(() => h.cb.opts !== null);
     h.cb.opts!.onError({ error: "quick-error-code" });
     await tick();
-    expect(r.lastFrame() ?? "").toContain("quick-error-code");
+    await expectFrame(r, "quick-error-code");
   });
 
   it("uses the default label when the guided callback error is empty", async () => {
     const r = await mount(oneHttp());
     await press(r, ["g", " "]);
-    await tick();
+    await waitUntil(() => h.cb.opts !== null);
     h.cb.opts!.onError({});
     await tick();
-    expect(r.lastFrame() ?? "").toContain("OAuth error");
+    await expectFrame(r, "OAuth error");
   });
 
   it("uses the default label when the run-to-completion error is empty", async () => {
     const r = await mount(oneHttp());
     await press(r, ["g", ENTER]);
-    await tick();
+    await waitUntil(() => h.cb.opts !== null);
     h.cb.opts!.onError({});
     await tick();
-    expect(r.lastFrame() ?? "").toContain("OAuth error");
+    await expectFrame(r, "OAuth error");
+  });
+
+  it("wraps a non-Error quick callback rejection into an Error", async () => {
+    h.clientSpies.completeOAuthFlow.mockRejectedValue("quick-cb-string");
+    const r = await mount(oneHttp());
+    await press(r, ["q", ENTER]);
+    await waitUntil(() => h.cb.opts !== null);
+    expect(h.cb.opts).not.toBeNull();
+    await h.cb.opts!.onCallback({ code: "x" });
+    await tick();
+    // quick auth's onCallback wraps the throw via new Error(String(err)); the
+    // flow rejects and the catch surfaces the stringified message.
+    await expectFrame(r, "quick-cb-string");
+  });
+
+  it("stringifies a non-Error guided-start rejection", async () => {
+    h.clientSpies.beginGuidedAuth.mockRejectedValue("startfail-string");
+    const r = await mount(oneHttp());
+    await press(r, ["g", " "]);
+    await tick();
+    await expectFrame(r, "startfail-string");
+  });
+
+  it("stringifies a non-Error guided-advance rejection", async () => {
+    h.clientSpies.proceedOAuthStep.mockRejectedValue("advfail-string");
+    const r = await mount(oneHttp());
+    await press(r, ["g", " "]);
+    await tick();
+    await press(r, [" "]);
+    await tick();
+    await expectFrame(r, "advfail-string");
+  });
+
+  it("stringifies a non-Error run-to-completion rejection", async () => {
+    h.clientSpies.runGuidedAuth.mockRejectedValue("runfail-string");
+    const r = await mount(oneHttp());
+    await press(r, ["g", ENTER]);
+    await tick();
+    await expectFrame(r, "runfail-string");
+  });
+
+  it("ignores a re-entrant quick-auth trigger while one is in progress", async () => {
+    // Hold the first flow open by leaving authenticate pending, so the second
+    // 'q' hits the `if (oauthInProgressRef.current) return` guard.
+    let release!: () => void;
+    h.clientSpies.authenticate.mockImplementation(
+      () => new Promise<string>((res) => (release = () => res(undefined))),
+    );
+    const r = await mount(oneHttp());
+    await press(r, ["q", ENTER]);
+    await tick();
+    await press(r, ["q", ENTER]); // re-entrant: guarded out
+    await tick();
+    expect(h.callbackStart).toHaveBeenCalledTimes(1);
+    release();
+    await tick();
   });
 });

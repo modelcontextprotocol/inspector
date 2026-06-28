@@ -22,6 +22,18 @@ interface ResourceTemplate {
 // readResource effect + setState settle.
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 
+/** Poll the frame until it contains `substr` — stable under coverage load. */
+async function waitForFrame(
+  getFrame: () => string | undefined,
+  substr: string,
+  tries = 25,
+) {
+  for (let i = 0; i < tries; i++) {
+    if ((getFrame() ?? "").includes(substr)) return;
+    await tick();
+  }
+}
+
 const ESC = String.fromCharCode(27);
 const UP = `${ESC}[A`;
 const DOWN = `${ESC}[B`;
@@ -358,8 +370,7 @@ describe("ResourcesTab", () => {
     );
     // fetch content for the first resource
     stdin.write("\r");
-    await tick();
-    await tick();
+    await waitForFrame(lastFrame, "stale");
     expect(lastFrame() ?? "").toContain("stale");
 
     // swapping in a new resources array clears content and updates the count
