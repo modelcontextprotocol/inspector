@@ -1,5 +1,8 @@
 import type { ClientConfig } from "@inspector/core/client/types.js";
-import { isAbsoluteHttpUrl } from "@inspector/core/client/config-parse.js";
+import {
+  getCimdClientMetadataUrlError,
+  isAbsoluteHttpUrl,
+} from "@inspector/core/client/config-parse.js";
 
 /** Field-level error message for an issuer that is not an http(s) URL. */
 export const ISSUER_URL_ERROR =
@@ -8,6 +11,7 @@ export const ISSUER_URL_ERROR =
 /** Field-level validation errors for the client settings form. */
 export interface ClientSettingsErrors {
   issuer?: string;
+  clientMetadataUrl?: string;
 }
 
 /**
@@ -25,6 +29,12 @@ export function validateClientSettings(
     !isAbsoluteHttpUrl(values.issuer)
   ) {
     errors.issuer = ISSUER_URL_ERROR;
+  }
+  if (values.cimdEnabled && values.clientMetadataUrl.trim() !== "") {
+    const cimdError = getCimdClientMetadataUrlError(values.clientMetadataUrl);
+    if (cimdError) {
+      errors.clientMetadataUrl = cimdError;
+    }
   }
   return errors;
 }
@@ -105,13 +115,11 @@ export function canPersistClientSettingsDraft(
   if (values.emaEnabled) {
     if (values.issuer.trim() === "" || values.clientId.trim() === "")
       return false;
-    // Defer to validateClientSettings so the persist gate and the inline field
-    // errors can never drift: an invalid issuer is never sent to the backend,
-    // and the field error guides the user instead of a raw validation toast.
-    if (Object.keys(validateClientSettings(values)).length > 0) return false;
   }
   if (values.cimdEnabled) {
     if (!values.clientMetadataUrl.trim()) return false;
   }
-  return true;
+  // Defer to validateClientSettings so the persist gate and inline field errors
+  // can never drift — invalid values are never sent to the backend.
+  return Object.keys(validateClientSettings(values)).length === 0;
 }

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  CIMD_METADATA_URL_HTTPS_ERROR,
+  CIMD_METADATA_URL_INVALID_ERROR,
+  CIMD_METADATA_URL_PATH_ERROR,
+} from "@inspector/core/client/config-parse.js";
+import {
   canPersistClientSettingsDraft,
   clientConfigToFormValues,
   EMPTY_CLIENT_SETTINGS,
@@ -344,6 +349,111 @@ describe("clientSettingsValues", () => {
         clientId: "cid",
         clientSecret: "",
         ...emptyCimd,
+      }),
+    ).toEqual({});
+  });
+
+  it("canPersistClientSettingsDraft blocks an invalid CIMD URL", () => {
+    expect(
+      canPersistClientSettingsDraft({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "not-a-url",
+      }),
+    ).toBe(false);
+    expect(
+      canPersistClientSettingsDraft({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "http://example.com/cimd.json",
+      }),
+    ).toBe(false);
+    expect(
+      canPersistClientSettingsDraft({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "https://example.com/",
+      }),
+    ).toBe(false);
+  });
+
+  it("validateClientSettings flags an invalid CIMD URL", () => {
+    expect(
+      validateClientSettings({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "not-a-url",
+      }),
+    ).toEqual({ clientMetadataUrl: CIMD_METADATA_URL_INVALID_ERROR });
+    expect(
+      validateClientSettings({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "http://example.com/cimd.json",
+      }),
+    ).toEqual({ clientMetadataUrl: CIMD_METADATA_URL_HTTPS_ERROR });
+    expect(
+      validateClientSettings({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "https://example.com/",
+      }),
+    ).toEqual({ clientMetadataUrl: CIMD_METADATA_URL_PATH_ERROR });
+  });
+
+  it("validateClientSettings passes a valid CIMD URL", () => {
+    expect(
+      validateClientSettings({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "https://example.com/cimd.json",
+      }),
+    ).toEqual({});
+  });
+
+  it("validateClientSettings ignores an empty CIMD URL", () => {
+    expect(
+      validateClientSettings({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "",
+      }),
+    ).toEqual({});
+  });
+
+  it("validateClientSettings ignores CIMD URL when CIMD disabled", () => {
+    expect(
+      validateClientSettings({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: false,
+        clientMetadataUrl: "not-a-url",
       }),
     ).toEqual({});
   });

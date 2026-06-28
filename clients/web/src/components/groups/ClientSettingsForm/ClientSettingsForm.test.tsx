@@ -3,6 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { ClientSettingsForm } from "./ClientSettingsForm";
 import {
+  CIMD_METADATA_URL_HTTPS_ERROR,
+  CIMD_METADATA_URL_INVALID_ERROR,
+} from "@inspector/core/client/config-parse.js";
+import {
   EMPTY_CLIENT_SETTINGS,
   ISSUER_URL_ERROR,
   type ClientSettingsFormValues,
@@ -97,6 +101,67 @@ describe("ClientSettingsForm EMA IdP session", () => {
     );
 
     expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
+  });
+
+  it("shows an inline error for an invalid CIMD metadata URL", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={{
+          ...EMPTY_CLIENT_SETTINGS,
+          cimdEnabled: true,
+          clientMetadataUrl: "not-a-url",
+        }}
+        expandedSections={["cimd"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        emaIdpLoginState="none"
+      />,
+    );
+
+    expect(
+      screen.getByText(CIMD_METADATA_URL_INVALID_ERROR),
+    ).toBeInTheDocument();
+  });
+
+  it("shows an inline error for a non-HTTPS CIMD metadata URL", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={{
+          ...EMPTY_CLIENT_SETTINGS,
+          cimdEnabled: true,
+          clientMetadataUrl: "http://example.com/cimd.json",
+        }}
+        expandedSections={["cimd"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        emaIdpLoginState="none"
+      />,
+    );
+
+    expect(screen.getByText(CIMD_METADATA_URL_HTTPS_ERROR)).toBeInTheDocument();
+  });
+
+  it("shows no CIMD URL error for a valid URL", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={{
+          ...EMPTY_CLIENT_SETTINGS,
+          cimdEnabled: true,
+          clientMetadataUrl: "https://example.com/cimd.json",
+        }}
+        expandedSections={["cimd"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        emaIdpLoginState="none"
+      />,
+    );
+
+    expect(
+      screen.queryByText(CIMD_METADATA_URL_INVALID_ERROR),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(CIMD_METADATA_URL_HTTPS_ERROR),
+    ).not.toBeInTheDocument();
   });
 
   it("shows expired state with sign out", () => {

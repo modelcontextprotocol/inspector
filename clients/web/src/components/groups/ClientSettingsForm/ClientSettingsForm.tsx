@@ -205,6 +205,7 @@ export function ClientSettingsForm({
                   onChange={(e) =>
                     patch({ clientMetadataUrl: e.currentTarget.value })
                   }
+                  error={errors.clientMetadataUrl}
                   rightSectionPointerEvents="auto"
                   rightSection={
                     settings.clientMetadataUrl ? (
