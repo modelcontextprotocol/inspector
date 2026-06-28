@@ -285,6 +285,9 @@ const App = () => {
   });
 
   const updateAuthState = (updates: Partial<AuthDebuggerState>) => {
+    if (updates.oauthClientInfo?.client_id) {
+      setOauthClientId(updates.oauthClientInfo.client_id);
+    }
     setAuthState((prev) => ({ ...prev, ...updates }));
   };
 

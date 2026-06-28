@@ -1,4 +1,5 @@
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom";
 import App from "../App";
 import { useConnection } from "../lib/hooks/useConnection";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -79,7 +80,35 @@ jest.mock("../lib/hooks/useDraggablePane", () => ({
 
 jest.mock("../components/Sidebar", () => ({
   __esModule: true,
-  default: () => <div>Sidebar</div>,
+  default: ({ oauthClientId }: { oauthClientId: string }) => (
+    <div>
+      <div data-testid="sidebar-oauth-client-id">{oauthClientId}</div>
+    </div>
+  ),
+}));
+
+jest.mock("../components/AuthDebugger", () => ({
+  __esModule: true,
+  default: ({
+    updateAuthState,
+  }: {
+    updateAuthState: (
+      updates: Partial<import("../lib/auth-types").AuthDebuggerState>,
+    ) => void;
+  }) => (
+    <button
+      onClick={() =>
+        updateAuthState({
+          oauthClientInfo: {
+            client_id: "dcr_client_id",
+            redirect_uris: ["http://localhost:3000/oauth/callback/debug"],
+          },
+        })
+      }
+    >
+      simulate dcr client
+    </button>
+  ),
 }));
 
 // Mock fetch
@@ -95,6 +124,8 @@ describe("App - URL Fragment Routing", () => {
 
   beforeEach(() => {
     jest.restoreAllMocks();
+    localStorage.clear();
+    window.location.hash = "";
 
     // Inspector starts disconnected.
     mockUseConnection.mockReturnValue(disconnectedConnectionState);
@@ -156,6 +187,24 @@ describe("App - URL Fragment Routing", () => {
     // Should clear the hash when disconnected
     await waitFor(() => {
       expect(window.location.hash).toBe("");
+    });
+  });
+
+  test("syncs dynamically registered OAuth client ID into the sidebar field", async () => {
+    render(<App />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /open auth settings/i }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /simulate dcr client/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-oauth-client-id")).toHaveTextContent(
+        "dcr_client_id",
+      );
+      expect(localStorage.getItem("lastOauthClientId")).toBe("dcr_client_id");
     });
   });
 });

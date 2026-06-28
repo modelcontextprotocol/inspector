@@ -683,6 +683,46 @@ describe("AuthDebugger", () => {
     });
   });
 
+  describe("Token Request behavior", () => {
+    it("uses OAuth client information restored with auth state when storage is empty", async () => {
+      sessionStorageMock.getItem.mockImplementation(() => null);
+      mockExchangeAuthorization.mockResolvedValueOnce(mockOAuthTokens);
+
+      const updateAuthState = jest.fn();
+
+      await act(async () => {
+        renderAuthDebugger({
+          updateAuthState,
+          authState: {
+            ...defaultAuthState,
+            isInitiatingAuth: false,
+            oauthStep: "token_request",
+            oauthMetadata: mockOAuthMetadata as unknown as OAuthMetadata,
+            oauthClientInfo: mockOAuthClientInfo,
+            authorizationCode: "test_authorization_code",
+          },
+        });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Continue"));
+      });
+
+      expect(mockExchangeAuthorization).toHaveBeenCalledWith(
+        defaultProps.serverUrl,
+        expect.objectContaining({
+          metadata: mockOAuthMetadata,
+          clientInformation: mockOAuthClientInfo,
+          authorizationCode: "test_authorization_code",
+        }),
+      );
+      expect(updateAuthState).toHaveBeenCalledWith({
+        oauthTokens: mockOAuthTokens,
+        oauthStep: "complete",
+      });
+    });
+  });
+
   describe("OAuth State Persistence", () => {
     it("should store auth state to sessionStorage before redirect in Quick OAuth Flow", async () => {
       const updateAuthState = jest.fn();

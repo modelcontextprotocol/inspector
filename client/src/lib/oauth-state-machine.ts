@@ -175,16 +175,27 @@ export const oauthTransitions: Record<OAuthStep, StateTransition> = {
 
   token_request: {
     canTransition: async (context) => {
+      const metadata =
+        context.provider.getServerMetadata() ?? context.state.oauthMetadata;
+      const clientInformation =
+        (await context.provider.clientInformation()) ??
+        context.state.oauthClientInfo;
+
       return (
-        !!context.state.authorizationCode &&
-        !!context.provider.getServerMetadata() &&
-        !!(await context.provider.clientInformation())
+        !!context.state.authorizationCode && !!metadata && !!clientInformation
       );
     },
     execute: async (context) => {
       const codeVerifier = context.provider.codeVerifier();
-      const metadata = context.provider.getServerMetadata()!;
-      const clientInformation = (await context.provider.clientInformation())!;
+      const metadata =
+        context.provider.getServerMetadata() ?? context.state.oauthMetadata;
+      const clientInformation =
+        (await context.provider.clientInformation()) ??
+        context.state.oauthClientInfo;
+
+      if (!metadata || !clientInformation) {
+        throw new Error("Missing OAuth metadata or client information");
+      }
 
       const tokens = await exchangeAuthorization(context.serverUrl, {
         metadata,
