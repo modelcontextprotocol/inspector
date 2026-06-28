@@ -12,7 +12,8 @@ import { Box, Text, useInput } from "ink";
  * title and invokes `onSubmit` when the user presses Enter ("\r").
  *
  * The submitted value defaults to `{}`; pass a different payload from a test
- * by setting `globalThis.__INK_FORM_SUBMIT_VALUE__` before pressing Enter.
+ * by setting `globalThis.__INK_FORM_SUBMIT_VALUE__` before pressing Enter. It
+ * is consumed (cleared) on submit, so it never leaks into a later submit.
  *
  * Usage in a test file:
  *   vi.mock("ink-form", () => import("./helpers/inkFormMock.js"));
@@ -25,8 +26,12 @@ interface MockFormProps {
 export function Form({ form, onSubmit }: MockFormProps) {
   useInput((_input, key) => {
     if (key.return) {
-      const value =
-        (globalThis as Record<string, unknown>).__INK_FORM_SUBMIT_VALUE__ ?? {};
+      // Consume-once: read the override then clear it, so a value set by one
+      // test can never leak into a later submit (no cross-test coupling on the
+      // shared global, regardless of how the test files are organized).
+      const g = globalThis as Record<string, unknown>;
+      const value = g.__INK_FORM_SUBMIT_VALUE__ ?? {};
+      delete g.__INK_FORM_SUBMIT_VALUE__;
       onSubmit?.(value as object);
     }
   });
