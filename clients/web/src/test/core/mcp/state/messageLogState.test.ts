@@ -80,6 +80,34 @@ describe("MessageLogState", () => {
     expect(state.getMessages()[0]!.direction).toBe("notification");
   });
 
+  it("does not track a request whose message has no id", () => {
+    const noIdRequest: MessageEntry = {
+      id: "req-noid",
+      timestamp: new Date(2026, 4, 13, 0, 0, 0, 1),
+      direction: "request",
+      message: { jsonrpc: "2.0", method: "tools/list", params: {} },
+    };
+    client.dispatchTypedEvent("message", noIdRequest);
+    expect(state.getMessages()).toHaveLength(1);
+
+    // A later response cannot match an untracked request -> appended.
+    client.dispatchTypedEvent("message", responseEntry(1));
+    expect(state.getMessages()).toHaveLength(2);
+    expect(state.getMessages()[1]!.direction).toBe("response");
+  });
+
+  it("appends a response whose message has no id", () => {
+    const noIdResponse: MessageEntry = {
+      id: "resp-noid",
+      timestamp: new Date(2026, 4, 13, 0, 0, 0, 2),
+      direction: "response",
+      message: { jsonrpc: "2.0", result: {} } as MessageEntry["message"],
+    };
+    client.dispatchTypedEvent("message", noIdResponse);
+    expect(state.getMessages()).toHaveLength(1);
+    expect(state.getMessages()[0]!.direction).toBe("response");
+  });
+
   it("trims the oldest entries when maxMessages is exceeded", () => {
     const small = new MessageLogState(client, { maxMessages: 2 });
     client.dispatchTypedEvent("message", notificationEntry("a"));

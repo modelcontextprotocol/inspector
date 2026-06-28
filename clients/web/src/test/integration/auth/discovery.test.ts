@@ -314,4 +314,24 @@ describe("getAuthorizationServerUrl", () => {
       new URL(authUrl),
     );
   });
+
+  it("throws a descriptive error when the MCP server URL is invalid", () => {
+    // "not a url" cannot be parsed by `new URL("/", serverUrl)`, exercising the
+    // catch block that wraps the underlying parse failure (discovery.ts 21-22).
+    expect(() => getAuthorizationServerUrl("not a url")).toThrow(
+      /Invalid MCP server URL: "not a url"/,
+    );
+  });
+
+  it("includes the underlying error detail in the thrown message", () => {
+    let captured: Error | undefined;
+    try {
+      getAuthorizationServerUrl("");
+    } catch (err) {
+      captured = err instanceof Error ? err : undefined;
+    }
+    expect(captured).toBeInstanceOf(Error);
+    // The wrapped message carries the parenthesised detail from the parse failure.
+    expect(captured?.message).toMatch(/Invalid MCP server URL: "" \(.+\)/);
+  });
 });

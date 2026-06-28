@@ -17,7 +17,10 @@ import {
   parseClientConfig,
   saveClientConfig,
 } from "@inspector/core/client/config.js";
-import { formatClientConfigLoadError } from "@inspector/core/client/config-parse.js";
+import {
+  formatClientConfigLoadError,
+  isAbsoluteHttpUrl,
+} from "@inspector/core/client/config-parse.js";
 import {
   getActiveCimdClientMetadataUrl,
   getActiveEnterpriseManagedAuthIdp,
@@ -87,6 +90,31 @@ describe("client config", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("isAbsoluteHttpUrl accepts http(s) URLs and trims, rejects others", () => {
+    expect(isAbsoluteHttpUrl("https://idp.example.com")).toBe(true);
+    expect(isAbsoluteHttpUrl("http://localhost:6274")).toBe(true);
+    expect(isAbsoluteHttpUrl("  https://idp.example.com  ")).toBe(true);
+    expect(isAbsoluteHttpUrl("not-a-url")).toBe(false);
+    expect(isAbsoluteHttpUrl("")).toBe(false);
+  });
+
+  it("isAbsoluteHttpUrl rejects non-http(s) schemes", () => {
+    expect(isAbsoluteHttpUrl("foo:bar")).toBe(false);
+    expect(isAbsoluteHttpUrl("mailto:a@b.com")).toBe(false);
+    expect(isAbsoluteHttpUrl("ftp://idp.example.com")).toBe(false);
+    expect(isAbsoluteHttpUrl("javascript:void(0)")).toBe(false);
+  });
+
+  it("parseClientConfig rejects a non-http(s) issuer scheme", () => {
+    expect(() =>
+      parseClientConfig({
+        enterpriseManagedAuth: {
+          idp: { issuer: "mailto:idp@example.com", clientId: "c" },
+        },
+      }),
+    ).toThrow(/Invalid URL/);
   });
 
   it("parseClientConfig accepts cimd clientMetadataUrl", () => {

@@ -206,6 +206,55 @@ describe("ExperimentalFeaturesPanel", () => {
     expect(lastCall[1]).toBe("X-Auth");
   });
 
+  it("clears a header key via its clear button, invoking onHeaderChange with empty key", async () => {
+    const user = userEvent.setup();
+    const onHeaderChange = vi.fn();
+    renderWithMantine(
+      <ExperimentalFeaturesPanel
+        {...baseProps}
+        customHeaders={[{ key: "X-Auth", value: "Bearer 1" }]}
+        onHeaderChange={onHeaderChange}
+      />,
+    );
+    // Both the key and value inputs render a Clear button when populated.
+    // The first one belongs to the key input (line 252).
+    const clearButtons = screen.getAllByRole("button", { name: "Clear" });
+    await user.click(clearButtons[0]);
+    expect(onHeaderChange).toHaveBeenCalledWith(0, "", "Bearer 1");
+  });
+
+  it("clears a header value via its clear button, invoking onHeaderChange with empty value", async () => {
+    const user = userEvent.setup();
+    const onHeaderChange = vi.fn();
+    renderWithMantine(
+      <ExperimentalFeaturesPanel
+        {...baseProps}
+        customHeaders={[{ key: "X-Auth", value: "Bearer 1" }]}
+        onHeaderChange={onHeaderChange}
+      />,
+    );
+    // The second Clear button belongs to the value input (line 267).
+    const clearButtons = screen.getAllByRole("button", { name: "Clear" });
+    await user.click(clearButtons[1]);
+    expect(onHeaderChange).toHaveBeenCalledWith(0, "X-Auth", "");
+  });
+
+  it("clears the request draft via its clear button, invoking onRequestChange with empty string", async () => {
+    const user = userEvent.setup();
+    const onRequestChange = vi.fn();
+    renderWithMantine(
+      <ExperimentalFeaturesPanel
+        {...baseProps}
+        requestDraft='{"jsonrpc":"2.0"}'
+        onRequestChange={onRequestChange}
+      />,
+    );
+    // The request textarea shows a Clear button when non-empty (line 292).
+    const clearButtons = screen.getAllByRole("button", { name: "Clear" });
+    await user.click(clearButtons[clearButtons.length - 1]);
+    expect(onRequestChange).toHaveBeenCalledWith("");
+  });
+
   it("invokes onRemoveHeader with the header index when the remove icon is clicked", async () => {
     const user = userEvent.setup();
     const onRemoveHeader = vi.fn();

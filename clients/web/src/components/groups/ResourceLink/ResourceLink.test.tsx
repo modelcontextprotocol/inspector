@@ -102,6 +102,22 @@ describe("ResourceLink", () => {
     expect(screen.getByText("nope")).toBeInTheDocument();
   });
 
+  it("stringifies a non-Error rejection in the failure alert", async () => {
+    const user = userEvent.setup();
+    // Reject with a plain string (not an Error) so the `String(err)`
+    // branch of the catch handler is exercised.
+    const onReadResource = vi.fn().mockRejectedValue("boom-string");
+    renderWithMantine(
+      <ResourceLink uri={URI} onReadResource={onReadResource} />,
+    );
+
+    await user.click(screen.getByRole("button"));
+    await waitFor(() =>
+      expect(screen.getByText("Failed to read resource")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("boom-string")).toBeInTheDocument();
+  });
+
   it("retries the read on re-expand after a failure", async () => {
     const user = userEvent.setup();
     const onReadResource = vi

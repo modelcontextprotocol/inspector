@@ -291,6 +291,22 @@ describe("ServerCard", () => {
       }
     });
 
+    it("draws the green highlight-variant border when highlighted", () => {
+      const { container } = renderWithMantine(
+        <ServerCard {...baseProps} highlighted />,
+      );
+      expect(
+        container.querySelector('[data-variant="highlighted"]'),
+      ).not.toBeNull();
+    });
+
+    it("does not draw the highlight border when not highlighted", () => {
+      const { container } = renderWithMantine(<ServerCard {...baseProps} />);
+      expect(
+        container.querySelector('[data-variant="highlighted"]'),
+      ).toBeNull();
+    });
+
     it("does not scroll when not highlighted", () => {
       const scrollIntoView = vi.fn();
       const orig = Element.prototype.scrollIntoView;

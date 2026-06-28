@@ -318,6 +318,66 @@ describe("ResourcesScreen", () => {
     expect(onUnsubscribeResource).toHaveBeenCalledWith("file:///x");
   });
 
+  it("routes sidebar search text through onUiChange", async () => {
+    const user = userEvent.setup();
+    const onUiChange = vi.fn();
+    renderWithMantine(<ControlledResourcesScreen onUiChange={onUiChange} />);
+    await user.type(screen.getByPlaceholderText("Search..."), "y.txt");
+    expect(onUiChange).toHaveBeenCalled();
+    const last = onUiChange.mock.calls.at(-1)?.[0] as ResourcesUiState;
+    expect(last.search).toBe("y.txt");
+  });
+
+  it("renders nothing in the preview when an ok state carries no result", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ControlledResourcesScreen
+        // readResource is truthy (selected resource exists) but the ok
+        // state has no `result`, so renderReadState falls through to null.
+        readState={{ status: "ok", uri: "file:///x" }}
+      />,
+    );
+    await user.click(screen.getByText("x.txt"));
+    // Preview branch is active (readResource present) but nothing renders:
+    // no error/loader and no preview content.
+    expect(screen.queryByText("Read Error")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reading resource...")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Select a resource to preview"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("threads onCompleteArgument with a ref/resource envelope from the template form", async () => {
+    const user = userEvent.setup();
+    const onCompleteArgument = vi
+      .fn<
+        (
+          ref:
+            | { type: "ref/resource"; uri: string }
+            | { type: "ref/prompt"; name: string },
+          argName: string,
+          value: string,
+          context: Record<string, string>,
+        ) => Promise<string[]>
+      >()
+      .mockResolvedValue([]);
+    renderWithMantine(
+      <ControlledResourcesScreen
+        completionsSupported
+        onCompleteArgument={onCompleteArgument}
+      />,
+    );
+    await user.click(screen.getByText("files"));
+    // Focusing the variable input fires an immediate completion request,
+    // which routes through the screen's ref/resource wrapper.
+    await user.click(screen.getByRole("textbox", { name: "path" }));
+    expect(onCompleteArgument).toHaveBeenCalled();
+    expect(onCompleteArgument.mock.calls[0][0]).toEqual({
+      type: "ref/resource",
+      uri: "file:///{path}",
+    });
+  });
+
   it("hides the Subscriptions section and Subscribe button when subscriptionsSupported is false", async () => {
     const user = userEvent.setup();
     renderWithMantine(

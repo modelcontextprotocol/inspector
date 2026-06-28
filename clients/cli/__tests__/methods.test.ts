@@ -59,6 +59,22 @@ describe("CLI method coverage", () => {
     expect(Array.isArray(json.tools)).toBe(true);
   });
 
+  it("throws for an unsupported method after connecting", async () => {
+    // Reaches the final `else` in callMethod: the connection succeeds, none of
+    // the known method branches match, so it throws "Unsupported method".
+    const result = await runCli([
+      command,
+      ...args,
+      "--cli",
+      "--method",
+      "definitely/not-a-real-method",
+    ]);
+
+    expectCliFailure(result);
+    expectOutputContains(result, "Unsupported method");
+    expectOutputContains(result, "definitely/not-a-real-method");
+  });
+
   it("rejects an invalid --transport value before connecting", async () => {
     const result = await runCli([
       command,

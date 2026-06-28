@@ -20,6 +20,11 @@ const tools: Tool[] = [
       properties: { mode: { type: "string", default: "fast" } },
     },
   },
+  {
+    name: "delta",
+    inputSchema: { type: "object" },
+    execution: { taskSupport: "optional" },
+  },
 ];
 
 const baseProps = {
@@ -206,6 +211,23 @@ describe("ToolsScreen", () => {
     );
     await user.click(screen.getByRole("button", { name: /Cancel/ }));
     expect(onCancelCall).toHaveBeenCalledTimes(1);
+  });
+
+  it("threads the Run-as-task toggle through onUiChange", async () => {
+    const user = userEvent.setup();
+    const onUiChange = vi.fn();
+    renderWithMantine(
+      <ControlledToolsScreen
+        serverSupportsTaskToolCalls
+        onUiChange={onUiChange}
+      />,
+    );
+    // delta advertises optional task support, so the switch renders.
+    await user.click(screen.getByText("delta"));
+    await user.click(screen.getByLabelText("Run as task"));
+    expect(onUiChange).toHaveBeenCalled();
+    const last = onUiChange.mock.calls.at(-1)?.[0] as ToolsUiState;
+    expect(last.runAsTask).toBe(true);
   });
 
   it("does not crash when onClearResult/onCancelCall are undefined", async () => {

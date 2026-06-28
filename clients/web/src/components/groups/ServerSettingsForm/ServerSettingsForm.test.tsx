@@ -827,6 +827,78 @@ describe("ServerSettingsForm", () => {
     expect(onMetadataChange).toHaveBeenCalledWith(0, "userId", "");
   });
 
+  it("omits the Clear buttons for an empty header key/value row", () => {
+    // A row whose key and value are both empty renders no Clear button in
+    // either field (the null branch of `item.key ?` / `item.value ?`).
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, headers: [{ key: "", value: "" }] }}
+        expandedSections={["headers"]}
+      />,
+    );
+    const keyInput = screen.getByPlaceholderText("Key");
+    const valueInput = screen.getByPlaceholderText("Value");
+    expect(
+      within(
+        keyInput.closest('[class*="Input-wrapper"]') as HTMLElement,
+      ).queryByRole("button", { name: "Clear" }),
+    ).toBeNull();
+    expect(
+      within(
+        valueInput.closest('[class*="Input-wrapper"]') as HTMLElement,
+      ).queryByRole("button", { name: "Clear" }),
+    ).toBeNull();
+  });
+
+  it("handles an empty-uri, unnamed root row (no Clear buttons, fallbacks applied)", async () => {
+    const user = userEvent.setup();
+    const onRootChange = vi.fn();
+    // uri empty + name undefined → both fields render without a Clear button,
+    // and editing threads `root.name ?? ""` (empty) through onChange.
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onRootChange={onRootChange}
+        settings={{ ...emptySettings, roots: [{ uri: "" }] }}
+        expandedSections={["roots"]}
+      />,
+    );
+    const uriInput = screen.getByPlaceholderText("URI (e.g. file:///path)");
+    const nameInput = screen.getByPlaceholderText("Name (optional)");
+    expect((nameInput as HTMLInputElement).value).toBe("");
+    expect(
+      within(
+        uriInput.closest('[class*="Input-wrapper"]') as HTMLElement,
+      ).queryByRole("button", { name: "Clear" }),
+    ).toBeNull();
+    expect(
+      within(
+        nameInput.closest('[class*="Input-wrapper"]') as HTMLElement,
+      ).queryByRole("button", { name: "Clear" }),
+    ).toBeNull();
+    // Typing into the URI threads the empty name through (`root.name ?? ""`).
+    await user.type(uriInput, "f");
+    expect(onRootChange).toHaveBeenLastCalledWith(0, "f", "");
+  });
+
+  it("coerces a cleared (empty-string) timeout to 0", async () => {
+    const user = userEvent.setup();
+    const onTimeoutChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onTimeoutChange={onTimeoutChange}
+        settings={{ ...emptySettings, connectionTimeout: 5000 }}
+        expandedSections={["timeouts"]}
+      />,
+    );
+    // Clearing the NumberInput emits "" which the handler coerces to 0 via the
+    // `parseInt(value, 10) || 0` fallback.
+    await user.clear(screen.getByLabelText(/Connection Timeout/));
+    expect(onTimeoutChange).toHaveBeenLastCalledWith("connectionTimeout", 0);
+  });
+
   it("invokes onTimeoutChange with 0 when a non-numeric string is provided", () => {
     const onTimeoutChange = vi.fn();
     // Render with a non-finite default in the NumberInput; then directly invoke

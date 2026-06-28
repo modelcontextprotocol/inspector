@@ -48,6 +48,18 @@ describe("ResourceSubscribedItem", () => {
     expect(screen.getByText("bar")).toBeInTheDocument();
   });
 
+  it("falls back to the raw URI when every path segment is empty", () => {
+    // A URI of only slashes filters down to an empty segment list, so the
+    // `?? uri` fallback in lastUriSegment is exercised.
+    renderWithMantine(
+      <ResourceSubscribedItem
+        subscription={{ resource: { uri: "///", name: "n" } }}
+        onUnsubscribe={() => {}}
+      />,
+    );
+    expect(screen.getByText("///")).toBeInTheDocument();
+  });
+
   it("shows the full URI in a tooltip on hover", async () => {
     const user = userEvent.setup();
     renderWithMantine(

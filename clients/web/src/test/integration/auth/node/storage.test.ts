@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   NodeOAuthStorage,
   getOAuthStore,
@@ -610,6 +610,22 @@ describe("NodeOAuthStorage with custom storagePath", () => {
     const all = defaultStore.getState();
     expect(all.getServerState("http://server-a.test").tokens).toBeUndefined();
     expect(all.getServerState("http://server-b.test").tokens).toBeUndefined();
+  });
+
+  it("clearAllOAuthClientState tolerates a store whose servers map is absent", () => {
+    // Exercises the `state.servers ?? {}` nullish fallback: when the persisted
+    // state lacks a `servers` map, the iteration must default to {} (no throw).
+    const defaultStore = getOAuthStore();
+    const clearServerState = vi.fn();
+    vi.spyOn(defaultStore, "getState").mockReturnValue({
+      servers: undefined,
+      clearServerState,
+    } as unknown as ReturnType<typeof defaultStore.getState>);
+
+    expect(() => clearAllOAuthClientState()).not.toThrow();
+    expect(clearServerState).not.toHaveBeenCalled();
+
+    vi.mocked(defaultStore.getState).mockRestore();
   });
 
   it("should isolate state from default store", async () => {

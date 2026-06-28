@@ -5,18 +5,26 @@
 import { z } from "zod";
 import type { ClientConfig } from "./types.js";
 
-function refineAbsoluteUrl(val: string, ctx: z.RefinementCtx): void {
-  const trimmed = val.trim();
-  if (!URL.canParse(trimmed)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: `Invalid URL: "${trimmed}" — must be an absolute URL (e.g. https://idp.example.com)`,
-    });
-  }
+/**
+ * True when `value` (trimmed) is an absolute `http:`/`https:` URL. An OAuth IdP
+ * issuer is always http(s), so other parseable schemes (`mailto:`, `foo:bar`,
+ * `javascript:`) are rejected rather than deferred to a later connect failure.
+ */
+export function isAbsoluteHttpUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!URL.canParse(trimmed)) return false;
+  const { protocol } = new URL(trimmed);
+  return protocol === "https:" || protocol === "http:";
 }
 
 const HttpUrlStringSchema = z.string().min(1).superRefine((val, ctx) => {
-  refineAbsoluteUrl(val, ctx);
+  const trimmed = val.trim();
+  if (!isAbsoluteHttpUrl(trimmed)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Invalid URL: "${trimmed}" — must be an http(s) URL (e.g. https://idp.example.com)`,
+    });
+  }
 });
 
 function refineCimdMetadataUrl(
@@ -34,7 +42,13 @@ function refineCimdMetadataUrl(
     }
     return;
   }
-  refineAbsoluteUrl(trimmed, ctx);
+  if (!isAbsoluteHttpUrl(trimmed)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Invalid URL: "${trimmed}" — must be an http(s) URL (e.g. https://idp.example.com)`,
+    });
+    return;
+  }
   try {
     const url = new URL(trimmed);
     if (url.protocol !== "https:") {
@@ -51,7 +65,7 @@ function refineCimdMetadataUrl(
       });
     }
   } catch {
-    // refineAbsoluteUrl already reported invalid URL
+    // isAbsoluteHttpUrl already reported invalid URL
   }
 }
 

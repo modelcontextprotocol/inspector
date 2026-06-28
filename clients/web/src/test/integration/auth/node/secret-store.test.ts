@@ -311,6 +311,13 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
     ).toBe("p");
   });
 
+  it("KeychainUnavailableError stringifies a non-Error cause", () => {
+    const err = new KeychainUnavailableError("plain string cause");
+    expect(err).toBeInstanceOf(KeychainUnavailableError);
+    expect(err.message).toContain("plain string cause");
+    expect(err.message).toMatch(/libsecret/);
+  });
+
   it("KeychainUnavailableError carries the underlying error message", async () => {
     keyringMocks.failures.setThrows = true;
     try {

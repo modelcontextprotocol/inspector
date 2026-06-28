@@ -1,4 +1,33 @@
 import type { ClientConfig } from "@inspector/core/client/types.js";
+import { isAbsoluteHttpUrl } from "@inspector/core/client/config-parse.js";
+
+/** Field-level error message for an issuer that is not an http(s) URL. */
+export const ISSUER_URL_ERROR =
+  "Must be an http(s) URL, like https://idp.example.com";
+
+/** Field-level validation errors for the client settings form. */
+export interface ClientSettingsErrors {
+  issuer?: string;
+}
+
+/**
+ * Inline validation for the client settings form. Only flags fields that the
+ * user has actually filled in — empty required fields are gated by
+ * {@link canPersistClientSettingsDraft} rather than surfaced as errors.
+ */
+export function validateClientSettings(
+  values: ClientSettingsFormValues,
+): ClientSettingsErrors {
+  const errors: ClientSettingsErrors = {};
+  if (
+    values.emaEnabled &&
+    values.issuer.trim() !== "" &&
+    !isAbsoluteHttpUrl(values.issuer)
+  ) {
+    errors.issuer = ISSUER_URL_ERROR;
+  }
+  return errors;
+}
 
 /** Form shape for install-level client settings (client.json). */
 export interface ClientSettingsFormValues {
@@ -74,7 +103,12 @@ export function canPersistClientSettingsDraft(
   values: ClientSettingsFormValues,
 ): boolean {
   if (values.emaEnabled) {
-    if (!values.issuer.trim() || !values.clientId.trim()) return false;
+    if (values.issuer.trim() === "" || values.clientId.trim() === "")
+      return false;
+    // Defer to validateClientSettings so the persist gate and the inline field
+    // errors can never drift: an invalid issuer is never sent to the backend,
+    // and the field error guides the user instead of a raw validation toast.
+    if (Object.keys(validateClientSettings(values)).length > 0) return false;
   }
   if (values.cimdEnabled) {
     if (!values.clientMetadataUrl.trim()) return false;

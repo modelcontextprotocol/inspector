@@ -10,7 +10,10 @@ import {
 } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { EmaIdpLoginState } from "@inspector/core/auth/ema/idpSession.js";
-import type { ClientSettingsFormValues } from "./clientSettingsValues.js";
+import {
+  validateClientSettings,
+  type ClientSettingsFormValues,
+} from "./clientSettingsValues.js";
 
 export type ClientSettingsSection = "ema" | "cimd";
 
@@ -43,6 +46,8 @@ export function ClientSettingsForm({
   function patch(partial: Partial<ClientSettingsFormValues>) {
     onSettingsChange((prev) => ({ ...prev, ...partial }));
   }
+
+  const errors = validateClientSettings(settings);
 
   const showIdpSession =
     settings.emaEnabled &&
@@ -81,6 +86,7 @@ export function ClientSettingsForm({
                   description="Your enterprise IdP issuer URL."
                   value={settings.issuer}
                   onChange={(e) => patch({ issuer: e.currentTarget.value })}
+                  error={errors.issuer}
                   rightSectionPointerEvents="auto"
                   rightSection={
                     settings.issuer ? (

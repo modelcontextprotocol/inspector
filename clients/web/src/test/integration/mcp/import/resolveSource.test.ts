@@ -1,5 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { resolveImportSource } from "@inspector/core/mcp/import/resolveSource.js";
+import * as strategies from "@inspector/core/mcp/import/strategies.js";
+import type { ImportStrategy } from "@inspector/core/mcp/import/types.js";
 
 const HOME = "/home/alice";
 const cursorPath = "/home/alice/.cursor/mcp.json";
@@ -60,5 +62,43 @@ describe("resolveImportSource", () => {
     });
     expect(result?.found).toBe(true);
     expect(result?.error).toMatch(/Failed to read .*EACCES/);
+  });
+
+  it("stringifies a non-Error thrown by the reader (String(err) branch)", () => {
+    const result = resolveImportSource("cursor", "linux", HOME, () => {
+      // Throwing a non-Error exercises the `String(err)` arm of the ternary.
+      throw "disk gone";
+    });
+    expect(result?.found).toBe(true);
+    expect(result?.path).toBe(cursorPath);
+    expect(result?.error).toBe(`Failed to read ${cursorPath}: disk gone`);
+  });
+
+  it("stringifies a non-Error thrown by the parser (String(err) branch)", () => {
+    // The built-in strategy parsers always throw Error, so the parse-error
+    // `String(err)` arm is only reachable via a strategy whose parse() throws a
+    // non-Error. Stub getImportStrategy to return one, then restore.
+    const fake: ImportStrategy = {
+      id: "fake",
+      label: "Fake",
+      defaultPaths: () => ["/some/path.json"],
+      parse: () => {
+        throw "kaboom"; // non-Error throw
+      },
+    };
+    const spy = vi.spyOn(strategies, "getImportStrategy").mockReturnValue(fake);
+    try {
+      const result = resolveImportSource(
+        "fake",
+        "linux",
+        HOME,
+        () => "{}", // exists + valid JSON, so parse() runs and throws
+      );
+      expect(result?.found).toBe(true);
+      expect(result?.path).toBe("/some/path.json");
+      expect(result?.error).toBe("kaboom");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

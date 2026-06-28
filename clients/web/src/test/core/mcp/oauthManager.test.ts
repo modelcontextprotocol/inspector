@@ -3,7 +3,7 @@
  * dispatch callbacks to verify config merge, callback invocation, clearOAuthTokens,
  * error propagation, and getOAuthFlowState/getOAuthFlowStep.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   OAuthManager,
   type OAuthManagerConfig,
@@ -14,6 +14,19 @@ import {
   emaClientNotConfiguredMessage,
 } from "@inspector/core/auth/ema/clientConfigError.js";
 import * as emaFlow from "@inspector/core/auth/ema/emaFlow.js";
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+
+// Mock the SDK auth() entry point so quick-flow paths don't hit the network.
+// Other named exports of the module are left intact for code that uses them.
+vi.mock("@modelcontextprotocol/sdk/client/auth.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@modelcontextprotocol/sdk/client/auth.js")
+    >();
+  return { ...actual, auth: vi.fn() };
+});
+
+const mockedAuth = vi.mocked(auth);
 
 const SERVER_URL = "https://example.com/mcp";
 
@@ -77,7 +90,19 @@ function createMockParams(
   };
 }
 
+/**
+ * Storage typed accessor for casting the mock storage's methods in tests.
+ */
+type MockStorage = Record<string, ReturnType<typeof vi.fn>>;
+function storageOf(params: OAuthManagerParams): MockStorage {
+  return params.initialConfig.storage as unknown as MockStorage;
+}
+
 describe("OAuthManager", () => {
+  beforeEach(() => {
+    mockedAuth.mockReset();
+  });
+
   describe("setOAuthConfig", () => {
     it("merges config without throwing", () => {
       const params = createMockParams();
@@ -215,6 +240,13 @@ describe("OAuthManager", () => {
       const tokens = await manager.getOAuthTokens();
       expect(tokens).toEqual(storedTokens);
     });
+
+    it("returns undefined when provider.tokens() throws", async () => {
+      const params = createMockParams();
+      storageOf(params).getTokens.mockRejectedValue(new Error("boom"));
+      const manager = new OAuthManager(params);
+      expect(await manager.getOAuthTokens()).toBeUndefined();
+    });
   });
 
   describe("isOAuthAuthorized", () => {
@@ -317,6 +349,419 @@ describe("OAuthManager", () => {
       ).not.toHaveBeenCalled();
 
       startIdpSpy.mockRestore();
+    });
+  });
+
+  describe("createOAuthProvider validation", () => {
+    it("authenticate throws when storage component is missing", async () => {
+      const params = createMockParams({
+        initialConfig: {
+          redirectUrlProvider: {
+            getRedirectUrl: vi
+              .fn()
+              .mockReturnValue("http://localhost/callback"),
+          },
+          navigation: { navigateToAuthorization: vi.fn() },
+        } as OAuthManagerConfig,
+      });
+      const manager = new OAuthManager(params);
+      await expect(manager.authenticate()).rejects.toThrow(
+        "OAuth environment components (storage, navigation, redirectUrlProvider) are required.",
+      );
+    });
+  });
+
+  describe("getEmaFlowConfig validation", () => {
+    it("throws when storage/redirectUrlProvider are missing for an EMA flow", async () => {
+      const params = createMockParams({
+        initialConfig: {
+          navigation: { navigateToAuthorization: vi.fn() },
+        } as OAuthManagerConfig,
+        enterpriseManagedAuth: {
+          idp: {
+            issuer: "https://idp.example.com",
+            clientId: "app-client",
+            clientSecret: "secret",
+          },
+        },
+      });
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true });
+      await expect(manager.trySilentEnterpriseManagedAuth()).rejects.toThrow(
+        "OAuth environment components (storage, redirectUrlProvider) are required.",
+      );
+    });
+  });
+
+  describe("authenticate (quick, standard)", () => {
+    it("captures the authorization URL, runs onBeforeOAuthRedirect, and stores flow state", async () => {
+      const capturedUrl = new URL(
+        "https://auth.example.com/authorize?state=abc",
+      );
+      mockedAuth.mockResolvedValue("REDIRECT");
+      const parseSpy = vi
+        .spyOn(await import("@inspector/core/auth/utils.js"), "parseOAuthState")
+        .mockReturnValue({
+          execution: "quick",
+          authId: "auth-id-1",
+        } as ReturnType<
+          typeof import("@inspector/core/auth/utils.js").parseOAuthState
+        >);
+
+      const onBeforeOAuthRedirect = vi.fn().mockResolvedValue(undefined);
+      const params = createMockParams({ onBeforeOAuthRedirect });
+      // A configured scope exercises the saveScope branch in createOAuthProvider.
+      params.initialConfig.scope = "read write";
+      storageOf(params).getClientInformation.mockResolvedValue({
+        client_id: "cid",
+      });
+
+      const manager = new OAuthManager(params);
+      const captureSpy = vi
+        .spyOn(
+          (await import("@inspector/core/auth/providers.js"))
+            .BaseOAuthClientProvider.prototype,
+          "getCapturedAuthUrl",
+        )
+        .mockReturnValue(capturedUrl);
+
+      const result = await manager.authenticate();
+
+      expect(storageOf(params).saveScope).toHaveBeenCalledWith(
+        SERVER_URL,
+        "read write",
+      );
+      expect(result).toEqual(capturedUrl);
+      expect(onBeforeOAuthRedirect).toHaveBeenCalledWith("auth-id-1");
+      expect(manager.getOAuthFlowStep()).toBe("authorization_code");
+      expect(manager.getOAuthFlowState()?.oauthClientInfo).toEqual({
+        client_id: "cid",
+      });
+
+      parseSpy.mockRestore();
+      captureSpy.mockRestore();
+    });
+
+    it("throws when auth() unexpectedly returns AUTHORIZED", async () => {
+      mockedAuth.mockResolvedValue("AUTHORIZED");
+      const manager = new OAuthManager(createMockParams());
+      await expect(manager.authenticate()).rejects.toThrow(
+        "Unexpected: auth() returned AUTHORIZED without authorization code",
+      );
+    });
+
+    it("throws when no authorization URL is captured", async () => {
+      mockedAuth.mockResolvedValue("REDIRECT");
+      const manager = new OAuthManager(createMockParams());
+      // Default provider captures nothing (auth() is mocked and never redirects).
+      await expect(manager.authenticate()).rejects.toThrow(
+        "Failed to capture authorization URL",
+      );
+    });
+
+    it("skips onBeforeOAuthRedirect when state param has no authId", async () => {
+      const capturedUrl = new URL(
+        "https://auth.example.com/authorize?state=zzz",
+      );
+      mockedAuth.mockResolvedValue("REDIRECT");
+      const parseSpy = vi
+        .spyOn(await import("@inspector/core/auth/utils.js"), "parseOAuthState")
+        .mockReturnValue(null);
+      const onBeforeOAuthRedirect = vi.fn();
+      const params = createMockParams({ onBeforeOAuthRedirect });
+      const manager = new OAuthManager(params);
+      const captureSpy = vi
+        .spyOn(
+          (await import("@inspector/core/auth/providers.js"))
+            .BaseOAuthClientProvider.prototype,
+          "getCapturedAuthUrl",
+        )
+        .mockReturnValue(capturedUrl);
+
+      await manager.authenticate();
+      expect(onBeforeOAuthRedirect).not.toHaveBeenCalled();
+
+      parseSpy.mockRestore();
+      captureSpy.mockRestore();
+    });
+  });
+
+  describe("completeOAuthFlow (quick, standard)", () => {
+    it("completes via the quick path and dispatches complete", async () => {
+      const tokens = { access_token: "QT", token_type: "Bearer" };
+      mockedAuth.mockResolvedValue("AUTHORIZED");
+      const params = createMockParams();
+      storageOf(params).getTokens.mockResolvedValue(tokens);
+      storageOf(params).getClientInformation.mockResolvedValue({
+        client_id: "cid",
+      });
+      const manager = new OAuthManager(params);
+
+      await manager.completeOAuthFlow("code-xyz");
+
+      expect(params.dispatchOAuthComplete).toHaveBeenCalledWith({ tokens });
+      expect(manager.getOAuthFlowStep()).toBe("complete");
+    });
+
+    it("throws and dispatches error when auth() is not AUTHORIZED", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      mockedAuth.mockResolvedValue("REDIRECT");
+      const params = createMockParams();
+      const manager = new OAuthManager(params);
+
+      await expect(manager.completeOAuthFlow("code")).rejects.toThrow(
+        /Expected AUTHORIZED after providing authorization code/,
+      );
+      expect(params.dispatchOAuthError).toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+
+    it("throws when tokens cannot be retrieved after authorization", async () => {
+      mockedAuth.mockResolvedValue("AUTHORIZED");
+      const params = createMockParams();
+      storageOf(params).getTokens.mockResolvedValue(undefined);
+      const manager = new OAuthManager(params);
+
+      await expect(manager.completeOAuthFlow("code")).rejects.toThrow(
+        "Failed to retrieve tokens after authorization",
+      );
+      expect(params.dispatchOAuthError).toHaveBeenCalled();
+    });
+  });
+
+  describe("completeOAuthFlow (EMA)", () => {
+    it("mints resource tokens via the EMA path and dispatches complete", async () => {
+      const tokens = { access_token: "EMA", token_type: "Bearer" };
+      const params = createMockParams({
+        enterpriseManagedAuth: {
+          idp: {
+            issuer: "https://idp.example.com",
+            clientId: "app-client",
+            clientSecret: "secret",
+          },
+        },
+      });
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true });
+
+      const mintSpy = vi
+        .spyOn(emaFlow, "completeEmaIdpAuthorizationAndMint")
+        .mockResolvedValue(tokens);
+
+      await manager.completeOAuthFlow("ema-code");
+
+      expect(mintSpy).toHaveBeenCalled();
+      expect(params.dispatchOAuthComplete).toHaveBeenCalledWith({ tokens });
+      expect(manager.getOAuthFlowStep()).toBe("complete");
+      mintSpy.mockRestore();
+    });
+  });
+
+  describe("trySilentEnterpriseManagedAuth", () => {
+    let errSpy: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+    afterEach(() => {
+      errSpy.mockRestore();
+    });
+
+    function emaManager(): OAuthManager {
+      const params = createMockParams({
+        enterpriseManagedAuth: {
+          idp: {
+            issuer: "https://idp.example.com",
+            clientId: "app-client",
+            clientSecret: "secret",
+          },
+        },
+      });
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true });
+      return manager;
+    }
+
+    it("returns false when not enterprise managed", async () => {
+      const manager = new OAuthManager(createMockParams());
+      expect(await manager.trySilentEnterpriseManagedAuth()).toBe(false);
+    });
+
+    it("returns true on silent success", async () => {
+      const spy = vi
+        .spyOn(emaFlow, "trySilentEmaAuth")
+        .mockResolvedValue({ status: "success" });
+      expect(await emaManager().trySilentEnterpriseManagedAuth()).toBe(true);
+      spy.mockRestore();
+    });
+
+    it("returns false when there is no cached IdP session", async () => {
+      const spy = vi
+        .spyOn(emaFlow, "trySilentEmaAuth")
+        .mockResolvedValue({ status: "no_idp_session" });
+      expect(await emaManager().trySilentEnterpriseManagedAuth()).toBe(false);
+      spy.mockRestore();
+    });
+
+    it("throws when the mint fails", async () => {
+      const error = new Error("mint failed");
+      const spy = vi
+        .spyOn(emaFlow, "trySilentEmaAuth")
+        .mockResolvedValue({ status: "mint_failed", error });
+      await expect(
+        emaManager().trySilentEnterpriseManagedAuth(),
+      ).rejects.toThrow("mint failed");
+      spy.mockRestore();
+    });
+  });
+
+  describe("authenticateEnterpriseManaged (interactive)", () => {
+    function emaParams(): OAuthManagerParams {
+      return createMockParams({
+        enterpriseManagedAuth: {
+          idp: {
+            issuer: "https://idp.example.com",
+            clientId: "app-client",
+            clientSecret: "secret",
+          },
+        },
+        onBeforeOAuthRedirect: vi.fn().mockResolvedValue(undefined),
+      });
+    }
+
+    it("returns undefined when silent auth already succeeded", async () => {
+      const silentSpy = vi
+        .spyOn(emaFlow, "trySilentEmaAuth")
+        .mockResolvedValue({ status: "success" });
+      const params = emaParams();
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true });
+
+      const result = await manager.authenticate();
+      expect(result).toBeUndefined();
+      expect(
+        params.initialConfig.navigation!.navigateToAuthorization,
+      ).not.toHaveBeenCalled();
+      silentSpy.mockRestore();
+    });
+
+    it("redirects to the IdP and records flow state when not silent", async () => {
+      const silentSpy = vi
+        .spyOn(emaFlow, "trySilentEmaAuth")
+        .mockResolvedValue({ status: "no_idp_session" });
+      const authUrl = new URL("https://idp.example.com/authorize?state=ema");
+      const startSpy = vi
+        .spyOn(emaFlow, "startEmaIdpAuthorization")
+        .mockResolvedValue(authUrl);
+      const parseSpy = vi
+        .spyOn(await import("@inspector/core/auth/utils.js"), "parseOAuthState")
+        .mockReturnValue({
+          execution: "quick",
+          authId: "ema-id",
+        } as ReturnType<
+          typeof import("@inspector/core/auth/utils.js").parseOAuthState
+        >);
+      const params = emaParams();
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true });
+
+      const result = await manager.authenticate();
+
+      expect(result).toEqual(authUrl);
+      expect(params.onBeforeOAuthRedirect).toHaveBeenCalledWith("ema-id");
+      expect(
+        params.initialConfig.navigation!.navigateToAuthorization,
+      ).toHaveBeenCalledWith(authUrl);
+      expect(manager.getOAuthFlowStep()).toBe("authorization_code");
+
+      silentSpy.mockRestore();
+      startSpy.mockRestore();
+      parseSpy.mockRestore();
+    });
+  });
+
+  describe("refreshEnterpriseManagedTokens", () => {
+    function emaManager(): OAuthManager {
+      const params = createMockParams({
+        enterpriseManagedAuth: {
+          idp: {
+            issuer: "https://idp.example.com",
+            clientId: "app-client",
+            clientSecret: "secret",
+          },
+        },
+      });
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true });
+      return manager;
+    }
+
+    it("returns false when not enterprise managed", async () => {
+      const manager = new OAuthManager(createMockParams());
+      expect(await manager.refreshEnterpriseManagedTokens()).toBe(false);
+    });
+
+    it("returns true when refreshed tokens are returned", async () => {
+      const spy = vi
+        .spyOn(emaFlow, "refreshEmaResourceTokens")
+        .mockResolvedValue({ access_token: "R", token_type: "Bearer" });
+      expect(await emaManager().refreshEnterpriseManagedTokens()).toBe(true);
+      spy.mockRestore();
+    });
+
+    it("returns false when no tokens are returned", async () => {
+      const spy = vi
+        .spyOn(emaFlow, "refreshEmaResourceTokens")
+        .mockResolvedValue(undefined);
+      expect(await emaManager().refreshEnterpriseManagedTokens()).toBe(false);
+      spy.mockRestore();
+    });
+  });
+
+  describe("createOAuthProviderForTransport", () => {
+    it("returns a plain provider for standard OAuth", async () => {
+      const manager = new OAuthManager(createMockParams());
+      const provider = await manager.createOAuthProviderForTransport();
+      expect(provider).toBeDefined();
+      expect(provider.constructor.name === "EmaTransportOAuthProvider").toBe(
+        false,
+      );
+    });
+
+    it("wraps the provider in an EmaTransportOAuthProvider for EMA", async () => {
+      const params = createMockParams({
+        enterpriseManagedAuth: {
+          idp: {
+            issuer: "https://idp.example.com",
+            clientId: "app-client",
+            clientSecret: "secret",
+          },
+        },
+      });
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true });
+      const provider = await manager.createOAuthProviderForTransport();
+      expect(provider.constructor.name).toBe("EmaTransportOAuthProvider");
+    });
+  });
+
+  describe("getOAuthState (enterprise managed / scope)", () => {
+    it("returns ema connection state when enterprise managed is configured", async () => {
+      const params = createMockParams({
+        enterpriseManagedAuth: {
+          idp: {
+            issuer: "https://idp.example.com",
+            clientId: "app-client",
+            clientSecret: "secret",
+          },
+        },
+      });
+      params.initialConfig.scope = "read";
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true });
+
+      const state = await manager.getOAuthState();
+      expect(state?.protocol).toBe("ema");
+      expect(state?.serverUrl).toBe(SERVER_URL);
     });
   });
 });

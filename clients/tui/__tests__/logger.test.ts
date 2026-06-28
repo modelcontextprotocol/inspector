@@ -66,4 +66,43 @@ describe("getTuiLogger", () => {
     expect(logger).toBeDefined();
     await waitForFile(join(tempDir, ".mcp-inspector", "auth.log"));
   });
+
+  it("falls back to USERPROFILE/.mcp-inspector when HOME is unset", async () => {
+    // Exercises the second arm of `HOME || USERPROFILE || "."`: HOME empty so
+    // the chain continues to USERPROFILE (the Windows home var).
+    delete process.env.MCP_INSPECTOR_LOG_DIR;
+    delete process.env.HOME;
+    process.env.USERPROFILE = tempDir;
+    const { getTuiLogger } = await import("../src/logger.js");
+
+    const logger = getTuiLogger();
+
+    expect(logger).toBeDefined();
+    await waitForFile(join(tempDir, ".mcp-inspector", "auth.log"));
+  });
+
+  it('falls back to "." when neither HOME nor USERPROFILE is set', async () => {
+    // Exercises the final arm of the chain: with both home vars unset, the dir
+    // resolves to "./.mcp-inspector" relative to the process cwd. chdir into the
+    // temp dir so the relative path pino opens lands there (and gets cleaned up).
+    delete process.env.MCP_INSPECTOR_LOG_DIR;
+    delete process.env.HOME;
+    delete process.env.USERPROFILE;
+    const originalCwd = process.cwd();
+    process.chdir(tempDir);
+    // Re-read cwd after chdir: on macOS tmpdir is a symlink (/var -> /private/var),
+    // so the resolved cwd differs from `tempDir` and the file lands under it.
+    const resolvedCwd = process.cwd();
+    try {
+      const { getTuiLogger } = await import("../src/logger.js");
+
+      const logger = getTuiLogger();
+
+      expect(logger).toBeDefined();
+      // pino resolves the relative "./.mcp-inspector/auth.log" against cwd.
+      await waitForFile(join(resolvedCwd, ".mcp-inspector", "auth.log"));
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
 });

@@ -137,16 +137,16 @@ describe("ServerListScreen", () => {
   });
 
   describe("freshly-added highlight", () => {
-    it("draws an animated border on every highlighted server", () => {
+    it("draws a green highlight border on every highlighted server", () => {
       const { container } = renderWithMantine(
         <ServerListScreen
           {...baseProps}
           highlightedServerIds={["alpha", "beta"]}
         />,
       );
-      // One animated border per highlighted card.
+      // One highlighted-variant card per highlighted server.
       expect(
-        container.querySelectorAll(".mantine-BorderAnimate-border"),
+        container.querySelectorAll('[data-variant="highlighted"]'),
       ).toHaveLength(2);
     });
 

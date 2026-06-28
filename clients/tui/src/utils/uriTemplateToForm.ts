@@ -16,6 +16,8 @@ export function uriTemplateToForm(
 
   try {
     const template = new UriTemplate(uriTemplate);
+    /* v8 ignore next -- UriTemplate.variableNames is a getter that always
+       returns a string[]; the `|| []` fallback is an unreachable guard. */
     const variableNames = template.variableNames || [];
 
     for (const variableName of variableNames) {

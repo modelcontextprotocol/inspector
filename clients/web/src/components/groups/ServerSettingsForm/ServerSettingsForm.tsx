@@ -107,6 +107,9 @@ function KeyValueRows({
   onChange: (index: number, key: string, value: string) => void;
   onRemove: (index: number) => void;
 }) {
+  /* v8 ignore next 3 -- unreachable: every caller guards with `length === 0`
+     and renders an EmptyHint instead, so KeyValueRows is only mounted with
+     a non-empty list. */
   if (items.length === 0) {
     return null;
   }
@@ -153,6 +156,9 @@ function RootRows({
   onChange: (index: number, uri: string, name: string) => void;
   onRemove: (index: number) => void;
 }) {
+  /* v8 ignore next 3 -- unreachable: the caller guards with `length === 0`
+     and renders an EmptyHint instead, so RootRows is only mounted with a
+     non-empty list. */
   if (roots.length === 0) {
     return null;
   }

@@ -92,10 +92,9 @@ export function useClientSettingsDraft<T>({
   );
 
   const flush = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = undefined;
-    }
+    if (!timerRef.current) return;
+    clearTimeout(timerRef.current);
+    timerRef.current = undefined;
     const value = latestValuesRef.current;
     if (openedRef.current && value !== null) {
       persist(value);

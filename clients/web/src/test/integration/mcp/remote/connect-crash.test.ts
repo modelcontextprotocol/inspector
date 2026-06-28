@@ -46,43 +46,62 @@ interface ParsedSseEvent {
 }
 
 /**
- * Read a streaming Response body and parse Server-Sent Events. Stops when
- * the server closes the stream (read returns done).
+ * Read a streaming Response body and parse Server-Sent Events. Stops as soon
+ * as the terminal `stopAtType` event arrives (default `transport_error`),
+ * cancelling the reader — or when the server closes the stream (`done`).
+ *
+ * We stop on the terminal event rather than waiting only for `done` because
+ * the server closes the stream immediately *after* writing `transport_error`,
+ * and under heavy parallel scheduler pressure (a full `coverage` run with v8
+ * instrumentation across all workers) that close can lag far enough behind the
+ * event to trip the 30s test timeout — a hang, not a wrong result. Bailing on
+ * the terminal event keeps the test fast and deterministic regardless of load;
+ * `transport_error` is always the last event the queue emits, so nothing is
+ * lost. The `done` break still covers any stream that closes first.
  *
  * The SSE `data:` field carries the full SessionEvent JSON (both `type` and
  * `data`), per the writer in /api/mcp/events — we unwrap and surface just
  * the inner `.data` as the event payload, so callers can read e.g.
  * `event.data.message` for stdio_log without an extra hop.
  */
-async function readSseEvents(res: Response): Promise<ParsedSseEvent[]> {
+async function readSseEvents(
+  res: Response,
+  stopAtType = "transport_error",
+): Promise<ParsedSseEvent[]> {
   if (!res.body) return [];
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   const events: ParsedSseEvent[] = [];
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (value) buffer += decoder.decode(value, { stream: true });
-    // SSE events terminate with a blank line — split on it.
-    let split: number;
-    while ((split = buffer.indexOf("\n\n")) !== -1) {
-      const block = buffer.slice(0, split);
-      buffer = buffer.slice(split + 2);
-      let type: string | undefined;
-      let dataLine: string | undefined;
-      for (const line of block.split("\n")) {
-        if (line.startsWith("event:"))
-          type = line.slice("event:".length).trim();
-        else if (line.startsWith("data:"))
-          dataLine = line.slice("data:".length).trim();
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (value) buffer += decoder.decode(value, { stream: true });
+      // SSE events terminate with a blank line — split on it.
+      let split: number;
+      let sawTerminal = false;
+      while ((split = buffer.indexOf("\n\n")) !== -1) {
+        const block = buffer.slice(0, split);
+        buffer = buffer.slice(split + 2);
+        let type: string | undefined;
+        let dataLine: string | undefined;
+        for (const line of block.split("\n")) {
+          if (line.startsWith("event:"))
+            type = line.slice("event:".length).trim();
+          else if (line.startsWith("data:"))
+            dataLine = line.slice("data:".length).trim();
+        }
+        if (type && dataLine) {
+          const parsed = JSON.parse(dataLine) as { data?: unknown };
+          events.push({ type, data: parsed.data });
+          if (type === stopAtType) sawTerminal = true;
+        }
       }
-      if (type && dataLine) {
-        const parsed = JSON.parse(dataLine) as { data?: unknown };
-        events.push({ type, data: parsed.data });
-      }
+      if (sawTerminal || done) break;
     }
-    if (done) break;
+  } finally {
+    await reader.cancel().catch(() => {});
   }
   return events;
 }
