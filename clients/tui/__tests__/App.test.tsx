@@ -52,11 +52,9 @@ const h = vi.hoisted(() => {
     authenticate: vi.fn(
       async (): Promise<string | undefined> => "https://auth.example/start",
     ),
-    beginGuidedAuth: vi.fn(async (): Promise<void> => {}),
-    runGuidedAuth: vi.fn(async (): Promise<string | undefined> => undefined),
-    proceedOAuthStep: vi.fn(async (): Promise<void> => {}),
     clearOAuthTokens: vi.fn(),
     completeOAuthFlow: vi.fn(async (): Promise<void> => {}),
+    getOAuthState: vi.fn(async () => undefined),
   };
   // Captured options from the most recent callbackServer.start(), so a test can
   // drive the onCallback / onError handlers the OAuth flows register.
@@ -92,14 +90,11 @@ const h = vi.hoisted(() => {
           | "sse"
           | "streamable-http",
     );
-    getOAuthFlowState = vi.fn(() => ctrl.oauthFlowState);
     authenticate = (...a: unknown[]) => clientSpies.authenticate(...a);
-    beginGuidedAuth = (...a: unknown[]) => clientSpies.beginGuidedAuth(...a);
-    runGuidedAuth = (...a: unknown[]) => clientSpies.runGuidedAuth(...a);
-    proceedOAuthStep = (...a: unknown[]) => clientSpies.proceedOAuthStep(...a);
     clearOAuthTokens = (...a: unknown[]) => clientSpies.clearOAuthTokens(...a);
     completeOAuthFlow = (...a: unknown[]) =>
       clientSpies.completeOAuthFlow(...a);
+    getOAuthState = (...a: unknown[]) => clientSpies.getOAuthState(...a);
     readResource = vi.fn(async () => ({
       result: { contents: [{ uri: "file://x", text: "hello" }] },
     }));
@@ -179,12 +174,17 @@ vi.mock("@inspector/core/react/useFetchRequestLog.js", () => ({
 vi.mock("@inspector/core/react/useStderrLog.js", () => ({
   useStderrLog: h.useStderrLog,
 }));
-vi.mock("@inspector/core/auth/index.js", () => ({
-  CallbackNavigation: class {},
-  MutableRedirectUrlProvider: class {
-    redirectUrl = "";
-  },
-}));
+vi.mock("@inspector/core/auth/index.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@inspector/core/auth/index.js")>();
+  return {
+    ...actual,
+    CallbackNavigation: class {},
+    MutableRedirectUrlProvider: class {
+      redirectUrl = "";
+    },
+  };
+});
 vi.mock("@inspector/core/auth/node/index.js", () => ({
   createOAuthCallbackServer: h.createOAuthCallbackServer,
   NodeOAuthStorage: class {},
@@ -198,6 +198,7 @@ import type { TuiServer } from "../src/tui-servers.js";
 
 const tick = () => new Promise((r) => setTimeout(r, 25));
 const callbackUrlConfig = { hostname: "127.0.0.1", port: 0, pathname: "/cb" };
+const emptyClientConfig = {};
 
 function stdioServer(): Record<string, TuiServer> {
   return {
@@ -234,7 +235,7 @@ function oneHttp(): Record<string, TuiServer> {
 }
 
 // Mixed catalog: an OAuth-capable http server first (auto-selected) followed by
-// a stdio server — drives per-server tab gating + the tab-switch-away effects.
+// a stdio server � drives per-server tab gating + the tab-switch-away effects.
 function httpThenStdio(): Record<string, TuiServer> {
   return {
     web: { config: { type: "streamable-http", url: "http://x" } } as never,
@@ -351,13 +352,17 @@ const bareRequest = {
 };
 const stderrLog = { timestamp: new Date(0), message: "log line" };
 
-// Track rendered instances so each is unmounted after its test — concurrent
+// Track rendered instances so each is unmounted after its test � concurrent
 // mounted ink apps share raw-mode stdin handling and interfere with useInput.
 const mounted: RenderResult[] = [];
 
 function renderApp(servers: Record<string, TuiServer>) {
   const r = render(
-    <App mcpServers={servers} callbackUrlConfig={callbackUrlConfig} />,
+    <App
+      mcpServers={servers}
+      clientConfig={emptyClientConfig}
+      callbackUrlConfig={callbackUrlConfig}
+    />,
   );
   mounted.push(r);
   return r;
@@ -390,7 +395,7 @@ const ENTER = "\r";
 /**
  * Write each key in order. ink re-subscribes the active component's useInput on
  * re-render, so a key that changes focus/tab must let that re-render flush
- * before the next key — otherwise the next key is routed to the old handler.
+ * before the next key � otherwise the next key is routed to the old handler.
  * Two ticks per key keeps multi-step navigation deterministic under the heavier
  * v8 coverage instrumentation (where a single tick can race the render).
  */
@@ -423,7 +428,7 @@ async function waitForFrame(r: RenderResult, substr: string, tries = 25) {
   await waitUntil(() => (r.lastFrame() ?? "").includes(substr), tries);
 }
 
-/** Poll until the frame contains `substr`, then assert it — stable under load. */
+/** Poll until the frame contains `substr`, then assert it � stable under load. */
 async function expectFrame(r: RenderResult, substr: string) {
   await waitForFrame(r, substr);
   expect(r.lastFrame() ?? "").toContain(substr);
@@ -456,15 +461,11 @@ beforeEach(() => {
   h.callbackStop.mockClear();
   h.clientSpies.authenticate.mockReset();
   h.clientSpies.authenticate.mockResolvedValue("https://auth.example/start");
-  h.clientSpies.beginGuidedAuth.mockReset();
-  h.clientSpies.beginGuidedAuth.mockResolvedValue(undefined);
-  h.clientSpies.runGuidedAuth.mockReset();
-  h.clientSpies.runGuidedAuth.mockResolvedValue(undefined);
-  h.clientSpies.proceedOAuthStep.mockReset();
-  h.clientSpies.proceedOAuthStep.mockResolvedValue(undefined);
   h.clientSpies.clearOAuthTokens.mockReset();
   h.clientSpies.completeOAuthFlow.mockReset();
   h.clientSpies.completeOAuthFlow.mockResolvedValue(undefined);
+  h.clientSpies.getOAuthState.mockReset();
+  h.clientSpies.getOAuthState.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -522,14 +523,14 @@ describe("App (foundation)", () => {
     // shift+tab is delivered as ESC [ Z
     stdin.write("[Z");
     await tick();
-    // no assertion on hidden focus state — exercising the branches
+    // no assertion on hidden focus state � exercising the branches
   });
 
-  it("shows the Auth tab and G/Q/S accelerators for an OAuth-capable server", async () => {
+  it("shows the Auth tab via the accelerator for an OAuth-capable server", async () => {
     h.ctrl.serverType = "streamable-http";
     const r = await mount(httpServer());
-    await press(r, ["g"]); // guided auth accelerator -> Auth tab
-    await expectFrame(r, "Auth");
+    await press(r, ["a"]);
+    await expectFrame(r, "OAuth");
   });
 
   it("renders connected status with capabilities", async () => {
@@ -554,11 +555,12 @@ describe("App (status, layout, modals)", () => {
     await expectFrame(r, "error");
   });
 
-  it("shows the 401 auth hint for an http server with a 401 response", async () => {
+  it("shows error status when an http server has a 401 response logged", async () => {
     h.ctrl.status = "error";
     h.ctrl.fetchRequests = [{ ...errorRequest, responseStatus: 401 }];
     const r = await mount(oneHttp());
-    await expectFrame(r, "401 Unauthorized");
+    await expectFrame(r, "error");
+    await expectFrame(r, "HTTP Requests (1)");
   });
 
   it("updates dimensions when the terminal resizes", async () => {
@@ -803,10 +805,10 @@ describe("App (input handling, focus, effects)", () => {
 
   it("switches away from the Auth tab when selecting a non-OAuth server", async () => {
     const r = await mount(httpThenStdio());
-    await press(r, ["a"]); // Auth tab (http is OAuth-capable)
-    await press(r, [STAB]); // tabs -> serverList
-    await press(r, [DOWN]); // select the stdio server -> effect leaves Auth
+    await press(r, ["a", STAB, STAB, DOWN]);
+    await waitUntil(() => (r.lastFrame() ?? "").includes("Type: stdio"));
     await expectFrame(r, "Server Configuration");
+    expect(r.lastFrame() ?? "").not.toContain("No OAuth information yet");
   });
 
   it("switches away from the Logging tab when selecting a non-stdio server", async () => {
@@ -834,6 +836,7 @@ describe("App (input handling, focus, effects)", () => {
     const r = render(
       <App
         mcpServers={oneHttp()}
+        clientConfig={emptyClientConfig}
         callbackUrlConfig={callbackUrlConfig}
         clientId="cid"
         clientSecret="sec"
@@ -847,287 +850,90 @@ describe("App (input handling, focus, effects)", () => {
 });
 
 describe("App (OAuth flows)", () => {
-  it("runs quick auth to success when no auth URL is returned", async () => {
-    h.clientSpies.authenticate.mockResolvedValue(undefined);
-    const r = await mount(oneHttp());
-    await press(r, ["q", ENTER]);
-    await tick();
-    expect(h.callbackStart).toHaveBeenCalled();
-    expect(h.clientSpies.authenticate).toHaveBeenCalled();
-    await expectFrame(r, "OAuth complete");
+  const unauthorized = Object.assign(new Error("request failed (401)"), {
+    status: 401,
   });
 
-  it("completes quick auth when the OAuth callback fires", async () => {
+  it("runs OAuth on connect when the server returns 401", async () => {
+    h.connect.mockRejectedValueOnce(unauthorized).mockResolvedValue(undefined);
+    h.clientSpies.authenticate.mockResolvedValue(undefined);
     const r = await mount(oneHttp());
-    await press(r, ["q", ENTER]);
+    await press(r, ["c"]);
+    await waitUntil(() => h.callbackStart.mock.calls.length > 0);
+    expect(h.disconnect).toHaveBeenCalled();
+    expect(h.clientSpies.authenticate).toHaveBeenCalled();
+    expect(h.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it("completes OAuth when the callback fires during a 401 connect", async () => {
+    h.connect.mockRejectedValueOnce(unauthorized).mockResolvedValue(undefined);
+    const r = await mount(oneHttp());
+    await press(r, ["c"]);
     await waitUntil(() => h.cb.opts !== null);
-    expect(h.cb.opts).not.toBeNull();
     await h.cb.opts!.onCallback({ code: "abc" });
     await tick();
     expect(h.clientSpies.completeOAuthFlow).toHaveBeenCalledWith("abc");
-    await expectFrame(r, "OAuth complete");
   });
 
-  it("reports an error when the OAuth callback errors", async () => {
+  it("reports an OAuth callback error during a 401 connect", async () => {
+    h.connect.mockRejectedValueOnce(unauthorized);
     const r = await mount(oneHttp());
-    await press(r, ["q", ENTER]);
+    await press(r, ["c"]);
     await waitUntil(() => h.cb.opts !== null);
-    expect(h.cb.opts).not.toBeNull();
     h.cb.opts!.onError({ error_description: "denied" });
-    await tick();
     await expectFrame(r, "denied");
   });
 
-  it("runs guided auth to completion and opens the auth URL", async () => {
-    h.clientSpies.runGuidedAuth.mockResolvedValue("http://auth/x");
+  it("clears OAuth state from the Auth tab", async () => {
     const r = await mount(oneHttp());
-    await press(r, ["g", ENTER]);
-    await tick();
-    expect(h.clientSpies.runGuidedAuth).toHaveBeenCalled();
-    expect(h.openUrl).toHaveBeenCalledWith("http://auth/x");
-  });
-
-  it("reports an error when guided-to-completion fails", async () => {
-    h.clientSpies.runGuidedAuth.mockRejectedValue(new Error("nope"));
-    const r = await mount(oneHttp());
-    await press(r, ["g", ENTER]);
-    await tick();
-    await expectFrame(r, "nope");
-  });
-
-  it("starts guided auth then advances a step, opening the auth URL", async () => {
-    const r = await mount(oneHttp());
-    await press(r, ["g", " "]); // Space starts the guided flow
-    await tick();
-    h.ctrl.oauthFlowState = {
-      oauthStep: "authorization_code",
-      authorizationUrl: "http://auth/code",
-    };
-    await press(r, [" "]); // Space again advances one step
-    await tick();
-    expect(h.clientSpies.beginGuidedAuth).toHaveBeenCalled();
-    expect(h.clientSpies.proceedOAuthStep).toHaveBeenCalled();
-    expect(h.openUrl).toHaveBeenCalledWith("http://auth/code");
-  });
-
-  it("advances guided auth without opening a URL", async () => {
-    h.ctrl.oauthFlowState = { oauthStep: "token_request" };
-    const r = await mount(oneHttp());
-    await press(r, ["g", " "]);
-    await tick();
-    await press(r, [" "]);
-    await tick();
-    expect(h.clientSpies.proceedOAuthStep).toHaveBeenCalled();
-    expect(h.openUrl).not.toHaveBeenCalled();
-  });
-
-  it("reports an error when guided start fails", async () => {
-    h.clientSpies.beginGuidedAuth.mockRejectedValue(new Error("startfail"));
-    const r = await mount(oneHttp());
-    await press(r, ["g", " "]);
-    await tick();
-    await expectFrame(r, "startfail");
-  });
-
-  it("reports an error when advancing guided auth fails", async () => {
-    h.clientSpies.proceedOAuthStep.mockRejectedValue(new Error("advfail"));
-    const r = await mount(oneHttp());
-    await press(r, ["g", " "]);
-    await tick();
-    await press(r, [" "]);
-    await tick();
-    await expectFrame(r, "advfail");
-  });
-
-  it("clears OAuth state via the Clear action", async () => {
-    const r = await mount(oneHttp());
-    await press(r, ["s", ENTER]);
+    await press(r, ["a", "s"]);
     await tick();
     expect(h.clientSpies.clearOAuthTokens).toHaveBeenCalled();
-    await expectFrame(r, "OAuth state cleared");
   });
 
-  it("reports an error when quick callback completion fails", async () => {
+  it("reports callback completion failure during a 401 connect", async () => {
+    h.connect.mockRejectedValueOnce(unauthorized);
     h.clientSpies.completeOAuthFlow.mockRejectedValue(new Error("qcfail"));
     const r = await mount(oneHttp());
-    await press(r, ["q", ENTER]);
+    await press(r, ["c"]);
     await waitUntil(() => h.cb.opts !== null);
-    expect(h.cb.opts).not.toBeNull();
     await h.cb.opts!.onCallback({ code: "x" });
-    await tick();
     await expectFrame(r, "qcfail");
   });
 
-  it("stops a prior callback server before starting quick auth again", async () => {
-    h.clientSpies.authenticate.mockResolvedValue(undefined);
-    const r = await mount(oneHttp());
-    await press(r, ["q", ENTER]); // first run completes, leaving the server set
-    await tick();
-    await press(r, ["q", ENTER]); // second run stops the prior server
-    await tick();
-    expect(h.callbackStop).toHaveBeenCalled();
-  });
-
-  it("completes guided auth when the callback fires", async () => {
-    const r = await mount(oneHttp());
-    await press(r, ["g", " "]); // Space starts guided + registers callback server
-    await waitUntil(() => h.cb.opts !== null);
-    expect(h.cb.opts).not.toBeNull();
-    await h.cb.opts!.onCallback({ code: "gc" });
-    await tick();
-    expect(h.clientSpies.completeOAuthFlow).toHaveBeenCalledWith("gc");
-    await expectFrame(r, "OAuth complete");
-  });
-
-  it("reports an error when the guided callback errors", async () => {
-    const r = await mount(oneHttp());
-    await press(r, ["g", " "]);
-    await waitUntil(() => h.cb.opts !== null);
-    expect(h.cb.opts).not.toBeNull();
-    h.cb.opts!.onError({ error: "guided-bad" });
-    await tick();
-    await expectFrame(r, "guided-bad");
-  });
-
-  it("reports an error when guided callback completion fails", async () => {
-    h.clientSpies.completeOAuthFlow.mockRejectedValue(new Error("gfail"));
-    const r = await mount(oneHttp());
-    await press(r, ["g", " "]);
-    await waitUntil(() => h.cb.opts !== null);
-    await h.cb.opts!.onCallback({ code: "x" });
-    await tick();
-    await expectFrame(r, "gfail");
-  });
-
-  it("completes run-to-completion auth when the callback fires", async () => {
-    const r = await mount(oneHttp());
-    await press(r, ["g", ENTER]); // runs to completion -> ensureCallbackServer
-    await waitUntil(() => h.cb.opts !== null);
-    expect(h.cb.opts).not.toBeNull();
-    await h.cb.opts!.onCallback({ code: "rc" });
-    await tick();
-    expect(h.clientSpies.completeOAuthFlow).toHaveBeenCalledWith("rc");
-    await expectFrame(r, "OAuth complete");
-  });
-
-  it("reports an error when the run-to-completion callback errors", async () => {
-    const r = await mount(oneHttp());
-    await press(r, ["g", ENTER]);
-    await waitUntil(() => h.cb.opts !== null);
-    expect(h.cb.opts).not.toBeNull();
-    h.cb.opts!.onError({ error: "rc-bad" });
-    await tick();
-    await expectFrame(r, "rc-bad");
-  });
-
-  it("stringifies a non-Error quick auth rejection", async () => {
+  it("stringifies a non-Error authenticate rejection on 401 connect", async () => {
+    h.connect.mockRejectedValueOnce(unauthorized);
     h.clientSpies.authenticate.mockRejectedValue("plainstring");
     const r = await mount(oneHttp());
-    await press(r, ["q", ENTER]);
-    await tick();
+    await press(r, ["c"]);
     await expectFrame(r, "plainstring");
   });
 
   it("uses the default OAuth error label when the callback error is empty", async () => {
+    h.connect.mockRejectedValueOnce(unauthorized);
     const r = await mount(oneHttp());
-    await press(r, ["q", ENTER]);
+    await press(r, ["c"]);
     await waitUntil(() => h.cb.opts !== null);
-    expect(h.cb.opts).not.toBeNull();
     h.cb.opts!.onError({});
-    await tick();
     await expectFrame(r, "OAuth error");
   });
 
-  it("stringifies a non-Error guided callback completion failure", async () => {
-    h.clientSpies.completeOAuthFlow.mockRejectedValue("guided-string");
+  it("falls back to params.error when the callback has no description", async () => {
+    h.connect.mockRejectedValueOnce(unauthorized);
     const r = await mount(oneHttp());
-    await press(r, ["g", " "]);
+    await press(r, ["c"]);
+    await waitUntil(() => h.cb.opts !== null);
+    h.cb.opts!.onError({ error: "oauth-error-code" });
+    await expectFrame(r, "oauth-error-code");
+  });
+
+  it("wraps a non-Error callback completion failure into an Error", async () => {
+    h.connect.mockRejectedValueOnce(unauthorized);
+    h.clientSpies.completeOAuthFlow.mockRejectedValue("cb-string");
+    const r = await mount(oneHttp());
+    await press(r, ["c"]);
     await waitUntil(() => h.cb.opts !== null);
     await h.cb.opts!.onCallback({ code: "x" });
-    await tick();
-    await expectFrame(r, "guided-string");
-  });
-
-  it("falls back to params.error when the quick callback has no description", async () => {
-    const r = await mount(oneHttp());
-    await press(r, ["q", ENTER]);
-    await waitUntil(() => h.cb.opts !== null);
-    h.cb.opts!.onError({ error: "quick-error-code" });
-    await tick();
-    await expectFrame(r, "quick-error-code");
-  });
-
-  it("uses the default label when the guided callback error is empty", async () => {
-    const r = await mount(oneHttp());
-    await press(r, ["g", " "]);
-    await waitUntil(() => h.cb.opts !== null);
-    h.cb.opts!.onError({});
-    await tick();
-    await expectFrame(r, "OAuth error");
-  });
-
-  it("uses the default label when the run-to-completion error is empty", async () => {
-    const r = await mount(oneHttp());
-    await press(r, ["g", ENTER]);
-    await waitUntil(() => h.cb.opts !== null);
-    h.cb.opts!.onError({});
-    await tick();
-    await expectFrame(r, "OAuth error");
-  });
-
-  it("wraps a non-Error quick callback rejection into an Error", async () => {
-    h.clientSpies.completeOAuthFlow.mockRejectedValue("quick-cb-string");
-    const r = await mount(oneHttp());
-    await press(r, ["q", ENTER]);
-    await waitUntil(() => h.cb.opts !== null);
-    expect(h.cb.opts).not.toBeNull();
-    await h.cb.opts!.onCallback({ code: "x" });
-    await tick();
-    // quick auth's onCallback wraps the throw via new Error(String(err)); the
-    // flow rejects and the catch surfaces the stringified message.
-    await expectFrame(r, "quick-cb-string");
-  });
-
-  it("stringifies a non-Error guided-start rejection", async () => {
-    h.clientSpies.beginGuidedAuth.mockRejectedValue("startfail-string");
-    const r = await mount(oneHttp());
-    await press(r, ["g", " "]);
-    await tick();
-    await expectFrame(r, "startfail-string");
-  });
-
-  it("stringifies a non-Error guided-advance rejection", async () => {
-    h.clientSpies.proceedOAuthStep.mockRejectedValue("advfail-string");
-    const r = await mount(oneHttp());
-    await press(r, ["g", " "]);
-    await tick();
-    await press(r, [" "]);
-    await tick();
-    await expectFrame(r, "advfail-string");
-  });
-
-  it("stringifies a non-Error run-to-completion rejection", async () => {
-    h.clientSpies.runGuidedAuth.mockRejectedValue("runfail-string");
-    const r = await mount(oneHttp());
-    await press(r, ["g", ENTER]);
-    await tick();
-    await expectFrame(r, "runfail-string");
-  });
-
-  it("ignores a re-entrant quick-auth trigger while one is in progress", async () => {
-    // Hold the first flow open by leaving authenticate pending, so the second
-    // 'q' hits the `if (oauthInProgressRef.current) return` guard.
-    let release!: () => void;
-    h.clientSpies.authenticate.mockImplementation(
-      () => new Promise<string>((res) => (release = () => res(undefined))),
-    );
-    const r = await mount(oneHttp());
-    await press(r, ["q", ENTER]);
-    await tick();
-    await press(r, ["q", ENTER]); // re-entrant: guarded out
-    await tick();
-    expect(h.callbackStart).toHaveBeenCalledTimes(1);
-    release();
-    await tick();
+    await expectFrame(r, "cb-string");
   });
 });
