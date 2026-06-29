@@ -1,8 +1,12 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { ClientSettingsModal } from "./ClientSettingsModal";
-import { EMPTY_CLIENT_SETTINGS } from "../ClientSettingsForm/clientSettingsValues";
+import {
+  EMPTY_CLIENT_SETTINGS,
+  ISSUER_URL_ERROR,
+} from "../ClientSettingsForm/clientSettingsValues";
 
 describe("ClientSettingsModal", () => {
   it("renders the title when opened", () => {
@@ -118,6 +122,94 @@ describe("ClientSettingsModal", () => {
     expect(
       screen.getByRole("button", { name: "Collapse all" }),
     ).toBeInTheDocument();
+  });
+
+  it("blocks close and reveals the issuer error when the issuer is invalid", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderWithMantine(
+      <ClientSettingsModal
+        opened
+        settings={{
+          ...EMPTY_CLIENT_SETTINGS,
+          emaEnabled: true,
+          issuer: "not-a-url",
+        }}
+        onClose={onClose}
+        onSettingsChange={vi.fn()}
+      />,
+    );
+
+    // Error is hidden initially (form gates it on blur)...
+    expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
+    // ...but a close attempt reveals it and does NOT close (no silent drop).
+    await user.click(
+      document.querySelector("button.mantine-CloseButton-root")!,
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText(ISSUER_URL_ERROR)).toBeInTheDocument();
+  });
+
+  it("allows close once the invalid issuer is corrected", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    function Host() {
+      const [settings, setSettings] = useState({
+        ...EMPTY_CLIENT_SETTINGS,
+        emaEnabled: true,
+        issuer: "not-a-url",
+      });
+      return (
+        <ClientSettingsModal
+          opened
+          settings={settings}
+          onClose={onClose}
+          onSettingsChange={setSettings}
+        />
+      );
+    }
+    renderWithMantine(<Host />);
+
+    const close = () =>
+      user.click(document.querySelector("button.mantine-CloseButton-root")!);
+
+    await close(); // blocked, error revealed
+    expect(onClose).not.toHaveBeenCalled();
+
+    const issuer = screen.getByLabelText("Issuer");
+    await user.clear(issuer);
+    await user.type(issuer, "https://idp.test");
+    expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
+
+    await close(); // now valid -> closes
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows close when an invalid issuer is cleared (empty is valid to leave)", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    function Host() {
+      const [settings, setSettings] = useState({
+        ...EMPTY_CLIENT_SETTINGS,
+        emaEnabled: true,
+        issuer: "not-a-url",
+      });
+      return (
+        <ClientSettingsModal
+          opened
+          settings={settings}
+          onClose={onClose}
+          onSettingsChange={setSettings}
+        />
+      );
+    }
+    renderWithMantine(<Host />);
+
+    await user.clear(screen.getByLabelText("Issuer"));
+    await user.click(
+      document.querySelector("button.mantine-CloseButton-root")!,
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("does not render the modal body when closed", () => {
