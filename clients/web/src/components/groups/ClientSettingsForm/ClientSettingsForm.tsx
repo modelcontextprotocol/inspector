@@ -25,6 +25,12 @@ export interface ClientSettingsFormProps {
   onSettingsChange: (settings: ClientSettingsFormValues) => void;
   emaIdpLoginState?: EmaIdpLoginState;
   onEmaIdpLogout?: () => void;
+  /**
+   * Force the issuer error to show even before the field is blurred. The parent
+   * sets this when a save/close is attempted with an invalid issuer, so the user
+   * isn't left with a silently-dropped value and no explanation.
+   */
+  revealIssuerError?: boolean;
 }
 
 const HintText = Text.withProps({
@@ -39,6 +45,7 @@ export function ClientSettingsForm({
   onSettingsChange,
   emaIdpLoginState = "none",
   onEmaIdpLogout,
+  revealIssuerError = false,
 }: ClientSettingsFormProps) {
   function patch(partial: Partial<ClientSettingsFormValues>) {
     onSettingsChange({ ...settings, ...partial });
@@ -47,11 +54,17 @@ export function ClientSettingsForm({
   // Defer the issuer error until the field has been blurred so it doesn't nag
   // mid-typing (e.g. while "https:/…" is still incomplete). Once touched it
   // updates live, so the error clears as soon as a valid URL is entered. The
-  // persist gate (canPersistClientSettingsDraft) validates independently and is
-  // unaffected — an invalid issuer is never written regardless of touched state.
+  // parent also forces it on via `revealIssuerError` when a close/save is
+  // attempted with an invalid value, so the value is never silently dropped
+  // without explanation. The persist gate (canPersistClientSettingsDraft)
+  // validates independently — an invalid issuer is never written regardless.
   const [issuerTouched, setIssuerTouched] = useState(false);
 
   const errors = validateClientSettings(settings);
+  const showIssuerError =
+    (issuerTouched || revealIssuerError) && errors.issuer
+      ? errors.issuer
+      : undefined;
 
   const showIdpSession =
     settings.emaEnabled &&
@@ -91,7 +104,7 @@ export function ClientSettingsForm({
                   value={settings.issuer}
                   onChange={(e) => patch({ issuer: e.currentTarget.value })}
                   onBlur={() => setIssuerTouched(true)}
-                  error={issuerTouched ? errors.issuer : undefined}
+                  error={showIssuerError}
                   rightSectionPointerEvents="auto"
                   rightSection={
                     settings.issuer ? (

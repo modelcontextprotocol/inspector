@@ -122,6 +122,46 @@ describe("ClientSettingsForm EMA IdP session", () => {
     expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
   });
 
+  it("reveals the issuer error without blur when revealIssuerError is set", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={{
+          ...EMPTY_CLIENT_SETTINGS,
+          emaEnabled: true,
+          issuer: "not-a-url",
+        }}
+        expandedSections={["ema"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        emaIdpLoginState="none"
+        revealIssuerError
+      />,
+    );
+
+    // Parent forced the error on (e.g. a close was attempted) — shown even
+    // though the field was never blurred.
+    expect(screen.getByText(ISSUER_URL_ERROR)).toBeInTheDocument();
+  });
+
+  it("shows no error for a valid issuer even when revealIssuerError is set", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={{
+          ...EMPTY_CLIENT_SETTINGS,
+          emaEnabled: true,
+          issuer: "https://idp.test",
+        }}
+        expandedSections={["ema"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        emaIdpLoginState="none"
+        revealIssuerError
+      />,
+    );
+
+    expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
+  });
+
   it("shows no issuer error for a valid URL", () => {
     renderWithMantine(
       <ClientSettingsForm

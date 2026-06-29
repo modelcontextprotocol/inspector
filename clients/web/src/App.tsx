@@ -2377,6 +2377,9 @@ function App() {
     );
 
   const onClientSettingsModalClose = useCallback(() => {
+    // Only fires when ClientSettingsModal allows the close (it blocks on an
+    // invalid issuer and reveals the error instead). The implicit "save" is the
+    // flush below; the persist gate drops anything still incomplete.
     flushClientSettingsDraft();
     setClientSettingsOpen(false);
   }, [flushClientSettingsDraft]);
