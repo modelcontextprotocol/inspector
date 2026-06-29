@@ -33,11 +33,14 @@ This spec defines:
 
 ### Web: detection and wire protocol
 
-- **Backend detection:** fetch wrapper on the transport passed to `createTransportNode` — intercept the MCP HTTP `Response` before the SDK consumes it, parse `WWW-Authenticate`, emit an SSE `auth_challenge` event. The frozen `createTokenAuthProvider` stub cannot complete interactive OAuth; do not rely on stub `auth()`.
-- **SSE event type:** dedicated `auth_challenge` (not `transport_error`).
-- **Browser dispatch:** `InspectorClient` `authChallenge` typed event.
+- **Backend detection:** auth-challenge **intercept fetch** composed with `createFetchTracker` on the transport passed to `createTransportNode` — intercept the MCP HTTP `Response` before the SDK consumes it, parse `WWW-Authenticate`, short-circuit SDK `auth()` on the frozen stub (throw or structured failure; do not rely on stub `auth()`).
+- **Dual delivery (mutually exclusive):**
+  - **Command-scoped** — failure during an active `POST /api/mcp/send` (or connect handshake send): return **HTTP 200** with `{ ok: false, kind: "auth_challenge" | "transport_error", … }`. Do **not** also emit SSE for the same incident. Client handles recovery and **retries the same JSON-RPC in that call chain** (closure holds the message; no `pendingRequest` echo required).
+  - **Ambient** — failure with **no** correlated remote API request in flight (e.g. subprocess exit while idle, background MCP stream drop on stateful transports): SSE `auth_challenge` or `transport_error` only.
+- **Remote API vs upstream errors:** reserve HTTP **4xx** on the Inspector remote API for true API failures (bad JSON, missing session, `x-mcp-remote-auth`). Upstream MCP auth/transport outcomes use **`ok: false` + `kind`** on **200** (or a dedicated dependency status if preferred) — do not overload remote **401** with MCP token expiry.
 - **HTTP status helpers:** `isAuthChallengeError()` for mid-session 401 and 403; `isUnauthorizedError()` remains for connect-time 401 only.
 - **Post-recovery:** `disconnect()` → `connect()` to re-snapshot tokens to the backend. No token-push API in v1.
+- **Command retry (in scope Phases 2–3):** after `handleAuthChallenge()` succeeds, **replay the failed send once** in `RemoteClientTransport` / `InspectorClient` (bounded; no loop). `callTool` may stay pending through auth + retry instead of failing then requiring manual retry.
 - **Deduplication:** in-memory per session, keyed by `reason` + sorted `requiredScopes`; suppress duplicates until satisfied or scopes change.
 - **Multi-tab:** duplicate modals are acceptable until Phase 4 `RemoteOAuthStorage`; then `navigator.locks.request()` single-flight per server URL inside `handleAuthChallenge()`.
 
@@ -47,7 +50,7 @@ This spec defines:
 - Intercept 401 and 403 on streamable HTTP; run union scopes in `handleAuthChallenge()` for step-up. Do not rely on the SDK built-in 403 retry (challenge-only scope, no SEP-2350 union).
 - Legacy SSE transport: 401 only (no 403 step-up in SDK).
 - Replace TUI `show401AuthHint` with the `authChallenge` event (Phase 4).
-- Phase A: rely on SDK in-flight retry where applicable. Phase C adds explicit pending-RPC replay.
+- Web remote: command-scoped auth retry in `RemoteClientTransport.send()` (Phases 2–3). TUI/CLI direct transport: same pattern via fetch intercept + local retry (Phase 4).
 
 The SDK (`@modelcontextprotocol/sdk` 1.29.0) auto-retries 401/403 on streamable HTTP `send()` but does not union scopes for step-up — Inspector owns SEP-2350 union in `handleAuthChallenge()`.
 
@@ -60,7 +63,9 @@ The SDK (`@modelcontextprotocol/sdk` 1.29.0) auto-retries 401/403 on streamable 
 
 ### RPC retry
 
-- After every successful recovery (401 refresh, EMA re-mint, step-up), **retry the failed MCP request**. Phases 1–3 may ship without auto-retry; Phase 5 queues `AuthChallenge.context.pendingRequest` and replays once after `satisfied` + reconnect (bounded).
+- After every successful recovery (401 refresh, EMA re-mint, step-up), **retry the failed MCP request once** (bounded; on replay failure surface the tool error, do not loop).
+- **Command-scoped (Phases 2–3, in scope):** inline `/api/mcp/send` response → `handleAuthChallenge()` → reconnect → **retry the same JSON-RPC from the caller closure** in `RemoteClientTransport` / `InspectorClient.callTool`. No SSE `pendingRequest` needed.
+- **Ambient SSE (Phase 5 / rare):** when auth or transport failure is delivered only via SSE (no active send), attach `context.pendingRequest` if a replay target exists; otherwise mark session degraded until the user acts.
 
 ### UX
 
@@ -86,11 +91,111 @@ Silent path = refresh token grant (standard OAuth) or EMA legs 2–3 re-mint (va
 | Standard OAuth | No `refresh_token`; refresh token expired/revoked; AS rejects refresh; no tokens in storage |
 | EMA | No IdP session; legs 2–3 mint error (bad resource client creds, AS/network errors) |
 | Step-up (403) | Standard OAuth: interactive consent (modal + resource-AS redirect). EMA (valid IdP session): silent legs 2–3 re-mint — same as 401 refresh |
-| Web | Silent runs in the browser after SSE `auth_challenge`; the backend cannot refresh frozen tokens |
+| Web | Silent runs in the browser after inline send `auth_challenge` or ambient SSE; the backend cannot refresh frozen tokens |
 
-### Test infrastructure
+### Test infrastructure — composable server scope requirements
 
-Extend `test-server-oauth.ts` with scope-check middleware that returns **403** + `insufficient_scope` for scoped tool routes.
+Step-up UX and integration tests need an MCP server that returns **HTTP 403** + `WWW-Authenticate: Bearer error="insufficient_scope", scope="…"` on specific operations while accepting a valid token for others. Use the **config-driven composable test server** (`server-composable`, `test-server-http.ts`) — not hard-coded routes in application code.
+
+#### Config: `requiredScopes` on preset refs
+
+Add an optional **`requiredScopes`** field on tool, resource, and prompt **preset refs** in composable config files. `resolve-config.ts` merges it onto the resolved capability definition; at HTTP startup the server builds a lookup registry from that merged config.
+
+```json
+{
+  "serverInfo": { "name": "step-up-demo", "version": "1.0.0" },
+  "transport": { "type": "streamable-http", "port": 8099 },
+  "oauth": {
+    "enabled": true,
+    "requireAuth": true,
+    "scopesSupported": ["mcp", "tools:read", "weather:read", "admin:write"],
+    "supportDCR": true,
+    "supportRefreshTokens": true
+  },
+  "tools": [
+    { "preset": "echo" },
+    { "preset": "get_temp", "requiredScopes": ["weather:read"] },
+    { "preset": "add", "requiredScopes": ["admin:write"] }
+  ],
+  "resources": [
+    {
+      "preset": "static_text",
+      "params": { "uri": "file:///secret.txt", "name": "secret" },
+      "requiredScopes": ["secrets:read"]
+    }
+  ]
+}
+```
+
+| Field | Location | Purpose |
+| ----- | -------- | ------- |
+| `oauth.scopesSupported` | **Existing** | Advertises scopes in AS / protected-resource metadata (`scopes_supported`). List **every** scope the AS may grant, including those referenced by `requiredScopes`. Inspector discovers these for connect-time and step-up consent. |
+| `requiredScopes` | **New** on preset refs | Scopes the bearer token must include for **this** capability. Omitted → only global bearer validity applies (401 if missing/invalid token; no 403 step-up). |
+
+**Smoke flow:** connect with `scopes: "mcp tools:read"` → unscoped tools work → calling `get_temp` → **403 insufficient_scope** with `scope="weather:read"` → Inspector step-up → union re-auth → tool succeeds.
+
+Canonical fixture: `test-servers/configs/oauth-step-up-demo.json` (add with implementation).
+
+#### Enforcement (HTTP middleware)
+
+MCP step-up is signaled at the **streamable-HTTP transport layer**, not as a JSON-RPC error inside HTTP 200. Implement enforcement in **`test-server-oauth.ts`** (or a small helper it calls), **after** bearer token validation and **before** the MCP transport handler:
+
+1. Parse the incoming JSON-RPC body (`method`, `params`).
+2. Resolve the target capability and its `requiredScopes` from the registry built at startup.
+3. Read granted scopes from the access token (see below).
+4. If the token is valid but lacks required scopes, respond **403** with:
+
+   ```http
+   HTTP/1.1 403 Forbidden
+   WWW-Authenticate: Bearer error="insufficient_scope", scope="weather:read"
+   Content-Type: application/json
+   ```
+
+   Use the **missing** scope(s) in the `scope=` parameter (space-separated if multiple). Body: JSON-RPC error envelope (same pattern as existing 401 middleware).
+
+**Method → registry lookup:**
+
+| MCP method | Registry key |
+| ---------- | ------------ |
+| `tools/call` | tool `name` (`params.name`) |
+| `resources/read` | resource `uri` (`params.uri`) |
+| `prompts/get` | prompt `name` (`params.name`) |
+| `resources/templates/read` | template name or URI from `params` |
+
+**Non-goals for v1 fixtures:** do not require step-up on `tools/list`, `resources/list`, or `prompts/list` — real servers typically step up on **use**, not discovery. If list-level challenges are needed later, add an optional advanced `oauth.operations` map (see below); not required for Phase 3 smoke tests.
+
+#### Token scope storage (combined mode prerequisite)
+
+Today combined-mode opaque access tokens are stored in a `Set` with **no granted scope**. Scope enforcement requires:
+
+- **`storeAccessToken(token, { scope })`** at authorization-code and refresh-token issue time (scope from authorize query / stored auth-code data).
+- **`getAccessTokenScope(token)`** for middleware checks (space-separated scope string, OAuth convention).
+- **Protected-resource mode:** read `scope` from the verified JWT payload when present; fall back to stored metadata for opaque tokens.
+
+Middleware compares granted scopes (split on spaces) against `requiredScopes` (all must be present).
+
+#### Optional advanced: `oauth.operations`
+
+For method-wide defaults (e.g. a baseline scope on every `tools/call`), an optional **`oauth.operations`** map may be added later:
+
+```json
+"oauth": {
+  "operations": {
+    "tools/call": { "requiredScopes": ["tools:execute"] }
+  }
+}
+```
+
+Effective requirement = **union** of matching `oauth.operations` rule(s) and per-capability `requiredScopes`. Defer until a concrete smoke scenario needs list- or method-level challenges.
+
+#### Implementation checklist (Phase 3 test server)
+
+- [ ] Extend `PresetRef` / `load-config.ts` with optional `requiredScopes?: string[]`
+- [ ] Extend `ToolDefinition`, `ResourceDefinition`, `PromptDefinition` with `requiredScopes?: string[]`; merge in `resolve-config.ts`
+- [ ] Build scope-requirements registry in `test-server-http.ts` from resolved `ServerConfig`
+- [ ] Store granted scope on access tokens (combined mode); expose scope lookup for middleware
+- [ ] Add scope-check middleware: valid token + missing scope → **403** + `insufficient_scope`
+- [ ] Add `test-servers/configs/oauth-step-up-demo.json` and document manual smoke steps in [v2_auth_smoke_testing.md](v2_auth_smoke_testing.md)
 
 ## Normative references
 
@@ -116,10 +221,9 @@ Extend `test-server-oauth.ts` with scope-check middleware that returns **403** +
 - Implement **[SEP-2350](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2350)** client-side scope accumulation when servers emit runtime **`403 insufficient_scope`** challenges per the [draft Step-Up Authorization Flow](https://modelcontextprotocol.io/specification/draft/basic/authorization#step-up-authorization-flow).
 - Align with the upcoming **2026-07-28** MCP authorization revision (Inspector targets the draft semantics even while pinned to SDK/spec `2025-11-25` today).
 
-### Phase C — Pending RPC retry (after Phase A recovery works)
+### Phase C — Command retry (web remote)
 
-- After any successful auth recovery (401 refresh, EMA re-mint, step-up), **automatically retry the MCP request that failed**.
-- Phases 1–3 may ship without auto-retry; Phase 5 adds queued replay of `AuthChallenge.context.pendingRequest`.
+- After successful auth recovery on a **command-scoped** failure, **automatically retry the failed MCP request once** (Phases 2–3). Ambient SSE replay edge cases remain Phase 5.
 
 ## Non-goals
 
@@ -243,7 +347,7 @@ export interface AuthChallenge {
   context?: {
     method?: string;
     toolName?: string;
-    /** Phase C: JSON-RPC request to replay after successful recovery. */
+    /** Optional: JSON-RPC to replay for ambient SSE delivery only (no caller closure). */
     pendingRequest?: import("@modelcontextprotocol/sdk/types.js").JSONRPCMessage;
   };
 
@@ -272,7 +376,7 @@ When parsing fails, use `reason: "unauthorized"` and still allow interactive re-
 | **When** | First connect with no stored tokens; `initialize` gets 401 before any bearer token was sent to the backend | Reconnect with stored tokens, or any MCP request after a token snapshot was frozen on the backend — **including `initialize` during `connect()`** |
 | **Detection** | `connect()` throws **401** to the browser | MCP HTTP **401/403** on backend transport → **`auth_challenge`** (Phase 2); today often **500** from stub `auth()` |
 | **Handler** | `authenticate()` (today) | `handleAuthChallenge()` (this spec) |
-| **Web follow-up** | Redirect or silent connect | Recover tokens in browser → **disconnect + connect** to re-snapshot → Phase C replays pending RPC |
+| **Web follow-up** | Redirect or silent connect | Recover tokens in browser → **disconnect + connect** → **inline send retry** (Phases 2–3) |
 
 Both paths may call the same underlying OAuth/EMA primitives (`authenticate()`, refresh, `completeOAuthFlow()`); only **detection** and **re-snapshot reconnect** differ. Phase 2 unifies recovery for the snapshot path; it does **not** replace the no-snapshot connect-time path.
 
@@ -317,10 +421,10 @@ Uses `EmaTransportOAuthProvider`, `emaFlow.ts`, and `resourceContext.ts` (extend
 
 | Client | Action |
 | ------ | ------ |
-| **TUI / CLI** | Live provider on transport; SDK may retry in flight. Phase C: replay `context.pendingRequest` if set. |
-| **Web** | **`disconnect()` → `connect()`** to re-snapshot tokens. Phase C: replay `context.pendingRequest` after reconnect. |
+| **TUI / CLI** | Live provider; fetch intercept + **send retry** after `handleAuthChallenge()` (Phase 4). |
+| **Web** | **`disconnect()` → `connect()`** to re-snapshot tokens, then **inline send retry** (Phases 2–3). |
 
-Until Phase C, the failed tool call may still require a manual retry after recovery.
+Ambient SSE failures without a caller closure may require manual retry or Phase 5 `pendingRequest` replay.
 
 ### After `kind: "interactive"`
 
@@ -343,32 +447,56 @@ Do **not** disconnect the MCP session for recoverable challenges.
 
 ## Remote wire protocol (web)
 
-Backend **reports** challenges; browser **handles** them.
+Backend **reports** challenges; browser **handles** them. One internal `AuthChallenge` object; **one delivery channel per incident** (inline **or** SSE, never both).
 
 ### Detection
 
-Auth challenges are detected when MCP traffic fails — on the HTTP response from the MCP server, in `transport.send()` error handling, or in transport `onerror`. The backend emits a structured event; the browser runs `handleAuthChallenge()`.
+Auth challenges are detected when MCP traffic fails — on the MCP HTTP response (fetch intercept), in `transport.send()` error handling, or in transport `onerror`. The browser runs `handleAuthChallenge()`.
 
 ```text
-MCP SDK transport (RemoteSession on Hono backend)
-  └─ HTTP 401/403 or SDK auth failure on send / stream
-       └─ parseAuthChallengeFromResponse() at this hook
-            └─ RemoteSession.pushEvent({ type: "auth_challenge", data })
-                 └─ SSE → browser RemoteClientTransport
-                      └─ InspectorClient → handleAuthChallenge()
+Command-scoped (primary):
+  POST /api/mcp/send
+    └─ backend transport fetch intercept → parseAuthChallengeFromResponse()
+         └─ return 200 { ok: false, kind: "auth_challenge", authChallenge }
+              └─ RemoteClientTransport.sendWithAuthRecovery()
+                   └─ handleAuthChallenge() → reconnect → retry same JSON-RPC
+
+Ambient (fallback):
+  transport.onclose / background MCP failure (no active send)
+    └─ RemoteSession.pushEvent({ type: "auth_challenge" | "transport_error", data })
+         └─ SSE → shared recoverAuth() handler
 ```
 
 #### Web — detection (`core/mcp/remote/node/`)
 
 Inside an active `RemoteSession`, when MCP traffic fails with an auth error:
 
-- **Fetch wrapper on the backend transport** — wrap the fetch passed to `createTransportNode`. Intercept the MCP HTTP `Response` **before** the SDK consumes it. On **401** or **403**, parse `WWW-Authenticate`, emit `auth_challenge`, and do not let the SDK call `auth()` on the frozen `createTokenAuthProvider` stub.
-- **`/api/mcp/send`** — extend to preserve **403** and map stub-auth failures to structured errors (today: **401** only; stub failures often return **500**).
-- **Transport `onerror`** — secondary path when the SDK reports auth-related failures without a parseable response (preserve status/code; do not collapse to generic 500).
+- **Auth-challenge intercept fetch** — composed with `createFetchTracker` on the fetch passed to `createTransportNode`. On **401** or **403**, parse `WWW-Authenticate`, short-circuit SDK `auth()` on the frozen stub.
+- **`/api/mcp/send`** — when failure is tied to that request, return structured **`ok: false`** body (not opaque **500**); do **not** push SSE for the same failure.
+- **Transport `onerror` / `onclose`** — when no send is correlated, push SSE `auth_challenge` or `transport_error` (preserve status/code; do not collapse to generic 500).
 
 Parse `WWW-Authenticate` from the response headers on the failing request.
 
 Do **not** confuse MCP server OAuth with Inspector launcher auth (`x-mcp-remote-auth` on requests to the Hono API — that is session auth to the remote backend, not MCP server OAuth).
+
+#### `/api/mcp/send` response shape (command-scoped)
+
+```typescript
+type RemoteSendResponse =
+  | { ok: true }
+  | {
+      ok: false;
+      kind: "auth_challenge";
+      authChallenge: AuthChallenge;
+    }
+  | {
+      ok: false;
+      kind: "transport_error";
+      error: string;
+    };
+```
+
+Reserve HTTP **4xx/5xx** on the remote API for Inspector API failures only (malformed body, unknown `sessionId`, launcher auth).
 
 #### TUI / CLI — detection (direct transport)
 
@@ -379,7 +507,7 @@ Same **`handleAuthChallenge()`** entry via **transport fetch wrapper** (before S
 - Dispatch **`authChallenge`** on `InspectorClient` (Phase 4 replaces TUI `show401AuthHint`).
 - **`oauthAuthorizationRequired`** fires when `handleAuthChallenge()` returns `interactive`.
 
-### SSE event
+### SSE event (ambient only)
 
 Extend `RemoteEvent` in `core/mcp/remote/types.ts`:
 
@@ -395,28 +523,37 @@ export interface RemoteAuthChallengeEvent {
 
 **Rules:**
 
-- Emit **once per recoverable 401/403 auth challenge** (dedupe per [Architecture §Web: detection and wire protocol](#web-detection-and-wire-protocol)).
+- Use SSE **only when no active `/api/mcp/send` is waiting** for this failure — never duplicate an inline send response.
+- Emit **once per recoverable ambient challenge** (dedupe per [Architecture §Web: detection and wire protocol](#web-detection-and-wire-protocol)).
 - Do **not** mark transport dead for recoverable auth challenges unless the SDK closed the connection.
 - Include `requiredScopes` when parsed from `WWW-Authenticate`.
-- Attach **`context.pendingRequest`** when the failing RPC is known (Phase C).
+- Attach **`context.pendingRequest`** only for ambient cases where replay is desired and no caller closure exists.
 
 ### Browser handling
 
-1. `RemoteClientTransport` receives `auth_challenge` on SSE.
-2. `InspectorClient` dispatches **`authChallenge`**.
-3. App calls `handleAuthChallenge(challenge)` (via `authChallengeFlow.ts` once extracted).
-4. On `satisfied` or post-callback success: reconnect active server; Phase C replays pending RPC.
-5. UX per [Architecture §UX](#ux).
+**Command-scoped (primary):**
+
+1. `RemoteClientTransport.send()` receives `{ ok: false, kind: "auth_challenge" }`.
+2. `sendWithAuthRecovery()` calls `handleAuthChallenge()` (shared with SSE path).
+3. On `satisfied` or post-callback success: `disconnect()` → `connect()` to re-snapshot tokens.
+4. **Retry the same JSON-RPC once** (bounded); surface error if replay fails.
+5. UX toasts/modals via shared `authChallengeFlow.ts` if wiring exceeds ~50 lines.
+
+**Ambient (SSE fallback):**
+
+1. SSE consumer receives `auth_challenge` or `transport_error`.
+2. Same `handleAuthChallenge()` / degraded-session handler (no automatic RPC retry unless `pendingRequest` present).
+3. UX per [Architecture §UX](#ux).
 
 ## Client matrix
 
 | Concern | Web | TUI | CLI |
 | ------- | --- | --- | --- |
-| Challenge detection | SSE `auth_challenge` from `RemoteSession` | `InspectorClient` auth hook on live transport / provider | Same as TUI when OAuth wired |
+| Challenge detection | Inline send response (primary); SSE `auth_challenge` (ambient) | Fetch intercept on live transport | Same as TUI when OAuth wired |
 | Auth execution | Browser `OAuthManager` | Node `OAuthManager` | Node (when implemented) |
 | OAuth storage today | `BrowserOAuthStorage` (sessionStorage) | `NodeOAuthStorage` (file) | None |
 | OAuth storage target | `RemoteOAuthStorage` → shared `oauth.json` ([EMA spec §Shared storage](v2_auth_ema.md)) | File | File |
-| Post-success | Remote reconnect (+ Phase C RPC replay) | Reconnect / SDK retry (+ Phase C) | Same as TUI when OAuth wired |
+| Post-success | Remote reconnect + **inline send retry** (Phases 2–3) | Reconnect + local send retry (Phase 4) | Same as TUI when OAuth wired |
 | Step-up UX | Modal (standard OAuth); silent (EMA) | Same | Same as TUI when OAuth wired |
 | EMA IdP config | Client Settings | `client.json` (Phase 4) | `client.json` (Phase 4) |
 
@@ -432,7 +569,7 @@ export interface RemoteAuthChallengeEvent {
 
 ## Phased implementation
 
-Phases 1–2 deliver **Phase A** (token recovery). Phase 3 delivers **Phase B** (SEP-2350 step-up). Phase 4 is client parity and shared storage. Phase 5 delivers **Phase C** (pending RPC replay).
+Phases 1–2 deliver **Phase A** (token recovery + **command-scoped retry**). Phase 3 delivers **Phase B** (SEP-2350 step-up + retry). Phase 4 is client parity and shared storage. Phase 5 covers **ambient SSE replay** edge cases and hardening.
 
 ### Phase 1 — Foundation (core + types)
 
@@ -444,21 +581,23 @@ Phases 1–2 deliver **Phase A** (token recovery). Phase 3 delivers **Phase B** 
 
 ### Phase 2 — Web remote propagation (401 / token recovery)
 
-- [ ] Backend fetch wrapper: detect MCP **401/403** before frozen stub `auth()`; emit SSE **`auth_challenge`** (applies to **`/api/mcp/send` and failures during connect handshake**, e.g. `initialize`)
-- [ ] Extend `/api/mcp/send` and **connect-time** transport failures for **403** and stub-auth error mapping (never surface raw SDK *saveable for dynamic registration* as an opaque **500** to the browser)
-- [ ] Browser: `RemoteClientTransport` → `InspectorClient` **`authChallenge`** event → `handleAuthChallenge()`
+- [ ] Backend auth-challenge intercept fetch: detect MCP **401/403** before frozen stub `auth()` (applies to **`/api/mcp/send` and failures during connect handshake**, e.g. `initialize`)
+- [ ] **`/api/mcp/send` structured response:** `{ ok: false, kind: "auth_challenge", authChallenge }` for command-scoped failures; reserve remote HTTP **401** for launcher auth only
+- [ ] **`RemoteClientTransport.sendWithAuthRecovery()`:** `handleAuthChallenge()` → reconnect → **retry same JSON-RPC once**
+- [ ] Ambient failures only: SSE **`auth_challenge`** / **`transport_error`** (never duplicate inline send)
 - [ ] On satisfaction: disconnect + reconnect; wire 401 auto-redirect; standard-OAuth step-up modal
-- [ ] Integration test (mid-session): invalidate access token **after** connect → challenge → reconnect → `tools/list` succeeds (manual tool retry until Phase 5)
+- [ ] Integration test (mid-session): invalidate access token **after** connect → challenge → reconnect → **`tools/list` auto-retries and succeeds**
 - [ ] Integration test (reconnect): complete OAuth, invalidate access token (or use expired JWT fixture), **disconnect** → **`connect()`** → challenge → recovery → connected (must **not** throw *saveable for dynamic registration*)
-- [ ] Integration test (silent refresh, web remote): static client + `refresh_token`, invalidate access token only → challenge → silent refresh → reconnect → success (mirror local `inspectorClient-oauth-e2e` refresh test via `createRemoteTransport`)
+- [ ] Integration test (silent refresh, web remote): static client + `refresh_token`, invalidate access token only → challenge → silent refresh → reconnect → **auto-retry succeeds**
 
 ### Phase 3 — SEP-2350 step-up + EMA scope challenges (Phase B)
 
 - [ ] Parse **403 `insufficient_scope`**; scope union via `saveScope(authorizationScopes)`
 - [ ] EMA 403: silent legs 2–3 with union scopes (valid IdP session); leg 1 only when IdP session invalid
-- [ ] Extend **`test-server-oauth.ts`** with **403** + `insufficient_scope` fixture
-- [ ] Integration test: 403 step-up → union re-auth → tool succeeds (manual retry until Phase 5)
-- [ ] Backend: **`auth_challenge`** for **403** (included in Phase 2 wrapper; verify step-up path)
+- [ ] Composable test server: **`requiredScopes`** on preset refs + HTTP scope middleware (**403** + `insufficient_scope`) — see [Test infrastructure](#test-infrastructure--composable-server-scope-requirements)
+- [ ] Add **`test-servers/configs/oauth-step-up-demo.json`**; manual smoke steps in [v2_auth_smoke_testing.md](v2_auth_smoke_testing.md)
+- [ ] Integration test: 403 step-up → union re-auth → **tool auto-retries and succeeds**
+- [ ] Verify **403** inline send path (same intercept fetch as 401; no SSE duplicate)
 
 ### Phase 4 — Client parity + storage
 
@@ -467,12 +606,12 @@ Phases 1–2 deliver **Phase A** (token recovery). Phase 3 delivers **Phase B** 
 - [ ] Web: `RemoteOAuthStorage` (shared `oauth.json`) + `navigator.locks` single-flight
 - [ ] Multi-tab dedupe once shared storage lands
 
-### Phase 5 — Pending RPC replay (Phase C)
+### Phase 5 — Ambient replay + hardening
 
-- [ ] Attach failing JSON-RPC to `AuthChallenge.context.pendingRequest` at detection
-- [ ] After `satisfied` + reconnect (web) or satisfied on live transport (TUI/CLI): **replay once** (bounded)
-- [ ] Integration tests: 401 refresh, EMA re-mint, and 403 step-up all replay the original tool call
-- [ ] On replay failure: surface tool error; do not loop
+- [ ] Ambient SSE `auth_challenge`: attach `context.pendingRequest` when replay target exists and no caller closure
+- [ ] TUI/CLI direct transport: `sendWithAuthRecovery()` parity with web (Phase 4 if not done earlier)
+- [ ] Integration tests: ambient transport failure paths; replay failure surfaces tool error; no infinite loop
+- [ ] Align with stateless MCP remote invoke (future): inline request/response remains primary delivery
 
 ## Testing
 
@@ -483,8 +622,9 @@ Phases 1–2 deliver **Phase A** (token recovery). Phase 3 delivers **Phase B** 
 | Integration (web remote, mid-session) | Invalidate token after connect → SSE `auth_challenge` → reconnect → `tools/list` |
 | Integration (web remote, reconnect) | Invalidate/expired token before `connect()` with stored snapshot → challenge → recovery → connected (no stub DCR **500**) |
 | Integration (web remote, refresh) | Invalidate access token only; `refresh_token` present → silent refresh → reconnect |
-| Integration (Phase C replay) | 401 / EMA / 403 recovery → original tool call replays automatically |
+| Integration (command retry) | 401 / EMA / 403 recovery → original tool call **auto-retries** via inline send (Phases 2–3) |
 | Integration (SEP-2350 step-up) | MCP server returns **403** `insufficient_scope` → union re-auth → retried tool call |
+| Composable fixture (manual / CI) | `oauth-step-up-demo.json`: connect with subset of `scopesSupported` → scoped tool/resource → **403** → step-up UX |
 | EMA | Invalidate resource JWT only; legs 2–3 re-run; IdP session still valid |
 | Manual | Document in [v2_auth_smoke_testing.md](v2_auth_smoke_testing.md) §Mid-session auth |
 
@@ -497,6 +637,6 @@ Phases 1–2 deliver **Phase A** (token recovery). Phase 3 delivers **Phase B** 
 | Remote | `core/mcp/remote/types.ts`, `core/mcp/remote/node/remote-session.ts`, `core/mcp/remote/node/server.ts`, `core/mcp/remote/remoteClientTransport.ts`, transport fetch wrapper in `core/mcp/node/transport.ts` |
 | Web app | `clients/web/src/App.tsx`, `clients/web/src/utils/authChallengeFlow.ts`, `clients/web/src/utils/oauthFlow.ts` (`isAuthChallengeError`) |
 | TUI | `clients/tui/src/App.tsx` |
-| Test server | `test-servers/src/test-server-oauth.ts` |
-| Tests | `clients/web/src/test/integration/mcp/inspectorClient-oauth-e2e.test.ts`, new remote auth-challenge + Phase C replay tests |
+| Test server | `test-servers/src/test-server-oauth.ts`, `test-servers/src/test-server-http.ts`, `test-servers/src/load-config.ts`, `test-servers/src/resolve-config.ts`, `test-servers/src/composable-test-server.ts`, `test-servers/configs/oauth-step-up-demo.json` |
+| Tests | `clients/web/src/test/integration/mcp/inspectorClient-oauth-e2e.test.ts`, new remote auth-challenge + command-retry tests |
 
