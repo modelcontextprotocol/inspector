@@ -98,6 +98,25 @@ describe("client config", () => {
     expect(isAbsoluteHttpUrl("")).toBe(false);
   });
 
+  it("isAbsoluteHttpUrl accepts dotted domains, IPv4, IPv6 and localhost", () => {
+    expect(isAbsoluteHttpUrl("https://idp.example.com/realms/main")).toBe(true);
+    expect(isAbsoluteHttpUrl("https://127.0.0.1:8443")).toBe(true);
+    expect(isAbsoluteHttpUrl("http://[::1]:3000")).toBe(true);
+    expect(isAbsoluteHttpUrl("https://你好.com")).toBe(true);
+  });
+
+  it("isAbsoluteHttpUrl rejects bare/degenerate hosts the URL parser allows", () => {
+    // "Looks like a URL" but is not actually one — these all parse and start
+    // with https:// yet have no real host.
+    expect(isAbsoluteHttpUrl("https://")).toBe(false);
+    expect(isAbsoluteHttpUrl("https://foo")).toBe(false); // single-label
+    expect(isAbsoluteHttpUrl("https://example")).toBe(false); // no TLD
+    expect(isAbsoluteHttpUrl("https://.")).toBe(false);
+    expect(isAbsoluteHttpUrl("https://..")).toBe(false);
+    expect(isAbsoluteHttpUrl("https://idp..example.com")).toBe(false); // empty label
+    expect(isAbsoluteHttpUrl("https:///path")).toBe(false); // empty host
+  });
+
   it("isAbsoluteHttpUrl rejects non-http(s) schemes", () => {
     expect(isAbsoluteHttpUrl("foo:bar")).toBe(false);
     expect(isAbsoluteHttpUrl("mailto:a@b.com")).toBe(false);
