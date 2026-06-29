@@ -52,6 +52,7 @@
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "globals": "^17.4.0",
+    "ink-testing-library": "^4.0.0",
     "prettier": "^3.8.1",
     "tsup": "^8.5.0",
     "tsx": "^4.21.0",

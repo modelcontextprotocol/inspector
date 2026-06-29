@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
@@ -20,6 +21,28 @@ function resolveSettingsChange(
     ? (call as (p: ClientSettingsFormValues) => ClientSettingsFormValues)(prev)
     : (call as ClientSettingsFormValues);
 }
+
+/** Stateful host so the controlled issuer input reflects edits, like the app. */
+function ClientSettingsFormHarness({
+  initial,
+  expandedSections = ["ema"],
+}: {
+  initial: ClientSettingsFormValues;
+  expandedSections?: ClientSettingsSection[];
+}) {
+  const [settings, setSettings] = useState(initial);
+  return (
+    <ClientSettingsForm
+      settings={settings}
+      expandedSections={expandedSections}
+      onExpandedSectionsChange={vi.fn()}
+      onSettingsChange={setSettings}
+      emaIdpLoginState="none"
+    />
+  );
+}
+
+type ClientSettingsSection = "ema" | "cimd";
 
 describe("ClientSettingsForm EMA IdP session", () => {
   it("shows signed-in state and sign out", async () => {
@@ -67,7 +90,8 @@ describe("ClientSettingsForm EMA IdP session", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows an inline error for an invalid issuer URL", () => {
+  it("defers the invalid-issuer error until the field is blurred", async () => {
+    const user = userEvent.setup();
     renderWithMantine(
       <ClientSettingsForm
         settings={{
@@ -82,7 +106,77 @@ describe("ClientSettingsForm EMA IdP session", () => {
       />,
     );
 
+    // Invalid value present, but the error stays hidden until the user leaves
+    // the field — no nagging while it may still be mid-typing.
+    expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Issuer"));
+    await user.tab(); // blur the issuer field
     expect(screen.getByText(ISSUER_URL_ERROR)).toBeInTheDocument();
+  });
+
+  it("clears the issuer error live once a valid URL is entered after blur", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ClientSettingsFormHarness
+        initial={{
+          ...EMPTY_CLIENT_SETTINGS,
+          emaEnabled: true,
+          issuer: "not-a-url",
+        }}
+      />,
+    );
+
+    const issuer = screen.getByLabelText("Issuer");
+    await user.click(issuer);
+    await user.tab(); // touched -> error shows for the invalid value
+    expect(screen.getByText(ISSUER_URL_ERROR)).toBeInTheDocument();
+
+    // Once touched, the error tracks the value live: fixing it clears the error
+    // without needing another blur.
+    await user.clear(issuer);
+    await user.type(issuer, "https://idp.test");
+    expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
+  });
+
+  it("reveals the issuer error without blur when revealIssuerError is set", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={{
+          ...EMPTY_CLIENT_SETTINGS,
+          emaEnabled: true,
+          issuer: "not-a-url",
+        }}
+        expandedSections={["ema"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        emaIdpLoginState="none"
+        revealIssuerError
+      />,
+    );
+
+    // Parent forced the error on (e.g. a close was attempted) — shown even
+    // though the field was never blurred.
+    expect(screen.getByText(ISSUER_URL_ERROR)).toBeInTheDocument();
+  });
+
+  it("shows no error for a valid issuer even when revealIssuerError is set", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={{
+          ...EMPTY_CLIENT_SETTINGS,
+          emaEnabled: true,
+          issuer: "https://idp.test",
+        }}
+        expandedSections={["ema"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        emaIdpLoginState="none"
+        revealIssuerError
+      />,
+    );
+
+    expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
   });
 
   it("shows no issuer error for a valid URL", () => {
@@ -103,7 +197,8 @@ describe("ClientSettingsForm EMA IdP session", () => {
     expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
   });
 
-  it("shows an inline error for an invalid CIMD metadata URL", () => {
+  it("defers the invalid CIMD URL error until the field is blurred", async () => {
+    const user = userEvent.setup();
     renderWithMantine(
       <ClientSettingsForm
         settings={{
@@ -119,11 +214,44 @@ describe("ClientSettingsForm EMA IdP session", () => {
     );
 
     expect(
+      screen.queryByText(CIMD_METADATA_URL_INVALID_ERROR),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Client ID metadata document URL"));
+    await user.tab();
+    expect(
       screen.getByText(CIMD_METADATA_URL_INVALID_ERROR),
     ).toBeInTheDocument();
   });
 
-  it("shows an inline error for a non-HTTPS CIMD metadata URL", () => {
+  it("clears the CIMD URL error live once a valid URL is entered after blur", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ClientSettingsFormHarness
+        initial={{
+          ...EMPTY_CLIENT_SETTINGS,
+          cimdEnabled: true,
+          clientMetadataUrl: "not-a-url",
+        }}
+        expandedSections={["cimd"]}
+      />,
+    );
+
+    const url = screen.getByLabelText("Client ID metadata document URL");
+    await user.click(url);
+    await user.tab();
+    expect(
+      screen.getByText(CIMD_METADATA_URL_INVALID_ERROR),
+    ).toBeInTheDocument();
+
+    await user.clear(url);
+    await user.type(url, "https://example.com/cimd.json");
+    expect(
+      screen.queryByText(CIMD_METADATA_URL_INVALID_ERROR),
+    ).not.toBeInTheDocument();
+  });
+
+  it("reveals the CIMD URL error without blur when revealClientMetadataUrlError is set", () => {
     renderWithMantine(
       <ClientSettingsForm
         settings={{
@@ -135,6 +263,7 @@ describe("ClientSettingsForm EMA IdP session", () => {
         onExpandedSectionsChange={vi.fn()}
         onSettingsChange={vi.fn()}
         emaIdpLoginState="none"
+        revealClientMetadataUrlError
       />,
     );
 

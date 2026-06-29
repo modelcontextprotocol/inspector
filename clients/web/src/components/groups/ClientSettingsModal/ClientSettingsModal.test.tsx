@@ -1,11 +1,14 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { ClientSettingsModal } from "./ClientSettingsModal";
 import {
   EMPTY_CLIENT_SETTINGS,
+  ISSUER_URL_ERROR,
   type ClientSettingsFormValues,
 } from "../ClientSettingsForm/clientSettingsValues";
+import { CIMD_METADATA_URL_INVALID_ERROR } from "@inspector/core/client/config-parse.js";
 
 function resolveSettingsChange(
   call: unknown,
@@ -14,6 +17,12 @@ function resolveSettingsChange(
   return typeof call === "function"
     ? (call as (p: ClientSettingsFormValues) => ClientSettingsFormValues)(prev)
     : (call as ClientSettingsFormValues);
+}
+
+async function expandCimdSection(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(
+    screen.getByRole("button", { name: /OAuth Client ID Metadata Document/i }),
+  );
 }
 
 describe("ClientSettingsModal", () => {
@@ -139,6 +148,188 @@ describe("ClientSettingsModal", () => {
     expect(
       screen.getByRole("button", { name: "Collapse all" }),
     ).toBeInTheDocument();
+  });
+
+  it("blocks close and reveals the issuer error when the issuer is invalid", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderWithMantine(
+      <ClientSettingsModal
+        opened
+        settings={{
+          ...EMPTY_CLIENT_SETTINGS,
+          emaEnabled: true,
+          issuer: "not-a-url",
+        }}
+        onClose={onClose}
+        onSettingsChange={vi.fn()}
+      />,
+    );
+
+    // Error is hidden initially (form gates it on blur)...
+    expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
+    // ...but a close attempt reveals it and does NOT close (no silent drop).
+    await user.click(
+      document.querySelector("button.mantine-CloseButton-root")!,
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText(ISSUER_URL_ERROR)).toBeInTheDocument();
+  });
+
+  it("allows close once the invalid issuer is corrected", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    function Host() {
+      const [settings, setSettings] = useState({
+        ...EMPTY_CLIENT_SETTINGS,
+        emaEnabled: true,
+        issuer: "not-a-url",
+      });
+      return (
+        <ClientSettingsModal
+          opened
+          settings={settings}
+          onClose={onClose}
+          onSettingsChange={setSettings}
+        />
+      );
+    }
+    renderWithMantine(<Host />);
+
+    const close = () =>
+      user.click(document.querySelector("button.mantine-CloseButton-root")!);
+
+    await close(); // blocked, error revealed
+    expect(onClose).not.toHaveBeenCalled();
+
+    const issuer = screen.getByLabelText("Issuer");
+    await user.clear(issuer);
+    await user.type(issuer, "https://idp.test");
+    expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
+
+    await close(); // now valid -> closes
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows close when an invalid issuer is cleared (empty is valid to leave)", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    function Host() {
+      const [settings, setSettings] = useState({
+        ...EMPTY_CLIENT_SETTINGS,
+        emaEnabled: true,
+        issuer: "not-a-url",
+      });
+      return (
+        <ClientSettingsModal
+          opened
+          settings={settings}
+          onClose={onClose}
+          onSettingsChange={setSettings}
+        />
+      );
+    }
+    renderWithMantine(<Host />);
+
+    await user.clear(screen.getByLabelText("Issuer"));
+    await user.click(
+      document.querySelector("button.mantine-CloseButton-root")!,
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks close and reveals the CIMD URL error when the URL is invalid", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderWithMantine(
+      <ClientSettingsModal
+        opened
+        settings={{
+          ...EMPTY_CLIENT_SETTINGS,
+          cimdEnabled: true,
+          clientMetadataUrl: "not-a-url",
+        }}
+        onClose={onClose}
+        onSettingsChange={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.queryByText(CIMD_METADATA_URL_INVALID_ERROR),
+    ).not.toBeInTheDocument();
+    await user.click(
+      document.querySelector("button.mantine-CloseButton-root")!,
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(CIMD_METADATA_URL_INVALID_ERROR),
+    ).toBeInTheDocument();
+  });
+
+  it("allows close once an invalid CIMD URL is corrected", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    function Host() {
+      const [settings, setSettings] = useState({
+        ...EMPTY_CLIENT_SETTINGS,
+        cimdEnabled: true,
+        clientMetadataUrl: "not-a-url",
+      });
+      return (
+        <ClientSettingsModal
+          opened
+          settings={settings}
+          onClose={onClose}
+          onSettingsChange={setSettings}
+        />
+      );
+    }
+    renderWithMantine(<Host />);
+
+    const close = () =>
+      user.click(document.querySelector("button.mantine-CloseButton-root")!);
+
+    await close();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await expandCimdSection(user);
+    const url = screen.getByLabelText("Client ID metadata document URL");
+    await user.clear(url);
+    await user.type(url, "https://example.com/cimd.json");
+    expect(
+      screen.queryByText(CIMD_METADATA_URL_INVALID_ERROR),
+    ).not.toBeInTheDocument();
+
+    await close();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows close when an invalid CIMD URL is cleared (empty is valid to leave)", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    function Host() {
+      const [settings, setSettings] = useState({
+        ...EMPTY_CLIENT_SETTINGS,
+        cimdEnabled: true,
+        clientMetadataUrl: "not-a-url",
+      });
+      return (
+        <ClientSettingsModal
+          opened
+          settings={settings}
+          onClose={onClose}
+          onSettingsChange={setSettings}
+        />
+      );
+    }
+    renderWithMantine(<Host />);
+
+    await expandCimdSection(user);
+    await user.clear(screen.getByLabelText("Client ID metadata document URL"));
+    await user.click(
+      document.querySelector("button.mantine-CloseButton-root")!,
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("does not render the modal body when closed", () => {
