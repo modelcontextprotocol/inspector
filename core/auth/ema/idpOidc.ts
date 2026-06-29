@@ -10,7 +10,7 @@ import type {
 import { OAuthMetadataSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { OAuthStorage } from "../storage.js";
 import type { EnterpriseManagedAuthIdpConfig } from "../../client/types.js";
-import { generateOAuthStateWithExecution, parseHttpUrl } from "../utils.js";
+import { generateOAuthState, parseHttpUrl } from "../utils.js";
 import { IDP_OIDC_SCOPES } from "./constants.js";
 import { isJwtExpired, jwtExpiresAtMs } from "./jwt.js";
 import { idpOAuthStorageKey, normalizeIdpIssuer } from "./storage.js";
@@ -66,7 +66,7 @@ export async function startIdpOidcAuthorization(params: {
   const metadata = await discoverIdpMetadata(issuer, params.fetchFn);
   const clientInformation = idpClientInformation(params.idp);
   const storageKey = idpOAuthStorageKey(issuer);
-  const state = generateOAuthStateWithExecution("quick");
+  const state = generateOAuthState();
   const issuerUrl = parseHttpUrl(issuer, "EMA IdP issuer (Client Settings)");
   const { authorizationUrl, codeVerifier } = await startAuthorization(
     issuerUrl,

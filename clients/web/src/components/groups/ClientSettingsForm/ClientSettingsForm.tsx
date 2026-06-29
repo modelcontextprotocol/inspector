@@ -16,19 +16,24 @@ import {
   type ClientSettingsFormValues,
 } from "./clientSettingsValues.js";
 
-export type ClientSettingsSection = "ema";
+export type ClientSettingsSection = "ema" | "cimd";
 
 export interface ClientSettingsFormProps {
   settings: ClientSettingsFormValues;
   expandedSections: ClientSettingsSection[];
   onExpandedSectionsChange: (sections: ClientSettingsSection[]) => void;
-  onSettingsChange: (settings: ClientSettingsFormValues) => void;
+  onSettingsChange: (
+    settings:
+      | ClientSettingsFormValues
+      | ((prev: ClientSettingsFormValues) => ClientSettingsFormValues),
+  ) => void;
   emaIdpLoginState?: EmaIdpLoginState;
   onEmaIdpLogout?: () => void;
   /**
-   * Force all field errors to show, including required-but-blank IdP fields. The
-   * parent sets this when a save/close is attempted with an incomplete or
-   * invalid EMA config, so nothing is silently dropped without explanation.
+   * Force all field errors to show, including required-but-blank fields (EMA's
+   * issuer/clientId, CIMD's metadata URL). The parent sets this when a
+   * save/close is attempted with an incomplete or invalid config, so nothing is
+   * silently dropped without explanation.
    */
   revealErrors?: boolean;
 }
@@ -48,7 +53,7 @@ export function ClientSettingsForm({
   revealErrors = false,
 }: ClientSettingsFormProps) {
   function patch(partial: Partial<ClientSettingsFormValues>) {
-    onSettingsChange({ ...settings, ...partial });
+    onSettingsChange((prev) => ({ ...prev, ...partial }));
   }
 
   // Defer the issuer error until the field has been blurred so it doesn't nag
@@ -60,6 +65,8 @@ export function ClientSettingsForm({
   // The persist gate (canPersistClientSettingsDraft) validates independently, so
   // an incomplete/invalid config is never written regardless of these flags.
   const [issuerTouched, setIssuerTouched] = useState(false);
+  const [clientMetadataUrlTouched, setClientMetadataUrlTouched] =
+    useState(false);
 
   // Inline errors flag only a filled-in-wrong field (issuer URL); the
   // require-complete set adds the blank-required fields surfaced on reveal.
@@ -73,6 +80,11 @@ export function ClientSettingsForm({
       ? inlineErrors.issuer
       : undefined;
   const showClientIdError = revealErrors ? revealedErrors.clientId : undefined;
+  const showClientMetadataUrlError = revealErrors
+    ? revealedErrors.clientMetadataUrl
+    : clientMetadataUrlTouched
+      ? inlineErrors.clientMetadataUrl
+      : undefined;
 
   const showIdpSession =
     settings.emaEnabled &&
@@ -201,6 +213,48 @@ export function ClientSettingsForm({
                     ) : null}
                   </Group>
                 )}
+              </>
+            )}
+          </Stack>
+        </Accordion.Panel>
+      </Accordion.Item>
+      <Accordion.Item value="cimd">
+        <Accordion.Control>OAuth Client ID Metadata Document</Accordion.Control>
+        <Accordion.Panel>
+          <Stack gap="md">
+            <Checkbox
+              label="Use Client ID Metadata Document"
+              description="When the authorization server supports CIMD, Inspector uses this metadata document URL as the client id. The server fetches and verifies the document during OAuth."
+              checked={settings.cimdEnabled}
+              onChange={(e) => patch({ cimdEnabled: e.currentTarget.checked })}
+            />
+            {settings.cimdEnabled && (
+              <>
+                <HintText>
+                  The metadata document must be served over HTTPS and list this
+                  redirect URI:{" "}
+                  {typeof window !== "undefined"
+                    ? `${window.location.origin}/oauth/callback`
+                    : "http://localhost:6274/oauth/callback"}
+                </HintText>
+                <TextInput
+                  label="Client ID metadata document URL"
+                  description="Public HTTPS URL of your OAuth client metadata JSON document."
+                  value={settings.clientMetadataUrl}
+                  onChange={(e) =>
+                    patch({ clientMetadataUrl: e.currentTarget.value })
+                  }
+                  onBlur={() => setClientMetadataUrlTouched(true)}
+                  error={showClientMetadataUrlError}
+                  rightSectionPointerEvents="auto"
+                  rightSection={
+                    settings.clientMetadataUrl ? (
+                      <ClearButton
+                        onClick={() => patch({ clientMetadataUrl: "" })}
+                      />
+                    ) : null
+                  }
+                />
               </>
             )}
           </Stack>

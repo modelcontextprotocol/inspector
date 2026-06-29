@@ -13,6 +13,8 @@ const configuredSettings: ClientSettingsFormValues = {
   issuer: "https://idp.example.com",
   clientId: "inspector-idp-client",
   clientSecret: "super-secret-idp-value",
+  cimdEnabled: true,
+  clientMetadataUrl: "https://example.com/oauth/client.json",
 };
 
 function InteractiveRender(args: ClientSettingsModalProps) {
@@ -25,7 +27,11 @@ function InteractiveRender(args: ClientSettingsModalProps) {
           {...args}
           onSettingsChange={(settings) => {
             args.onSettingsChange(settings);
-            updateArgs({ settings });
+            const next =
+              typeof settings === "function"
+                ? settings(args.settings)
+                : settings;
+            updateArgs({ settings: next });
           }}
         />
       </AppShell.Main>
@@ -61,6 +67,8 @@ export const Empty: Story = {
       issuer: "",
       clientId: "",
       clientSecret: "",
+      cimdEnabled: false,
+      clientMetadataUrl: "",
     },
   },
 };
@@ -72,6 +80,8 @@ export const EnabledEmptyFields: Story = {
       issuer: "",
       clientId: "",
       clientSecret: "",
+      cimdEnabled: false,
+      clientMetadataUrl: "",
     },
   },
 };

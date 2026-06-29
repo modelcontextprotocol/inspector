@@ -10,13 +10,15 @@ import type {
   OAuthTokens,
   OAuthMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import type { IdpSessionState } from "./storage.js";
+import type { IdpSessionState, OAuthClientRegistrationKind } from "./storage.js";
 
 /**
  * OAuth state for a single server
  */
 export interface ServerOAuthState {
   clientInformation?: OAuthClientInformation;
+  /** Set when {@link clientInformation} is saved — DCR vs CIMD. */
+  clientRegistrationKind?: OAuthClientRegistrationKind;
   preregisteredClientInformation?: OAuthClientInformation;
   tokens?: OAuthTokens;
   codeVerifier?: string;

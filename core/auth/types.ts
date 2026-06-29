@@ -23,11 +23,11 @@ export interface StatusMessage {
   message: string;
 }
 
-/** How the auth flow is stepped through (orthogonal to {@link AuthProtocol}). */
-export type AuthExecution = "quick" | "guided";
-
-/** Which authorization protocol applies (orthogonal to {@link AuthExecution}). */
+/** Which authorization protocol applies. */
 export type AuthProtocol = "standard" | "ema";
+
+/** How the active OAuth client id was established for this MCP server. */
+export type OAuthClientRegistrationKind = "static" | "dcr" | "cimd";
 
 /** Persisted OAuth authorization snapshot for an HTTP MCP server (storage + config). */
 export interface OAuthConnectionState {
@@ -38,8 +38,9 @@ export interface OAuthConnectionState {
   grantedScope?: string;
   tokens?: OAuthTokens;
   client?: {
-    source: "preregistered" | "dynamic";
     clientId: string;
+    /** Absent for legacy storage entries predating registration kind tracking. */
+    registrationKind?: OAuthClientRegistrationKind;
     hasClientSecret: boolean;
   };
   authorizationServerMetadata?: OAuthMetadata;
@@ -58,10 +59,8 @@ export function authProtocolFromEnterpriseManaged(
   return enterpriseManaged ? "ema" : "standard";
 }
 
-/** In-memory snapshot while an OAuth flow is active or just completed (quick or guided). */
+/** In-memory snapshot while an OAuth flow is active or just completed. */
 export interface OAuthFlowState {
-  /** Quick (SDK / one-shot) vs guided (state machine with step events). */
-  execution: AuthExecution;
   /** When auth reached step "complete" (ms since epoch), if applicable. */
   completedAt: number | null;
   isInitiatingAuth: boolean;
@@ -81,11 +80,10 @@ export interface OAuthFlowState {
 }
 
 export const EMPTY_OAUTH_FLOW_STATE: OAuthFlowState = {
-  execution: "guided",
   completedAt: null,
   isInitiatingAuth: false,
   oauthTokens: null,
-  oauthStep: "metadata_discovery",
+  oauthStep: "authorization_code",
   oauthMetadata: null,
   resourceMetadata: null,
   resourceMetadataError: null,

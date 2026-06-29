@@ -11,13 +11,17 @@ import {
   type ClientSettingsFormValues,
 } from "../ClientSettingsForm/clientSettingsValues.js";
 
-const ALL_SECTIONS: ClientSettingsSection[] = ["ema"];
+const ALL_SECTIONS: ClientSettingsSection[] = ["ema", "cimd"];
 
 export interface ClientSettingsModalProps {
   opened: boolean;
   settings: ClientSettingsFormValues;
   onClose: () => void;
-  onSettingsChange: (settings: ClientSettingsFormValues) => void;
+  onSettingsChange: (
+    settings:
+      | ClientSettingsFormValues
+      | ((prev: ClientSettingsFormValues) => ClientSettingsFormValues),
+  ) => void;
   emaIdpLoginState?: EmaIdpLoginState;
   onEmaIdpLogout?: () => void;
 }
@@ -41,13 +45,12 @@ export function ClientSettingsModal({
     setExpandedSections(allExpanded ? [] : ALL_SECTIONS);
   }
 
-  // Closing (X / Esc / overlay) is the implicit "save" for this auto-saving
-  // modal — the parent flushes the debounced persist on close. An EMA config
-  // that's incomplete (blank required field) or invalid (bad issuer URL) would
-  // be silently dropped by the persist gate, so instead of closing we reveal the
-  // field errors (overriding the form's on-blur gating) and keep the modal open.
-  // The user fixes the fields, or disables enterprise IdP, then closes. Resets
-  // via the parent's open/close remount key.
+  // modal — the parent flushes the debounced persist on close. A client config
+  // that's incomplete (blank required field) or invalid (bad issuer / CIMD URL)
+  // would be silently dropped by the persist gate, so instead of closing we
+  // reveal the field errors (overriding the form's on-blur gating) and keep the
+  // modal open. The user fixes the fields, or disables the feature, then closes.
+  // Resets via the parent's open/close remount key.
   function handleClose() {
     const errors = validateClientSettings(settings, { requireComplete: true });
     if (Object.keys(errors).length > 0) {

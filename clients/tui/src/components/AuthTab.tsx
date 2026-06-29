@@ -1,53 +1,41 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import { SelectableItem } from "./SelectableItem.js";
 import type {
   MCPServerConfig,
   InspectorClient,
+  ConnectionStatus,
 } from "@inspector/core/mcp/index.js";
-import type { OAuthFlowState, OAuthStep } from "@inspector/core/auth/index.js";
-
-const STEP_LABELS: Record<OAuthStep, string> = {
-  metadata_discovery: "Metadata Discovery",
-  client_registration: "Client Registration",
-  authorization_redirect: "Preparing Authorization",
-  authorization_code: "Request Authorization Code",
-  token_request: "Token Request",
-  complete: "Authentication Complete",
-};
-
-const STEP_ORDER: OAuthStep[] = [
-  "metadata_discovery",
-  "client_registration",
-  "authorization_redirect",
-  "authorization_code",
-  "token_request",
-  "complete",
-];
-
-function stepIndex(step: OAuthStep): number {
-  const i = STEP_ORDER.indexOf(step);
-  return i >= 0 ? i : 0;
-}
+import type { OAuthConnectionState } from "@inspector/core/auth/types.js";
+import {
+  formatAuthProtocol,
+  formatClientRegistrationKind,
+  formatIdpSession,
+  formatScopes,
+} from "../utils/oauthDisplay.js";
 
 interface AuthTabProps {
   serverName: string | null;
   serverConfig: MCPServerConfig | null;
   inspectorClient: InspectorClient | null;
-  oauthStatus: "idle" | "authenticating" | "success" | "error";
+  oauthStatus: "idle" | "authenticating" | "error";
   oauthMessage: string | null;
+  oauthRevision: number;
   width: number;
   height: number;
   focused?: boolean;
-  selectedAction: "guided" | "quick" | "clear";
-  onSelectedActionChange: (action: "guided" | "quick" | "clear") => void;
-  onQuickAuth: () => Promise<void>;
-  onGuidedStart: () => Promise<void>;
-  onGuidedAdvance: () => Promise<void>;
-  onRunGuidedToCompletion: () => Promise<void>;
   onClearOAuth: () => void;
-  isOAuthCapable: boolean;
+  connectionStatus: ConnectionStatus;
+}
+
+function OAuthDetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <Box flexDirection="row" gap={1}>
+      <Text dimColor>{label}:</Text>
+      <Text>{value}</Text>
+    </Box>
+  );
 }
 
 export function AuthTab({
@@ -55,115 +43,57 @@ export function AuthTab({
   inspectorClient,
   oauthStatus,
   oauthMessage,
+  oauthRevision,
   width,
   height,
   focused = false,
-  selectedAction,
-  onSelectedActionChange,
-  onQuickAuth,
-  onGuidedStart,
-  onGuidedAdvance,
-  onRunGuidedToCompletion,
   onClearOAuth,
-  isOAuthCapable,
+  connectionStatus,
 }: AuthTabProps) {
+  const isLiveConnection =
+    connectionStatus === "connected" || connectionStatus === "connecting";
   const scrollViewRef = useRef<ScrollViewRef>(null);
-  const [oauthFlowState, setOauthFlowState] = useState<
-    OAuthFlowState | undefined
+  const [oauthState, setOauthState] = useState<
+    OAuthConnectionState | undefined
   >(undefined);
-  const [guidedStarted, setGuidedStarted] = useState(false);
   const [clearedConfirmation, setClearedConfirmation] = useState(false);
+  const [lastClearDisconnected, setLastClearDisconnected] = useState(false);
 
-  // Sync oauthFlowState from InspectorClient
-  useEffect(() => {
+  const refreshOAuthState = useCallback(async () => {
     if (!inspectorClient) {
-      setOauthFlowState(undefined);
-      setGuidedStarted(false);
+      setOauthState(undefined);
       return;
     }
-
-    const update = () => setOauthFlowState(inspectorClient.getOAuthFlowState());
-    update();
-
-    const onStepChange = () => update();
-    inspectorClient.addEventListener("oauthStepChange", onStepChange);
-    inspectorClient.addEventListener("oauthComplete", onStepChange);
-    return () => {
-      inspectorClient.removeEventListener("oauthStepChange", onStepChange);
-      inspectorClient.removeEventListener("oauthComplete", onStepChange);
-    };
+    const state = await inspectorClient.getOAuthState();
+    setOauthState(state);
   }, [inspectorClient]);
 
-  // Reset guided state when switching servers
   useEffect(() => {
-    setGuidedStarted(false);
-  }, [serverName]);
+    void refreshOAuthState();
+  }, [refreshOAuthState, oauthRevision]);
 
-  // Clear confirmation when switching away from Clear menu item
   useEffect(() => {
-    if (selectedAction !== "clear") {
-      setClearedConfirmation(false);
-    }
-  }, [selectedAction]);
+    setClearedConfirmation(false);
+    setLastClearDisconnected(false);
+  }, [oauthRevision]);
 
-  const guidedFlowStarted = !!oauthFlowState?.oauthStep;
-  const currentStep = oauthFlowState?.oauthStep ?? "metadata_discovery";
-  const needsAuthCode =
-    currentStep === "authorization_code" && oauthFlowState?.authorizationUrl;
-  const isComplete = currentStep === "complete";
+  useEffect(() => {
+    if (!inspectorClient) return;
 
-  const handleContinue = useCallback(async () => {
-    if (!guidedStarted) {
-      await onGuidedStart();
-      setGuidedStarted(true);
-    } else if (!needsAuthCode && !isComplete) {
-      await onGuidedAdvance();
-    }
-  }, [
-    guidedStarted,
-    needsAuthCode,
-    isComplete,
-    onGuidedStart,
-    onGuidedAdvance,
-  ]);
+    const update = () => {
+      void refreshOAuthState();
+    };
+    inspectorClient.addEventListener("oauthComplete", update);
+    return () => {
+      inspectorClient.removeEventListener("oauthComplete", update);
+    };
+  }, [inspectorClient, refreshOAuthState]);
 
-  // Keyboard: G/Q/S select menu item (handled by App when not focused),
-  // left/right select, Enter run, up/down scroll
   useInput(
     (input: string, key: Key) => {
-      if (!focused || !isOAuthCapable) return;
+      if (!focused) return;
 
-      const lower = input.toLowerCase();
-      if (lower === "g") {
-        onSelectedActionChange("guided");
-        return;
-      }
-      if (lower === "q") {
-        onSelectedActionChange("quick");
-        return;
-      }
-      if (lower === "s") {
-        onSelectedActionChange("clear");
-        return;
-      }
-
-      if (key.leftArrow) {
-        onSelectedActionChange(
-          selectedAction === "guided"
-            ? "clear"
-            : selectedAction === "quick"
-              ? "guided"
-              : "quick",
-        );
-      } else if (key.rightArrow) {
-        onSelectedActionChange(
-          selectedAction === "guided"
-            ? "quick"
-            : selectedAction === "quick"
-              ? "clear"
-              : "guided",
-        );
-      } else if (key.upArrow && scrollViewRef.current) {
+      if (key.upArrow && scrollViewRef.current) {
         scrollViewRef.current.scrollBy(-1);
       } else if (key.downArrow && scrollViewRef.current) {
         scrollViewRef.current.scrollBy(1);
@@ -173,210 +103,123 @@ export function AuthTab({
       } else if (key.pageDown && scrollViewRef.current) {
         const h = scrollViewRef.current.getViewportHeight() || 1;
         scrollViewRef.current.scrollBy(h);
-      } else if (key.return) {
-        if (selectedAction === "guided") onRunGuidedToCompletion();
-        else if (selectedAction === "quick") onQuickAuth();
-        else if (selectedAction === "clear") {
-          onClearOAuth();
-          setClearedConfirmation(true);
-        }
-      } else if (input === " " && selectedAction === "guided") {
-        handleContinue();
+      } else if (input.toLowerCase() === "s") {
+        setLastClearDisconnected(isLiveConnection);
+        onClearOAuth();
+        setClearedConfirmation(true);
       }
     },
-    {
-      isActive: focused,
-    },
+    { isActive: focused },
   );
 
-  if (!serverName || !isOAuthCapable) {
+  if (!serverName) {
     return (
       <Box width={width} height={height} paddingX={1} paddingY={1}>
-        <Text dimColor>
-          Select an OAuth-capable server (SSE or Streamable HTTP) to configure
-          authentication.
-        </Text>
+        <Text dimColor>Select a server to view authentication.</Text>
       </Box>
     );
   }
+
+  const scopes = oauthState ? formatScopes(oauthState) : undefined;
+  const accessToken = oauthState?.tokens?.access_token;
 
   return (
     <Box width={width} height={height} flexDirection="column" paddingX={1}>
       <Box paddingY={1} flexShrink={0}>
         <Text bold backgroundColor={focused ? "yellow" : undefined}>
-          Authentication
+          OAuth
         </Text>
       </Box>
-      <Box
-        flexGrow={0}
-        overflow="hidden"
-        flexDirection="column"
-        gap={0}
-        paddingY={0}
-      >
-        {/* Action bar and hint - single container for tight spacing */}
-        <Box flexShrink={0} flexDirection="column" gap={0} paddingBottom={1}>
-          <Box flexDirection="row" gap={2}>
-            <SelectableItem
-              isSelected={selectedAction === "guided"}
-              bold={selectedAction === "guided"}
-            >
-              <Text underline>G</Text>uided Auth
-            </SelectableItem>
-            <SelectableItem
-              isSelected={selectedAction === "quick"}
-              bold={selectedAction === "quick"}
-            >
-              <Text underline>Q</Text>uick Auth
-            </SelectableItem>
-            <SelectableItem
-              isSelected={selectedAction === "clear"}
-              bold={selectedAction === "clear"}
-            >
+
+      <ScrollView ref={scrollViewRef} height={height - 8}>
+        <Box flexDirection="column" gap={0}>
+          {oauthStatus === "authenticating" && (
+            <Text color="yellow">Authenticating…</Text>
+          )}
+          {oauthStatus === "error" && oauthMessage && (
+            <Text color="red">{oauthMessage}</Text>
+          )}
+
+          {oauthState ? (
+            <Box flexDirection="column" marginTop={1} gap={0}>
+              <Text bold>OAuth Details</Text>
+              <Box marginTop={1} flexDirection="column" paddingLeft={0} gap={0}>
+                <OAuthDetailRow
+                  label="Protocol"
+                  value={formatAuthProtocol(oauthState.protocol)}
+                />
+                <OAuthDetailRow
+                  label="Status"
+                  value={
+                    oauthState.authorized ? "Authorized" : "Not authorized"
+                  }
+                />
+                {oauthState.client?.clientId && (
+                  <OAuthDetailRow
+                    label="Client ID"
+                    value={oauthState.client.clientId}
+                  />
+                )}
+                {oauthState.client?.registrationKind && (
+                  <OAuthDetailRow
+                    label="Client registration"
+                    value={formatClientRegistrationKind(
+                      oauthState.client.registrationKind,
+                    )}
+                  />
+                )}
+                {oauthState.protocol === "ema" &&
+                  oauthState.ema?.idpSession && (
+                    <OAuthDetailRow
+                      label="IdP session"
+                      value={formatIdpSession(oauthState.ema.idpSession)}
+                    />
+                  )}
+                {oauthState.authorizationServerMetadata
+                  ?.authorization_endpoint && (
+                  <OAuthDetailRow
+                    label="Auth URL"
+                    value={
+                      oauthState.authorizationServerMetadata
+                        .authorization_endpoint
+                    }
+                  />
+                )}
+                {scopes && <OAuthDetailRow label="Scopes" value={scopes} />}
+                {accessToken && (
+                  <OAuthDetailRow
+                    label="Access token"
+                    value={`${accessToken.slice(0, 24)}…`}
+                  />
+                )}
+              </Box>
+            </Box>
+          ) : (
+            oauthStatus !== "authenticating" && (
+              <Box marginTop={1} flexDirection="column" gap={0}>
+                <Text dimColor>No OAuth information yet.</Text>
+                <Text dimColor>
+                  Connect (C) to authorize when this server requires it.
+                </Text>
+              </Box>
+            )
+          )}
+
+          <Box marginTop={2} flexDirection="column" gap={0}>
+            <SelectableItem isSelected bold>
               Clear OAuth <Text underline>S</Text>tate
+              {isLiveConnection && " and disconnect"}
             </SelectableItem>
-          </Box>
-          <Box flexDirection="column">
-            {selectedAction === "guided" && (
-              <>
-                <Text dimColor>
-                  Press [Space] to advance one step through guided auth.
-                </Text>
-                <Text dimColor>
-                  Press [Enter] to run guided auth to completion.
-                </Text>
-              </>
-            )}
-            {selectedAction === "quick" && (
-              <Text dimColor>Press [Enter] to run quick auth.</Text>
-            )}
-            {selectedAction === "clear" && (
-              <Text dimColor>Press [Enter] to clear OAuth state.</Text>
+            {clearedConfirmation && (
+              <Text color="green">
+                {lastClearDisconnected
+                  ? "OAuth state cleared. Disconnected."
+                  : "OAuth state cleared."}
+              </Text>
             )}
           </Box>
         </Box>
-        <ScrollView ref={scrollViewRef} height={height - 10}>
-          {selectedAction === "guided" && (
-            <Box key="guided" flexShrink={0} flexDirection="column">
-              <Text bold>Guided OAuth Flow Progress</Text>
-              {STEP_ORDER.map((step) => {
-                const stepIdx = stepIndex(step);
-                const currentIdx = stepIndex(currentStep);
-                const completed =
-                  guidedFlowStarted &&
-                  (stepIdx < currentIdx ||
-                    (step === currentStep && isComplete));
-                const inProgress =
-                  guidedFlowStarted && step === currentStep && !isComplete;
-                const details = oauthFlowState
-                  ? getStepDetails(oauthFlowState, step)
-                  : null;
-
-                const icon = completed ? "✓" : inProgress ? "→" : "○";
-                const color = completed
-                  ? "green"
-                  : inProgress
-                    ? "cyan"
-                    : "gray";
-
-                return (
-                  <Box
-                    key={step}
-                    marginTop={1}
-                    flexDirection="column"
-                    paddingLeft={2}
-                  >
-                    <Text color={color}>
-                      {icon} {STEP_LABELS[step]}
-                      {inProgress && " (in progress)"}
-                    </Text>
-                    {completed && details && (
-                      <Box marginTop={1} paddingLeft={2} flexDirection="column">
-                        <Text dimColor>{details}</Text>
-                      </Box>
-                    )}
-                    {inProgress && details && (
-                      <Box marginTop={1} paddingLeft={2} flexDirection="column">
-                        <Text dimColor>{details}</Text>
-                      </Box>
-                    )}
-                  </Box>
-                );
-              })}
-
-              {/* Waiting for auth - URL was opened when we reached this step */}
-              {oauthFlowState &&
-                needsAuthCode &&
-                oauthFlowState?.authorizationUrl && (
-                  <Box marginTop={2} flexDirection="column">
-                    <Text bold>Authorization URL opened in browser</Text>
-                    <Box marginTop={1}>
-                      <Text dimColor>
-                        {oauthFlowState.authorizationUrl.toString()}
-                      </Text>
-                    </Box>
-                    <Box marginTop={1}>
-                      <Text dimColor>
-                        Complete authorization in the browser. You will be
-                        redirected and the flow will complete automatically.
-                      </Text>
-                    </Box>
-                  </Box>
-                )}
-            </Box>
-          )}
-
-          {selectedAction === "quick" && (
-            <Box key="quick" flexShrink={0} flexDirection="column">
-              {oauthStatus === "authenticating" && (
-                <Text dimColor>Authenticating...</Text>
-              )}
-              {oauthStatus === "error" && oauthMessage && (
-                <Text color="red">{oauthMessage}</Text>
-              )}
-              {oauthStatus === "success" &&
-                oauthFlowState &&
-                oauthFlowState.execution === "quick" &&
-                (oauthFlowState.oauthTokens ||
-                  oauthFlowState.oauthClientInfo) && (
-                  <>
-                    <Text bold>Quick Auth Results</Text>
-                    {oauthFlowState.oauthClientInfo && (
-                      <Box marginTop={1} flexDirection="column" paddingLeft={2}>
-                        <Text dimColor>
-                          Client:{" "}
-                          {JSON.stringify(
-                            oauthFlowState.oauthClientInfo,
-                            null,
-                            2,
-                          )}
-                        </Text>
-                      </Box>
-                    )}
-                    {oauthFlowState.oauthTokens && (
-                      <Box marginTop={1} flexDirection="column" paddingLeft={2}>
-                        <Text dimColor>
-                          Access Token:{" "}
-                          {oauthFlowState.oauthTokens.access_token?.slice(
-                            0,
-                            20,
-                          )}
-                          ...
-                        </Text>
-                      </Box>
-                    )}
-                  </>
-                )}
-            </Box>
-          )}
-
-          {selectedAction === "clear" && clearedConfirmation && (
-            <Box key="clear" flexShrink={0} flexDirection="column">
-              <Text color="green">OAuth state cleared.</Text>
-            </Box>
-          )}
-        </ScrollView>
-      </Box>
+      </ScrollView>
 
       {focused && (
         <Box
@@ -386,52 +229,10 @@ export function AuthTab({
           backgroundColor="gray"
         >
           <Text bold color="white">
-            ←/→ select, G/Q/S or Enter run, ↑/↓ scroll
+            S {isLiveConnection ? "clear+disconnect" : "clear"}, ↑/↓ scroll
           </Text>
         </Box>
       )}
     </Box>
   );
-}
-
-function getStepDetails(state: OAuthFlowState, step: OAuthStep): string | null {
-  switch (step) {
-    case "metadata_discovery":
-      if (state.resourceMetadata || state.oauthMetadata) {
-        const parts: string[] = [];
-        if (state.resourceMetadata) {
-          parts.push(
-            `Resource: ${JSON.stringify(state.resourceMetadata, null, 2)}`,
-          );
-        }
-        if (state.oauthMetadata) {
-          parts.push(`OAuth: ${JSON.stringify(state.oauthMetadata, null, 2)}`);
-        }
-        return parts.join("\n");
-      }
-      return null;
-    case "client_registration":
-      if (state.oauthClientInfo) {
-        return JSON.stringify(state.oauthClientInfo, null, 2);
-      }
-      return null;
-    case "authorization_redirect":
-      if (state.authorizationUrl) {
-        return `URL: ${state.authorizationUrl.toString()}`;
-      }
-      return null;
-    case "authorization_code":
-      return state.authorizationCode
-        ? `Code received: ${state.authorizationCode.slice(0, 10)}...`
-        : null;
-    case "token_request":
-      return "Exchanging code for tokens...";
-    case "complete":
-      if (state.oauthTokens) {
-        return `Tokens: access_token=${state.oauthTokens.access_token?.slice(0, 15)}...`;
-      }
-      return null;
-    default:
-      return null;
-  }
 }

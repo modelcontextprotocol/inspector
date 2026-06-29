@@ -33,14 +33,41 @@ Options that specify the MCP server(s) (catalog/config file, ad-hoc command/URL,
 
 ### TUI-specific (OAuth for HTTP servers)
 
-When connecting to SSE or Streamable HTTP servers that use OAuth, you can pass:
+The TUI supports OAuth for **SSE** and **Streamable HTTP** servers. Per-server OAuth fields in `mcp.json` (static client id/secret, scopes, enterprise-managed flag) are applied automatically when loaded from `--catalog` or `--config`. Install-wide settings (CIMD, enterprise IdP) come from **`~/.mcp-inspector/storage/client.json`** — the same file the web **Client Settings** dialog writes. You can point at a different file with `--client-config` or `MCP_CLIENT_CONFIG_PATH`.
 
-| Option                        | Description                                                                          |
-| ----------------------------- | ------------------------------------------------------------------------------------ |
-| `--client-id <id>`            | OAuth client ID (static client).                                                     |
-| `--client-secret <secret>`    | OAuth client secret (confidential clients).                                          |
-| `--client-metadata-url <url>` | OAuth Client ID Metadata Document URL (CIMD).                                        |
-| `--callback-url <url>`        | OAuth redirect/callback listener URL (default: `http://127.0.0.1:0/oauth/callback`). |
+#### OAuth callback URL
+
+The TUI starts a small loopback HTTP server to receive the authorization redirect after you sign in in the browser. Defaults:
+
+| Surface | Default callback |
+| ------- | ---------------- |
+| **Web** | `http://localhost:6274/oauth/callback` (main app server) |
+| **TUI** | `http://127.0.0.1:6276/oauth/callback` (dedicated runner port; avoids colliding with web on 6274) |
+
+**Why a fixed default port?** Enterprise-managed auth (EMA), CIMD, and many static OAuth apps require **pre-registered redirect URIs**. A predictable default (`http://127.0.0.1:6276/oauth/callback`) lets you register once on the IdP and reuse it across TUI sessions. Dynamic registration (DCR) can use ephemeral ports instead — see below.
+
+**Trade-off:** only **one TUI OAuth flow at a time** can listen on the default port. A second instance starting OAuth while another is in progress may fail with `EADDRINUSE`. Override the listener with `--callback-url` or `MCP_OAUTH_CALLBACK_URL` (e.g. a different fixed port per instance, or `http://127.0.0.1:0/oauth/callback` when the authorization server accepts dynamically registered redirect URIs).
+
+OAuth redirect URIs must match **exactly** what you register on the authorization server — `localhost` and `127.0.0.1` are different URIs. Register the TUI default on your OAuth app / IdP when using pre-registered (static), CIMD, or enterprise-managed clients. Override the listener with `--callback-url` or `MCP_OAUTH_CALLBACK_URL`; use `http://127.0.0.1:0/oauth/callback` for an OS-assigned ephemeral port when the authorization server registers redirect URIs dynamically (DCR).
+
+#### Flags
+
+| Option | Env | Description |
+| ------ | --- | ----------- |
+| `--client-config <path>` | `MCP_CLIENT_CONFIG_PATH` | Install-level client config (default: `~/.mcp-inspector/storage/client.json`). |
+| `--client-id <id>` | — | OAuth client ID (static client); overrides `client.json`. |
+| `--client-secret <secret>` | — | OAuth client secret (confidential clients); overrides `client.json`. |
+| `--client-metadata-url <url>` | — | Client ID Metadata Document URL (CIMD); overrides `client.json`. |
+| `--callback-url <url>` | `MCP_OAUTH_CALLBACK_URL` | OAuth redirect/callback listener (default: `http://127.0.0.1:6276/oauth/callback`). |
+
+#### Authenticating in the TUI
+
+1. Select an HTTP/SSE server and press **C** to connect.
+2. If authorization is required, the TUI starts OAuth automatically (browser opens for sign-in).
+3. After the callback completes, connect finishes without a second **C**.
+4. Use the **Auth** tab to inspect OAuth state (same fields as web Connection Info) or **Clear OAuth state** (disconnects when connected).
+
+See also [EMA / enterprise-managed auth](../../specification/v2_auth_ema.md) and [OAuth smoke testing](../../specification/v2_auth_smoke_testing.md) for staging servers and verification steps.
 
 ## Features
 

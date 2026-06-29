@@ -1,13 +1,12 @@
 /**
  * Internal OAuth sub-manager for InspectorClient.
- * Holds OAuth config, state machine, and guided state; orchestrates quick and guided flows.
+ * Holds OAuth config and in-memory flow state; orchestrates authenticate() / completeOAuthFlow().
  * Not part of the public API; InspectorClient delegates to this module.
  */
 
 import { BaseOAuthClientProvider } from "../auth/providers.js";
-import type { AuthExecution, OAuthFlowState, OAuthStep } from "../auth/types.js";
+import type { OAuthFlowState, OAuthStep } from "../auth/types.js";
 import { EMPTY_OAUTH_FLOW_STATE } from "../auth/types.js";
-import { OAuthStateMachine } from "../auth/state-machine.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
@@ -24,9 +23,11 @@ import {
 } from "../auth/ema/emaFlow.js";
 import {
   buildOAuthConnectionState,
+  hasPersistedOAuthServerState,
   isServerOAuthConfigured,
   protocolFromOAuthConfig,
 } from "../auth/connection-state.js";
+import { ensureCimdClientRegistration } from "../auth/cimd.js";
 import type { OAuthConnectionState } from "../auth/types.js";
 import { EmaTransportOAuthProvider } from "../auth/ema/transportProvider.js";
 import type {
@@ -46,11 +47,6 @@ export interface OAuthManagerParams {
   enterpriseManagedAuth?: { idp: EnterpriseManagedAuthIdpConfig };
   /** Install-level EMA block (including when disabled) for user-facing errors. */
   installEnterpriseManagedAuth?: ClientConfig["enterpriseManagedAuth"];
-  dispatchOAuthStepChange: (detail: {
-    step: OAuthStep;
-    previousStep: OAuthStep;
-    state: Partial<OAuthFlowState>;
-  }) => void;
   dispatchOAuthComplete: (detail: { tokens: OAuthTokens }) => void;
   dispatchOAuthAuthorizationRequired: (detail: { url: URL }) => void;
   dispatchOAuthError: (detail: { error: Error }) => void;
@@ -63,7 +59,6 @@ export interface OAuthManagerParams {
 export class OAuthManager {
   private params: OAuthManagerParams;
   private oauthConfig: OAuthManagerConfig;
-  private oauthStateMachine: OAuthStateMachine | null = null;
   private oauthFlowState: OAuthFlowState | null = null;
 
   constructor(params: OAuthManagerParams) {
@@ -88,9 +83,7 @@ export class OAuthManager {
     return this.params.getServerUrl();
   }
 
-  private async createOAuthProvider(
-    execution: AuthExecution,
-  ): Promise<BaseOAuthClientProvider> {
+  private async createOAuthProvider(): Promise<BaseOAuthClientProvider> {
     if (
       !this.oauthConfig.storage ||
       !this.oauthConfig.redirectUrlProvider ||
@@ -102,16 +95,12 @@ export class OAuthManager {
     }
 
     const serverUrl = this.getServerUrl();
-    const provider = new BaseOAuthClientProvider(
-      serverUrl,
-      {
-        storage: this.oauthConfig.storage,
-        redirectUrlProvider: this.oauthConfig.redirectUrlProvider,
-        navigation: this.oauthConfig.navigation,
-        clientMetadataUrl: this.oauthConfig.clientMetadataUrl,
-      },
-      execution,
-    );
+    const provider = new BaseOAuthClientProvider(serverUrl, {
+      storage: this.oauthConfig.storage,
+      redirectUrlProvider: this.oauthConfig.redirectUrlProvider,
+      navigation: this.oauthConfig.navigation,
+      clientMetadataUrl: this.oauthConfig.clientMetadataUrl,
+    });
 
     provider.setEventTarget(this.params.getEventTarget());
 
@@ -158,7 +147,7 @@ export class OAuthManager {
       resourceClientId: this.oauthConfig.clientId,
       resourceClientSecret: this.oauthConfig.clientSecret,
       scope: this.oauthConfig.scope,
-      redirectUrl: this.oauthConfig.redirectUrlProvider.getRedirectUrl("quick"),
+      redirectUrl: this.oauthConfig.redirectUrlProvider.getRedirectUrl(),
       storage: this.oauthConfig.storage,
       fetchFn: this.params.effectiveAuthFetch,
     };
@@ -195,7 +184,6 @@ export class OAuthManager {
     this.oauthConfig.navigation!.navigateToAuthorization(authorizationUrl);
     this.oauthFlowState = {
       ...EMPTY_OAUTH_FLOW_STATE,
-      execution: "quick",
       oauthStep: "authorization_code",
       authorizationUrl,
     };
@@ -207,10 +195,16 @@ export class OAuthManager {
       return this.authenticateEnterpriseManaged();
     }
 
-    const provider = await this.createOAuthProvider("quick");
+    const provider = await this.createOAuthProvider();
     const serverUrl = this.getServerUrl();
 
     provider.clearCapturedAuthUrl();
+
+    await ensureCimdClientRegistration({
+      serverUrl,
+      provider,
+      fetchFn: this.params.effectiveAuthFetch,
+    });
 
     const result = await auth(provider, {
       serverUrl,
@@ -240,138 +234,11 @@ export class OAuthManager {
     const clientInfo = await provider.clientInformation();
     this.oauthFlowState = {
       ...EMPTY_OAUTH_FLOW_STATE,
-      execution: "quick",
       oauthStep: "authorization_code",
       authorizationUrl: capturedUrl,
       oauthClientInfo: clientInfo ?? null,
     };
     return capturedUrl;
-  }
-
-  async beginGuidedAuth(): Promise<void> {
-    const provider = await this.createOAuthProvider("guided");
-    const serverUrl = this.getServerUrl();
-
-    this.oauthFlowState = { ...EMPTY_OAUTH_FLOW_STATE };
-    if (this.oauthConfig.clientId) {
-      this.oauthFlowState.oauthClientInfo = {
-        client_id: this.oauthConfig.clientId,
-        ...(this.oauthConfig.clientSecret && {
-          client_secret: this.oauthConfig.clientSecret,
-        }),
-      };
-    }
-    this.oauthStateMachine = new OAuthStateMachine(
-      serverUrl,
-      provider,
-      (updates) => {
-        const state = this.oauthFlowState;
-        if (!state) throw new Error("OAuth state not initialized");
-        const previousStep = state.oauthStep;
-        this.oauthFlowState = { ...state, ...updates };
-        if (updates.oauthStep === "complete") {
-          this.oauthFlowState!.completedAt = Date.now();
-        }
-        const step = updates.oauthStep ?? previousStep;
-        this.params.dispatchOAuthStepChange({
-          step,
-          previousStep,
-          state: updates,
-        });
-      },
-      this.params.effectiveAuthFetch,
-    );
-
-    await this.oauthStateMachine.executeStep(this.oauthFlowState);
-  }
-
-  async runGuidedAuth(): Promise<URL | undefined> {
-    if (!this.oauthStateMachine || !this.oauthFlowState) {
-      await this.beginGuidedAuth();
-    }
-
-    const machine = this.oauthStateMachine;
-    if (!machine) {
-      throw new Error("Guided auth failed to initialize state");
-    }
-
-    while (true) {
-      const state = this.oauthFlowState;
-      if (!state) {
-        throw new Error("Guided auth failed to initialize state");
-      }
-      if (
-        state.oauthStep === "authorization_code" ||
-        state.oauthStep === "complete"
-      ) {
-        break;
-      }
-      await machine.executeStep(state);
-    }
-
-    const state = this.oauthFlowState;
-    if (state?.oauthStep === "complete") {
-      return undefined;
-    }
-    if (!state?.authorizationUrl) {
-      throw new Error("Failed to generate authorization URL");
-    }
-
-    const stateParam = state.authorizationUrl.searchParams.get("state");
-    if (stateParam && this.params.onBeforeOAuthRedirect) {
-      const parsedState = parseOAuthState(stateParam);
-      if (parsedState?.authId) {
-        await this.params.onBeforeOAuthRedirect(parsedState.authId);
-      }
-    }
-
-    this.params.dispatchOAuthAuthorizationRequired({
-      url: state.authorizationUrl,
-    });
-
-    return state.authorizationUrl;
-  }
-
-  async setGuidedAuthorizationCode(
-    authorizationCode: string,
-    completeFlow: boolean = false,
-  ): Promise<void> {
-    if (!this.oauthStateMachine || !this.oauthFlowState) {
-      throw new Error(
-        "Not in guided OAuth flow. Call beginGuidedAuth() first.",
-      );
-    }
-    const currentStep = this.oauthFlowState.oauthStep;
-    if (currentStep !== "authorization_code") {
-      throw new Error(
-        `Cannot set authorization code at step ${currentStep}. Expected step: authorization_code`,
-      );
-    }
-
-    this.oauthFlowState.authorizationCode = authorizationCode;
-
-    if (completeFlow) {
-      await this.oauthStateMachine.executeStep(this.oauthFlowState);
-      let step: OAuthStep = this.oauthFlowState.oauthStep;
-      while (step !== "complete") {
-        await this.oauthStateMachine.executeStep(this.oauthFlowState);
-        step = this.oauthFlowState.oauthStep;
-      }
-
-      if (!this.oauthFlowState.oauthTokens) {
-        throw new Error("Failed to exchange authorization code for tokens");
-      }
-
-      this.params.dispatchOAuthComplete({
-        tokens: this.oauthFlowState.oauthTokens,
-      });
-    } else {
-      this.params.dispatchOAuthStepChange({
-        step: this.oauthFlowState.oauthStep,
-        previousStep: this.oauthFlowState.oauthStep,
-        state: { authorizationCode },
-      });
-    }
   }
 
   async completeOAuthFlow(authorizationCode: string): Promise<void> {
@@ -385,7 +252,6 @@ export class OAuthManager {
         const completedAt = Date.now();
         this.oauthFlowState = {
           ...EMPTY_OAUTH_FLOW_STATE,
-          execution: "quick",
           oauthStep: "complete",
           oauthTokens: tokens,
           completedAt,
@@ -394,50 +260,45 @@ export class OAuthManager {
         return;
       }
 
-      if (this.oauthStateMachine && this.oauthFlowState) {
-        await this.setGuidedAuthorizationCode(authorizationCode, true);
-      } else {
-        const provider = await this.createOAuthProvider("quick");
-        const serverUrl = this.getServerUrl();
+      const provider = await this.createOAuthProvider();
+      const serverUrl = this.getServerUrl();
 
-        const result = await auth(provider, {
-          serverUrl,
-          authorizationCode,
-          fetchFn: this.params.effectiveAuthFetch,
-        });
+      const result = await auth(provider, {
+        serverUrl,
+        authorizationCode,
+        fetchFn: this.params.effectiveAuthFetch,
+      });
 
-        if (result !== "AUTHORIZED") {
-          throw new Error(
-            `Expected AUTHORIZED after providing authorization code, got: ${result}`,
-          );
-        }
-
-        const tokens = await provider.tokens();
-        if (!tokens) {
-          throw new Error("Failed to retrieve tokens after authorization");
-        }
-
-        const clientInfo = await provider.clientInformation();
-        const completedAt = Date.now();
-        this.oauthFlowState = this.oauthFlowState
-          ? {
-              ...this.oauthFlowState,
-              oauthStep: "complete",
-              oauthTokens: tokens,
-              oauthClientInfo: clientInfo ?? null,
-              completedAt,
-            }
-          : {
-              ...EMPTY_OAUTH_FLOW_STATE,
-              execution: "quick",
-              oauthStep: "complete",
-              oauthTokens: tokens,
-              oauthClientInfo: clientInfo ?? null,
-              completedAt,
-            };
-
-        this.params.dispatchOAuthComplete({ tokens });
+      if (result !== "AUTHORIZED") {
+        throw new Error(
+          `Expected AUTHORIZED after providing authorization code, got: ${result}`,
+        );
       }
+
+      const tokens = await provider.tokens();
+      if (!tokens) {
+        throw new Error("Failed to retrieve tokens after authorization");
+      }
+
+      const clientInfo = await provider.clientInformation();
+      const completedAt = Date.now();
+      this.oauthFlowState = this.oauthFlowState
+        ? {
+            ...this.oauthFlowState,
+            oauthStep: "complete",
+            oauthTokens: tokens,
+            oauthClientInfo: clientInfo ?? null,
+            completedAt,
+          }
+        : {
+            ...EMPTY_OAUTH_FLOW_STATE,
+            oauthStep: "complete",
+            oauthTokens: tokens,
+            oauthClientInfo: clientInfo ?? null,
+            completedAt,
+          };
+
+      this.params.dispatchOAuthComplete({ tokens });
     } catch (error) {
       this.params.dispatchOAuthError({
         error: error instanceof Error ? error : new Error(String(error)),
@@ -451,7 +312,7 @@ export class OAuthManager {
       return this.oauthFlowState.oauthTokens;
     }
 
-    const provider = await this.createOAuthProvider("quick");
+    const provider = await this.createOAuthProvider();
     try {
       return await provider.tokens();
     } catch {
@@ -468,7 +329,6 @@ export class OAuthManager {
     this.oauthConfig.storage.clear(serverUrl);
 
     this.oauthFlowState = null;
-    this.oauthStateMachine = null;
   }
 
   async isOAuthAuthorized(): Promise<boolean> {
@@ -489,7 +349,17 @@ export class OAuthManager {
    * Returns undefined when OAuth is not configured for the server.
    */
   async getOAuthState(): Promise<OAuthConnectionState | undefined> {
-    if (!isServerOAuthConfigured(this.oauthConfig)) {
+    const storage = this.oauthConfig.storage;
+    if (!storage) {
+      return undefined;
+    }
+
+    const serverUrl = this.getServerUrl();
+    const hasConfiguredOptions = isServerOAuthConfigured(this.oauthConfig);
+    if (
+      !hasConfiguredOptions &&
+      !(await hasPersistedOAuthServerState(storage, serverUrl))
+    ) {
       return undefined;
     }
 
@@ -501,16 +371,6 @@ export class OAuthManager {
       storage: this.oauthConfig.storage!,
       flowState: this.oauthFlowState ?? undefined,
     });
-  }
-
-  async proceedOAuthStep(): Promise<void> {
-    if (!this.oauthStateMachine || !this.oauthFlowState) {
-      throw new Error(
-        "Not in guided OAuth flow. Call authenticateGuided() first.",
-      );
-    }
-
-    await this.oauthStateMachine.executeStep(this.oauthFlowState);
   }
 
   /**
@@ -529,7 +389,7 @@ export class OAuthManager {
   async createOAuthProviderForTransport(): Promise<
     BaseOAuthClientProvider | EmaTransportOAuthProvider
   > {
-    const provider = await this.createOAuthProvider("quick");
+    const provider = await this.createOAuthProvider();
     if (this.isEnterpriseManaged()) {
       return new EmaTransportOAuthProvider(provider, this.getEmaFlowConfig());
     }

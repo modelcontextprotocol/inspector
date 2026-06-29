@@ -55,6 +55,6 @@ export class BrowserOAuthClientProvider extends BaseOAuthClientProvider {
     };
     const navigation = new BrowserNavigation();
 
-    super(serverUrl, { storage, redirectUrlProvider, navigation }, "quick");
+    super(serverUrl, { storage, redirectUrlProvider, navigation });
   }
 }

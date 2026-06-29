@@ -179,6 +179,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   private outputValidator: AjvJsonSchemaValidator | null = null;
   private transport: Transport | MessageTrackingTransport | null = null;
   private baseTransport: Transport | null = null;
+  /** True when the cached transport was built with an OAuth authProvider attached. */
+  private transportHasAuthProvider = false;
   private pipeStderr: boolean;
   private initialLoggingLevel?: LoggingLevel;
   private sample: boolean;
@@ -308,8 +310,6 @@ export class InspectorClient extends InspectorClientEventTarget {
         initialConfig: oauthConfig,
         enterpriseManagedAuth: options.enterpriseManagedAuth,
         installEnterpriseManagedAuth: options.installEnterpriseManagedAuth,
-        dispatchOAuthStepChange: (detail) =>
-          this.dispatchTypedEvent("oauthStepChange", detail),
         dispatchOAuthComplete: (detail) =>
           this.dispatchTypedEvent("oauthComplete", detail),
         dispatchOAuthAuthorizationRequired: (detail) =>
@@ -681,6 +681,26 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Drop the cached MCP transport without a full disconnect() teardown.
+   * Used when a pre-auth connect failed or tokens arrived after an unauthenticated
+   * transport was created, so the next connect() can attach authProvider.
+   */
+  private async dropCachedTransport(): Promise<void> {
+    if (!this.baseTransport && !this.transport) {
+      this.transportHasAuthProvider = false;
+      return;
+    }
+    try {
+      await this.client?.close();
+    } catch {
+      // Ignore errors on close
+    }
+    this.baseTransport = null;
+    this.transport = null;
+    this.transportHasAuthProvider = false;
+  }
+
+  /**
    * Connect to the MCP server
    */
   async connect(): Promise<void> {
@@ -689,6 +709,18 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
     if (this.status === "connected") {
       return;
+    }
+
+    const oauthManager = this.oauthManager;
+    if (
+      this.baseTransport &&
+      this.isHttpOAuthConfig() &&
+      oauthManager &&
+      !this.transportHasAuthProvider &&
+      !oauthManager.isEnterpriseManaged() &&
+      (await oauthManager.isOAuthAuthorized())
+    ) {
+      await this.dropCachedTransport();
     }
 
     // Create transport (single place for create / wrap / attach).
@@ -707,13 +739,10 @@ export class InspectorClient extends InspectorClientEventTarget {
         },
         ...(this.serverSettings && { settings: this.serverSettings }),
       };
-      const oauthManager = this.oauthManager;
       if (this.isHttpOAuthConfig() && oauthManager) {
         if (oauthManager.isEnterpriseManaged()) {
           await oauthManager.trySilentEnterpriseManagedAuth();
-        }
-        const provider = await oauthManager.createOAuthProviderForTransport();
-        if (oauthManager.isEnterpriseManaged()) {
+          const provider = await oauthManager.createOAuthProviderForTransport();
           const tokens = await provider.tokens();
           if (!tokens?.access_token) {
             const err = new Error(
@@ -723,9 +752,16 @@ export class InspectorClient extends InspectorClientEventTarget {
             err.code = 401;
             throw err;
           }
+          transportOptions.authProvider = provider;
+        } else if (await oauthManager.isOAuthAuthorized()) {
+          // Without stored tokens, omit authProvider so connect() surfaces a plain
+          // 401 instead of the SDK opening a browser before the app callback
+          // server is listening (TUI/CLI run authenticate() explicitly).
+          transportOptions.authProvider =
+            await oauthManager.createOAuthProviderForTransport();
         }
-        transportOptions.authProvider = provider;
       }
+      this.transportHasAuthProvider = !!transportOptions.authProvider;
       const { transport: baseTransport } = this.transportClientFactory(
         this.transportConfig,
         transportOptions,
@@ -1082,6 +1118,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     } catch (error) {
       this.status = "error";
       this.dispatchTypedEvent("statusChange", this.status);
+      if (this.baseTransport && !this.transportHasAuthProvider) {
+        await this.dropCachedTransport();
+      }
       // Deliberately do NOT dispatch the `error` event here: this is the
       // awaited `connect()` path, so re-throwing hands the reason straight to
       // the caller. The `error` event is reserved for non-awaited transitions
@@ -1143,6 +1182,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Null out transport so next connect() creates a fresh one.
     this.baseTransport = null;
     this.transport = null;
+    this.transportHasAuthProvider = false;
     // Update status - any onclose fired during close() above deferred to us
     // (see `disconnecting`), so this is the single place the explicit-disconnect
     // path settles the status and emits `disconnect`.
@@ -2673,54 +2713,15 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Initiates OAuth flow using SDK's auth() function (normal mode)
-   * Can be called directly by user or automatically triggered by 401 errors
+   * Initiates OAuth flow. Can be called directly by user or automatically
+   * triggered by 401 errors.
    */
   async authenticate(): Promise<URL | undefined> {
     return this.ensureOAuthManager().authenticate();
   }
 
   /**
-   * Starts guided OAuth flow (step-by-step). Runs only the first step.
-   * Use proceedOAuthStep() to advance. When oauthStep is "authorization_code",
-   * set authorizationCode and call proceedOAuthStep() to complete.
-   */
-  async beginGuidedAuth(): Promise<void> {
-    return this.ensureOAuthManager().beginGuidedAuth();
-  }
-
-  /**
-   * Runs guided OAuth flow to completion. If already started (via beginGuidedAuth),
-   * continues from current step. Otherwise initializes and runs from the start.
-   * Returns the authorization URL when user must authorize, or undefined if already complete.
-   */
-  async runGuidedAuth(): Promise<URL | undefined> {
-    return this.ensureOAuthManager().runGuidedAuth();
-  }
-
-  /**
-   * Set authorization code for guided OAuth flow.
-   * Validates that the client is in guided OAuth mode (has active state machine).
-   * @param authorizationCode The authorization code from the OAuth callback
-   * @param completeFlow If true, automatically proceed through all remaining steps to completion.
-   *                     If false, only set the code and wait for manual progression via proceedOAuthStep().
-   *                     Defaults to false for manual step-by-step control.
-   * @throws Error if not in guided OAuth flow or not at authorization_code step
-   */
-  async setGuidedAuthorizationCode(
-    authorizationCode: string,
-    completeFlow: boolean = false,
-  ): Promise<void> {
-    return this.ensureOAuthManager().setGuidedAuthorizationCode(
-      authorizationCode,
-      completeFlow,
-    );
-  }
-
-  /**
-   * Completes OAuth flow with authorization code.
-   * For guided mode, this calls setGuidedAuthorizationCode(code, true) internally.
-   * For normal mode, uses SDK auth() directly.
+   * Completes OAuth flow with authorization code from the redirect callback.
    */
   async completeOAuthFlow(authorizationCode: string): Promise<void> {
     return this.ensureOAuthManager().completeOAuthFlow(authorizationCode);
@@ -2754,17 +2755,14 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * In-memory OAuth flow snapshot (quick or guided). Undefined when no flow
-   * has run on this client instance; use {@link getOAuthState} for persisted
-   * authorization state.
+   * In-memory OAuth flow snapshot. Undefined when no flow has run on this
+   * client instance; use {@link getOAuthState} for persisted authorization state.
    */
   getOAuthFlowState(): OAuthFlowState | undefined {
     return this.oauthManager?.getOAuthFlowState();
   }
 
-  /**
-   * Current step when an OAuth flow is active (quick or guided).
-   */
+  /** Current step when an OAuth flow is active. */
   getOAuthFlowStep(): OAuthStep | undefined {
     return this.oauthManager?.getOAuthFlowStep();
   }
@@ -2778,12 +2776,5 @@ export class InspectorClient extends InspectorClientEventTarget {
       return undefined;
     }
     return this.oauthManager.getOAuthState();
-  }
-
-  /**
-   * Manually progress to next step in guided OAuth flow
-   */
-  async proceedOAuthStep(): Promise<void> {
-    return this.ensureOAuthManager().proceedOAuthStep();
   }
 }

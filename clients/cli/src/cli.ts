@@ -6,6 +6,7 @@ import { awaitableLog } from "./utils/awaitable-log.js";
 import type {
   InspectorServerSettings,
   MCPServerConfig,
+  InspectorClientEnvironment,
 } from "@inspector/core/mcp/types.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import {
@@ -22,6 +23,24 @@ import {
   parseHeaderPair,
 } from "@inspector/core/mcp/node/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
+import {
+  ConsoleNavigation,
+  MutableRedirectUrlProvider,
+} from "@inspector/core/auth/index.js";
+import { NodeOAuthStorage } from "@inspector/core/auth/node/index.js";
+import {
+  DEFAULT_RUNNER_OAUTH_CALLBACK_URL,
+  formatRunnerOAuthRedirectUrl,
+  parseRunnerOAuthCallbackUrl,
+  type RunnerOAuthCallbackConfig,
+} from "@inspector/core/auth/node/runner-oauth-callback.js";
+import type { ClientConfig } from "@inspector/core/client/types.js";
+import {
+  buildRunnerClientAuthOptions,
+  isOAuthCapableServerConfig,
+  loadRunnerClientConfig,
+  type RunnerClientConfigOverrides,
+} from "@inspector/core/client/runner.js";
 import {
   LoggingLevelSchema,
   type LoggingLevel,
@@ -47,6 +66,9 @@ async function callMethod(
   serverConfig: MCPServerConfig,
   serverSettings: InspectorServerSettings | undefined,
   args: MethodArgs & { method: string },
+  clientConfig: ClientConfig,
+  cliAuthOverrides?: RunnerClientConfigOverrides,
+  callbackUrlConfig?: RunnerOAuthCallbackConfig,
 ): Promise<void> {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const packageJsonPath = join(__dirname, "../package.json");
@@ -62,16 +84,36 @@ async function callMethod(
   const version = packageJson.version;
   const clientIdentity = { name, version };
 
+  const environment: InspectorClientEnvironment = {
+    transport: createTransportNode,
+  };
+  const redirectUrlProvider = new MutableRedirectUrlProvider();
+  if (isOAuthCapableServerConfig(serverConfig)) {
+    redirectUrlProvider.redirectUrl = formatRunnerOAuthRedirectUrl(
+      callbackUrlConfig!,
+    );
+    environment.oauth = {
+      storage: new NodeOAuthStorage(),
+      navigation: new ConsoleNavigation(),
+      redirectUrlProvider,
+    };
+  }
+
+  const clientAuthOptions = buildRunnerClientAuthOptions(
+    clientConfig,
+    serverSettings,
+    cliAuthOverrides,
+  );
+
   const inspectorClient = new InspectorClient(serverConfig, {
-    environment: {
-      transport: createTransportNode,
-    },
+    environment,
     clientIdentity,
     initialLoggingLevel: "debug",
     progress: false,
     sample: false,
     elicit: false,
     serverSettings,
+    ...clientAuthOptions,
   });
 
   let managedToolsState: ManagedToolsState | null = null;
@@ -240,11 +282,16 @@ function parseKeyValuePair(
   return { ...previous, [key as string]: parsedValue };
 }
 
-function parseArgs(argv?: string[]): {
+async function parseArgs(argv?: string[]): Promise<{
   serverConfig: MCPServerConfig;
   serverSettings: InspectorServerSettings | undefined;
   methodArgs: MethodArgs & { method: string };
-} {
+  clientConfigPath?: string;
+  clientId?: string;
+  clientSecret?: string;
+  clientMetadataUrl?: string;
+  callbackUrl?: string;
+}> {
   const program = new Command();
   // On a parse/usage ERROR (exitCode !== 0), throw the CommanderError instead
   // of letting commander call process.exit(). The binary entry (index.ts) still
@@ -368,6 +415,26 @@ function parseArgs(argv?: string[]): {
       "Tool-specific metadata as key=value pairs (for tools/call method only)",
       parseKeyValuePair,
       {},
+    )
+    .option(
+      "--client-config <path>",
+      "Install-level client config (default: ~/.mcp-inspector/storage/client.json, or MCP_CLIENT_CONFIG_PATH)",
+    )
+    .option(
+      "--client-id <id>",
+      "OAuth client ID (static client) for HTTP servers",
+    )
+    .option(
+      "--client-secret <secret>",
+      "OAuth client secret (for confidential clients)",
+    )
+    .option(
+      "--client-metadata-url <url>",
+      "OAuth Client ID Metadata Document URL (CIMD) for HTTP servers",
+    )
+    .option(
+      "--callback-url <url>",
+      `OAuth redirect/callback listener URL (default: ${DEFAULT_RUNNER_OAUTH_CALLBACK_URL}, or MCP_OAUTH_CALLBACK_URL)`,
     );
 
   program.parse(preArgs);
@@ -390,6 +457,11 @@ function parseArgs(argv?: string[]): {
     transport?: "sse" | "http" | "stdio";
     serverUrl?: string;
     header?: Record<string, string>;
+    clientConfig?: string;
+    clientId?: string;
+    clientSecret?: string;
+    clientMetadataUrl?: string;
+    callbackUrl?: string;
   };
 
   const serverOptions = {
@@ -410,7 +482,7 @@ function parseArgs(argv?: string[]): {
   // Shared with the TUI: resolves the catalog/config source (or ad-hoc target),
   // enforces the conflict matrix, and lifts disk headers/timeouts/OAuth into
   // per-server settings. `--server` selects one when the file has several.
-  const entries = loadServerEntries(serverOptions);
+  const entries = await loadServerEntries(serverOptions);
   const { config: serverConfig, settings: serverSettings } = selectServerEntry(
     entries,
     options.server,
@@ -452,12 +524,37 @@ function parseArgs(argv?: string[]): {
     serverConfig,
     serverSettings,
     methodArgs,
+    clientConfigPath: options.clientConfig,
+    clientId: options.clientId,
+    clientSecret: options.clientSecret,
+    clientMetadataUrl: options.clientMetadataUrl,
+    callbackUrl: options.callbackUrl,
   };
 }
 
 export async function runCli(argv?: string[]): Promise<void> {
-  const { serverConfig, serverSettings, methodArgs } = parseArgs(
-    argv ?? process.argv,
+  const {
+    serverConfig,
+    serverSettings,
+    methodArgs,
+    clientConfigPath,
+    clientId,
+    clientSecret,
+    clientMetadataUrl,
+    callbackUrl,
+  } = await parseArgs(argv ?? process.argv);
+  const clientConfig = await loadRunnerClientConfig({ clientConfigPath });
+  const callbackUrlConfig = parseRunnerOAuthCallbackUrl(callbackUrl);
+  await callMethod(
+    serverConfig,
+    serverSettings,
+    methodArgs,
+    clientConfig,
+    {
+      clientId,
+      clientSecret,
+      clientMetadataUrl,
+    },
+    callbackUrlConfig,
   );
-  await callMethod(serverConfig, serverSettings, methodArgs);
 }

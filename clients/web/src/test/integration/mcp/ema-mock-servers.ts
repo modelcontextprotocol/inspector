@@ -1,7 +1,7 @@
 /**
  * Mock IdP and resource authorization servers for EMA integration tests.
  * Topology mirrors xaa.dev staging (separate IdP + resource AS) — see
- * test-servers/configs/xaa-ema-http.json and specification/v2_enterprise_managed_auth.md.
+ * test-servers/configs/xaa-ema-http.json and specification/v2_auth_ema.md.
  */
 
 import {

@@ -54,6 +54,76 @@ const HttpUrlStringSchema = z
     }
   });
 
+/** Field-level error when a CIMD metadata URL is not a parseable http(s) URL. */
+export const CIMD_METADATA_URL_INVALID_ERROR =
+  "Must be a valid URL, like https://example.com/oauth/client.json";
+
+/** Field-level error when a CIMD metadata URL is not HTTPS. */
+export const CIMD_METADATA_URL_HTTPS_ERROR =
+  "CIMD client metadata URL must use HTTPS";
+
+/** Field-level error when a CIMD metadata URL has no path segment. */
+export const CIMD_METADATA_URL_PATH_ERROR =
+  "Must include a path (not the site root), like https://example.com/oauth/client.json";
+
+/**
+ * Inline / form validation for a non-empty CIMD client metadata URL.
+ * Returns undefined when the value is valid; empty strings are not flagged here
+ * (required-field gating lives in {@link canPersistClientSettingsDraft}).
+ */
+export function getCimdClientMetadataUrlError(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (trimmed === "") return undefined;
+  if (!isAbsoluteHttpUrl(trimmed)) {
+    return CIMD_METADATA_URL_INVALID_ERROR;
+  }
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "https:") {
+      return CIMD_METADATA_URL_HTTPS_ERROR;
+    }
+    if (url.pathname === "/" || url.pathname === "") {
+      return CIMD_METADATA_URL_PATH_ERROR;
+    }
+  } catch {
+    return CIMD_METADATA_URL_INVALID_ERROR;
+  }
+  return undefined;
+}
+
+function refineCimdMetadataUrl(
+  val: string,
+  ctx: z.RefinementCtx,
+  required: boolean,
+): void {
+  const trimmed = val.trim();
+  if (trimmed === "") {
+    if (required) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "CIMD client metadata URL is required when CIMD is enabled",
+      });
+    }
+    return;
+  }
+  const error = getCimdClientMetadataUrlError(trimmed);
+  if (error) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: error,
+    });
+  }
+}
+
+const CimdConfigSchema = z
+  .object({
+    enabled: z.boolean(),
+    clientMetadataUrl: z.string(),
+  })
+  .superRefine((data, ctx) => {
+    refineCimdMetadataUrl(data.clientMetadataUrl, ctx, data.enabled === true);
+  });
+
 const EnterpriseManagedAuthIdpConfigSchema = z.object({
   issuer: HttpUrlStringSchema,
   clientId: z.string().min(1),
@@ -67,6 +137,7 @@ const ClientConfigSchema = z.object({
       idp: EnterpriseManagedAuthIdpConfigSchema,
     })
     .optional(),
+  cimd: CimdConfigSchema.optional(),
 });
 
 /**

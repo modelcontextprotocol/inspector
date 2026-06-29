@@ -11,7 +11,11 @@ export type {
 // Re-export type-safe event target types for consumers
 export type { InspectorClientEventMap } from "./inspectorClientEventTarget.js";
 
-export { getServerType, isOAuthCapableServerType } from "./config.js";
+export {
+  getOAuthServerUrl,
+  getServerType,
+  isOAuthCapableServerType,
+} from "./config.js";
 
 // Re-export types used by consumers
 export type {

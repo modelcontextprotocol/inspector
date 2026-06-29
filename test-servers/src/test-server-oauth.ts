@@ -676,7 +676,7 @@ export function clearOAuthTestData(): void {
 
 /**
  * Returns recorded DCR request bodies (redirect_uris) for tests that verify
- * both normal and guided redirect URLs are registered.
+ * redirect URI registration.
  */
 export function getDCRRequests(): Array<{ redirect_uris: string[] }> {
   return dcrRequests;
