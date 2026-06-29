@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
@@ -5,7 +6,26 @@ import { ClientSettingsForm } from "./ClientSettingsForm";
 import {
   EMPTY_CLIENT_SETTINGS,
   ISSUER_URL_ERROR,
+  type ClientSettingsFormValues,
 } from "./clientSettingsValues";
+
+/** Stateful host so the controlled issuer input reflects edits, like the app. */
+function ClientSettingsFormHarness({
+  initial,
+}: {
+  initial: ClientSettingsFormValues;
+}) {
+  const [settings, setSettings] = useState(initial);
+  return (
+    <ClientSettingsForm
+      settings={settings}
+      expandedSections={["ema"]}
+      onExpandedSectionsChange={vi.fn()}
+      onSettingsChange={setSettings}
+      emaIdpLoginState="none"
+    />
+  );
+}
 
 describe("ClientSettingsForm EMA IdP session", () => {
   it("shows signed-in state and sign out", async () => {
@@ -53,7 +73,8 @@ describe("ClientSettingsForm EMA IdP session", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows an inline error for an invalid issuer URL", () => {
+  it("defers the invalid-issuer error until the field is blurred", async () => {
+    const user = userEvent.setup();
     renderWithMantine(
       <ClientSettingsForm
         settings={{
@@ -68,7 +89,37 @@ describe("ClientSettingsForm EMA IdP session", () => {
       />,
     );
 
+    // Invalid value present, but the error stays hidden until the user leaves
+    // the field — no nagging while it may still be mid-typing.
+    expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Issuer"));
+    await user.tab(); // blur the issuer field
     expect(screen.getByText(ISSUER_URL_ERROR)).toBeInTheDocument();
+  });
+
+  it("clears the issuer error live once a valid URL is entered after blur", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ClientSettingsFormHarness
+        initial={{
+          ...EMPTY_CLIENT_SETTINGS,
+          emaEnabled: true,
+          issuer: "not-a-url",
+        }}
+      />,
+    );
+
+    const issuer = screen.getByLabelText("Issuer");
+    await user.click(issuer);
+    await user.tab(); // touched -> error shows for the invalid value
+    expect(screen.getByText(ISSUER_URL_ERROR)).toBeInTheDocument();
+
+    // Once touched, the error tracks the value live: fixing it clears the error
+    // without needing another blur.
+    await user.clear(issuer);
+    await user.type(issuer, "https://idp.test");
+    expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
   });
 
   it("shows no issuer error for a valid URL", () => {

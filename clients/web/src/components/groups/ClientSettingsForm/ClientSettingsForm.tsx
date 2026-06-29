@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Accordion,
   Badge,
@@ -43,6 +44,13 @@ export function ClientSettingsForm({
     onSettingsChange({ ...settings, ...partial });
   }
 
+  // Defer the issuer error until the field has been blurred so it doesn't nag
+  // mid-typing (e.g. while "https:/…" is still incomplete). Once touched it
+  // updates live, so the error clears as soon as a valid URL is entered. The
+  // persist gate (canPersistClientSettingsDraft) validates independently and is
+  // unaffected — an invalid issuer is never written regardless of touched state.
+  const [issuerTouched, setIssuerTouched] = useState(false);
+
   const errors = validateClientSettings(settings);
 
   const showIdpSession =
@@ -82,7 +90,8 @@ export function ClientSettingsForm({
                   description="Your enterprise IdP issuer URL."
                   value={settings.issuer}
                   onChange={(e) => patch({ issuer: e.currentTarget.value })}
-                  error={errors.issuer}
+                  onBlur={() => setIssuerTouched(true)}
+                  error={issuerTouched ? errors.issuer : undefined}
                   rightSectionPointerEvents="auto"
                   rightSection={
                     settings.issuer ? (
