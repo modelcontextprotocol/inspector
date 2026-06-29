@@ -10,7 +10,6 @@ import {
 } from "@mantine/core";
 import type {
   BlobResourceContents,
-  ContentBlock,
   Resource,
   TextResourceContents,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -39,25 +38,6 @@ export interface ResourcePreviewPanelProps {
    * originating template form or the empty state.
    */
   onClose?: () => void;
-}
-
-function toContentBlock(
-  item: TextResourceContents | BlobResourceContents,
-): ContentBlock {
-  if ("text" in item) {
-    return { type: "text", text: item.text };
-  }
-  const mimeType = item.mimeType ?? "application/octet-stream";
-  if (mimeType.startsWith("image/")) {
-    return { type: "image", data: item.blob, mimeType };
-  }
-  if (mimeType.startsWith("audio/")) {
-    return { type: "audio", data: item.blob, mimeType };
-  }
-  return {
-    type: "text",
-    text: `[Binary content (${mimeType}) — preview not supported]`,
-  };
 }
 
 function formatLastUpdated(date: Date): string {
@@ -145,14 +125,31 @@ const ContentStack = Stack.withProps({
   gap: "md",
 });
 
-// Infer a markdown MIME from the URI when the server didn't supply one.
-// MCP servers often return `text/plain` (or omit mimeType entirely) for
-// `.md` resources; the file extension is the most reliable fallback signal.
+// Map a file extension to the MIME type that drives ContentViewer's per-MIME
+// renderer dispatch. MCP servers commonly omit `mimeType` (or return a generic
+// `text/plain` / `application/octet-stream`), so the URI suffix is the most
+// reliable signal for engaging the markdown / PDF / CSV / XML / HTML / CSS
+// renderers. Order doesn't matter — suffixes are unique.
+const URI_SUFFIX_MIME: ReadonlyArray<readonly [string, string]> = [
+  [".md", "text/markdown"],
+  [".markdown", "text/markdown"],
+  [".csv", "text/csv"],
+  [".json", "application/json"],
+  [".xml", "application/xml"],
+  [".html", "text/html"],
+  [".htm", "text/html"],
+  [".css", "text/css"],
+  [".pdf", "application/pdf"],
+];
+
+// Infer a MIME type from the URI's file extension when the server didn't supply
+// one. Returns undefined for unrecognized suffixes so callers fall through to
+// the octet-stream default.
 function inferMimeFromUri(uri: string): string | undefined {
   const path = uri.split("?")[0].split("#")[0];
   const lower = path.toLowerCase();
-  if (lower.endsWith(".md") || lower.endsWith(".markdown")) {
-    return "text/markdown";
+  for (const [suffix, mime] of URI_SUFFIX_MIME) {
+    if (lower.endsWith(suffix)) return mime;
   }
   return undefined;
 }
@@ -202,7 +199,7 @@ export function ResourcePreviewPanel({
           {contents.map((item, index) => (
             <ContentViewer
               key={index}
-              block={toContentBlock(item)}
+              contents={item}
               mimeType={effectiveMime(item.mimeType, resource)}
               copyable
             />

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type {
   BlobResourceContents,
@@ -7,6 +7,16 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { ResourcePreviewPanel } from "./ResourcePreviewPanel";
+
+// Stub the lazy highlighter so JSON/XML/CSS branches render synchronously
+// (its dynamic-import behavior is covered in CodeHighlight.test.tsx).
+vi.mock("../../elements/CodeHighlight/CodeHighlight", () => ({
+  CodeHighlight: ({ language, code }: { language: string; code: string }) => (
+    <pre data-testid="code-highlight" data-language={language}>
+      {code}
+    </pre>
+  ),
+}));
 
 const textResource: Resource = {
   name: "config.json",
@@ -294,5 +304,103 @@ describe("ResourcePreviewPanel", () => {
     );
     expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
     expect(screen.getByText("# not a heading")).toBeInTheDocument();
+  });
+
+  describe("URI-suffix MIME inference", () => {
+    it("infers text/csv from a .csv URI and renders a table", () => {
+      renderWithMantine(
+        <ResourcePreviewPanel
+          {...baseProps}
+          resource={{ name: "data", uri: "file:///data.csv" }}
+          contents={[{ uri: "file:///data.csv", text: "a,b\n1,2" }]}
+        />,
+      );
+      expect(
+        screen.getByRole("columnheader", { name: "a" }),
+      ).toBeInTheDocument();
+      expect(screen.getByText("text/csv")).toBeInTheDocument();
+    });
+
+    it("infers application/json from a .json URI and highlights", () => {
+      renderWithMantine(
+        <ResourcePreviewPanel
+          {...baseProps}
+          resource={{ name: "cfg", uri: "file:///cfg.json" }}
+          contents={[{ uri: "file:///cfg.json", text: '{"a":1}' }]}
+        />,
+      );
+      expect(screen.getByTestId("code-highlight")).toHaveAttribute(
+        "data-language",
+        "json",
+      );
+    });
+
+    it("infers application/xml from a .xml URI and highlights", () => {
+      renderWithMantine(
+        <ResourcePreviewPanel
+          {...baseProps}
+          resource={{ name: "feed", uri: "file:///feed.xml" }}
+          contents={[{ uri: "file:///feed.xml", text: "<a><b/></a>" }]}
+        />,
+      );
+      expect(screen.getByTestId("code-highlight")).toHaveAttribute(
+        "data-language",
+        "xml",
+      );
+    });
+
+    it("infers text/css from a .css URI and highlights", () => {
+      renderWithMantine(
+        <ResourcePreviewPanel
+          {...baseProps}
+          resource={{ name: "style", uri: "file:///style.css" }}
+          contents={[{ uri: "file:///style.css", text: ".a{}" }]}
+        />,
+      );
+      expect(screen.getByTestId("code-highlight")).toHaveAttribute(
+        "data-language",
+        "css",
+      );
+    });
+
+    describe("blob-URL renderers", () => {
+      beforeEach(() => {
+        vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:url");
+        vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        vi.restoreAllMocks();
+      });
+
+      it("infers text/html from a .html URI and sandboxes it", () => {
+        const { container } = renderWithMantine(
+          <ResourcePreviewPanel
+            {...baseProps}
+            resource={{ name: "report", uri: "file:///report.html" }}
+            contents={[{ uri: "file:///report.html", text: "<p>hi</p>" }]}
+          />,
+        );
+        const iframe = container.querySelector("iframe");
+        expect(iframe).toHaveAttribute("sandbox", "");
+      });
+
+      it("infers application/pdf from a .pdf URI and renders a viewer", () => {
+        const { container } = renderWithMantine(
+          <ResourcePreviewPanel
+            {...baseProps}
+            resource={{ name: "doc", uri: "file:///doc.pdf" }}
+            contents={[
+              {
+                uri: "file:///doc.pdf",
+                blob: Buffer.from("%PDF", "utf-8").toString("base64"),
+              },
+            ]}
+          />,
+        );
+        const iframe = container.querySelector("iframe");
+        expect(iframe).toHaveAttribute("src", "blob:url#view=FitH");
+      });
+    });
   });
 });

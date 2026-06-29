@@ -1,17 +1,47 @@
 import { Code, Flex, Image, Stack } from "@mantine/core";
-import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import type { ReactNode } from "react";
+import type {
+  BlobResourceContents,
+  ContentBlock,
+  TextResourceContents,
+} from "@modelcontextprotocol/sdk/types.js";
 import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { CodeHighlight } from "../CodeHighlight/CodeHighlight";
 import { CopyButton } from "../CopyButton/CopyButton";
 import { ResourceLinkInfo } from "../ResourceLinkInfo/ResourceLinkInfo";
+import {
+  decodeBase64ToUtf8,
+  formatJson,
+  formatXml,
+  getMimeKind,
+  isSafeHref,
+  isTextualKind,
+  looksLikeJson,
+} from "./contentViewerUtils";
+import { CsvTable } from "./CsvTable";
+import { HtmlFrame } from "./HtmlFrame";
+import { PdfFrame } from "./PdfFrame";
 
 export interface ContentViewerProps {
-  block: ContentBlock;
+  /**
+   * A content block to render (tool results, prompt messages, server cards, …).
+   * Provide either `block` or `contents`.
+   */
+  block?: ContentBlock;
+  /**
+   * Raw resource contents (Resources screen). When provided, the per-MIME
+   * dispatch keys off `mimeType` and the base64 `blob` / `text`, covering
+   * PDF / CSV / HTML / XML / CSS in addition to the content-block cases.
+   * Provide either `block` or `contents`.
+   */
+  contents?: TextResourceContents | BlobResourceContents;
   copyable?: boolean;
   /**
-   * Optional MIME type for the block. When `text/markdown` (or
-   * `text/x-markdown`), text content is rendered via react-markdown
-   * instead of as preformatted code.
+   * Effective MIME type for the content. Drives the per-MIME renderer dispatch
+   * (markdown, JSON, XML, CSS, CSV, HTML, PDF). When absent, text falls back to
+   * a JSON-shape heuristic then plain preformatted code.
    */
   mimeType?: string;
   /**
@@ -27,26 +57,6 @@ export interface ContentViewerProps {
    * one line — don't pass it for multi-line content.
    */
   wrap?: boolean;
-}
-
-function formatJson(content: string): string {
-  try {
-    return JSON.stringify(JSON.parse(content), null, 2);
-  } catch {
-    return content;
-  }
-}
-
-function isJsonText(block: ContentBlock): boolean {
-  if (block.type !== "text") return false;
-  const trimmed = block.text.trimStart();
-  return trimmed.startsWith("{") || trimmed.startsWith("[");
-}
-
-function isMarkdownMime(mimeType: string | undefined): boolean {
-  if (!mimeType) return false;
-  const base = mimeType.split(";")[0].trim().toLowerCase();
-  return base === "text/markdown" || base === "text/x-markdown";
 }
 
 function buildDataUri(mimeType: string, data: string): string {
@@ -75,71 +85,272 @@ const PreviewImage = Image.withProps({
   radius: "md",
 });
 
-export function ContentViewer({
-  block,
-  copyable = false,
+// Markdown anchors are constrained to a safe-scheme allowlist: a non-matching
+// href (e.g. `javascript:`, protocol-relative `//evil.com`) renders as inert
+// text so user-supplied markdown can't smuggle a script-bearing link.
+const SafeAnchor: Components["a"] = ({ href, children }) =>
+  isSafeHref(href) ? <a href={href}>{children}</a> : <span>{children}</span>;
+
+const markdownComponents: Components = { a: SafeAnchor };
+
+function CopyableWrapper({
+  copyable,
+  copyValue,
+  children,
+}: {
+  copyable: boolean;
+  copyValue: string;
+  children: ReactNode;
+}) {
+  return (
+    <Stack gap="xs">
+      <ContentWrapper>
+        {children}
+        {copyable && (
+          <CopyOverlay>
+            <CopyButton value={copyValue} />
+          </CopyOverlay>
+        )}
+      </ContentWrapper>
+    </Stack>
+  );
+}
+
+function MarkdownContent({
+  text,
+  copyable,
+}: {
+  text: string;
+  copyable: boolean;
+}) {
+  return (
+    <CopyableWrapper copyable={copyable} copyValue={text}>
+      <MarkdownWrapper>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={markdownComponents}
+        >
+          {text}
+        </ReactMarkdown>
+      </MarkdownWrapper>
+    </CopyableWrapper>
+  );
+}
+
+function HighlightedContent({
+  code,
+  language,
+  copyValue,
+  copyable,
+}: {
+  code: string;
+  language: string;
+  copyValue: string;
+  copyable: boolean;
+}) {
+  return (
+    <CopyableWrapper copyable={copyable} copyValue={copyValue}>
+      <CodeHighlight language={language} code={code} />
+    </CopyableWrapper>
+  );
+}
+
+function PlainTextContent({
+  text,
+  copyable,
+  wrap,
+}: {
+  text: string;
+  copyable: boolean;
+  wrap: boolean;
+}) {
+  const displayText = looksLikeJson(text) ? formatJson(text) : text;
+  return (
+    <CopyableWrapper copyable={copyable} copyValue={text}>
+      <Code
+        block
+        p={36}
+        variant={wrap ? "wrapping" : "nowrap"}
+        // When not wrapping, the value may be clipped with an ellipsis; expose
+        // the full text on hover so it's readable without copying.
+        title={wrap ? undefined : displayText}
+      >
+        {displayText}
+      </Code>
+    </CopyableWrapper>
+  );
+}
+
+/**
+ * Render decoded text according to its MIME type: markdown, syntax-highlighted
+ * JSON / XML / CSS, a CSV table, a sandboxed HTML iframe, or — for plain or
+ * unrecognized text — a preformatted code block (with a JSON-shape heuristic so
+ * mimeless JSON still pretty-prints).
+ */
+function TextualContent({
+  text,
   mimeType,
-  wrap = true,
-}: ContentViewerProps) {
+  copyable,
+  wrap,
+}: {
+  text: string;
+  mimeType: string | undefined;
+  copyable: boolean;
+  wrap: boolean;
+}) {
+  const kind = mimeType ? getMimeKind(mimeType) : "text";
+  switch (kind) {
+    case "markdown":
+      return <MarkdownContent text={text} copyable={copyable} />;
+    case "json":
+      return (
+        <HighlightedContent
+          code={formatJson(text)}
+          language="json"
+          copyValue={text}
+          copyable={copyable}
+        />
+      );
+    case "xml":
+      return (
+        <HighlightedContent
+          code={formatXml(text)}
+          language="xml"
+          copyValue={text}
+          copyable={copyable}
+        />
+      );
+    case "css":
+      return (
+        <HighlightedContent
+          code={text}
+          language="css"
+          copyValue={text}
+          copyable={copyable}
+        />
+      );
+    case "csv":
+      return (
+        <Stack gap="xs">
+          <CsvTable text={text} />
+        </Stack>
+      );
+    case "html":
+      return (
+        <Stack gap="xs">
+          <HtmlFrame html={text} />
+        </Stack>
+      );
+    default:
+      return <PlainTextContent text={text} copyable={copyable} wrap={wrap} />;
+  }
+}
+
+function ImageContent({ data, mimeType }: { data: string; mimeType: string }) {
+  return (
+    <Stack gap="xs">
+      <PreviewImage src={buildDataUri(mimeType, data)} />
+    </Stack>
+  );
+}
+
+function AudioContent({ data, mimeType }: { data: string; mimeType: string }) {
+  return (
+    <Stack gap="xs">
+      <audio controls>
+        <source src={buildDataUri(mimeType, data)} />
+      </audio>
+    </Stack>
+  );
+}
+
+function BinaryNotice({ mimeType }: { mimeType: string }) {
+  return (
+    <Stack gap="xs">
+      <ContentWrapper>
+        <Code block p={36}>
+          {`[Binary content (${mimeType}) — preview not supported]`}
+        </Code>
+      </ContentWrapper>
+    </Stack>
+  );
+}
+
+/** Dispatch raw resource contents (Resources screen) on their effective MIME. */
+function ResourceContent({
+  contents,
+  mimeType,
+  copyable,
+  wrap,
+}: {
+  contents: TextResourceContents | BlobResourceContents;
+  mimeType: string;
+  copyable: boolean;
+  wrap: boolean;
+}) {
+  if ("text" in contents) {
+    return (
+      <TextualContent
+        text={contents.text}
+        mimeType={mimeType}
+        copyable={copyable}
+        wrap={wrap}
+      />
+    );
+  }
+  const kind = getMimeKind(mimeType);
+  if (kind === "image") {
+    return <ImageContent data={contents.blob} mimeType={mimeType} />;
+  }
+  if (kind === "audio") {
+    return <AudioContent data={contents.blob} mimeType={mimeType} />;
+  }
+  if (kind === "pdf") {
+    return (
+      <Stack gap="xs">
+        <PdfFrame data={contents.blob} />
+      </Stack>
+    );
+  }
+  if (isTextualKind(kind)) {
+    return (
+      <TextualContent
+        text={decodeBase64ToUtf8(contents.blob)}
+        mimeType={mimeType}
+        copyable={copyable}
+        wrap={wrap}
+      />
+    );
+  }
+  return <BinaryNotice mimeType={mimeType} />;
+}
+
+/** Dispatch a content block (tool results, prompt messages, …) on its type. */
+function BlockContent({
+  block,
+  mimeType,
+  copyable,
+  wrap,
+}: {
+  block: ContentBlock;
+  mimeType: string | undefined;
+  copyable: boolean;
+  wrap: boolean;
+}) {
   switch (block.type) {
-    case "text": {
-      const renderAsMarkdown = isMarkdownMime(mimeType);
-      if (renderAsMarkdown) {
-        return (
-          <Stack gap="xs">
-            <ContentWrapper>
-              <MarkdownWrapper>
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {block.text}
-                </ReactMarkdown>
-              </MarkdownWrapper>
-              {copyable && (
-                <CopyOverlay>
-                  <CopyButton value={block.text} />
-                </CopyOverlay>
-              )}
-            </ContentWrapper>
-          </Stack>
-        );
-      }
-      const isJson = isJsonText(block);
-      const displayText = isJson ? formatJson(block.text) : block.text;
+    case "text":
       return (
-        <Stack gap="xs">
-          <ContentWrapper>
-            <Code
-              block
-              p={36}
-              variant={wrap ? "wrapping" : "nowrap"}
-              // When not wrapping, the value may be clipped with an ellipsis;
-              // expose the full text on hover so it's readable without copying.
-              title={wrap ? undefined : displayText}
-            >
-              {displayText}
-            </Code>
-            {copyable && (
-              <CopyOverlay>
-                <CopyButton value={block.text} />
-              </CopyOverlay>
-            )}
-          </ContentWrapper>
-        </Stack>
+        <TextualContent
+          text={block.text}
+          mimeType={mimeType}
+          copyable={copyable}
+          wrap={wrap}
+        />
       );
-    }
     case "image":
-      return (
-        <Stack gap="xs">
-          <PreviewImage src={buildDataUri(block.mimeType, block.data)} />
-        </Stack>
-      );
+      return <ImageContent data={block.data} mimeType={block.mimeType} />;
     case "audio":
-      return (
-        <Stack gap="xs">
-          <audio controls>
-            <source src={buildDataUri(block.mimeType, block.data)} />
-          </audio>
-        </Stack>
-      );
+      return <AudioContent data={block.data} mimeType={block.mimeType} />;
     case "resource":
       return (
         <Stack gap="xs">
@@ -167,4 +378,34 @@ export function ContentViewer({
     default:
       return null;
   }
+}
+
+export function ContentViewer({
+  block,
+  contents,
+  copyable = false,
+  mimeType,
+  wrap = true,
+}: ContentViewerProps) {
+  if (contents) {
+    const effective =
+      mimeType ?? contents.mimeType ?? "application/octet-stream";
+    return (
+      <ResourceContent
+        contents={contents}
+        mimeType={effective}
+        copyable={copyable}
+        wrap={wrap}
+      />
+    );
+  }
+  if (!block) return null;
+  return (
+    <BlockContent
+      block={block}
+      mimeType={mimeType}
+      copyable={copyable}
+      wrap={wrap}
+    />
+  );
 }
