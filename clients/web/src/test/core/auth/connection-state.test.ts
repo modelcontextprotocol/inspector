@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   buildOAuthConnectionState,
+  hasPersistedOAuthServerState,
   isServerOAuthConfigured,
   protocolFromOAuthConfig,
 } from "@inspector/core/auth/connection-state.js";
@@ -13,6 +14,7 @@ function createStorage(
     tokens: Awaited<ReturnType<OAuthStorage["getTokens"]>>;
     preregistered: Awaited<ReturnType<OAuthStorage["getClientInformation"]>>;
     dynamic: Awaited<ReturnType<OAuthStorage["getClientInformation"]>>;
+    registrationKind: ReturnType<OAuthStorage["getClientRegistrationKind"]>;
     scope: string | undefined;
     serverMetadata: ReturnType<OAuthStorage["getServerMetadata"]>;
     idpSession: Awaited<ReturnType<OAuthStorage["getIdpSession"]>>;
@@ -32,6 +34,7 @@ function createStorage(
       return overrides.serverMetadata ?? null;
     }),
     getIdpSession: vi.fn().mockResolvedValue(overrides.idpSession),
+    getClientRegistrationKind: vi.fn(() => overrides.registrationKind),
     saveClientInformation: vi.fn(),
     savePreregisteredClientInformation: vi.fn(),
     saveTokens: vi.fn(),
@@ -59,11 +62,37 @@ describe("isServerOAuthConfigured", () => {
   it("returns false when all oauth fields are empty", () => {
     expect(isServerOAuthConfigured({})).toBe(false);
   });
+
+  it("returns true when clientMetadataUrl is set", () => {
+    expect(
+      isServerOAuthConfigured({
+        clientMetadataUrl: "https://example.com/oauth/client.json",
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("protocolFromOAuthConfig", () => {
   it("maps enterpriseManaged to ema", () => {
     expect(protocolFromOAuthConfig({ enterpriseManaged: true })).toBe("ema");
+  });
+});
+
+describe("hasPersistedOAuthServerState", () => {
+  it("returns true when dynamic client information is stored", async () => {
+    const storage = createStorage({
+      dynamic: { client_id: "https://example.com/cimd.json" },
+    });
+    await expect(
+      hasPersistedOAuthServerState(storage, SERVER_URL),
+    ).resolves.toBe(true);
+  });
+
+  it("returns false when storage is empty", async () => {
+    const storage = createStorage();
+    await expect(
+      hasPersistedOAuthServerState(storage, SERVER_URL),
+    ).resolves.toBe(false);
   });
 });
 
@@ -91,7 +120,7 @@ describe("buildOAuthConnectionState", () => {
     expect(state.authorized).toBe(true);
     expect(state.protocol).toBe("standard");
     expect(state.client).toEqual({
-      source: "preregistered",
+      registrationKind: "static",
       clientId: "cfg-client",
       hasClientSecret: false,
     });
@@ -99,6 +128,55 @@ describe("buildOAuthConnectionState", () => {
     expect(state.authorizationServerMetadata?.authorization_endpoint).toBe(
       "https://auth.example.com/authorize",
     );
+  });
+
+  it("returns dcr registration kind for dynamic client slot", async () => {
+    const storage = createStorage({
+      dynamic: { client_id: "dcr-uuid" },
+      registrationKind: "dcr",
+    });
+    const state = await buildOAuthConnectionState({
+      serverUrl: SERVER_URL,
+      protocol: "standard",
+      storage,
+    });
+    expect(state.client).toEqual({
+      registrationKind: "dcr",
+      clientId: "dcr-uuid",
+      hasClientSecret: false,
+    });
+  });
+
+  it("returns cimd registration kind for dynamic client slot", async () => {
+    const storage = createStorage({
+      dynamic: { client_id: "https://example.com/cimd.json" },
+      registrationKind: "cimd",
+    });
+    const state = await buildOAuthConnectionState({
+      serverUrl: SERVER_URL,
+      protocol: "standard",
+      storage,
+    });
+    expect(state.client).toEqual({
+      registrationKind: "cimd",
+      clientId: "https://example.com/cimd.json",
+      hasClientSecret: false,
+    });
+  });
+
+  it("prefers static registration when preregistered and dynamic slots coexist", async () => {
+    const storage = createStorage({
+      preregistered: { client_id: "static-id" },
+      dynamic: { client_id: "https://example.com/cimd.json" },
+      registrationKind: "cimd",
+    });
+    const state = await buildOAuthConnectionState({
+      serverUrl: SERVER_URL,
+      protocol: "standard",
+      storage,
+    });
+    expect(state.client?.registrationKind).toBe("static");
+    expect(state.client?.clientId).toBe("static-id");
   });
 
   it("returns unauthorized when tokens are missing", async () => {

@@ -25,7 +25,11 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
   });
 
   it("saveClientInformation + getClientInformation round-trip", async () => {
-    await storage.saveClientInformation(serverUrl, { client_id: "dyn" });
+    await storage.saveClientInformation(
+      serverUrl,
+      { client_id: "dyn" },
+      { registrationKind: "dcr" },
+    );
     expect(await storage.getClientInformation(serverUrl)).toEqual({
       client_id: "dyn",
     });
@@ -41,7 +45,11 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
   });
 
   it("clearClientInformation default branch removes dynamic info", async () => {
-    await storage.saveClientInformation(serverUrl, { client_id: "dyn" });
+    await storage.saveClientInformation(
+      serverUrl,
+      { client_id: "dyn" },
+      { registrationKind: "dcr" },
+    );
     storage.clearClientInformation(serverUrl);
     expect(await storage.getClientInformation(serverUrl)).toBeUndefined();
   });
@@ -90,7 +98,11 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
   });
 
   it("clear() wipes all state for a server", async () => {
-    await storage.saveClientInformation(serverUrl, { client_id: "x" });
+    await storage.saveClientInformation(
+      serverUrl,
+      { client_id: "x" },
+      { registrationKind: "dcr" },
+    );
     await storage.saveTokens(serverUrl, {
       access_token: "t",
       token_type: "Bearer",

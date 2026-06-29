@@ -66,7 +66,9 @@ describe("BrowserOAuthStorage", () => {
         client_secret: "test-secret",
       };
 
-      storage.saveClientInformation(testServerUrl, clientInfo);
+      storage.saveClientInformation(testServerUrl, clientInfo, {
+        registrationKind: "dcr",
+      });
       const result = await storage.getClientInformation(testServerUrl);
 
       expect(result).toEqual(clientInfo);
@@ -100,7 +102,9 @@ describe("BrowserOAuthStorage", () => {
         client_id: "test-client-id",
       };
 
-      storage.saveClientInformation(testServerUrl, clientInfo);
+      storage.saveClientInformation(testServerUrl, clientInfo, {
+        registrationKind: "dcr",
+      });
       const result = await storage.getClientInformation(testServerUrl);
 
       expect(result).toEqual(clientInfo);
@@ -115,11 +119,23 @@ describe("BrowserOAuthStorage", () => {
         client_id: "second-id",
       };
 
-      storage.saveClientInformation(testServerUrl, firstInfo);
-      storage.saveClientInformation(testServerUrl, secondInfo);
+      storage.saveClientInformation(testServerUrl, firstInfo, {
+        registrationKind: "dcr",
+      });
+      storage.saveClientInformation(testServerUrl, secondInfo, {
+        registrationKind: "cimd",
+      });
       const result = await storage.getClientInformation(testServerUrl);
 
       expect(result).toEqual(secondInfo);
+      expect(storage.getClientRegistrationKind(testServerUrl)).toBe("cimd");
+    });
+
+    it("savePreregisteredClientInformation sets static registration kind", async () => {
+      await storage.savePreregisteredClientInformation(testServerUrl, {
+        client_id: "static-id",
+      });
+      expect(storage.getClientRegistrationKind(testServerUrl)).toBe("static");
     });
   });
 
@@ -267,7 +283,11 @@ describe("BrowserOAuthStorage", () => {
 
   describe("clearClientInformation", () => {
     it("removes the dynamically-registered client info by default", async () => {
-      storage.saveClientInformation(testServerUrl, { client_id: "dyn" });
+      storage.saveClientInformation(
+        testServerUrl,
+        { client_id: "dyn" },
+        { registrationKind: "dcr" },
+      );
       expect(await storage.getClientInformation(testServerUrl)).toEqual({
         client_id: "dyn",
       });
@@ -338,7 +358,9 @@ describe("BrowserOAuthStorage", () => {
         token_type: "Bearer",
       };
 
-      storage.saveClientInformation(testServerUrl, clientInfo);
+      storage.saveClientInformation(testServerUrl, clientInfo, {
+        registrationKind: "dcr",
+      });
       storage.saveTokens(testServerUrl, tokens);
 
       storage.clear(testServerUrl);
@@ -353,8 +375,12 @@ describe("BrowserOAuthStorage", () => {
         client_id: "test-client-id",
       };
 
-      storage.saveClientInformation(testServerUrl, clientInfo);
-      storage.saveClientInformation(otherServerUrl, clientInfo);
+      storage.saveClientInformation(testServerUrl, clientInfo, {
+        registrationKind: "dcr",
+      });
+      storage.saveClientInformation(otherServerUrl, clientInfo, {
+        registrationKind: "dcr",
+      });
 
       storage.clear(testServerUrl);
 
@@ -378,8 +404,12 @@ describe("BrowserOAuthStorage", () => {
         client_id: "client-2",
       };
 
-      storage.saveClientInformation(server1Url, clientInfo1);
-      storage.saveClientInformation(server2Url, clientInfo2);
+      storage.saveClientInformation(server1Url, clientInfo1, {
+        registrationKind: "dcr",
+      });
+      storage.saveClientInformation(server2Url, clientInfo2, {
+        registrationKind: "dcr",
+      });
 
       expect(await storage.getClientInformation(server1Url)).toEqual(
         clientInfo1,

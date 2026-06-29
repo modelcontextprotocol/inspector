@@ -19,4 +19,5 @@ export {
   type ResolvedServer,
   type ServerLoadOptions,
 } from "./servers.js";
+export { rehydrateMcpConfigFromKeychain } from "./server-secrets.js";
 export { createTransportNode } from "./transport.js";

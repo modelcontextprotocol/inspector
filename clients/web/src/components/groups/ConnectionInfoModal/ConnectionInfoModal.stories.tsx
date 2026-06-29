@@ -83,6 +83,7 @@ export const WithOAuth: Story = {
       scopes: ["read", "write"],
       accessToken: "eyJhbGciOiJSUzI1NiIs...truncated",
     },
+    onClearOAuth: fn(),
   },
 };
 

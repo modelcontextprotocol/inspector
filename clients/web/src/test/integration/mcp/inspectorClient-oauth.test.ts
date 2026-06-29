@@ -199,7 +199,7 @@ describe("InspectorClient OAuth", () => {
       }
     });
 
-    it("should track auth fetches with category 'auth' during guided auth", async () => {
+    it("should track auth fetches with category 'auth' during authenticate()", async () => {
       const staticClientId = "test-auth-fetch-client";
       const staticClientSecret = "test-auth-fetch-secret";
 
@@ -253,9 +253,7 @@ describe("InspectorClient OAuth", () => {
       );
 
       const fetchRequestLogState = new FetchRequestLogState(testClient);
-      // beginGuidedAuth runs metadata_discovery, client_registration, authorization_redirect
-      // (stops at authorization_code awaiting user). Produces auth fetches only (no connect yet).
-      await testClient.beginGuidedAuth();
+      await testClient.authenticate();
 
       const fetchRequests = fetchRequestLogState.getFetchRequests();
       const authFetches = fetchRequests.filter(
@@ -293,7 +291,7 @@ describe("InspectorClient OAuth", () => {
       const staticClientId = "test-event-client";
       const staticClientSecret = "test-event-secret";
 
-      // Create test server with OAuth enabled and DCR support (for authenticate() normal mode)
+      // Create test server with OAuth enabled and DCR support
       const serverConfig = {
         ...getDefaultServerConfig(),
         serverType: "sse" as const,

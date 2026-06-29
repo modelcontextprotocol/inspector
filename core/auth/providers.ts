@@ -5,21 +5,20 @@ import type {
   OAuthTokens,
   OAuthMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import type { OAuthStorage } from "./storage.js";
-import type { AuthExecution } from "./types.js";
-import { generateOAuthStateWithExecution } from "./utils.js";
+import type { OAuthStorage, SaveClientInformationOptions } from "./storage.js";
+import { generateOAuthState } from "./utils.js";
 
 /**
- * Redirect URL provider. Returns the redirect URL for the requested mode.
- * Caller populates the URLs before authenticate() (e.g. from callback server).
+ * Redirect URL provider. Returns the redirect URL for OAuth flows.
+ * Caller populates the URL before authenticate() (e.g. from callback server).
  */
 export interface RedirectUrlProvider {
-  getRedirectUrl(execution?: AuthExecution): string;
+  getRedirectUrl(): string;
 }
 
 /**
  * Mutable redirect URL provider for TUI/CLI. Caller sets redirectUrl
- * before authenticate(); same URL is used for both quick and guided flows.
+ * before authenticate().
  */
 export class MutableRedirectUrlProvider implements RedirectUrlProvider {
   redirectUrl = "";
@@ -109,19 +108,13 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   protected redirectUrlProvider: RedirectUrlProvider;
   protected navigation: OAuthNavigation;
   public clientMetadataUrl?: string;
-  protected execution: AuthExecution;
 
-  constructor(
-    serverUrl: string,
-    oauthConfig: OAuthProviderConfig,
-    execution: AuthExecution = "quick",
-  ) {
+  constructor(serverUrl: string, oauthConfig: OAuthProviderConfig) {
     this.serverUrl = serverUrl;
     this.storage = oauthConfig.storage;
     this.redirectUrlProvider = oauthConfig.redirectUrlProvider;
     this.navigation = oauthConfig.navigation;
     this.clientMetadataUrl = oauthConfig.clientMetadataUrl;
-    this.execution = execution;
   }
 
   /**
@@ -149,13 +142,12 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     return this.storage.getScope(this.serverUrl);
   }
 
-  /** Redirect URL for the current flow (quick or guided). */
   get redirectUrl(): string {
-    return this.redirectUrlProvider.getRedirectUrl(this.execution);
+    return this.redirectUrlProvider.getRedirectUrl();
   }
 
   get redirect_uris(): string[] {
-    return [this.redirectUrlProvider.getRedirectUrl("quick")];
+    return [this.redirectUrl];
   }
 
   get clientMetadata(): OAuthClientMetadata {
@@ -176,7 +168,7 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   }
 
   state(): string | Promise<string> {
-    return generateOAuthStateWithExecution(this.execution);
+    return generateOAuthState();
   }
 
   async clientInformation(): Promise<OAuthClientInformation | undefined> {
@@ -193,8 +185,11 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
 
   async saveClientInformation(
     clientInformation: OAuthClientInformation,
+    options?: SaveClientInformationOptions,
   ): Promise<void> {
-    await this.storage.saveClientInformation(this.serverUrl, clientInformation);
+    await this.storage.saveClientInformation(this.serverUrl, clientInformation, {
+      registrationKind: options?.registrationKind ?? "dcr",
+    });
   }
 
   async saveScope(scope: string | undefined): Promise<void> {

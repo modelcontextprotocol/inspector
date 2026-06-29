@@ -113,7 +113,9 @@ describe("OAuthNavigation", () => {
       // observe the still-current document (location.href not yet reassigned)
       // so a keepalive request it fires outlives the navigation.
       const order: string[] = [];
-      const authUrl = new URL("http://example.com/authorize?state=normal:abc");
+      const authUrl = new URL(
+        `http://example.com/authorize?state=${"a".repeat(64)}`,
+      );
       const navigation = new BrowserNavigation(undefined, (url) => {
         order.push("before");
         // At hook time the redirect has not happened yet.
@@ -346,9 +348,13 @@ describe("OAuthNavigation", () => {
         token_type: "Bearer",
       });
       expect(storage.saveScope).toHaveBeenCalledWith(SERVER, "openid");
-      expect(storage.saveClientInformation).toHaveBeenCalledWith(SERVER, {
-        client_id: "c",
-      });
+      expect(storage.saveClientInformation).toHaveBeenCalledWith(
+        SERVER,
+        {
+          client_id: "c",
+        },
+        { registrationKind: "dcr" },
+      );
       expect(storage.savePreregisteredClientInformation).toHaveBeenCalledWith(
         SERVER,
         { client_id: "p" },
@@ -357,7 +363,9 @@ describe("OAuthNavigation", () => {
       expect(storage.saveServerMetadata).toHaveBeenCalled();
       expect(await provider.tokens()).toBeUndefined();
       expect(provider.getServerMetadata()).toBeNull();
-      expect(await provider.state()).toMatch(/quick/);
+      const state = await provider.state();
+      expect(typeof state).toBe("string");
+      expect(state.length).toBeGreaterThan(0);
     });
   });
 });

@@ -11,12 +11,20 @@ export interface EnterpriseManagedAuthIdpConfig {
   clientSecret?: string;
 }
 
+/** Install-level CIMD (Client ID Metadata Document) settings. */
+export interface CimdConfig {
+  /** When false, the metadata URL is kept but CIMD is inactive install-wide. */
+  enabled?: boolean;
+  clientMetadataUrl: string;
+}
+
 export interface ClientConfig {
   enterpriseManagedAuth?: {
     /** When false, IdP credentials are kept but EMA is inactive install-wide. */
     enabled?: boolean;
     idp: EnterpriseManagedAuthIdpConfig;
   };
+  cimd?: CimdConfig;
 }
 
 /** True when install-level EMA IdP config is active (not just stored). */
@@ -33,4 +41,17 @@ export function getActiveEnterpriseManagedAuthIdp(
 ): EnterpriseManagedAuthIdpConfig | undefined {
   if (!isEnterpriseManagedAuthEnabled(config)) return undefined;
   return config.enterpriseManagedAuth!.idp;
+}
+
+/** True when install-level CIMD is active (not just stored). */
+export function isCimdEnabled(config: ClientConfig): boolean {
+  return config.cimd?.enabled === true;
+}
+
+export function getActiveCimdClientMetadataUrl(
+  config: ClientConfig,
+): string | undefined {
+  if (!isCimdEnabled(config)) return undefined;
+  const url = config.cimd?.clientMetadataUrl?.trim();
+  return url || undefined;
 }

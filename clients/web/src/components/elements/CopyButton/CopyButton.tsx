@@ -6,9 +6,14 @@ import {
 
 export interface CopyButtonProps {
   value: string;
+  /**
+   * Drop ActionIcon padding/height so the glyph top-aligns in tight aside
+   * rows (e.g. beside a Code block). Icon size is unchanged.
+   */
+  flush?: boolean;
 }
 
-export function CopyButton({ value }: CopyButtonProps) {
+export function CopyButton({ value, flush = false }: CopyButtonProps) {
   return (
     <MantineCopyButton value={value}>
       {({ copied, copy }) => (
@@ -19,6 +24,7 @@ export function CopyButton({ value }: CopyButtonProps) {
             onClick={copy}
             fz={24}
             aria-label={copied ? "Copied" : "Copy"}
+            {...(flush && { p: 0, h: "auto", w: "auto" })}
           >
             {copied ? "\u2713" : "\u2398"}
           </ActionIcon>

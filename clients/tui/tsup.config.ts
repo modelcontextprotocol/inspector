@@ -24,6 +24,7 @@ export default defineConfig({
     'pino',
     'zustand',
     '@modelcontextprotocol/sdk',
+    '@napi-rs/keyring',
   ],
   esbuildOptions(options) {
     options.alias = {

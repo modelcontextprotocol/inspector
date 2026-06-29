@@ -1,3 +1,7 @@
+import {
+  KeyringSecretStore,
+  type SecretStore,
+} from "../../auth/node/secret-store.js";
 import type { InspectorServerSettings, MCPServerConfig } from "../types.js";
 import { DEFAULT_MAX_FETCH_REQUESTS, DEFAULT_TASK_TTL_MS } from "../types.js";
 import { mcpConfigToServerEntries } from "../serverList.js";
@@ -11,6 +15,7 @@ import {
   withDefaultCatalogPath,
   type ServerConfigOptions,
 } from "./config.js";
+import { rehydrateMcpConfigFromKeychain } from "./server-secrets.js";
 
 /**
  * A server resolved from a catalog/config file or an ad-hoc target, paired with
@@ -27,6 +32,8 @@ export type ResolvedServer = {
  * broadcast into every resolved server's settings. */
 export type ServerLoadOptions = ServerConfigOptions & {
   headers?: Record<string, string>;
+  /** Test injection; defaults to {@link KeyringSecretStore} for catalog/config loads. */
+  secretStore?: SecretStore;
 };
 
 /**
@@ -78,9 +85,9 @@ function mergeSettings(
  * enforces the `--catalog`/`--config`/ad-hoc conflict matrix, and seeds an empty
  * writable catalog on first run (a missing read-only `--config` still errors).
  */
-export function loadServerEntries(
+export async function loadServerEntries(
   serverOptions: ServerLoadOptions,
-): Record<string, ResolvedServer> {
+): Promise<Record<string, ResolvedServer>> {
   serverOptions = withDefaultCatalogPath(serverOptions);
 
   const conflict = serverSourceConflict({
@@ -95,7 +102,9 @@ export function loadServerEntries(
   const source = resolveServerSource(serverOptions);
 
   if (source) {
-    const config = readServerListFile(source.path, source.writable);
+    let config = readServerListFile(source.path, source.writable);
+    const secretStore = serverOptions.secretStore ?? new KeyringSecretStore();
+    config = await rehydrateMcpConfigFromKeychain(config, secretStore);
     const entries = mcpConfigToServerEntries(config);
     const result: Record<string, ResolvedServer> = {};
     for (const entry of entries) {

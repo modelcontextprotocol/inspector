@@ -12,7 +12,6 @@ import { dirname, join } from "path";
 import type {
   MessageEntry,
   FetchRequestEntry,
-  MCPServerConfig,
   InspectorClientOptions,
   InspectorClientEnvironment,
 } from "@inspector/core/mcp/index.js";
@@ -45,7 +44,15 @@ import { useStderrLog } from "@inspector/core/react/useStderrLog.js";
 import {
   CallbackNavigation,
   MutableRedirectUrlProvider,
+  isUnauthorizedError,
 } from "@inspector/core/auth/index.js";
+import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
+import type { ClientConfig } from "@inspector/core/client/types.js";
+import {
+  buildRunnerClientAuthOptions,
+  isOAuthCapableServerConfig,
+} from "@inspector/core/client/runner.js";
+import { formatRunnerOAuthRedirectUrl } from "@inspector/core/auth/node/runner-oauth-callback.js";
 import {
   createOAuthCallbackServer,
   type OAuthCallbackServer,
@@ -114,6 +121,7 @@ type FocusArea =
 
 interface AppProps {
   mcpServers: Record<string, TuiServer>;
+  clientConfig: ClientConfig;
   clientId?: string;
   clientSecret?: string;
   clientMetadataUrl?: string;
@@ -124,15 +132,9 @@ interface AppProps {
   };
 }
 
-/** HTTP transports (SSE, streamable-http) can use OAuth. No config gate. */
-function isOAuthCapableServer(config: MCPServerConfig | null): boolean {
-  if (!config) return false;
-  const c = config as MCPServerConfig & { oauth?: unknown };
-  return c.type === "sse" || c.type === "streamable-http";
-}
-
 function App({
   mcpServers,
+  clientConfig,
   clientId,
   clientSecret,
   clientMetadataUrl,
@@ -168,13 +170,13 @@ function App({
     logging?: number;
   }>({});
   const [oauthStatus, setOauthStatus] = useState<
-    "idle" | "authenticating" | "success" | "error"
+    "idle" | "authenticating" | "error"
   >("idle");
   const [oauthMessage, setOauthMessage] = useState<string | null>(null);
+  const [oauthRevision, setOauthRevision] = useState(0);
+  const [connectError, setConnectError] = useState<string | null>(null);
   const oauthInProgressRef = useRef(false);
-  const [selectedAuthAction, setSelectedAuthAction] = useState<
-    "guided" | "quick" | "clear"
-  >("guided");
+  const callbackServerRef = useRef<OAuthCallbackServer | null>(null);
 
   // Tool test modal state
   const [toolTestModal, setToolTestModal] = useState<{
@@ -287,23 +289,11 @@ function App({
                 .map((m) => [m.key, m.value]),
             )
           : undefined;
-        const oauthFromSettings =
-          savedSettings &&
-          (savedSettings.oauthClientId ||
-            savedSettings.oauthClientSecret ||
-            savedSettings.oauthScopes)
-            ? {
-                ...(savedSettings.oauthClientId && {
-                  clientId: savedSettings.oauthClientId,
-                }),
-                ...(savedSettings.oauthClientSecret && {
-                  clientSecret: savedSettings.oauthClientSecret,
-                }),
-                ...(savedSettings.oauthScopes && {
-                  scope: savedSettings.oauthScopes,
-                }),
-              }
-            : undefined;
+        const clientAuthOptions = buildRunnerClientAuthOptions(
+          clientConfig,
+          savedSettings,
+          { clientId, clientSecret, clientMetadataUrl },
+        );
         const opts: InspectorClientOptions = {
           environment,
           pipeStderr: true,
@@ -316,24 +306,21 @@ function App({
               defaultMetadata,
             }),
           ...(savedSettings && { serverSettings: savedSettings }),
+          ...clientAuthOptions,
         };
-        if (isOAuthCapableServer(serverConfig)) {
+        if (isOAuthCapableServerConfig(serverConfig)) {
           const redirectUrlProvider =
             redirectUrlProvidersRef.current[serverName] ??
             (redirectUrlProvidersRef.current[serverName] =
               new MutableRedirectUrlProvider());
+          redirectUrlProvider.redirectUrl =
+            formatRunnerOAuthRedirectUrl(callbackUrlConfig);
           environment.oauth = {
             storage: new NodeOAuthStorage(),
             navigation: new CallbackNavigation(
               async (url) => await openUrl(url),
             ),
             redirectUrlProvider,
-          };
-          opts.oauth = {
-            ...(oauthFromSettings ?? {}),
-            ...(clientId && { clientId }),
-            ...(clientSecret && { clientSecret }),
-            ...(clientMetadataUrl && { clientMetadataUrl }),
           };
         }
         const client = new InspectorClient(serverConfig, opts);
@@ -373,11 +360,19 @@ function App({
       setStderrLogStates((prev) => ({ ...prev, ...newStderrLogStates }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, clientSecret, clientMetadataUrl]);
+  }, [
+    clientConfig,
+    clientId,
+    clientSecret,
+    clientMetadataUrl,
+    callbackUrlConfig,
+  ]);
 
   // Cleanup: destroy managers and disconnect all clients on unmount
   useEffect(() => {
     return () => {
+      void callbackServerRef.current?.stop();
+      callbackServerRef.current = null;
       Object.values(managedToolsStates).forEach((manager) => {
         manager.destroy();
       });
@@ -435,7 +430,7 @@ function App({
     if (
       activeTab === "auth" &&
       selectedServerConfig &&
-      !isOAuthCapableServer(selectedServerConfig)
+      !isOAuthCapableServerConfig(selectedServerConfig)
     ) {
       setActiveTab("info");
     }
@@ -455,6 +450,7 @@ function App({
     instructions: inspectorInstructions,
     connect: connectInspector,
     disconnect: disconnectInspector,
+    lastError: inspectorLastError,
   } = useInspectorClient(selectedInspectorClient);
 
   // Log state from managers (per-server)
@@ -538,46 +534,23 @@ function App({
     selectedManagedPromptsState,
   );
 
-  // Connect handler - InspectorClient now handles fetching server data automatically
-  const handleConnect = useCallback(async () => {
-    if (!selectedServer || !selectedInspectorClient) return;
-
-    try {
-      await connectInspector();
-      // InspectorClient automatically fetches server data (capabilities, tools, resources, resource templates, prompts, etc.)
-      // on connect, so we don't need to do anything here
-    } catch {
-      // Error handling is done by InspectorClient and will be reflected in status
-    }
-  }, [selectedServer, selectedInspectorClient, connectInspector]);
-
-  // Disconnect handler
-  const handleDisconnect = useCallback(async () => {
-    if (!selectedServer) return;
-    await disconnectInspector();
-    // InspectorClient will update status automatically, and data is preserved
-  }, [selectedServer, disconnectInspector]);
-
   // Shared ref for OAuth callback server; stop before starting new (avoids EADDRINUSE when prior auth failed without redirect)
-  const callbackServerRef = useRef<OAuthCallbackServer | null>(null);
 
-  // OAuth Quick Auth (quick execution; callback server + open URL)
-  const handleQuickAuth = useCallback(async () => {
+  // Connect — on 401, run OAuth then retry (same pattern as web App.tsx).
+  const runOAuthAuthentication = useCallback(async () => {
     if (
       !selectedServer ||
       !selectedInspectorClient ||
       !selectedServerConfig ||
-      !isOAuthCapableServer(selectedServerConfig)
+      !isOAuthCapableServerConfig(selectedServerConfig)
     ) {
       return;
     }
     if (oauthInProgressRef.current) return;
     oauthInProgressRef.current = true;
-    setOauthStatus("authenticating");
-    setOauthMessage(null);
     getTuiLogger().info(
       { server: selectedServer },
-      "OAuth authentication started (Quick Auth)",
+      "OAuth authentication started",
     );
     const existing = callbackServerRef.current;
     if (existing) {
@@ -624,12 +597,7 @@ function App({
       if (authUrl !== undefined) {
         await flowDone;
       }
-      setOauthStatus("success");
-      setOauthMessage("OAuth complete. Press C to connect.");
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setOauthStatus("error");
-      setOauthMessage(msg);
+      setOauthRevision((n) => n + 1);
     } finally {
       oauthInProgressRef.current = false;
     }
@@ -640,186 +608,92 @@ function App({
     callbackServerBaseOptions,
   ]);
 
-  // OAuth Guided Auth - step-by-step
-  const handleGuidedStart = useCallback(async () => {
-    if (
-      !selectedServer ||
-      !selectedInspectorClient ||
-      !selectedServerConfig ||
-      !isOAuthCapableServer(selectedServerConfig)
-    ) {
+  const handleConnect = useCallback(async () => {
+    if (!selectedServer || !selectedInspectorClient || !selectedServerConfig) {
       return;
     }
-    if (oauthInProgressRef.current) return;
-    oauthInProgressRef.current = true;
-    setOauthStatus("authenticating");
-    setOauthMessage(null);
-    getTuiLogger().info(
-      { server: selectedServer },
-      "OAuth authentication started (Guided Auth)",
-    );
-    // Stop any previous callback server (e.g. from failed auth where AS never redirected)
-    const existing = callbackServerRef.current;
-    if (existing) {
-      await existing.stop();
-      callbackServerRef.current = null;
-    }
-    const callbackServer = createOAuthCallbackServer();
-    callbackServerRef.current = callbackServer;
-    try {
-      const { redirectUrl } = await callbackServer.start({
-        ...callbackServerBaseOptions,
-        onCallback: async (params) => {
-          try {
-            await selectedInspectorClient!.completeOAuthFlow(params.code);
-            setOauthStatus("success");
-            setOauthMessage("OAuth complete. Press C to connect.");
-          } catch (err) {
-            setOauthStatus("error");
-            setOauthMessage(err instanceof Error ? err.message : String(err));
-          } finally {
-            callbackServerRef.current = null;
-          }
-        },
-        onError: (params) => {
-          setOauthStatus("error");
-          setOauthMessage(
-            params.error_description ?? params.error ?? "OAuth error",
-          );
-          void callbackServer.stop();
-          callbackServerRef.current = null;
-        },
-      });
-      const redirectUrlProvider =
-        redirectUrlProvidersRef.current[selectedServer];
-      if (redirectUrlProvider) {
-        redirectUrlProvider.redirectUrl = redirectUrl;
-      }
-      await selectedInspectorClient.beginGuidedAuth();
+
+    const finishConnect = async () => {
+      await connectInspector();
+      setConnectError(null);
       setOauthStatus("idle");
-    } catch (err) {
-      setOauthStatus("error");
-      setOauthMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      oauthInProgressRef.current = false;
-    }
-  }, [
-    selectedServer,
-    selectedInspectorClient,
-    selectedServerConfig,
-    callbackServerBaseOptions,
-  ]);
-
-  const handleGuidedAdvance = useCallback(async () => {
-    if (!selectedInspectorClient) return;
-    if (oauthInProgressRef.current) return;
-    oauthInProgressRef.current = true;
-    setOauthStatus("authenticating");
-    setOauthMessage(null);
-    getTuiLogger().info(
-      "OAuth authentication started (Guided Auth advance step)",
-    );
-    try {
-      await selectedInspectorClient.proceedOAuthStep();
-      const state = selectedInspectorClient.getOAuthFlowState();
-      if (state?.oauthStep === "authorization_code" && state.authorizationUrl) {
-        await openUrl(state.authorizationUrl);
-      }
-      setOauthStatus("idle");
-    } catch (err) {
-      setOauthStatus("error");
-      setOauthMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      oauthInProgressRef.current = false;
-    }
-  }, [selectedInspectorClient]);
-
-  const handleRunGuidedToCompletion = useCallback(async () => {
-    if (
-      !selectedServer ||
-      !selectedInspectorClient ||
-      !selectedServerConfig ||
-      !isOAuthCapableServer(selectedServerConfig)
-    ) {
-      return;
-    }
-    if (oauthInProgressRef.current) return;
-    oauthInProgressRef.current = true;
-    setOauthStatus("authenticating");
-    setOauthMessage(null);
-    getTuiLogger().info(
-      { server: selectedServer },
-      "OAuth authentication started (Run Guided Auth to completion)",
-    );
-
-    const ensureCallbackServer = async () => {
-      if (callbackServerRef.current) return;
-      const callbackServer = createOAuthCallbackServer();
-      callbackServerRef.current = callbackServer;
-      const { redirectUrl } = await callbackServer.start({
-        ...callbackServerBaseOptions,
-        onCallback: async (params) => {
-          try {
-            await selectedInspectorClient!.completeOAuthFlow(params.code);
-            setOauthStatus("success");
-            setOauthMessage("OAuth complete. Press C to connect.");
-          } catch (err) {
-            setOauthStatus("error");
-            setOauthMessage(err instanceof Error ? err.message : String(err));
-          } finally {
-            callbackServerRef.current = null;
-          }
-        },
-        onError: (params) => {
-          setOauthStatus("error");
-          setOauthMessage(
-            params.error_description ?? params.error ?? "OAuth error",
-          );
-          void callbackServer.stop();
-          callbackServerRef.current = null;
-        },
-      });
-      const redirectUrlProvider =
-        redirectUrlProvidersRef.current[selectedServer];
-      if (redirectUrlProvider) {
-        redirectUrlProvider.redirectUrl = redirectUrl;
-      }
+      setOauthMessage(null);
     };
 
     try {
-      await ensureCallbackServer();
-      const authUrl = await selectedInspectorClient.runGuidedAuth();
-      if (authUrl) {
-        await openUrl(authUrl);
-      }
-      setOauthStatus("idle");
+      await finishConnect();
     } catch (err) {
-      setOauthStatus("error");
-      setOauthMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      oauthInProgressRef.current = false;
+      const msg = err instanceof Error ? err.message : String(err);
+      setConnectError(msg);
+
+      if (isEmaClientNotConfiguredError(err)) {
+        setOauthStatus("error");
+        setOauthMessage(err.message);
+        return;
+      }
+
+      if (
+        isOAuthCapableServerConfig(selectedServerConfig) &&
+        isUnauthorizedError(err)
+      ) {
+        try {
+          setOauthStatus("authenticating");
+          setOauthMessage(null);
+          // Tear down the failed handshake transport so the post-OAuth connect
+          // creates a fresh transport with tokens from storage (same as web,
+          // which reloads the client after redirect).
+          await disconnectInspector();
+          await runOAuthAuthentication();
+          await finishConnect();
+        } catch (authErr) {
+          const authMsg =
+            authErr instanceof Error ? authErr.message : String(authErr);
+          setConnectError(authMsg);
+          if (isEmaClientNotConfiguredError(authErr)) {
+            setOauthStatus("error");
+            setOauthMessage(authErr.message);
+            return;
+          }
+          setOauthStatus("error");
+          setOauthMessage(authMsg);
+        }
+        return;
+      }
     }
   }, [
     selectedServer,
     selectedInspectorClient,
     selectedServerConfig,
-    callbackServerBaseOptions,
+    connectInspector,
+    disconnectInspector,
+    runOAuthAuthentication,
   ]);
 
-  const handleClearOAuth = useCallback(() => {
-    if (selectedInspectorClient) {
-      selectedInspectorClient.clearOAuthTokens();
-      setOauthStatus("idle");
-      setOauthMessage(null);
+  // Disconnect handler
+  const handleDisconnect = useCallback(async () => {
+    if (!selectedServer) return;
+    await disconnectInspector();
+    // InspectorClient will update status automatically, and data is preserved
+  }, [selectedServer, disconnectInspector]);
+
+  const handleClearOAuth = useCallback(async () => {
+    if (!selectedInspectorClient) return;
+    selectedInspectorClient.clearOAuthTokens();
+    setOauthStatus("idle");
+    setOauthMessage(null);
+    setConnectError(null);
+    if (inspectorStatus === "connected" || inspectorStatus === "connecting") {
+      await disconnectInspector();
     }
-  }, [selectedInspectorClient]);
+    setOauthRevision((n) => n + 1);
+  }, [selectedInspectorClient, inspectorStatus, disconnectInspector]);
 
   // Build current server state from InspectorClient data (tools from ManagedToolsState)
   const currentServerState = useMemo(() => {
     if (!selectedServer) return null;
     return {
       status: inspectorStatus,
-      error: null, // InspectorClient doesn't track error in state, only emits error events
+      error: connectError ?? inspectorLastError ?? null,
       capabilities: inspectorCapabilities,
       serverInfo: inspectorServerInfo,
       instructions: inspectorInstructions,
@@ -832,6 +706,8 @@ function App({
   }, [
     selectedServer,
     inspectorStatus,
+    connectError,
+    inspectorLastError,
     inspectorCapabilities,
     inspectorServerInfo,
     inspectorInstructions,
@@ -842,22 +718,6 @@ function App({
     inspectorStderrLogs,
   ]);
 
-  // 401 on connect → prompt to authenticate (HTTP servers). Hide during/after auth.
-  const show401AuthHint = useMemo(() => {
-    if (inspectorStatus !== "error") return false;
-    if (oauthStatus === "authenticating" || oauthStatus === "success")
-      return false;
-    if (!selectedServerConfig || !isOAuthCapableServer(selectedServerConfig))
-      return false;
-    return inspectorFetchRequests.some((r) => r.responseStatus === 401);
-  }, [
-    inspectorStatus,
-    oauthStatus,
-    selectedServerConfig,
-    inspectorFetchRequests,
-  ]);
-
-  // Helper functions to render details modal content
   const renderResourceDetails = (
     resource:
       | Resource
@@ -1220,29 +1080,11 @@ function App({
       exit();
     }
 
-    // G/Q/S: switch to Auth tab (if not already) and select Guided/Quick/Clear
-    const showAuthTabForAccel =
-      !!selectedServer &&
-      !!selectedServerConfig &&
-      isOAuthCapableServer(selectedServerConfig);
-    const lower = input.toLowerCase();
-    if (
-      showAuthTabForAccel &&
-      (lower === "g" || lower === "q" || lower === "s")
-    ) {
-      setActiveTab("auth");
-      setFocus("tabContentList");
-      setSelectedAuthAction(
-        lower === "g" ? "guided" : lower === "q" ? "quick" : "clear",
-      );
-      return;
-    }
-
     // Tab switching with accelerator keys (first character of tab name)
     const showAuthTab =
       !!selectedServer &&
       !!selectedServerConfig &&
-      isOAuthCapableServer(selectedServerConfig);
+      isOAuthCapableServerConfig(selectedServerConfig);
     const showLoggingTab =
       !!selectedServer &&
       inspectorClients[selectedServer]?.getServerType() === "stdio";
@@ -1265,8 +1107,16 @@ function App({
         ]),
     );
     if (tabAccelerators[input.toLowerCase()]) {
-      setActiveTab(tabAccelerators[input.toLowerCase()]);
-      setFocus("tabs");
+      const nextTab = tabAccelerators[input.toLowerCase()]!;
+      setActiveTab(nextTab);
+      setFocus(nextTab === "auth" ? "tabContentList" : "tabs");
+    } else if (
+      activeTab === "auth" &&
+      showAuthTab &&
+      input.toLowerCase() === "s"
+    ) {
+      void handleClearOAuth();
+      setFocus("tabContentList");
     } else if (key.tab && !key.shift) {
       // Flat focus order: servers -> tabs -> list -> details -> wrap to servers
       const focusOrder: FocusArea[] =
@@ -1322,7 +1172,7 @@ function App({
       const showAuthTab =
         !!selectedServer &&
         !!selectedServerConfig &&
-        isOAuthCapableServer(selectedServerConfig);
+        isOAuthCapableServerConfig(selectedServerConfig);
       const showLoggingTab =
         !!selectedServer &&
         inspectorClients[selectedServer]?.getServerType() === "stdio";
@@ -1358,7 +1208,6 @@ function App({
     }
 
     // Accelerator keys for connect/disconnect (work from anywhere)
-    // 'a' switches to Auth tab; use the Auth tab for Quick/Guided auth
     if (selectedServer) {
       if (
         input.toLowerCase() === "c" &&
@@ -1543,24 +1392,14 @@ function App({
                   )}
                 </Box>
               </Box>
-              {show401AuthHint && (
+              {oauthStatus === "authenticating" && (
                 <Box marginTop={1}>
-                  <Text color="yellow">
-                    401 Unauthorized. Press <Text bold>A</Text> to authenticate.
-                  </Text>
+                  <Text dimColor>OAuth: authenticating…</Text>
                 </Box>
               )}
-              {oauthStatus !== "idle" && (
+              {oauthStatus === "error" && oauthMessage && (
                 <Box marginTop={1}>
-                  {oauthStatus === "authenticating" && (
-                    <Text dimColor>OAuth: authenticating…</Text>
-                  )}
-                  {oauthStatus === "success" && oauthMessage && (
-                    <Text color="green">{oauthMessage}</Text>
-                  )}
-                  {oauthStatus === "error" && oauthMessage && (
-                    <Text color="red">OAuth: {oauthMessage}</Text>
-                  )}
+                  <Text color="red">OAuth: {oauthMessage}</Text>
                 </Box>
               )}
             </Box>
@@ -1577,7 +1416,7 @@ function App({
               !!(
                 selectedServer &&
                 selectedServerConfig &&
-                isOAuthCapableServer(selectedServerConfig)
+                isOAuthCapableServerConfig(selectedServerConfig)
               )
             }
             showLogging={
@@ -1623,26 +1462,23 @@ function App({
             {activeTab === "auth" &&
             selectedServer &&
             selectedServerConfig &&
-            isOAuthCapableServer(selectedServerConfig) ? (
+            isOAuthCapableServerConfig(selectedServerConfig) ? (
               <AuthTab
                 serverName={selectedServer}
                 serverConfig={selectedServerConfig}
                 inspectorClient={selectedInspectorClient}
                 oauthStatus={oauthStatus}
                 oauthMessage={oauthMessage}
+                oauthRevision={oauthRevision}
                 width={contentWidth}
                 height={contentHeight}
                 focused={
                   focus === "tabContentList" || focus === "tabContentDetails"
                 }
-                selectedAction={selectedAuthAction}
-                onSelectedActionChange={setSelectedAuthAction}
-                onQuickAuth={handleQuickAuth}
-                onGuidedStart={handleGuidedStart}
-                onGuidedAdvance={handleGuidedAdvance}
-                onRunGuidedToCompletion={handleRunGuidedToCompletion}
-                onClearOAuth={handleClearOAuth}
-                isOAuthCapable={true}
+                onClearOAuth={() => {
+                  void handleClearOAuth();
+                }}
+                connectionStatus={inspectorStatus}
               />
             ) : null}
             {activeTab === "resources" &&

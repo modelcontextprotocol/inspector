@@ -1,5 +1,8 @@
 import type { ClientConfig } from "@inspector/core/client/types.js";
-import { isAbsoluteHttpUrl } from "@inspector/core/client/config-parse.js";
+import {
+  getCimdClientMetadataUrlError,
+  isAbsoluteHttpUrl,
+} from "@inspector/core/client/config-parse.js";
 
 /** Field-level error message for an issuer that is not an http(s) URL. */
 export const ISSUER_URL_ERROR =
@@ -8,6 +11,7 @@ export const ISSUER_URL_ERROR =
 /** Field-level validation errors for the client settings form. */
 export interface ClientSettingsErrors {
   issuer?: string;
+  clientMetadataUrl?: string;
 }
 
 /**
@@ -26,6 +30,12 @@ export function validateClientSettings(
   ) {
     errors.issuer = ISSUER_URL_ERROR;
   }
+  if (values.cimdEnabled && values.clientMetadataUrl.trim() !== "") {
+    const cimdError = getCimdClientMetadataUrlError(values.clientMetadataUrl);
+    if (cimdError) {
+      errors.clientMetadataUrl = cimdError;
+    }
+  }
   return errors;
 }
 
@@ -35,6 +45,8 @@ export interface ClientSettingsFormValues {
   issuer: string;
   clientId: string;
   clientSecret: string;
+  cimdEnabled: boolean;
+  clientMetadataUrl: string;
 }
 
 export const EMPTY_CLIENT_SETTINGS: ClientSettingsFormValues = {
@@ -42,6 +54,8 @@ export const EMPTY_CLIENT_SETTINGS: ClientSettingsFormValues = {
   issuer: "",
   clientId: "",
   clientSecret: "",
+  cimdEnabled: false,
+  clientMetadataUrl: "",
 };
 
 export function clientConfigToFormValues(
@@ -49,14 +63,15 @@ export function clientConfigToFormValues(
 ): ClientSettingsFormValues {
   const ema = config.enterpriseManagedAuth;
   const idp = ema?.idp;
-  if (!idp) {
-    return { ...EMPTY_CLIENT_SETTINGS };
-  }
+  const cimd = config.cimd;
+
   return {
-    emaEnabled: ema.enabled !== false,
-    issuer: idp.issuer,
-    clientId: idp.clientId,
-    clientSecret: idp.clientSecret ?? "",
+    emaEnabled: idp ? ema!.enabled !== false : false,
+    issuer: idp?.issuer ?? "",
+    clientId: idp?.clientId ?? "",
+    clientSecret: idp?.clientSecret ?? "",
+    cimdEnabled: cimd?.enabled === true,
+    clientMetadataUrl: cimd?.clientMetadataUrl ?? "",
   };
 }
 
@@ -68,36 +83,43 @@ function hasStoredIdpFields(values: ClientSettingsFormValues): boolean {
   );
 }
 
+/** Serialize the full dialog state. POST replaces client.json wholesale. */
 export function formValuesToClientConfig(
   values: ClientSettingsFormValues,
 ): ClientConfig {
-  if (!hasStoredIdpFields(values)) {
-    return {};
-  }
-
-  const idp = {
-    issuer: values.issuer.trim(),
-    clientId: values.clientId.trim(),
-    clientSecret: values.clientSecret,
-  };
-
-  return {
-    enterpriseManagedAuth: {
-      enabled: values.emaEnabled,
-      idp,
+  const result: ClientConfig = {
+    cimd: {
+      enabled: values.cimdEnabled,
+      clientMetadataUrl: values.clientMetadataUrl.trim(),
     },
   };
+
+  if (hasStoredIdpFields(values) || values.emaEnabled) {
+    result.enterpriseManagedAuth = {
+      enabled: values.emaEnabled,
+      idp: {
+        issuer: values.issuer.trim(),
+        clientId: values.clientId.trim(),
+        clientSecret: values.clientSecret,
+      },
+    };
+  }
+
+  return result;
 }
 
-/** Skip debounced persist while EMA is enabled but required IdP fields are blank. */
+/** Skip debounced persist while required fields are blank for enabled features. */
 export function canPersistClientSettingsDraft(
   values: ClientSettingsFormValues,
 ): boolean {
-  if (!values.emaEnabled) return true;
-  if (values.issuer.trim() === "" || values.clientId.trim() === "")
-    return false;
-  // Defer to validateClientSettings so the persist gate and the inline field
-  // errors can never drift: an invalid issuer is never sent to the backend, and
-  // the field error guides the user instead of a raw validation failure toast.
+  if (values.emaEnabled) {
+    if (values.issuer.trim() === "" || values.clientId.trim() === "")
+      return false;
+  }
+  if (values.cimdEnabled) {
+    if (!values.clientMetadataUrl.trim()) return false;
+  }
+  // Defer to validateClientSettings so the persist gate and inline field errors
+  // can never drift — invalid values are never sent to the backend.
   return Object.keys(validateClientSettings(values)).length === 0;
 }

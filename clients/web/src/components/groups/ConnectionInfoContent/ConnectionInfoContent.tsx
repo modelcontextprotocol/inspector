@@ -1,6 +1,8 @@
 import {
   Badge,
+  Button,
   Code,
+  Flex,
   ScrollArea,
   SimpleGrid,
   Stack,
@@ -12,6 +14,7 @@ import type {
   InitializeResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { ServerType } from "@inspector/core/mcp/types.js";
+import type { OAuthClientRegistrationKind } from "@inspector/core/auth/types.js";
 import {
   CapabilityItem,
   type CapabilityKey,
@@ -23,6 +26,7 @@ export interface OAuthDetails {
   protocol: "standard" | "ema";
   authorized: boolean;
   clientId?: string;
+  clientRegistrationKind?: OAuthClientRegistrationKind;
   authUrl?: string;
   scopes?: string[];
   accessToken?: string;
@@ -35,6 +39,7 @@ export interface ConnectionInfoContentProps {
   clientCapabilities: ClientCapabilities;
   transport: ServerType;
   oauth?: OAuthDetails;
+  onClearOAuth?: () => void;
 }
 
 const ValueText = Text.withProps({
@@ -68,6 +73,19 @@ function formatIdpSession(
   }
 }
 
+function formatClientRegistrationKind(
+  kind: OAuthClientRegistrationKind,
+): string {
+  switch (kind) {
+    case "static":
+      return "Static (preregistered)";
+    case "dcr":
+      return "Dynamic (DCR)";
+    case "cimd":
+      return "Client ID Metadata (CIMD)";
+  }
+}
+
 const SERVER_CAPABILITY_KEYS: CapabilityKey[] = [
   "tools",
   "resources",
@@ -85,6 +103,9 @@ const CLIENT_CAPABILITY_KEYS: CapabilityKey[] = [
   "experimental",
 ];
 
+export const CLEAR_OAUTH_STATE_AND_DISCONNECT_LABEL =
+  "Clear OAuth state and disconnect";
+
 function getCapabilityEntries(
   capabilities: Record<string, unknown>,
   knownKeys: CapabilityKey[],
@@ -100,6 +121,7 @@ export function ConnectionInfoContent({
   clientCapabilities,
   transport,
   oauth,
+  onClearOAuth,
 }: ConnectionInfoContentProps) {
   const { serverInfo, protocolVersion, capabilities, instructions } =
     initializeResult;
@@ -189,6 +211,14 @@ export function ConnectionInfoContent({
                 <Code>{oauth.clientId}</Code>
               </SimpleGrid>
             )}
+            {oauth.clientRegistrationKind && (
+              <SimpleGrid cols={2}>
+                <Text size="sm">Client registration</Text>
+                <ValueText>
+                  {formatClientRegistrationKind(oauth.clientRegistrationKind)}
+                </ValueText>
+              </SimpleGrid>
+            )}
             {oauth.protocol === "ema" && oauth.idpSession && (
               <SimpleGrid cols={2}>
                 <Text size="sm">IdP session</Text>
@@ -207,8 +237,25 @@ export function ConnectionInfoContent({
                 <ValueText>{formatScopes(oauth.scopes)}</ValueText>
               </SimpleGrid>
             )}
-            {oauth.accessToken && (
-              <OAuthAccessTokenField accessToken={oauth.accessToken} />
+            {oauth.accessToken ? (
+              <OAuthAccessTokenField
+                accessToken={oauth.accessToken}
+                onClear={onClearOAuth}
+                clearLabel={CLEAR_OAUTH_STATE_AND_DISCONNECT_LABEL}
+              />
+            ) : (
+              onClearOAuth && (
+                <Flex justify="flex-end">
+                  <Button
+                    variant="subtle"
+                    color="red"
+                    size="compact-xs"
+                    onClick={onClearOAuth}
+                  >
+                    {CLEAR_OAUTH_STATE_AND_DISCONNECT_LABEL}
+                  </Button>
+                </Flex>
+              )
             )}
           </Stack>
         </Stack>

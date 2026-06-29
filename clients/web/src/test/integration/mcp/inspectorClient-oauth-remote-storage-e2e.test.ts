@@ -244,7 +244,7 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
           clientConfig,
         );
 
-        const authUrl = await client.runGuidedAuth();
+        const authUrl = await client.authenticate();
         if (!authUrl) throw new Error("Expected authorization URL");
         expect(authUrl.href).toContain("/oauth/authorize");
 
@@ -335,7 +335,7 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
           clientConfig1,
         );
 
-        const authUrl = await client1.runGuidedAuth();
+        const authUrl = await client1.authenticate();
         if (!authUrl) throw new Error("Expected authorization URL");
         const authCode = await completeOAuthAuthorization(authUrl);
         await client1.completeOAuthFlow(authCode);
@@ -495,7 +495,7 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
           clientConfig,
         );
 
-        const authUrl = await client.runGuidedAuth();
+        const authUrl = await client.authenticate();
         if (!authUrl) throw new Error("Expected authorization URL");
         expect(authUrl.href).toContain("/oauth/authorize");
 

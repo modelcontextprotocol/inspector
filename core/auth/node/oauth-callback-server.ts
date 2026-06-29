@@ -52,7 +52,7 @@ export interface OAuthCallbackServerStartResult {
 
 /**
  * Minimal HTTP server that receives OAuth 2.1 redirects at GET /oauth/callback.
- * Used by TUI/CLI to complete the authorization code flow (both quick and guided).
+ * Used by TUI/CLI to complete the authorization code flow.
  * Caller provides onCallback/onError; typically onCallback calls
  * InspectorClient.completeOAuthFlow(code) then stops the server.
  */
@@ -65,7 +65,8 @@ export class OAuthCallbackServer {
   private onError?: OAuthErrorHandler;
 
   /**
-   * Start the server. Listens on the given port (default 0 = random).
+   * Start the server. Port defaults to 0 (random) when omitted; TUI/CLI callers
+   * pass the resolved port from {@link parseRunnerOAuthCallbackUrl} (6276 by default).
    * Returns port and redirectUrl for use as oauth.redirectUrl.
    */
   async start(
