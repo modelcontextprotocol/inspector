@@ -54,10 +54,52 @@ describe("runner OAuth callback URL", () => {
     });
   });
 
+  it("defaults to port 80 when the URL omits a port", () => {
+    expect(
+      parseRunnerOAuthCallbackUrl("http://127.0.0.1/oauth/callback"),
+    ).toEqual({
+      hostname: "127.0.0.1",
+      port: 80,
+      pathname: "/oauth/callback",
+    });
+  });
+
+  it("throws on an unparseable callback URL", () => {
+    expect(() => parseRunnerOAuthCallbackUrl("not a url")).toThrow(
+      /Invalid OAuth callback URL/,
+    );
+  });
+
+  it("rejects a non-http scheme", () => {
+    expect(() =>
+      parseRunnerOAuthCallbackUrl("https://127.0.0.1:6276/oauth/callback"),
+    ).toThrow(/must use http scheme/);
+  });
+
   it("formatRunnerOAuthRedirectUrl round-trips default config", () => {
     const config = parseRunnerOAuthCallbackUrl();
     expect(formatRunnerOAuthRedirectUrl(config)).toBe(
       DEFAULT_RUNNER_OAUTH_CALLBACK_URL,
     );
+  });
+
+  it("formatRunnerOAuthRedirectUrl brackets a bare IPv6 hostname", () => {
+    expect(
+      formatRunnerOAuthRedirectUrl({
+        hostname: "::1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      }),
+    ).toBe("http://[::1]:6276/oauth/callback");
+  });
+
+  it("formatRunnerOAuthRedirectUrl leaves an already-bracketed IPv6 host alone", () => {
+    expect(
+      formatRunnerOAuthRedirectUrl({
+        hostname: "[::1]",
+        port: 6276,
+        pathname: "/oauth/callback",
+      }),
+    ).toBe("http://[::1]:6276/oauth/callback");
   });
 });

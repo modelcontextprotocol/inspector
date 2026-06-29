@@ -97,6 +97,73 @@ describe("useClientSettingsDraft", () => {
     expect(result.current.draft).toEqual({ text: "ab", rows: [] });
   });
 
+  it("applies a functional updater against the latest draft", () => {
+    const { result } = renderHook(() =>
+      useClientSettingsDraft<SettingsShape>({
+        opened: true,
+        resolveInitial: () => ({ text: "seed", rows: ["a"] }),
+        onPersist: vi.fn(),
+        onError: vi.fn(),
+      }),
+    );
+    act(() => {
+      result.current.onChange((prev) => ({ ...prev, text: prev.text + "!" }));
+    });
+    expect(result.current.draft).toEqual({ text: "seed!", rows: ["a"] });
+  });
+
+  it("ignores a stale onChange captured before the modal closed", () => {
+    // Capture the onChange created while open (its closure still sees
+    // opened === true), then close the modal — which nulls latestValuesRef.
+    // Invoking the stale handler must short-circuit on the `prev === null`
+    // guard rather than scheduling a persist of nothing.
+    const onPersist = vi.fn(async () => {});
+    const { result, rerender } = renderHook(
+      ({ opened }: { opened: boolean }) =>
+        useClientSettingsDraft<SettingsShape>({
+          opened,
+          resolveInitial: () => EMPTY,
+          onPersist,
+          onError: vi.fn(),
+        }),
+      { initialProps: { opened: true } },
+    );
+    const staleOnChange = result.current.onChange;
+    rerender({ opened: false });
+    act(() => {
+      staleOnChange({ text: "stale", rows: [] });
+    });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(onPersist).not.toHaveBeenCalled();
+  });
+
+  it("skips the debounced persist when the modal closed before the timer fired", () => {
+    // A persist is scheduled while open; the modal then closes (nulling
+    // latestValuesRef) without unmounting, so the pending timer still fires.
+    // The `value !== null` guard inside the timer must suppress the persist.
+    const onPersist = vi.fn(async () => {});
+    const { result, rerender } = renderHook(
+      ({ opened }: { opened: boolean }) =>
+        useClientSettingsDraft<SettingsShape>({
+          opened,
+          resolveInitial: () => EMPTY,
+          onPersist,
+          onError: vi.fn(),
+        }),
+      { initialProps: { opened: true } },
+    );
+    act(() => {
+      result.current.onChange({ text: "pending", rows: [] });
+    });
+    rerender({ opened: false });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(onPersist).not.toHaveBeenCalled();
+  });
+
   it("debounces onPersist by the configured window", () => {
     const onPersist = vi.fn(async () => {});
     const { result } = renderHook(() =>

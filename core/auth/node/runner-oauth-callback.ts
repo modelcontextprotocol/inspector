@@ -47,23 +47,27 @@ export function parseRunnerOAuthCallbackUrl(
   try {
     url = new URL(raw);
   } catch (err) {
-    throw new Error(
-      `Invalid OAuth callback URL: ${(err as Error)?.message ?? String(err)}`,
-    );
+    /* v8 ignore next -- new URL() only throws an Error with a message; the String(err) fallback is unreachable */
+    const reason = (err as Error)?.message ?? String(err);
+    throw new Error(`Invalid OAuth callback URL: ${reason}`);
   }
   if (url.protocol !== "http:") {
     throw new Error("OAuth callback URL must use http scheme");
   }
   const hostname = url.hostname;
+  /* v8 ignore start -- a parseable http: URL always has a non-empty hostname; empty-host http URLs throw at new URL() above */
   if (!hostname) {
     throw new Error("OAuth callback URL must include a hostname");
   }
+  /* v8 ignore stop */
+  /* v8 ignore next -- an http: URL always has a non-empty pathname (min "/"), so the fallback is unreachable */
   const pathname = url.pathname || "/";
   let port: number;
   if (url.port === "") {
     port = 80;
   } else {
     port = Number(url.port);
+    /* v8 ignore start -- new URL() already rejects out-of-range/non-numeric ports, so url.port is always a valid 0-65535 numeric string here */
     if (
       !Number.isFinite(port) ||
       !Number.isInteger(port) ||
@@ -72,6 +76,7 @@ export function parseRunnerOAuthCallbackUrl(
     ) {
       throw new Error("OAuth callback URL port must be between 0 and 65535");
     }
+    /* v8 ignore stop */
   }
   return { hostname, port, pathname };
 }

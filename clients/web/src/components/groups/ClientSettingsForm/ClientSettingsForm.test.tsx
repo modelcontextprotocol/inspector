@@ -366,6 +366,60 @@ describe("ClientSettingsForm interactions", () => {
     });
   });
 
+  it("toggles the CIMD enable checkbox via onSettingsChange", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={EMPTY_CLIENT_SETTINGS}
+        expandedSections={["cimd"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "Use Client ID Metadata Document",
+      }),
+    );
+    expect(onSettingsChange).toHaveBeenCalledWith(expect.any(Function));
+    expect(
+      resolveSettingsChange(
+        onSettingsChange.mock.calls[0]![0],
+        EMPTY_CLIENT_SETTINGS,
+      ),
+    ).toEqual({
+      ...EMPTY_CLIENT_SETTINGS,
+      cimdEnabled: true,
+    });
+  });
+
+  it("clears the CIMD metadata URL via its clear button", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    const filled = {
+      ...EMPTY_CLIENT_SETTINGS,
+      cimdEnabled: true,
+      clientMetadataUrl: "https://example.com/cimd.json",
+    };
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={filled}
+        expandedSections={["cimd"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(onSettingsChange).toHaveBeenCalledWith(expect.any(Function));
+    expect(
+      resolveSettingsChange(onSettingsChange.mock.calls[0]![0], filled)
+        .clientMetadataUrl,
+    ).toBe("");
+  });
+
   it("edits the IdP text fields via onSettingsChange", async () => {
     const user = userEvent.setup();
     const onSettingsChange = vi.fn();

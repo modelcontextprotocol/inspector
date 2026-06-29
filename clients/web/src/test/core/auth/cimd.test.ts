@@ -67,6 +67,36 @@ describe("ensureCimdClientRegistration", () => {
     );
   });
 
+  it("does not register when the AS metadata omits CIMD support", async () => {
+    const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/.well-known/oauth-protected-resource")) {
+        return new Response(JSON.stringify({ resource: SERVER_URL }));
+      }
+      if (url.includes("/.well-known/oauth-authorization-server")) {
+        return new Response(
+          JSON.stringify({
+            issuer: "http://127.0.0.1:9999",
+            authorization_endpoint: "http://127.0.0.1:9999/oauth/authorize",
+            token_endpoint: "http://127.0.0.1:9999/oauth/token",
+            response_types_supported: ["code"],
+            // client_id_metadata_document_supported intentionally absent.
+          }),
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const provider = createProvider(storage);
+    await ensureCimdClientRegistration({
+      serverUrl: SERVER_URL,
+      provider,
+      fetchFn,
+    });
+
+    expect(storage.saveClientInformation).not.toHaveBeenCalled();
+  });
+
   it("no-ops when client information is already stored", async () => {
     storage.getClientInformation = vi.fn(async () => ({
       client_id: "existing-client",

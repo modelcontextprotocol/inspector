@@ -14,6 +14,10 @@ describe("oauthDisplay", () => {
   });
 
   it("formatClientRegistrationKind covers registration kinds", () => {
+    expect(formatClientRegistrationKind("static")).toBe(
+      "Static (preregistered)",
+    );
+    expect(formatClientRegistrationKind("dcr")).toBe("Dynamic (DCR)");
     expect(formatClientRegistrationKind("cimd")).toBe(
       "Client ID Metadata (CIMD)",
     );
@@ -21,6 +25,7 @@ describe("oauthDisplay", () => {
 
   it("formatIdpSession maps session states", () => {
     expect(formatIdpSession("logged_in")).toBe("Signed in");
+    expect(formatIdpSession("expired")).toBe("Session expired");
     expect(formatIdpSession("none")).toBe("Not signed in");
   });
 
@@ -29,5 +34,19 @@ describe("oauthDisplay", () => {
       grantedScope: "openid profile",
     } as OAuthConnectionState;
     expect(formatScopes(state)).toBe("openid, profile");
+  });
+
+  it("formatScopes falls back to configured scope", () => {
+    const state = {
+      configuredScope: "read write",
+    } as OAuthConnectionState;
+    expect(formatScopes(state)).toBe("read, write");
+  });
+
+  it("formatScopes returns undefined when no scopes are present", () => {
+    expect(formatScopes({} as OAuthConnectionState)).toBeUndefined();
+    expect(
+      formatScopes({ grantedScope: "   " } as OAuthConnectionState),
+    ).toBeUndefined();
   });
 });
