@@ -7,35 +7,72 @@ import {
 /** Field-level error message for an issuer that is not an http(s) URL. */
 export const ISSUER_URL_ERROR =
   "Must be an http(s) URL, like https://idp.example.com";
+/** Field-level errors for a required field left blank while its feature is enabled. */
+export const ISSUER_REQUIRED_ERROR =
+  "Issuer is required when enterprise IdP configuration is enabled";
+export const CLIENT_ID_REQUIRED_ERROR =
+  "Client ID is required when enterprise IdP configuration is enabled";
+export const CLIENT_METADATA_URL_REQUIRED_ERROR =
+  "Metadata document URL is required when CIMD is enabled";
 
 /** Field-level validation errors for the client settings form. */
 export interface ClientSettingsErrors {
   issuer?: string;
+  clientId?: string;
   clientMetadataUrl?: string;
 }
 
+export interface ValidateClientSettingsOptions {
+  /**
+   * Also flag required fields left blank. Off by default so inline (as-you-type)
+   * validation only flags a field the user has actually filled in wrong; turned
+   * on when a save/close is attempted so an incomplete config is surfaced rather
+   * than silently dropped.
+   */
+  requireComplete?: boolean;
+}
+
 /**
- * Inline validation for the client settings form. Only flags fields that the
- * user has actually filled in — empty required fields are gated by
- * {@link canPersistClientSettingsDraft} rather than surfaced as errors.
+ * Validation for the client settings form. By default only flags fields the
+ * user has filled in wrong (a non-empty, non-http(s) issuer; a malformed CIMD
+ * metadata URL). With `requireComplete`, also flags the required fields of an
+ * enabled feature (EMA's issuer/clientId, CIMD's metadata URL) when they are
+ * blank — used at save/close time so an enabled-but-incomplete config never
+ * persists silently.
  */
 export function validateClientSettings(
   values: ClientSettingsFormValues,
+  options: ValidateClientSettingsOptions = {},
 ): ClientSettingsErrors {
   const errors: ClientSettingsErrors = {};
-  if (
-    values.emaEnabled &&
-    values.issuer.trim() !== "" &&
-    !isAbsoluteHttpUrl(values.issuer)
-  ) {
-    errors.issuer = ISSUER_URL_ERROR;
-  }
-  if (values.cimdEnabled && values.clientMetadataUrl.trim() !== "") {
-    const cimdError = getCimdClientMetadataUrlError(values.clientMetadataUrl);
-    if (cimdError) {
-      errors.clientMetadataUrl = cimdError;
+
+  if (values.emaEnabled) {
+    const issuer = values.issuer.trim();
+    if (issuer === "") {
+      if (options.requireComplete) errors.issuer = ISSUER_REQUIRED_ERROR;
+    } else if (!isAbsoluteHttpUrl(values.issuer)) {
+      errors.issuer = ISSUER_URL_ERROR;
+    }
+
+    if (options.requireComplete && values.clientId.trim() === "") {
+      errors.clientId = CLIENT_ID_REQUIRED_ERROR;
     }
   }
+
+  if (values.cimdEnabled) {
+    const url = values.clientMetadataUrl.trim();
+    if (url === "") {
+      if (options.requireComplete) {
+        errors.clientMetadataUrl = CLIENT_METADATA_URL_REQUIRED_ERROR;
+      }
+    } else {
+      const cimdError = getCimdClientMetadataUrlError(values.clientMetadataUrl);
+      if (cimdError) {
+        errors.clientMetadataUrl = cimdError;
+      }
+    }
+  }
+
   return errors;
 }
 
@@ -108,18 +145,18 @@ export function formValuesToClientConfig(
   return result;
 }
 
-/** Skip debounced persist while required fields are blank for enabled features. */
+/**
+ * Skip the debounced persist while an enabled feature's required fields are
+ * blank or invalid (EMA's issuer/clientId, CIMD's metadata URL). Defers to
+ * {@link validateClientSettings} in `requireComplete` mode so the persist gate
+ * and the close-time field errors can never drift: the same condition that
+ * blocks the write also surfaces the field-level errors that explain why.
+ */
 export function canPersistClientSettingsDraft(
   values: ClientSettingsFormValues,
 ): boolean {
-  if (values.emaEnabled) {
-    if (values.issuer.trim() === "" || values.clientId.trim() === "")
-      return false;
-  }
-  if (values.cimdEnabled) {
-    if (!values.clientMetadataUrl.trim()) return false;
-  }
-  // Defer to validateClientSettings so the persist gate and inline field errors
-  // can never drift — invalid values are never sent to the backend.
-  return Object.keys(validateClientSettings(values)).length === 0;
+  return (
+    Object.keys(validateClientSettings(values, { requireComplete: true }))
+      .length === 0
+  );
 }

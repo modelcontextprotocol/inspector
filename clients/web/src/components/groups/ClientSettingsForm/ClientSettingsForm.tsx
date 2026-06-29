@@ -30,16 +30,12 @@ export interface ClientSettingsFormProps {
   emaIdpLoginState?: EmaIdpLoginState;
   onEmaIdpLogout?: () => void;
   /**
-   * Force the issuer error to show even before the field is blurred. The parent
-   * sets this when a save/close is attempted with an invalid issuer, so the user
-   * isn't left with a silently-dropped value and no explanation.
+   * Force all field errors to show, including required-but-blank fields (EMA's
+   * issuer/clientId, CIMD's metadata URL). The parent sets this when a
+   * save/close is attempted with an incomplete or invalid config, so nothing is
+   * silently dropped without explanation.
    */
-  revealIssuerError?: boolean;
-  /**
-   * Force the CIMD metadata URL error to show even before the field is blurred.
-   * Same contract as {@link revealIssuerError} for the CIMD URL field.
-   */
-  revealClientMetadataUrlError?: boolean;
+  revealErrors?: boolean;
 }
 
 const HintText = Text.withProps({
@@ -54,8 +50,7 @@ export function ClientSettingsForm({
   onSettingsChange,
   emaIdpLoginState = "none",
   onEmaIdpLogout,
-  revealIssuerError = false,
-  revealClientMetadataUrlError = false,
+  revealErrors = false,
 }: ClientSettingsFormProps) {
   function patch(partial: Partial<ClientSettingsFormValues>) {
     onSettingsChange((prev) => ({ ...prev, ...partial }));
@@ -64,23 +59,31 @@ export function ClientSettingsForm({
   // Defer the issuer error until the field has been blurred so it doesn't nag
   // mid-typing (e.g. while "https:/…" is still incomplete). Once touched it
   // updates live, so the error clears as soon as a valid URL is entered. The
-  // parent also forces it on via `revealIssuerError` when a close/save is
-  // attempted with an invalid value, so the value is never silently dropped
-  // without explanation. The persist gate (canPersistClientSettingsDraft)
-  // validates independently — an invalid issuer is never written regardless.
+  // parent forces all errors on via `revealErrors` when a close/save is
+  // attempted with an incomplete or invalid config — including the
+  // required-but-blank fields, which inline validation otherwise leaves silent.
+  // The persist gate (canPersistClientSettingsDraft) validates independently, so
+  // an incomplete/invalid config is never written regardless of these flags.
   const [issuerTouched, setIssuerTouched] = useState(false);
   const [clientMetadataUrlTouched, setClientMetadataUrlTouched] =
     useState(false);
 
-  const errors = validateClientSettings(settings);
-  const showIssuerError =
-    (issuerTouched || revealIssuerError) && errors.issuer
-      ? errors.issuer
+  // Inline errors flag only a filled-in-wrong field (issuer URL); the
+  // require-complete set adds the blank-required fields surfaced on reveal.
+  const inlineErrors = validateClientSettings(settings);
+  const revealedErrors = validateClientSettings(settings, {
+    requireComplete: true,
+  });
+  const showIssuerError = revealErrors
+    ? revealedErrors.issuer
+    : issuerTouched
+      ? inlineErrors.issuer
       : undefined;
-  const showClientMetadataUrlError =
-    (clientMetadataUrlTouched || revealClientMetadataUrlError) &&
-    errors.clientMetadataUrl
-      ? errors.clientMetadataUrl
+  const showClientIdError = revealErrors ? revealedErrors.clientId : undefined;
+  const showClientMetadataUrlError = revealErrors
+    ? revealedErrors.clientMetadataUrl
+    : clientMetadataUrlTouched
+      ? inlineErrors.clientMetadataUrl
       : undefined;
 
   const showIdpSession =
@@ -134,6 +137,7 @@ export function ClientSettingsForm({
                   description="Client id registered with your enterprise IdP."
                   value={settings.clientId}
                   onChange={(e) => patch({ clientId: e.currentTarget.value })}
+                  error={showClientIdError}
                   rightSectionPointerEvents="auto"
                   rightSection={
                     settings.clientId ? (

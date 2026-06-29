@@ -37,9 +37,7 @@ export function ClientSettingsModal({
   const [expandedSections, setExpandedSections] = useState<
     ClientSettingsSection[]
   >(["ema"]);
-  const [revealIssuerError, setRevealIssuerError] = useState(false);
-  const [revealClientMetadataUrlError, setRevealClientMetadataUrlError] =
-    useState(false);
+  const [revealErrors, setRevealErrors] = useState(false);
 
   const allExpanded = expandedSections.length === ALL_SECTIONS.length;
 
@@ -47,21 +45,16 @@ export function ClientSettingsModal({
     setExpandedSections(allExpanded ? [] : ALL_SECTIONS);
   }
 
-  // Closing (X / Esc / overlay) is the implicit "save" for this auto-saving
-  // modal — the parent flushes the debounced persist on close. If a validated
-  // URL field is invalid the persist gate would silently drop it, so instead of
-  // closing we reveal the field error (overriding the form's on-blur gating).
-  // The user can fix the URL or clear the field — an empty value is valid to
-  // leave — and then close. Resets via the parent's open/close remount key.
+  // modal — the parent flushes the debounced persist on close. A client config
+  // that's incomplete (blank required field) or invalid (bad issuer / CIMD URL)
+  // would be silently dropped by the persist gate, so instead of closing we
+  // reveal the field errors (overriding the form's on-blur gating) and keep the
+  // modal open. The user fixes the fields, or disables the feature, then closes.
+  // Resets via the parent's open/close remount key.
   function handleClose() {
-    const errors = validateClientSettings(settings);
-    if (errors.issuer) {
-      setRevealIssuerError(true);
-    }
-    if (errors.clientMetadataUrl) {
-      setRevealClientMetadataUrlError(true);
-    }
-    if (errors.issuer || errors.clientMetadataUrl) {
+    const errors = validateClientSettings(settings, { requireComplete: true });
+    if (Object.keys(errors).length > 0) {
+      setRevealErrors(true);
       return;
     }
     onClose();
@@ -94,8 +87,7 @@ export function ClientSettingsModal({
           onSettingsChange={onSettingsChange}
           emaIdpLoginState={emaIdpLoginState}
           onEmaIdpLogout={onEmaIdpLogout}
-          revealIssuerError={revealIssuerError}
-          revealClientMetadataUrlError={revealClientMetadataUrlError}
+          revealErrors={revealErrors}
         />
       </Stack>
     </Modal>
