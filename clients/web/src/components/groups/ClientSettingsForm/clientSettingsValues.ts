@@ -4,28 +4,53 @@ import { isAbsoluteHttpUrl } from "@inspector/core/client/config-parse.js";
 /** Field-level error message for an issuer that is not an http(s) URL. */
 export const ISSUER_URL_ERROR =
   "Must be an http(s) URL, like https://idp.example.com";
+/** Field-level errors for a required IdP field left blank while EMA is enabled. */
+export const ISSUER_REQUIRED_ERROR =
+  "Issuer is required when enterprise IdP configuration is enabled";
+export const CLIENT_ID_REQUIRED_ERROR =
+  "Client ID is required when enterprise IdP configuration is enabled";
 
 /** Field-level validation errors for the client settings form. */
 export interface ClientSettingsErrors {
   issuer?: string;
+  clientId?: string;
+}
+
+export interface ValidateClientSettingsOptions {
+  /**
+   * Also flag required fields left blank. Off by default so inline (as-you-type)
+   * validation only flags a field the user has actually filled in wrong; turned
+   * on when a save/close is attempted so an incomplete config is surfaced rather
+   * than silently dropped.
+   */
+  requireComplete?: boolean;
 }
 
 /**
- * Inline validation for the client settings form. Only flags fields that the
- * user has actually filled in — empty required fields are gated by
- * {@link canPersistClientSettingsDraft} rather than surfaced as errors.
+ * Validation for the client settings form. By default only flags fields the
+ * user has filled in wrong (a non-empty, non-http(s) issuer). With
+ * `requireComplete`, also flags the required IdP fields (issuer, clientId) when
+ * they are blank — used at save/close time so an enabled-but-incomplete EMA
+ * config never persists silently.
  */
 export function validateClientSettings(
   values: ClientSettingsFormValues,
+  options: ValidateClientSettingsOptions = {},
 ): ClientSettingsErrors {
   const errors: ClientSettingsErrors = {};
-  if (
-    values.emaEnabled &&
-    values.issuer.trim() !== "" &&
-    !isAbsoluteHttpUrl(values.issuer)
-  ) {
+  if (!values.emaEnabled) return errors;
+
+  const issuer = values.issuer.trim();
+  if (issuer === "") {
+    if (options.requireComplete) errors.issuer = ISSUER_REQUIRED_ERROR;
+  } else if (!isAbsoluteHttpUrl(values.issuer)) {
     errors.issuer = ISSUER_URL_ERROR;
   }
+
+  if (options.requireComplete && values.clientId.trim() === "") {
+    errors.clientId = CLIENT_ID_REQUIRED_ERROR;
+  }
+
   return errors;
 }
 
@@ -89,15 +114,19 @@ export function formValuesToClientConfig(
   };
 }
 
-/** Skip debounced persist while EMA is enabled but required IdP fields are blank. */
+/**
+ * Skip the debounced persist while EMA is enabled but its required IdP fields
+ * are blank or invalid. Defers to {@link validateClientSettings} in
+ * `requireComplete` mode so the persist gate and the close-time field errors can
+ * never drift: the same condition that blocks the write also surfaces the
+ * field-level errors that explain why.
+ */
 export function canPersistClientSettingsDraft(
   values: ClientSettingsFormValues,
 ): boolean {
   if (!values.emaEnabled) return true;
-  if (values.issuer.trim() === "" || values.clientId.trim() === "")
-    return false;
-  // Defer to validateClientSettings so the persist gate and the inline field
-  // errors can never drift: an invalid issuer is never sent to the backend, and
-  // the field error guides the user instead of a raw validation failure toast.
-  return Object.keys(validateClientSettings(values)).length === 0;
+  return (
+    Object.keys(validateClientSettings(values, { requireComplete: true }))
+      .length === 0
+  );
 }

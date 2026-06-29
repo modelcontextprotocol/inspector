@@ -33,7 +33,7 @@ export function ClientSettingsModal({
   const [expandedSections, setExpandedSections] = useState<
     ClientSettingsSection[]
   >(["ema"]);
-  const [revealIssuerError, setRevealIssuerError] = useState(false);
+  const [revealErrors, setRevealErrors] = useState(false);
 
   const allExpanded = expandedSections.length === ALL_SECTIONS.length;
 
@@ -42,14 +42,16 @@ export function ClientSettingsModal({
   }
 
   // Closing (X / Esc / overlay) is the implicit "save" for this auto-saving
-  // modal — the parent flushes the debounced persist on close. If the issuer is
-  // invalid the persist gate would silently drop it, so instead of closing we
-  // reveal the issuer error (overriding the form's on-blur gating). The user
-  // can fix the URL or clear the field — an empty issuer is valid to leave —
-  // and then close. Resets via the parent's open/close remount key.
+  // modal — the parent flushes the debounced persist on close. An EMA config
+  // that's incomplete (blank required field) or invalid (bad issuer URL) would
+  // be silently dropped by the persist gate, so instead of closing we reveal the
+  // field errors (overriding the form's on-blur gating) and keep the modal open.
+  // The user fixes the fields, or disables enterprise IdP, then closes. Resets
+  // via the parent's open/close remount key.
   function handleClose() {
-    if (validateClientSettings(settings).issuer) {
-      setRevealIssuerError(true);
+    const errors = validateClientSettings(settings, { requireComplete: true });
+    if (Object.keys(errors).length > 0) {
+      setRevealErrors(true);
       return;
     }
     onClose();
@@ -82,7 +84,7 @@ export function ClientSettingsModal({
           onSettingsChange={onSettingsChange}
           emaIdpLoginState={emaIdpLoginState}
           onEmaIdpLogout={onEmaIdpLogout}
-          revealIssuerError={revealIssuerError}
+          revealErrors={revealErrors}
         />
       </Stack>
     </Modal>
