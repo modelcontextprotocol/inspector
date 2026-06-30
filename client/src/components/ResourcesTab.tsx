@@ -46,7 +46,7 @@ const ResourcesTab = ({
   clearResources: () => void;
   listResourceTemplates: () => void;
   clearResourceTemplates: () => void;
-  readResource: (uri: string) => void;
+  readResource: (uri: string, opts?: { bypassCache?: boolean }) => void;
   selectedResource: Resource | null;
   setSelectedResource: (resource: Resource | null) => void;
   handleCompletion: (
@@ -229,7 +229,9 @@ const ResourcesTab = ({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => readResource(selectedResource.uri)}
+                  onClick={() =>
+                    readResource(selectedResource.uri, { bypassCache: true })
+                  }
                 >
                   <RefreshCw className="w-4 h-4 mr-2" />
                   Refresh
