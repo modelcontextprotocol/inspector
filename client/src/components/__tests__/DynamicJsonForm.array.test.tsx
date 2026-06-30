@@ -355,6 +355,11 @@ describe("DynamicJsonForm Array Fields", () => {
         },
       };
       renderSimpleArrayForm({ schema });
+
+      // Both the array-level description and the per-item description render
+      // above the items list (top-level arrays have no parent label upstream).
+      expect(screen.getByText("List of names")).toBeInTheDocument();
+      expect(screen.getByText("Items: Person name")).toBeInTheDocument();
     });
 
     it("should use item description in add button title", () => {

@@ -715,6 +715,16 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
           if (isSimpleObject(itemSchema) || itemIsObject) {
             return (
               <div className="space-y-4">
+                {propSchema.description && (
+                  <p className="text-sm text-gray-600">
+                    {propSchema.description}
+                  </p>
+                )}
+                {propSchema.items?.description && (
+                  <p className="text-sm text-gray-500">
+                    Items: {propSchema.items.description}
+                  </p>
+                )}
                 <div className="space-y-2">
                   {arrayValue.map((item, index) =>
                     itemIsObject ? (
