@@ -119,6 +119,8 @@ All work should be driven by items on the project board.
 - When work is complete:
   - Run format, lint, typecheck, build, and test — ensure all checks pass
   - Open a PR against the matching base branch (`main` for v1, `v2/main` for v2) and set the item's Status to **In review**
+  - **Link the PR to its issue.** The PR body's **first line must be `Closes #<ISSUE_NUMBER>`**. ⚠️ Note: closing keywords only auto-link/auto-close for PRs targeting the repo's **default branch** (`main`). Because v2 PRs target `v2/main` (a non-default branch), `Closes #N` there is only a cross-reference — it will **not** create a hard link or close the issue on merge. (There is no `gh` flag for manual linking — `gh pr edit` has no `--add-issue`; closing keywords are the only mechanism GitHub exposes, and they're gated to the default branch.)
+  - **On merge of a v2 PR, manually close its issue and move the board item to Done** (option id `98236657`), since auto-close won't fire on `v2/main`. Keep the `Closes #N` line anyway so the issues close automatically if/when `v2/main` is eventually merged to `main`.
 - If new tasks are discovered or requested during development, create issues and add them to the board.
 
 #### V2 board (#28) `gh` recipes
