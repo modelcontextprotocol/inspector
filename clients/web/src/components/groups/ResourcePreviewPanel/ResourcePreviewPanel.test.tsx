@@ -306,6 +306,132 @@ describe("ResourcePreviewPanel", () => {
     expect(screen.getByText("# not a heading")).toBeInTheDocument();
   });
 
+  describe("View Source toggle", () => {
+    const markdownProps = {
+      ...baseProps,
+      resource: { name: "readme", uri: "file:///readme.md" },
+      contents: [
+        {
+          uri: "file:///readme.md",
+          mimeType: "text/markdown",
+          text: "# Hello",
+        },
+      ],
+    };
+
+    it("toggles a markdown preview between rendered and raw source", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(<ResourcePreviewPanel {...markdownProps} />);
+
+      // Rendered by default: heading shown, no raw "# Hello" text.
+      expect(
+        screen.getByRole("heading", { level: 1, name: "Hello" }),
+      ).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "View Source" }));
+
+      // Source mode: raw markdown text shown, heading gone, label flipped.
+      expect(screen.getByText("# Hello")).toBeInTheDocument();
+      expect(
+        screen.queryByRole("heading", { level: 1 }),
+      ).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "View Rendered" }));
+
+      // Back to rendered.
+      expect(
+        screen.getByRole("heading", { level: 1, name: "Hello" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "View Source" }),
+      ).toBeInTheDocument();
+    });
+
+    it("offers the toggle for CSV resources", () => {
+      renderWithMantine(
+        <ResourcePreviewPanel
+          {...baseProps}
+          resource={{ name: "data", uri: "file:///data.csv" }}
+          contents={[{ uri: "file:///data.csv", text: "a,b\n1,2" }]}
+        />,
+      );
+      expect(
+        screen.getByRole("button", { name: "View Source" }),
+      ).toBeInTheDocument();
+    });
+
+    it("offers the toggle for HTML resources", () => {
+      vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:url");
+      vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+      renderWithMantine(
+        <ResourcePreviewPanel
+          {...baseProps}
+          resource={{ name: "page", uri: "file:///page.html" }}
+          contents={[{ uri: "file:///page.html", text: "<p>hi</p>" }]}
+        />,
+      );
+      expect(
+        screen.getByRole("button", { name: "View Source" }),
+      ).toBeInTheDocument();
+      vi.restoreAllMocks();
+    });
+
+    it("hides the toggle for non-toggleable kinds (JSON, plain text, image)", () => {
+      const { rerender } = renderWithMantine(
+        <ResourcePreviewPanel {...baseProps} />,
+      );
+      // JSON
+      expect(
+        screen.queryByRole("button", { name: "View Source" }),
+      ).not.toBeInTheDocument();
+      // Plain text
+      rerender(
+        <ResourcePreviewPanel
+          {...baseProps}
+          resource={{ name: "notes", uri: "file:///notes.txt" }}
+          contents={[
+            { uri: "file:///notes.txt", mimeType: "text/plain", text: "hi" },
+          ]}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: "View Source" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("resets to the rendered view when the resource changes", async () => {
+      const user = userEvent.setup();
+      const { rerender } = renderWithMantine(
+        <ResourcePreviewPanel {...markdownProps} />,
+      );
+      await user.click(screen.getByRole("button", { name: "View Source" }));
+      expect(
+        screen.getByRole("button", { name: "View Rendered" }),
+      ).toBeInTheDocument();
+
+      // Switch to a different markdown resource — the toggle should reset.
+      rerender(
+        <ResourcePreviewPanel
+          {...baseProps}
+          resource={{ name: "other", uri: "file:///other.md" }}
+          contents={[
+            {
+              uri: "file:///other.md",
+              mimeType: "text/markdown",
+              text: "# Two",
+            },
+          ]}
+        />,
+      );
+      expect(
+        screen.getByRole("button", { name: "View Source" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { level: 1, name: "Two" }),
+      ).toBeInTheDocument();
+    });
+  });
+
   describe("URI-suffix MIME inference", () => {
     it("infers text/csv from a .csv URI and renders a table", () => {
       renderWithMantine(
