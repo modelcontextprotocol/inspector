@@ -300,7 +300,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
     }));
 
     const renderFormFields = (
-      propSchema: JsonSchemaType,
+      rawSchema: JsonSchemaType,
       currentValue: JsonValue,
       path: string[] = [],
       depth: number = 0,
@@ -309,7 +309,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
     ) => {
       // Unwrap Optional[X] / nullable unions (anyOf: [X, null]) before ANY type checks
       // so that maxDepth enforcement and the type switch both see the real type.
-      propSchema = normalizeUnionType(propSchema);
+      let propSchema = normalizeUnionType(rawSchema);
 
       // Trim description to remove leading/trailing whitespace from multi-line
       // Python triple-quoted strings (e.g. """\n            - text\n            """)
