@@ -70,8 +70,7 @@ After installing, `npm run build` builds all clients. The launcher scripts (`npm
 - **Base Branches**: v2/main (active), main (v1). v1.5/main is merged into v2/main and no longer takes new work.
 - **Project Boards**: 
   - v2 - https://github.com/orgs/modelcontextprotocol/projects/28 (active board — all current work goes here)
-  - v1 - https://github.com/orgs/modelcontextprotocol/projects/11
-  - The v1.5 board (project 39) is **closed** — the v1.5/main → v2/main merge is complete, so no new items go there.
+  - v1 - https://github.com/orgs/modelcontextprotocol/projects/11 (existing inspector version, no new activity except security and bug fixes)
 
 ## Project Status and Direction
 * The main branch currently contains the legacy version of the Inspector, which we are accepting bug fixes and minor improvement PRs for.
