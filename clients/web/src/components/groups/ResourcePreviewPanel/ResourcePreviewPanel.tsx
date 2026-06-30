@@ -8,6 +8,7 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import { useState } from "react";
 import type {
   BlobResourceContents,
   Resource,
@@ -15,6 +16,7 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { getMimeKind } from "../../elements/ContentViewer/contentViewerUtils";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { SubscribeButton } from "../../elements/SubscribeButton/SubscribeButton";
 
@@ -42,6 +44,19 @@ export interface ResourcePreviewPanelProps {
 
 function formatLastUpdated(date: Date): string {
   return `Last updated: ${date.toLocaleString()}`;
+}
+
+// MIME kinds whose rendered preview (react-markdown, the CSV table, the
+// sandboxed HTML iframe) hides the underlying text. For these the panel offers
+// a "View Source" toggle that swaps the renderer for the raw resource text.
+const SOURCE_TOGGLEABLE_KINDS = new Set(["markdown", "csv", "html"]);
+
+// MIME forced on ContentViewer in source mode so it routes through the plain
+// preformatted-text renderer regardless of the resource's real type.
+const SOURCE_MIME = "text/plain";
+
+function isSourceToggleable(mimeType: string): boolean {
+  return SOURCE_TOGGLEABLE_KINDS.has(getMimeKind(mimeType));
 }
 
 const HeaderRow = Group.withProps({
@@ -93,6 +108,14 @@ const AnnotationGroup = Group.withProps({
 
 const ActionGroup = Group.withProps({
   gap: "xs",
+});
+
+// Subtle footer action button. Shared by Refresh and the View Source toggle so
+// the two stay visually identical (the toggle is deliberately styled to match
+// Refresh, which sits immediately to its right).
+const FooterButton = Button.withProps({
+  variant: "subtle",
+  size: "sm",
 });
 
 const Spacer = Flex.withProps({});
@@ -180,6 +203,17 @@ export function ResourcePreviewPanel({
   const { uri, annotations } = resource;
   const mimeType = effectiveMime(contents[0]?.mimeType, resource);
 
+  const [showSource, setShowSource] = useState(false);
+  // Reset to the rendered view when the previewed resource changes (the panel
+  // is reused, not remounted, across resources). React's documented
+  // "adjust state during render" pattern — no effect, so no cascading render.
+  const [prevUri, setPrevUri] = useState(uri);
+  if (uri !== prevUri) {
+    setPrevUri(uri);
+    setShowSource(false);
+  }
+  const sourceToggleable = isSourceToggleable(mimeType);
+
   return (
     <PanelStack>
       <HeaderRow>
@@ -196,14 +230,26 @@ export function ResourcePreviewPanel({
       </HeaderRow>
       <ContentScroll>
         <ContentStack>
-          {contents.map((item, index) => (
-            <ContentViewer
-              key={index}
-              contents={item}
-              mimeType={effectiveMime(item.mimeType, resource)}
-              copyable
-            />
-          ))}
+          {contents.map((item, index) => {
+            const itemMime = effectiveMime(item.mimeType, resource);
+            // The toggle is gated on the first content item but applies per
+            // item: in source mode only the source-toggleable items (the ones
+            // whose rendered view hides their text) switch to plain text, so a
+            // mixed multi-part resource doesn't force an image/PDF blob through
+            // the text decoder.
+            const renderMime =
+              showSource && isSourceToggleable(itemMime)
+                ? SOURCE_MIME
+                : itemMime;
+            return (
+              <ContentViewer
+                key={index}
+                contents={item}
+                mimeType={renderMime}
+                copyable
+              />
+            );
+          })}
         </ContentStack>
       </ContentScroll>
       <MetaRow>
@@ -224,9 +270,15 @@ export function ResourcePreviewPanel({
           )}
         </AnnotationGroup>
         <ActionGroup>
-          <Button variant="subtle" size="sm" onClick={onRefresh}>
-            Refresh
-          </Button>
+          {sourceToggleable && (
+            <FooterButton
+              aria-pressed={showSource}
+              onClick={() => setShowSource((shown) => !shown)}
+            >
+              {showSource ? "View Rendered" : "View Source"}
+            </FooterButton>
+          )}
+          <FooterButton onClick={onRefresh}>Refresh</FooterButton>
           {subscriptionsSupported && (
             <SubscribeButton
               subscribed={isSubscribed}

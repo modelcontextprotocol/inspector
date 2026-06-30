@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fn } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
 import { ResourcePreviewPanel } from "./ResourcePreviewPanel";
 
 const meta: Meta<typeof ResourcePreviewPanel> = {
@@ -105,6 +105,44 @@ export const SubscriptionsUnsupported: Story = {
     isSubscribed: false,
     // Server does not advertise resources.subscribe — only Refresh shows.
     subscriptionsSupported: false,
+  },
+};
+
+// Markdown, CSV, and HTML resources expose a "View Source" link (left of
+// Refresh) that swaps the rendered preview for the raw resource text. The play
+// function drives the toggle: rendered heading → raw source → back.
+export const MarkdownWithViewSource: Story = {
+  args: {
+    resource: {
+      name: "README.md",
+      uri: "file:///README.md",
+    },
+    contents: [
+      {
+        uri: "file:///README.md",
+        mimeType: "text/markdown",
+        text: "# Project\n\nA **bold** intro with a [link](https://example.com).",
+      },
+    ],
+    isSubscribed: false,
+    lastUpdated: new Date("2026-03-17T10:30:00Z"),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // Rendered by default.
+    await expect(
+      canvas.getByRole("heading", { level: 1, name: "Project" }),
+    ).toBeInTheDocument();
+    // Switch to raw source.
+    await userEvent.click(canvas.getByRole("button", { name: "View Source" }));
+    await expect(canvas.getByText(/# Project/)).toBeInTheDocument();
+    // Switch back to rendered.
+    await userEvent.click(
+      canvas.getByRole("button", { name: "View Rendered" }),
+    );
+    await expect(
+      canvas.getByRole("heading", { level: 1, name: "Project" }),
+    ).toBeInTheDocument();
   },
 };
 
