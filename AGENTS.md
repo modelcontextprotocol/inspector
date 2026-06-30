@@ -67,11 +67,11 @@ After installing, `npm run build` builds all clients. The launcher scripts (`npm
 ## Repository & Project Board
 
 - **Repo**: https://github.com/modelcontextprotocol/inspector.git
-- **Base Branches**: v2/main, v1.5/main, main
+- **Base Branches**: v2/main (active), main (v1). v1.5/main is merged into v2/main and no longer takes new work.
 - **Project Boards**: 
-  - v2 - https://github.com/orgs/modelcontextprotocol/projects/28
-  - v1.5 - https://github.com/orgs/modelcontextprotocol/projects/39
+  - v2 - https://github.com/orgs/modelcontextprotocol/projects/28 (active board — all current work goes here)
   - v1 - https://github.com/orgs/modelcontextprotocol/projects/11
+  - The v1.5 board (project 39) is **closed** — the v1.5/main → v2/main merge is complete, so no new items go there.
 
 ## Project Status and Direction
 * The main branch currently contains the legacy version of the Inspector, which we are accepting bug fixes and minor improvement PRs for.
@@ -104,19 +104,60 @@ Injection is a no-op when auth is disabled (`DANGEROUSLY_OMIT_AUTH`), and the gl
 
 All work should be driven by items on the project board.
 
+> **A v2 issue or PR is not "created" until it is BOTH labeled `v2` AND on board #28 with a Status set.** Labeling alone is not enough — a label is a repo tag; the board is a separate org project. Applying `--label v2` does **not** add the item to the board, and adding it to the board does **not** set a Status. All three are distinct steps; do all three (see the recipes below).
+
 - Before starting work, check the board for the relevant item.
 - **Draft items vs. issues**: Board items may be draft items (no issue number) or full GitHub issues. Before creating a new issue, always check if a matching draft item already exists on the board. If it does, convert it to an issue using `gh project item-edit` or create the issue and link it — **never create a duplicate**.
 - **Label by version.** New issues and PRs must carry the label matching the target board / branch:
   - `main` → `v1`
-  - `v1.5/main` → `v1.5`
   - `v2/main` → `v2`
 
   Set the label at create time (`gh issue create --label v2 ...`, `gh pr create --label v2 ...`) — don't rely on backfilling later, since unlabeled PRs are easy to miss when filtering by version.
-- When work begins, create a feature branch and move the item to "In Progress".
+- **Add to the board and set Status.** After creating an issue or PR, add it to board #28 and set its Status. This is the step most easily forgotten because it needs several IDs — copy the recipes below verbatim.
+- When work begins, create a feature branch and set the item's Status to **In progress** (or one of the building statuses below).
 - When work is complete:
   - Run format, lint, typecheck, build, and test — ensure all checks pass
-  - Open a PR against the matching base branch (`main` for v1, `v1.5/main` for v1.5, `v2/main` for v2) and move the item to "In Review"
+  - Open a PR against the matching base branch (`main` for v1, `v2/main` for v2) and set the item's Status to **In review**
 - If new tasks are discovered or requested during development, create issues and add them to the board.
+
+#### V2 board (#28) `gh` recipes
+
+The board is an **org project**, so all commands use `--owner modelcontextprotocol` and the numeric project `28`. The IDs below are stable; if a command rejects one, re-fetch with `gh project field-list 28 --owner modelcontextprotocol --format json`.
+
+| Thing | ID |
+| --- | --- |
+| Project node ID | `PVT_kwDOCt2Azc4BJVxt` |
+| Status field ID | `PVTSSF_lADOCt2Azc4BJVxtzg5iI8c` |
+
+Status option IDs (`--single-select-option-id`):
+
+| Status | Option ID |
+| --- | --- |
+| Backlog | `f75ad846` |
+| Building CLI / TUI / CORE | `891c4cb2` |
+| Building Web | `61e4505c` |
+| In progress | `47fc9ee4` |
+| In review | `df73e18b` |
+| Done | `98236657` |
+
+```sh
+# 1. Add an issue/PR to the board — prints the item id (PVTI_…); capture it.
+gh project item-add 28 --owner modelcontextprotocol --url <issue-or-pr-url> --format json
+
+# 2. Set its Status (here: In progress). Use the option id from the table above.
+gh project item-edit \
+  --project-id PVT_kwDOCt2Azc4BJVxt \
+  --id <item-id-from-step-1> \
+  --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c \
+  --single-select-option-id 47fc9ee4
+```
+
+The one-liner that does both, capturing the item id (use the option id for the status you want):
+
+```sh
+ITEM_ID=$(gh project item-add 28 --owner modelcontextprotocol --url <url> --format json | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id 47fc9ee4
+```
 
 ### Always test new or modified code
 - Ensure all code has corresponding tests
