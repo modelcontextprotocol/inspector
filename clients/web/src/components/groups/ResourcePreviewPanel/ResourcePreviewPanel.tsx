@@ -110,9 +110,10 @@ const ActionGroup = Group.withProps({
   gap: "xs",
 });
 
-// Toggle that sits left of Refresh; swaps the rendered preview for the raw
-// resource source and back. Styled to match the adjacent Refresh button.
-const ViewSourceButton = Button.withProps({
+// Subtle footer action button. Shared by Refresh and the View Source toggle so
+// the two stay visually identical (the toggle is deliberately styled to match
+// Refresh, which sits immediately to its right).
+const FooterButton = Button.withProps({
   variant: "subtle",
   size: "sm",
 });
@@ -229,18 +230,26 @@ export function ResourcePreviewPanel({
       </HeaderRow>
       <ContentScroll>
         <ContentStack>
-          {contents.map((item, index) => (
-            <ContentViewer
-              key={index}
-              contents={item}
-              mimeType={
-                showSource
-                  ? SOURCE_MIME
-                  : effectiveMime(item.mimeType, resource)
-              }
-              copyable
-            />
-          ))}
+          {contents.map((item, index) => {
+            const itemMime = effectiveMime(item.mimeType, resource);
+            // The toggle is gated on the first content item but applies per
+            // item: in source mode only the source-toggleable items (the ones
+            // whose rendered view hides their text) switch to plain text, so a
+            // mixed multi-part resource doesn't force an image/PDF blob through
+            // the text decoder.
+            const renderMime =
+              showSource && isSourceToggleable(itemMime)
+                ? SOURCE_MIME
+                : itemMime;
+            return (
+              <ContentViewer
+                key={index}
+                contents={item}
+                mimeType={renderMime}
+                copyable
+              />
+            );
+          })}
         </ContentStack>
       </ContentScroll>
       <MetaRow>
@@ -262,13 +271,14 @@ export function ResourcePreviewPanel({
         </AnnotationGroup>
         <ActionGroup>
           {sourceToggleable && (
-            <ViewSourceButton onClick={() => setShowSource((shown) => !shown)}>
+            <FooterButton
+              aria-pressed={showSource}
+              onClick={() => setShowSource((shown) => !shown)}
+            >
               {showSource ? "View Rendered" : "View Source"}
-            </ViewSourceButton>
+            </FooterButton>
           )}
-          <Button variant="subtle" size="sm" onClick={onRefresh}>
-            Refresh
-          </Button>
+          <FooterButton onClick={onRefresh}>Refresh</FooterButton>
           {subscriptionsSupported && (
             <SubscribeButton
               subscribed={isSubscribed}

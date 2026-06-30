@@ -347,6 +347,42 @@ describe("ResourcePreviewPanel", () => {
       ).toBeInTheDocument();
     });
 
+    it("reflects toggle state via aria-pressed", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(<ResourcePreviewPanel {...markdownProps} />);
+      expect(
+        screen.getByRole("button", { name: "View Source" }),
+      ).toHaveAttribute("aria-pressed", "false");
+      await user.click(screen.getByRole("button", { name: "View Source" }));
+      expect(
+        screen.getByRole("button", { name: "View Rendered" }),
+      ).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("only switches source-toggleable items in a mixed multi-part resource", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ResourcePreviewPanel
+          {...baseProps}
+          resource={{ name: "mix", uri: "file:///mix.md" }}
+          contents={[
+            { uri: "file:///mix.md", mimeType: "text/markdown", text: "# Hi" },
+            { uri: "file:///mix.png", mimeType: "image/png", blob: "abc" },
+          ]}
+        />,
+      );
+      // Toggle gated on the first (markdown) item.
+      await user.click(screen.getByRole("button", { name: "View Source" }));
+      // Markdown switches to raw text...
+      expect(screen.getByText("# Hi")).toBeInTheDocument();
+      // ...but the image is not forced through the text decoder — it still
+      // renders as an image rather than garbled bytes or a binary notice.
+      const img = screen
+        .getAllByRole("img")
+        .find((el) => el.getAttribute("src")?.startsWith("data:image/png"));
+      expect(img).toBeDefined();
+    });
+
     it("offers the toggle for CSV resources", () => {
       renderWithMantine(
         <ResourcePreviewPanel
