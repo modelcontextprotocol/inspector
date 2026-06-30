@@ -21,6 +21,8 @@ const PlainCode = Code.withProps({ block: true, variant: "wrapping" });
 interface ParsedCsv {
   fields: string[];
   rows: string[][];
+  /** Total parsed row count, before the {@link MAX_ROWS} display cap. */
+  total: number;
 }
 
 function parseCsv(text: string): ParsedCsv | null {
@@ -35,7 +37,7 @@ function parseCsv(text: string): ParsedCsv | null {
   const rows = result.data
     .slice(0, MAX_ROWS)
     .map((row) => fields.map((field) => row[field] ?? ""));
-  return { fields, rows };
+  return { fields, rows, total: result.data.length };
 }
 
 export function CsvTable({ text }: CsvTableProps) {
@@ -45,8 +47,14 @@ export function CsvTable({ text }: CsvTableProps) {
     return <PlainCode>{text}</PlainCode>;
   }
 
+  const truncated = parsed.total > MAX_ROWS;
   return (
     <Table striped highlightOnHover withTableBorder withColumnBorders>
+      {truncated && (
+        <Table.Caption>
+          {`Showing first ${MAX_ROWS} of ${parsed.total} rows`}
+        </Table.Caption>
+      )}
       <Table.Thead>
         <Table.Tr>
           {parsed.fields.map((field) => (

@@ -37,9 +37,11 @@ describe("HtmlFrame", () => {
     expect(text).toContain("<p>hello</p>");
   });
 
-  it("revokes the blob URL on unmount", () => {
+  it("revokes the blob URL on unmount", async () => {
     const { unmount } = renderWithMantine(<HtmlFrame html="<p>x</p>" />);
     unmount();
+    // Revocation is deferred to a microtask (StrictMode-safe); let it drain.
+    await Promise.resolve();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:html-url");
   });
 });

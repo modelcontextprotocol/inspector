@@ -12,14 +12,15 @@ import { CodeHighlight } from "../CodeHighlight/CodeHighlight";
 import { CopyButton } from "../CopyButton/CopyButton";
 import { ResourceLinkInfo } from "../ResourceLinkInfo/ResourceLinkInfo";
 import {
-  decodeBase64ToUtf8,
   formatJson,
   formatXml,
   getMimeKind,
   isSafeHref,
   isTextualKind,
   looksLikeJson,
+  tryDecodeBase64ToUtf8,
 } from "./contentViewerUtils";
+import { BinaryNotice } from "./BinaryNotice";
 import { CsvTable } from "./CsvTable";
 import { HtmlFrame } from "./HtmlFrame";
 import { PdfFrame } from "./PdfFrame";
@@ -264,18 +265,6 @@ function AudioContent({ data, mimeType }: { data: string; mimeType: string }) {
   );
 }
 
-function BinaryNotice({ mimeType }: { mimeType: string }) {
-  return (
-    <Stack gap="xs">
-      <ContentWrapper>
-        <Code block p={36}>
-          {`[Binary content (${mimeType}) — preview not supported]`}
-        </Code>
-      </ContentWrapper>
-    </Stack>
-  );
-}
-
 /** Dispatch raw resource contents (Resources screen) on their effective MIME. */
 function ResourceContent({
   contents,
@@ -313,9 +302,13 @@ function ResourceContent({
     );
   }
   if (isTextualKind(kind)) {
+    const decoded = tryDecodeBase64ToUtf8(contents.blob);
+    if (decoded === null) {
+      return <BinaryNotice mimeType={mimeType} />;
+    }
     return (
       <TextualContent
-        text={decodeBase64ToUtf8(contents.blob)}
+        text={decoded}
         mimeType={mimeType}
         copyable={copyable}
         wrap={wrap}

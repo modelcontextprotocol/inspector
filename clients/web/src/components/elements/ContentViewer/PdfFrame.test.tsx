@@ -24,9 +24,18 @@ describe("PdfFrame", () => {
     expect(blobArg.type).toBe("application/pdf");
   });
 
-  it("revokes the blob URL on unmount", () => {
+  it("revokes the blob URL on unmount", async () => {
     const { unmount } = renderWithMantine(<PdfFrame data={PDF_BASE64} />);
     unmount();
+    // Revocation is deferred to a microtask (StrictMode-safe); let it drain.
+    await Promise.resolve();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:pdf-url");
+  });
+
+  it("degrades to the binary notice when the base64 is malformed", () => {
+    // `atob` throws on this; the frame must fall back instead of crashing.
+    const { container } = renderWithMantine(<PdfFrame data="not%%base64" />);
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(container.textContent).toContain("preview not supported");
   });
 });

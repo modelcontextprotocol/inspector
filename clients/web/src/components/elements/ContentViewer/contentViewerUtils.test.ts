@@ -9,6 +9,8 @@ import {
   isTextualKind,
   looksLikeJson,
   PREVIEW_HTML_CSP,
+  tryDecodeBase64ToBytes,
+  tryDecodeBase64ToUtf8,
   wrapHtmlWithCsp,
 } from "./contentViewerUtils";
 
@@ -67,6 +69,28 @@ describe("decodeBase64ToBytes", () => {
   it("decodes to the original byte sequence", () => {
     const bytes = decodeBase64ToBytes(toBase64("AB"));
     expect(Array.from(bytes)).toEqual([65, 66]);
+  });
+});
+
+describe("tryDecodeBase64ToUtf8", () => {
+  it("decodes valid base64 like the throwing variant", () => {
+    expect(tryDecodeBase64ToUtf8(toBase64("héllo"))).toBe("héllo");
+  });
+
+  it("returns null instead of throwing on malformed base64", () => {
+    expect(tryDecodeBase64ToUtf8("not%%base64")).toBeNull();
+  });
+});
+
+describe("tryDecodeBase64ToBytes", () => {
+  it("decodes valid base64 to bytes", () => {
+    expect(Array.from(tryDecodeBase64ToBytes(toBase64("AB"))!)).toEqual([
+      65, 66,
+    ]);
+  });
+
+  it("returns null instead of throwing on malformed base64", () => {
+    expect(tryDecodeBase64ToBytes("not%%base64")).toBeNull();
   });
 });
 

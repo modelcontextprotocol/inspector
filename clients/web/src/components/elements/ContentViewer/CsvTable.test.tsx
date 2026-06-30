@@ -24,11 +24,21 @@ describe("CsvTable", () => {
     expect(cells[2].textContent).toBe("");
   });
 
-  it("caps rendered rows at MAX_ROWS", () => {
-    const rows = Array.from({ length: MAX_ROWS + 50 }, (_, i) => `r${i},${i}`);
+  it("caps rendered rows at MAX_ROWS and surfaces the truncation", () => {
+    const total = MAX_ROWS + 50;
+    const rows = Array.from({ length: total }, (_, i) => `r${i},${i}`);
     const csv = `name,n\n${rows.join("\n")}`;
     const { container } = renderWithMantine(<CsvTable text={csv} />);
     expect(container.querySelectorAll("tbody tr")).toHaveLength(MAX_ROWS);
+    expect(
+      screen.getByText(`Showing first ${MAX_ROWS} of ${total} rows`),
+    ).toBeInTheDocument();
+  });
+
+  it("shows no truncation caption when all rows fit", () => {
+    const csv = "name,age\nAlice,30\nBob,25";
+    const { container } = renderWithMantine(<CsvTable text={csv} />);
+    expect(container.querySelector("caption")).toBeNull();
   });
 
   it("falls back to a plain code block when there are no columns", () => {

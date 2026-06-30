@@ -340,6 +340,19 @@ describe("ContentViewer (resource contents)", () => {
     expect(screen.getByRole("cell", { name: "Bob" })).toBeInTheDocument();
   });
 
+  it("shows the binary fallback when a textual blob fails to decode", () => {
+    // Malformed base64 for a textual MIME would throw in `atob` during render;
+    // the panel must degrade to the binary notice instead of crashing.
+    renderWithMantine(
+      <ContentViewer
+        contents={blob({ blob: "not%%base64", mimeType: "text/csv" })}
+      />,
+    );
+    expect(
+      screen.getByText("[Binary content (text/csv) — preview not supported]"),
+    ).toBeInTheDocument();
+  });
+
   it("renders an image blob as a data URI", () => {
     renderWithMantine(
       <ContentViewer

@@ -100,6 +100,33 @@ export function decodeBase64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
+/**
+ * Decode base64 to UTF-8 text, returning `null` instead of throwing when the
+ * input isn't valid base64. `atob` raises `InvalidCharacterError` on malformed
+ * input; since the `blob` comes from an external MCP server and is decoded
+ * during render, a throw would take down the whole preview panel rather than
+ * degrading to the binary-content fallback. Callers treat `null` as "not
+ * decodable — show the fallback".
+ */
+export function tryDecodeBase64ToUtf8(base64: string): string | null {
+  try {
+    return decodeBase64ToUtf8(base64);
+  } catch {
+    return null;
+  }
+}
+
+/** Like {@link decodeBase64ToBytes} but returns `null` on malformed base64. */
+export function tryDecodeBase64ToBytes(
+  base64: string,
+): Uint8Array<ArrayBuffer> | null {
+  try {
+    return decodeBase64ToBytes(base64);
+  } catch {
+    return null;
+  }
+}
+
 /** Pretty-print JSON text; returns the input unchanged when it doesn't parse. */
 export function formatJson(content: string): string {
   try {
