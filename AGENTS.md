@@ -75,7 +75,7 @@ After installing, `npm run build` builds all clients. The launcher scripts (`npm
 ## Project Status and Direction
 * The main branch currently contains the legacy version of the Inspector, which we are accepting bug fixes and minor improvement PRs for.
 
-* The v1.5/main branch contains an intermediate version of the Inspector, where the shared logic between the three incarnations of the Inspector were extracted into a core subsystem with InspectorClient class as the common entry point. It also includes the TUI, a refactored CLI, and streamlined launcher. 
+* The v1.5/main branch was the intermediate version of the Inspector, where the shared logic between the three incarnations of the Inspector was extracted into a core subsystem with InspectorClient class as the common entry point. It also included the TUI, a refactored CLI, and streamlined launcher. The branch still exists but is **frozen** — it takes no new work. It is kept as a reference point (e.g. for tracking down a regression introduced by the merge into v2/main), so do not delete it.
 
 * The v2/main branch currently contains the new version of the web Inspector, composed of "dumb" components which accept data and callbacks as props and contain only display logic.
 
