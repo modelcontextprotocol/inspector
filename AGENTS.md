@@ -107,7 +107,8 @@ All work should be driven by items on the project board.
 > **A v2 issue or PR is not "created" until it is BOTH labeled `v2` AND on board #28 with a Status set.** Labeling alone is not enough — a label is a repo tag; the board is a separate org project. Applying `--label v2` does **not** add the item to the board, and adding it to the board does **not** set a Status. All three are distinct steps; do all three (see the recipes below).
 
 - Before starting work, check the board for the relevant item.
-- **Draft items vs. issues**: Board items may be draft items (no issue number) or full GitHub issues. Before creating a new issue, always check if a matching draft item already exists on the board. If it does, convert it to an issue using `gh project item-edit` or create the issue and link it — **never create a duplicate**.
+- **Every board item is a real GitHub issue.** Do not create draft items (board cards with no issue number). If you find work that needs tracking, create an actual issue and add that to the board. Before creating a new issue, check the board for a matching item to avoid duplicates — **never create a duplicate**.
+- **Assign the issue to its creator.** When you create an issue, assign it to the user it is created on behalf of (`gh issue create --assignee @me ...`, or `--assignee <login>`). Board items should never be unassigned.
 - **Label by version.** New issues and PRs must carry the label matching the target board / branch:
   - `main` → `v1`
   - `v2/main` → `v2`
