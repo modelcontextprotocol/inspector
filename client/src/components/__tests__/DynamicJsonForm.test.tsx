@@ -268,8 +268,21 @@ describe("DynamicJsonForm String Fields", () => {
       expect(input).toHaveProperty("maxLength", 10);
     });
 
-    // Note: pattern is an <input>-only attribute; <textarea> does not support it,
-    // so plain-text string fields do not expose a pattern property.
+    // pattern is an <input>-only attribute; a string field that declares a
+    // pattern must therefore fall back to <input type="text"> (not <textarea>)
+    // so the constraint is preserved client-side.
+    it("should render <input> with pattern attribute (not textarea) when pattern is set", () => {
+      const schema: JsonSchemaType = {
+        type: "string",
+        pattern: "^[a-z]+$",
+        description: "Lowercase only",
+      };
+      render(<DynamicJsonForm schema={schema} value="" onChange={jest.fn()} />);
+
+      const input = screen.getByRole("textbox");
+      expect(input).toHaveProperty("type", "text");
+      expect(input).toHaveProperty("pattern", "^[a-z]+$");
+    });
   });
 });
 

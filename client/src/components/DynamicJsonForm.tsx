@@ -467,6 +467,21 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
             );
           }
 
+          if (propSchema.pattern) {
+            return (
+              <Input
+                type="text"
+                value={(currentValue as string) ?? ""}
+                onChange={(e) => handleFieldChange(path, e.target.value)}
+                placeholder={propSchema.description}
+                required={isRequired}
+                minLength={propSchema.minLength}
+                maxLength={propSchema.maxLength}
+                pattern={propSchema.pattern}
+              />
+            );
+          }
+
           return (
             <Textarea
               value={(currentValue as string) ?? ""}
