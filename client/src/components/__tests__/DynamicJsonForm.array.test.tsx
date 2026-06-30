@@ -387,4 +387,45 @@ describe("DynamicJsonForm Array Fields", () => {
       expect(addButton).toHaveProperty("title", "Add new item");
     });
   });
+
+  describe("Array Item Defaults", () => {
+    it("should pre-populate required fields when adding an object array item", () => {
+      const onChange = jest.fn();
+      const schema = {
+        type: "array" as const,
+        items: {
+          type: "object" as const,
+          required: ["name"],
+          properties: {
+            name: { type: "string" as const },
+            age: { type: "number" as const },
+          },
+        },
+      };
+      renderSimpleArrayForm({ schema, value: [], onChange });
+
+      fireEvent.click(screen.getByText("Add Item"));
+
+      // New item is seeded with its required field (name), not a bare {}
+      expect(onChange).toHaveBeenCalledWith([{ name: "" }]);
+    });
+
+    it("should seed a template item when switching an empty object array to JSON", () => {
+      const schema = {
+        type: "array" as const,
+        items: {
+          type: "object" as const,
+          required: ["name"],
+          properties: { name: { type: "string" as const } },
+        },
+      };
+      renderSimpleArrayForm({ schema, value: [] });
+
+      fireEvent.click(screen.getByRole("button", { name: /switch to json/i }));
+
+      // JSON view shows one template object so the shape is visible, not []
+      const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+      expect(textarea.value).toContain('"name"');
+    });
+  });
 });

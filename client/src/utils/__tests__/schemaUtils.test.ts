@@ -39,8 +39,8 @@ describe("generateDefaultValue", () => {
     ).toBe(false);
   });
 
-  test("generates undefined for optional array", () => {
-    expect(generateDefaultValue({ type: "array" })).toBe(undefined);
+  test("generates empty array for root-level array schema", () => {
+    expect(generateDefaultValue({ type: "array" })).toEqual([]);
   });
 
   test("generates empty object for optional root object", () => {

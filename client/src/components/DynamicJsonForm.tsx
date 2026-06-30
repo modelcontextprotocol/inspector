@@ -72,7 +72,7 @@ const getArrayItemDefault = (schema: JsonSchemaType): JsonValue => {
     case "array":
       return [];
     case "object":
-      return {};
+      return generateDefaultValue(schema) ?? {};
     case "null":
       return null;
     default:
@@ -226,9 +226,23 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
         }
       } else {
         // Update raw JSON value when switching to JSON mode
-        setRawJsonValue(
-          JSON.stringify(value ?? generateDefaultValue(schema), null, 2),
-        );
+        let valueToShow: JsonValue = value ?? generateDefaultValue(schema);
+        // For an empty structured array, seed one template item so the user can
+        // see the expected field structure instead of a bare [].
+        if (
+          schema.type === "array" &&
+          schema.items &&
+          Array.isArray(valueToShow) &&
+          valueToShow.length === 0
+        ) {
+          const itemDefault = getArrayItemDefault(
+            normalizeUnionType(schema.items as JsonSchemaType),
+          );
+          if (typeof itemDefault === "object" && itemDefault !== null) {
+            valueToShow = [itemDefault];
+          }
+        }
+        setRawJsonValue(JSON.stringify(valueToShow, null, 2));
         setIsJsonMode(true);
       }
     };

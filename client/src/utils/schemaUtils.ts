@@ -111,7 +111,7 @@ export function generateDefaultValue(
     case "boolean":
       return isRequired ? false : undefined;
     case "array":
-      return isRequired ? [] : undefined;
+      return isRequired || isRootSchema ? [] : undefined;
     case "object": {
       if (!schema.properties) {
         return isRequired || isRootSchema ? {} : undefined;
