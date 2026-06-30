@@ -434,7 +434,7 @@ describe("DynamicJsonForm Number Fields", () => {
 
 describe("DynamicJsonForm Boolean Fields", () => {
   describe("Basic Operations", () => {
-    it("should render switch for boolean type", () => {
+    it("should render checkbox for boolean type", () => {
       const schema: JsonSchemaType = {
         type: "boolean",
         description: "Enable notifications",
@@ -443,8 +443,8 @@ describe("DynamicJsonForm Boolean Fields", () => {
         <DynamicJsonForm schema={schema} value={false} onChange={jest.fn()} />,
       );
 
-      const toggle = screen.getByRole("switch");
-      expect(toggle).toHaveAttribute("aria-checked", "false");
+      const checkbox = screen.getByRole("checkbox");
+      expect(checkbox).toHaveProperty("type", "checkbox");
     });
 
     it("should call onChange with boolean value", () => {
@@ -457,8 +457,8 @@ describe("DynamicJsonForm Boolean Fields", () => {
         <DynamicJsonForm schema={schema} value={false} onChange={onChange} />,
       );
 
-      const toggle = screen.getByRole("switch");
-      fireEvent.click(toggle);
+      const checkbox = screen.getByRole("checkbox");
+      fireEvent.click(checkbox);
 
       expect(onChange).toHaveBeenCalledWith(true);
     });
@@ -472,8 +472,8 @@ describe("DynamicJsonForm Boolean Fields", () => {
         <DynamicJsonForm schema={schema} value={false} onChange={jest.fn()} />,
       );
 
-      const toggle = screen.getByRole("switch");
-      expect(toggle).toHaveAttribute("aria-checked", "false");
+      const checkbox = screen.getByRole("checkbox");
+      expect(checkbox).toHaveProperty("checked", false);
     });
   });
 });

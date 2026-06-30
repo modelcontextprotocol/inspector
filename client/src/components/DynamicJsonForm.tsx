@@ -9,7 +9,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import JsonEditor from "./JsonEditor";
 import { updateValueAtPath } from "@/utils/jsonUtils";
 import { generateDefaultValue, normalizeUnionType } from "@/utils/schemaUtils";
@@ -571,23 +570,19 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
 
         case "boolean":
           return (
-            <div className="space-y-1">
+            <div className="space-y-2">
               {propSchema.description && (
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-sm text-gray-600">
                   {propSchema.description}
                 </p>
               )}
-              <div className="flex items-center gap-3 py-1">
-                <Switch
-                  checked={(currentValue as boolean) ?? false}
-                  onCheckedChange={(checked) =>
-                    handleFieldChange(path, checked)
-                  }
-                />
-                <span className="text-sm text-gray-600 dark:text-gray-400">
-                  {(currentValue as boolean) ? "True" : "False"}
-                </span>
-              </div>
+              <Input
+                type="checkbox"
+                checked={(currentValue as boolean) ?? false}
+                onChange={(e) => handleFieldChange(path, e.target.checked)}
+                className="w-4 h-4"
+                required={isRequired}
+              />
             </div>
           );
         case "null":

@@ -205,9 +205,9 @@ describe("DynamicJsonForm Array Fields", () => {
       };
       renderSimpleArrayForm({ schema, value: [true, false] });
 
-      // Should render Switch toggles (role="switch") for boolean items
-      const switches = screen.getAllByRole("switch");
-      expect(switches).toHaveLength(2);
+      // Should render form fields (checkboxes)
+      const checkboxes = screen.getAllByRole("checkbox");
+      expect(checkboxes).toHaveLength(2);
     });
 
     it("should detect simple object arrays as simple", () => {
@@ -332,10 +332,10 @@ describe("DynamicJsonForm Array Fields", () => {
       const onChange = jest.fn();
       renderSimpleArrayForm({ schema, value: [true, false], onChange });
 
-      const switches = screen.getAllByRole("switch");
-      expect(switches).toHaveLength(2);
-      expect(switches[0]).toHaveAttribute("aria-checked", "true");
-      expect(switches[1]).toHaveAttribute("aria-checked", "false");
+      const checkboxes = screen.getAllByRole("checkbox");
+      expect(checkboxes).toHaveLength(2);
+      expect(checkboxes[0]).toHaveProperty("checked", true);
+      expect(checkboxes[1]).toHaveProperty("checked", false);
 
       // Test adding new boolean item
       const addButton = screen.getByText("Add Item");
