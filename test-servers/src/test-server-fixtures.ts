@@ -754,7 +754,8 @@ export function createArgsPrompt(
   };
 }
 
-const MCP_APP_DEMO_URI = "ui://demo/widget.html";
+/** Canonical URI for the {@link createMcpAppDemoResource} UI resource, referenced by {@link createMcpAppDemoTool}'s `_meta.ui.resourceUri`. Exported so tests can assert against it without redefining the literal. */
+export const MCP_APP_DEMO_URI = "ui://demo/widget.html";
 
 /**
  * Minimal MCP App widget that exercises the host-side UI protocol surface

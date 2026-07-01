@@ -7,10 +7,9 @@ import {
   createTestServerInfo,
   createMcpAppDemoTool,
   createMcpAppDemoResource,
+  MCP_APP_DEMO_URI,
 } from "@modelcontextprotocol/inspector-test-server";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-
-const MCP_APP_DEMO_URI = "ui://demo/widget.html";
 
 /**
  * Exercises the `mcp_app_demo` preset added in #1557 end-to-end: it confirms the
