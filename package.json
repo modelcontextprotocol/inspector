@@ -82,6 +82,6 @@
     "ink-select-input": "^6.2.0"
   },
   "engines": {
-    "node": ">=22.7.5"
+    "node": ">=22.19.0"
   }
 }

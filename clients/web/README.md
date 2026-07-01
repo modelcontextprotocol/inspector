@@ -71,3 +71,7 @@ export default defineConfig([
   },
 ])
 ```
+
+## HTTP proxy support
+
+The web backend connects to remote MCP servers through the shared Node transport (`core/mcp/node/transport.ts`), which honors the conventional proxy environment variables: `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms) select the proxy, and `NO_PROXY` exempts hosts. Routing is powered by [`undici`](https://www.npmjs.com/package/undici)'s `EnvHttpProxyAgent`, imported lazily only when a proxy variable is set, so runs without a proxy configured pay no cost. See the CLI README for more detail.
