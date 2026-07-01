@@ -10,7 +10,10 @@ import type {
   OAuthTokens,
   OAuthMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import type { IdpSessionState, OAuthClientRegistrationKind } from "./storage.js";
+import type {
+  IdpSessionState,
+  OAuthClientRegistrationKind,
+} from "./storage.js";
 
 /**
  * OAuth state for a single server
@@ -92,21 +95,36 @@ export function createOAuthStore(
           updates: Partial<ServerOAuthState>,
         ) => {
           const key = normalizeServerUrl(serverUrl);
-          set((state) => ({
-            servers: {
-              ...state.servers,
-              [key]: {
-                ...state.servers[key],
-                ...updates,
-              },
-            },
-          }));
+          set((state) => {
+            const servers = { ...state.servers };
+            // Mirror getServerState's canonical→raw fallback for writes: if no
+            // canonical entry exists yet but a pre-normalization blob lives
+            // under the raw key, migrate it onto the canonical key so this
+            // partial write MERGES onto the existing credential instead of
+            // shadowing it with a fresh canonical entry (which would orphan the
+            // raw-key blob's other fields — e.g. a token — behind the new
+            // canonical one that getServerState now prefers).
+            let base = servers[key];
+            if (base === undefined && servers[serverUrl] !== undefined) {
+              // Reaching here implies `serverUrl !== key`: if they were equal,
+              // `servers[serverUrl]` would equal the `servers[key]` we just
+              // found undefined, so the guard above could not have passed.
+              base = servers[serverUrl];
+              delete servers[serverUrl];
+            }
+            servers[key] = { ...base, ...updates };
+            return { servers };
+          });
         },
         clearServerState: (serverUrl: string) => {
           const key = normalizeServerUrl(serverUrl);
           set((state) => {
             const rest = { ...state.servers };
             delete rest[key];
+            // Also drop a pre-normalization blob under the raw key so a clear
+            // fully removes the credential rather than leaving an orphan that
+            // getServerState's raw-key fallback would keep surfacing.
+            if (serverUrl !== key) delete rest[serverUrl];
             return { servers: rest };
           });
         },

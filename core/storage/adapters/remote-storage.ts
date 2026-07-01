@@ -72,6 +72,15 @@ export function createRemoteStorageAdapter(
         // full-page navigation (the OAuth authorize redirect): without it the
         // browser may abort the request mid-flight and the just-saved
         // codeVerifier/clientInformation never reaches disk.
+        //
+        // Caveat: the fetch spec caps the *combined* body size of all in-flight
+        // keepalive requests at 64 KB. `value` here is the whole store blob
+        // (every server's tokens + metadata), so a user with a very large
+        // number of authorized servers could in theory exceed that and have the
+        // browser reject this write. That ceiling is well above realistic
+        // inspector usage; if it ever bites, the fix is per-server stores rather
+        // than dropping `keepalive` (which would reintroduce the redirect-abort
+        // bug this guards against). The catch below surfaces such a rejection.
         const res = await fetchFn(url, {
           method: "POST",
           headers,

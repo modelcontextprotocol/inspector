@@ -30,7 +30,18 @@ export function getWebOAuthBaseUrl(): string {
 export const webOAuthFetch: typeof fetch = (...args) =>
   globalThis.fetch(...args);
 
-/** Memoized `RemoteOAuthStorage` for the given backend + auth token. */
+/**
+ * Memoized `RemoteOAuthStorage` for the given backend + auth token.
+ *
+ * The cache key is intentionally `{baseUrl, authToken}` only — `fetchFn` is NOT
+ * part of it. Whichever call constructs an instance first wins, so a later
+ * caller's `fetchFn` is ignored. This is safe today because every call site
+ * either omits `fetchFn` (defaulting to {@link webOAuthFetch}) or passes an
+ * `environmentFactory` wrapper that is functionally identical (`globalThis.fetch`),
+ * so the shared-instance goal (one whole-blob writer per backend) matters more
+ * than which wrapper is used. A future caller needing a genuinely different
+ * transport must key on it (or bypass the cache).
+ */
 export function getRemoteOAuthStorage(
   baseUrl: string,
   authToken: string | undefined,

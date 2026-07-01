@@ -141,6 +141,48 @@ describe("OAuthStorageBase — async hydration", () => {
     expect(await storage.getCodeVerifier(SERVER)).toBe("new");
   });
 
+  it("clear() before hydration is not resurrected by the late merge", async () => {
+    // A clear issued while hydration is still gated must survive the pending
+    // rehydrate() that would otherwise merge the persisted (un-cleared) blob
+    // back on top and silently restore the credential.
+    const { storage, release } = makeAsyncBackedStorage({
+      [SERVER]: { tokens: { access_token: "t", token_type: "Bearer" } },
+    });
+    storage.clear(SERVER);
+    release();
+    await storage.ready();
+    // Give the deferred re-apply (scheduled off `hydrated`) a microtask to run.
+    await Promise.resolve();
+    expect(await storage.getTokens(SERVER)).toBeUndefined();
+  });
+
+  it("clearTokens before hydration clears only tokens and survives the merge", async () => {
+    const { storage, release } = makeAsyncBackedStorage({
+      [SERVER]: {
+        tokens: { access_token: "t", token_type: "Bearer" },
+        codeVerifier: "keep-me",
+      },
+    });
+    storage.clearTokens(SERVER);
+    release();
+    await storage.ready();
+    await Promise.resolve();
+    // Tokens cleared, but the sibling field from the persisted blob remains.
+    expect(await storage.getTokens(SERVER)).toBeUndefined();
+    expect(await storage.getCodeVerifier(SERVER)).toBe("keep-me");
+  });
+
+  it("clear() after hydration does not schedule a deferred re-apply", async () => {
+    const { storage, release } = makeAsyncBackedStorage({
+      [SERVER]: { tokens: { access_token: "t", token_type: "Bearer" } },
+    });
+    release();
+    await storage.ready();
+    // Hydration already settled → synchronous clear, immediately observable.
+    storage.clear(SERVER);
+    expect(await storage.getTokens(SERVER)).toBeUndefined();
+  });
+
   it("normalizeServerUrl canonicalizes host case, bare-origin trailing slash, default port, and whitespace", () => {
     expect(normalizeServerUrl("https://Example.COM/mcp")).toBe(
       "https://example.com/mcp",
@@ -173,6 +215,47 @@ describe("OAuthStorageBase — async hydration", () => {
       access_token: "t",
       token_type: "Bearer",
     });
+  });
+
+  it("a partial write migrates a pre-normalization raw-key blob onto the canonical key (no orphaned fields)", async () => {
+    // Persisted under the bare-origin raw key (no trailing slash), the form a
+    // pre-normalization writer used; canonical form is `https://api.partner.dev/`.
+    // The caller consistently addresses the endpoint with that same raw string
+    // (matching getServerState's raw-key fallback).
+    const RAW = "https://api.partner.dev";
+    const { storage, release } = makeAsyncBackedStorage({
+      [RAW]: { tokens: { access_token: "existing", token_type: "Bearer" } },
+    });
+    release();
+    await storage.ready();
+    // A partial write must MERGE onto the existing blob, not shadow it with a
+    // fresh canonical entry — the pre-existing token must remain reachable.
+    await storage.saveCodeVerifier(RAW, "v");
+    expect(await storage.getCodeVerifier(RAW)).toBe("v");
+    expect(await storage.getTokens(RAW)).toEqual({
+      access_token: "existing",
+      token_type: "Bearer",
+    });
+    // The blob now lives under the canonical key, so the canonical form finds it
+    // too and the raw-key orphan no longer shadows anything.
+    expect(await storage.getTokens("https://api.partner.dev/")).toEqual({
+      access_token: "existing",
+      token_type: "Bearer",
+    });
+  });
+
+  it("clear() removes a pre-normalization raw-key blob, not just the canonical key", async () => {
+    const RAW = "https://api.partner.dev";
+    const { storage, release } = makeAsyncBackedStorage({
+      [RAW]: { tokens: { access_token: "existing", token_type: "Bearer" } },
+    });
+    release();
+    await storage.ready();
+    storage.clear(RAW);
+    // Both the canonical and raw keys must be gone — no orphan resurfacing via
+    // getServerState's raw-key fallback.
+    expect(await storage.getTokens(RAW)).toBeUndefined();
+    expect(await storage.getTokens("https://api.partner.dev/")).toBeUndefined();
   });
 
   it("getServerState falls back to a pre-normalization persisted key", async () => {

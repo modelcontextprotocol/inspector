@@ -96,6 +96,34 @@ export class OAuthStorageBase implements OAuthStorage {
     return this.hydrated;
   }
 
+  /**
+   * Run a `clear*` mutation against a hydrated store: synchronously if
+   * hydration has already landed, otherwise deferred until it does.
+   *
+   * `clear*` are declared synchronous in {@link OAuthStorage} (some feed sync
+   * SDK getters), so unlike the `save*` family they cannot `await this.hydrated`
+   * up front. But a clear applied to the still-empty pre-hydration store is
+   * doubly wrong: (a) the pending `rehydrate()` would merge the persisted
+   * (un-cleared) blob back over it, resurrecting the credential; and worse,
+   * (b) applying it triggers a persist write of the near-empty store, which for
+   * a whole-blob adapter (file / remote HTTP) can clobber the on-disk blob —
+   * every other server's tokens included — before hydration ever reads it.
+   * Deferring the mutation until after hydration avoids both: it merges onto
+   * the real persisted state. The common case (hydration already settled) stays
+   * synchronous and immediately observable. A failed hydration still resolves
+   * {@link hydrated} (see constructor), so a deferred clear runs harmlessly
+   * against the empty store. The effect of a pre-hydration clear is therefore
+   * asynchronous, which is safe: the only callers are fire-and-forget
+   * invalidations that never synchronously read the value straight back.
+   */
+  private clearAfterHydration(mutate: () => void): void {
+    if (this.store.persist.hasHydrated()) {
+      mutate();
+    } else {
+      void this.hydrated.then(mutate);
+    }
+  }
+
   async getClientInformation(
     serverUrl: string,
     isPreregistered?: boolean,
@@ -179,7 +207,9 @@ export class OAuthStorageBase implements OAuthStorage {
   }
 
   clearTokens(serverUrl: string): void {
-    this.store.getState().setServerState(serverUrl, { tokens: undefined });
+    this.clearAfterHydration(() =>
+      this.store.getState().setServerState(serverUrl, { tokens: undefined }),
+    );
   }
 
   async getCodeVerifier(serverUrl: string): Promise<string | undefined> {
@@ -197,18 +227,28 @@ export class OAuthStorageBase implements OAuthStorage {
   }
 
   clearCodeVerifier(serverUrl: string): void {
-    this.store
-      .getState()
-      .setServerState(serverUrl, { codeVerifier: undefined });
+    this.clearAfterHydration(() =>
+      this.store
+        .getState()
+        .setServerState(serverUrl, { codeVerifier: undefined }),
+    );
   }
 
   /**
    * Intentionally synchronous. The only caller is
    * {@link BaseOAuthClientProvider.scope}, a sync getter the SDK requires
-   * (it feeds the sync `clientMetadata` getter). Scope is always set via
-   * {@link saveScope} in the same session before it's read (during the
-   * pre-redirect half of the flow), so the in-memory store has the value
-   * regardless of async hydration.
+   * (it feeds the sync `clientMetadata` getter). It is safe without awaiting
+   * hydration because of an ordering invariant the callers uphold: some
+   * awaited read always precedes it, flushing hydration first.
+   *   - Pre-redirect half of the flow: `saveScope` (which awaits hydration)
+   *     writes the value in the same session, so the in-memory store has it.
+   *   - Post-redirect callback path: the in-memory store is reset, so the
+   *     value comes from hydration — but `buildOAuthConnectionState`
+   *     (`connection-state.ts`) awaits `getClientInformation`/
+   *     `getServerMetadata` (both of which await hydration) before it reads
+   *     `getScope`, so hydration has already landed by then.
+   * A future refactor that reads `getScope` without a preceding awaited
+   * storage read would break this invariant.
    */
   getScope(serverUrl: string): string | undefined {
     const state = this.store.getState().getServerState(serverUrl);
@@ -221,7 +261,9 @@ export class OAuthStorageBase implements OAuthStorage {
   }
 
   clearScope(serverUrl: string): void {
-    this.store.getState().setServerState(serverUrl, { scope: undefined });
+    this.clearAfterHydration(() =>
+      this.store.getState().setServerState(serverUrl, { scope: undefined }),
+    );
   }
 
   async getServerMetadata(serverUrl: string): Promise<OAuthMetadata | null> {
@@ -241,13 +283,17 @@ export class OAuthStorageBase implements OAuthStorage {
   }
 
   clearServerMetadata(serverUrl: string): void {
-    this.store
-      .getState()
-      .setServerState(serverUrl, { serverMetadata: undefined });
+    this.clearAfterHydration(() =>
+      this.store
+        .getState()
+        .setServerState(serverUrl, { serverMetadata: undefined }),
+    );
   }
 
   clear(serverUrl: string): void {
-    this.store.getState().clearServerState(serverUrl);
+    this.clearAfterHydration(() =>
+      this.store.getState().clearServerState(serverUrl),
+    );
   }
 
   async getIdpSession(issuer: string): Promise<IdpSessionState | undefined> {
@@ -272,10 +318,14 @@ export class OAuthStorageBase implements OAuthStorage {
   }
 
   clearIdpSession(issuer: string): void {
-    this.store.getState().clearIdpSession(issuer);
+    this.clearAfterHydration(() =>
+      this.store.getState().clearIdpSession(issuer),
+    );
   }
 
   clearEnterpriseManagedResourceServers(): void {
-    this.store.getState().clearEnterpriseManagedResourceServers();
+    this.clearAfterHydration(() =>
+      this.store.getState().clearEnterpriseManagedResourceServers(),
+    );
   }
 }
