@@ -141,6 +141,16 @@ export class OAuthStorageBase implements OAuthStorage {
     return await OAuthClientInformationSchema.parseAsync(clientInfo);
   }
 
+  /**
+   * Intentionally synchronous — same invariant as {@link getScope}: safe
+   * without awaiting hydration only because a preceding awaited read has
+   * already flushed it. Its sole caller, `buildOAuthConnectionState`
+   * (`connection-state.ts`), reads this right after awaiting
+   * `getClientInformation`/`getServerMetadata`, so on the post-redirect
+   * callback path (where the in-memory store is reset) hydration has landed
+   * by the time this runs. A future refactor reading it without a preceding
+   * awaited storage read would get a pre-hydration `undefined`.
+   */
   getClientRegistrationKind(
     serverUrl: string,
   ): OAuthClientRegistrationKind | undefined {
