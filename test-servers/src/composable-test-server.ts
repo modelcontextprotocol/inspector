@@ -116,6 +116,8 @@ export interface TaskToolDefinition {
   description: string;
   inputSchema?: ToolInputSchema;
   execution?: { taskSupport: "required" | "optional" };
+  /** Passed through to the SDK so clients can read tool-level `_meta` (e.g. `_meta.ui.resourceUri` for an App-flavored task tool). Mirrors {@link ToolDefinition._meta}. */
+  _meta?: Record<string, unknown>;
   handler: ToolTaskHandler<ToolInputSchema | undefined>;
 }
 
@@ -482,6 +484,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
                 description: tool.description,
                 inputSchema: tool.inputSchema,
                 execution: tool.execution,
+                ...(tool._meta != null && { _meta: tool._meta }),
               },
               tool.handler,
             )
@@ -490,6 +493,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
               {
                 description: tool.description,
                 execution: tool.execution,
+                ...(tool._meta != null && { _meta: tool._meta }),
               },
               tool.handler,
             );
