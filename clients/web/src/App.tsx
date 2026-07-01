@@ -1472,10 +1472,15 @@ function App() {
     // session key the pre-redirect page saved the fetch log under, so the
     // rebuilt client can restore those `auth` entries. Read it before the
     // URL is cleared below.
+    //
+    // CSRF hardening: a `state` that is present but does not parse to our
+    // expected 64-char-hex authId shape is a forgery indicator — the value
+    // did not originate from `generateOAuthState`. Reject the callback with a
+    // clear error instead of silently proceeding with an undefined sessionId.
     const stateParam = new URLSearchParams(window.location.search).get("state");
-    const sessionId = stateParam
-      ? (parseOAuthState(stateParam)?.authId ?? undefined)
-      : undefined;
+    const parsedState = stateParam ? parseOAuthState(stateParam) : null;
+    const stateRejected = stateParam !== null && parsedState === null;
+    const sessionId = parsedState?.authId ?? undefined;
     const pendingId =
       window.sessionStorage.getItem(OAUTH_PENDING_SERVER_KEY) ?? undefined;
     window.sessionStorage.removeItem(OAUTH_PENDING_SERVER_KEY);
@@ -1483,6 +1488,16 @@ function App() {
     // Strip the code/state off the URL immediately so a reload can't replay
     // the (now single-use) authorization code through the exchange again.
     window.history.replaceState({}, "", "/");
+
+    if (stateRejected) {
+      notifications.show({
+        title: "OAuth callback rejected",
+        message:
+          "OAuth callback carried an unrecognized state parameter; rejecting to prevent a cross-site request. Please try connecting again.",
+        color: "red",
+      });
+      return;
+    }
 
     if (!params.successful) {
       notifications.show({

@@ -1589,3 +1589,56 @@ describe("App history pin/replay", () => {
     );
   });
 });
+
+// The `/oauth/callback` handler must reject a returned `state` that does not
+// parse to the expected 64-char-hex authId shape (a forgery indicator) instead
+// of silently proceeding. See #1562.
+describe("App OAuth callback state validation", () => {
+  const originalUrl = window.location.href;
+
+  beforeEach(() => {
+    notificationsMock.show.mockClear();
+    window.sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    window.history.replaceState({}, "", originalUrl);
+  });
+
+  it("rejects an unparseable state param with a clear error toast", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/oauth/callback?code=abc123&state=not-a-valid-state",
+    );
+
+    renderWithMantine(<App />);
+
+    await waitFor(() =>
+      expect(notificationsMock.show).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "OAuth callback rejected",
+          color: "red",
+        }),
+      ),
+    );
+  });
+
+  it("does not reject when the state param parses to a valid authId", async () => {
+    // A well-formed 64-char-hex state is accepted; the handler proceeds past
+    // the rejection guard (it fails later for other reasons in this harness,
+    // but never shows the 'OAuth callback rejected' toast).
+    window.history.replaceState(
+      {},
+      "",
+      `/oauth/callback?code=abc123&state=${"a".repeat(64)}`,
+    );
+
+    renderWithMantine(<App />);
+
+    await waitFor(() => expect(notificationsMock.show).toHaveBeenCalled());
+    expect(notificationsMock.show).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: "OAuth callback rejected" }),
+    );
+  });
+});

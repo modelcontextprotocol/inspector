@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import {
   parseHttpUrl,
   parseOAuthCallbackParams,
@@ -51,6 +51,17 @@ describe("parseOAuthCallbackParams", () => {
 });
 
 describe("generateOAuthState", () => {
+  const originalCrypto = globalThis.crypto;
+
+  afterEach(() => {
+    // Restore the real WebCrypto after tests that stub/remove it.
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      writable: true,
+      value: originalCrypto,
+    });
+  });
+
   it("should generate 64-char hex state", () => {
     const state = generateOAuthState();
     expect(state).toMatch(/^[a-f0-9]{64}$/i);
@@ -60,6 +71,31 @@ describe("generateOAuthState", () => {
     const s1 = generateOAuthState();
     const s2 = generateOAuthState();
     expect(s1).not.toBe(s2);
+  });
+
+  it("throws when the crypto global is entirely absent (no silent Math.random fallback)", () => {
+    // Simulate an exotic runtime with no WebCrypto at all. Rather than minting
+    // a guessable CSRF token, generateOAuthState must fail loudly.
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      writable: true,
+      value: undefined,
+    });
+    expect(() => generateOAuthState()).toThrow(
+      /crypto\.getRandomValues is not available/,
+    );
+  });
+
+  it("throws when crypto.getRandomValues is missing", () => {
+    // crypto exists but lacks getRandomValues — still refuse to degrade.
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      writable: true,
+      value: {},
+    });
+    expect(() => generateOAuthState()).toThrow(
+      /crypto\.getRandomValues is not available/,
+    );
   });
 });
 
