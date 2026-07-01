@@ -49,13 +49,18 @@ export class CliExitCodeError extends Error {
   }
 }
 
+/** Depth cap for {@link causeOf} — bounds a pathological/self-referential
+ * `error.cause` chain so a cycle can never recurse infinitely. */
+const MAX_CAUSE_DEPTH = 16;
+
 /** Read an `Error.cause` chain into a single readable string, if present. */
-function causeOf(error: unknown): string | undefined {
+function causeOf(error: unknown, depth = 0): string | undefined {
+  if (depth >= MAX_CAUSE_DEPTH) return undefined;
   if (!(error instanceof Error)) return undefined;
   const cause = (error as { cause?: unknown }).cause;
   if (cause === undefined || cause === null) return undefined;
   if (cause instanceof Error) {
-    const nested = causeOf(cause);
+    const nested = causeOf(cause, depth + 1);
     return nested ? `${cause.message}: ${nested}` : cause.message;
   }
   return String(cause);
@@ -71,9 +76,14 @@ function statusOf(error: unknown): number | undefined {
   };
   if (typeof e.status === "number") return e.status;
   if (typeof e.response?.status === "number") return e.response.status;
-  // SDK SSEError exposes `.code` as the HTTP status; numeric only (avoid
-  // mistaking node error codes like "ENOTFOUND" for a status).
-  if (typeof e.code === "number") return e.code;
+  // SDK SseError / StreamableHTTPError expose `.code` as the HTTP status. Guard
+  // to the HTTP range (100-599) so a JSON-RPC McpError code (e.g. -32601
+  // MethodNotFound) is not mistaken for an HTTP status and leaked into the
+  // envelope or misclassified as AUTH_REQUIRED. String node codes like
+  // "ENOTFOUND" are already excluded by the numeric check.
+  if (typeof e.code === "number" && e.code >= 100 && e.code <= 599) {
+    return e.code;
+  }
   return undefined;
 }
 

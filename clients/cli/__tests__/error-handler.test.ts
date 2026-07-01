@@ -159,6 +159,18 @@ describe("classifyError", () => {
     ).toBe("error");
   });
 
+  it("terminates on a self-referential cause chain without recursing infinitely", () => {
+    // A cyclic `error.cause` must not hang the classifier; the depth cap bounds
+    // the walk and returns a finite string.
+    const err = new Error("looping");
+    (err as { cause?: unknown }).cause = err;
+    const { envelope } = classifyError(err);
+    expect(envelope.message).toBe("looping");
+    // Bounded by the depth cap: a finite string, not an infinite loop.
+    expect(typeof envelope.cause).toBe("string");
+    expect(envelope.cause).toContain("looping");
+  });
+
   it("captures a non-Error cause as a string", () => {
     const err = new Error("outer");
     (err as { cause?: unknown }).cause = { reason: "blocked" };
@@ -179,6 +191,16 @@ describe("classifyError", () => {
     const { exitCode, envelope } = classifyError(err);
     expect(exitCode).toBe(EXIT_CODES.AUTH_REQUIRED);
     expect(envelope.status).toBe(403);
+  });
+
+  it("ignores a JSON-RPC McpError numeric .code (outside the HTTP range) as a status", () => {
+    // MCP SDK's McpError carries a numeric `.code` that is a JSON-RPC error
+    // code (e.g. -32601 MethodNotFound), NOT an HTTP status. It must not leak
+    // into `status`, nor get misclassified as AUTH_REQUIRED.
+    const err = Object.assign(new Error("Method not found"), { code: -32601 });
+    const { exitCode, envelope } = classifyError(err);
+    expect(exitCode).toBe(EXIT_CODES.USAGE);
+    expect(envelope.status).toBeUndefined();
   });
 
   it("ignores a non-numeric node error code when reading the status", () => {
