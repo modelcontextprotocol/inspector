@@ -61,6 +61,26 @@ describe("generateOAuthState", () => {
     const s2 = generateOAuthState();
     expect(s1).not.toBe(s2);
   });
+
+  it("throws instead of silently degrading when crypto.getRandomValues is unavailable", () => {
+    const original = globalThis.crypto;
+    // Simulate a runtime without Web Crypto — the CSRF token must not fall back
+    // to a predictable Math.random source.
+    Object.defineProperty(globalThis, "crypto", {
+      value: undefined,
+      configurable: true,
+    });
+    try {
+      expect(() => generateOAuthState()).toThrow(
+        /crypto\.getRandomValues is not available/,
+      );
+    } finally {
+      Object.defineProperty(globalThis, "crypto", {
+        value: original,
+        configurable: true,
+      });
+    }
+  });
 });
 
 describe("parseOAuthState", () => {

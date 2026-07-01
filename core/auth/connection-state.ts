@@ -86,7 +86,7 @@ export async function buildOAuthConnectionState(
   const preregistered = await storage.getClientInformation(serverUrl, true);
   const dynamic = await storage.getClientInformation(serverUrl);
   const storageScope = storage.getScope(serverUrl);
-  const serverMetadata = storage.getServerMetadata(serverUrl);
+  const serverMetadata = await storage.getServerMetadata(serverUrl);
 
   const authorized = isAccessTokenUsable(tokens);
   const grantedScope = resolveGrantedScope(tokens, storageScope);
@@ -120,7 +120,9 @@ export async function buildOAuthConnectionState(
     const idp = params.enterpriseManagedAuth.idp;
     const issuer = normalizeIdpIssuer(idp.issuer);
     const idpSession = await getEmaIdpLoginState(storage, issuer);
-    const idpMetadata = storage.getServerMetadata(idpOAuthStorageKey(issuer));
+    const idpMetadata = await storage.getServerMetadata(
+      idpOAuthStorageKey(issuer),
+    );
     state.ema = {
       idpIssuer: issuer,
       idpClientId: idp.clientId,

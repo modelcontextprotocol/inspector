@@ -221,9 +221,9 @@ describe("OAuthNavigation", () => {
         getTokens: vi.fn(async () => undefined),
         saveTokens: vi.fn(async () => undefined),
         saveCodeVerifier: vi.fn(async () => undefined),
-        getCodeVerifier: vi.fn(() => undefined),
+        getCodeVerifier: vi.fn(async () => undefined),
         clear: vi.fn(),
-        getServerMetadata: vi.fn(() => null),
+        getServerMetadata: vi.fn(async () => null),
         saveServerMetadata: vi.fn(async () => undefined),
       } as unknown as OAuthStorage;
     }
@@ -271,21 +271,21 @@ describe("OAuthNavigation", () => {
       expect(await provider.clientInformation()).toEqual({ client_id: "dyn" });
     });
 
-    it("codeVerifier() throws when none is saved", () => {
+    it("codeVerifier() rejects when none is saved", async () => {
       const storage = makeStorage();
       const provider = makeProvider(storage);
 
-      expect(() => provider.codeVerifier()).toThrow(
+      await expect(provider.codeVerifier()).rejects.toThrow(
         /No code verifier saved for session/,
       );
     });
 
-    it("codeVerifier() returns the saved verifier", () => {
+    it("codeVerifier() returns the saved verifier", async () => {
       const storage = makeStorage();
-      vi.mocked(storage.getCodeVerifier).mockReturnValue("cv-1");
+      vi.mocked(storage.getCodeVerifier).mockResolvedValue("cv-1");
       const provider = makeProvider(storage);
 
-      expect(provider.codeVerifier()).toBe("cv-1");
+      expect(await provider.codeVerifier()).toBe("cv-1");
     });
 
     it("clientMetadata reflects the stored scope when present", () => {
@@ -362,7 +362,7 @@ describe("OAuthNavigation", () => {
       expect(storage.saveCodeVerifier).toHaveBeenCalledWith(SERVER, "cv");
       expect(storage.saveServerMetadata).toHaveBeenCalled();
       expect(await provider.tokens()).toBeUndefined();
-      expect(provider.getServerMetadata()).toBeNull();
+      expect(await provider.getServerMetadata()).toBeNull();
       const state = await provider.state();
       expect(typeof state).toBe("string");
       expect(state.length).toBeGreaterThan(0);

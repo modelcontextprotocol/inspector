@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { BrowserOAuthStorage } from "@inspector/core/auth/browser/storage.js";
+import {
+  BrowserOAuthStorage,
+  getBrowserOAuthStorage,
+} from "@inspector/core/auth/browser/storage.js";
 import type {
   OAuthClientInformation,
   OAuthTokens,
@@ -40,6 +43,16 @@ class MockSessionStorage implements Storage {
 const mockSessionStorage = new MockSessionStorage();
 (global as typeof globalThis & { sessionStorage?: Storage }).sessionStorage =
   mockSessionStorage;
+
+describe("getBrowserOAuthStorage", () => {
+  it("returns a memoized singleton across calls", () => {
+    const first = getBrowserOAuthStorage();
+    const second = getBrowserOAuthStorage();
+    expect(first).toBeInstanceOf(BrowserOAuthStorage);
+    // Second call hits the cached-instance branch rather than constructing anew.
+    expect(second).toBe(first);
+  });
+});
 
 describe("BrowserOAuthStorage", () => {
   let storage: BrowserOAuthStorage;
@@ -226,8 +239,10 @@ describe("BrowserOAuthStorage", () => {
     it("should return stored scope", async () => {
       const scope = "read write";
 
-      storage.saveScope(testServerUrl, scope);
-      const result = await storage.getScope(testServerUrl);
+      // getScope is intentionally synchronous; await the save (which waits for
+      // hydration) so the value has landed before the sync read.
+      await storage.saveScope(testServerUrl, scope);
+      const result = storage.getScope(testServerUrl);
 
       expect(result).toBe(scope);
     });
@@ -237,8 +252,8 @@ describe("BrowserOAuthStorage", () => {
     it("should save scope", async () => {
       const scope = "read write";
 
-      storage.saveScope(testServerUrl, scope);
-      const result = await storage.getScope(testServerUrl);
+      await storage.saveScope(testServerUrl, scope);
+      const result = storage.getScope(testServerUrl);
 
       expect(result).toBe(scope);
     });
@@ -322,13 +337,13 @@ describe("BrowserOAuthStorage", () => {
 
     it("clearCodeVerifier removes only the PKCE verifier", async () => {
       storage.saveCodeVerifier(testServerUrl, "verifier");
-      expect(storage.getCodeVerifier(testServerUrl)).toBe("verifier");
+      expect(await storage.getCodeVerifier(testServerUrl)).toBe("verifier");
       storage.clearCodeVerifier(testServerUrl);
-      expect(storage.getCodeVerifier(testServerUrl)).toBeUndefined();
+      expect(await storage.getCodeVerifier(testServerUrl)).toBeUndefined();
     });
 
     it("clearScope removes only the scope", async () => {
-      storage.saveScope(testServerUrl, "read");
+      await storage.saveScope(testServerUrl, "read");
       expect(storage.getScope(testServerUrl)).toBe("read");
       storage.clearScope(testServerUrl);
       expect(storage.getScope(testServerUrl)).toBeUndefined();
@@ -342,9 +357,9 @@ describe("BrowserOAuthStorage", () => {
         response_types_supported: ["code"],
       };
       storage.saveServerMetadata(testServerUrl, metadata);
-      expect(storage.getServerMetadata(testServerUrl)).toEqual(metadata);
+      expect(await storage.getServerMetadata(testServerUrl)).toEqual(metadata);
       storage.clearServerMetadata(testServerUrl);
-      expect(storage.getServerMetadata(testServerUrl)).toBeNull();
+      expect(await storage.getServerMetadata(testServerUrl)).toBeNull();
     });
   });
 
@@ -358,10 +373,10 @@ describe("BrowserOAuthStorage", () => {
         token_type: "Bearer",
       };
 
-      storage.saveClientInformation(testServerUrl, clientInfo, {
+      await storage.saveClientInformation(testServerUrl, clientInfo, {
         registrationKind: "dcr",
       });
-      storage.saveTokens(testServerUrl, tokens);
+      await storage.saveTokens(testServerUrl, tokens);
 
       storage.clear(testServerUrl);
 
@@ -375,10 +390,10 @@ describe("BrowserOAuthStorage", () => {
         client_id: "test-client-id",
       };
 
-      storage.saveClientInformation(testServerUrl, clientInfo, {
+      await storage.saveClientInformation(testServerUrl, clientInfo, {
         registrationKind: "dcr",
       });
-      storage.saveClientInformation(otherServerUrl, clientInfo, {
+      await storage.saveClientInformation(otherServerUrl, clientInfo, {
         registrationKind: "dcr",
       });
 

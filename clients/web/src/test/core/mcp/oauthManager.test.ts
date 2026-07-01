@@ -38,6 +38,7 @@ function createMockParams(
   const dispatchOAuthError = vi.fn();
 
   const storage = {
+    ready: vi.fn().mockResolvedValue(undefined),
     getScope: vi.fn().mockReturnValue(undefined),
     getClientInformation: vi.fn().mockResolvedValue(undefined),
     getClientRegistrationKind: vi.fn().mockReturnValue(undefined),

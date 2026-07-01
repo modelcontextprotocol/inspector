@@ -234,8 +234,8 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     await this.storage.saveCodeVerifier(this.serverUrl, codeVerifier);
   }
 
-  codeVerifier(): string {
-    const verifier = this.storage.getCodeVerifier(this.serverUrl);
+  async codeVerifier(): Promise<string> {
+    const verifier = await this.storage.getCodeVerifier(this.serverUrl);
     if (!verifier) {
       throw new Error("No code verifier saved for session");
     }
@@ -246,8 +246,8 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     this.storage.clear(this.serverUrl);
   }
 
-  getServerMetadata(): OAuthMetadata | null {
-    return this.storage.getServerMetadata(this.serverUrl);
+  async getServerMetadata(): Promise<OAuthMetadata | null> {
+    return await this.storage.getServerMetadata(this.serverUrl);
   }
 
   async saveServerMetadata(metadata: OAuthMetadata): Promise<void> {

@@ -470,7 +470,7 @@ describe("completeIdpOidcAuthorization", () => {
   });
 
   it("throws when the PKCE verifier is missing", async () => {
-    storage = buildStorage({ getCodeVerifier: vi.fn(() => undefined) });
+    storage = buildStorage({ getCodeVerifier: vi.fn(async () => undefined) });
     await expect(
       completeIdpOidcAuthorization({
         idp,

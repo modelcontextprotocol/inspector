@@ -1,4 +1,4 @@
-import { getBrowserOAuthStorage } from "@inspector/core/auth/browser/index.js";
+import type { OAuthStorage } from "@inspector/core/auth/storage.js";
 import { getOAuthServerUrl } from "@inspector/core/mcp/config.js";
 import type { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
@@ -8,6 +8,13 @@ export interface ClearServerOAuthStateParams {
   /** When set and this server is the active connection, clear via the live client. */
   inspectorClient?: InspectorClient | null;
   isActiveConnection: boolean;
+  /**
+   * Backend-backed OAuth storage (`RemoteOAuthStorage`) used to clear a
+   * non-active server's persisted state. Must be the same shared instance the
+   * connection path writes through so the clear targets `oauth.json`, not a
+   * divergent sessionStorage copy.
+   */
+  oauthStorage: Pick<OAuthStorage, "clear">;
 }
 
 /**
@@ -26,7 +33,7 @@ export function clearServerOAuthState(
   if (params.isActiveConnection && params.inspectorClient) {
     params.inspectorClient.clearOAuthTokens();
   } else {
-    getBrowserOAuthStorage().clear(serverUrl);
+    params.oauthStorage.clear(serverUrl);
   }
   return true;
 }

@@ -83,7 +83,10 @@ import { useServers } from "@inspector/core/react/useServers.js";
 import { useSettingsDraft } from "@inspector/core/react/useSettingsDraft.js";
 import { useClientSettingsDraft } from "@inspector/core/react/useClientSettingsDraft.js";
 import { useEmaIdpLoginState } from "@inspector/core/react/useEmaIdpLoginState.js";
-import { getBrowserOAuthStorage } from "@inspector/core/auth/browser/index.js";
+import {
+  getRemoteOAuthStorage,
+  getWebOAuthBaseUrl,
+} from "./lib/remoteOAuthStorage";
 import { useManagedTools } from "@inspector/core/react/useManagedTools.js";
 import { useManagedPrompts } from "@inspector/core/react/useManagedPrompts.js";
 import { useManagedResources } from "@inspector/core/react/useManagedResources.js";
@@ -1455,9 +1458,10 @@ function App() {
   // `onToggleConnection` unloaded the previous one), so all React state is
   // reset and we recover the initiating server from sessionStorage. We wait for
   // `servers` to hydrate before acting; the ref guard keeps the exchange to a
-  // single run. The persisted PKCE verifier + DCR client info live in
-  // `BrowserOAuthStorage` and survive the redirect, so `completeOAuthFlow`
-  // exchanges the code without needing the original in-memory state machine.
+  // single run. The persisted PKCE verifier + DCR client info live in the
+  // backend-backed `RemoteOAuthStorage` (`~/.mcp-inspector/storage/oauth.json`)
+  // and survive the redirect, so `completeOAuthFlow` exchanges the code without
+  // needing the original in-memory state machine.
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (window.location.pathname !== OAUTH_CALLBACK_PATH) return;
@@ -2384,7 +2388,10 @@ function App() {
 
   const clientSettingsModalValue = clientSettingsDraft ?? EMPTY_CLIENT_SETTINGS;
 
-  const emaOAuthStorage = useMemo(() => getBrowserOAuthStorage(), []);
+  const emaOAuthStorage = useMemo(
+    () => getRemoteOAuthStorage(getWebOAuthBaseUrl(), getAuthToken()),
+    [],
+  );
   const { loginState: emaIdpLoginState, logout: logoutEmaIdp } =
     useEmaIdpLoginState(
       emaOAuthStorage,
@@ -2415,6 +2422,10 @@ function App() {
         config: server.config,
         inspectorClient: isActive ? inspectorClient : null,
         isActiveConnection: isActive,
+        oauthStorage: getRemoteOAuthStorage(
+          getWebOAuthBaseUrl(),
+          getAuthToken(),
+        ),
       });
       if (!cleared) return;
 

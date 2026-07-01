@@ -29,6 +29,26 @@ export interface ServerOAuthState {
 }
 
 /**
+ * Normalize a server URL to its canonical form for use as a store key.
+ *
+ * Different callers (web deep-link parser, CLI `--server-url`, the SDK's own
+ * client constructor) can present the same endpoint with cosmetic differences
+ * — host case, a trailing slash on a bare-origin URL, default-port omission —
+ * that `new URL().href` collapses. Keying by the canonical form means a token
+ * the web inspector saved under `https://Example.com/mcp` is found when the
+ * CLI later asks for `https://example.com/mcp/`. Non-URL strings (e.g. a
+ * stdio server name) are returned trimmed so the store still works for them.
+ */
+export function normalizeServerUrl(serverUrl: string): string {
+  const trimmed = serverUrl.trim();
+  try {
+    return new URL(trimmed).href;
+  } catch {
+    return trimmed;
+  }
+}
+
+/**
  * Zustand store state (all servers)
  */
 export interface OAuthStoreState {
@@ -59,26 +79,34 @@ export function createOAuthStore(
         servers: {},
         idpSessions: {},
         getServerState: (serverUrl: string) => {
-          return get().servers[serverUrl] || {};
+          const servers = get().servers;
+          // Look up by canonical key, falling back to the raw key so an
+          // already-persisted blob written before normalization existed (or by
+          // another writer) is still found.
+          return (
+            servers[normalizeServerUrl(serverUrl)] ?? servers[serverUrl] ?? {}
+          );
         },
         setServerState: (
           serverUrl: string,
           updates: Partial<ServerOAuthState>,
         ) => {
+          const key = normalizeServerUrl(serverUrl);
           set((state) => ({
             servers: {
               ...state.servers,
-              [serverUrl]: {
-                ...state.servers[serverUrl],
+              [key]: {
+                ...state.servers[key],
                 ...updates,
               },
             },
           }));
         },
         clearServerState: (serverUrl: string) => {
+          const key = normalizeServerUrl(serverUrl);
           set((state) => {
             const rest = { ...state.servers };
-            delete rest[serverUrl];
+            delete rest[key];
             return { servers: rest };
           });
         },
@@ -118,6 +146,11 @@ export function createOAuthStore(
       {
         name: "mcp-inspector-oauth",
         storage,
+        // OAuthStorageBase drives `persist.rehydrate()` itself so it can await
+        // (and catch errors from) the single hydration. Auto-hydration here
+        // would race the explicit one and could clobber a save that landed
+        // between them.
+        skipHydration: true,
       },
     ),
   );
