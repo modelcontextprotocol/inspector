@@ -143,6 +143,8 @@ Status option IDs (`--single-select-option-id`):
 | In review | `fb2103f2` |
 | Done | `1bbc5632` |
 
+Use **In progress** for general work, one of the **Building** statuses (or **MCP Apps Extension**) while actively coding that surface, **In review** once a PR is open, and **Done** on merge.
+
 ```sh
 # 1. Add an issue/PR to the board — prints the item id (PVTI_…); capture it.
 gh project item-add 28 --owner modelcontextprotocol --url <issue-or-pr-url> --format json
@@ -158,7 +160,7 @@ gh project item-edit \
 The one-liner that does both, capturing the item id (use the option id for the status you want):
 
 ```sh
-ITEM_ID=$(gh project item-add 28 --owner modelcontextprotocol --url <url> --format json | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+ITEM_ID=$(gh project item-add 28 --owner modelcontextprotocol --url <url> --format json --jq '.id')
 gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id d43284fe
 ```
 
