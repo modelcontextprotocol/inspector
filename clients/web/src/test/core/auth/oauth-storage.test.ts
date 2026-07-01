@@ -172,6 +172,28 @@ describe("OAuthStorageBase — async hydration", () => {
     expect(await storage.getCodeVerifier(SERVER)).toBe("keep-me");
   });
 
+  it("clearClientInformation before hydration is deferred and clears only client info", async () => {
+    const { storage, release } = makeAsyncBackedStorage({
+      [SERVER]: {
+        clientInformation: { client_id: "abc" },
+        clientRegistrationKind: "dynamic",
+        tokens: { access_token: "t", token_type: "Bearer" },
+      },
+    });
+    storage.clearClientInformation(SERVER);
+    release();
+    await storage.ready();
+    await Promise.resolve();
+    // Client info cleared, but the sibling token from the persisted blob (and
+    // every other server's blob, in the whole-blob adapter) survives — proving
+    // the pre-hydration clear did not clobber on-disk state.
+    expect(await storage.getClientInformation(SERVER)).toBeUndefined();
+    expect(await storage.getTokens(SERVER)).toEqual({
+      access_token: "t",
+      token_type: "Bearer",
+    });
+  });
+
   it("clear() after hydration does not schedule a deferred re-apply", async () => {
     const { storage, release } = makeAsyncBackedStorage({
       [SERVER]: { tokens: { access_token: "t", token_type: "Bearer" } },

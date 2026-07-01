@@ -172,16 +172,16 @@ export class OAuthStorageBase implements OAuthStorage {
   }
 
   clearClientInformation(serverUrl: string, isPreregistered?: boolean): void {
-    const updates: Partial<ServerOAuthState> = {};
-
-    if (isPreregistered) {
-      updates.preregisteredClientInformation = undefined;
-    } else {
-      updates.clientInformation = undefined;
-      updates.clientRegistrationKind = undefined;
-    }
-
-    this.store.getState().setServerState(serverUrl, updates);
+    this.clearAfterHydration(() => {
+      const updates: Partial<ServerOAuthState> = {};
+      if (isPreregistered) {
+        updates.preregisteredClientInformation = undefined;
+      } else {
+        updates.clientInformation = undefined;
+        updates.clientRegistrationKind = undefined;
+      }
+      this.store.getState().setServerState(serverUrl, updates);
+    });
   }
 
   async getTokens(serverUrl: string): Promise<OAuthTokens | undefined> {
