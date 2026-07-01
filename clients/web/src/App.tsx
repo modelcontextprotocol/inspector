@@ -1473,10 +1473,20 @@ function App() {
     // rebuilt client can restore those `auth` entries. Read it before the
     // URL is cleared below.
     //
-    // CSRF hardening: a `state` that is present but does not parse to our
-    // expected 64-char-hex authId shape is a forgery indicator — the value
-    // did not originate from `generateOAuthState`. Reject the callback with a
-    // clear error instead of silently proceeding with an undefined sessionId.
+    // Defense-in-depth: a `state` that is present but does not parse to our
+    // expected 64-char-hex authId shape did not originate from
+    // `generateOAuthState`, so reject the callback instead of silently
+    // proceeding with an undefined sessionId. This is a shape check, not full
+    // state-matching — the primary CSRF protection remains PKCE
+    // (`code_verifier`); this layer catches malformed/forged `state` early.
+    //
+    // Intentional asymmetry: a present-but-malformed `state` (including the
+    // empty string `?state=`) is rejected, but a wholly absent `state`
+    // (`stateParam === null`) is *not* — it falls through with
+    // `sessionId = undefined` and is matched via `OAUTH_PENDING_SERVER_KEY`
+    // instead. Rejecting the null case would turn any provider error redirect
+    // that omits `state` into a misleading "rejected" toast, hiding the real
+    // OAuth error surfaced by the `!params.successful` branch below.
     const stateParam = new URLSearchParams(window.location.search).get("state");
     const parsedState = stateParam ? parseOAuthState(stateParam) : null;
     const stateRejected = stateParam !== null && parsedState === null;
@@ -1493,7 +1503,7 @@ function App() {
       notifications.show({
         title: "OAuth callback rejected",
         message:
-          "OAuth callback carried an unrecognized state parameter; rejecting to prevent a cross-site request. Please try connecting again.",
+          "OAuth callback carried an unrecognized state parameter that did not originate from this session. Please try connecting again.",
         color: "red",
       });
       return;

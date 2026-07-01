@@ -404,6 +404,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
 }));
 
 import App from "./App";
+import { OAUTH_PENDING_SERVER_KEY } from "./utils/oauthFlow";
 import * as McpIndex from "@inspector/core/mcp/index.js";
 import * as FetchLogModule from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
@@ -1625,9 +1626,16 @@ describe("App OAuth callback state validation", () => {
   });
 
   it("does not reject when the state param parses to a valid authId", async () => {
-    // A well-formed 64-char-hex state is accepted; the handler proceeds past
-    // the rejection guard (it fails later for other reasons in this harness,
-    // but never shows the 'OAuth callback rejected' toast).
+    // A well-formed 64-char-hex state passes the shape guard, so the handler
+    // proceeds to the server-matching step. With no server registered under the
+    // seeded pending id, that step surfaces the "could not be matched" toast —
+    // asserting on that specific downstream toast proves the state was accepted
+    // (never the "OAuth callback rejected" toast) rather than relying on an
+    // indirect "some toast fired" check.
+    window.sessionStorage.setItem(
+      OAUTH_PENDING_SERVER_KEY,
+      "server-that-does-not-exist",
+    );
     window.history.replaceState(
       {},
       "",
@@ -1636,7 +1644,13 @@ describe("App OAuth callback state validation", () => {
 
     renderWithMantine(<App />);
 
-    await waitFor(() => expect(notificationsMock.show).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(notificationsMock.show).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "OAuth callback could not be matched",
+        }),
+      ),
+    );
     expect(notificationsMock.show).not.toHaveBeenCalledWith(
       expect.objectContaining({ title: "OAuth callback rejected" }),
     );
