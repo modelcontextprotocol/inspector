@@ -80,6 +80,12 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --tr
 
 When a server is loaded from a `--catalog`/`--config` file, its per-server settings (headers, connection/request timeouts, and OAuth) are applied to the connection — the same resolution the TUI uses. A `--header` flag overrides the file's headers for that run while leaving the file's timeouts and OAuth in place.
 
+### HTTP proxy support
+
+Connections to remote HTTP/SSE servers honor the conventional proxy environment variables: `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms) select the proxy, and `NO_PROXY` exempts hosts. This applies to the Node transport shared by the CLI and the web backend — no inspector-specific flag is needed. When a proxy variable is set, outbound requests are routed through undici's `EnvHttpProxyAgent`.
+
+Proxy routing is powered by the [`undici`](https://www.npmjs.com/package/undici) package (`^8.5.0`, which requires Node `>= 22.7.5` — the inspector's supported floor). It is imported lazily only when a proxy variable is set, so runs without a proxy configured pay no cost.
+
 ## Options
 
 ### MCP server (which server to connect to)
@@ -115,23 +121,23 @@ The CLI does **not** start a local callback server or retry connect on 401. If t
 
 #### OAuth callback URL
 
-| Surface | Default callback |
-| ------- | ---------------- |
-| **Web** | `http://localhost:6274/oauth/callback` |
-| **TUI** | `http://127.0.0.1:6276/oauth/callback` (interactive — callback server) |
+| Surface | Default callback                                                                          |
+| ------- | ----------------------------------------------------------------------------------------- |
+| **Web** | `http://localhost:6274/oauth/callback`                                                    |
+| **TUI** | `http://127.0.0.1:6276/oauth/callback` (interactive — callback server)                    |
 | **CLI** | `http://127.0.0.1:6276/oauth/callback` (redirect URI in OAuth metadata only; no listener) |
 
 Register `http://127.0.0.1:6276/oauth/callback` on static or enterprise IdPs that require pre-registered redirect URIs before using the **TUI** (or when your OAuth app expects that URI). Override with `--callback-url` or `MCP_OAUTH_CALLBACK_URL`. The CLI passes this value as `redirect_uri` when an OAuth flow runs, but does not listen on the port.
 
 #### Flags
 
-| Option | Env | Description |
-| ------ | --- | ----------- |
-| `--client-config <path>` | `MCP_CLIENT_CONFIG_PATH` | Install-level client config (default: `~/.mcp-inspector/storage/client.json`). |
-| `--client-id <id>` | — | OAuth client ID (static client); overrides `client.json`. |
-| `--client-secret <secret>` | — | OAuth client secret; overrides `client.json`. |
-| `--client-metadata-url <url>` | — | CIMD metadata URL; overrides `client.json`. |
-| `--callback-url <url>` | `MCP_OAUTH_CALLBACK_URL` | Redirect URI sent to the authorization server (default: `http://127.0.0.1:6276/oauth/callback`). |
+| Option                        | Env                      | Description                                                                                      |
+| ----------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------ |
+| `--client-config <path>`      | `MCP_CLIENT_CONFIG_PATH` | Install-level client config (default: `~/.mcp-inspector/storage/client.json`).                   |
+| `--client-id <id>`            | —                        | OAuth client ID (static client); overrides `client.json`.                                        |
+| `--client-secret <secret>`    | —                        | OAuth client secret; overrides `client.json`.                                                    |
+| `--client-metadata-url <url>` | —                        | CIMD metadata URL; overrides `client.json`.                                                      |
+| `--callback-url <url>`        | `MCP_OAUTH_CALLBACK_URL` | Redirect URI sent to the authorization server (default: `http://127.0.0.1:6276/oauth/callback`). |
 
 **Example** — list tools on an OAuth-protected server using stored tokens and CIMD from the command line:
 
