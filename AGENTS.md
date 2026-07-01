@@ -160,7 +160,7 @@ gh project item-edit \
 The one-liner that does both, capturing the item id (use the option id for the status you want):
 
 ```sh
-ITEM_ID=$(gh project item-add 28 --owner modelcontextprotocol --url <url> --format json --jq '.id')
+ITEM_ID=$(gh project item-add 28 --owner modelcontextprotocol --url <issue-url> --format json --jq '.id')
 gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id d43284fe
 ```
 
