@@ -1,6 +1,44 @@
 import type { FetchRequestEntryBase } from "./types.js";
 
 /**
+ * Header names whose values are replaced with `REDACTED_HEADER_VALUE` before a
+ * fetch entry is recorded. The recorded entry flows to the in-memory log, the
+ * pino logger, and (via session storage) to disk — none of those sinks should
+ * ever see a live bearer token or session cookie.
+ */
+const SENSITIVE_HEADERS: ReadonlySet<string> = new Set([
+  "authorization",
+  "cookie",
+  "set-cookie",
+  "proxy-authorization",
+  "x-api-key",
+  // The inspector backend's own bearer (createRemoteFetch stamps this on every
+  // proxied request); same exposure as Authorization.
+  "x-mcp-remote-auth",
+]);
+
+/** Placeholder substituted for sensitive header values in recorded entries. */
+export const REDACTED_HEADER_VALUE = "[REDACTED]";
+
+/**
+ * Returns a copy of `headers` with every {@link SENSITIVE_HEADERS} value
+ * replaced by {@link REDACTED_HEADER_VALUE}. Comparison is case-insensitive
+ * (HTTP header names are case-insensitive); the original casing of every key is
+ * preserved so the recorded entry still shows what the client actually sent.
+ */
+export function redactSensitiveHeaders(
+  headers: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    out[key] = SENSITIVE_HEADERS.has(key.toLowerCase())
+      ? REDACTED_HEADER_VALUE
+      : value;
+  }
+  return out;
+}
+
+/**
  * Whether a response represents an unbounded (long-lived) HTTP stream
  * whose body cannot be cloned + read to completion. The streamable HTTP
  * spec uses `GET` + `text/event-stream` for the long-lived server-push
@@ -57,19 +95,21 @@ export function createFetchTracker(
           : input.url;
     const method = init?.method || "GET";
 
-    // Extract headers
-    const requestHeaders: Record<string, string> = {};
+    // Extract headers, redacting sensitive values BEFORE they reach any
+    // downstream sink (logger, in-memory list, persisted session storage).
+    const rawRequestHeaders: Record<string, string> = {};
     if (input instanceof Request) {
       input.headers.forEach((value, key) => {
-        requestHeaders[key] = value;
+        rawRequestHeaders[key] = value;
       });
     }
     if (init?.headers) {
       const headers = new Headers(init.headers);
       headers.forEach((value, key) => {
-        requestHeaders[key] = value;
+        rawRequestHeaders[key] = value;
       });
     }
+    const requestHeaders = redactSensitiveHeaders(rawRequestHeaders);
 
     // Extract body (if present and readable)
     let requestBody: string | undefined;
@@ -122,11 +162,12 @@ export function createFetchTracker(
     const responseStatus = response.status;
     const responseStatusText = response.statusText;
 
-    // Extract response headers
-    const responseHeaders: Record<string, string> = {};
+    // Extract response headers (redacted — Set-Cookie etc. are credentials too)
+    const rawResponseHeaders: Record<string, string> = {};
     response.headers.forEach((value, key) => {
-      responseHeaders[key] = value;
+      rawResponseHeaders[key] = value;
     });
+    const responseHeaders = redactSensitiveHeaders(rawResponseHeaders);
 
     // Skip body reading only for *long-lived* streams. On streamable HTTP,
     // GET /mcp opens an unbounded SSE channel for server-to-client pushes
