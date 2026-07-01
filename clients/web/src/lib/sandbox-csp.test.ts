@@ -19,6 +19,12 @@ describe("SAFE_CSP_SOURCE", () => {
     "data:",
     "blob:",
     "example.com",
+    // Schemes are case-insensitive per the URL spec, so a capitalized or
+    // mixed-case scheme is still a valid source (over-rejecting it would
+    // silently drop a restriction a server asked for).
+    "HTTPS://api.example.com",
+    "WSS://realtime.service.com",
+    "Https://*.cloudflare.com",
   ])("accepts %s", (s) => {
     expect(SAFE_CSP_SOURCE.test(s)).toBe(true);
   });
