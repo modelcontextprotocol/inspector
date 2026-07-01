@@ -127,7 +127,10 @@ export interface ResourceDefinition {
   description?: string;
   mimeType?: string;
   text?: string;
-  /** Included on the returned content item so clients can read resource-level `_meta` (e.g. `_meta.ui.csp` for MCP App UI resources). */
+  /**
+   * Included on the returned content item so clients can read resource-level `_meta` (e.g. `_meta.ui.csp` for MCP App UI resources).
+   * Only the default read handler applies this; a `customHandler` from `config.onRegisterResource` replaces the `contents` wholesale, so such a handler must re-add `_meta` itself if the resource needs it on the read response.
+   */
   _meta?: Record<string, unknown>;
 }
 
