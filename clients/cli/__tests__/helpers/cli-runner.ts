@@ -1,4 +1,5 @@
 import { runCli as invokeCli } from "../../src/cli.js";
+import { formatErrorOutput } from "../../src/error-handler.js";
 
 export interface CliResult {
   exitCode: number | null;
@@ -52,7 +53,8 @@ function captureWrite(append: (text: string) => void) {
  * (`exitCode` / `stdout` / `stderr` / `output`) so every existing test and the
  * shared assertion helpers keep working unchanged:
  * - stdout/stderr are captured by temporarily patching `process.std*.write`
- *   (and `console.error`/`console.warn`, which commander and error paths use).
+ *   (which also captures `console.error`/`console.warn`, since those route
+ *   through `process.stderr.write`).
  * - A thrown error (bad args, failed connect, unsupported method) maps to
  *   `exitCode: 1` with the message appended to stderr — mirroring how the real
  *   binary (`index.ts`) routes errors through `handleError` → `process.exit(1)`.
@@ -77,8 +79,6 @@ export async function runCli(
 
   const originalStdoutWrite = process.stdout.write;
   const originalStderrWrite = process.stderr.write;
-  const originalConsoleError = console.error;
-  const originalConsoleWarn = console.warn;
 
   // Snapshot and apply env overrides; `undefined` records keys that did not
   // exist so they can be deleted (not set to the string "undefined") on restore.
@@ -93,15 +93,12 @@ export async function runCli(
   process.stdout.write = captureWrite((text) => {
     stdout += text;
   }) as typeof process.stdout.write;
+  // `console.error` / `console.warn` route through `process.stderr.write`, so
+  // patching the underlying stream captures them too — no separate console
+  // override is needed (the previous explicit overrides were redundant).
   process.stderr.write = captureWrite((text) => {
     stderr += text;
   }) as typeof process.stderr.write;
-  console.error = (...parts: unknown[]) => {
-    stderr += parts.map(String).join(" ") + "\n";
-  };
-  console.warn = (...parts: unknown[]) => {
-    stderr += parts.map(String).join(" ") + "\n";
-  };
 
   // `runCli` reads `process.argv.slice(2)`, so prepend two placeholder entries
   // ([node, script]) to mirror how the binary is launched.
@@ -127,14 +124,15 @@ export async function runCli(
   try {
     await Promise.race([invokeCli(argv), timeout]);
   } catch (error) {
-    exitCode = 1;
-    stderr += (error instanceof Error ? error.message : String(error)) + "\n";
+    // Mirror the binary's `handleError` exactly so tests observe the same exit
+    // code and stderr (one JSON envelope line) the real CLI would emit.
+    const out = formatErrorOutput(error);
+    exitCode = out.exitCode;
+    stderr += out.stderr;
   } finally {
     if (timer) clearTimeout(timer);
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;
-    console.error = originalConsoleError;
-    console.warn = originalConsoleWarn;
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
