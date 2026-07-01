@@ -103,7 +103,7 @@ Injection is a no-op when auth is disabled (`DANGEROUSLY_OMIT_AUTH`), and the gl
 
 All work should be driven by items on the project board.
 
-> **A v2 issue or PR is not "created" until it is BOTH labeled `v2` AND on board #28 with a Status set.** Labeling alone is not enough — a label is a repo tag; the board is a separate org project. Applying `--label v2` does **not** add the item to the board, and adding it to the board does **not** set a Status. All three are distinct steps; do all three (see the recipes below).
+> **A v2 issue is not "created" until it is BOTH labeled `v2` AND on board #28 with a Status set.** Labeling alone is not enough — a label is a repo tag; the board is a separate org project. Applying `--label v2` does **not** add the item to the board, and adding it to the board does **not** set a Status. All three are distinct steps; do all three (see the recipes below). **Only issues go on the board — never PRs.** A PR still gets the `v2` label, but it is tracked through its linked issue's card (via `Closes #N`), not its own board item.
 
 - Before starting work, check the board for the relevant item.
 - **Every board item is a real GitHub issue.** Do not create draft items (board cards with no issue number). If you find work that needs tracking, create an actual issue and add that to the board. Before creating a new issue, check the board for a matching item to avoid duplicates — **never create a duplicate**.
@@ -113,7 +113,7 @@ All work should be driven by items on the project board.
   - `v2/main` → `v2`
 
   Set the label at create time (`gh issue create --label v2 ...`, `gh pr create --label v2 ...`) — don't rely on backfilling later, since unlabeled PRs are easy to miss when filtering by version.
-- **Add to the board and set Status.** After creating an issue or PR, add it to board #28 and set its Status. This is the step most easily forgotten because it needs several IDs — copy the recipes below verbatim.
+- **Add the issue to the board and set Status.** After creating an issue, add it to board #28 and set its Status. (PRs are never added to the board — they're tracked through their linked issue's card.) This is the step most easily forgotten because it needs several IDs — copy the recipes below verbatim.
 - When work begins, create a feature branch and set the item's Status to **In progress** (or one of the building statuses below).
 - When work is complete:
   - Run format, lint, typecheck, build, and test — ensure all checks pass
@@ -146,8 +146,8 @@ Status option IDs (`--single-select-option-id`):
 Use **In progress** for general work, one of the **Building** statuses (or **MCP Apps Extension**) while actively coding that surface, **In review** once a PR is open, and **Done** on merge.
 
 ```sh
-# 1. Add an issue/PR to the board — prints the item id (PVTI_…); capture it.
-gh project item-add 28 --owner modelcontextprotocol --url <issue-or-pr-url> --format json
+# 1. Add an issue to the board — prints the item id (PVTI_…); capture it.
+gh project item-add 28 --owner modelcontextprotocol --url <issue-url> --format json
 
 # 2. Set its Status (here: In progress). Use the option id from the table above.
 gh project item-edit \
@@ -160,7 +160,7 @@ gh project item-edit \
 The one-liner that does both, capturing the item id (use the option id for the status you want):
 
 ```sh
-ITEM_ID=$(gh project item-add 28 --owner modelcontextprotocol --url <url> --format json --jq '.id')
+ITEM_ID=$(gh project item-add 28 --owner modelcontextprotocol --url <issue-url> --format json --jq '.id')
 gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id d43284fe
 ```
 
