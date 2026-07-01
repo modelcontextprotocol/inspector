@@ -68,6 +68,9 @@ type WithUiMeta = { _meta?: { ui?: unknown } };
  * package's `.d.ts`, so we read the fields structurally instead. The values
  * pass through verbatim into {@link AppInfo}; callers can narrow them against
  * the published Zod schemas if they need strict typing.
+ *
+ * TODO: switch to the named `McpUiToolMeta` / `McpUiResourceMeta` types once
+ * upstream fixes the extensionless re-export so they resolve under NodeNext.
  */
 interface UiMetaShape {
   visibility?: readonly string[];
@@ -77,8 +80,16 @@ interface UiMetaShape {
   prefersBorder?: boolean;
 }
 
-function readUiMeta(carrier: WithUiMeta | undefined): UiMetaShape | undefined {
-  const ui = carrier?._meta?.ui;
+/**
+ * Reads a carrier's `_meta.ui` structurally, narrowing from `unknown` so call
+ * sites don't need their own casts. Returns `undefined` unless both the carrier
+ * and its `_meta.ui` are non-null objects.
+ */
+function readUiMeta(carrier: unknown): UiMetaShape | undefined {
+  const ui =
+    carrier !== null && typeof carrier === "object"
+      ? (carrier as WithUiMeta)._meta?.ui
+      : undefined;
   return ui !== null && typeof ui === "object"
     ? (ui as UiMetaShape)
     : undefined;
@@ -135,11 +146,14 @@ export function extractAppInfo(
   if (resourceUri === undefined) {
     return { hasApp: false, toolName: tool.name };
   }
-  const toolUi = readUiMeta(tool as WithUiMeta);
+  const toolUi = readUiMeta(tool);
   const content = resource && findResourceContent(resource, resourceUri);
-  const resourceUi =
-    readUiMeta(content as WithUiMeta | undefined) ??
-    readUiMeta(resource as WithUiMeta | undefined);
+  // Precedence is intentional: prefer the matched content block's `_meta.ui`,
+  // falling back to the result-level `_meta.ui`. Per the current spec the
+  // security posture (csp/permissions/domain) lives on the content block, so we
+  // don't shallow-merge the two carriers — a content block that declares any
+  // `ui` is treated as authoritative for all of its fields.
+  const resourceUi = readUiMeta(content) ?? readUiMeta(resource);
   return {
     hasApp: true,
     toolName: tool.name,
