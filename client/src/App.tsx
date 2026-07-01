@@ -186,6 +186,9 @@ const App = () => {
       );
     },
   );
+  const [credentialsInclude, setCredentialsInclude] = useState<boolean>(() => {
+    return localStorage.getItem("lastCredentialsInclude") === "true";
+  });
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [roots, setRoots] = useState<Root[]>([]);
@@ -401,6 +404,7 @@ const App = () => {
     oauthScope,
     config,
     connectionType,
+    credentialsInclude,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
 
@@ -549,6 +553,13 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem("lastConnectionType", connectionType);
   }, [connectionType]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "lastCredentialsInclude",
+      credentialsInclude ? "true" : "false",
+    );
+  }, [credentialsInclude]);
 
   useEffect(() => {
     if (bearerToken) {
@@ -1406,6 +1417,8 @@ const App = () => {
           loggingSupported={!!serverCapabilities?.logging || false}
           connectionType={connectionType}
           setConnectionType={setConnectionType}
+          credentialsInclude={credentialsInclude}
+          setCredentialsInclude={setCredentialsInclude}
           serverImplementation={serverImplementation}
         />
         <div

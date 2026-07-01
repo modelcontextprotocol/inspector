@@ -102,6 +102,10 @@ interface UseConnectionOptions {
   defaultLoggingLevel?: LoggingLevel;
   serverImplementation?: Implementation;
   metadata?: Record<string, string>;
+  // When true, pass `credentials: 'include'` on direct-connection fetches so
+  // the browser attaches cookies stored for the target origin. Applies to the
+  // direct transport only; proxy connections are unaffected.
+  credentialsInclude?: boolean;
 }
 
 export function useConnection({
@@ -116,6 +120,7 @@ export function useConnection({
   oauthScope,
   config,
   connectionType = "proxy",
+  credentialsInclude = false,
   onNotification,
   onPendingRequest,
   onElicitationRequest,
@@ -591,6 +596,7 @@ export function useConnection({
                 const response = await fetch(url, {
                   ...init,
                   headers: requestHeaders,
+                  ...(credentialsInclude && { credentials: "include" }),
                 });
 
                 // Capture protocol-related headers from response
@@ -616,6 +622,7 @@ export function useConnection({
                 const response = await fetch(url, {
                   headers: requestHeaders,
                   ...init,
+                  ...(credentialsInclude && { credentials: "include" }),
                 });
 
                 // Capture protocol-related headers from response

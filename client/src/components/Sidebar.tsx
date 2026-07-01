@@ -18,6 +18,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -75,6 +76,8 @@ interface SidebarProps {
   setConfig: (config: InspectorConfig) => void;
   connectionType: "direct" | "proxy";
   setConnectionType: (type: "direct" | "proxy") => void;
+  credentialsInclude: boolean;
+  setCredentialsInclude: (value: boolean) => void;
   serverImplementation?:
     | (WithIcons & { name?: string; version?: string; websiteUrl?: string })
     | null;
@@ -109,6 +112,8 @@ const Sidebar = ({
   setConfig,
   connectionType,
   setConnectionType,
+  credentialsInclude,
+  setCredentialsInclude,
   serverImplementation,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
@@ -123,6 +128,8 @@ const Sidebar = ({
 
   const connectionTypeTip =
     "Connect to server directly (requires CORS config on server) or via MCP Inspector Proxy";
+  const credentialsIncludeTip =
+    "Send browser cookies with direct requests (credentials: 'include'). The target server must respond with Access-Control-Allow-Credentials: true and a non-wildcard Access-Control-Allow-Origin, and any cross-site cookies must use SameSite=None; Secure.";
   // Reusable error reporter for copy actions
   const reportError = useCallback(
     (error: unknown) => {
@@ -361,6 +368,33 @@ const Sidebar = ({
                 </TooltipTrigger>
                 <TooltipContent>{connectionTypeTip}</TooltipContent>
               </Tooltip>
+
+              {/* Send-cookies toggle - only applies to the direct transport */}
+              {connectionType === "direct" && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="credentials-include-checkbox"
+                        checked={credentialsInclude}
+                        onCheckedChange={(checked: boolean) =>
+                          setCredentialsInclude(checked === true)
+                        }
+                        data-testid="credentials-include-checkbox"
+                      />
+                      <label
+                        className="text-sm font-medium cursor-pointer"
+                        htmlFor="credentials-include-checkbox"
+                      >
+                        Send cookies (credentials: include)
+                      </label>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    {credentialsIncludeTip}
+                  </TooltipContent>
+                </Tooltip>
+              )}
             </>
           )}
 
