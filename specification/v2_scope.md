@@ -1,6 +1,6 @@
 # Inspector V2 Scope
 
-### [Brief](README.md) | [V1 Problems](v1_problems.md) | V2 Scope | [V2 Tech Stack](v2_web_client.md) | [V2 UX](v2_ux.md)
+### [Brief](README.md) | [V1 Problems](v1_problems.md) | V2 Scope | [V2 Tech Stack](v2_web_client.md) | [V2 UX](v2_ux.md) | [V2 Auth](v2_auth.md) | [V2 New Spec Impact](v2_new_spec_impact.md)
 
 
 ## Table of Contents

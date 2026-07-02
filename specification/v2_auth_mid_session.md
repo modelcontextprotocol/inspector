@@ -1,6 +1,7 @@
-# Inspector V2 — Mid-session authorization
+# Inspector V2 Auth — Mid-session authorization
 
-### [Brief](README.md) | [V2 Scope](v2_scope.md) | [Auth hardening](v2_auth_hardening.md) | [EMA / XAA](v2_auth_ema.md) | [Smoke testing](v2_auth_smoke_testing.md)
+### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_web_client.md) | [V2 UX](v2_ux.md) | V2 Auth | [V2 New Spec Impact](v2_new_spec_impact.md)
+#### [Overview](v2_auth.md) | [EMA / XAA](v2_auth_ema.md) | [Hardening](v2_auth_hardening.md) | Mid-session | [Smoke testing](v2_auth_smoke_testing.md)
 
 Design for **mid-session authorization** in Inspector: detecting when MCP traffic needs new or elevated credentials, responding with the correct OAuth or EMA flow, and restoring the connection — across web, TUI, and CLI.
 
