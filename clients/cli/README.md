@@ -149,6 +149,32 @@ npx @modelcontextprotocol/inspector --cli --catalog mcp.json --server my-http-se
 
 See [EMA / enterprise-managed auth](../../specification/v2_auth_ema.md) and [OAuth smoke testing](../../specification/v2_auth_smoke_testing.md) for configuration details and staging servers.
 
+## Exit codes & error envelopes
+
+Every non-zero exit maps to a stable failure class, so a programmatic caller
+(CI, a script, an agent) can branch on _why_ the CLI failed without scraping
+prose from stderr:
+
+| Code | Meaning |
+| ---- | ------- |
+| `0` | Success. |
+| `1` | Usage / unexpected error (the catch-all). |
+| `2` | No MCP App found on the tool (`--app-info` probe). |
+| `3` | Server requires authentication (401/403, `WWW-Authenticate`, OAuth). |
+| `4` | Server unreachable (DNS, connection refused, timeout, `fetch failed`). |
+| `5` | Tool error (`tools/call` returned `isError:true`, or the tool was not found). |
+
+On any non-zero exit the CLI also writes a single JSON line to **stderr** — the
+`ErrorEnvelope`:
+
+```json
+{ "error": { "code": "auth_required", "message": "Unauthorized", "status": 401, "url": "https://api.example/mcp" } }
+```
+
+The `code` is a stable identifier for the failure class; `message` is the
+human-readable error; `cause`, `status`, and `url` are included when known.
+Because it is one line, a caller can parse it with `2>&1 | tail -1 | jq .error`.
+
 ## Why use the CLI?
 
 While the Web Client provides a rich visual interface, the CLI is designed for:
