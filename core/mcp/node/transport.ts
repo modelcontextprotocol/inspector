@@ -12,6 +12,68 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createFetchTracker } from "../fetchTracking.js";
+import type { Dispatcher } from "undici";
+
+/** Node's `RequestInit` plus the undici-specific `dispatcher` option. */
+type NodeRequestInit = RequestInit & { dispatcher?: Dispatcher };
+
+/** Standard proxy env vars, in the precedence undici's EnvHttpProxyAgent uses. */
+const PROXY_ENV_VARS = [
+  "HTTPS_PROXY",
+  "https_proxy",
+  "HTTP_PROXY",
+  "http_proxy",
+] as const;
+
+/**
+ * First proxy URL found in the environment, or `undefined` if none is set.
+ * Exported for tests and so callers can decide whether proxying is in effect.
+ */
+export function readProxyEnv(): string | undefined {
+  for (const name of PROXY_ENV_VARS) {
+    const value = process.env[name];
+    if (value && value.trim() !== "") return value;
+  }
+  return undefined;
+}
+
+/**
+ * Wraps a fetch function so outbound HTTP/HTTPS requests honor the standard
+ * `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` environment variables.
+ *
+ * Node's built-in `fetch` (the bundled undici) accepts a `dispatcher` option
+ * in `RequestInit`; undici's `EnvHttpProxyAgent` reads the proxy env vars and
+ * routes per-request, so a single dispatcher covers both schemes and respects
+ * `NO_PROXY`. The `undici` package is loaded lazily on first call so callers
+ * that never set a proxy env var (TUI, web backend) need no extra dependency.
+ * If the proxy is configured but `undici` is unavailable, the wrapper throws
+ * with an actionable message rather than silently ignoring the env var.
+ */
+export function withProxyDispatcher(baseFetch: typeof fetch): typeof fetch {
+  if (readProxyEnv() === undefined) return baseFetch;
+
+  let dispatcherPromise: Promise<Dispatcher> | undefined;
+  const getDispatcher = (): Promise<Dispatcher> => {
+    dispatcherPromise ??= import("undici").then(
+      ({ EnvHttpProxyAgent }) => new EnvHttpProxyAgent(),
+      (cause: unknown) => {
+        throw new Error(
+          "HTTPS_PROXY / HTTP_PROXY is set but the `undici` package is not " +
+            "available. Install it (it ships with the CLI client) or unset the " +
+            "proxy env var.",
+          { cause },
+        );
+      },
+    );
+    return dispatcherPromise;
+  };
+
+  const proxiedFetch: typeof fetch = async (input, init) => {
+    const dispatcher = await getDispatcher();
+    return baseFetch(input, { ...init, dispatcher } as NodeRequestInit);
+  };
+  return proxiedFetch;
+}
 
 /**
  * Build the wire `headers` record from `settings.headers`, dropping rows with
@@ -48,7 +110,7 @@ export function createTransportNode(
     settings,
   } = options;
 
-  const baseFetch = optionsFetchFn ?? globalThis.fetch;
+  const baseFetch = withProxyDispatcher(optionsFetchFn ?? globalThis.fetch);
 
   if (serverType === "stdio") {
     const stdioConfig = config as StdioServerConfig;
@@ -78,6 +140,8 @@ export function createTransportNode(
     const sseConfig = config as SseServerConfig;
     const url = new URL(sseConfig.url);
 
+    // A caller-supplied eventSourceInit.fetch wins as-is (explicit fetch is not
+    // re-wrapped for proxying); the default path uses the proxy-aware baseFetch.
     const sseFetch =
       (sseConfig.eventSourceInit?.fetch as typeof fetch) || baseFetch;
     const trackedFetch = onFetchRequest
