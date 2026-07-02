@@ -39,6 +39,7 @@ import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import type { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
 import type { JsonValue } from "../json/jsonUtils.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { AuthChallenge } from "../auth/challenge.js";
 
 /** Task with createdAt optional so we can emit synthetic tasks (e.g. on result/error) that omit it. */
 export type TaskWithOptionalCreatedAt = Omit<Task, "createdAt"> & {
@@ -148,6 +149,17 @@ export interface InspectorClientEventMap {
   oauthComplete: { tokens: OAuthTokens };
   oauthAuthorizationRequired: { url: URL };
   oauthError: { error: Error };
+  /** Ambient (SSE) auth challenge while no command-scoped send is active. */
+  authChallengeAmbient: { challenge: AuthChallenge };
+  /** Command-scoped direct-transport auth challenge (no ambient toast). */
+  authChallengeCommand: { challenge: AuthChallenge };
+  /** Ambient auth recovery completed (remote auth state pushed). */
+  authChallengeRecovered: { challenge: AuthChallenge };
+  /** Interactive auth required; App orchestrates redirect (step-up modal or reauth). */
+  authChallengeInteractive: {
+    challenge: AuthChallenge;
+    authorizationUrl: URL;
+  };
 }
 
 /**

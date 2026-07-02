@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Anchor,
+  Box,
   List,
   Stack,
   Text,
@@ -25,6 +26,7 @@ import type {
   InspectorClientEventMap,
   JsonValue,
 } from "@inspector/core/mcp/index.js";
+import type { TypedEvent } from "@inspector/core/mcp/inspectorClientEventTarget.js";
 import {
   getUrlElicitationsFromError,
   UrlElicitationLoopError,
@@ -76,6 +78,7 @@ import {
   parseOAuthCallbackParams,
   parseOAuthState,
   generateOAuthErrorDescription,
+  formatOAuthFailureDetail,
 } from "@inspector/core/auth/index.js";
 import { RemoteInspectorClientStorage } from "@inspector/core/mcp/remote/index.js";
 import { useInspectorClient } from "@inspector/core/react/useInspectorClient.js";
@@ -138,18 +141,53 @@ import { UrlElicitationErrorModal } from "./components/groups/UrlElicitationErro
 import { isReplayableHistoryMethod } from "./components/groups/historyUtils.js";
 import type { OAuthDetails } from "./components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
+import { StepUpAuthModal } from "./components/groups/StepUpAuthModal/StepUpAuthModal";
+import { ReAuthBanner } from "./components/groups/ReAuthBanner/ReAuthBanner";
 import {
   PendingClientRequestModal,
   type PendingClientRequestContent,
 } from "./components/groups/PendingClientRequestModal/PendingClientRequestModal";
 import { buildExportFilename, downloadJsonFile } from "./lib/downloadFile";
-import { createWebEnvironment } from "./lib/environmentFactory";
+import { INSPECTOR_SERVERS_TAB } from "./utils/inspectorTabs";
 import {
-  OAUTH_CALLBACK_PATH,
-  OAUTH_PENDING_SERVER_KEY,
-  isUnauthorizedError,
-} from "./utils/oauthFlow";
+  applyOAuthResumeUi,
+  buildTabUiSnapshot,
+  clearOAuthResumeSnapshot,
+  consumeOAuthResumeSnapshot,
+  oauthResumeInsufficientScopeMessage,
+  oauthResumeToastMessage,
+  writeOAuthResumeSnapshot,
+  type OAuthResumeAuthKind,
+} from "./utils/oauthResume";
+import { createWebEnvironment } from "./lib/environmentFactory";
+import { OAUTH_CALLBACK_PATH, isUnauthorizedError } from "./utils/oauthFlow";
+import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
+import type {
+  AuthChallenge,
+  AuthChallengeReason,
+} from "@inspector/core/auth/challenge.js";
+import {
+  emaStepUpFailureMessage,
+  emaStepUpInProgressMessage,
+  emaStepUpSuccessMessage,
+  isEmaStepUp as isCoreEmaStepUp,
+  isStepUpConfirmation as isCoreStepUpConfirmation,
+} from "@inspector/core/auth/oauthUx.js";
 import { clearServerOAuthState } from "./utils/clearServerOAuthState";
+import {
+  authRecoveryRestoredMessage,
+  isReAuthBannerReason,
+  oauthPreRedirectToastCopy,
+  oauthResumeAbandonedMessage,
+  reAuthBannerMessage,
+  type OAuthPreRedirectContext,
+  type OAuthRecoverySource,
+} from "./utils/oauthUx";
+import {
+  isBrowserTabVisible,
+  onBrowserTabVisible,
+} from "./utils/browserTabVisibility";
+import type { PendingReauth } from "./utils/pendingReauth";
 
 // OAuth redirect URL provider — points at the dev backend's `/oauth/callback`
 // handler. The InspectorClient only consults this when the active server
@@ -499,6 +537,27 @@ function formatTaskToastMessage(task: TaskToastInput): string {
   return task.statusMessage ?? `Task ${task.status}`;
 }
 
+function isEmaStepUp(
+  challenge: AuthChallenge,
+  server: ServerEntry | undefined,
+): boolean {
+  return isCoreEmaStepUp(challenge, {
+    enterpriseManaged: server?.settings?.enterpriseManaged,
+  });
+}
+
+function isStepUpConfirmation(
+  challenge: AuthChallenge,
+  server: ServerEntry | undefined,
+): boolean {
+  return isCoreStepUpConfirmation(challenge, {
+    enterpriseManaged: server?.settings?.enterpriseManaged,
+  });
+}
+
+/** Which in-flight action opened the step-up modal (for scoped cancel UX). */
+type StepUpSource = "tool" | "prompt" | "resource" | "ambient" | "app";
+
 function App() {
   // Theme toggle plumbing (preserved from the pre-wire placeholder).
   const { setColorScheme } = useMantineColorScheme();
@@ -692,6 +751,61 @@ function App() {
     () => new Set(),
   );
   const [networkUi, setNetworkUi] = useState(EMPTY_NETWORK_UI);
+  const [activeTab, setActiveTab] = useState(INSPECTOR_SERVERS_TAB);
+  const [pendingStepUp, setPendingStepUp] = useState<{
+    challenge: AuthChallenge;
+    authorizationUrl: URL;
+    serverId: string;
+    source: StepUpSource;
+    enterpriseManaged?: boolean;
+  } | null>(null);
+  const pendingStepUpRef = useRef(pendingStepUp);
+  const pendingStepUpRetryRef = useRef<(() => Promise<unknown>) | null>(null);
+  useEffect(() => {
+    pendingStepUpRef.current = pendingStepUp;
+  }, [pendingStepUp]);
+  const [reAuthBanner, setReAuthBanner] = useState<{
+    serverId: string;
+    message: string;
+  } | null>(null);
+  const [pendingReauth, setPendingReauth] = useState<PendingReauth | null>(
+    null,
+  );
+  const pendingReauthRef = useRef(pendingReauth);
+  useEffect(() => {
+    pendingReauthRef.current = pendingReauth;
+  }, [pendingReauth]);
+  const reauthResumeInProgressRef = useRef(false);
+  const stepUpAuthorizeInProgressRef = useRef(false);
+
+  useEffect(() => {
+    const pending = pendingReauthRef.current;
+    if (pending && pending.serverId !== activeServerId) {
+      setPendingReauth(null);
+    }
+    const stepUp = pendingStepUpRef.current;
+    if (stepUp && stepUp.serverId !== activeServerId) {
+      setPendingStepUp(null);
+    }
+  }, [activeServerId]);
+
+  const trySetPendingStepUp = useCallback(
+    (next: NonNullable<typeof pendingStepUp>): boolean => {
+      if (pendingStepUpRef.current !== null) {
+        notifications.show({
+          title: "Step-up authorization in progress",
+          message:
+            "Complete or cancel the current step-up prompt before starting another.",
+          color: "yellow",
+          autoClose: 5000,
+        });
+        return false;
+      }
+      setPendingStepUp(next);
+      return true;
+    },
+    [],
+  );
 
   // Handshake telemetry. `connectStartRef` is set at the "connecting" edge
   // and consumed at the "connected" edge — a ref (not state) so the
@@ -703,6 +817,9 @@ function App() {
   // for the async `servers` list to hydrate, so it can run on more than one
   // render; this ref ensures the token exchange fires exactly once per load.
   const oauthCallbackHandledRef = useRef(false);
+  const staleOAuthCheckedRef = useRef(false);
+  /** Guards against applying the same OAuth resume snapshot more than once per load. */
+  const oauthResumeUiAppliedRef = useRef(false);
 
   // Tracks which progress streams currently have a live toast, so each new tick
   // updates the existing toast instead of stacking a fresh one. Entries are
@@ -859,7 +976,20 @@ function App() {
   // `connectionStatus` effect above, which has its own connecting-edge ref to
   // coordinate with. Colocated with the setters it touches so this is the
   // single place to extend as App.tsx accrues more per-session state (#1394).
-  // Setters are stable, so the callback identity never changes.
+  /** Clears pending OAuth resume state — explicit user disconnect only. */
+  const clearOAuthResumeOnExplicitDisconnect = useCallback(() => {
+    clearOAuthResumeSnapshot();
+    oauthResumeUiAppliedRef.current = false;
+  }, []);
+
+  /** Snapshot cleanup plus shell reset when the user explicitly ends a session. */
+  const finalizeExplicitDisconnect = useCallback(() => {
+    clearOAuthResumeOnExplicitDisconnect();
+    setActiveTab(INSPECTOR_SERVERS_TAB);
+  }, [clearOAuthResumeOnExplicitDisconnect]);
+
+  // Does not clear the OAuth resume snapshot — that is tied to an in-flight
+  // full-page redirect and is cleared on explicit disconnect or consumed on callback.
   const resetSessionScopedUiState = useCallback(() => {
     setToolCallState(undefined);
     setGetPromptState(undefined);
@@ -875,6 +1005,9 @@ function App() {
     setNetworkUi(EMPTY_NETWORK_UI);
     setProgressByTaskId({});
     setCurrentLogLevel("info");
+    setPendingStepUp(null);
+    setPendingReauth(null);
+    setReAuthBanner(null);
     // Remembered scroll offsets are session-scoped too — drop them so the next
     // session's screens start at the top (#1417).
     clearScrollMemory();
@@ -1166,9 +1299,43 @@ function App() {
   // which clears `activeServerId` (and thus `activeServer`) before the
   // `lastError` effect below runs, so the ref is the only surviving handle.
   const activeServerNameRef = useRef<string | undefined>(undefined);
+  const activeServerIdRef = useRef<string | undefined>(activeServerId);
+  const serversRef = useRef(servers);
   useEffect(() => {
     if (activeServer) activeServerNameRef.current = activeServer.name;
-  }, [activeServer]);
+    activeServerIdRef.current = activeServerId;
+    serversRef.current = servers;
+  }, [activeServer, activeServerId, servers]);
+
+  const showReAuthBanner = useCallback(
+    (
+      serverId: string,
+      detail?: unknown,
+      options?: { reason?: AuthChallengeReason },
+    ) => {
+      const server = serversRef.current.find((s) => s.id === serverId);
+      const message = reAuthBannerMessage({
+        serverName: server?.name,
+        detail:
+          detail !== undefined ? formatOAuthFailureDetail(detail) : undefined,
+      });
+      const reason = options?.reason;
+      if (reason !== undefined && !isReAuthBannerReason(reason)) {
+        notifications.show({
+          title: "Authorization required",
+          message,
+          color: "yellow",
+          autoClose: false,
+        });
+        return;
+      }
+      setReAuthBanner({
+        serverId,
+        message,
+      });
+    },
+    [],
+  );
 
   // Surface a mid-session transport failure (stdio crash, SSE drop, HTTP 5xx)
   // as a toast. The handshake case is handled in `onToggleConnection`'s catch;
@@ -1220,11 +1387,31 @@ function App() {
       });
     };
 
+    const onAmbientAuthChallenge = (): void => {
+      const name = activeServerNameRef.current;
+      notifications.show({
+        title: name
+          ? `Refreshing authorization for "${name}"`
+          : "Refreshing authorization",
+        message: "Refreshing authorization…",
+        color: "blue",
+        autoClose: 4000,
+      });
+    };
+
     refresh();
     inspectorClient.addEventListener("oauthComplete", refresh);
+    inspectorClient.addEventListener(
+      "authChallengeAmbient",
+      onAmbientAuthChallenge,
+    );
     return () => {
       cancelled = true;
       inspectorClient.removeEventListener("oauthComplete", refresh);
+      inspectorClient.removeEventListener(
+        "authChallengeAmbient",
+        onAmbientAuthChallenge,
+      );
     };
   }, [connectionStatus, inspectorClient]);
 
@@ -1297,6 +1484,462 @@ function App() {
     },
     [sessionStorageAdapter],
   );
+
+  const prepareOAuthRedirect = useCallback(
+    ({
+      serverId,
+      authKind,
+      authorizationUrl,
+      authChallenge,
+      recoverySource,
+      preRedirectContext,
+      client,
+    }: {
+      serverId: string;
+      authKind: OAuthResumeAuthKind;
+      authorizationUrl: URL;
+      authChallenge?: AuthChallenge;
+      recoverySource?: OAuthRecoverySource;
+      preRedirectContext?: OAuthPreRedirectContext;
+      client?: InspectorClient;
+    }) => {
+      setReAuthBanner(null);
+      const server = serversRef.current.find((s) => s.id === serverId);
+      const preRedirectToast = oauthPreRedirectToastCopy(authKind, {
+        serverName: server?.name,
+        enterpriseManaged: server?.settings?.enterpriseManaged,
+        context: preRedirectContext,
+      });
+      if (preRedirectToast) {
+        notifications.show({
+          title: preRedirectToast.title,
+          message: preRedirectToast.message,
+          color: "blue",
+          autoClose: 4000,
+        });
+      }
+      const oauthClient = client ?? inspectorClient;
+      const remoteSessionId = oauthClient?.getRemoteBackendSessionId();
+      onBeforeOAuthRedirect(authorizationUrl);
+      // Write immediately before navigation so implicit client teardown (during
+      // connect setup) cannot clear the snapshot after we persist it.
+      writeOAuthResumeSnapshot({
+        version: 1,
+        serverId,
+        activeTab,
+        authKind,
+        tabUi: buildTabUiSnapshot({
+          toolsUi,
+          promptsUi,
+          resourcesUi,
+          appsUi,
+          tasksUi,
+          logsUi,
+          historyUi,
+          networkUi,
+        }),
+        ...(remoteSessionId && { remoteSessionId }),
+        ...(authKind === "step_up" && authChallenge && { authChallenge }),
+        ...(recoverySource && { recoverySource }),
+      });
+      void oauthClient?.beginInteractiveAuthorization(authorizationUrl);
+    },
+    [
+      inspectorClient,
+      activeTab,
+      toolsUi,
+      promptsUi,
+      resourcesUi,
+      appsUi,
+      tasksUi,
+      logsUi,
+      historyUi,
+      networkUi,
+      onBeforeOAuthRedirect,
+    ],
+  );
+
+  const tryApplyStoredAuthRecovery = useCallback(
+    async (
+      client: InspectorClient,
+      challenge: AuthChallenge,
+      recoverySource?: OAuthRecoverySource,
+    ): Promise<boolean> => {
+      if (!(await client.checkAuthChallengeSatisfied(challenge))) {
+        return false;
+      }
+      await client.pushRemoteAuthState();
+      notifications.show({
+        title: "Authorization restored",
+        message: authRecoveryRestoredMessage({ recoverySource }),
+        color: "green",
+        autoClose: 4000,
+      });
+      return true;
+    },
+    [],
+  );
+
+  const runVisibleInteractiveAuth = useCallback(
+    ({
+      serverId,
+      challenge,
+      authorizationUrl,
+      source = "ambient",
+    }: {
+      serverId: string;
+      challenge: AuthChallenge;
+      authorizationUrl: URL;
+      source?: StepUpSource;
+    }) => {
+      const server = serversRef.current.find((s) => s.id === serverId);
+      if (isStepUpConfirmation(challenge, server)) {
+        trySetPendingStepUp({
+          challenge,
+          authorizationUrl,
+          serverId,
+          source,
+          enterpriseManaged: isEmaStepUp(challenge, server),
+        });
+        return;
+      }
+      prepareOAuthRedirect({
+        serverId,
+        authKind: "reauth",
+        authorizationUrl,
+        recoverySource: source,
+      });
+    },
+    [prepareOAuthRedirect, trySetPendingStepUp],
+  );
+
+  const deferAmbientReauth = useCallback((pending: PendingReauth) => {
+    if (pendingReauthRef.current) {
+      notifications.show({
+        title: "Authorization update pending",
+        message:
+          "A new authorization request replaced the previous deferred recovery.",
+        color: "yellow",
+        autoClose: 5000,
+      });
+    } else {
+      notifications.show({
+        title: "Authorization pending",
+        message: "Return to this tab to continue authorization.",
+        color: "blue",
+        autoClose: 5000,
+      });
+    }
+    setPendingReauth(pending);
+  }, []);
+
+  const handleCommandScopedAuthRecovery = useCallback(
+    async (
+      error: AuthRecoveryRequiredError,
+      options: {
+        serverId: string;
+        source: StepUpSource;
+        retryOperation?: () => Promise<unknown>;
+      },
+    ): Promise<boolean> => {
+      if (!inspectorClient) {
+        return false;
+      }
+      const server = serversRef.current.find((s) => s.id === options.serverId);
+      const stepUp =
+        error.emaStepUpConfirm ||
+        isStepUpConfirmation(error.authChallenge, server);
+
+      if (stepUp) {
+        if (
+          await tryApplyStoredAuthRecovery(
+            inspectorClient,
+            error.authChallenge,
+            options.source,
+          )
+        ) {
+          return true;
+        }
+        pendingStepUpRetryRef.current = options.retryOperation ?? null;
+        trySetPendingStepUp({
+          challenge: error.authChallenge,
+          authorizationUrl: error.authorizationUrl,
+          serverId: options.serverId,
+          source: options.source,
+          enterpriseManaged: isEmaStepUp(error.authChallenge, server),
+        });
+        return false;
+      }
+
+      if (
+        await tryApplyStoredAuthRecovery(
+          inspectorClient,
+          error.authChallenge,
+          options.source,
+        )
+      ) {
+        return true;
+      }
+
+      prepareOAuthRedirect({
+        serverId: options.serverId,
+        authKind: "reauth",
+        authorizationUrl: error.authorizationUrl,
+        recoverySource: options.source,
+      });
+      return false;
+    },
+    [
+      inspectorClient,
+      prepareOAuthRedirect,
+      tryApplyStoredAuthRecovery,
+      trySetPendingStepUp,
+    ],
+  );
+
+  const runWithCommandAuthRecovery = useCallback(
+    async <T,>(
+      operation: () => Promise<T>,
+      source: StepUpSource,
+    ): Promise<T | undefined> => {
+      if (!inspectorClient || !activeServerId) {
+        return operation();
+      }
+      try {
+        return await operation();
+      } catch (err) {
+        if (err instanceof AuthRecoveryRequiredError) {
+          const satisfied = await handleCommandScopedAuthRecovery(err, {
+            serverId: activeServerId,
+            source,
+            retryOperation: operation,
+          });
+          if (satisfied) {
+            return operation();
+          }
+          return undefined;
+        }
+        throw err;
+      }
+    },
+    [inspectorClient, activeServerId, handleCommandScopedAuthRecovery],
+  );
+
+  const resumePendingReauth = useCallback(
+    async (pending: PendingReauth) => {
+      if (reauthResumeInProgressRef.current) {
+        return;
+      }
+      const client = inspectorClient;
+      if (!client) {
+        return;
+      }
+      if (connectionStatus !== "connected") {
+        return;
+      }
+      if (pending.serverId !== activeServerIdRef.current) {
+        return;
+      }
+
+      reauthResumeInProgressRef.current = true;
+      setPendingReauth(null);
+      try {
+        if (
+          await tryApplyStoredAuthRecovery(
+            client,
+            pending.challenge,
+            pending.source,
+          )
+        ) {
+          return;
+        }
+
+        if (pending.authKind === "step_up") {
+          runVisibleInteractiveAuth({
+            serverId: pending.serverId,
+            challenge: pending.challenge,
+            authorizationUrl: pending.authorizationUrl,
+            source: pending.source,
+          });
+          return;
+        }
+
+        const outcome = await client.handleAuthChallenge(pending.challenge);
+        if (outcome.kind === "satisfied") {
+          await client.pushRemoteAuthState();
+          notifications.show({
+            title: "Authorization restored",
+            message: authRecoveryRestoredMessage({
+              recoverySource: pending.source,
+            }),
+            color: "green",
+            autoClose: 4000,
+          });
+          return;
+        }
+        if (outcome.kind === "interactive") {
+          runVisibleInteractiveAuth({
+            serverId: pending.serverId,
+            challenge: outcome.challenge,
+            authorizationUrl: outcome.authorizationUrl,
+            source: pending.source,
+          });
+          return;
+        }
+        if (outcome.kind === "failed") {
+          showReAuthBanner(pending.serverId, outcome.error, {
+            reason: pending.challenge.reason,
+          });
+        }
+      } finally {
+        reauthResumeInProgressRef.current = false;
+      }
+    },
+    [
+      inspectorClient,
+      connectionStatus,
+      tryApplyStoredAuthRecovery,
+      runVisibleInteractiveAuth,
+      showReAuthBanner,
+    ],
+  );
+
+  useEffect(() => {
+    if (connectionStatus !== "connected" || !inspectorClient) {
+      return;
+    }
+
+    const onAuthChallengeInteractive = (
+      event: TypedEvent<"authChallengeInteractive">,
+    ): void => {
+      void (async () => {
+        const { challenge, authorizationUrl } = event.detail;
+        const serverId = activeServerIdRef.current;
+        if (!serverId) {
+          return;
+        }
+        const server = serversRef.current.find((s) => s.id === serverId);
+        const authKind: OAuthResumeAuthKind = isStepUpConfirmation(
+          challenge,
+          server,
+        )
+          ? "step_up"
+          : "reauth";
+
+        if (!isBrowserTabVisible()) {
+          deferAmbientReauth({
+            serverId,
+            challenge,
+            authorizationUrl,
+            authKind,
+            source: "ambient",
+          });
+          return;
+        }
+
+        if (await tryApplyStoredAuthRecovery(inspectorClient, challenge)) {
+          return;
+        }
+
+        runVisibleInteractiveAuth({
+          serverId,
+          challenge,
+          authorizationUrl,
+          source: "ambient",
+        });
+      })();
+    };
+
+    inspectorClient.addEventListener(
+      "authChallengeInteractive",
+      onAuthChallengeInteractive,
+    );
+    return () => {
+      inspectorClient.removeEventListener(
+        "authChallengeInteractive",
+        onAuthChallengeInteractive,
+      );
+    };
+  }, [
+    connectionStatus,
+    inspectorClient,
+    tryApplyStoredAuthRecovery,
+    runVisibleInteractiveAuth,
+    deferAmbientReauth,
+  ]);
+
+  useEffect(() => {
+    return onBrowserTabVisible(() => {
+      const pending = pendingReauthRef.current;
+      if (pending) {
+        void resumePendingReauth(pending);
+      }
+    });
+  }, [resumePendingReauth]);
+
+  // Resume deferred background-tab recovery once the session reconnects.
+  useEffect(() => {
+    if (connectionStatus !== "connected" || !inspectorClient) {
+      return;
+    }
+    if (!isBrowserTabVisible()) {
+      return;
+    }
+    const pending = pendingReauthRef.current;
+    if (pending) {
+      void resumePendingReauth(pending);
+    }
+  }, [connectionStatus, inspectorClient, resumePendingReauth]);
+
+  useEffect(() => {
+    if (connectionStatus !== "connected" || !inspectorClient) {
+      return;
+    }
+
+    const onOAuthError = (event: TypedEvent<"oauthError">): void => {
+      const serverId = activeServerIdRef.current;
+      if (!serverId) {
+        return;
+      }
+      showReAuthBanner(serverId, event.detail.error);
+    };
+
+    inspectorClient.addEventListener("oauthError", onOAuthError);
+    return () => {
+      inspectorClient.removeEventListener("oauthError", onOAuthError);
+    };
+  }, [connectionStatus, inspectorClient, showReAuthBanner]);
+
+  // Detect an abandoned full-page OAuth redirect (snapshot left, no callback).
+  useEffect(() => {
+    if (staleOAuthCheckedRef.current) return;
+    if (typeof window === "undefined") return;
+    if (window.location.pathname === OAUTH_CALLBACK_PATH) return;
+    if (servers.length === 0) return;
+    staleOAuthCheckedRef.current = true;
+
+    const snapshot = consumeOAuthResumeSnapshot();
+    if (!snapshot) {
+      return;
+    }
+    queueMicrotask(() => {
+      if (snapshot.authKind === "reauth") {
+        showReAuthBanner(
+          snapshot.serverId,
+          oauthResumeAbandonedMessage(snapshot.authKind),
+        );
+        return;
+      }
+      if (snapshot.authKind === "step_up") {
+        showReAuthBanner(
+          snapshot.serverId,
+          oauthResumeAbandonedMessage(snapshot.authKind, {
+            recoverySource: snapshot.recoverySource,
+          }),
+        );
+      }
+    });
+  }, [servers, showReAuthBanner]);
 
   // Wire up + tear down per active server. Called by `onToggleConnection`
   // when the user switches targets. Returns the new client so the toggle
@@ -1476,27 +2119,56 @@ function App() {
     const sessionId = stateParam
       ? (parseOAuthState(stateParam)?.authId ?? undefined)
       : undefined;
-    const pendingId =
-      window.sessionStorage.getItem(OAUTH_PENDING_SERVER_KEY) ?? undefined;
-    window.sessionStorage.removeItem(OAUTH_PENDING_SERVER_KEY);
+    const resumeSnapshot = consumeOAuthResumeSnapshot();
 
     // Strip the code/state off the URL immediately so a reload can't replay
     // the (now single-use) authorization code through the exchange again.
     window.history.replaceState({}, "", "/");
 
-    if (!params.successful) {
-      notifications.show({
-        title: "OAuth authorization failed",
-        message: generateOAuthErrorDescription(params),
-        color: "red",
+    const applyResumeUiOnce = (
+      snapshot: NonNullable<typeof resumeSnapshot>,
+    ) => {
+      if (oauthResumeUiAppliedRef.current) {
+        return;
+      }
+      applyOAuthResumeUi(snapshot, {
+        setToolsUi,
+        setPromptsUi,
+        setResourcesUi,
+        setAppsUi,
+        setTasksUi,
+        setLogsUi,
+        setHistoryUi,
+        setNetworkUi,
+        setActiveTab,
+        clearToolCallState: () => setToolCallState(undefined),
+        clearGetPromptState: () => setGetPromptState(undefined),
+        clearReadResourceState: () => setReadResourceState(undefined),
       });
+      oauthResumeUiAppliedRef.current = true;
+    };
+
+    if (resumeSnapshot && params.successful) {
+      applyResumeUiOnce(resumeSnapshot);
+    }
+
+    if (!params.successful) {
+      const pendingId = resumeSnapshot?.serverId;
+      if (pendingId) {
+        queueMicrotask(() => {
+          showReAuthBanner(pendingId, generateOAuthErrorDescription(params));
+        });
+      } else {
+        notifications.show({
+          title: "OAuth authorization failed",
+          message: generateOAuthErrorDescription(params),
+          color: "red",
+        });
+      }
       return;
     }
 
-    // By design, the pending id and URL are cleared above before this lookup:
-    // if the server was deleted/renamed (e.g. in another tab) mid-flow, there's
-    // nothing to resume against, so we surface the error and require a fresh
-    // Connect rather than leaving stale callback state lying around.
+    const pendingId = resumeSnapshot?.serverId;
     const server = pendingId
       ? servers.find((s) => s.id === pendingId)
       : undefined;
@@ -1513,28 +2185,11 @@ function App() {
     void (async () => {
       const client = setupClientForServer(server, sessionId);
       setActiveServerId(server.id);
-      // Two distinct failure modes get distinct toasts. A token-exchange
-      // failure means OAuth did NOT complete — and since the single-use code
-      // is spent and the URL was already cleared, a reload can't retry, so we
-      // tell the user to start over. A failure in the subsequent connect()
-      // means OAuth DID complete (tokens are persisted): it's a transport
-      // problem, and re-clicking Connect reuses the saved tokens (no second
-      // authorization). Conflating them would mislead the user into
-      // re-authorizing when they don't need to.
-      try {
-        await client.completeOAuthFlow(params.code);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        notifications.show({
-          title: `OAuth token exchange failed for "${server.name}"`,
-          message: `${message}\n\nPlease try connecting again.`,
-          color: "red",
-        });
-        return;
-      }
       try {
         connectStartRef.current = Date.now();
-        await client.connect();
+        await client.resumeAfterOAuth(params.code, {
+          remoteSessionId: resumeSnapshot?.remoteSessionId,
+        });
       } catch (err) {
         connectStartRef.current = undefined;
         if (isEmaClientNotConfiguredError(err)) {
@@ -1546,15 +2201,44 @@ function App() {
           });
           return;
         }
-        const message = err instanceof Error ? err.message : String(err);
+        queueMicrotask(() => {
+          showReAuthBanner(server.id, err instanceof Error ? err : String(err));
+        });
+        return;
+      }
+
+      setReAuthBanner(null);
+
+      if (resumeSnapshot) {
+        const stepUpChallenge =
+          resumeSnapshot.authKind === "step_up"
+            ? resumeSnapshot.authChallenge
+            : undefined;
+        const stepUpScopesGranted =
+          !stepUpChallenge ||
+          (await client.checkAuthChallengeSatisfied(stepUpChallenge));
+
+        if (stepUpChallenge && !stepUpScopesGranted) {
+          notifications.show({
+            title: "Additional permissions not granted",
+            message: oauthResumeInsufficientScopeMessage(stepUpChallenge),
+            color: "yellow",
+            autoClose: false,
+          });
+          return;
+        }
+
         notifications.show({
-          title: `Failed to connect to "${server.name}"`,
-          message,
-          color: "red",
+          title: "Authorization complete",
+          message: oauthResumeToastMessage(resumeSnapshot.authKind, {
+            recoverySource: resumeSnapshot.recoverySource,
+          }),
+          color: "green",
+          autoClose: 6000,
         });
       }
     })();
-  }, [servers, setupClientForServer]);
+  }, [servers, setupClientForServer, showReAuthBanner]);
 
   const onToggleConnection = useCallback(
     async (id: string) => {
@@ -1564,7 +2248,11 @@ function App() {
         connectionStatus === "connected" &&
         inspectorClient
       ) {
-        await inspectorClient.disconnect();
+        try {
+          await inspectorClient.disconnect();
+        } finally {
+          finalizeExplicitDisconnect();
+        }
         return;
       }
 
@@ -1612,17 +2300,41 @@ function App() {
         // initiating server id first so the `/oauth/callback` load can resume
         // against the right client. The redirect unloads this page, so there's
         // nothing to do after the await on the success path.
+        if (err instanceof AuthRecoveryRequiredError) {
+          if (await client.checkAuthChallengeSatisfied(err.authChallenge)) {
+            connectStartRef.current = Date.now();
+            await client.connect();
+            return;
+          }
+          prepareOAuthRedirect({
+            serverId: id,
+            authKind: "reauth",
+            authorizationUrl: err.authorizationUrl,
+            preRedirectContext: "connect",
+            client,
+          });
+          return;
+        }
+
         if (isUnauthorizedError(err)) {
           try {
-            window.sessionStorage.setItem(OAUTH_PENDING_SERVER_KEY, id);
             const authUrl = await client.authenticate();
             if (authUrl === undefined) {
               connectStartRef.current = Date.now();
               await client.connect();
+            } else {
+              prepareOAuthRedirect({
+                serverId: id,
+                authKind: "reauth",
+                authorizationUrl: authUrl,
+                preRedirectContext: "connect",
+                client,
+              });
             }
             return;
           } catch (authErr) {
-            window.sessionStorage.removeItem(OAUTH_PENDING_SERVER_KEY);
+            clearOAuthResumeSnapshot();
+            await client.disconnect().catch(() => {});
             if (isEmaClientNotConfiguredError(authErr)) {
               notifications.show({
                 title: `Cannot connect to "${target.name}"`,
@@ -1660,13 +2372,73 @@ function App() {
       inspectorClient,
       servers,
       setupClientForServer,
+      prepareOAuthRedirect,
+      finalizeExplicitDisconnect,
     ],
   );
 
   const onDisconnect = useCallback(async () => {
     if (!inspectorClient) return;
-    await inspectorClient.disconnect();
-  }, [inspectorClient]);
+    try {
+      await inspectorClient.disconnect();
+    } finally {
+      finalizeExplicitDisconnect();
+    }
+  }, [inspectorClient, finalizeExplicitDisconnect]);
+
+  const onReauthenticateFromBanner = useCallback(() => {
+    if (!reAuthBanner) return;
+    const serverId = reAuthBanner.serverId;
+    setReAuthBanner(null);
+
+    if (
+      serverId === activeServerId &&
+      connectionStatus === "connected" &&
+      inspectorClient
+    ) {
+      void (async () => {
+        const server = servers.find((s) => s.id === serverId);
+        try {
+          const authUrl = await inspectorClient.authenticate();
+          if (authUrl === undefined) {
+            await inspectorClient.pushRemoteAuthState();
+            notifications.show({
+              title: "Authorization restored",
+              message: authRecoveryRestoredMessage(),
+              color: "green",
+              autoClose: 4000,
+            });
+            return;
+          }
+          prepareOAuthRedirect({
+            serverId,
+            authKind: "reauth",
+            authorizationUrl: authUrl,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          notifications.show({
+            title: server
+              ? `OAuth authorization failed for "${server.name}"`
+              : "OAuth authorization failed",
+            message,
+            color: "red",
+          });
+        }
+      })();
+      return;
+    }
+
+    void onToggleConnection(serverId);
+  }, [
+    reAuthBanner,
+    activeServerId,
+    connectionStatus,
+    inspectorClient,
+    servers,
+    prepareOAuthRedirect,
+    onToggleConnection,
+  ]);
 
   // --- Action handlers that route directly to the InspectorClient. ---
 
@@ -1721,6 +2493,16 @@ function App() {
           error: invocation.error,
         });
       } catch (err) {
+        if (err instanceof AuthRecoveryRequiredError) {
+          setToolCallState(undefined);
+          if (activeServerId) {
+            await handleCommandScopedAuthRecovery(err, {
+              serverId: activeServerId,
+              source: "tool",
+            });
+          }
+          return;
+        }
         // The user cancelled the in-flight call (Cancel button → cancelToolCall).
         // The cancellation notification was already sent to the server, so just
         // clear the executing state — surfacing it as an error would read as a
@@ -1782,7 +2564,14 @@ function App() {
         });
       }
     },
-    [inspectorClient, tools, activeServer, capabilities],
+    [
+      inspectorClient,
+      tools,
+      activeServer,
+      capabilities,
+      activeServerId,
+      handleCommandScopedAuthRecovery,
+    ],
   );
 
   const onClearToolResult = useCallback(() => {
@@ -1876,12 +2665,34 @@ function App() {
           });
         }
       } catch (err) {
+        if (err instanceof AuthRecoveryRequiredError) {
+          if (activeServerId) {
+            const satisfied = await handleCommandScopedAuthRecovery(err, {
+              serverId: activeServerId,
+              source: "app",
+            });
+            if (!satisfied) {
+              onAppError(
+                new Error(
+                  "Authorization required. Complete sign-in, then reopen the app.",
+                ),
+              );
+            }
+          }
+          return;
+        }
         // Transport-level failure (the call never returned a result). Surface it
         // so the user isn't left staring at a blank/partial app frame.
         onAppError(err instanceof Error ? err : new Error(String(err)));
       }
     },
-    [inspectorClient, tools, onAppError],
+    [
+      inspectorClient,
+      tools,
+      onAppError,
+      activeServerId,
+      handleCommandScopedAuthRecovery,
+    ],
   );
 
   const onCloseApp = useCallback(() => {
@@ -1903,6 +2714,16 @@ function App() {
           result: invocation.result,
         });
       } catch (err) {
+        if (err instanceof AuthRecoveryRequiredError) {
+          setGetPromptState(undefined);
+          if (activeServerId) {
+            await handleCommandScopedAuthRecovery(err, {
+              serverId: activeServerId,
+              source: "prompt",
+            });
+          }
+          return;
+        }
         setGetPromptState({
           status: "error",
           promptName: name,
@@ -1910,7 +2731,7 @@ function App() {
         });
       }
     },
-    [inspectorClient],
+    [inspectorClient, activeServerId, handleCommandScopedAuthRecovery],
   );
 
   const onReadResource = useCallback(
@@ -1926,6 +2747,16 @@ function App() {
           lastUpdated: invocation.timestamp,
         });
       } catch (err) {
+        if (err instanceof AuthRecoveryRequiredError) {
+          setReadResourceState(undefined);
+          if (activeServerId) {
+            await handleCommandScopedAuthRecovery(err, {
+              serverId: activeServerId,
+              source: "resource",
+            });
+          }
+          return;
+        }
         setReadResourceState({
           status: "error",
           uri,
@@ -1933,7 +2764,7 @@ function App() {
         });
       }
     },
-    [inspectorClient],
+    [inspectorClient, activeServerId, handleCommandScopedAuthRecovery],
   );
 
   // Read-on-demand handler for `resource_link` blocks in a tool result. Unlike
@@ -1943,10 +2774,25 @@ function App() {
   const onReadResourceContents = useCallback(
     async (uri: string) => {
       if (!inspectorClient) throw new Error("Client is not connected");
-      const invocation = await inspectorClient.readResource(uri);
-      return invocation.result;
+      const read = () => inspectorClient.readResource(uri);
+      try {
+        const invocation = await read();
+        return invocation.result;
+      } catch (err) {
+        if (err instanceof AuthRecoveryRequiredError && activeServerId) {
+          const satisfied = await handleCommandScopedAuthRecovery(err, {
+            serverId: activeServerId,
+            source: "resource",
+          });
+          if (satisfied) {
+            const retry = await read();
+            return retry.result;
+          }
+        }
+        throw err;
+      }
     },
-    [inspectorClient],
+    [inspectorClient, activeServerId, handleCommandScopedAuthRecovery],
   );
 
   const onSubscribeResource = useCallback(
@@ -1975,26 +2821,33 @@ function App() {
       context: Record<string, string>,
     ): Promise<string[]> => {
       if (!inspectorClient) return [];
-      const result = await inspectorClient.getCompletions(
-        ref,
-        argumentName,
-        argumentValue,
-        context,
+      const result = await runWithCommandAuthRecovery(
+        () =>
+          inspectorClient.getCompletions(
+            ref,
+            argumentName,
+            argumentValue,
+            context,
+          ),
+        "tool",
       );
-      return result.values;
+      return result?.values ?? [];
     },
-    [inspectorClient],
+    [inspectorClient, runWithCommandAuthRecovery],
   );
 
   const onCancelTask = useCallback(
     async (taskId: string) => {
       if (!inspectorClient) return;
-      // The cancelled status is reflected by the managed store via the
-      // `taskCancelled` event, so no manual reload is needed — but a cancel
-      // *failure* would otherwise be swallowed, so surface it.
       try {
-        await inspectorClient.cancelRequestorTask(taskId);
+        await runWithCommandAuthRecovery(
+          () => inspectorClient.cancelRequestorTask(taskId),
+          "tool",
+        );
       } catch (err) {
+        if (err instanceof AuthRecoveryRequiredError) {
+          return;
+        }
         notifications.show({
           title: "Failed to cancel task",
           message: err instanceof Error ? err.message : String(err),
@@ -2002,7 +2855,7 @@ function App() {
         });
       }
     },
-    [inspectorClient],
+    [inspectorClient, runWithCommandAuthRecovery],
   );
 
   // Cancel the in-flight tool call. A task-augmented call (run-as-task) has a
@@ -2034,35 +2887,37 @@ function App() {
     (level: LoggingLevel) => {
       setCurrentLogLevel(level);
       if (!inspectorClient) return;
-      void inspectorClient.setLoggingLevel(level);
+      void runWithCommandAuthRecovery(
+        () => inspectorClient.setLoggingLevel(level),
+        "ambient",
+      );
     },
-    [inspectorClient],
+    [inspectorClient, runWithCommandAuthRecovery],
   );
 
   const onRefreshTools = useCallback(() => {
-    void refreshTools();
-  }, [refreshTools]);
+    void runWithCommandAuthRecovery(() => refreshTools(), "ambient");
+  }, [refreshTools, runWithCommandAuthRecovery]);
   const onRefreshPrompts = useCallback(() => {
-    void refreshPrompts();
-  }, [refreshPrompts]);
+    void runWithCommandAuthRecovery(() => refreshPrompts(), "ambient");
+  }, [refreshPrompts, runWithCommandAuthRecovery]);
   const onRefreshResources = useCallback(() => {
-    // Refresh both lists shown on the Resources screen. A single
-    // `notifications/resources/list_changed` covers resources and templates,
-    // and neither auto-refreshes anymore, so the user's Refresh pulls both.
-    void refreshResources();
-    void refreshResourceTemplates();
-  }, [refreshResources, refreshResourceTemplates]);
+    void runWithCommandAuthRecovery(async () => {
+      await refreshResources();
+      await refreshResourceTemplates();
+    }, "ambient");
+  }, [refreshResources, refreshResourceTemplates, runWithCommandAuthRecovery]);
   const onRefreshTasks = useCallback(() => {
-    // Surface list failures (e.g. the MAX_PAGES guard or a tasks/list error)
-    // instead of letting the rejected promise go unhandled.
-    refreshTasks().catch((err: unknown) => {
-      notifications.show({
-        title: "Failed to refresh tasks",
-        message: err instanceof Error ? err.message : String(err),
-        color: "red",
-      });
-    });
-  }, [refreshTasks]);
+    void runWithCommandAuthRecovery(() => refreshTasks(), "ambient")?.catch(
+      (err: unknown) => {
+        notifications.show({
+          title: "Failed to refresh tasks",
+          message: err instanceof Error ? err.message : String(err),
+          color: "red",
+        });
+      },
+    );
+  }, [refreshTasks, runWithCommandAuthRecovery]);
 
   const onClearLogs = useCallback(() => {
     if (!messageLogState) return;
@@ -2419,8 +3274,14 @@ function App() {
       if (!cleared) return;
 
       if (isActive && inspectorClient) {
-        await inspectorClient.disconnect();
-        setConnectionInfoOAuthWhenConnected(undefined);
+        try {
+          await inspectorClient.disconnect();
+        } finally {
+          setConnectionInfoOAuthWhenConnected(undefined);
+          finalizeExplicitDisconnect();
+        }
+      } else {
+        clearOAuthResumeOnExplicitDisconnect();
       }
 
       notifications.show({
@@ -2431,7 +3292,12 @@ function App() {
         color: "blue",
       });
     },
-    [activeServerId, inspectorClient],
+    [
+      activeServerId,
+      inspectorClient,
+      finalizeExplicitDisconnect,
+      clearOAuthResumeOnExplicitDisconnect,
+    ],
   );
 
   const handleClearConnectionOAuth = useCallback(() => {
@@ -2570,145 +3436,168 @@ function App() {
 
   return (
     <>
-      <InspectorView
-        servers={servers}
-        serverListWritable={serverListWritable}
-        activeServer={activeServerId}
-        connectionStatus={connectionStatus}
-        initializeResult={initializeResult}
-        latencyMs={latencyMs}
-        tools={tools}
-        prompts={prompts}
-        resources={resources}
-        resourceTemplates={resourceTemplates}
-        toolsListChanged={toolsListChanged}
-        promptsListChanged={promptsListChanged}
-        resourcesListChanged={resourcesListChanged}
-        subscriptions={subscriptions}
-        logs={logs}
-        tasks={tasks}
-        progressByTaskId={progressByTaskId}
-        history={messages}
-        network={fetchRequests}
-        toolCallState={toolCallState}
-        getPromptState={getPromptState}
-        readResourceState={effectiveReadResourceState}
-        toolsUi={toolsUi}
-        promptsUi={promptsUi}
-        resourcesUi={resourcesUi}
-        appsUi={appsUi}
-        tasksUi={tasksUi}
-        logsUi={logsUi}
-        historyUi={historyUi}
-        networkUi={networkUi}
-        currentLogLevel={currentLogLevel}
-        sandboxPath={sandboxUrl}
-        bridgeFactory={sandboxBridgeFactory}
-        appRendererRef={appRendererRef}
-        onToggleTheme={onToggleTheme}
-        onOpenClientSettings={() => setClientSettingsOpen(true)}
-        onToggleConnection={(id) => {
-          void onToggleConnection(id);
-        }}
-        onDisconnect={() => {
-          void onDisconnect();
-        }}
-        onServerAdd={() => {
-          setHighlightedServerIds([]);
-          setConfigModal({ mode: "add" });
-        }}
-        onServerImportConfig={() => {
-          setHighlightedServerIds([]);
-          setImportConfigOpen(true);
-        }}
-        onServerImportJson={() => {
-          setHighlightedServerIds([]);
-          setImportJsonOpen(true);
-        }}
-        onServerExport={onServerExport}
-        onConnectionInfo={() => setConnectionInfoModalOpen(true)}
-        onServerSettings={(id) => setSettingsModalTargetId(id)}
-        onServerEdit={(id) => setConfigModal({ mode: "edit", targetId: id })}
-        onServerClone={(id) => {
-          setHighlightedServerIds([]);
-          setConfigModal({ mode: "clone", targetId: id });
-        }}
-        onServerRemove={(id) => {
-          const target = servers.find((s) => s.id === id);
-          if (target) setRemoveTarget(target);
-        }}
-        onServerReorder={(orderedIds) => {
-          // reorderServers reverts the optimistic order via an internal
-          // refresh() and re-throws on failure (409 from a racing external
-          // edit, or a network error). Surface that to the user so the drag
-          // doesn't silently bounce back — matching the toast pattern every
-          // other mutation here uses.
-          reorderServers(orderedIds).catch((err: unknown) => {
-            notifications.show({
-              title: "Failed to reorder servers",
-              message: err instanceof Error ? err.message : String(err),
-              color: "red",
+      <Box>
+        {reAuthBanner ? (
+          <Box
+            px="md"
+            pt="xs"
+            style={{
+              position: "sticky",
+              top: 60,
+              zIndex: 200,
+              backgroundColor: "var(--mantine-color-body)",
+              boxShadow: "var(--mantine-shadow-sm)",
+            }}
+          >
+            <ReAuthBanner
+              message={reAuthBanner.message}
+              onReauthenticate={onReauthenticateFromBanner}
+              onDismiss={() => setReAuthBanner(null)}
+            />
+          </Box>
+        ) : null}
+        <InspectorView
+          servers={servers}
+          serverListWritable={serverListWritable}
+          activeServer={activeServerId}
+          connectionStatus={connectionStatus}
+          initializeResult={initializeResult}
+          latencyMs={latencyMs}
+          tools={tools}
+          prompts={prompts}
+          resources={resources}
+          resourceTemplates={resourceTemplates}
+          toolsListChanged={toolsListChanged}
+          promptsListChanged={promptsListChanged}
+          resourcesListChanged={resourcesListChanged}
+          subscriptions={subscriptions}
+          logs={logs}
+          tasks={tasks}
+          progressByTaskId={progressByTaskId}
+          history={messages}
+          network={fetchRequests}
+          toolCallState={toolCallState}
+          getPromptState={getPromptState}
+          readResourceState={effectiveReadResourceState}
+          toolsUi={toolsUi}
+          promptsUi={promptsUi}
+          resourcesUi={resourcesUi}
+          appsUi={appsUi}
+          tasksUi={tasksUi}
+          logsUi={logsUi}
+          historyUi={historyUi}
+          networkUi={networkUi}
+          activeTab={activeTab}
+          onActiveTabChange={setActiveTab}
+          currentLogLevel={currentLogLevel}
+          sandboxPath={sandboxUrl}
+          bridgeFactory={sandboxBridgeFactory}
+          appRendererRef={appRendererRef}
+          onToggleTheme={onToggleTheme}
+          onOpenClientSettings={() => setClientSettingsOpen(true)}
+          onToggleConnection={(id) => {
+            void onToggleConnection(id);
+          }}
+          onDisconnect={() => {
+            void onDisconnect();
+          }}
+          onServerAdd={() => {
+            setHighlightedServerIds([]);
+            setConfigModal({ mode: "add" });
+          }}
+          onServerImportConfig={() => {
+            setHighlightedServerIds([]);
+            setImportConfigOpen(true);
+          }}
+          onServerImportJson={() => {
+            setHighlightedServerIds([]);
+            setImportJsonOpen(true);
+          }}
+          onServerExport={onServerExport}
+          onConnectionInfo={() => setConnectionInfoModalOpen(true)}
+          onServerSettings={(id) => setSettingsModalTargetId(id)}
+          onServerEdit={(id) => setConfigModal({ mode: "edit", targetId: id })}
+          onServerClone={(id) => {
+            setHighlightedServerIds([]);
+            setConfigModal({ mode: "clone", targetId: id });
+          }}
+          onServerRemove={(id) => {
+            const target = servers.find((s) => s.id === id);
+            if (target) setRemoveTarget(target);
+          }}
+          onServerReorder={(orderedIds) => {
+            // reorderServers reverts the optimistic order via an internal
+            // refresh() and re-throws on failure (409 from a racing external
+            // edit, or a network error). Surface that to the user so the drag
+            // doesn't silently bounce back — matching the toast pattern every
+            // other mutation here uses.
+            reorderServers(orderedIds).catch((err: unknown) => {
+              notifications.show({
+                title: "Failed to reorder servers",
+                message: err instanceof Error ? err.message : String(err),
+                color: "red",
+              });
             });
-          });
-        }}
-        highlightedServerIds={highlightedServerIds}
-        onClearHighlight={clearHighlight}
-        serverSupportsTaskToolCalls={
-          !!capabilities?.tasks?.requests?.tools?.call
-        }
-        onToolsUiChange={onToolsUiChange}
-        onCallTool={(name, args, runAsTask) => {
-          void onCallTool(name, args, runAsTask);
-        }}
-        onCancelToolCall={onCancelToolCall}
-        onClearToolResult={onClearToolResult}
-        onReadResourceContents={onReadResourceContents}
-        onRefreshTools={onRefreshTools}
-        onPromptsUiChange={setPromptsUi}
-        onGetPrompt={(name, args) => {
-          void onGetPrompt(name, args);
-        }}
-        onRefreshPrompts={onRefreshPrompts}
-        onResourcesUiChange={setResourcesUi}
-        onReadResource={(uri) => {
-          void onReadResource(uri);
-        }}
-        onSubscribeResource={onSubscribeResource}
-        onUnsubscribeResource={onUnsubscribeResource}
-        onRefreshResources={onRefreshResources}
-        onCompleteArgument={onCompleteArgument}
-        completionsSupported={capabilities?.completions !== undefined}
-        subscriptionsSupported={capabilities?.resources?.subscribe === true}
-        onTasksUiChange={setTasksUi}
-        onCancelTask={(taskId) => {
-          void onCancelTask(taskId);
-        }}
-        onClearCompletedTasks={onClearCompletedTasks}
-        onRefreshTasks={onRefreshTasks}
-        onSetLogLevel={onSetLogLevel}
-        onLogsUiChange={setLogsUi}
-        onClearLogs={onClearLogs}
-        onExportLogs={onExportLogs}
-        onHistoryUiChange={setHistoryUi}
-        onClearHistory={onClearHistory}
-        onExportHistory={onExportHistory}
-        onClearHistorySection={onClearHistorySection}
-        onExportHistorySection={onExportHistorySection}
-        onReplayHistory={onReplayHistory}
-        onTogglePinHistory={onTogglePinHistory}
-        pinnedHistoryIds={pinnedHistoryIds}
-        onNetworkUiChange={setNetworkUi}
-        onClearNetwork={onClearNetwork}
-        onExportNetwork={onExportNetwork}
-        onAppsUiChange={setAppsUi}
-        onSelectApp={onSelectApp}
-        onOpenApp={(name, args) => {
-          void onOpenApp(name, args);
-        }}
-        onCloseApp={onCloseApp}
-        onAppError={onAppError}
-        onRefreshApps={onRefreshTools}
-      />
+          }}
+          highlightedServerIds={highlightedServerIds}
+          onClearHighlight={clearHighlight}
+          serverSupportsTaskToolCalls={
+            !!capabilities?.tasks?.requests?.tools?.call
+          }
+          onToolsUiChange={onToolsUiChange}
+          onCallTool={(name, args, runAsTask) => {
+            void onCallTool(name, args, runAsTask);
+          }}
+          onCancelToolCall={onCancelToolCall}
+          onClearToolResult={onClearToolResult}
+          onReadResourceContents={onReadResourceContents}
+          onRefreshTools={onRefreshTools}
+          onPromptsUiChange={setPromptsUi}
+          onGetPrompt={(name, args) => {
+            void onGetPrompt(name, args);
+          }}
+          onRefreshPrompts={onRefreshPrompts}
+          onResourcesUiChange={setResourcesUi}
+          onReadResource={(uri) => {
+            void onReadResource(uri);
+          }}
+          onSubscribeResource={onSubscribeResource}
+          onUnsubscribeResource={onUnsubscribeResource}
+          onRefreshResources={onRefreshResources}
+          onCompleteArgument={onCompleteArgument}
+          completionsSupported={capabilities?.completions !== undefined}
+          subscriptionsSupported={capabilities?.resources?.subscribe === true}
+          onTasksUiChange={setTasksUi}
+          onCancelTask={(taskId) => {
+            void onCancelTask(taskId);
+          }}
+          onClearCompletedTasks={onClearCompletedTasks}
+          onRefreshTasks={onRefreshTasks}
+          onSetLogLevel={onSetLogLevel}
+          onLogsUiChange={setLogsUi}
+          onClearLogs={onClearLogs}
+          onExportLogs={onExportLogs}
+          onHistoryUiChange={setHistoryUi}
+          onClearHistory={onClearHistory}
+          onExportHistory={onExportHistory}
+          onClearHistorySection={onClearHistorySection}
+          onExportHistorySection={onExportHistorySection}
+          onReplayHistory={onReplayHistory}
+          onTogglePinHistory={onTogglePinHistory}
+          pinnedHistoryIds={pinnedHistoryIds}
+          onNetworkUiChange={setNetworkUi}
+          onClearNetwork={onClearNetwork}
+          onExportNetwork={onExportNetwork}
+          onAppsUiChange={setAppsUi}
+          onSelectApp={onSelectApp}
+          onOpenApp={(name, args) => {
+            void onOpenApp(name, args);
+          }}
+          onCloseApp={onCloseApp}
+          onAppError={onAppError}
+          onRefreshApps={onRefreshTools}
+        />
+      </Box>
       <ServerConfigModal
         opened={configModal !== null}
         mode={configModal?.mode ?? "add"}
@@ -2796,6 +3685,152 @@ function App() {
         onSamplingRespond={onSamplingRespond}
         onSamplingReject={onSamplingReject}
         onElicitationRespond={onElicitationRespond}
+      />
+      <StepUpAuthModal
+        opened={
+          pendingStepUp !== null && pendingStepUp.serverId === activeServerId
+        }
+        challenge={pendingStepUp?.challenge ?? null}
+        authorizationScopes={pendingStepUp?.challenge?.authorizationScopes}
+        enterpriseManaged={pendingStepUp?.enterpriseManaged}
+        onAuthorize={async () => {
+          if (!pendingStepUp || stepUpAuthorizeInProgressRef.current) {
+            return;
+          }
+          const stepUp = pendingStepUp;
+          const client = inspectorClient;
+          if (!client) {
+            return;
+          }
+
+          if (stepUp.enterpriseManaged) {
+            stepUpAuthorizeInProgressRef.current = true;
+            setPendingStepUp(null);
+            notifications.show({
+              title: "Organization permissions",
+              message: emaStepUpInProgressMessage(),
+              color: "blue",
+              autoClose: 4000,
+            });
+            try {
+              const outcome = await client.handleAuthChallenge(
+                stepUp.challenge,
+                { confirmedStepUp: true },
+              );
+              if (outcome.kind === "satisfied") {
+                await client.pushRemoteAuthState();
+                notifications.show({
+                  title: "Permissions updated",
+                  message: emaStepUpSuccessMessage({
+                    recoverySource: stepUp.source,
+                  }),
+                  color: "green",
+                  autoClose: 5000,
+                });
+                const retry = pendingStepUpRetryRef.current;
+                pendingStepUpRetryRef.current = null;
+                if (retry) {
+                  await retry();
+                }
+                return;
+              }
+              if (outcome.kind === "interactive") {
+                prepareOAuthRedirect({
+                  serverId: stepUp.serverId,
+                  authKind: "step_up",
+                  authorizationUrl: outcome.authorizationUrl,
+                  authChallenge: outcome.challenge,
+                  recoverySource: stepUp.source,
+                });
+                return;
+              }
+              if (outcome.kind === "failed") {
+                const failureMessage = emaStepUpFailureMessage(
+                  outcome.error.message,
+                );
+                notifications.show({
+                  title: "Organization permissions",
+                  message: failureMessage,
+                  color: "red",
+                  autoClose: 6000,
+                });
+                switch (stepUp.source) {
+                  case "tool":
+                    setToolCallState({
+                      status: "error",
+                      error: failureMessage,
+                    });
+                    break;
+                  case "prompt":
+                    setGetPromptState((prev) =>
+                      prev
+                        ? { ...prev, status: "error", error: failureMessage }
+                        : prev,
+                    );
+                    break;
+                  case "resource":
+                    setReadResourceState((prev) =>
+                      prev
+                        ? { ...prev, status: "error", error: failureMessage }
+                        : prev,
+                    );
+                    break;
+                  default:
+                    break;
+                }
+              }
+            } finally {
+              stepUpAuthorizeInProgressRef.current = false;
+            }
+            return;
+          }
+
+          stepUpAuthorizeInProgressRef.current = true;
+          prepareOAuthRedirect({
+            serverId: stepUp.serverId,
+            authKind: "step_up",
+            authorizationUrl: stepUp.authorizationUrl,
+            authChallenge: stepUp.challenge,
+            recoverySource: stepUp.source,
+          });
+          setPendingStepUp(null);
+          pendingStepUpRetryRef.current = null;
+          stepUpAuthorizeInProgressRef.current = false;
+        }}
+        onCancel={() => {
+          const stepUp = pendingStepUpRef.current;
+          setPendingStepUp(null);
+          pendingStepUpRetryRef.current = null;
+          if (!stepUp) {
+            return;
+          }
+          const cancelled = "Authorization cancelled.";
+          switch (stepUp.source) {
+            case "tool":
+              setToolCallState({ status: "error", error: cancelled });
+              break;
+            case "prompt":
+              setGetPromptState((prev) =>
+                prev ? { ...prev, status: "error", error: cancelled } : prev,
+              );
+              break;
+            case "resource":
+              setReadResourceState((prev) =>
+                prev ? { ...prev, status: "error", error: cancelled } : prev,
+              );
+              break;
+            case "app":
+              notifications.show({
+                title: "Authorization cancelled",
+                message: cancelled,
+                color: "gray",
+                autoClose: 4000,
+              });
+              break;
+            case "ambient":
+              break;
+          }
+        }}
       />
     </>
   );

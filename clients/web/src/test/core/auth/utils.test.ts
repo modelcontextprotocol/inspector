@@ -5,7 +5,9 @@ import {
   generateOAuthState,
   parseOAuthState,
   generateOAuthErrorDescription,
+  formatOAuthFailureDetail,
 } from "@inspector/core/auth/utils.js";
+import { ZodError } from "zod";
 
 describe("parseHttpUrl", () => {
   it("parses valid URLs", () => {
@@ -90,6 +92,34 @@ describe("generateOAuthErrorDescription", () => {
     expect(message).toContain("Details: User denied access.");
     expect(message).toContain(
       "More info: https://example.com/errors/access_denied.",
+    );
+  });
+});
+
+describe("formatOAuthFailureDetail", () => {
+  const zodTokenJson = `[ { "expected": "string", "code": "invalid_type", "path": [ "access_token" ], "message": "Invalid input" }, { "expected": "string", "code": "invalid_type", "path": [ "token_type" ], "message": "Invalid input" } ]`;
+
+  it("replaces serialized Zod token-response issues with readable copy", () => {
+    expect(formatOAuthFailureDetail(zodTokenJson)).toBe(
+      "The authorization server did not return valid tokens. Check your OAuth client ID and secret, then try again.",
+    );
+  });
+
+  it("formats ZodError instances", () => {
+    const err = new ZodError([
+      {
+        code: "invalid_type",
+        expected: "string",
+        path: ["access_token"],
+        message: "Invalid input",
+      },
+    ]);
+    expect(formatOAuthFailureDetail(err)).toMatch(/valid tokens/i);
+  });
+
+  it("passes through ordinary error messages", () => {
+    expect(formatOAuthFailureDetail(new Error("Network timeout"))).toBe(
+      "Network timeout",
     );
   });
 });

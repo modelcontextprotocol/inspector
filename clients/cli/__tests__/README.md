@@ -17,6 +17,7 @@ npm run test:cli          # cli.test.ts
 npm run test:cli-tools   # tools.test.ts
 npm run test:cli-headers # headers.test.ts
 npm run test:cli-metadata # metadata.test.ts
+npx vitest run oauth-interactive.test.ts cliOAuth.test.ts  # OAuth interactive smoke parity
 ```
 
 ## How the CLI is exercised
@@ -42,7 +43,10 @@ root provides a further end-to-end check of the binary.)
 - `metadata.test.ts` - Metadata functionality: General metadata, tool-specific metadata, parsing, merging, validation
 - `methods.test.ts` - Method/option-validation paths not covered elsewhere (resource templates, missing/invalid options, the `--` target separator)
 - `error-handler.test.ts` - The binary's `handleError` error sink, exercised in-process with `process.exit` stubbed
-- `e2e.test.ts` - Out-of-process spawn of the built binary (exit codes + boot)
+- `oauth-runner.test.ts` - OAuth flag wiring (`--client-config`, `--callback-url`, CIMD overrides)
+- `cliOAuth.test.ts` - Unit tests for `cliOAuth.ts` (step-up confirm, helper wiring, retry)
+- `oauth-interactive.test.ts` - **Integration** smoke parity for CLI interactive OAuth: connect-time callback server + step-up **y/N** against composable `TestServerHttp` (auto-completes authorize URL programmatically; not a subprocess binary e2e)
+- `e2e.test.ts` - Out-of-process spawn of the built binary (exit codes + boot; no OAuth)
 
 ## Helpers
 

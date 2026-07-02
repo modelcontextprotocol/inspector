@@ -55,6 +55,9 @@ const h = vi.hoisted(() => {
     clearOAuthTokens: vi.fn(),
     completeOAuthFlow: vi.fn(async (): Promise<void> => {}),
     getOAuthState: vi.fn(async () => undefined),
+    callTool: vi.fn(),
+    checkAuthChallengeSatisfied: vi.fn(async () => false),
+    handleAuthChallenge: vi.fn(async () => ({ kind: "satisfied" as const })),
   };
   // Captured options from the most recent callbackServer.start(), so a test can
   // drive the onCallback / onError handlers the OAuth flows register.
@@ -95,6 +98,11 @@ const h = vi.hoisted(() => {
     completeOAuthFlow = (...a: unknown[]) =>
       clientSpies.completeOAuthFlow(...a);
     getOAuthState = (...a: unknown[]) => clientSpies.getOAuthState(...a);
+    callTool = (...a: unknown[]) => clientSpies.callTool(...a);
+    checkAuthChallengeSatisfied = (...a: unknown[]) =>
+      clientSpies.checkAuthChallengeSatisfied(...a);
+    handleAuthChallenge = (...a: unknown[]) =>
+      clientSpies.handleAuthChallenge(...a);
     readResource = vi.fn(async () => ({
       result: { contents: [{ uri: "file://x", text: "hello" }] },
     }));
@@ -185,16 +193,25 @@ vi.mock("@inspector/core/auth/index.js", async (importOriginal) => {
     },
   };
 });
-vi.mock("@inspector/core/auth/node/index.js", () => ({
-  createOAuthCallbackServer: h.createOAuthCallbackServer,
-  NodeOAuthStorage: class {},
-}));
+vi.mock("@inspector/core/auth/node/index.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@inspector/core/auth/node/index.js")>();
+  return {
+    ...actual,
+    createOAuthCallbackServer: h.createOAuthCallbackServer,
+    NodeOAuthStorage: class {},
+  };
+});
 vi.mock("../src/utils/openUrl.js", () => ({
   openUrl: h.openUrl,
 }));
 
 import App from "../src/App.js";
 import type { TuiServer } from "../src/tui-servers.js";
+import {
+  AuthRecoveryRequiredError,
+  EMA_STEP_UP_PENDING_URL,
+} from "@inspector/core/auth/challenge.js";
 
 const tick = () => new Promise((r) => setTimeout(r, 25));
 const callbackUrlConfig = { hostname: "127.0.0.1", port: 0, pathname: "/cb" };
@@ -231,6 +248,27 @@ function oneStdio(): Record<string, TuiServer> {
 function oneHttp(): Record<string, TuiServer> {
   return {
     web: { config: { type: "streamable-http", url: "http://x" } } as never,
+  };
+}
+
+function oneEmaHttp(): Record<string, TuiServer> {
+  return {
+    ema: {
+      config: { type: "streamable-http", url: "http://localhost:8080/mcp" },
+      settings: {
+        requestTimeout: 0,
+        metadata: [],
+        headers: [],
+        env: [],
+        roots: [],
+        maxFetchRequests: 1000,
+        taskTtl: 0,
+        connectionTimeout: 0,
+        oauthClientId: "client_ema_test",
+        oauthScopes: "tools:read",
+        enterpriseManaged: true,
+      },
+    } as never,
   };
 }
 
@@ -466,6 +504,11 @@ beforeEach(() => {
   h.clientSpies.completeOAuthFlow.mockResolvedValue(undefined);
   h.clientSpies.getOAuthState.mockReset();
   h.clientSpies.getOAuthState.mockResolvedValue(undefined);
+  h.clientSpies.callTool.mockReset();
+  h.clientSpies.checkAuthChallengeSatisfied.mockReset();
+  h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+  h.clientSpies.handleAuthChallenge.mockReset();
+  h.clientSpies.handleAuthChallenge.mockResolvedValue({ kind: "satisfied" });
 });
 
 afterEach(() => {
@@ -935,5 +978,66 @@ describe("App (OAuth flows)", () => {
     await waitUntil(() => h.cb.opts !== null);
     await h.cb.opts!.onCallback({ code: "x" });
     await expectFrame(r, "cb-string");
+  });
+
+  it("shows EMA step-up confirmation on tool auth recovery instead of auto OAuth", async () => {
+    const challenge = {
+      reason: "insufficient_scope" as const,
+      requiredScopes: ["env:read"],
+      authorizationScopes: ["tools:read", "env:read"],
+      context: { toolName: "get-env" },
+    };
+    h.clientSpies.callTool.mockRejectedValue(
+      new AuthRecoveryRequiredError(EMA_STEP_UP_PENDING_URL, challenge, {
+        emaStepUpConfirm: true,
+      }),
+    );
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [sampleTool];
+    const r = await mount(oneEmaHttp());
+    await press(r, ["t", TAB, ENTER]);
+    await expectFrame(r, "MOCK_FORM");
+    await press(r, [ENTER]);
+    await waitUntil(() => h.clientSpies.callTool.mock.calls.length > 0);
+    await expectFrame(r, "organization before it can continue");
+    const frame = r.lastFrame() ?? "";
+    expect(frame).toMatch(/organization|get-env/i);
+    expect(frame).not.toMatch(/opens browser/i);
+    expect(frame).not.toMatch(/OAuth: authenticating/i);
+    expect(h.callbackStart).not.toHaveBeenCalled();
+  });
+
+  it("runs confirmed EMA step-up via handleAuthChallenge when user authorizes", async () => {
+    const challenge = {
+      reason: "insufficient_scope" as const,
+      requiredScopes: ["env:read"],
+      authorizationScopes: ["tools:read", "env:read"],
+      context: { toolName: "get-env" },
+    };
+    h.clientSpies.callTool.mockRejectedValue(
+      new AuthRecoveryRequiredError(EMA_STEP_UP_PENDING_URL, challenge, {
+        emaStepUpConfirm: true,
+      }),
+    );
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    h.clientSpies.handleAuthChallenge.mockResolvedValue({ kind: "satisfied" });
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [sampleTool];
+    const r = await mount(oneEmaHttp());
+    await press(r, ["t", TAB, ENTER]);
+    await expectFrame(r, "MOCK_FORM");
+    await press(r, [ENTER]);
+    await waitUntil(() => h.clientSpies.callTool.mock.calls.length > 0);
+    await expectFrame(r, "organization before it can continue");
+    await press(r, ["a"]);
+    await waitUntil(
+      () => h.clientSpies.handleAuthChallenge.mock.calls.length > 0,
+    );
+    expect(h.clientSpies.handleAuthChallenge).toHaveBeenCalledWith(challenge, {
+      confirmedStepUp: true,
+    });
+    expect(h.callbackStart).not.toHaveBeenCalled();
+    await expectFrame(r, "Step-up authorization succeeded");
   });
 });

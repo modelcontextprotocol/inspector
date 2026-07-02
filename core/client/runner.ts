@@ -53,7 +53,7 @@ export function buildRunnerClientAuthOptions(
   cliOverrides?: RunnerClientConfigOverrides,
 ): Pick<
   InspectorClientOptions,
-  "oauth" | "enterpriseManagedAuth" | "installEnterpriseManagedAuth"
+  "oauth" | "enterpriseManagedAuth" | "installEnterpriseManagedAuth" | "directAuthRecovery"
 > {
   const activeIdp = getActiveEnterpriseManagedAuthIdp(clientConfig);
   const activeCimdUrl = getActiveCimdClientMetadataUrl(clientConfig);
@@ -112,5 +112,6 @@ export function buildRunnerClientAuthOptions(
     ...(clientConfig.enterpriseManagedAuth && {
       installEnterpriseManagedAuth: clientConfig.enterpriseManagedAuth,
     }),
+    ...(oauth && { directAuthRecovery: true }),
   };
 }

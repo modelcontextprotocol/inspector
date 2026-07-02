@@ -7,6 +7,7 @@ import {
   loadConfig,
   resolveConfig,
   ExternalAccessTokenValidator,
+  extractScopesFromJwtPayload,
   TestServerHttp,
   createExternalResourceOAuthTestServerConfig,
 } from "@modelcontextprotocol/inspector-test-server";
@@ -59,6 +60,19 @@ describe("protected-resource OAuth config", () => {
 });
 
 describe("ExternalAccessTokenValidator", () => {
+  it("extracts scopes from JWT payload claims", () => {
+    expect(extractScopesFromJwtPayload({ scope: "mcp tools:read" })).toEqual([
+      "mcp",
+      "tools:read",
+    ]);
+    expect(
+      extractScopesFromJwtPayload({ scp: ["tools:read", "env:read"] }),
+    ).toEqual(["tools:read", "env:read"]);
+    expect(extractScopesFromJwtPayload({ scopes: ["tools:read"] })).toEqual([
+      "tools:read",
+    ]);
+  });
+
   it("accepts JWTs signed by the AS and rejects wrong issuer", async () => {
     const issuer = "https://as.example";
     const jwksUri = "https://as.example/jwks";

@@ -10,6 +10,7 @@ import { describe, it, expect, vi } from "vitest";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { RemoteSession } from "@inspector/core/mcp/remote/node/remote-session.js";
 import type { FetchRequestEntryBase } from "@inspector/core/mcp/types.js";
+import { AuthChallengeError } from "@inspector/core/auth/challenge.js";
 
 function makeFetchEntry(
   overrides: Partial<FetchRequestEntryBase> = {},
@@ -172,5 +173,114 @@ describe("RemoteSession", () => {
     expect((received[0]?.data as { timestamp: string }).timestamp).toBe(
       "2026-01-01T00:00:00.000Z",
     );
+  });
+
+  it("waitForRequestResponse resolves when a matching JSON-RPC response arrives", async () => {
+    const session = new RemoteSession("s-wait");
+    const wait = session.waitForRequestResponse(42);
+    session.onMessage({ jsonrpc: "2.0", id: 42, result: { tools: [] } });
+    await expect(wait).resolves.toBeUndefined();
+  });
+
+  it("handleTransportAuthError rejects active request waits during send", async () => {
+    const session = new RemoteSession("s-auth");
+    session.beginSend();
+    const wait = session.waitForRequestResponse(1);
+    const err = new AuthChallengeError({ reason: "token_expired" }, 401);
+    expect(session.handleTransportAuthError(err)).toBe(true);
+    await expect(wait).rejects.toBe(err);
+    session.endSend();
+  });
+
+  it("handleTransportAuthError pushes ambient auth when no send is active", () => {
+    const session = new RemoteSession("s-ambient");
+    const received: unknown[] = [];
+    session.setEventConsumer((event) => {
+      if (event.type === "auth_challenge") received.push(event.data);
+    });
+    const err = new AuthChallengeError({ reason: "token_expired" }, 401);
+    expect(session.handleTransportAuthError(err)).toBe(true);
+    expect(received).toHaveLength(1);
+  });
+
+  it("does not push SSE auth while a send is active (command path owns delivery)", () => {
+    const session = new RemoteSession("s-active");
+    const received: unknown[] = [];
+    session.setEventConsumer((event) => {
+      if (event.type === "auth_challenge") received.push(event.data);
+    });
+    const err = new AuthChallengeError({ reason: "token_expired" }, 401);
+    session.beginSend();
+    expect(session.handleTransportAuthError(err)).toBe(true);
+    expect(received).toHaveLength(0);
+    session.endSend();
+  });
+
+  it("does not duplicate on SSE until the HTTP echo suppress window expires", () => {
+    vi.useFakeTimers();
+    const session = new RemoteSession("s-echo");
+    const received: unknown[] = [];
+    session.setEventConsumer((event) => {
+      if (event.type === "auth_challenge") received.push(event.data);
+    });
+    const err = new AuthChallengeError({ reason: "token_expired" }, 401);
+    session.beginSend();
+    session.noteAuthChallengeDeliveredViaHttp();
+    session.endSend();
+    expect(session.handleTransportAuthError(err)).toBe(true);
+    expect(received).toHaveLength(0);
+    expect(session.handleTransportAuthError(err)).toBe(true);
+    expect(received).toHaveLength(0);
+    session.beginSend();
+    session.endSend();
+    expect(session.handleTransportAuthError(err)).toBe(true);
+    expect(received).toHaveLength(0);
+    vi.advanceTimersByTime(RemoteSession.AUTH_HTTP_ECHO_SUPPRESS_MS + 1);
+    expect(session.handleTransportAuthError(err)).toBe(true);
+    expect(received).toHaveLength(1);
+    vi.useRealTimers();
+  });
+
+  it("does not clear HTTP auth suppression when a concurrent send starts", () => {
+    const session = new RemoteSession("s-concurrent");
+    const received: unknown[] = [];
+    session.setEventConsumer((event) => {
+      if (event.type === "auth_challenge") received.push(event.data);
+    });
+    const err = new AuthChallengeError({ reason: "token_expired" }, 401);
+    session.beginSend();
+    session.noteAuthChallengeDeliveredViaHttp();
+    session.endSend();
+    session.beginSend();
+    expect(session.handleTransportAuthError(err)).toBe(true);
+    expect(received).toHaveLength(0);
+    session.endSend();
+  });
+
+  it("waitForRequestResponse rejects after timeout", async () => {
+    vi.useFakeTimers();
+    const session = new RemoteSession("s-timeout");
+    const wait = session.waitForRequestResponse(99, 1000);
+    const rejection = expect(wait).rejects.toThrow(/timed out/);
+    await vi.advanceTimersByTimeAsync(1000);
+    await rejection;
+    vi.useRealTimers();
+  });
+
+  it("setAuthState updates the session auth provider", async () => {
+    const { createRemoteAuthProvider } =
+      await import("@inspector/core/mcp/remote/node/tokenAuthProvider.js");
+    const handle = createRemoteAuthProvider({
+      oauthTokens: { access_token: "old", token_type: "Bearer" },
+    })!;
+    const session = new RemoteSession("auth-state");
+    session.setAuthProviderHandle(handle);
+    session.setAuthState({
+      oauthTokens: { access_token: "new", token_type: "Bearer" },
+    });
+    await expect(handle.provider.tokens()).resolves.toEqual({
+      access_token: "new",
+      token_type: "Bearer",
+    });
   });
 });

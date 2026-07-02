@@ -341,6 +341,33 @@ describe("InspectorClient", () => {
       // (the same end state any other handshake failure would produce).
       expect(client.getStatus()).toBe("error");
     });
+
+    it("holds status at connecting when connect fails with a recoverable 401", async () => {
+      const unauthorizedTransport = {
+        start: async () => {
+          const err = new Error("Unauthorized") as Error & { status?: number };
+          err.status = 401;
+          throw err;
+        },
+        send: async () => {},
+        close: async () => {},
+        onclose: undefined,
+        onerror: undefined,
+        onmessage: undefined,
+        sessionId: undefined,
+      };
+      const fakeFactory = () => ({
+        transport:
+          unauthorizedTransport as unknown as import("@modelcontextprotocol/sdk/shared/transport.js").Transport,
+      });
+      client = new InspectorClient(
+        { type: "streamable-http", url: "http://localhost:8081/mcp" },
+        { environment: { transport: fakeFactory } },
+      );
+
+      await expect(client.connect()).rejects.toMatchObject({ status: 401 });
+      expect(client.getStatus()).toBe("connecting");
+    });
   });
 
   describe("Message Tracking", () => {

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode, type Ref } from "react";
+import { useMemo, type ReactNode, type Ref } from "react";
 import { AppShell, Box, Stack, Transition } from "@mantine/core";
 import { useLocalStorage } from "@mantine/hooks";
 import type {
@@ -65,6 +65,7 @@ import {
 } from "../../screens/NetworkScreen/NetworkScreen";
 import type { SortDirection } from "../../elements/SortToggle/SortToggle";
 import { getServerType } from "@inspector/core/mcp/config.js";
+import { INSPECTOR_SERVERS_TAB } from "../../../utils/inspectorTabs";
 
 const SORT_DEFAULT: SortDirection = "newest-first";
 
@@ -125,7 +126,7 @@ function useListCompact(
   });
 }
 
-const SERVERS_TAB = "Servers";
+const SERVERS_TAB = INSPECTOR_SERVERS_TAB;
 const NETWORK_TAB = "Network";
 
 const ALL_TABS: string[] = [
@@ -240,6 +241,10 @@ export interface InspectorViewProps {
   logsUi: LogsUiState;
   historyUi: HistoryUiState;
   networkUi: NetworkUiState;
+
+  /** Active inspector tab (lifted to App for OAuth resume). */
+  activeTab: string;
+  onActiveTabChange: (tab: string) => void;
 
   // Logging level. The MCP `logging/setLevel` request has no echo
   // notification, so the parent keeps the optimistic current value.
@@ -455,11 +460,12 @@ export function InspectorView({
   onCloseApp,
   onAppError,
   onRefreshApps,
+  activeTab: activeTabProp,
+  onActiveTabChange,
 }: InspectorViewProps) {
   // UI-only state. Connection state, primitive lists, and all action
-  // dispatching live in the parent; this component only owns navigation
-  // (which tab is visible) and a couple of view-local toggles.
-  const [selectedTab, setSelectedTab] = useState<string>(SERVERS_TAB);
+  // dispatching live in the parent; this component only owns view-local
+  // toggles (sort direction, list compact). Tab selection is lifted (#1417).
 
   const [logsSort, setLogsSort] = useSortDirection("logs");
   const [historySort, setHistorySort] = useSortDirection("history");
@@ -557,9 +563,9 @@ export function InspectorView({
   // `[Servers]` and the view renders Servers without us having to imperatively
   // reset the state (and trip the `set-state-in-effect` lint). When the
   // connection comes back, the previous selection pops in again because
-  // `selectedTab` is preserved.
-  const activeTab = availableTabs.includes(selectedTab)
-    ? selectedTab
+  // the parent's `activeTab` is preserved.
+  const activeTab = availableTabs.includes(activeTabProp)
+    ? activeTabProp
     : SERVERS_TAB;
 
   // Merge the parent's `serversInput` (static config) with the runtime
@@ -627,7 +633,7 @@ export function InspectorView({
             latencyMs={latencyMs}
             activeTab={activeTab}
             availableTabs={availableTabs}
-            onTabChange={setSelectedTab}
+            onTabChange={onActiveTabChange}
             onDisconnect={onDisconnect}
             onToggleTheme={onToggleTheme}
             onOpenClientSettings={onOpenClientSettings}

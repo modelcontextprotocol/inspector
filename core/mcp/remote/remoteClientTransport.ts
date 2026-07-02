@@ -14,10 +14,32 @@ import type {
 import type { InspectorServerSettings, StderrLogEntry } from "../types.js";
 import type { FetchRequestEntryBase } from "../types.js";
 import type {
+  AuthChallenge,
+  AuthChallengeOutcome,
+  HandleAuthChallengeOptions,
+} from "../../auth/challenge.js";
+import {
+  AuthChallengeError,
+  AuthRecoveryRequiredError,
+  EMA_STEP_UP_PENDING_URL,
+} from "../../auth/challenge.js";
+import type {
   RemoteConnectRequest,
   RemoteConnectResponse,
+  RemoteAuthState,
   RemoteEvent,
+  RemoteSendResponse,
 } from "./types.js";
+import { oauthTokensToRemoteAuthState } from "./types.js";
+
+export interface AuthRecoveryHandlers {
+  handleAuthChallenge(
+    challenge: AuthChallenge,
+    options?: HandleAuthChallengeOptions,
+  ): Promise<AuthChallengeOutcome>;
+  /** Push recovered auth state to the remote backend (same session). */
+  pushAuthState?: (authState?: RemoteAuthState) => Promise<void>;
+}
 
 export interface RemoteTransportOptions {
   /** Base URL of the remote server (e.g. http://localhost:3000) */
@@ -47,6 +69,84 @@ export interface RemoteTransportOptions {
    * custom headers (SSE / streamable-http).
    */
   settings?: InspectorServerSettings;
+
+  /** Mid-session auth recovery (handle challenge on command-scoped send). */
+  authRecovery?: AuthRecoveryHandlers;
+
+  /** Ambient auth challenges delivered via SSE (no active send). */
+  onAuthChallenge?: (challenge: AuthChallenge) => void;
+
+  /** Max wait for a JSON-RPC response on SSE after HTTP `{ ok: true }`. Default 60s. */
+  sseResponseTimeoutMs?: number;
+}
+
+const DEFAULT_SSE_RESPONSE_TIMEOUT_MS = 60_000;
+
+type SseResponseWait = {
+  resolve: () => void;
+  reject: (error: Error) => void;
+};
+
+function requestIdForMessage(
+  message: JSONRPCMessage,
+): string | number | undefined {
+  if (
+    "method" in message &&
+    "id" in message &&
+    message.id !== null &&
+    message.id !== undefined
+  ) {
+    return message.id;
+  }
+  return undefined;
+}
+
+function isConnectAuthChallenge(
+  json: RemoteConnectResponse,
+): json is Extract<RemoteConnectResponse, { ok: false; kind: "auth_challenge" }> {
+  return (
+    typeof json === "object" &&
+    json !== null &&
+    "ok" in json &&
+    json.ok === false &&
+    "kind" in json &&
+    json.kind === "auth_challenge"
+  );
+}
+
+function isConnectTransportError(
+  json: RemoteConnectResponse,
+): json is Extract<RemoteConnectResponse, { ok: false; kind: "transport_error" }> {
+  return (
+    typeof json === "object" &&
+    json !== null &&
+    "ok" in json &&
+    json.ok === false &&
+    "kind" in json &&
+    json.kind === "transport_error"
+  );
+}
+
+function legacySessionId(json: RemoteConnectResponse): string | undefined {
+  if (
+    typeof json === "object" &&
+    json !== null &&
+    "sessionId" in json &&
+    typeof json.sessionId === "string" &&
+    !("ok" in json)
+  ) {
+    return json.sessionId;
+  }
+  if (
+    typeof json === "object" &&
+    json !== null &&
+    "ok" in json &&
+    json.ok === true &&
+    "sessionId" in json
+  ) {
+    return json.sessionId;
+  }
+  return undefined;
 }
 
 /**
@@ -109,7 +209,10 @@ export class RemoteClientTransport implements Transport {
   private eventStreamReader: ReadableStreamDefaultReader<Uint8Array> | null =
     null;
   private eventStreamAbort: AbortController | null = null;
+  private eventStreamConsumeTask: Promise<void> | null = null;
+  private restartingEventStream = false;
   private closed = false;
+  private readonly sseResponseWaits = new Map<string | number, SseResponseWait>();
   private readonly options: RemoteTransportOptions;
   private readonly config: import("../types.js").MCPServerConfig;
 
@@ -124,12 +227,40 @@ export class RemoteClientTransport implements Transport {
     return undefined;
   }
 
+  /** Remote Hono session id (distinct from MCP protocol session). */
+  getRemoteBackendSessionId(): string | undefined {
+    return this._sessionId;
+  }
+
+  /**
+   * Reattach to an existing remote backend session after a full-page OAuth
+   * redirect. Opens the SSE event stream without POST /connect.
+   */
+  async attachToSession(sessionId: string): Promise<void> {
+    if (this.closed) {
+      this.closed = false;
+    }
+    await this.stopEventStream();
+    this._sessionId = sessionId;
+    await this.openEventStream();
+  }
+
   constructor(
     options: RemoteTransportOptions,
     config: import("../types.js").MCPServerConfig,
   ) {
     this.options = options;
     this.config = config;
+  }
+
+  setAuthRecovery(handlers: AuthRecoveryHandlers | undefined): void {
+    this.options.authRecovery = handlers;
+  }
+
+  setOnAuthChallenge(
+    handler: ((challenge: AuthChallenge) => void) | undefined,
+  ): void {
+    this.options.onAuthChallenge = handler;
   }
 
   private get fetchFn(): typeof fetch {
@@ -150,28 +281,62 @@ export class RemoteClientTransport implements Transport {
     return h;
   }
 
+  private async recoverFromAuthChallenge(
+    challenge: AuthChallenge,
+    retry: () => Promise<void>,
+  ): Promise<void> {
+    const recovery = this.options.authRecovery;
+    if (!recovery) {
+      throw new AuthChallengeError(
+        challenge,
+        challenge.raw?.httpStatus ?? 401,
+      );
+    }
+
+    const outcome = await recovery.handleAuthChallenge(challenge);
+    if (outcome.kind === "satisfied") {
+      await retry();
+      return;
+    }
+    if (outcome.kind === "step_up_confirm") {
+      throw new AuthRecoveryRequiredError(
+        EMA_STEP_UP_PENDING_URL,
+        outcome.challenge,
+        { emaStepUpConfirm: true },
+      );
+    }
+    if (outcome.kind === "interactive") {
+      throw new AuthRecoveryRequiredError(
+        outcome.authorizationUrl,
+        outcome.challenge,
+      );
+    }
+    throw outcome.error;
+  }
+
   async start(): Promise<void> {
+    if (this._sessionId && !this.closed) {
+      return;
+    }
+    return this.startWithRecovery(0);
+  }
+
+  private async startWithRecovery(retryCount: number): Promise<void> {
     /* v8 ignore next -- the sessionId getter is hardcoded to return undefined (see its doc comment), so this guard is never taken; it exists to satisfy the Transport contract. */
     if (this.sessionId) return;
     if (this.closed) throw new Error("Transport is closed");
 
-    // Extract OAuth tokens from authProvider if available
-    let oauthTokens: RemoteConnectRequest["oauthTokens"] | undefined;
+    let authState: RemoteAuthState | undefined;
     if (this.options.authProvider) {
       const tokens = await this.options.authProvider.tokens();
       if (tokens) {
-        oauthTokens = {
-          access_token: tokens.access_token,
-          token_type: tokens.token_type,
-          expires_in: tokens.expires_in,
-          refresh_token: tokens.refresh_token,
-        };
+        authState = oauthTokensToRemoteAuthState(tokens);
       }
     }
 
     const body: RemoteConnectRequest = {
       config: this.config,
-      oauthTokens,
+      ...(authState && { authState }),
       ...(this.options.settings && { settings: this.options.settings }),
     };
 
@@ -183,20 +348,40 @@ export class RemoteClientTransport implements Transport {
 
     if (!res.ok) {
       const text = await res.text();
-      // Preserve the status code in the error so callers can detect 401
       const error = new Error(`Remote connect failed (${res.status}): ${text}`);
       (error as { status?: number }).status = res.status;
       throw error;
     }
 
     const json = (await res.json()) as RemoteConnectResponse;
-    this._sessionId = json.sessionId;
 
-    if (!this._sessionId) {
+    if (isConnectAuthChallenge(json)) {
+      if (retryCount >= 1) {
+        throw new AuthChallengeError(
+          json.authChallenge,
+          json.authChallenge.raw?.httpStatus ?? 401,
+        );
+      }
+      await this.recoverFromAuthChallenge(json.authChallenge, () =>
+        this.startWithRecovery(retryCount + 1),
+      );
+      return;
+    }
+
+    if (isConnectTransportError(json)) {
+      throw new Error(`Remote connect failed: ${json.error}`);
+    }
+
+    const sessionId = legacySessionId(json);
+    if (!sessionId) {
       throw new Error("Remote did not return sessionId");
     }
 
-    // Open SSE event stream
+    this._sessionId = sessionId;
+    await this.openEventStream();
+  }
+
+  private async openEventStream(): Promise<void> {
     this.eventStreamAbort = new AbortController();
     const eventRes = await this.fetchFn(
       `${this.baseUrl}/api/mcp/events?sessionId=${encodeURIComponent(this._sessionId!)}`,
@@ -221,7 +406,30 @@ export class RemoteClientTransport implements Transport {
     }
 
     this.eventStreamReader = bodyStream.getReader();
-    this.consumeEventStream();
+    this.eventStreamConsumeTask = this.consumeEventStream();
+  }
+
+  /** Stop the SSE consumer and release the reader before opening a new stream. */
+  private async stopEventStream(): Promise<void> {
+    this.restartingEventStream = true;
+    try {
+      this.eventStreamAbort?.abort();
+      const reader = this.eventStreamReader;
+      if (reader) {
+        try {
+          await reader.cancel();
+        } catch {
+          // Ignore cancel errors during close
+        }
+      }
+      this.eventStreamReader = null;
+      if (this.eventStreamConsumeTask) {
+        await this.eventStreamConsumeTask;
+        this.eventStreamConsumeTask = null;
+      }
+    } finally {
+      this.restartingEventStream = false;
+    }
   }
 
   private async consumeEventStream(): Promise<void> {
@@ -236,7 +444,9 @@ export class RemoteClientTransport implements Transport {
           const parsed = JSON.parse(data) as RemoteEvent;
 
           if (parsed.type === "message") {
-            this.onmessage?.(parsed.data as JSONRPCMessage, undefined);
+            const msg = parsed.data as JSONRPCMessage;
+            this.settleSseResponseWait(msg);
+            this.onmessage?.(msg, undefined);
           } else if (
             parsed.type === "fetch_request" &&
             this.options.onFetchRequest
@@ -262,32 +472,32 @@ export class RemoteClientTransport implements Transport {
               timestamp: new Date(parsed.data.timestamp),
               message: parsed.data.message,
             });
+          } else if (parsed.type === "auth_challenge") {
+            this.options.onAuthChallenge?.(parsed.data);
           } else if (parsed.type === "transport_error") {
-            // Transport died - notify client and close (matches local behavior)
             const error = new Error(parsed.data.error);
             if (parsed.data.code !== undefined) {
               (error as { code?: number | string }).code = parsed.data.code;
             }
-            this.onerror?.(error);
-            // Also trigger onclose to match local transport behavior
-            if (!this.closed) {
-              this.closed = true;
-              this.onclose?.();
+            if (!this.restartingEventStream) {
+              this.onerror?.(error);
+              if (!this.closed) {
+                this.closed = true;
+                this.onclose?.();
+              }
             }
           }
         } catch (err) {
-          // JSON parse error or other processing error - report but continue
           this.onerror?.(err instanceof Error ? err : new Error(String(err)));
         }
       }
     } catch (err) {
-      // Stream reading error (network issue, abort, etc.)
       if (!this.closed && err instanceof Error && err.name !== "AbortError") {
         this.onerror?.(err);
       }
     } finally {
       this.eventStreamReader = null;
-      if (!this.closed) {
+      if (!this.closed && !this.restartingEventStream) {
         this.closed = true;
         this.onclose?.();
       }
@@ -298,6 +508,167 @@ export class RemoteClientTransport implements Transport {
     message: JSONRPCMessage,
     options?: TransportSendOptions,
   ): Promise<void> {
+    return this.postSend(message, options, 0);
+  }
+
+  /**
+   * Push auth state to the remote backend without tearing down the session.
+   * Used after mid-session OAuth recovery in the web client.
+   */
+  async pushAuthState(authState?: RemoteAuthState): Promise<void> {
+    if (!this._sessionId) {
+      throw new Error("Transport not started");
+    }
+    if (this.closed) {
+      throw new Error("Transport is closed");
+    }
+
+    const state = authState ?? (await this.buildAuthStateFromProvider());
+    if (!state.oauthTokens && !state.oauthClient) {
+      throw new Error("No auth state to push");
+    }
+
+    const res = await this.fetchFn(`${this.baseUrl}/api/mcp/auth-state`, {
+      method: "POST",
+      headers: this.headers,
+      body: JSON.stringify({ sessionId: this._sessionId, authState: state }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Remote auth-state update failed (${res.status}): ${text}`);
+    }
+
+    const json = (await res.json()) as { ok?: boolean; error?: string };
+    if (!json.ok) {
+      throw new Error(json.error ?? "Remote auth-state update failed");
+    }
+  }
+
+  private async buildAuthStateFromProvider(): Promise<RemoteAuthState> {
+    if (!this.options.authProvider) {
+      throw new Error("No auth provider configured");
+    }
+    const tokens = await this.options.authProvider.tokens();
+    if (!tokens) {
+      throw new Error("No OAuth tokens available");
+    }
+    return oauthTokensToRemoteAuthState(tokens);
+  }
+
+  private get sseResponseTimeoutMs(): number {
+    return this.options.sseResponseTimeoutMs ?? DEFAULT_SSE_RESPONSE_TIMEOUT_MS;
+  }
+
+  private settleSseResponseWait(message: JSONRPCMessage): void {
+    if (
+      !("id" in message) ||
+      message.id === null ||
+      message.id === undefined ||
+      (!("result" in message) && !("error" in message))
+    ) {
+      return;
+    }
+    const wait = this.sseResponseWaits.get(message.id);
+    if (!wait) {
+      return;
+    }
+    this.sseResponseWaits.delete(message.id);
+    wait.resolve();
+  }
+
+  private cancelSseResponseWait(requestId: string | number): void {
+    this.sseResponseWaits.delete(requestId);
+  }
+
+  private cancelAllSseWaits(error: Error): void {
+    for (const wait of this.sseResponseWaits.values()) {
+      wait.reject(error);
+    }
+    this.sseResponseWaits.clear();
+  }
+
+  private waitForSseResponse(requestId: string | number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.sseResponseWaits.delete(requestId);
+        reject(
+          new Error(
+            `Timed out waiting for MCP response on SSE (${this.sseResponseTimeoutMs}ms)`,
+          ),
+        );
+      }, this.sseResponseTimeoutMs);
+      this.sseResponseWaits.set(requestId, {
+        resolve: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
+    });
+  }
+
+  private async postSend(
+    message: JSONRPCMessage,
+    options: TransportSendOptions | undefined,
+    retryCount: number,
+  ): Promise<void> {
+    const requestId = requestIdForMessage(message);
+    let sseWait: Promise<void> | undefined;
+    if (requestId !== undefined) {
+      sseWait = this.waitForSseResponse(requestId);
+      void sseWait.catch(() => {});
+    }
+
+    let json: RemoteSendResponse;
+    try {
+      json = await this.requestSend(message, options);
+    } catch (error) {
+      if (requestId !== undefined) {
+        this.cancelSseResponseWait(requestId);
+      }
+      throw error;
+    }
+
+    if (json.ok) {
+      if (sseWait) {
+        await sseWait;
+      }
+      return;
+    }
+
+    if (requestId !== undefined) {
+      this.cancelSseResponseWait(requestId);
+    }
+
+    if (json.kind === "auth_challenge") {
+      // Send-time recovery requires pushAuthState on the existing remote session.
+      // Connect-time recovery (startWithRecovery) retries with fresh authState in
+      // the connect body instead — see startWithRecovery().
+      if (retryCount >= 1 || !this.options.authRecovery?.pushAuthState) {
+        throw new AuthChallengeError(
+          json.authChallenge,
+          json.authChallenge.raw?.httpStatus ?? 401,
+        );
+      }
+
+      await this.recoverFromAuthChallenge(json.authChallenge, async () => {
+        await this.options.authRecovery!.pushAuthState!();
+        return this.postSend(message, options, retryCount + 1);
+      });
+      return;
+    }
+
+    throw new Error(json.error);
+  }
+
+  private async requestSend(
+    message: JSONRPCMessage,
+    options?: TransportSendOptions,
+  ): Promise<RemoteSendResponse> {
     if (!this._sessionId) {
       throw new Error("Transport not started");
     }
@@ -325,14 +696,16 @@ export class RemoteClientTransport implements Transport {
       (error as { status?: number }).status = res.status;
       throw error;
     }
+
+    return (await res.json()) as RemoteSendResponse;
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
 
     this.closed = true;
-    this.eventStreamAbort?.abort();
-    this.eventStreamReader = null;
+    this.cancelAllSseWaits(new Error("Transport closed"));
+    await this.stopEventStream();
 
     if (this._sessionId) {
       try {

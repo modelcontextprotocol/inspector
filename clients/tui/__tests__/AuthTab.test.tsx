@@ -71,6 +71,15 @@ const baseProps = {
   connectionStatus: "disconnected" as const,
 };
 
+const pendingStepUp = {
+  challenge: {
+    reason: "insufficient_scope" as const,
+    requiredScopes: ["env:read"],
+    authorizationScopes: ["tools:read", "env:read"],
+  },
+  enterpriseManaged: true,
+};
+
 describe("AuthTab", () => {
   it("renders the placeholder when there is no server", () => {
     const { lastFrame } = render(
@@ -217,6 +226,86 @@ describe("AuthTab", () => {
     await tick();
     stdin.write(PAGE_DOWN);
     await tick();
+    expect(lastFrame() ?? "").toContain("OAuth Details");
+  });
+
+  it("navigates step-up choices with arrows and activates with Enter", async () => {
+    const onAuthorizeStepUp = vi.fn();
+    const onCancelStepUp = vi.fn();
+    const { client } = makeClient(sampleOAuthState);
+    const { stdin } = render(
+      <AuthTab
+        {...baseProps}
+        focused
+        inspectorClient={client}
+        oauthStatus="idle"
+        oauthMessage={null}
+        pendingStepUp={pendingStepUp}
+        onAuthorizeStepUp={onAuthorizeStepUp}
+        onCancelStepUp={onCancelStepUp}
+      />,
+    );
+    await tick();
+    stdin.write("\r");
+    await tick();
+    expect(onAuthorizeStepUp).toHaveBeenCalledTimes(1);
+    expect(onCancelStepUp).not.toHaveBeenCalled();
+
+    onAuthorizeStepUp.mockClear();
+    stdin.write(DOWN);
+    await tick();
+    stdin.write("\r");
+    await tick();
+    expect(onCancelStepUp).toHaveBeenCalledTimes(1);
+    expect(onAuthorizeStepUp).not.toHaveBeenCalled();
+  });
+
+  it("shows step-up footer with selection hints when focused", async () => {
+    const { client } = makeClient(sampleOAuthState);
+    const { lastFrame } = render(
+      <AuthTab
+        {...baseProps}
+        focused
+        inspectorClient={client}
+        oauthStatus="idle"
+        oauthMessage={null}
+        pendingStepUp={pendingStepUp}
+        onAuthorizeStepUp={vi.fn()}
+        onCancelStepUp={vi.fn()}
+      />,
+    );
+    await tick();
+    expect(lastFrame() ?? "").toContain("↑/↓ select, Enter confirm");
+  });
+
+  it("refreshes OAuth state when connection becomes connected", async () => {
+    const { client, getOAuthState } = makeClient(undefined);
+    const { lastFrame, rerender } = render(
+      <AuthTab
+        {...baseProps}
+        inspectorClient={client}
+        oauthStatus="idle"
+        oauthMessage={null}
+        connectionStatus="disconnected"
+      />,
+    );
+    await tick();
+    expect(getOAuthState).toHaveBeenCalledTimes(1);
+    expect(lastFrame() ?? "").toContain("No OAuth information yet");
+
+    getOAuthState.mockResolvedValue(sampleOAuthState);
+    rerender(
+      <AuthTab
+        {...baseProps}
+        inspectorClient={client}
+        oauthStatus="idle"
+        oauthMessage={null}
+        connectionStatus="connected"
+      />,
+    );
+    await tick();
+    expect(getOAuthState).toHaveBeenCalledTimes(2);
+    expect(lastFrame() ?? "").toContain("Authorized");
     expect(lastFrame() ?? "").toContain("OAuth Details");
   });
 

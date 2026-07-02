@@ -12,6 +12,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createFetchTracker } from "../fetchTracking.js";
+import { createAuthChallengeInterceptFetch } from "./authChallengeFetch.js";
 
 /**
  * Build the wire `headers` record from `settings.headers`, dropping rows with
@@ -46,9 +47,13 @@ export function createTransportNode(
     onFetchResponseBody,
     authProvider,
     settings,
+    interceptAuthChallenges = false,
   } = options;
 
   const baseFetch = optionsFetchFn ?? globalThis.fetch;
+  const fetchWithOptionalAuthIntercept = interceptAuthChallenges
+    ? createAuthChallengeInterceptFetch(baseFetch)
+    : baseFetch;
 
   if (serverType === "stdio") {
     const stdioConfig = config as StdioServerConfig;
@@ -79,7 +84,8 @@ export function createTransportNode(
     const url = new URL(sseConfig.url);
 
     const sseFetch =
-      (sseConfig.eventSourceInit?.fetch as typeof fetch) || baseFetch;
+      (sseConfig.eventSourceInit?.fetch as typeof fetch) ||
+      fetchWithOptionalAuthIntercept;
     const trackedFetch = onFetchRequest
       ? createFetchTracker(sseFetch, {
           trackRequest: onFetchRequest,
@@ -101,11 +107,11 @@ export function createTransportNode(
     };
 
     const postFetch = onFetchRequest
-      ? createFetchTracker(baseFetch, {
+      ? createFetchTracker(fetchWithOptionalAuthIntercept, {
           trackRequest: onFetchRequest,
           updateResponseBody: onFetchResponseBody,
         })
-      : baseFetch;
+      : fetchWithOptionalAuthIntercept;
 
     const transport = new SSEClientTransport(url, {
       authProvider,
@@ -128,11 +134,11 @@ export function createTransportNode(
     };
 
     const transportFetch = onFetchRequest
-      ? createFetchTracker(baseFetch, {
+      ? createFetchTracker(fetchWithOptionalAuthIntercept, {
           trackRequest: onFetchRequest,
           updateResponseBody: onFetchResponseBody,
         })
-      : baseFetch;
+      : fetchWithOptionalAuthIntercept;
 
     const transport = new StreamableHTTPClientTransport(url, {
       authProvider,

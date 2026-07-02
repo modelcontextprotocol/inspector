@@ -14,7 +14,17 @@ import { createTestServerInfo } from "./test-server-fixtures.js";
 import { resolvePreset } from "./preset-registry.js";
 import type { ConfigFile, PresetRef } from "./load-config.js";
 
-function resolvePresetRefs<T>(
+function mergeRequiredScopes<T extends { requiredScopes?: string[] }>(
+  item: T,
+  ref: PresetRef,
+): T {
+  if (!ref.requiredScopes?.length) {
+    return item;
+  }
+  return { ...item, requiredScopes: ref.requiredScopes };
+}
+
+function resolvePresetRefs<T extends { requiredScopes?: string[] }>(
   refs: Array<PresetRef | PresetRef[]> | undefined,
   type: "tool" | "resource" | "resourceTemplate" | "prompt",
 ): T[] {
@@ -31,7 +41,9 @@ function resolvePresetRefs<T>(
       }
       const resolved = resolvePreset(type, presetName, ref.params);
       const arr = Array.isArray(resolved) ? resolved : [resolved];
-      result.push(...(arr as T[]));
+      for (const item of arr) {
+        result.push(mergeRequiredScopes(item as unknown as T, ref));
+      }
     }
   }
   return result;

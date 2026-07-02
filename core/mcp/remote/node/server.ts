@@ -26,7 +26,13 @@ import type { Context, Env, Next } from "hono";
 import { streamSSE } from "hono/streaming";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
-import type { RemoteConnectRequest, RemoteSendRequest } from "../types.js";
+import type {
+  RemoteConnectRequest,
+  RemoteSendRequest,
+  RemoteSetAuthStateRequest,
+} from "../types.js";
+import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import { AuthChallengeError } from "../../../auth/challenge.js";
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
   DEFAULT_TASK_TTL_MS,
@@ -52,7 +58,7 @@ import {
 } from "../../serverList.js";
 import { resolveImportSource } from "../../import/resolveSource.js";
 import { RemoteSession } from "./remote-session.js";
-import { createTokenAuthProvider } from "./tokenAuthProvider.js";
+import { createRemoteAuthProvider } from "./tokenAuthProvider.js";
 import { API_SERVER_ENV_VARS } from "../constants.js";
 import {
   KeychainUnavailableError,
@@ -321,6 +327,20 @@ function forwardLogEvent(
   }
 }
 
+function requestIdForSendWait(
+  message: JSONRPCMessage,
+): string | number | undefined {
+  if (
+    "method" in message &&
+    "id" in message &&
+    message.id !== null &&
+    message.id !== undefined
+  ) {
+    return message.id;
+  }
+  return undefined;
+}
+
 export function createRemoteApp(
   options: RemoteServerOptions,
 ): CreateRemoteAppResult {
@@ -525,9 +545,12 @@ export function createRemoteApp(
     const session = new RemoteSession(sessionId);
 
     let transport: Awaited<ReturnType<typeof createTransportNode>>["transport"];
+    let authHandle: ReturnType<typeof createRemoteAuthProvider>;
     try {
-      // Create authProvider from tokens if provided
-      const authProvider = createTokenAuthProvider(body.oauthTokens);
+      const initialAuthState =
+        body.authState ??
+        (body.oauthTokens ? { oauthTokens: body.oauthTokens } : undefined);
+      authHandle = createRemoteAuthProvider(initialAuthState);
 
       const result = createTransportNode(config, {
         pipeStderr: true,
@@ -535,8 +558,12 @@ export function createRemoteApp(
         onFetchRequest: (entry) => session.onFetchRequest(entry),
         onFetchResponseBody: (id, body) =>
           session.onFetchResponseBody(id, body),
-        authProvider,
+        authProvider: authHandle?.provider,
         settings: body.settings,
+        // Always intercept 401/403 on the node MCP transport. Without this, the
+        // SDK's built-in auth() retry on a frozen token snapshot can hang or
+        // succeed locally while /api/mcp/send still awaits a JSON-RPC response.
+        interceptAuthChallenges: true,
       });
       transport = result.transport;
     } catch (err) {
@@ -544,6 +571,7 @@ export function createRemoteApp(
       return c.json({ error: `Failed to create transport: ${msg}` }, 500);
     }
 
+    session.setAuthProviderHandle(authHandle ?? null);
     session.setTransport(transport);
     transport.onmessage = (msg) => session.onMessage(msg);
 
@@ -558,6 +586,10 @@ export function createRemoteApp(
 
     // Set up error handlers BEFORE calling start() so we catch failures during start
     transport.onerror = (err) => {
+      if (session.handleTransportAuthError(err)) {
+        originalOnerror?.(err);
+        return;
+      }
       transportFailed = true;
       transportError = err instanceof Error ? err.message : String(err);
       originalOnerror?.(err);
@@ -609,6 +641,19 @@ export function createRemoteApp(
       }
     } catch (err) {
       // transport.start() threw - this is the expected failure path
+      if (err instanceof AuthChallengeError) {
+        try {
+          await transport.close();
+        } catch {
+          // Best-effort cleanup when connect fails with auth challenge.
+        }
+        session.noteAuthChallengeDeliveredViaHttp();
+        return c.json({
+          ok: false,
+          kind: "auth_challenge",
+          authChallenge: err.authChallenge,
+        });
+      }
       const msg = err instanceof Error ? err.message : String(err);
       // Preserve 401 only when the transport/SDK reports it (no message guessing)
       const status =
@@ -648,22 +693,41 @@ export function createRemoteApp(
     // Check if transport is dead - return error immediately (matches local behavior)
     if (session.isTransportDead()) {
       const errorMsg = session.getTransportError() || "Transport closed";
-      return c.json({ error: errorMsg }, 500);
+      return c.json({ ok: false, kind: "transport_error", error: errorMsg });
     }
 
+    session.beginSend();
+    const requestId = requestIdForSendWait(message);
+    let responseWait: Promise<void> | undefined;
+    if (requestId !== undefined) {
+      responseWait = session.waitForRequestResponse(requestId);
+      // Auth errors may reject the wait via onerror while send() also throws.
+      void responseWait.catch(() => {});
+    }
     try {
       await session.transport.send(message, {
         relatedRequestId: relatedRequestId as string | number | undefined,
       });
+      if (responseWait) {
+        await responseWait;
+      }
       return c.json({ ok: true });
     } catch (err) {
+      if (requestId !== undefined) {
+        session.cancelRequestWait(requestId);
+      }
+      if (err instanceof AuthChallengeError) {
+        session.noteAuthChallengeDeliveredViaHttp();
+        return c.json({
+          ok: false,
+          kind: "auth_challenge",
+          authChallenge: err.authChallenge,
+        });
+      }
       const msg = err instanceof Error ? err.message : String(err);
-      // Preserve 401 only when the transport/SDK reports it (no message guessing)
-      const status =
-        (err as { code?: number; status?: number }).code ??
-        (err as { code?: number; status?: number }).status;
-      const is401 = status === 401;
-      return c.json({ error: msg }, is401 ? 401 : 500);
+      return c.json({ ok: false, kind: "transport_error", error: msg });
+    } finally {
+      session.endSend();
     }
   });
 
@@ -741,6 +805,39 @@ export function createRemoteApp(
       session.clearEventConsumer();
       await session.transport.close();
       sessions.delete(sessionId);
+    }
+
+    return c.json({ ok: true });
+  });
+
+  app.post("/api/mcp/auth-state", async (c) => {
+    let body: RemoteSetAuthStateRequest;
+    try {
+      body = (await c.req.json()) as RemoteSetAuthStateRequest;
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+
+    const { sessionId, authState } = body;
+    if (!sessionId || !authState) {
+      return c.json({ error: "Missing sessionId or authState" }, 400);
+    }
+
+    const session = sessions.get(sessionId);
+    if (!session) {
+      return c.json({ error: "Session not found" }, 404);
+    }
+
+    if (session.isTransportDead()) {
+      const errorMsg = session.getTransportError() || "Transport closed";
+      return c.json({ ok: false, kind: "transport_error", error: errorMsg });
+    }
+
+    try {
+      session.setAuthState(authState);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return c.json({ error: msg }, 400);
     }
 
     return c.json({ ok: true });

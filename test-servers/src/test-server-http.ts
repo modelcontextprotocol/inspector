@@ -11,6 +11,9 @@ import type { ServerConfig } from "./test-server-fixtures.js";
 import {
   setupOAuthRoutes,
   createBearerTokenMiddleware,
+  buildScopeRequirementRegistry,
+  scopeRequirementRegistryHasEntries,
+  createScopeCheckMiddleware,
 } from "./test-server-oauth.js";
 import {
   setTestServerControl,
@@ -195,6 +198,10 @@ export class TestServerHttp {
     const mcpMiddleware: express.RequestHandler[] = [];
     if (this.config.oauth?.enabled && this.config.oauth.requireAuth) {
       mcpMiddleware.push(createBearerTokenMiddleware(this.config.oauth));
+      const scopeRegistry = buildScopeRequirementRegistry(this.config);
+      if (scopeRequirementRegistryHasEntries(scopeRegistry)) {
+        mcpMiddleware.push(createScopeCheckMiddleware(scopeRegistry));
+      }
     }
 
     // Set up Express route to handle MCP requests
@@ -328,6 +335,10 @@ export class TestServerHttp {
     const sseMiddleware: express.RequestHandler[] = [];
     if (this.config.oauth?.enabled && this.config.oauth.requireAuth) {
       sseMiddleware.push(createBearerTokenMiddleware(this.config.oauth));
+      const scopeRegistry = buildScopeRequirementRegistry(this.config);
+      if (scopeRequirementRegistryHasEntries(scopeRegistry)) {
+        sseMiddleware.push(createScopeCheckMiddleware(scopeRegistry));
+      }
     }
 
     // One McpServer per connection (same pattern as streamable-http)

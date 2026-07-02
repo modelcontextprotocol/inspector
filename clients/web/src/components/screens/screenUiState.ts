@@ -62,3 +62,15 @@ export const EMPTY_NETWORK_UI: NetworkUiState = {
   filterText: "",
   visibleCategories: ALL_CATEGORIES_VISIBLE,
 };
+
+/** Registry for OAuth resume snapshot restore (data-only; setters live in App). */
+export const TAB_UI_REGISTRY = {
+  Apps: { empty: EMPTY_APPS_UI },
+  Tools: { empty: EMPTY_TOOLS_UI },
+  Prompts: { empty: EMPTY_PROMPTS_UI },
+  Resources: { empty: EMPTY_RESOURCES_UI },
+  Tasks: { empty: EMPTY_TASKS_UI },
+  Logs: { empty: EMPTY_LOGS_UI },
+  History: { empty: EMPTY_HISTORY_UI },
+  Network: { empty: EMPTY_NETWORK_UI },
+} as const;

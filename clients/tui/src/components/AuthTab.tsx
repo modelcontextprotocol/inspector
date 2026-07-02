@@ -8,12 +8,19 @@ import type {
   ConnectionStatus,
 } from "@inspector/core/mcp/index.js";
 import type { OAuthConnectionState } from "@inspector/core/auth/types.js";
+import type { AuthChallenge } from "@inspector/core/auth/challenge.js";
 import {
   formatAuthProtocol,
   formatClientRegistrationKind,
   formatIdpSession,
   formatScopes,
 } from "../utils/oauthDisplay.js";
+import {
+  stepUpAuthorizeActionLabel,
+  stepUpConfirmMessage,
+  stepUpFollowUpMessage,
+  stepUpModalTitle,
+} from "../utils/tuiOAuth.js";
 
 interface AuthTabProps {
   serverName: string | null;
@@ -22,6 +29,13 @@ interface AuthTabProps {
   oauthStatus: "idle" | "authenticating" | "error";
   oauthMessage: string | null;
   oauthRevision: number;
+  pendingStepUp?: {
+    challenge: AuthChallenge;
+    authorizationScopes?: string[];
+    enterpriseManaged?: boolean;
+  } | null;
+  onAuthorizeStepUp?: () => void;
+  onCancelStepUp?: () => void;
   width: number;
   height: number;
   focused?: boolean;
@@ -44,6 +58,9 @@ export function AuthTab({
   oauthStatus,
   oauthMessage,
   oauthRevision,
+  pendingStepUp,
+  onAuthorizeStepUp,
+  onCancelStepUp,
   width,
   height,
   focused = false,
@@ -58,6 +75,7 @@ export function AuthTab({
   >(undefined);
   const [clearedConfirmation, setClearedConfirmation] = useState(false);
   const [lastClearDisconnected, setLastClearDisconnected] = useState(false);
+  const [stepUpChoiceIndex, setStepUpChoiceIndex] = useState(0);
 
   const refreshOAuthState = useCallback(async () => {
     if (!inspectorClient) {
@@ -70,12 +88,16 @@ export function AuthTab({
 
   useEffect(() => {
     void refreshOAuthState();
-  }, [refreshOAuthState, oauthRevision]);
+  }, [refreshOAuthState, oauthRevision, connectionStatus]);
 
   useEffect(() => {
     setClearedConfirmation(false);
     setLastClearDisconnected(false);
   }, [oauthRevision]);
+
+  useEffect(() => {
+    setStepUpChoiceIndex(0);
+  }, [pendingStepUp]);
 
   useEffect(() => {
     if (!inspectorClient) return;
@@ -92,6 +114,34 @@ export function AuthTab({
   useInput(
     (input: string, key: Key) => {
       if (!focused) return;
+
+      if (pendingStepUp) {
+        if (key.upArrow) {
+          setStepUpChoiceIndex((i) => Math.max(0, i - 1));
+          return;
+        }
+        if (key.downArrow) {
+          setStepUpChoiceIndex((i) => Math.min(1, i + 1));
+          return;
+        }
+        if (key.return) {
+          if (stepUpChoiceIndex === 0) {
+            onAuthorizeStepUp?.();
+          } else {
+            onCancelStepUp?.();
+          }
+          return;
+        }
+        if (input.toLowerCase() === "a") {
+          onAuthorizeStepUp?.();
+          return;
+        }
+        if (input.toLowerCase() === "c") {
+          onCancelStepUp?.();
+          return;
+        }
+        return;
+      }
 
       if (key.upArrow && scrollViewRef.current) {
         scrollViewRef.current.scrollBy(-1);
@@ -139,6 +189,66 @@ export function AuthTab({
           {oauthStatus === "error" && oauthMessage && (
             <Text color="red">{oauthMessage}</Text>
           )}
+          {oauthStatus === "idle" && oauthMessage && (
+            <Text color="cyan">{oauthMessage}</Text>
+          )}
+
+          {pendingStepUp ? (
+            <Box marginTop={1} flexDirection="column" gap={0}>
+              <Text bold color="yellow">
+                {stepUpModalTitle({
+                  enterpriseManaged: pendingStepUp.enterpriseManaged,
+                })}
+              </Text>
+              <Text>
+                {stepUpConfirmMessage(pendingStepUp.challenge, {
+                  enterpriseManaged: pendingStepUp.enterpriseManaged,
+                })}{" "}
+                {stepUpFollowUpMessage({
+                  enterpriseManaged: pendingStepUp.enterpriseManaged,
+                })}
+              </Text>
+              {(() => {
+                const scopes =
+                  pendingStepUp.authorizationScopes ??
+                  pendingStepUp.challenge.requiredScopes;
+                if (!scopes?.length) return null;
+                return (
+                  <Box marginTop={1} flexDirection="column">
+                    <Text dimColor>
+                      {pendingStepUp.enterpriseManaged
+                        ? "Permissions requested:"
+                        : "Scopes requested:"}
+                    </Text>
+                    {scopes.map((scope) => (
+                      <Text key={scope} dimColor>
+                        {" "}
+                        • {scope}
+                      </Text>
+                    ))}
+                  </Box>
+                );
+              })()}
+              <Box marginTop={1} flexDirection="column">
+                <SelectableItem isSelected={stepUpChoiceIndex === 0} bold>
+                  {(() => {
+                    const label = stepUpAuthorizeActionLabel({
+                      enterpriseManaged: pendingStepUp.enterpriseManaged,
+                    });
+                    return (
+                      <>
+                        <Text underline>{label[0]}</Text>
+                        {label.slice(1)}
+                      </>
+                    );
+                  })()}
+                </SelectableItem>
+                <SelectableItem isSelected={stepUpChoiceIndex === 1}>
+                  <Text underline>C</Text>ancel
+                </SelectableItem>
+              </Box>
+            </Box>
+          ) : null}
 
           {oauthState ? (
             <Box flexDirection="column" marginTop={1} gap={0}>
@@ -229,7 +339,9 @@ export function AuthTab({
           backgroundColor="gray"
         >
           <Text bold color="white">
-            S {isLiveConnection ? "clear+disconnect" : "clear"}, ↑/↓ scroll
+            {pendingStepUp
+              ? "↑/↓ select, Enter confirm, A authorize, C cancel"
+              : `S ${isLiveConnection ? "clear+disconnect" : "clear"}, ↑/↓ scroll`}
           </Text>
         </Box>
       )}

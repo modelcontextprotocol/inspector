@@ -10,6 +10,8 @@ import YAML from "yaml";
 export interface PresetRef {
   preset: string;
   params?: Record<string, unknown>;
+  /** OAuth scopes the bearer token must include to use this capability. */
+  requiredScopes?: string[];
 }
 
 export interface ConfigFileOAuth {

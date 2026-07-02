@@ -8,8 +8,8 @@ import { BaseOAuthClientProvider } from "../auth/providers.js";
 import type { OAuthFlowState, OAuthStep } from "../auth/types.js";
 import { EMPTY_OAUTH_FLOW_STATE } from "../auth/types.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { mcpAuth } from "../auth/mcpAuth.js";
 import { parseOAuthState } from "../auth/utils.js";
 import type { EnterpriseManagedAuthIdpConfig } from "../client/types.js";
 import type { ClientConfig } from "../client/types.js";
@@ -24,12 +24,27 @@ import {
 import {
   buildOAuthConnectionState,
   hasPersistedOAuthServerState,
+  isAccessTokenUsable,
   isServerOAuthConfigured,
   protocolFromOAuthConfig,
 } from "../auth/connection-state.js";
 import { ensureCimdClientRegistration } from "../auth/cimd.js";
 import type { OAuthConnectionState } from "../auth/types.js";
 import { EmaTransportOAuthProvider } from "../auth/ema/transportProvider.js";
+import type {
+  AuthChallenge,
+  AuthChallengeOutcome,
+  HandleAuthChallengeOptions,
+} from "../auth/challenge.js";
+import {
+  parseScopeString,
+  unionAuthorizationScopes,
+} from "../auth/challenge.js";
+import {
+  computeScopeUnion,
+  isStrictScopeSuperset,
+} from "../auth/scopes.js";
+import { stepUpInsufficientScopeMessage } from "../auth/oauthUx.js";
 import type {
   InspectorClientEnvironment,
   InspectorClientOptions,
@@ -60,10 +75,14 @@ export class OAuthManager {
   private params: OAuthManagerParams;
   private oauthConfig: OAuthManagerConfig;
   private oauthFlowState: OAuthFlowState | null = null;
+  /** SEP-2350 union scope pending until interactive step-up completes. */
+  private pendingAuthorizationScope: string | undefined;
+  private authChallengeMutex: Promise<void> = Promise.resolve();
 
   constructor(params: OAuthManagerParams) {
     this.params = params;
     this.oauthConfig = { ...params.initialConfig };
+    this.pendingAuthorizationScope = undefined;
   }
 
   setOAuthConfig(config: {
@@ -104,7 +123,8 @@ export class OAuthManager {
 
     provider.setEventTarget(this.params.getEventTarget());
 
-    if (this.oauthConfig.scope) {
+    const storedScope = this.oauthConfig.storage.getScope(serverUrl);
+    if (storedScope === undefined && this.oauthConfig.scope) {
       await provider.saveScope(this.oauthConfig.scope);
     }
 
@@ -146,7 +166,11 @@ export class OAuthManager {
       idp,
       resourceClientId: this.oauthConfig.clientId,
       resourceClientSecret: this.oauthConfig.clientSecret,
-      scope: this.oauthConfig.scope,
+      scope:
+        computeScopeUnion(
+          this.oauthConfig.scope,
+          this.oauthConfig.storage.getScope(this.getServerUrl()),
+        ) || this.oauthConfig.scope,
       redirectUrl: this.oauthConfig.redirectUrlProvider.getRedirectUrl(),
       storage: this.oauthConfig.storage,
       fetchFn: this.params.effectiveAuthFetch,
@@ -181,12 +205,8 @@ export class OAuthManager {
       }
     }
 
-    this.oauthConfig.navigation!.navigateToAuthorization(authorizationUrl);
-    this.oauthFlowState = {
-      ...EMPTY_OAUTH_FLOW_STATE,
-      oauthStep: "authorization_code",
-      authorizationUrl,
-    };
+    this.requireNavigation().navigateToAuthorization(authorizationUrl);
+    await this.recordAuthorizationCodeFlowState(authorizationUrl);
     return authorizationUrl;
   }
 
@@ -206,7 +226,7 @@ export class OAuthManager {
       fetchFn: this.params.effectiveAuthFetch,
     });
 
-    const result = await auth(provider, {
+    const result = await mcpAuth(provider, {
       serverUrl,
       scope: provider.scope,
       fetchFn: this.params.effectiveAuthFetch,
@@ -241,14 +261,28 @@ export class OAuthManager {
     return capturedUrl;
   }
 
-  async completeOAuthFlow(authorizationCode: string): Promise<void> {
+  async completeOAuthFlow(
+    authorizationCode: string,
+    iss?: string,
+  ): Promise<void> {
     try {
       if (this.isEnterpriseManaged()) {
-        const config = this.getEmaFlowConfig();
+        const scopeForMint =
+          this.pendingAuthorizationScope ?? this.getEmaFlowConfig().scope;
+        const config = scopeForMint
+          ? { ...this.getEmaFlowConfig(), scope: scopeForMint }
+          : this.getEmaFlowConfig();
         const tokens = await completeEmaIdpAuthorizationAndMint(
           config,
           authorizationCode,
         );
+        if (this.pendingAuthorizationScope) {
+          await this.oauthConfig.storage!.saveScope(
+            this.getServerUrl(),
+            this.pendingAuthorizationScope,
+          );
+        }
+        this.pendingAuthorizationScope = undefined;
         const completedAt = Date.now();
         this.oauthFlowState = {
           ...EMPTY_OAUTH_FLOW_STATE,
@@ -263,9 +297,10 @@ export class OAuthManager {
       const provider = await this.createOAuthProvider();
       const serverUrl = this.getServerUrl();
 
-      const result = await auth(provider, {
+      const result = await mcpAuth(provider, {
         serverUrl,
         authorizationCode,
+        iss,
         fetchFn: this.params.effectiveAuthFetch,
       });
 
@@ -279,6 +314,13 @@ export class OAuthManager {
       if (!tokens) {
         throw new Error("Failed to retrieve tokens after authorization");
       }
+
+      const scopeToPersist =
+        this.pendingAuthorizationScope ?? tokens.scope;
+      if (scopeToPersist) {
+        await provider.saveScope(scopeToPersist);
+      }
+      this.pendingAuthorizationScope = undefined;
 
       const clientInfo = await provider.clientInformation();
       const completedAt = Date.now();
@@ -300,6 +342,7 @@ export class OAuthManager {
 
       this.params.dispatchOAuthComplete({ tokens });
     } catch (error) {
+      this.pendingAuthorizationScope = undefined;
       this.params.dispatchOAuthError({
         error: error instanceof Error ? error : new Error(String(error)),
       });
@@ -329,6 +372,7 @@ export class OAuthManager {
     this.oauthConfig.storage.clear(serverUrl);
 
     this.oauthFlowState = null;
+    this.pendingAuthorizationScope = undefined;
   }
 
   async isOAuthAuthorized(): Promise<boolean> {
@@ -380,6 +424,387 @@ export class OAuthManager {
     if (!this.isEnterpriseManaged()) return false;
     const tokens = await refreshEmaResourceTokens(this.getEmaFlowConfig());
     return tokens !== undefined;
+  }
+
+  /**
+   * Re-read persisted OAuth state and determine whether `challenge` is already
+   * satisfied without an authorization-server round-trip.
+   *
+   * Returns `true` for `insufficient_scope` when stored + token scope cover the
+   * SEP-2350 union. For `token_expired` / `unauthorized` / `invalid_token`,
+   * returns `true` when a usable access token is already in storage.
+   */
+  async checkAuthChallengeSatisfied(
+    challenge: AuthChallenge,
+  ): Promise<boolean> {
+    const storage = this.oauthConfig.storage;
+    if (!storage) {
+      return false;
+    }
+
+    const serverUrl = this.getServerUrl();
+    const tokens = await storage.getTokens(serverUrl);
+    if (!tokens?.access_token) {
+      return false;
+    }
+
+    if (challenge.reason !== "insufficient_scope") {
+      return (
+        challenge.reason === "token_expired" ||
+        challenge.reason === "unauthorized" ||
+        challenge.reason === "invalid_token"
+      ) && isAccessTokenUsable(tokens);
+    }
+
+    const enriched = await this.enrichChallengeWithAuthorizationScopes(
+      challenge,
+      tokens.scope,
+    );
+    const scopeForAuth =
+      enriched.authorizationScopes?.join(" ") ??
+      enriched.requiredScopes?.join(" ");
+    if (!scopeForAuth?.trim()) {
+      return false;
+    }
+
+    const effectiveScope = computeScopeUnion(
+      storage.getScope(serverUrl),
+      tokens.scope,
+    );
+    return !isStrictScopeSuperset(scopeForAuth, effectiveScope);
+  }
+
+  /**
+   * Satisfy a mid-session auth challenge when possible (silent refresh/re-mint or
+   * interactive redirect).
+   *
+   * Only `insufficient_scope` short-circuits on {@link checkAuthChallengeSatisfied}
+   * here — `token_expired` / `unauthorized` still attempt silent refresh even when
+   * storage holds a locally-valid token (the resource server may have invalidated it).
+   * Callers use {@link checkAuthChallengeSatisfied} directly before visible OAuth.
+   *
+   * Recovery is serialized per server so parallel challenges cannot race on
+   * `pendingAuthorizationScope` or OAuth provider state.
+   */
+  async handleAuthChallenge(
+    challenge: AuthChallenge,
+    options?: HandleAuthChallengeOptions,
+  ): Promise<AuthChallengeOutcome> {
+    if (
+      challenge.reason === "insufficient_scope" &&
+      (await this.checkAuthChallengeSatisfied(challenge))
+    ) {
+      return { kind: "satisfied" };
+    }
+
+    const prior = this.authChallengeMutex;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.authChallengeMutex = gate;
+    await prior;
+    try {
+      if (
+        challenge.reason === "insufficient_scope" &&
+        (await this.checkAuthChallengeSatisfied(challenge))
+      ) {
+        return { kind: "satisfied" };
+      }
+      return await this.runHandleAuthChallenge(challenge, options);
+    } finally {
+      release();
+    }
+  }
+
+  private async runHandleAuthChallenge(
+    challenge: AuthChallenge,
+    options?: HandleAuthChallengeOptions,
+  ): Promise<AuthChallengeOutcome> {
+    if (this.isEnterpriseManaged()) {
+      return this.handleEnterpriseManagedAuthChallenge(challenge, options);
+    }
+    return this.handleStandardAuthChallenge(challenge);
+  }
+
+  private async enrichChallengeWithAuthorizationScopes(
+    challenge: AuthChallenge,
+    grantedTokenScope?: string,
+  ): Promise<AuthChallenge> {
+    if (challenge.reason !== "insufficient_scope") {
+      return challenge;
+    }
+
+    const storage = this.oauthConfig.storage;
+    const serverUrl = this.getServerUrl();
+
+    if (grantedTokenScope === undefined && storage) {
+      const tokens = await storage.getTokens(serverUrl);
+      grantedTokenScope = tokens?.scope;
+    }
+
+    const previousScope = computeScopeUnion(
+      storage?.getScope(serverUrl),
+      grantedTokenScope,
+    );
+    const requiredFromChallenge = challenge.requiredScopes?.filter(Boolean) ?? [];
+    const grantedSet = new Set(parseScopeString(previousScope));
+    const missingRequired = requiredFromChallenge.filter(
+      (scope) => !grantedSet.has(scope),
+    );
+    const requiredScopes =
+      missingRequired.length > 0 ? missingRequired : requiredFromChallenge;
+
+    const authorizationScopes = unionAuthorizationScopes(
+      previousScope,
+      requiredFromChallenge,
+    );
+
+    return {
+      ...challenge,
+      requiredScopes,
+      authorizationScopes,
+    };
+  }
+
+  private resolveEmaScopeForChallenge(challenge: AuthChallenge): string | undefined {
+    if (challenge.reason === "insufficient_scope") {
+      const fromChallenge = challenge.requiredScopes?.join(" ").trim();
+      if (fromChallenge) {
+        return fromChallenge;
+      }
+    }
+    return this.oauthConfig.scope?.trim() || undefined;
+  }
+
+  private emaFlowConfigForChallenge(challenge: AuthChallenge): EmaFlowConfig {
+    const base = this.getEmaFlowConfig();
+    const enriched = challenge.authorizationScopes;
+    if (enriched && enriched.length > 0) {
+      return { ...base, scope: enriched.join(" ") };
+    }
+    const scope = this.resolveEmaScopeForChallenge(challenge);
+    return scope ? { ...base, scope } : base;
+  }
+
+  private async handleEnterpriseManagedAuthChallenge(
+    challenge: AuthChallenge,
+    options?: HandleAuthChallengeOptions,
+  ): Promise<AuthChallengeOutcome> {
+    const enriched = await this.enrichChallengeWithAuthorizationScopes(challenge);
+
+    if (enriched.reason === "insufficient_scope" && !options?.confirmedStepUp) {
+      return { kind: "step_up_confirm", challenge: enriched };
+    }
+
+    const config = this.emaFlowConfigForChallenge(enriched);
+
+    if (enriched.reason === "insufficient_scope") {
+      const silent = await trySilentEmaAuth(config);
+      if (silent.status === "success") {
+        if (enriched.authorizationScopes?.length) {
+          await this.oauthConfig.storage!.saveScope(
+            this.getServerUrl(),
+            enriched.authorizationScopes.join(" "),
+          );
+        }
+        if (await this.checkAuthChallengeSatisfied(enriched)) {
+          return { kind: "satisfied" };
+        }
+      }
+      if (silent.status === "mint_failed") {
+        return { kind: "failed", error: silent.error };
+      }
+    } else {
+      const tokens = await refreshEmaResourceTokens(config);
+      if (tokens) {
+        return { kind: "satisfied" };
+      }
+    }
+
+    try {
+      const authorizationUrl = await startEmaIdpAuthorization(config);
+      if (
+        enriched.reason === "insufficient_scope" &&
+        enriched.authorizationScopes?.length
+      ) {
+        this.pendingAuthorizationScope =
+          enriched.authorizationScopes.join(" ");
+      }
+      return { kind: "interactive", authorizationUrl, challenge: enriched };
+    } catch (error) {
+      return {
+        kind: "failed",
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
+  }
+
+  private async handleStandardAuthChallenge(
+    challenge: AuthChallenge,
+  ): Promise<AuthChallengeOutcome> {
+    const provider = await this.createOAuthProvider();
+    const serverUrl = this.getServerUrl();
+    const tokens = await provider.tokens();
+    const enriched = await this.enrichChallengeWithAuthorizationScopes(
+      challenge,
+      tokens?.scope,
+    );
+
+    provider.clearCapturedAuthUrl();
+
+    await ensureCimdClientRegistration({
+      serverUrl,
+      provider,
+      fetchFn: this.params.effectiveAuthFetch,
+    });
+
+    const scopeForAuth =
+      enriched.reason === "insufficient_scope"
+        ? enriched.authorizationScopes?.join(" ")
+        : this.oauthConfig.scope?.trim() ||
+          (enriched.requiredScopes?.length
+            ? enriched.requiredScopes.join(" ")
+            : undefined);
+
+    provider.setSuppressAuthorizationNavigation(true);
+    let result: Awaited<ReturnType<typeof mcpAuth>>;
+    try {
+      result = await mcpAuth(provider, {
+        serverUrl,
+        scope: scopeForAuth,
+        fetchFn: this.params.effectiveAuthFetch,
+        ...(enriched.reason === "insufficient_scope" && {
+          forceReauthorization: isStrictScopeSuperset(
+            scopeForAuth,
+            tokens?.scope,
+          ),
+        }),
+      });
+    } finally {
+      provider.setSuppressAuthorizationNavigation(false);
+    }
+
+    if (result === "AUTHORIZED") {
+      if (enriched.reason === "insufficient_scope") {
+        if (await this.checkAuthChallengeSatisfied(enriched)) {
+          if (scopeForAuth) {
+            await provider.saveScope(scopeForAuth);
+          }
+          return { kind: "satisfied" };
+        }
+        const forced = await this.tryForceReauthorizationForStepUp(
+          provider,
+          serverUrl,
+          scopeForAuth,
+          enriched,
+        );
+        if (forced) {
+          return forced;
+        }
+        return {
+          kind: "failed",
+          error: new Error(stepUpInsufficientScopeMessage(enriched)),
+        };
+      } else {
+        return { kind: "satisfied" };
+      }
+    }
+
+    const capturedUrl = provider.getCapturedAuthUrl();
+    if (!capturedUrl) {
+      return {
+        kind: "failed",
+        error: new Error("Failed to capture authorization URL"),
+      };
+    }
+
+    if (enriched.reason === "insufficient_scope" && scopeForAuth) {
+      this.pendingAuthorizationScope = scopeForAuth;
+    }
+
+    const clientInfo = await provider.clientInformation();
+    await this.recordAuthorizationCodeFlowState(capturedUrl, clientInfo);
+
+    return {
+      kind: "interactive",
+      authorizationUrl: capturedUrl,
+      challenge: enriched,
+    };
+  }
+
+  /** Start interactive OAuth after handleAuthChallenge returns `interactive`. */
+  async beginInteractiveAuthorization(authorizationUrl: URL): Promise<void> {
+    const stateParam = authorizationUrl.searchParams.get("state");
+    if (stateParam && this.params.onBeforeOAuthRedirect) {
+      const parsedState = parseOAuthState(stateParam);
+      if (parsedState?.authId) {
+        await this.params.onBeforeOAuthRedirect(parsedState.authId);
+      }
+    }
+
+    this.requireNavigation().navigateToAuthorization(authorizationUrl);
+
+    const provider = await this.createOAuthProvider();
+    const clientInfo = await provider.clientInformation();
+    await this.recordAuthorizationCodeFlowState(authorizationUrl, clientInfo);
+
+    this.params.dispatchOAuthAuthorizationRequired({ url: authorizationUrl });
+  }
+
+  private requireNavigation(): NonNullable<OAuthManagerConfig["navigation"]> {
+    const navigation = this.oauthConfig.navigation;
+    if (!navigation) {
+      throw new Error("OAuth navigation is required.");
+    }
+    return navigation;
+  }
+
+  private async recordAuthorizationCodeFlowState(
+    authorizationUrl: URL,
+    oauthClientInfo?: OAuthClientInformation | null,
+  ): Promise<void> {
+    this.oauthFlowState = {
+      ...EMPTY_OAUTH_FLOW_STATE,
+      oauthStep: "authorization_code",
+      authorizationUrl,
+      oauthClientInfo: oauthClientInfo ?? null,
+    };
+  }
+
+  /**
+   * Silent refresh returned AUTHORIZED but token scope still lacks the step-up
+   * union — force a fresh authorization redirect.
+   */
+  private async tryForceReauthorizationForStepUp(
+    provider: BaseOAuthClientProvider,
+    serverUrl: string,
+    scopeForAuth: string | undefined,
+    enriched: AuthChallenge,
+  ): Promise<AuthChallengeOutcome | null> {
+    provider.clearCapturedAuthUrl();
+    provider.setSuppressAuthorizationNavigation(true);
+    let result: Awaited<ReturnType<typeof mcpAuth>>;
+    try {
+      result = await mcpAuth(provider, {
+        serverUrl,
+        scope: scopeForAuth,
+        fetchFn: this.params.effectiveAuthFetch,
+        forceReauthorization: true,
+      });
+    } finally {
+      provider.setSuppressAuthorizationNavigation(false);
+    }
+    if (result !== "AUTHORIZED") {
+      return null;
+    }
+    if (await this.checkAuthChallengeSatisfied(enriched)) {
+      if (scopeForAuth) {
+        await provider.saveScope(scopeForAuth);
+      }
+      return { kind: "satisfied" };
+    }
+    return null;
   }
 
   /**

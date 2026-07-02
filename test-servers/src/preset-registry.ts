@@ -12,6 +12,7 @@ import type {
 } from "./composable-test-server.js";
 import {
   createEchoTool,
+  createGetEnvTool,
   createAddTool,
   createGetSumTool,
   createWriteToStderrTool,
@@ -78,6 +79,9 @@ function resolveToolPreset(
   switch (name) {
     case "echo":
       return createEchoTool();
+    case "get-env":
+    case "get_env":
+      return createGetEnvTool();
     case "add":
       return createAddTool();
     case "get_sum":

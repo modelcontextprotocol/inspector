@@ -53,10 +53,22 @@ function sseFrame(event: RemoteEvent): string {
 }
 
 interface MockFetchPlan {
-  connect?: () => Response | Promise<Response>;
-  events?: () => Response | Promise<Response>;
-  send?: () => Response | Promise<Response>;
-  disconnect?: () => Response | Promise<Response>;
+  connect?: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Response | Promise<Response>;
+  events?: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Response | Promise<Response>;
+  send?: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Response | Promise<Response>;
+  disconnect?: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Response | Promise<Response>;
 }
 
 /**
@@ -64,24 +76,28 @@ interface MockFetchPlan {
  * handlers, defaulting to sensible success responses when a handler is omitted.
  */
 function mockFetch(plan: MockFetchPlan): typeof fetch {
-  const fn = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
-    const url = typeof input === "string" ? input : input.toString();
-    if (url.includes("/api/mcp/connect")) {
-      return plan.connect
-        ? plan.connect()
-        : jsonResponse({ sessionId: "sess-1" });
-    }
-    if (url.includes("/api/mcp/events")) {
-      return plan.events ? plan.events() : sseResponse([]);
-    }
-    if (url.includes("/api/mcp/send")) {
-      return plan.send ? plan.send() : jsonResponse({ ok: true });
-    }
-    if (url.includes("/api/mcp/disconnect")) {
-      return plan.disconnect ? plan.disconnect() : jsonResponse({ ok: true });
-    }
-    throw new Error(`unexpected fetch to ${url}`);
-  });
+  const fn = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/mcp/connect")) {
+        return plan.connect
+          ? plan.connect(input, init)
+          : jsonResponse({ sessionId: "sess-1" });
+      }
+      if (url.includes("/api/mcp/events")) {
+        return plan.events ? plan.events(input, init) : sseResponse([]);
+      }
+      if (url.includes("/api/mcp/send")) {
+        return plan.send ? plan.send(input, init) : jsonResponse({ ok: true });
+      }
+      if (url.includes("/api/mcp/disconnect")) {
+        return plan.disconnect
+          ? plan.disconnect(input, init)
+          : jsonResponse({ ok: true });
+      }
+      throw new Error(`unexpected fetch to ${url}`);
+    },
+  );
   return fn as unknown as typeof fetch;
 }
 
@@ -172,7 +188,9 @@ describe("RemoteClientTransport (focused branch coverage)", () => {
       );
       await t.start();
       expect(connectBody).toMatchObject({
-        oauthTokens: { access_token: "AT", refresh_token: "RT" },
+        authState: {
+          oauthTokens: { access_token: "AT", refresh_token: "RT" },
+        },
       });
       await t.close();
     });
@@ -497,17 +515,38 @@ describe("RemoteClientTransport (focused branch coverage)", () => {
 
     it("posts a message including relatedRequestId and succeeds", async () => {
       let sentBody: { relatedRequestId?: unknown } | undefined;
+      const encoder = new TextEncoder();
+      let sseController: ReadableStreamDefaultController<Uint8Array> | null =
+        null;
+      const pushSseMessage = (message: JSONRPCMessage) => {
+        const payload = JSON.stringify({ type: "message", data: message });
+        sseController?.enqueue(encoder.encode(`data: ${payload}\n\n`));
+      };
       const fetchFn = vi.fn(
         async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = typeof input === "string" ? input : input.toString();
           if (url.includes("/connect")) return jsonResponse({ sessionId: "s" });
-          if (url.includes("/events"))
+          if (url.includes("/events")) {
             return new Response(
-              new ReadableStream<Uint8Array>({ start() {} }),
+              new ReadableStream<Uint8Array>({
+                start(controller) {
+                  sseController = controller;
+                  controller.enqueue(encoder.encode(": keepalive\n\n"));
+                },
+              }),
               { status: 200 },
             );
+          }
           if (url.includes("/send")) {
             sentBody = JSON.parse(init!.body as string);
+            const requestId = (
+              sentBody as { message: { id?: string | number } }
+            ).message.id;
+            pushSseMessage({
+              jsonrpc: "2.0",
+              id: requestId!,
+              result: {},
+            });
             return jsonResponse({ ok: true });
           }
           return jsonResponse({ ok: true });
@@ -517,6 +556,7 @@ describe("RemoteClientTransport (focused branch coverage)", () => {
         {
           baseUrl: "http://remote.test",
           fetchFn: fetchFn as unknown as typeof fetch,
+          sseResponseTimeoutMs: 2000,
         },
         CONFIG,
       );
@@ -574,6 +614,22 @@ describe("RemoteClientTransport (focused branch coverage)", () => {
       await t.close();
       // No sessionId yet → disconnect branch is skipped, but onclose still fires.
       expect(disconnect).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("attachToSession", () => {
+    it("opens SSE for an existing session without POST /connect", async () => {
+      const connect = vi.fn(() => jsonResponse({ sessionId: "new" }));
+      const events = vi.fn(() => sseResponse([]));
+      const t = makeTransport({ connect, events });
+      await t.attachToSession("existing-sess");
+      expect(connect).not.toHaveBeenCalled();
+      expect(events).toHaveBeenCalledWith(
+        expect.stringContaining("sessionId=existing-sess"),
+        expect.anything(),
+      );
+      expect(t.getRemoteBackendSessionId()).toBe("existing-sess");
+      await t.close();
     });
   });
 

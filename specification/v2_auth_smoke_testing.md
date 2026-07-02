@@ -475,7 +475,7 @@ Same two phases (prefer **`stytch-mcp-demo`** URL):
 
 ### Procedure (CLI)
 
-Reuse tokens from a prior web/TUI session, or run after interactive auth in TUI:
+Interactive OAuth uses the loopback callback server (same as TUI). First-time connect or mid-session step-up:
 
 ```bash
 mcp-inspector --cli --catalog configs/mcp.json --server stytch-mcp-demo \
@@ -483,7 +483,11 @@ mcp-inspector --cli --catalog configs/mcp.json --server stytch-mcp-demo \
   --method tools/list
 ```
 
-Interactive OAuth on CLI prints the authorize URL to stdout (`ConsoleNavigation`); prefer TUI for first-time login smokes.
+**Expect:** stdout prints `Please navigate to: …` → open in browser → redirect to `http://127.0.0.1:6276/oauth/callback` → stderr `Authorization complete.` → JSON on stdout.
+
+Reuse tokens from a prior web/TUI/CLI session when `~/.mcp-inspector/storage/oauth.json` already has valid tokens for that server (passive file sharing).
+
+Mid-session / step-up manual validation: [§5](v2_auth_smoke_testing.md#5-mid-session-auth--step-up--manual-validation) (web **W1 + W5–W7**, TUI **T1–T2 + T4**, CLI **C1–C2** required; **W8–W11** recommended after auth recovery changes).
 
 ### Alternative: DCR on Stytch (no metadata hosting)
 
@@ -523,6 +527,293 @@ Register **`http://127.0.0.1:6276/oauth/callback`** on the xaa.dev IdP before le
 
 ---
 
+## 5. Mid-session auth + step-up — manual validation
+
+**Purpose:** Manual checklist for mid-session OAuth recovery across **web**, **TUI**, and **CLI** after changes to auth / step-up UX. Design: [v2_auth_mid_session.md](v2_auth_mid_session.md).
+
+**Fixture:** local composable server `test-servers/configs/oauth-step-up-demo.json` (`echo` unscoped, `get_temp` requires `weather:read`). Catalog scope **`mcp tools:read` only** (omit `weather:read`) so `get_temp` triggers step-up.
+
+### Required vs optional
+
+Run **required** smokes before release or after any auth UX change. **Optional** smokes extend coverage; run when time allows or when touching the listed area.
+
+| ID | Client | When | Required? |
+| -- | ------ | ---- | --------- |
+| **W1** | Web | Step-up modal + OAuth resume | **Yes** |
+| W2–W4 | Web | Connect-time, silent refresh, multi-tab | Optional |
+| **W5–W11** | Web | P0/P1/P2 code-review UX (below) | **Recommended** after auth recovery changes |
+| **T1, T2, T4** | TUI | Connect, step-up, clear OAuth | **Yes** |
+| T3, T5–T6 | TUI | Modal path, tab/server selection | Optional |
+| **C1, C2** | CLI | Connect + step-up **y/N** | **Yes** |
+| C3 | CLI | Built launcher subprocess | Optional |
+
+**Minimum release gate:** **W1** + **W5–W7** (web), **T1–T2** + **T4** (TUI), **C1–C2** (CLI).
+
+### What CI covers vs what you verify manually
+
+| Capability | Web | TUI | CLI | Automated in CI? |
+| ---------- | --- | --- | --- | ---------------- |
+| Core `handleAuthChallenge()` / token exchange | Remote transport | Direct transport | Direct (`cliOAuth.ts`) | Yes — `inspectorClient-oauth-*-mid-session-e2e.test.ts`, `oauth-interactive.test.ts` |
+| Silent mid-session refresh (valid refresh token) | Yes | Yes (reconnect) | N/A (one-shot) | Yes — remote e2e |
+| Connect-time 401 → interactive OAuth | Yes | Yes | Yes | Partial — core/CLI integration; **not** full UI/binary |
+| Step-up confirm before second OAuth | Modal | Auth tab **A** / **C** | stderr **y/N** | Partial — unit/modal tests; **not** real browser + Ink/terminal |
+| OAuth resume after full-page redirect | Yes (`6274`) | N/A (loopback) | N/A (loopback) | Partial — `oauthResume` unit tests; **not** browser tab restore |
+| Tab + form restore after step-up | Yes | N/A | N/A | **Manual only** |
+| Network log survives redirect | Yes | N/A | N/A | **Manual only** |
+| Multi–browser-tab defer (background tab) | Yes | N/A | N/A | **Manual only** |
+| Tool / prompt / resource modal → auth recovery | Yes | Yes | CLI one-shot RPC only | Partial — component unit tests |
+| Loopback callback server (`6276`) | N/A | Yes | Yes | Partial — integration tests auto-complete authorize URL |
+| Step-up **decline** (stay connected / exit cleanly) | Modal Cancel | Auth **C** | **N** | **Manual only** |
+| ReAuthBanner reconnect without disconnect | Yes | N/A | N/A | **Manual only** (W7) |
+| Abandoned step-up / reauth snapshot → banner | Yes | N/A | N/A | **Manual only** (W6) |
+| Step-up pre-redirect toast | Yes | N/A | N/A | **Manual only** (W5) |
+| Background-tab defer + resume on visibility | Yes | N/A | N/A | **Manual only** (W8) |
+| Concurrent step-up → warning toast | Yes | TUI overwrite message | N/A | **Manual only** (W9 / T5) |
+| Partial consent after step-up → warning toast | Yes | Yes | Yes (stderr message) | Partial — unit copy only (W10) |
+| Prompt / resource / app command-scoped recovery | Yes | Yes | N/A (tools only in CLI) | Partial — no full UI e2e (W11) |
+| Built launcher → CLI binary subprocess | N/A | N/A | Yes | `scripts/smoke-cli.mjs` — **no OAuth** |
+
+Run this section when touching mid-session auth UX. CI proves protocol/core paths; **you** prove each client’s interactive UX with a real browser (and terminal for CLI **y/N**).
+
+### Shared setup
+
+1. **Composable OAuth server** (terminal A):
+   ```bash
+   cd clients/web && npm run test-servers:build
+   node ../../test-servers/build/server-composable.js \
+     --config ../../test-servers/configs/oauth-step-up-demo.json
+   ```
+   Confirm stderr: `Composable server listening at http://127.0.0.1:8081/mcp`.
+
+2. **Catalog entry** — add to `~/.mcp-inspector/mcp.json` (all three clients):
+   ```json
+   "oauth-step-up-demo": {
+     "type": "streamable-http",
+     "url": "http://127.0.0.1:8081/mcp",
+     "oauth": { "scopes": "mcp tools:read" }
+   }
+   ```
+
+3. **Clean OAuth state** before each client’s run:
+   - **Web:** Server Settings → OAuth → **Clear stored OAuth state** (or Connection Info → **Clear and disconnect**)
+   - **TUI / CLI:** Auth tab → **S** (TUI), or remove the server key from `~/.mcp-inspector/storage/oauth.json` / use a fresh `HOME` (CLI)
+
+4. **Ports:** composable server **8081**; web callback **6274**; TUI/CLI callback **6276** (only one TUI/CLI listener at a time).
+
+---
+
+### Web — manual validation
+
+**Start web** (terminal B): `npm run web:dev -- --catalog configs/mcp.json` (or your `mcp.json` with the entry above).
+
+#### W1 — Step-up modal + OAuth resume (**required**)
+
+Primary path; CI does **not** exercise modal UX or post-redirect tab restore.
+
+1. Connect to **oauth-step-up-demo** → browser OAuth → **connected**.
+2. **Tools** → **echo** → **Run** → success.
+3. **Tools** → **get_temp** (city `NYC`, units `C`) → **Run**.
+4. **Expect:** **“Additional permissions required”** modal (scopes include `weather:read`); **no** immediate redirect.
+5. **Cancel** → modal closes, error shown, still **connected** → **echo** still works.
+6. **Run get_temp** again → **Authorize** → redirect to AS on `:8081` → approve → `http://localhost:6274/oauth/callback` → return to app.
+7. **Expect:** **Tools** tab, **get_temp** form restored, toast **“Step-up authorization succeeded. Retry your action.”**, network log from pre-redirect still visible.
+8. **Run get_temp** → temperature result.
+
+#### W2 — Connect-time OAuth with no prior session (optional)
+
+1. Clear OAuth state, disconnect.
+2. Connect → full-page OAuth → callback → toast **“Authentication succeeded. Retry your action.”**
+
+#### W3 — Silent mid-session refresh (optional)
+
+1. Connect, run **echo** successfully.
+2. Invalidate access token only (devtools → `sessionStorage` → `mcp-inspector-oauth`), keep refresh token.
+3. **Run echo** again → success **without** leaving the page.
+
+> CI: `inspectorClient-oauth-remote-mid-session-e2e.test.ts`. Skip W3 if W1 passed and time is short.
+
+#### W4 — Multi–browser-tab defer (optional, manual only)
+
+1. Tab A: connect, start step-up on **get_temp**, **do not** click Authorize yet.
+2. Tab B: same server, run **echo** → should **not** redirect Tab B to OAuth while Tab A’s modal is open.
+3. Tab A: **Authorize** → complete flow.
+
+#### W5 — Step-up pre-redirect toast (**recommended**, MR-219)
+
+1. Complete W1 steps 1–3 to open the step-up modal.
+2. Click **Authorize**.
+3. **Expect:** blue toast **“Step-up authorization for …”** / **“Redirecting to authorize additional permissions…”** appears **before** the browser leaves the page.
+4. Complete OAuth → W1 steps 7–8.
+
+#### W6 — Abandoned step-up → re-auth banner (**recommended**, MR-111)
+
+1. Complete W1 steps 1–3; click **Authorize** and reach the AS consent page on `:8081`.
+2. **Do not** approve — navigate back to `http://localhost:6274/` (or close the OAuth tab and open the inspector URL without callback query params).
+3. **Expect:** persistent red **Re-authentication required** banner mentioning step-up was not completed.
+4. Dismiss or use **Re-authenticate** (see W7).
+
+#### W7 — ReAuthBanner reconnect without disconnect (**recommended**, MR-218)
+
+**Prerequisite:** connected session + re-auth banner visible (from W6, OAuth callback error, or invalidate tokens and trigger a `token_expired` / `unauthorized` recovery that shows the banner — not an `insufficient_scope` toast).
+
+1. Confirm Connection toggle still shows **connected** (session not torn down).
+2. Click banner **Re-authenticate**.
+3. **Expect:** **no** disconnect/reconnect cycle; browser OAuth opens (or silent restore if tokens still valid).
+4. After successful OAuth, banner clears; **echo** still works without manual reconnect.
+
+#### W8 — Background-tab defer + resume (**recommended**, MR-104)
+
+1. Connect; open step-up modal on **get_temp** (W1 steps 1–3) but **do not** click Authorize yet.
+2. Switch away from the inspector tab (another browser tab or app) so the page is **hidden** (`document.visibilityState === "hidden"` — DevTools → **Rendering** → *Emulate page visibility hidden* also works).
+3. Return to the inspector tab (or disable emulation).
+4. **Expect:** deferred recovery runs — step-up modal or OAuth flow resumes without losing the connected session.
+5. Complete step-up; run **get_temp** successfully.
+
+#### W9 — Concurrent step-up blocked (**recommended**, MR-110)
+
+1. Connect; open step-up modal on **get_temp**; leave it open.
+2. Trigger a second step-up need (e.g. open step-up again via a second **Run** on **get_temp**, or a second scoped action if the fixture supports it).
+3. **Expect:** yellow toast **“Step-up authorization in progress…”**; first modal remains; no second redirect.
+
+#### W10 — Partial consent after step-up (**optional**)
+
+1. Complete step-up **Authorize** flow but on the AS consent screen **deny** or omit `weather:read` if the AS offers granular scopes.
+2. **Expect:** return to app with **warning** toast about permissions not granted — **not** the green **“Step-up authorization succeeded…”** toast.
+3. **Run get_temp** again → step-up modal reappears.
+
+#### W11 — Prompt / resource / app recovery (**optional**, MR-003)
+
+The default `oauth-step-up-demo.json` fixture is **tools-only**. To smoke command-scoped recovery on other surfaces, temporarily add a scoped prompt or resource to the composable config (see [v2_auth_mid_session.md § Test infrastructure](v2_auth_mid_session.md#test-infrastructure)) and restart the server.
+
+1. Connect with `mcp tools:read` only.
+2. **Prompts** → run a scoped **Get** (or **Resources** → **Read**, or **Apps** → open) that returns `403 insufficient_scope`.
+3. **Expect:** same step-up modal / redirect / resume behavior as W1 — not an unhandled error. Cancel should only affect that panel’s in-flight state (MR-106).
+
+---
+
+### TUI — manual validation
+
+**Start TUI:** `mcp-inspector --tui --catalog ~/.mcp-inspector/mcp.json` (or `--config`). No web dev required.
+
+#### T1 — Connect-time OAuth on 401 (**required**)
+
+CI does **not** run Ink + real browser callback.
+
+1. Clear OAuth state (**Auth** tab → **S**, or fresh `oauth.json`).
+2. Select **oauth-step-up-demo** → **Connect** (`c`).
+3. **Expect:** Auth tab shows authenticating; terminal/OS opens authorize URL (or log shows URL); browser completes redirect to `http://127.0.0.1:6276/oauth/callback`.
+4. **Expect:** connected; **Tools** tab lists **echo** and **get_temp**.
+
+#### T2 — Step-up confirm on Auth tab (**required**)
+
+Requires connected session with **`mcp tools:read` only**. If connect already granted `weather:read`, clear state and retry, or skip to T3 only if `get_temp` succeeds without step-up.
+
+1. **Tools** tab → **get_temp** → run with city/units.
+2. **Expect:** focus moves to **Auth** tab; message that extra scopes are needed; prompts **A** (authorize) / **C** (cancel).
+3. Press **C** → message “Authorization cancelled.” → still connected → **echo** still works.
+4. Run **get_temp** again → press **A** → browser OAuth → callback on **6276**.
+5. **Expect:** Auth message **“Step-up authorization succeeded. Retry your action.”**
+6. Run **get_temp** again → success.
+
+#### T3 — Tool test modal auth recovery (optional)
+
+1. From **Tools**, open test modal for **get_temp**, trigger step-up as in T2.
+2. **Expect:** same Auth tab step-up flow (not a separate modal).
+
+#### T4 — Clear OAuth state (**required**, quick)
+
+1. While connected, **Auth** tab → **S**.
+2. **Expect:** tokens cleared, disconnected if was connected.
+
+#### T5 — Step-up while on another tab (**optional**, MR-004)
+
+1. Connect (T1); stay on **Tools** tab (not Auth).
+2. Run **get_temp** → step-up needed.
+3. **Expect:** focus moves to **Auth** tab; **oauth-step-up-demo** remains selected; step-up prompt visible (T2 step 2).
+
+#### T6 — Concurrent step-up overwrite message (**optional**, MR-110)
+
+1. Connect; open step-up prompt on Auth tab (T2 step 2); leave it open.
+2. Trigger another step-up (run **get_temp** again).
+3. **Expect:** Auth tab message about an existing step-up prompt; no silent loss of the first prompt.
+
+> CI: `inspectorClient-oauth-direct-mid-session-e2e.test.ts` (core client, no Ink). TUI component tests: `App.test.tsx`, `tuiOAuth.test.ts`.
+
+---
+
+### CLI — manual validation
+
+Uses loopback callback **`http://127.0.0.1:6276/oauth/callback`** (override with `--callback-url`). **Do not** run TUI and CLI OAuth smokes simultaneously on 6276.
+
+#### C1 — Connect-time OAuth + `tools/list` (**required**)
+
+CI auto-completes authorize URL; **you** use a real browser.
+
+1. Shared setup steps 1–3 (web dev **not** required).
+2. ```bash
+   mcp-inspector --cli --catalog ~/.mcp-inspector/mcp.json --server oauth-step-up-demo \
+     --method tools/list
+   ```
+3. **Expect stdout:** `Please navigate to: http://127.0.0.1:8081/oauth/authorize?...`
+4. Open URL → approve → redirect to **6276** → “OAuth complete”.
+5. **Expect stderr:** `Authorization complete.`
+6. **Expect stdout:** JSON with `echo` and `get_temp`.
+
+#### C2 — Step-up **y/N** + `tools/call get_temp` (**required**)
+
+Session from C1 must have **`mcp tools:read` only**. If step-up does not prompt, clear OAuth state and retry C1.
+
+1. ```bash
+   mcp-inspector --cli --catalog ~/.mcp-inspector/mcp.json --server oauth-step-up-demo \
+     --method tools/call --tool-name get_temp --tool-arg city=NYC --tool-arg 'units="C"'
+   ```
+2. **Expect stderr:** scope message + `Proceed with step-up authorization? [y/N]`.
+3. Type **`n`** → exit ≠ 0, “Step-up authorization declined.”
+4. Re-run; type **`y`** → authorize URL on stdout → browser → **6276** callback.
+5. **Expect stderr:** `Authorization complete. Retrying…` then stdout JSON with temperature.
+
+#### C3 — Subprocess binary path (optional)
+
+`scripts/smoke-cli.mjs` (`npm run smoke:cli`) exercises the **built launcher + binary** for catalog/config/`tools/list` — **not** OAuth. Optional sanity check after CLI auth changes; C1/C2 remain the OAuth manual gate.
+
+> CI: `clients/cli/__tests__/oauth-interactive.test.ts`, `cliOAuth.test.ts` (in-process `cliOAuth.ts`, not subprocess).
+
+---
+
+### Manual sign-off checklist
+
+| # | Check | Web | TUI | CLI |
+| - | ----- | --- | --- | --- |
+| 1 | Connect-time OAuth with empty storage | W1 prep / W2 | T1 | C1 |
+| 2 | Unscoped tool works after connect | W1 step 2 | T1 | C1 output |
+| 3 | Step-up prompt before second OAuth | W1 step 4 | T2 step 2 | C2 step 2 |
+| 4 | Decline step-up, stay usable | W1 step 5 | T2 step 3 | C2 step 3 |
+| 5 | Accept step-up + complete browser OAuth | W1 step 6–8 | T2 step 4–6 | C2 step 4–5 |
+| 6 | Clear OAuth state | Settings | T4 | delete `oauth.json` / fresh HOME |
+| 7 | Step-up pre-redirect toast | W5 | — | — |
+| 8 | Abandoned step-up → banner | W6 | — | — |
+| 9 | ReAuthBanner reconnect (no disconnect) | W7 | — | — |
+| 10 | Background-tab defer + resume | W8 | — | — |
+| 11 | Concurrent step-up warning | W9 | T6 | — |
+| 12 | Partial consent warning toast | W10 | T2 (if AS allows) | C2 (if AS allows) |
+| 13 | Prompt / resource / app recovery | W11 | T3 | — |
+
+### Troubleshooting
+
+| Symptom | Likely cause |
+| ------- | ------------- |
+| Redirect with no modal / no step-up prompt | Scopes already include `weather:read`; clear OAuth state and ensure catalog has `"scopes": "mcp tools:read"` only |
+| Web callback “could not be matched” | Missing `mcp-inspector:oauth-resume` in `sessionStorage` — use modal **Authorize**, not manual URL |
+| TUI/CLI `EADDRINUSE` on 6276 | Another TUI/CLI (or stale process) holds callback port |
+| CLI step-up never prompts | Connect-time recovery unioned scopes — clear tokens and retry C1 |
+| `get_temp` fails after web step-up without re-run | Expected — click **Run** again (no auto-replay after full-page OAuth) |
+| ReAuthBanner **Re-authenticate** disconnects session | Should **not** happen when already connected — see W7 |
+| Step-up shows toast instead of modal | `insufficient_scope` recovery failures use a toast, not ReAuthBanner (MR-206) |
+| No pre-redirect toast on step-up Authorize | See W5 — blue toast expected before redirect (MR-219) |
+| Port conflict on 8081 | Change `transport.port` in config and catalog URL |
+
+---
+
 ## What to verify (all smokes)
 
 | Check | Where |
@@ -549,14 +840,17 @@ Register **`http://127.0.0.1:6276/oauth/callback`** on the xaa.dev IdP before le
 | Static | GitHub MCP + your OAuth App | `test-static-client` / `test-static-secret` on TestServerHttp |
 | CIMD | **Stytch demo MCP** (`stytch-as-demo.val.run`) + [MCPJam metadata URL](#cimd-credentials-for-smoke-mcpjam) (or local composable) | `createClientMetadataServer()` in e2e |
 | EMA | xaa.dev staging | `inspectorClient-ema-e2e.test.ts` + mocks |
+| Mid-session / step-up (web remote) | §5 **W1** + **W5–W7** (required gate); W2–W4, W8–W11 optional | `inspectorClient-oauth-remote-mid-session-e2e.test.ts`; web unit (`oauthResume`, `StepUpAuthModal`) |
+| Mid-session / step-up (TUI direct) | §5 **T1–T2, T4** (required); T3, T5–T6 optional | `inspectorClient-oauth-direct-mid-session-e2e.test.ts` (core); `App.test.tsx`, `tuiOAuth.test.ts` (no Ink+browser) |
+| Mid-session / step-up (CLI direct) | §5 **C1–C2** (required) | `clients/cli/__tests__/oauth-interactive.test.ts`, `cliOAuth.test.ts` (in-process; not subprocess) |
 
 ## Known gaps (Inspector)
 
-See **[Mid-session authorization](v2_auth_mid_session.md)** for the design to address mid-session 401, token refresh, and step-up scope challenges (including web remote reconnect).
+**Mid-session auth** is implemented for web (remote transport), TUI, and CLI — see [Mid-session authorization](v2_auth_mid_session.md). **Remaining:** shared `RemoteOAuthStorage` on web, optional idle SSE E2E, v2 SDK transport upgrade for direct silent retry.
 
 See **[Auth hardening (MCP 2026-07-28)](v2_auth_hardening.md)** for connect-time OAuth hardening (SEP-2468, SEP-837, SEP-2352, SEP-2207, SEP-2350, SEP-2351) and the v2 SDK upgrade strategy.
 
-- **CLI interactive OAuth:** no local callback server yet — reuse tokens from web/TUI or complete auth in TUI first; CLI prints authorize URLs to stdout when a new login is required.
+- **Mid-session auth:** see [§5 manual validation](v2_auth_smoke_testing.md#5-mid-session-auth--step-up--manual-validation) — CI covers core protocol; **W1 + W5–W7 / T1–T2 + T4 / C1–C2** are the required manual gate per client; **W8–W11, T3, T5–T6, C3** extend P0/P1/P2 UX coverage.
 - **Client credentials grant:** not implemented ([#1225](https://github.com/modelcontextprotocol/inspector/issues/1225)).
 
 ## References

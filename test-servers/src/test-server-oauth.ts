@@ -11,6 +11,11 @@ import express from "express";
 import type { ServerConfig } from "./composable-test-server.js";
 import { ExternalAccessTokenValidator } from "./test-server-oauth-jwt.js";
 
+type OAuthRequest = Request & {
+  oauthToken?: string;
+  oauthTokenScopes?: string[];
+};
+
 /**
  * OAuth configuration from ServerConfig
  */
@@ -87,14 +92,21 @@ export function createBearerTokenMiddleware(
     const token = authHeader.substring(7); // Remove "Bearer " prefix
 
     let valid = false;
+    let grantedScopes: string[] = [];
     if (mode === "protected-resource") {
       try {
-        valid = await externalValidator!.validateAccessToken(token);
+        const validated =
+          await externalValidator!.validateAccessTokenWithScopes(token);
+        valid = validated.valid;
+        grantedScopes = validated.scopes;
       } catch {
         valid = false;
       }
     } else {
       valid = isValidToken(token);
+      if (valid) {
+        grantedScopes = getAccessTokenScopes(token);
+      }
     }
 
     if (!valid) {
@@ -115,7 +127,9 @@ export function createBearerTokenMiddleware(
     }
 
     // Attach token info to request for use in handlers
-    (req as Request & { oauthToken?: string }).oauthToken = token;
+    const oauthReq = req as OAuthRequest;
+    oauthReq.oauthToken = token;
+    oauthReq.oauthTokenScopes = grantedScopes;
     next();
   };
 }
@@ -190,86 +204,218 @@ function setupMetadataEndpoints(
 }
 
 /**
- * Set up OAuth authorization endpoint
- * For test servers, this auto-approves requests and redirects with authorization code
+ * Set up OAuth authorization endpoint.
+ * Shows a simple consent page so users know they reached the test authorization server.
  */
 function setupAuthorizationEndpoint(
   app: express.Application,
   config: OAuthConfig,
 ): void {
   app.get("/oauth/authorize", async (req: Request, res: Response) => {
-    const {
-      client_id,
-      redirect_uri,
-      response_type,
-      scope,
-      state,
-      code_challenge,
-      code_challenge_method,
-    } = req.query;
+    const parsed = await parseAuthorizationRequest(req.query, config);
+    if (!parsed.ok) {
+      res.status(parsed.status).json(parsed.body);
+      return;
+    }
 
-    // Validate required parameters
-    if (!client_id || !redirect_uri || !response_type) {
-      res.status(400).json({
+    res.type("html").send(renderOAuthConsentPage(parsed.value));
+  });
+
+  app.post(
+    "/oauth/authorize",
+    express.urlencoded({ extended: true }),
+    async (req: Request, res: Response) => {
+      const parsed = await parseAuthorizationRequest(req.body, config);
+      if (!parsed.ok) {
+        res.status(parsed.status).json(parsed.body);
+        return;
+      }
+
+      completeAuthorizationRedirect(res, parsed.value);
+    },
+  );
+}
+
+interface AuthorizationRequestParams {
+  clientId: string;
+  redirectUri: string;
+  responseType: string;
+  scope?: string;
+  state?: string;
+  codeChallenge?: string;
+  codeChallengeMethod?: string;
+}
+
+type AuthorizationRequestResult =
+  | { ok: true; value: AuthorizationRequestParams }
+  | { ok: false; status: number; body: Record<string, unknown> };
+
+async function parseAuthorizationRequest(
+  input: Record<string, unknown>,
+  config: OAuthConfig,
+): Promise<AuthorizationRequestResult> {
+  const client_id = input.client_id;
+  const redirect_uri = input.redirect_uri;
+  const response_type = input.response_type;
+  const scope = input.scope;
+  const state = input.state;
+  const code_challenge = input.code_challenge;
+  const code_challenge_method = input.code_challenge_method;
+
+  if (
+    typeof client_id !== "string" ||
+    typeof redirect_uri !== "string" ||
+    typeof response_type !== "string"
+  ) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
         error: "invalid_request",
         error_description: "Missing required parameters",
-      });
-      return;
-    }
+      },
+    };
+  }
 
-    if (response_type !== "code") {
-      res.status(400).json({ error: "unsupported_response_type" });
-      return;
-    }
+  if (response_type !== "code") {
+    return { ok: false, status: 400, body: { error: "unsupported_response_type" } };
+  }
 
-    // Validate client (check static clients, DCR, or CIMD)
-    const client = await findClient(client_id as string, config);
-    if (!client) {
-      res.status(400).json({ error: "invalid_client" });
-      return;
-    }
+  const client = await findClient(client_id, config);
+  if (!client) {
+    return { ok: false, status: 400, body: { error: "invalid_client" } };
+  }
 
-    // Validate redirect_uri
-    if (
-      client.redirectUris &&
-      !client.redirectUris.includes(redirect_uri as string)
-    ) {
-      res.status(400).json({
+  if (
+    client.redirectUris &&
+    !client.redirectUris.includes(redirect_uri)
+  ) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
         error: "invalid_request",
         error_description: "Invalid redirect_uri",
-      });
-      return;
-    }
+      },
+    };
+  }
 
-    // Validate PKCE
-    if (code_challenge_method && code_challenge_method !== "S256") {
-      res.status(400).json({
+  if (
+    typeof code_challenge_method === "string" &&
+    code_challenge_method !== "S256"
+  ) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
         error: "invalid_request",
         error_description: "Unsupported code_challenge_method",
-      });
-      return;
-    }
+      },
+    };
+  }
 
-    // For test servers, auto-approve and generate authorization code
-    const authCode = generateAuthorizationCode();
+  return {
+    ok: true,
+    value: {
+      clientId: client_id,
+      redirectUri: redirect_uri,
+      responseType: response_type,
+      ...(typeof scope === "string" ? { scope } : {}),
+      ...(typeof state === "string" ? { state } : {}),
+      ...(typeof code_challenge === "string"
+        ? { codeChallenge: code_challenge }
+        : {}),
+      ...(typeof code_challenge_method === "string"
+        ? { codeChallengeMethod: code_challenge_method }
+        : {}),
+    },
+  };
+}
 
-    // Store authorization code temporarily (in production, use proper storage)
-    storeAuthorizationCode(authCode, {
-      clientId: client_id as string,
-      redirectUri: redirect_uri as string,
-      codeChallenge: code_challenge as string | undefined,
-      scope: scope as string | undefined,
-    });
-
-    // Redirect with authorization code
-    const redirectUrl = new URL(redirect_uri as string);
-    redirectUrl.searchParams.set("code", authCode);
-    if (state) {
-      redirectUrl.searchParams.set("state", state as string);
-    }
-
-    res.redirect(redirectUrl.href);
+function completeAuthorizationRedirect(
+  res: Response,
+  params: AuthorizationRequestParams,
+): void {
+  const authCode = generateAuthorizationCode();
+  storeAuthorizationCode(authCode, {
+    clientId: params.clientId,
+    redirectUri: params.redirectUri,
+    codeChallenge: params.codeChallenge,
+    scope: params.scope,
   });
+
+  const redirectUrl = new URL(params.redirectUri);
+  redirectUrl.searchParams.set("code", authCode);
+  if (params.state) {
+    redirectUrl.searchParams.set("state", params.state);
+  }
+  res.redirect(redirectUrl.href);
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderOAuthConsentPage(params: AuthorizationRequestParams): string {
+  const scopeList = parseScopeString(params.scope);
+  const scopeItems =
+    scopeList.length > 0
+      ? scopeList
+          .map((scope) => `<li><code>${escapeHtml(scope)}</code></li>`)
+          .join("")
+      : "<li><em>No scopes requested</em></li>";
+
+  const hiddenFields = [
+    ["client_id", params.clientId],
+    ["redirect_uri", params.redirectUri],
+    ["response_type", params.responseType],
+    ...(params.scope ? [["scope", params.scope] as const] : []),
+    ...(params.state ? [["state", params.state] as const] : []),
+    ...(params.codeChallenge
+      ? [["code_challenge", params.codeChallenge] as const]
+      : []),
+    ...(params.codeChallengeMethod
+      ? [["code_challenge_method", params.codeChallengeMethod] as const]
+      : []),
+  ]
+    .map(
+      ([name, value]) =>
+        `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}" />`,
+    )
+    .join("\n");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Authorize — MCP test server</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 32rem; line-height: 1.5; }
+    h1 { font-size: 1.25rem; }
+    code { background: #f4f4f5; padding: 0.1rem 0.25rem; border-radius: 0.25rem; }
+    ul { padding-left: 1.25rem; }
+    button { font: inherit; padding: 0.5rem 1rem; margin-right: 0.5rem; cursor: pointer; }
+    .primary { background: #228be6; color: white; border: 1px solid #1c7ed6; border-radius: 0.25rem; }
+    .muted { color: #666; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>Authorize MCP Inspector</h1>
+  <p class="muted">You were redirected to the <strong>local composable test authorization server</strong>.</p>
+  <p>Client: <code>${escapeHtml(params.clientId)}</code></p>
+  <p>Requested scopes:</p>
+  <ul>${scopeItems}</ul>
+  <form method="post" action="/oauth/authorize">
+    ${hiddenFields}
+    <button type="submit" class="primary">Authorize</button>
+  </form>
+</body>
+</html>`;
 }
 
 /**
@@ -382,7 +528,9 @@ function setupTokenEndpoint(
         }
 
         // Generate access token
-        const accessToken = generateAccessToken();
+        const tokenScope =
+          authCodeData.scope || config.scopesSupported?.[0] || "mcp";
+        const accessToken = generateAccessToken(tokenScope);
         const tokenExpiration = config.tokenExpirationSeconds || 3600;
 
         const response: {
@@ -395,7 +543,7 @@ function setupTokenEndpoint(
           access_token: accessToken,
           token_type: "Bearer",
           expires_in: tokenExpiration,
-          scope: authCodeData.scope || config.scopesSupported?.[0] || "mcp",
+          scope: tokenScope,
         };
 
         // Add refresh token if supported
@@ -422,14 +570,16 @@ function setupTokenEndpoint(
           return;
         }
 
-        const accessToken = generateAccessToken();
+        const tokenScope =
+          refreshTokenData.scope || config.scopesSupported?.[0] || "mcp";
+        const accessToken = generateAccessToken(tokenScope);
         const tokenExpiration = config.tokenExpirationSeconds || 3600;
 
         res.json({
           access_token: accessToken,
           token_type: "Bearer",
           expires_in: tokenExpiration,
-          scope: refreshTokenData.scope || config.scopesSupported?.[0] || "mcp",
+          scope: tokenScope,
         });
       } else {
         res.status(400).json({ error: "unsupported_grant_type" });
@@ -501,6 +651,8 @@ interface RegisteredClient {
 
 const authorizationCodes = new Map<string, AuthorizationCodeData>();
 const accessTokens = new Set<string>();
+/** Granted OAuth scope string per access token (space-separated). */
+const accessTokenScopes = new Map<string, string>();
 const refreshTokens = new Map<string, RefreshTokenData>();
 const registeredClients = new Map<string, RegisteredClient>();
 
@@ -627,9 +779,10 @@ function getAuthorizationCode(code: string): AuthorizationCodeData | null {
   return data;
 }
 
-function generateAccessToken(): string {
+function generateAccessToken(scope?: string): string {
   const token = `test_access_token_${Date.now()}_${Math.random().toString(36).substring(7)}`;
   accessTokens.add(token);
+  accessTokenScopes.set(token, scope?.trim() || "mcp");
   return token;
 }
 
@@ -663,12 +816,169 @@ function isValidToken(token: string): boolean {
   return accessTokens.has(token);
 }
 
+function parseScopeString(scope: string | undefined): string[] {
+  if (!scope?.trim()) {
+    return [];
+  }
+  return scope.trim().split(/\s+/).filter(Boolean);
+}
+
+/** Test helper: mint an access token with the given granted scopes. */
+export function mintTestAccessToken(scope: string): string {
+  return generateAccessToken(scope);
+}
+
+/** Granted scopes for a test-server access token (empty when unknown). */
+export function getAccessTokenScopes(token: string): string[] {
+  return parseScopeString(accessTokenScopes.get(token));
+}
+
+export interface ScopeRequirementRegistry {
+  tools: Map<string, string[]>;
+  resources: Map<string, string[]>;
+  prompts: Map<string, string[]>;
+}
+
+/** Build lookup tables from merged ServerConfig capability definitions. */
+export function buildScopeRequirementRegistry(
+  config: ServerConfig,
+): ScopeRequirementRegistry {
+  const registry: ScopeRequirementRegistry = {
+    tools: new Map(),
+    resources: new Map(),
+    prompts: new Map(),
+  };
+
+  for (const tool of config.tools ?? []) {
+    if (tool.requiredScopes?.length) {
+      registry.tools.set(tool.name, tool.requiredScopes);
+    }
+  }
+  for (const resource of config.resources ?? []) {
+    if (resource.requiredScopes?.length) {
+      registry.resources.set(resource.uri, resource.requiredScopes);
+    }
+  }
+  for (const prompt of config.prompts ?? []) {
+    if (prompt.requiredScopes?.length) {
+      registry.prompts.set(prompt.name, prompt.requiredScopes);
+    }
+  }
+
+  return registry;
+}
+
+export function scopeRequirementRegistryHasEntries(
+  registry: ScopeRequirementRegistry,
+): boolean {
+  return (
+    registry.tools.size > 0 ||
+    registry.resources.size > 0 ||
+    registry.prompts.size > 0
+  );
+}
+
+function parseMcpOperation(body: unknown): {
+  method?: string;
+  target?: string;
+} {
+  if (!body || typeof body !== "object") {
+    return {};
+  }
+  const rpc = body as Record<string, unknown>;
+  const method = typeof rpc.method === "string" ? rpc.method : undefined;
+  const params =
+    rpc.params && typeof rpc.params === "object"
+      ? (rpc.params as Record<string, unknown>)
+      : undefined;
+
+  if (method === "tools/call" && typeof params?.name === "string") {
+    return { method, target: params.name };
+  }
+  if (method === "resources/read" && typeof params?.uri === "string") {
+    return { method, target: params.uri };
+  }
+  if (method === "prompts/get" && typeof params?.name === "string") {
+    return { method, target: params.name };
+  }
+
+  return { method };
+}
+
+function tokenHasRequiredScopes(
+  granted: string[],
+  required: string[],
+): boolean {
+  const grantedSet = new Set(granted);
+  return required.every((scope) => grantedSet.has(scope));
+}
+
+/**
+ * Enforce per-capability OAuth scopes after bearer validation.
+ * Returns 403 + insufficient_scope when the token is valid but lacks scope.
+ */
+export function createScopeCheckMiddleware(
+  registry: ScopeRequirementRegistry,
+): express.RequestHandler {
+  return (req: Request, res: Response, next: express.NextFunction) => {
+    const oauthReq = req as OAuthRequest;
+    const token = oauthReq.oauthToken;
+    if (!token) {
+      return next();
+    }
+
+    const { method, target } = parseMcpOperation(req.body);
+    if (!method || !target) {
+      return next();
+    }
+
+    let requiredScopes: string[] | undefined;
+    if (method === "tools/call") {
+      requiredScopes = registry.tools.get(target);
+    } else if (method === "resources/read") {
+      requiredScopes = registry.resources.get(target);
+    } else if (method === "prompts/get") {
+      requiredScopes = registry.prompts.get(target);
+    }
+
+    if (!requiredScopes?.length) {
+      return next();
+    }
+
+    const granted =
+      oauthReq.oauthTokenScopes ?? getAccessTokenScopes(token);
+    if (tokenHasRequiredScopes(granted, requiredScopes)) {
+      return next();
+    }
+
+    const grantedSet = new Set(granted);
+    const missingScopes = requiredScopes.filter((scope) => !grantedSet.has(scope));
+    const scopeHeader = missingScopes.join(" ") || requiredScopes.join(" ");
+    res.status(403);
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader(
+      "WWW-Authenticate",
+      `Bearer error="insufficient_scope", scope="${scopeHeader}"`,
+    );
+    res.json({
+      jsonrpc: "2.0",
+      error: {
+        code: -32603,
+        message: `Forbidden: insufficient scope (403). Required: ${scopeHeader}`,
+      },
+      id: null,
+    });
+    return;
+  };
+}
+
 /**
  * Clear all OAuth test data (useful for test cleanup)
  */
 export function clearOAuthTestData(): void {
   authorizationCodes.clear();
   accessTokens.clear();
+  accessTokenScopes.clear();
   refreshTokens.clear();
   registeredClients.clear();
   dcrRequests.length = 0;
@@ -689,4 +999,5 @@ export function getDCRRequests(): Array<{ redirect_uris: string[] }> {
  */
 export function invalidateAccessToken(token: string): void {
   accessTokens.delete(token);
+  accessTokenScopes.delete(token);
 }

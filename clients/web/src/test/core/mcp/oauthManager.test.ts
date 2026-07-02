@@ -14,19 +14,16 @@ import {
   emaClientNotConfiguredMessage,
 } from "@inspector/core/auth/ema/clientConfigError.js";
 import * as emaFlow from "@inspector/core/auth/ema/emaFlow.js";
-import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import { mcpAuth } from "@inspector/core/auth/mcpAuth.js";
 
-// Mock the SDK auth() entry point so quick-flow paths don't hit the network.
-// Other named exports of the module are left intact for code that uses them.
-vi.mock("@modelcontextprotocol/sdk/client/auth.js", async (importOriginal) => {
+// Mock mcpAuth so OAuthManager tests do not hit the network.
+vi.mock("@inspector/core/auth/mcpAuth.js", async (importOriginal) => {
   const actual =
-    await importOriginal<
-      typeof import("@modelcontextprotocol/sdk/client/auth.js")
-    >();
-  return { ...actual, auth: vi.fn() };
+    await importOriginal<typeof import("@inspector/core/auth/mcpAuth.js")>();
+  return { ...actual, mcpAuth: vi.fn() };
 });
 
-const mockedAuth = vi.mocked(auth);
+const mockedMcpAuth = vi.mocked(mcpAuth);
 
 const SERVER_URL = "https://example.com/mcp";
 
@@ -100,7 +97,7 @@ function storageOf(params: OAuthManagerParams): MockStorage {
 
 describe("OAuthManager", () => {
   beforeEach(() => {
-    mockedAuth.mockReset();
+    mockedMcpAuth.mockReset();
   });
 
   describe("setOAuthConfig", () => {
@@ -398,7 +395,7 @@ describe("OAuthManager", () => {
       const capturedUrl = new URL(
         "https://auth.example.com/authorize?state=abc",
       );
-      mockedAuth.mockResolvedValue("REDIRECT");
+      mockedMcpAuth.mockResolvedValue("REDIRECT");
       const parseSpy = vi
         .spyOn(await import("@inspector/core/auth/utils.js"), "parseOAuthState")
         .mockReturnValue({
@@ -412,6 +409,7 @@ describe("OAuthManager", () => {
       const params = createMockParams({ onBeforeOAuthRedirect });
       // A configured scope exercises the saveScope branch in createOAuthProvider.
       params.initialConfig.scope = "read write";
+      storageOf(params).getScope.mockReturnValue(undefined);
       storageOf(params).getClientInformation.mockResolvedValue({
         client_id: "cid",
       });
@@ -442,8 +440,40 @@ describe("OAuthManager", () => {
       captureSpy.mockRestore();
     });
 
+    it("preserves stored scope instead of resetting to config scope", async () => {
+      const capturedUrl = new URL(
+        "https://auth.example.com/authorize?state=abc",
+      );
+      mockedMcpAuth.mockResolvedValue("REDIRECT");
+      const params = createMockParams();
+      params.initialConfig.scope = "mcp tools:read";
+      storageOf(params).getScope.mockReturnValue("mcp tools:read weather:read");
+      storageOf(params).getClientInformation.mockResolvedValue({
+        client_id: "cid",
+      });
+      const manager = new OAuthManager(params);
+      const captureSpy = vi
+        .spyOn(
+          (await import("@inspector/core/auth/providers.js"))
+            .BaseOAuthClientProvider.prototype,
+          "getCapturedAuthUrl",
+        )
+        .mockReturnValue(capturedUrl);
+
+      await manager.authenticate();
+
+      expect(storageOf(params).saveScope).not.toHaveBeenCalled();
+      expect(mockedMcpAuth).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          scope: "mcp tools:read weather:read",
+        }),
+      );
+      captureSpy.mockRestore();
+    });
+
     it("throws when auth() unexpectedly returns AUTHORIZED", async () => {
-      mockedAuth.mockResolvedValue("AUTHORIZED");
+      mockedMcpAuth.mockResolvedValue("AUTHORIZED");
       const manager = new OAuthManager(createMockParams());
       await expect(manager.authenticate()).rejects.toThrow(
         "Unexpected: auth() returned AUTHORIZED without authorization code",
@@ -451,7 +481,7 @@ describe("OAuthManager", () => {
     });
 
     it("throws when no authorization URL is captured", async () => {
-      mockedAuth.mockResolvedValue("REDIRECT");
+      mockedMcpAuth.mockResolvedValue("REDIRECT");
       const manager = new OAuthManager(createMockParams());
       // Default provider captures nothing (auth() is mocked and never redirects).
       await expect(manager.authenticate()).rejects.toThrow(
@@ -463,7 +493,7 @@ describe("OAuthManager", () => {
       const capturedUrl = new URL(
         "https://auth.example.com/authorize?state=zzz",
       );
-      mockedAuth.mockResolvedValue("REDIRECT");
+      mockedMcpAuth.mockResolvedValue("REDIRECT");
       const parseSpy = vi
         .spyOn(await import("@inspector/core/auth/utils.js"), "parseOAuthState")
         .mockReturnValue(null);
@@ -489,7 +519,7 @@ describe("OAuthManager", () => {
   describe("completeOAuthFlow (quick, standard)", () => {
     it("completes via the quick path and dispatches complete", async () => {
       const tokens = { access_token: "QT", token_type: "Bearer" };
-      mockedAuth.mockResolvedValue("AUTHORIZED");
+      mockedMcpAuth.mockResolvedValue("AUTHORIZED");
       const params = createMockParams();
       storageOf(params).getTokens.mockResolvedValue(tokens);
       storageOf(params).getClientInformation.mockResolvedValue({
@@ -505,7 +535,7 @@ describe("OAuthManager", () => {
 
     it("throws and dispatches error when auth() is not AUTHORIZED", async () => {
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      mockedAuth.mockResolvedValue("REDIRECT");
+      mockedMcpAuth.mockResolvedValue("REDIRECT");
       const params = createMockParams();
       const manager = new OAuthManager(params);
 
@@ -517,7 +547,7 @@ describe("OAuthManager", () => {
     });
 
     it("throws when tokens cannot be retrieved after authorization", async () => {
-      mockedAuth.mockResolvedValue("AUTHORIZED");
+      mockedMcpAuth.mockResolvedValue("AUTHORIZED");
       const params = createMockParams();
       storageOf(params).getTokens.mockResolvedValue(undefined);
       const manager = new OAuthManager(params);
@@ -526,6 +556,55 @@ describe("OAuthManager", () => {
         "Failed to retrieve tokens after authorization",
       );
       expect(params.dispatchOAuthError).toHaveBeenCalled();
+    });
+
+    it("clears pending step-up scope when completeOAuthFlow fails", async () => {
+      const capturedUrl = new URL(
+        "https://auth.example.com/authorize?state=step-up",
+      );
+      mockedMcpAuth
+        .mockResolvedValueOnce("REDIRECT")
+        .mockResolvedValueOnce("REDIRECT")
+        .mockResolvedValueOnce("AUTHORIZED");
+      const params = createMockParams();
+      storageOf(params).getScope.mockReturnValue("mcp");
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "access",
+        refresh_token: "refresh",
+        token_type: "Bearer",
+        scope: "mcp",
+      });
+      storageOf(params).getClientInformation.mockResolvedValue({
+        client_id: "cid",
+      });
+      const manager = new OAuthManager(params);
+      const captureSpy = vi
+        .spyOn(
+          (await import("@inspector/core/auth/providers.js"))
+            .BaseOAuthClientProvider.prototype,
+          "getCapturedAuthUrl",
+        )
+        .mockReturnValue(capturedUrl);
+
+      await manager.handleAuthChallenge({
+        reason: "insufficient_scope",
+        requiredScopes: ["weather:read"],
+      });
+
+      await expect(manager.completeOAuthFlow("bad-code")).rejects.toThrow();
+
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "access",
+        token_type: "Bearer",
+        scope: "mcp",
+      });
+      await manager.completeOAuthFlow("good-code");
+
+      expect(storageOf(params).saveScope).toHaveBeenLastCalledWith(
+        SERVER_URL,
+        "mcp",
+      );
+      captureSpy.mockRestore();
     });
   });
 
@@ -714,6 +793,522 @@ describe("OAuthManager", () => {
         .mockResolvedValue(undefined);
       expect(await emaManager().refreshEnterpriseManagedTokens()).toBe(false);
       spy.mockRestore();
+    });
+  });
+
+  describe("checkAuthChallengeSatisfied", () => {
+    it("returns false when no tokens in storage", async () => {
+      const params = createMockParams();
+      storageOf(params).getTokens.mockResolvedValue(undefined);
+      const manager = new OAuthManager(params);
+
+      expect(
+        await manager.checkAuthChallengeSatisfied({
+          reason: "insufficient_scope",
+          requiredScopes: ["tools:write"],
+        }),
+      ).toBe(false);
+    });
+
+    it("returns true for token_expired when a usable access token exists", async () => {
+      const params = createMockParams();
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "tok",
+        token_type: "Bearer",
+      });
+      const manager = new OAuthManager(params);
+
+      expect(
+        await manager.checkAuthChallengeSatisfied({ reason: "token_expired" }),
+      ).toBe(true);
+    });
+
+    it("returns true when stored scope covers step-up union", async () => {
+      const params = createMockParams();
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "tok",
+        token_type: "Bearer",
+        scope: "mcp tools:read tools:write",
+      });
+      storageOf(params).getScope.mockReturnValue("mcp tools:read tools:write");
+      const manager = new OAuthManager(params);
+
+      expect(
+        await manager.checkAuthChallengeSatisfied({
+          reason: "insufficient_scope",
+          requiredScopes: ["tools:write"],
+        }),
+      ).toBe(true);
+    });
+
+    it("returns false when step-up union exceeds granted scope", async () => {
+      const params = createMockParams();
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "tok",
+        token_type: "Bearer",
+        scope: "mcp tools:read",
+      });
+      storageOf(params).getScope.mockReturnValue("mcp tools:read");
+      const manager = new OAuthManager(params);
+
+      expect(
+        await manager.checkAuthChallengeSatisfied({
+          reason: "insufficient_scope",
+          requiredScopes: ["tools:write"],
+        }),
+      ).toBe(false);
+    });
+
+    it("returns false for insufficient_scope with no scopes in the challenge", async () => {
+      const params = createMockParams();
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "tok",
+        token_type: "Bearer",
+      });
+      storageOf(params).getScope.mockReturnValue(undefined);
+      const manager = new OAuthManager(params);
+
+      expect(
+        await manager.checkAuthChallengeSatisfied({
+          reason: "insufficient_scope",
+        }),
+      ).toBe(false);
+    });
+
+    it("short-circuits handleAuthChallenge when scope already satisfied", async () => {
+      const params = createMockParams();
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "tok",
+        token_type: "Bearer",
+        scope: "mcp tools:read tools:write",
+      });
+      storageOf(params).getScope.mockReturnValue("mcp tools:read tools:write");
+      const manager = new OAuthManager(params);
+
+      const outcome = await manager.handleAuthChallenge({
+        reason: "insufficient_scope",
+        requiredScopes: ["tools:write"],
+      });
+
+      expect(outcome).toEqual({ kind: "satisfied" });
+      expect(mockedMcpAuth).not.toHaveBeenCalled();
+    });
+
+    it("does not short-circuit token_expired at handleAuthChallenge entry", async () => {
+      mockedMcpAuth.mockResolvedValue("AUTHORIZED");
+      const params = createMockParams();
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "tok",
+        token_type: "Bearer",
+      });
+      const manager = new OAuthManager(params);
+
+      const outcome = await manager.handleAuthChallenge({
+        reason: "token_expired",
+      });
+
+      expect(outcome).toEqual({ kind: "satisfied" });
+      expect(mockedMcpAuth).toHaveBeenCalled();
+    });
+  });
+
+  describe("handleAuthChallenge", () => {
+    it("returns satisfied when silent refresh succeeds", async () => {
+      mockedMcpAuth.mockResolvedValue("AUTHORIZED");
+      const manager = new OAuthManager(createMockParams());
+
+      const outcome = await manager.handleAuthChallenge({
+        reason: "token_expired",
+      });
+
+      expect(outcome).toEqual({ kind: "satisfied" });
+    });
+
+    it("returns interactive when refresh requires redirect without navigating", async () => {
+      const capturedUrl = new URL(
+        "https://auth.example.com/authorize?state=abc",
+      );
+      mockedMcpAuth.mockResolvedValue("REDIRECT");
+      const params = createMockParams();
+      const manager = new OAuthManager(params);
+      const captureSpy = vi
+        .spyOn(
+          (await import("@inspector/core/auth/providers.js"))
+            .BaseOAuthClientProvider.prototype,
+          "getCapturedAuthUrl",
+        )
+        .mockReturnValue(capturedUrl);
+
+      const outcome = await manager.handleAuthChallenge({
+        reason: "token_expired",
+      });
+
+      expect(outcome).toEqual(
+        expect.objectContaining({
+          kind: "interactive",
+          authorizationUrl: capturedUrl,
+        }),
+      );
+      expect(
+        params.initialConfig.navigation!.navigateToAuthorization,
+      ).not.toHaveBeenCalled();
+      expect(manager.getOAuthFlowStep()).toBe("authorization_code");
+      captureSpy.mockRestore();
+    });
+
+    it("uses catalog scope for reauth interactive flows", async () => {
+      const capturedUrl = new URL(
+        "https://auth.example.com/authorize?state=reauth",
+      );
+      mockedMcpAuth.mockResolvedValue("REDIRECT");
+      const params = createMockParams();
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ scope: "catalog:scope" });
+      storageOf(params).getScope.mockReturnValue("stored union scope");
+      const captureSpy = vi
+        .spyOn(
+          (await import("@inspector/core/auth/providers.js"))
+            .BaseOAuthClientProvider.prototype,
+          "getCapturedAuthUrl",
+        )
+        .mockReturnValue(capturedUrl);
+
+      await manager.handleAuthChallenge({ reason: "token_expired" });
+
+      expect(mockedMcpAuth).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ scope: "catalog:scope" }),
+      );
+      captureSpy.mockRestore();
+    });
+
+    it("returns failed with step-up message when silent refresh grants insufficient scope", async () => {
+      mockedMcpAuth
+        .mockResolvedValueOnce("AUTHORIZED")
+        .mockResolvedValueOnce("AUTHORIZED");
+      const params = createMockParams();
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "access",
+        token_type: "Bearer",
+        scope: "mcp tools:read",
+      });
+      storageOf(params).getScope.mockReturnValue("mcp tools:read");
+      const manager = new OAuthManager(params);
+
+      const outcome = await manager.handleAuthChallenge({
+        reason: "insufficient_scope",
+        requiredScopes: ["weather:read"],
+        context: { toolName: "get_weather" },
+      });
+
+      expect(outcome.kind).toBe("failed");
+      if (outcome.kind === "failed") {
+        expect(outcome.error.message).toMatch(/get_weather/);
+      }
+    });
+
+    it("returns failed when no authorization URL is captured", async () => {
+      mockedMcpAuth.mockResolvedValue("REDIRECT");
+      const manager = new OAuthManager(createMockParams());
+
+      const outcome = await manager.handleAuthChallenge({
+        reason: "unauthorized",
+      });
+
+      expect(outcome.kind).toBe("failed");
+      if (outcome.kind === "failed") {
+        expect(outcome.error.message).toMatch(
+          /Failed to capture authorization URL/,
+        );
+      }
+    });
+
+    it("returns interactive for insufficient_scope without navigating", async () => {
+      const capturedUrl = new URL(
+        "https://auth.example.com/authorize?state=step-up",
+      );
+      mockedMcpAuth.mockResolvedValue("REDIRECT");
+      const params = createMockParams();
+      storageOf(params).getScope.mockReturnValue("mcp tools:read");
+      const manager = new OAuthManager(params);
+      const captureSpy = vi
+        .spyOn(
+          (await import("@inspector/core/auth/providers.js"))
+            .BaseOAuthClientProvider.prototype,
+          "getCapturedAuthUrl",
+        )
+        .mockReturnValue(capturedUrl);
+
+      const outcome = await manager.handleAuthChallenge({
+        reason: "insufficient_scope",
+        requiredScopes: ["weather:read"],
+      });
+
+      expect(outcome).toEqual(
+        expect.objectContaining({
+          kind: "interactive",
+          authorizationUrl: capturedUrl,
+        }),
+      );
+      expect(
+        params.initialConfig.navigation!.navigateToAuthorization,
+      ).not.toHaveBeenCalled();
+      captureSpy.mockRestore();
+    });
+
+    it("unions scopes and starts interactive step-up for insufficient_scope", async () => {
+      const capturedUrl = new URL(
+        "https://auth.example.com/authorize?state=step-up",
+      );
+      mockedMcpAuth.mockResolvedValue("REDIRECT");
+      const params = createMockParams();
+      storageOf(params).getScope.mockReturnValue("mcp tools:read");
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "access",
+        refresh_token: "refresh",
+        token_type: "Bearer",
+        scope: "mcp tools:read",
+      });
+      const manager = new OAuthManager(params);
+      const captureSpy = vi
+        .spyOn(
+          (await import("@inspector/core/auth/providers.js"))
+            .BaseOAuthClientProvider.prototype,
+          "getCapturedAuthUrl",
+        )
+        .mockReturnValue(capturedUrl);
+
+      const outcome = await manager.handleAuthChallenge({
+        reason: "insufficient_scope",
+        requiredScopes: ["weather:read"],
+      });
+
+      expect(outcome).toEqual(
+        expect.objectContaining({
+          kind: "interactive",
+          authorizationUrl: capturedUrl,
+        }),
+      );
+      expect(storageOf(params).saveScope).not.toHaveBeenCalled();
+      expect(mockedMcpAuth).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          scope: "mcp tools:read weather:read",
+          forceReauthorization: true,
+        }),
+      );
+      captureSpy.mockRestore();
+    });
+
+    it("returns satisfied for EMA silent refresh", async () => {
+      const refreshSpy = vi
+        .spyOn(emaFlow, "refreshEmaResourceTokens")
+        .mockResolvedValue(undefined);
+      const authUrl = new URL("https://idp.example.com/authorize?state=ema");
+      const startSpy = vi
+        .spyOn(emaFlow, "startEmaIdpAuthorization")
+        .mockResolvedValue(authUrl);
+      const params = createMockParams({
+        enterpriseManagedAuth: {
+          idp: {
+            issuer: "https://idp.example.com",
+            clientId: "app-client",
+            clientSecret: "secret",
+          },
+        },
+      });
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true });
+
+      const outcome = await manager.handleAuthChallenge({
+        reason: "token_expired",
+      });
+
+      expect(outcome).toEqual(
+        expect.objectContaining({
+          kind: "interactive",
+          authorizationUrl: authUrl,
+        }),
+      );
+      expect(
+        params.initialConfig.navigation!.navigateToAuthorization,
+      ).not.toHaveBeenCalled();
+      refreshSpy.mockRestore();
+      startSpy.mockRestore();
+    });
+
+    it("returns step_up_confirm for EMA insufficient_scope until user confirms", async () => {
+      const silentSpy = vi
+        .spyOn(emaFlow, "trySilentEmaAuth")
+        .mockResolvedValue({ status: "success" });
+      const params = createMockParams({
+        enterpriseManagedAuth: {
+          idp: {
+            issuer: "https://idp.example.com",
+            clientId: "app-client",
+            clientSecret: "secret",
+          },
+        },
+      });
+      storageOf(params).getScope.mockReturnValue("mcp");
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "tok",
+        token_type: "Bearer",
+        scope: "mcp",
+      });
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true });
+
+      const outcome = await manager.handleAuthChallenge({
+        reason: "insufficient_scope",
+        requiredScopes: ["weather:read"],
+      });
+
+      expect(outcome.kind).toBe("step_up_confirm");
+      if (outcome.kind === "step_up_confirm") {
+        expect(outcome.challenge.authorizationScopes).toEqual([
+          "mcp",
+          "weather:read",
+        ]);
+      }
+      expect(silentSpy).not.toHaveBeenCalled();
+      silentSpy.mockRestore();
+    });
+
+    it("step_up_confirm lists only scopes not already granted when AS sends full tool requirements", async () => {
+      const silentSpy = vi
+        .spyOn(emaFlow, "trySilentEmaAuth")
+        .mockResolvedValue({ status: "success" });
+      const params = createMockParams({
+        enterpriseManagedAuth: {
+          idp: {
+            issuer: "https://idp.example.com",
+            clientId: "app-client",
+            clientSecret: "secret",
+          },
+        },
+      });
+      storageOf(params).getScope.mockReturnValue("mcp tools:read");
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "tok",
+        token_type: "Bearer",
+        scope: "mcp tools:read",
+      });
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true });
+
+      const outcome = await manager.handleAuthChallenge({
+        reason: "insufficient_scope",
+        requiredScopes: ["tools:read", "env:read"],
+      });
+
+      expect(outcome.kind).toBe("step_up_confirm");
+      if (outcome.kind === "step_up_confirm") {
+        expect(outcome.challenge.requiredScopes).toEqual(["env:read"]);
+        expect(outcome.challenge.authorizationScopes).toEqual([
+          "mcp",
+          "tools:read",
+          "env:read",
+        ]);
+      }
+      silentSpy.mockRestore();
+    });
+
+    it("returns satisfied for EMA insufficient_scope after user confirms", async () => {
+      const silentSpy = vi
+        .spyOn(emaFlow, "trySilentEmaAuth")
+        .mockResolvedValue({ status: "success" });
+      const params = createMockParams({
+        enterpriseManagedAuth: {
+          idp: {
+            issuer: "https://idp.example.com",
+            clientId: "app-client",
+            clientSecret: "secret",
+          },
+        },
+      });
+      let storedScope = "mcp";
+      storageOf(params).getScope.mockImplementation(() => storedScope);
+      storageOf(params).saveScope.mockImplementation(async (_url, scope) => {
+        storedScope = scope;
+      });
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "tok",
+        token_type: "Bearer",
+        scope: "mcp",
+      });
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true });
+
+      const outcome = await manager.handleAuthChallenge(
+        {
+          reason: "insufficient_scope",
+          requiredScopes: ["weather:read"],
+        },
+        { confirmedStepUp: true },
+      );
+
+      expect(outcome).toEqual({ kind: "satisfied" });
+      expect(storageOf(params).saveScope).toHaveBeenCalledWith(
+        SERVER_URL,
+        "mcp weather:read",
+      );
+      expect(silentSpy).toHaveBeenCalled();
+      silentSpy.mockRestore();
+    });
+
+    it("completeOAuthFlow mints EMA tokens with pending step-up union scope", async () => {
+      const silentSpy = vi
+        .spyOn(emaFlow, "trySilentEmaAuth")
+        .mockResolvedValue({ status: "no_idp_session" });
+      const authUrl = new URL("https://idp.example.com/authorize?state=ema");
+      const startSpy = vi
+        .spyOn(emaFlow, "startEmaIdpAuthorization")
+        .mockResolvedValue(authUrl);
+      const mintSpy = vi
+        .spyOn(emaFlow, "completeEmaIdpAuthorizationAndMint")
+        .mockResolvedValue({ access_token: "tok", token_type: "Bearer" });
+      const params = createMockParams({
+        enterpriseManagedAuth: {
+          idp: {
+            issuer: "https://idp.example.com",
+            clientId: "app-client",
+            clientSecret: "secret",
+          },
+        },
+      });
+      storageOf(params).getScope.mockReturnValue("mcp tools:read");
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "old",
+        token_type: "Bearer",
+        scope: "mcp tools:read",
+      });
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true, scope: "mcp" });
+
+      const outcome = await manager.handleAuthChallenge(
+        {
+          reason: "insufficient_scope",
+          requiredScopes: ["weather:read"],
+        },
+        { confirmedStepUp: true },
+      );
+      expect(outcome.kind).toBe("interactive");
+
+      await manager.completeOAuthFlow("auth-code");
+
+      expect(mintSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ scope: "mcp tools:read weather:read" }),
+        "auth-code",
+      );
+      expect(storageOf(params).saveScope).toHaveBeenCalledWith(
+        SERVER_URL,
+        "mcp tools:read weather:read",
+      );
+
+      silentSpy.mockRestore();
+      startSpy.mockRestore();
+      mintSpy.mockRestore();
     });
   });
 

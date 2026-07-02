@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
+import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type {
   Prompt,
   PromptArgument,
@@ -18,6 +19,7 @@ interface PromptsTabProps {
   focusedPane?: "list" | "details" | null;
   onViewDetails?: (prompt: Prompt & { result?: GetPromptResult }) => void;
   onFetchPrompt?: (prompt: Prompt) => void;
+  onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
   modalOpen?: boolean;
 }
 
@@ -29,6 +31,7 @@ export function PromptsTab({
   focusedPane = null,
   onViewDetails,
   onFetchPrompt,
+  onAuthRecoveryRequired,
   modalOpen = false,
 }: PromptsTabProps) {
   const visibleCount = Math.max(1, height - 7);
@@ -64,6 +67,10 @@ export function PromptsTab({
                 });
               }
             } catch (error) {
+              if (error instanceof AuthRecoveryRequiredError) {
+                onAuthRecoveryRequired?.(error);
+                return;
+              }
               setError(
                 error instanceof Error ? error.message : "Failed to get prompt",
               );

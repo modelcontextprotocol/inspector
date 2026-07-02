@@ -29,6 +29,10 @@ import {
 } from "@inspector/core/auth/index.js";
 import { NodeOAuthStorage } from "@inspector/core/auth/node/index.js";
 import {
+  connectInspectorWithOAuth,
+  withCliAuthRecoveryRetry,
+} from "./cliOAuth.js";
+import {
   DEFAULT_RUNNER_OAUTH_CALLBACK_URL,
   formatRunnerOAuthRedirectUrl,
   parseRunnerOAuthCallbackUrl,
@@ -122,9 +126,7 @@ async function callMethod(
     null;
   let managedPromptsState: ManagedPromptsState | null = null;
 
-  try {
-    await inspectorClient.connect();
-
+  const runMethod = async (): Promise<McpResponse> => {
     let result: McpResponse;
 
     if (args.method === "tools/list" || args.method === "tools/call") {
@@ -247,6 +249,26 @@ async function callMethod(
         `Unsupported method: ${args.method}. Supported methods include: tools/list, tools/call, resources/list, resources/read, resources/templates/list, prompts/list, prompts/get, logging/setLevel`,
       );
     }
+
+    return result;
+  };
+
+  try {
+    await connectInspectorWithOAuth(
+      inspectorClient,
+      serverConfig,
+      redirectUrlProvider,
+      callbackUrlConfig!,
+      serverSettings,
+    );
+
+    const result = await withCliAuthRecoveryRetry(
+      inspectorClient,
+      redirectUrlProvider,
+      callbackUrlConfig!,
+      serverSettings,
+      runMethod,
+    );
 
     await awaitableLog(JSON.stringify(result, null, 2));
   } finally {

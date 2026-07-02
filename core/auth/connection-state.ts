@@ -19,7 +19,10 @@ export interface BuildOAuthConnectionStateParams {
   flowState?: OAuthFlowState;
 }
 
-function isAccessTokenUsable(tokens: OAuthTokens | undefined): boolean {
+/** True when persisted tokens include a non-expired access token (JWT exp when parseable). */
+export function isAccessTokenUsable(
+  tokens: OAuthTokens | undefined,
+): boolean {
   if (!tokens?.access_token) return false;
   return !isJwtExpired(tokens.access_token);
 }
