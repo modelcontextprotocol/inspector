@@ -8,14 +8,15 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import { useState } from "react";
 import type {
   BlobResourceContents,
-  ContentBlock,
   Resource,
   TextResourceContents,
 } from "@modelcontextprotocol/sdk/types.js";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { getMimeKind } from "../../elements/ContentViewer/contentViewerUtils";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { SubscribeButton } from "../../elements/SubscribeButton/SubscribeButton";
 
@@ -41,27 +42,21 @@ export interface ResourcePreviewPanelProps {
   onClose?: () => void;
 }
 
-function toContentBlock(
-  item: TextResourceContents | BlobResourceContents,
-): ContentBlock {
-  if ("text" in item) {
-    return { type: "text", text: item.text };
-  }
-  const mimeType = item.mimeType ?? "application/octet-stream";
-  if (mimeType.startsWith("image/")) {
-    return { type: "image", data: item.blob, mimeType };
-  }
-  if (mimeType.startsWith("audio/")) {
-    return { type: "audio", data: item.blob, mimeType };
-  }
-  return {
-    type: "text",
-    text: `[Binary content (${mimeType}) — preview not supported]`,
-  };
-}
-
 function formatLastUpdated(date: Date): string {
   return `Last updated: ${date.toLocaleString()}`;
+}
+
+// MIME kinds whose rendered preview (react-markdown, the CSV table, the
+// sandboxed HTML iframe) hides the underlying text. For these the panel offers
+// a "View Source" toggle that swaps the renderer for the raw resource text.
+const SOURCE_TOGGLEABLE_KINDS = new Set(["markdown", "csv", "html"]);
+
+// MIME forced on ContentViewer in source mode so it routes through the plain
+// preformatted-text renderer regardless of the resource's real type.
+const SOURCE_MIME = "text/plain";
+
+function isSourceToggleable(mimeType: string): boolean {
+  return SOURCE_TOGGLEABLE_KINDS.has(getMimeKind(mimeType));
 }
 
 const HeaderRow = Group.withProps({
@@ -115,6 +110,14 @@ const ActionGroup = Group.withProps({
   gap: "xs",
 });
 
+// Subtle footer action button. Shared by Refresh and the View Source toggle so
+// the two stay visually identical (the toggle is deliberately styled to match
+// Refresh, which sits immediately to its right).
+const FooterButton = Button.withProps({
+  variant: "subtle",
+  size: "sm",
+});
+
 const Spacer = Flex.withProps({});
 
 // The panel sizes to its content: when the resource body is short the
@@ -145,14 +148,31 @@ const ContentStack = Stack.withProps({
   gap: "md",
 });
 
-// Infer a markdown MIME from the URI when the server didn't supply one.
-// MCP servers often return `text/plain` (or omit mimeType entirely) for
-// `.md` resources; the file extension is the most reliable fallback signal.
+// Map a file extension to the MIME type that drives ContentViewer's per-MIME
+// renderer dispatch. MCP servers commonly omit `mimeType` (or return a generic
+// `text/plain` / `application/octet-stream`), so the URI suffix is the most
+// reliable signal for engaging the markdown / PDF / CSV / XML / HTML / CSS
+// renderers. Order doesn't matter — suffixes are unique.
+const URI_SUFFIX_MIME: ReadonlyArray<readonly [string, string]> = [
+  [".md", "text/markdown"],
+  [".markdown", "text/markdown"],
+  [".csv", "text/csv"],
+  [".json", "application/json"],
+  [".xml", "application/xml"],
+  [".html", "text/html"],
+  [".htm", "text/html"],
+  [".css", "text/css"],
+  [".pdf", "application/pdf"],
+];
+
+// Infer a MIME type from the URI's file extension when the server didn't supply
+// one. Returns undefined for unrecognized suffixes so callers fall through to
+// the octet-stream default.
 function inferMimeFromUri(uri: string): string | undefined {
   const path = uri.split("?")[0].split("#")[0];
   const lower = path.toLowerCase();
-  if (lower.endsWith(".md") || lower.endsWith(".markdown")) {
-    return "text/markdown";
+  for (const [suffix, mime] of URI_SUFFIX_MIME) {
+    if (lower.endsWith(suffix)) return mime;
   }
   return undefined;
 }
@@ -183,6 +203,17 @@ export function ResourcePreviewPanel({
   const { uri, annotations } = resource;
   const mimeType = effectiveMime(contents[0]?.mimeType, resource);
 
+  const [showSource, setShowSource] = useState(false);
+  // Reset to the rendered view when the previewed resource changes (the panel
+  // is reused, not remounted, across resources). React's documented
+  // "adjust state during render" pattern — no effect, so no cascading render.
+  const [prevUri, setPrevUri] = useState(uri);
+  if (uri !== prevUri) {
+    setPrevUri(uri);
+    setShowSource(false);
+  }
+  const sourceToggleable = isSourceToggleable(mimeType);
+
   return (
     <PanelStack>
       <HeaderRow>
@@ -199,14 +230,26 @@ export function ResourcePreviewPanel({
       </HeaderRow>
       <ContentScroll>
         <ContentStack>
-          {contents.map((item, index) => (
-            <ContentViewer
-              key={index}
-              block={toContentBlock(item)}
-              mimeType={effectiveMime(item.mimeType, resource)}
-              copyable
-            />
-          ))}
+          {contents.map((item, index) => {
+            const itemMime = effectiveMime(item.mimeType, resource);
+            // The toggle is gated on the first content item but applies per
+            // item: in source mode only the source-toggleable items (the ones
+            // whose rendered view hides their text) switch to plain text, so a
+            // mixed multi-part resource doesn't force an image/PDF blob through
+            // the text decoder.
+            const renderMime =
+              showSource && isSourceToggleable(itemMime)
+                ? SOURCE_MIME
+                : itemMime;
+            return (
+              <ContentViewer
+                key={index}
+                contents={item}
+                mimeType={renderMime}
+                copyable
+              />
+            );
+          })}
         </ContentStack>
       </ContentScroll>
       <MetaRow>
@@ -227,9 +270,15 @@ export function ResourcePreviewPanel({
           )}
         </AnnotationGroup>
         <ActionGroup>
-          <Button variant="subtle" size="sm" onClick={onRefresh}>
-            Refresh
-          </Button>
+          {sourceToggleable && (
+            <FooterButton
+              aria-pressed={showSource}
+              onClick={() => setShowSource((shown) => !shown)}
+            >
+              {showSource ? "View Rendered" : "View Source"}
+            </FooterButton>
+          )}
+          <FooterButton onClick={onRefresh}>Refresh</FooterButton>
           {subscriptionsSupported && (
             <SubscribeButton
               subscribed={isSubscribed}

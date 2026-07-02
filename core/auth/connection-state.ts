@@ -7,7 +7,7 @@ import { getEmaIdpLoginState, normalizeIdpIssuer } from "./ema/idpSession.js";
 import { idpOAuthStorageKey } from "./ema/storage.js";
 import { isJwtExpired } from "./ema/jwt.js";
 import type { OAuthStorage } from "./storage.js";
-import type { AuthProtocol, OAuthConnectionState, OAuthFlowState } from "./types.js";
+import type { AuthProtocol, OAuthClientRegistrationKind, OAuthConnectionState, OAuthFlowState } from "./types.js";
 import { authProtocolFromEnterpriseManaged } from "./types.js";
 
 export interface BuildOAuthConnectionStateParams {
@@ -27,13 +27,28 @@ function isAccessTokenUsable(tokens: OAuthTokens | undefined): boolean {
 function resolveClient(
   preregistered: OAuthClientInformation | undefined,
   dynamic: OAuthClientInformation | undefined,
+  dynamicRegistrationKind: Extract<
+    OAuthClientRegistrationKind,
+    "dcr" | "cimd"
+  > | undefined,
 ): OAuthConnectionState["client"] | undefined {
-  const info = preregistered ?? dynamic;
-  if (!info?.client_id) return undefined;
+  if (preregistered?.client_id) {
+    return {
+      registrationKind: "static",
+      clientId: preregistered.client_id,
+      hasClientSecret:
+        preregistered.client_secret !== undefined &&
+        preregistered.client_secret !== "",
+    };
+  }
+  if (!dynamic?.client_id) return undefined;
   return {
-    source: preregistered ? "preregistered" : "dynamic",
-    clientId: info.client_id,
-    hasClientSecret: info.client_secret !== undefined && info.client_secret !== "",
+    ...(dynamicRegistrationKind && {
+      registrationKind: dynamicRegistrationKind,
+    }),
+    clientId: dynamic.client_id,
+    hasClientSecret:
+      dynamic.client_secret !== undefined && dynamic.client_secret !== "",
   };
 }
 
@@ -76,7 +91,17 @@ export async function buildOAuthConnectionState(
   const authorized = isAccessTokenUsable(tokens);
   const grantedScope = resolveGrantedScope(tokens, storageScope);
 
-  const client = resolveClient(preregistered, dynamic);
+  const registrationKind = storage.getClientRegistrationKind(serverUrl);
+  const dynamicRegistrationKind =
+    registrationKind === "dcr" || registrationKind === "cimd"
+      ? registrationKind
+      : undefined;
+
+  const client = resolveClient(
+    preregistered,
+    dynamic,
+    preregistered?.client_id ? undefined : dynamicRegistrationKind,
+  );
 
   const state: OAuthConnectionState = {
     authorized,
@@ -114,12 +139,31 @@ export function isServerOAuthConfigured(config: {
   clientSecret?: string;
   scope?: string;
   enterpriseManaged?: boolean;
+  clientMetadataUrl?: string;
 }): boolean {
   return (
     config.enterpriseManaged === true ||
     !!config.clientId?.trim() ||
     !!config.clientSecret?.trim() ||
-    !!config.scope?.trim()
+    !!config.scope?.trim() ||
+    !!config.clientMetadataUrl?.trim()
+  );
+}
+
+/** True when persisted OAuth storage has tokens or client registration for a server. */
+export async function hasPersistedOAuthServerState(
+  storage: OAuthStorage,
+  serverUrl: string,
+): Promise<boolean> {
+  const [tokens, preregistered, dynamic] = await Promise.all([
+    storage.getTokens(serverUrl),
+    storage.getClientInformation(serverUrl, true),
+    storage.getClientInformation(serverUrl),
+  ]);
+  return !!(
+    tokens?.access_token ||
+    preregistered?.client_id ||
+    dynamic?.client_id
   );
 }
 

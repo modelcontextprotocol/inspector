@@ -40,9 +40,12 @@
   * Ping  
 
 ## OAuth Handling
-  * Quick Flow  
-  * Guided Flow  
-  * Basic (non debugger) Flow  
+  * `authenticate()` / `completeOAuthFlow()` (SDK-backed authorization-code flow)
+  * Connection Info for auth debugging
+  * **Enterprise-managed authorization (EMA / XAA)** — see [EMA / XAA](v2_auth_ema.md)
+  * **Mid-session authorization** (401 after connect: token refresh, step-up scopes, web remote reconnect) — see [Mid-session auth](v2_auth_mid_session.md)
+  * **Authorization hardening** (MCP 2026-07-28 SEPs: `iss`, DCR client type, issuer-bound credentials, step-up scope union) — see [Auth hardening](v2_auth_hardening.md)
+  * **OAuth smoke testing** (manual procedures against hosted servers) — see [Smoke testing](v2_auth_smoke_testing.md)
 
 ## Transport Types
   * STDIO  

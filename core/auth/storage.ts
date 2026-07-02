@@ -3,6 +3,7 @@ import type {
   OAuthTokens,
   OAuthMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthClientRegistrationKind } from "./types.js";
 
 /**
  * Abstract storage interface for OAuth state
@@ -11,6 +12,12 @@ import type {
 export interface SaveTokensOptions {
   /** Marks resource tokens minted via EMA (legs 2–3) for sign-out cleanup. */
   enterpriseManaged?: boolean;
+}
+
+export type { OAuthClientRegistrationKind };
+
+export interface SaveClientInformationOptions {
+  registrationKind: "dcr" | "cimd";
 }
 
 export interface OAuthStorage {
@@ -23,11 +30,19 @@ export interface OAuthStorage {
   ): Promise<OAuthClientInformation | undefined>;
 
   /**
+   * Get how the dynamic client registration slot was established.
+   */
+  getClientRegistrationKind(
+    serverUrl: string,
+  ): OAuthClientRegistrationKind | undefined;
+
+  /**
    * Save client information (dynamically registered)
    */
   saveClientInformation(
     serverUrl: string,
     clientInformation: OAuthClientInformation,
+    options: SaveClientInformationOptions,
   ): Promise<void>;
 
   /**
@@ -93,12 +108,12 @@ export interface OAuthStorage {
   clearScope(serverUrl: string): void;
 
   /**
-   * Get server metadata (for guided mode)
+   * Get server metadata discovered during OAuth
    */
   getServerMetadata(serverUrl: string): OAuthMetadata | null;
 
   /**
-   * Save server metadata (for guided mode)
+   * Save server metadata discovered during OAuth
    */
   saveServerMetadata(serverUrl: string, metadata: OAuthMetadata): Promise<void>;
 

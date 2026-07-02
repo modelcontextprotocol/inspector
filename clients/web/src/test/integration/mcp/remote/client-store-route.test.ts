@@ -99,6 +99,34 @@ describe("/api/storage/client keychain", () => {
     await teardown(h);
   });
 
+  it("POST persists EMA and CIMD together in client.json", async () => {
+    const body = {
+      enterpriseManagedAuth: {
+        enabled: true,
+        idp: {
+          issuer: "https://idp.example.com",
+          clientId: "inspector-app",
+        },
+      },
+      cimd: {
+        enabled: true,
+        clientMetadataUrl: "https://example.com/cimd.json",
+      },
+    };
+    const res = await fetch(`${h.baseUrl}/api/storage/client`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(200);
+
+    const onDisk = JSON.parse(
+      readFileSync(h.clientPath, "utf-8"),
+    ) as typeof body;
+    expect(onDisk.enterpriseManagedAuth).toEqual(body.enterpriseManagedAuth);
+    expect(onDisk.cimd).toEqual(body.cimd);
+  });
+
   it("POST writes IdP clientSecret to keychain, not client.json", async () => {
     const res = await fetch(`${h.baseUrl}/api/storage/client`, {
       method: "POST",

@@ -21,7 +21,7 @@ describe("loadTuiServers", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("loads named servers from a read-only --config file", () => {
+  it("loads named servers from a read-only --config file", async () => {
     const configPath = join(tempDir, "mcp.json");
     writeFileSync(
       configPath,
@@ -29,7 +29,7 @@ describe("loadTuiServers", () => {
         mcpServers: { foo: { command: "node", args: ["foo.js"] } },
       }),
     );
-    const servers = loadTuiServers({ configPath });
+    const servers = await loadTuiServers({ configPath });
     expect(Object.keys(servers)).toEqual(["foo"]);
     expect(servers.foo?.config).toMatchObject({
       type: "stdio",
@@ -37,9 +37,9 @@ describe("loadTuiServers", () => {
     });
   });
 
-  it("seeds an empty writable catalog when --catalog is missing", () => {
+  it("seeds an empty writable catalog when --catalog is missing", async () => {
     const catalogPath = join(tempDir, "catalog.json");
-    const servers = loadTuiServers({ catalogPath });
+    const servers = await loadTuiServers({ catalogPath });
     expect(servers).toEqual({});
     expect(existsSync(catalogPath)).toBe(true);
     expect(JSON.parse(readFileSync(catalogPath, "utf-8"))).toEqual({
@@ -47,34 +47,34 @@ describe("loadTuiServers", () => {
     });
   });
 
-  it("throws when a read-only --config file is missing (never seeds)", () => {
+  it("throws when a read-only --config file is missing (never seeds)", async () => {
     const configPath = join(tempDir, "absent.json");
-    expect(() => loadTuiServers({ configPath })).toThrow(
+    await expect(loadTuiServers({ configPath })).rejects.toThrow(
       /Config file not found/,
     );
     expect(existsSync(configPath)).toBe(false);
   });
 
-  it("rejects --catalog and --config together", () => {
+  it("rejects --catalog and --config together", async () => {
     const catalogPath = join(tempDir, "catalog.json");
     const configPath = join(tempDir, "config.json");
     writeFileSync(catalogPath, JSON.stringify({ mcpServers: {} }));
     writeFileSync(configPath, JSON.stringify({ mcpServers: {} }));
-    expect(() => loadTuiServers({ catalogPath, configPath })).toThrow(
+    await expect(loadTuiServers({ catalogPath, configPath })).rejects.toThrow(
       /mutually exclusive/,
     );
   });
 
-  it("rejects --catalog combined with an ad-hoc target", () => {
+  it("rejects --catalog combined with an ad-hoc target", async () => {
     const catalogPath = join(tempDir, "catalog.json");
     writeFileSync(catalogPath, JSON.stringify({ mcpServers: {} }));
-    expect(() =>
+    await expect(
       loadTuiServers({ catalogPath, target: ["my-server"] }),
-    ).toThrow(/--catalog cannot be combined/);
+    ).rejects.toThrow(/--catalog cannot be combined/);
   });
 
-  it("builds a single ad-hoc server from a positional target", () => {
-    const servers = loadTuiServers({ target: ["my-server", "--flag"] });
+  it("builds a single ad-hoc server from a positional target", async () => {
+    const servers = await loadTuiServers({ target: ["my-server", "--flag"] });
     expect(Object.keys(servers)).toEqual(["default"]);
     expect(servers.default?.config).toMatchObject({
       type: "stdio",
@@ -83,7 +83,7 @@ describe("loadTuiServers", () => {
     });
   });
 
-  it("merges --header into per-server settings for catalog servers", () => {
+  it("merges --header into per-server settings for catalog servers", async () => {
     const catalogPath = join(tempDir, "catalog.json");
     writeFileSync(
       catalogPath,
@@ -91,7 +91,7 @@ describe("loadTuiServers", () => {
         mcpServers: { web: { type: "streamable-http", url: "http://x/mcp" } },
       }),
     );
-    const servers = loadTuiServers({
+    const servers = await loadTuiServers({
       catalogPath,
       headers: { Authorization: "Bearer t" },
     });

@@ -18,7 +18,7 @@ export interface UseClientSettingsDraftOptions<T> {
 
 export interface UseClientSettingsDraftResult<T> {
   draft: T | null;
-  onChange: (next: T) => void;
+  onChange: (next: T | ((prev: T) => T)) => void;
   flush: () => void;
 }
 
@@ -31,24 +31,26 @@ export function useClientSettingsDraft<T>({
 }: UseClientSettingsDraftOptions<T>): UseClientSettingsDraftResult<T> {
   const [draft, setDraft] = useState<T | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const latestValuesRef = useRef<T | null>(null);
 
   const resolveInitialRef = useRef(resolveInitial);
   const onPersistRef = useRef(onPersist);
   const onErrorRef = useRef(onError);
-  const draftRef = useRef<T | null>(null);
   const openedRef = useRef(opened);
   resolveInitialRef.current = resolveInitial;
   onPersistRef.current = onPersist;
   onErrorRef.current = onError;
-  draftRef.current = draft;
   openedRef.current = opened;
 
   useEffect(() => {
     if (!opened) {
       setDraft(null);
+      latestValuesRef.current = null;
       return;
     }
-    setDraft(resolveInitialRef.current());
+    const initial = resolveInitialRef.current();
+    setDraft(initial);
+    latestValuesRef.current = initial;
   }, [opened]);
 
   useEffect(() => {
@@ -67,13 +69,23 @@ export function useClientSettingsDraft<T>({
   }, []);
 
   const onChange = useCallback(
-    (next: T) => {
+    (next: T | ((prev: T) => T)) => {
       if (!opened) return;
-      setDraft(next);
+      const prev = latestValuesRef.current;
+      if (prev === null) return;
+      const resolved =
+        typeof next === "function"
+          ? (next as (prev: T) => T)(prev)
+          : next;
+      latestValuesRef.current = resolved;
+      setDraft(resolved);
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
         timerRef.current = undefined;
-        persist(next);
+        const value = latestValuesRef.current;
+        if (value !== null) {
+          persist(value);
+        }
       }, debounceMs);
     },
     [opened, debounceMs, persist],
@@ -83,7 +95,7 @@ export function useClientSettingsDraft<T>({
     if (!timerRef.current) return;
     clearTimeout(timerRef.current);
     timerRef.current = undefined;
-    const value = draftRef.current;
+    const value = latestValuesRef.current;
     if (openedRef.current && value !== null) {
       persist(value);
     }

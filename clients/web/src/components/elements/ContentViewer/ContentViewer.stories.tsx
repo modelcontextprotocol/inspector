@@ -86,3 +86,68 @@ export const ResourceLinkBlock: Story = {
     },
   },
 };
+
+// --- Resource contents (Resources screen) per-MIME dispatch -------------------
+
+export const JsonHighlighted: Story = {
+  args: {
+    contents: {
+      uri: "file:///config.json",
+      mimeType: "application/json",
+      text: '{"name":"my-app","version":"1.0.0","tags":["a","b"]}',
+    },
+    copyable: true,
+  },
+};
+
+export const XmlHighlighted: Story = {
+  args: {
+    contents: {
+      uri: "file:///feed.xml",
+      mimeType: "application/xml",
+      text: "<rss><channel><title>News</title><item>One</item></channel></rss>",
+    },
+    copyable: true,
+  },
+};
+
+export const CssHighlighted: Story = {
+  args: {
+    contents: {
+      uri: "file:///styles.css",
+      mimeType: "text/css",
+      text: ".card { color: var(--text); padding: 1rem; border-radius: 8px; }",
+    },
+    copyable: true,
+  },
+};
+
+export const CsvTableContents: Story = {
+  args: {
+    contents: {
+      uri: "file:///people.csv",
+      mimeType: "text/csv",
+      text: "name,role,city\nAlice,Engineer,Berlin\nBob,Designer,Lisbon\nCarol,PM,Oslo",
+    },
+  },
+};
+
+export const HtmlSandboxed: Story = {
+  args: {
+    contents: {
+      uri: "file:///report.html",
+      mimeType: "text/html",
+      text: "<h1>Report</h1><p>This renders in a <strong>sandboxed</strong> iframe.</p>",
+    },
+  },
+};
+
+export const BinaryUnsupported: Story = {
+  args: {
+    contents: {
+      uri: "file:///archive.zip",
+      mimeType: "application/zip",
+      blob: "UEsDBAoAAAAAAA==",
+    },
+  },
+};

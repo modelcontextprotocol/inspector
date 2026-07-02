@@ -1,6 +1,6 @@
 # Inspector V2 — Enterprise-Managed Authorization (EMA / XAA)
 
-### [Brief](README.md) | [V2 Scope](v2_scope.md) | [Servers file](v2_servers_file.md) | EMA / XAA
+### [Brief](README.md) | [V2 Scope](v2_scope.md) | [Servers file](v2_servers_file.md) | [Auth hardening](v2_auth_hardening.md) | [Mid-session auth](v2_auth_mid_session.md) | [Smoke testing](v2_auth_smoke_testing.md)
 
 Tracks [#1509](https://github.com/modelcontextprotocol/inspector/issues/1509).
 
@@ -8,7 +8,7 @@ Tracks [#1509](https://github.com/modelcontextprotocol/inspector/issues/1509).
 
 Add support for [Enterprise-Managed Authorization](https://modelcontextprotocol.io/extensions/auth/enterprise-managed-authorization) (EMA, also referred to as XAA / ID-JAG in client implementations). EMA extends the existing OAuth flow so an enterprise IdP (OIDC) can authenticate the client once; any MCP resource authorization server (AS) configured to trust that IdP can then be accessed with minimal or no user prompting.
 
-Inspector v2 already has OAuth infrastructure (`core/auth/`, `core/mcp/oauthManager.ts`, guided auth state machine, per-server OAuth fields in `~/.mcp-inspector/mcp.json` — see [Servers file](v2_servers_file.md)). Phases 1–2 (web **quick** connect) are **implemented** in `core/auth/ema/` and documented below. **Guided EMA is deferred** until the product has a guided OAuth UX (web v2 has connect/quick only today; TUI has guided via `AuthTab`). Phase 4 (CLI/TUI quick EMA) remains planned separately. VS Code reference material in the appendix informs remaining work.
+Inspector v2 already has OAuth infrastructure (`core/auth/`, `core/mcp/oauthManager.ts`, per-server OAuth fields in `~/.mcp-inspector/mcp.json` — see [Servers file](v2_servers_file.md)). Phases 1–2 (web connect via `authenticate()`) are **implemented** in `core/auth/ema/` and documented below. TUI and CLI load `client.json` and wire OAuth for HTTP/SSE servers; dedicated Client Settings UX and full interactive EMA on CLI remain follow-ups. VS Code reference material in the appendix informs remaining work.
 
 ## Normative references
 
@@ -19,15 +19,13 @@ Inspector v2 already has OAuth infrastructure (`core/auth/`, `core/mcp/oauthMana
 ## Goals
 
 - Support EMA for HTTP MCP servers, aligned with the [MCP EMA extension spec](https://modelcontextprotocol.io/extensions/auth/enterprise-managed-authorization). EMA wire and orchestration live in `core/auth/ema/` — the v1 TypeScript SDK does not expose EMA as a named API.
-- **Preserve existing standard OAuth behavior** for non-EMA servers — no regressions to current connect, guided, or configured-credential flows.
+- **Preserve existing standard OAuth behavior** for non-EMA servers — no regressions to current connect or configured-credential flows.
 - Reuse existing inspector OAuth configuration and secret storage where possible.
-- **Guided EMA (deferred):** step-through EMA legs in the UI for debugging — **not in scope for the current #1509 slice.** Deferred until Inspector has a **guided OAuth option in the UX** (web: none today; TUI: `AuthTab` guided/quick/clear). Core APIs (`beginGuidedAuth`, `OAuthFlowState`, etc.) exist; web connect uses quick mode only (`authenticate()`).
 - Work across web, CLI, and TUI clients via shared `core/` auth logic.
 
 ## Non-goals
 
 - v1 or v1.5/main backport (v2 only; see issue label).
-- **Guided EMA UI** on web (or any client) before that client exposes **guided standard OAuth** in the UX — not merely core/API support for guided flows.
 
 ## EMA spec and SDK audit
 
@@ -110,9 +108,9 @@ Until **client profiles** (see below) land, install-level client config — star
 
 **Do not** put IdP credentials in the OAuth store or per-server `mcp.json`. **Do not** use environment variables for IdP config — all clients read/write the same `client.json` file.
 
-**Runtime auth state** (standard OAuth tokens, PKCE, guided metadata, **and** EMA runtime state: cached IdP ID Token / refresh token, leg-1 in-flight PKCE under `ema-idp:{issuer}`, and per-server resource tokens tagged `enterpriseManaged: true` when minted via EMA legs 2–3) uses the existing **`OAuthStorage`** interface (`core/auth/storage.ts`) — whatever adapter each client already passes to `InspectorClient`. ID-JAG is **not** cached — legs 2–3 re-mint on each connect or 401 refresh. EMA does **not** mandate a specific backing store; it extends the serialized auth state that adapter already persists.
+**Runtime auth state** (standard OAuth tokens, PKCE, **and** EMA runtime state: cached IdP ID Token / refresh token, leg-1 in-flight PKCE under `ema-idp:{issuer}`, and per-server resource tokens tagged `enterpriseManaged: true` when minted via EMA legs 2–3) uses the existing **`OAuthStorage`** interface (`core/auth/storage.ts`) — whatever adapter each client already passes to `InspectorClient`. ID-JAG is **not** cached — legs 2–3 re-mint on each connect or 401 refresh. EMA does **not** mandate a specific backing store; it extends the serialized auth state that adapter already persists.
 
-No EMA-specific migration of web OAuth persistence is required for the initial ship — sessionStorage-backed web sessions work for quick EMA today. **Follow-up:** shared file-backed OAuth via `RemoteOAuthStorage` → `/api/storage/oauth` so web matches CLI/TUI (see §Follow-up work).
+No EMA-specific migration of web OAuth persistence is required for the initial ship — sessionStorage-backed web sessions work for EMA today. **Follow-up:** shared file-backed OAuth via `RemoteOAuthStorage` → `/api/storage/oauth` so web matches CLI/TUI (see §Follow-up work).
 
 | Client | Config (`client.json`) | Runtime auth state (`OAuthStorage`) |
 | ------ | ---------------------- | ----------------------------------- |
@@ -313,7 +311,7 @@ Alternative paths (CLI/TUI, automation, hand-edit):
 
 Do not store IdP credentials in the OAuth store — only **runtime OAuth/EMA state** (tokens, PKCE, IdP session cache, etc.) belongs there, via whichever `OAuthStorage` adapter the client uses.
 
-CLI/TUI do not yet have a dedicated Client Settings dialog; they read/write `client.json` via file adapters (Phase 4).
+CLI/TUI do not have a dedicated Client Settings dialog. They **load** `client.json` at startup (`--client-config`, default `~/.mcp-inspector/storage/client.json`) and pass IdP/CIMD settings into `InspectorClient`. Edit install config via the web **Client Settings** dialog, hand-edit the file, or **`POST /api/storage/client`**. Default OAuth callback for TUI/CLI: `http://127.0.0.1:6276/oauth/callback` — see `clients/tui/README.md` and `clients/cli/README.md`.
 
 #### Connect errors when IdP is missing or disabled (web — implemented)
 
@@ -332,13 +330,13 @@ When the user connects to a server with `oauth.enterpriseManaged: true` but inst
 
 - **Protocol** — `standard` or `ema`
 - **Authorized** — whether a usable access token exists in storage
-- **Client ID** — preregistered or dynamic registration source
+- **Client ID** — static, DCR, or CIMD registration kind (see `clientRegistrationKind` on connection state)
 - **IdP session** (EMA only) — `none` / `logged_in` / `expired` from `idpSessions[issuer]`
-- **Auth URL** — cached from an in-flight or completed quick OAuth flow (`OAuthFlowState`), when present
+- **Auth URL** — cached from an in-flight or completed OAuth flow (`OAuthFlowState`), when present
 - **Scopes** — configured vs granted
 - **Access token** — `OAuthAccessTokenField`: copy (raw), decode JWT in place (`core/auth/ema/jwt.ts` helpers); multi-line wrap with segment-aware breaking for JWTs
 
-In-flight guided/quick flow state uses `OAuthFlowState` / `getOAuthFlowState()` / `getOAuthFlowStep()` (renamed from the earlier `AuthGuidedState` names). `getOAuthState()` is the persisted connection snapshot; flow state is separate and ephemeral.
+In-flight OAuth flow state uses `OAuthFlowState` / `getOAuthFlowState()` / `getOAuthFlowStep()`. `getOAuthState()` is the persisted connection snapshot; flow state is separate and ephemeral.
 
 ### Leg 1 — IdP OIDC (settled)
 
@@ -359,13 +357,13 @@ Leg 1 is **OIDC authorization-code login** against the enterprise IdP using cred
 
 Leg 1 reuses the existing OAuth redirect/callback/PKCE machinery but **targets the IdP**, not the resource authorization server. `OAuthManager` today discovers resource AS metadata and builds authorize URLs against the resource AS — the EMA branch must parameterize the same flow with IdP endpoints (from issuer OpenID Provider Metadata) and IdP credentials from `client.json`.
 
-**Web callback disambiguation:** web uses a single `/oauth/callback` path for both resource OAuth and IdP OIDC. Pending server id is stashed in sessionStorage before redirect; **protocol** (standard vs EMA) comes from `oauth.enterpriseManaged` on that server, not from the OAuth `state` query param. The `state` param carries **execution** (`quick` / `guided`) plus `authId` for CSRF and fetch-log restore (`{execution}:{authId}`).
+**Web callback disambiguation:** web uses a single `/oauth/callback` path for both resource OAuth and IdP OIDC. Pending server id is stashed in sessionStorage before redirect; **protocol** (standard vs EMA) comes from `oauth.enterpriseManaged` on that server, not from the OAuth `state` query param. The `state` param is a 64-char hex CSRF token (`generateOAuthState()`); `parseOAuthState()` extracts `authId` for fetch-log restore on callback.
 
-**Auth axes (orthogonal):** `AuthProtocol` (`standard` | `ema`) from server/client config; `AuthExecution` (`quick` | `guided`) for SDK one-shot vs state-machine stepping. Guided EMA would be `ema` + `guided` — **deferred** (see §Guided mode).
+**Auth protocol:** `AuthProtocol` (`standard` | `ema`) from server/client config. EMA and standard OAuth both use `InspectorClient.authenticate()` / `completeOAuthFlow()`.
 
 **Scope for leg 2:** `resourceContext.resolveEmaScopes()` — prefer configured per-server `oauth.scopes`; else join `resourceMetadata.scopes_supported` when present; else omit. Do **not** fall back to IdP `scopes_supported`.
 
-**401 re-auth:** on EMA connections, re-run legs 2–3 (and leg 1 only if the cached ID Token is missing or expired). Do not fall back to standard resource authorization-code OAuth.
+**401 re-auth:** on EMA connections, re-run legs 2–3 (and leg 1 only if the cached ID Token is missing or expired). Do not fall back to standard resource authorization-code OAuth. Mid-session detection, step-up scopes, and web remote propagation are specified in **[Mid-session auth](v2_auth_mid_session.md)**.
 
 **EMA resource token tagging + sign-out:** per-server `oauth.enterpriseManaged` in `mcp.json` is **config** (routing); the OAuth store does not read the catalog on sign-out. Instead, when EMA legs 2–3 persist a resource access token, the store tags that entry (`ServerOAuthState.enterpriseManaged: true` via `SaveTokensOptions`). Sign-out uses that tag to find and clear EMA resource state inside the same `OAuthStorage` blob without the client enumerating MCP servers. This avoids clearing standard OAuth servers and avoids clearing EMA catalog entries that were never connected.
 
@@ -404,41 +402,24 @@ Inspector touchpoints to extend:
 - `core/auth/connection-state.ts` — `buildOAuthConnectionState`, `OAuthConnectionState`
 - `core/auth/storage.ts` + `core/auth/store.ts` — `OAuthStorage` / `OAuthStoreState`: store-root `idpSessions`; `ServerOAuthState.enterpriseManaged` tag; `SaveTokensOptions`; `clearEnterpriseManagedResourceServers()`; all adapters pick up the extended shape automatically
 - `core/auth/ema/` — `idpOidc.ts` (leg 1), `wire.ts` (legs 2–3), `emaFlow.ts` (orchestration + tagged `saveTokens`), `transportProvider.ts` (401 re-auth + tagged `saveTokens`), `resourceContext.ts`, `idpSession.ts` (`getEmaIdpLoginState`, `clearEmaIdpSession`), `jwt.ts`, `storage.ts`, `constants.ts`, `clientConfigError.ts` (`EmaClientNotConfiguredError`)
-- `core/mcp/oauthManager.ts` — branch on `enterpriseManaged`; EMA quick connect via `emaFlow`; `getOAuthState()`; `createOAuthProvider()` returns `EmaTransportOAuthProvider` for EMA servers (401 re-auth); standard quick/guided unchanged
+- `core/mcp/oauthManager.ts` — branch on `enterpriseManaged`; EMA connect via `emaFlow`; `getOAuthState()`; `createOAuthProvider()` returns `EmaTransportOAuthProvider` for EMA servers (401 re-auth); standard OAuth unchanged
 - `core/mcp/inspectorClient.ts` — declare EMA extension in `initialize` capabilities when `enterpriseManaged`; `getOAuthState()`
 - `core/react/useEmaIdpLoginState.ts` — Client Settings IdP session status; calls `clearEmaIdpSession` on sign-out (no catalog wiring)
 - `core/auth/browser/storage.ts` — `getBrowserOAuthStorage()` singleton (web)
-- `clients/web` — **Client Settings** modal; **Connection Info** OAuth snapshot; friendly EMA connect toasts; load client config at startup; `ServerSettingsForm` OAuth section (HTTP/SSE only); web callback flow tagging for IdP vs resource OAuth. **Guided EMA UI: deferred** until guided OAuth is a product option in the UX.
+- `clients/web` — **Client Settings** modal; **Connection Info** OAuth snapshot; friendly EMA connect toasts; load client config at startup; `ServerSettingsForm` OAuth section (HTTP/SSE only); web callback flow tagging for IdP vs resource OAuth
 - `clients/cli`, `clients/tui` — load `client.json` at startup; pass into `InspectorClient`; leg 1 via same `OAuthCallbackServer` + `NodeOAuthStorage` stack as TUI standard OAuth today
-
-### Guided mode (deferred)
-
-**Status: deferred.** Guided EMA is out of scope for the current #1509 delivery. It resumes only after Inspector exposes **guided standard OAuth** as a user-facing option (step-through or run-to-completion), not merely as `InspectorClient` / `OAuthManager` APIs used in tests and TUI.
-
-**Why:** Web v2 has no guided OAuth UI. Connect uses **quick** mode only — `App.tsx` calls `InspectorClient.authenticate()` on 401, not `beginGuidedAuth()` / `runGuidedAuth()`. Guided OAuth exists in **core** and in the **TUI** (`AuthTab` — guided / quick / clear), but there is no web affordance to start or step through a guided flow. Building guided EMA on web without guided OAuth would add dead-end APIs with no entry point.
-
-**When unblocked**, EMA guided mode would extend the existing guided OAuth model (`OAuthFlowState` / `OAuthStep` in `core/auth/types.ts`). Leg 1 reuses the same redirect/callback/code-exchange steps as standard guided OAuth, pointed at the IdP. Legs 2–3 add EMA-specific steps:
-
-- **IdP OIDC login** (authorization redirect + code exchange — same machinery as guided resource OAuth; skippable when cached ID Token is valid)
-- **ID-JAG exchange** (leg 2)
-- **Resource metadata / token endpoint discovery** (if not already resolved)
-- **Resource token redemption** (leg 3)
-
-On silent success, skip interactive IdP OIDC steps when a valid cached ID Token exists; still run legs 2–3.
-
-**Possible interim path:** implement guided EMA on **TUI first** (guided OAuth UX already exists there) without waiting for web guided OAuth — that would be an explicit product decision, not the default plan.
 
 ### Clients
 
 | Client | Notes |
 | ------ | ----- |
-| Web | **First** — implement and test EMA here; **Client Settings** for IdP + per-server EMA checkbox (HTTP/SSE only); **quick connect only** (no guided OAuth UI yet — see §Guided mode); leg 1 via browser redirect + `/oauth/callback` (same path as standard OAuth; disambiguate pending flow) |
-| TUI | Follow web; extend existing guided/quick OAuth (`clients/tui/src/App.tsx`) for EMA legs 2–3; leg 1 via existing `OAuthCallbackServer` flow |
+| Web | **First** — implement and test EMA here; **Client Settings** for IdP + per-server EMA checkbox (HTTP/SSE only); connect via `authenticate()` on 401 or explicit auth; leg 1 via browser redirect + `/oauth/callback` (same path as standard OAuth; disambiguate pending flow) |
+| TUI | Follow web; extend existing OAuth auth tab (`clients/tui/src/App.tsx`, `AuthTab`) for EMA legs 2–3; leg 1 via existing `OAuthCallbackServer` flow |
 | CLI | Follow web/TUI; same Node OAuth stack as TUI when interactive IdP login is required |
 
 ### Implementation order (settled)
 
-**Web first** for development and testing. Core types, `OAuthManager` EMA branch, and `OAuthStorage` extensions live in `core/` and are client-agnostic; the shipped #1509 path is web **quick** connect plus Client Settings / Server Settings UX. Guided EMA is deferred until guided OAuth is a UX option (see §Guided mode). TUI and CLI quick EMA remain Phase 4.
+**Web first** for development and testing. Core types, `OAuthManager` EMA branch, and `OAuthStorage` extensions live in `core/` and are client-agnostic; the shipped #1509 path is web connect plus Client Settings / Server Settings UX. TUI/CLI load install config and support OAuth connect on HTTP/SSE; CLI interactive callback and terminal-native Client Settings remain follow-ups.
 
 Design decisions for EMA are complete. Remaining work is the phased plan and checklist below (client profiles are a separate, later track — not a blocker for `#1509`).
 
@@ -460,17 +441,14 @@ Design decisions for EMA are complete. Remaining work is the phased plan and che
 9. `InspectorClient`: declare EMA extension in `initialize` when `enterpriseManaged`. EMA 401 re-auth via `EmaTransportOAuthProvider` in `OAuthManager.createOAuthProvider()` (re-run legs 2–3, not resource OAuth redirect).
 10. Web callback: disambiguate IdP OIDC vs resource OAuth pending flows at `/oauth/callback`.
 
-#### Phase 3 — Guided EMA + tests (deferred)
+#### Phase 3 — Integration tests
 
-**Deferred** until a client exposes guided OAuth in the UX (prerequisite for guided EMA). Not part of the current #1509 close-out.
-
-11. *(deferred)* Guided EMA: leg 1 reuses guided OAuth redirect/code-exchange steps; add legs 2–3 as new steps.
-12. Tests: EMA wire/orchestration unit tests and mock IdP/AS integration. **Implemented:** `parseClientConfig`, `clientSettingsValues`, `idpSessions` storage, `enterpriseManaged` server-list round-trip, OAuth `state` parsing, `clientConfigError`, `connection-state`, OAuthManager EMA not-configured paths, keychain secret migration on server-id rename (`servers-route.test.ts`), **Phase 3b automated tests** (§Phase 3b test plan — Layers 1–3). **Manual staging:** live xaa.dev quick EMA verified (§Staging validation). **Optional follow-up:** `RemoteOAuthStorage` EMA E2E variant, 401 re-auth stretch case.
+11. Tests: EMA wire/orchestration unit tests and mock IdP/AS integration. **Implemented:** `parseClientConfig`, `clientSettingsValues`, `idpSessions` storage, `enterpriseManaged` server-list round-trip, OAuth `state` parsing, `clientConfigError`, `connection-state`, OAuthManager EMA not-configured paths, keychain secret migration on server-id rename (`servers-route.test.ts`), **Phase 3b automated tests** (§Phase 3b test plan — Layers 1–3). **Manual staging:** live xaa.dev EMA verified (§Staging validation). **Optional follow-up:** `RemoteOAuthStorage` EMA E2E variant, 401 re-auth stretch case.
 
 #### Phase 4 — Other clients (after web works)
 
-13. Wire TUI/CLI to load `client.json` and pass `enterpriseManagedAuth` into `InspectorClient`. EMA sign-out (`clearEmaIdpSession`) is already client-agnostic in `core/` — Phase 4 clients can call it without catalog enumeration once Client Settings / logout UX lands.
-14. TUI/CLI guided/quick OAuth extensions for EMA legs 2–3.
+13. ~~Wire TUI/CLI to load `client.json` and pass `enterpriseManagedAuth` into `InspectorClient`.~~ **Done** — `loadRunnerClientConfig` + `buildRunnerClientAuthOptions` in TUI/CLI entrypoints. EMA sign-out (`clearEmaIdpSession`) is already client-agnostic in `core/` — Phase 4 clients can call it without catalog enumeration once Client Settings / logout UX lands.
+14. ~~TUI interactive EMA + standard OAuth connect~~ **Done (TUI)** — 401 → `authenticate()` → `OAuthCallbackServer` on `6276` → reconnect; Auth tab OAuth snapshot + **S** clear (disconnects when connected). **Still open:** dedicated Client Settings UX in terminal, CLI local callback server for interactive login, EMA-specific terminal UX refinements.
 
 ## Implementation checklist
 
@@ -502,29 +480,23 @@ Design decisions for EMA are complete. Remaining work is the phased plan and che
 - [x] Integrate EMA routing in `OAuthManager` (branch on `enterpriseManaged`; leg 1 IdP OIDC; legs 2–3 via `wire.ts` / `emaFlow.ts`)
 - [x] Declare EMA extension in `initialize` when connecting with `enterpriseManaged`
 - [x] EMA 401 re-auth: re-run legs 2–3 (leg 1 only if ID Token expired/missing) via `EmaTransportOAuthProvider`
-- [x] Web: disambiguate IdP vs resource OAuth at `/oauth/callback` (shared callback; `completeOAuthFlow` branches on `enterpriseManaged`; protocol from server config, execution in OAuth `state` prefix)
+- [x] Web: disambiguate IdP vs resource OAuth at `/oauth/callback` (shared callback; `completeOAuthFlow` branches on `enterpriseManaged`; protocol from server config; OAuth `state` is 64-char hex CSRF token)
 
-### Phase 3 — Guided EMA (deferred)
+### Phase 3 — Integration tests
 
-- [ ] **Blocked on product:** guided OAuth UX — user-facing step-through or run-to-completion (web: not implemented; TUI: `AuthTab`)
-- [ ] *(deferred)* Guided EMA: legs 2–3 as new steps; leg 1 reuses guided OAuth redirect/code-exchange steps
-- [ ] *(deferred)* Tests: guided EMA UI steps
-
-### Phase 3b — Integration tests
-
-- [x] **Manual staging validation** — full quick EMA connect against live xaa.dev (see §Staging validation). Confirms legs 1–3 and web UX outside CI.
+- [x] **Manual staging validation** — full EMA connect against live xaa.dev (see §Staging validation). Confirms legs 1–3 and web UX outside CI.
 - [x] **Automated integration tests** — mock IdP + mock resource AS + composable protected-resource server (see §Phase 3b test plan). Live xaa.dev is **not** required for CI.
 - [ ] *(optional)* `RemoteOAuthStorage` EMA E2E variant — same happy path via `/api/storage/oauth` (shared-storage follow-up).
 - [ ] *(optional)* 401 re-auth stretch — invalidate resource token, assert legs 2–3 re-run.
 
 ### Phase 4 — Other clients
 
-- [ ] Wire TUI/CLI to load client config → `InspectorClientOptions.enterpriseManagedAuth`
-- [ ] TUI/CLI guided/quick OAuth extensions for EMA
+- [x] Wire TUI/CLI to load client config → `InspectorClientOptions.enterpriseManagedAuth` (+ CIMD / per-server OAuth via `buildRunnerClientAuthOptions`)
+- [x] TUI interactive EMA + standard OAuth connect (401 → authenticate → callback → reconnect; Auth tab; keychain secret rehydration via `loadServerEntries`)
+- [ ] TUI/CLI polish: Client Settings dialog, CLI interactive callback server, terminal EMA UX refinements
 
 ### Later
 
-- [ ] **Guided EMA** (web or cross-client) — after guided OAuth is a UX option; see §Guided mode (deferred)
 - [ ] **Remove Zustand from OAuth persistence** — direct read/write of OAuth blob; see §Follow-up work
 - [ ] **Web shared OAuth store** — `RemoteOAuthStorage` / `oauth.json` for web + CLI + TUI parity; see §Follow-up work
 - [ ] Client profile persistence (migrate from `client.json`; may extend or replace web Client Settings)
@@ -535,7 +507,7 @@ Design decisions for EMA are complete. Remaining work is the phased plan and che
 
 ## Staging validation (manual — verified)
 
-Full end-to-end **quick EMA** has been exercised manually against live **xaa.dev** (June 2026). This validates the #1509 web path outside CI.
+Full end-to-end EMA has been exercised manually against live **xaa.dev** (June 2026). This validates the #1509 web path outside CI.
 
 ### Topology
 
@@ -551,7 +523,7 @@ Registration on xaa.dev: composable test server registered as a **resource serve
 
 1. Client Settings — Enterprise IdP configured and enabled.
 2. Server Settings — `enterpriseManaged` on; resource AS client credentials from xaa.dev resource registration.
-3. Connect (quick) — IdP login when needed → ID-JAG mint → resource access token → MCP `initialize` with EMA extension capability.
+3. Connect — IdP login when needed → ID-JAG mint → resource access token → MCP `initialize` with EMA extension capability.
 4. Reconnect / 401 — silent or re-auth paths; Connection Info shows EMA OAuth snapshot.
 
 ### Known-good fixture
@@ -562,7 +534,7 @@ Registration on xaa.dev: composable test server registered as a **resource serve
 
 ## Follow-up work (not blocking #1509 close-out)
 
-These items came out of EMA staging and apply beyond EMA. They are **not** required to ship quick EMA on web but should be tracked.
+These items came out of EMA staging and apply beyond EMA. They are **not** required to ship EMA on web but should be tracked.
 
 ### Remove Zustand from OAuth persistence
 
@@ -592,7 +564,7 @@ Today:
 
 ## Phase 3b test plan (automated integration)
 
-Goal: CI tests that prove **quick EMA** legs 1–3 through `InspectorClient` / `OAuthManager` without calling live xaa.dev. Manual staging (§Staging validation) already covers live IdP/AS; automation encodes regressions.
+Goal: CI tests that prove EMA legs 1–3 through `InspectorClient` / `OAuthManager` without calling live xaa.dev. Manual staging (§Staging validation) already covers live IdP/AS; automation encodes regressions.
 
 **Status (June 2026):** Layers 1–3 implemented and green in CI (`npm run test:integration`). Optional items (RemoteOAuthStorage variant, 401 re-auth) remain open.
 
@@ -601,7 +573,7 @@ Goal: CI tests that prove **quick EMA** legs 1–3 through `InspectorClient` / `
 - **No live xaa.dev in default CI** — flaky, credential-bound, network-dependent. Optional `describe.skipIf` / manual job later.
 - **Reuse existing patterns** — `TestServerHttp` + `createExternalResourceOAuthTestServerConfig`, `inspectorClient-oauth-e2e.test.ts`, `inspectorClient-oauth-remote-storage-e2e.test.ts`, `jose` for JWTs (`test-server-protected-resource.test.ts`).
 - **Mock at HTTP boundary** — `fetchFn` injection on `InspectorClient` / `EmaFlowConfig` so `wire.ts` and `idpOidc.ts` run real code against local mock servers.
-- **Guided execution not required** — quick path only (`authenticate()` / `trySilentEmaAuth` / `completeOAuthFlow`).
+- **Single auth path** — `authenticate()` / `trySilentEmaAuth` / `completeOAuthFlow()` (same as standard OAuth).
 
 ### Test layers
 
@@ -659,7 +631,6 @@ Existing coverage: `xaa-ema-http.json` config load, `ExternalAccessTokenValidato
 ### Out of scope for Phase 3b
 
 - Live xaa.dev (covered by §Staging validation)
-- Guided EMA steps (deferred)
 - Browser / Playwright UI tests
 - TUI/CLI (Phase 4)
 

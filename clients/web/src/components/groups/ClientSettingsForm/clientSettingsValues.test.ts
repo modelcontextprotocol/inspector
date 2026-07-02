@@ -1,12 +1,22 @@
 import { describe, it, expect } from "vitest";
 import {
+  CIMD_METADATA_URL_HTTPS_ERROR,
+  CIMD_METADATA_URL_INVALID_ERROR,
+  CIMD_METADATA_URL_PATH_ERROR,
+} from "@inspector/core/client/config-parse.js";
+import {
   canPersistClientSettingsDraft,
   clientConfigToFormValues,
   EMPTY_CLIENT_SETTINGS,
   formValuesToClientConfig,
   ISSUER_URL_ERROR,
+  ISSUER_REQUIRED_ERROR,
+  CLIENT_ID_REQUIRED_ERROR,
+  CLIENT_METADATA_URL_REQUIRED_ERROR,
   validateClientSettings,
 } from "./clientSettingsValues";
+
+const emptyCimd = { cimdEnabled: false, clientMetadataUrl: "" };
 
 describe("clientSettingsValues", () => {
   it("clientConfigToFormValues returns empty settings when there is no enterpriseManagedAuth", () => {
@@ -30,6 +40,7 @@ describe("clientSettingsValues", () => {
       issuer: "https://idp.test",
       clientId: "cid",
       clientSecret: "sec",
+      ...emptyCimd,
     });
   });
 
@@ -50,6 +61,60 @@ describe("clientSettingsValues", () => {
       issuer: "https://idp.test",
       clientId: "cid",
       clientSecret: "sec",
+      ...emptyCimd,
+    });
+  });
+
+  it("clientConfigToFormValues maps cimd when EMA is absent", () => {
+    expect(
+      clientConfigToFormValues({
+        cimd: {
+          enabled: true,
+          clientMetadataUrl: "https://example.com/cimd.json",
+        },
+      }),
+    ).toEqual({
+      emaEnabled: false,
+      issuer: "",
+      clientId: "",
+      clientSecret: "",
+      cimdEnabled: true,
+      clientMetadataUrl: "https://example.com/cimd.json",
+    });
+  });
+
+  it("clientConfigToFormValues preserves CIMD URL when disabled", () => {
+    expect(
+      clientConfigToFormValues({
+        cimd: {
+          enabled: false,
+          clientMetadataUrl: "https://example.com/cimd.json",
+        },
+      }),
+    ).toEqual({
+      emaEnabled: false,
+      issuer: "",
+      clientId: "",
+      clientSecret: "",
+      cimdEnabled: false,
+      clientMetadataUrl: "https://example.com/cimd.json",
+    });
+  });
+
+  it("formValuesToClientConfig always writes the cimd block from the dialog", () => {
+    expect(
+      formValuesToClientConfig({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        ...emptyCimd,
+      }),
+    ).toEqual({
+      cimd: {
+        enabled: false,
+        clientMetadataUrl: "",
+      },
     });
   });
 
@@ -60,6 +125,7 @@ describe("clientSettingsValues", () => {
         issuer: "https://idp.test",
         clientId: "cid",
         clientSecret: "sec",
+        ...emptyCimd,
       }),
     ).toEqual({
       enterpriseManagedAuth: {
@@ -70,18 +136,55 @@ describe("clientSettingsValues", () => {
           clientSecret: "sec",
         },
       },
+      cimd: {
+        enabled: false,
+        clientMetadataUrl: "",
+      },
     });
   });
 
-  it("formValuesToClientConfig omits block when disabled with no stored fields", () => {
+  it("formValuesToClientConfig keeps CIMD URL when disabled", () => {
     expect(
       formValuesToClientConfig({
         emaEnabled: false,
         issuer: "",
         clientId: "",
         clientSecret: "",
+        cimdEnabled: false,
+        clientMetadataUrl: "https://example.com/cimd.json",
       }),
-    ).toEqual({});
+    ).toEqual({
+      cimd: {
+        enabled: false,
+        clientMetadataUrl: "https://example.com/cimd.json",
+      },
+    });
+  });
+
+  it("formValuesToClientConfig serializes EMA and CIMD together", () => {
+    expect(
+      formValuesToClientConfig({
+        emaEnabled: true,
+        issuer: "https://idp.test",
+        clientId: "cid",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "https://example.com/cimd.json",
+      }),
+    ).toEqual({
+      enterpriseManagedAuth: {
+        enabled: true,
+        idp: {
+          issuer: "https://idp.test",
+          clientId: "cid",
+          clientSecret: "",
+        },
+      },
+      cimd: {
+        enabled: true,
+        clientMetadataUrl: "https://example.com/cimd.json",
+      },
+    });
   });
 
   it("formValuesToClientConfig trims issuer and clientId when enabled", () => {
@@ -91,6 +194,7 @@ describe("clientSettingsValues", () => {
         issuer: "  https://idp.test  ",
         clientId: "  cid  ",
         clientSecret: "sec",
+        ...emptyCimd,
       }),
     ).toEqual({
       enterpriseManagedAuth: {
@@ -100,6 +204,28 @@ describe("clientSettingsValues", () => {
           clientId: "cid",
           clientSecret: "sec",
         },
+      },
+      cimd: {
+        enabled: false,
+        clientMetadataUrl: "",
+      },
+    });
+  });
+
+  it("formValuesToClientConfig trims CIMD URL", () => {
+    expect(
+      formValuesToClientConfig({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "  https://example.com/cimd.json  ",
+      }),
+    ).toEqual({
+      cimd: {
+        enabled: true,
+        clientMetadataUrl: "https://example.com/cimd.json",
       },
     });
   });
@@ -111,6 +237,7 @@ describe("clientSettingsValues", () => {
         issuer: "",
         clientId: "",
         clientSecret: "",
+        ...emptyCimd,
       }),
     ).toBe(true);
     expect(
@@ -119,6 +246,7 @@ describe("clientSettingsValues", () => {
         issuer: "https://idp.test",
         clientId: "cid",
         clientSecret: "",
+        ...emptyCimd,
       }),
     ).toBe(true);
     expect(
@@ -127,8 +255,45 @@ describe("clientSettingsValues", () => {
         issuer: "",
         clientId: "cid",
         clientSecret: "",
+        ...emptyCimd,
       }),
     ).toBe(false);
+  });
+
+  it("canPersistClientSettingsDraft requires CIMD URL when enabled", () => {
+    expect(
+      canPersistClientSettingsDraft({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "",
+      }),
+    ).toBe(false);
+    expect(
+      canPersistClientSettingsDraft({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "https://example.com/cimd.json",
+      }),
+    ).toBe(true);
+  });
+
+  it("canPersistClientSettingsDraft allows disabling CIMD while keeping the URL", () => {
+    expect(
+      canPersistClientSettingsDraft({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: false,
+        clientMetadataUrl: "https://example.com/cimd.json",
+      }),
+    ).toBe(true);
   });
 
   it("canPersistClientSettingsDraft blocks an invalid issuer URL", () => {
@@ -138,6 +303,7 @@ describe("clientSettingsValues", () => {
         issuer: "not-a-url",
         clientId: "cid",
         clientSecret: "",
+        ...emptyCimd,
       }),
     ).toBe(false);
   });
@@ -149,6 +315,7 @@ describe("clientSettingsValues", () => {
         issuer: "not-a-url",
         clientId: "cid",
         clientSecret: "",
+        ...emptyCimd,
       }),
     ).toEqual({ issuer: ISSUER_URL_ERROR });
   });
@@ -160,6 +327,7 @@ describe("clientSettingsValues", () => {
         issuer: "https://idp.test",
         clientId: "cid",
         clientSecret: "",
+        ...emptyCimd,
       }),
     ).toEqual({});
   });
@@ -171,6 +339,7 @@ describe("clientSettingsValues", () => {
         issuer: "",
         clientId: "cid",
         clientSecret: "",
+        ...emptyCimd,
       }),
     ).toEqual({});
   });
@@ -182,7 +351,201 @@ describe("clientSettingsValues", () => {
         issuer: "not-a-url",
         clientId: "cid",
         clientSecret: "",
+        ...emptyCimd,
       }),
     ).toEqual({});
+  });
+
+  it("canPersistClientSettingsDraft blocks an invalid CIMD URL", () => {
+    expect(
+      canPersistClientSettingsDraft({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "not-a-url",
+      }),
+    ).toBe(false);
+    expect(
+      canPersistClientSettingsDraft({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "http://example.com/cimd.json",
+      }),
+    ).toBe(false);
+    expect(
+      canPersistClientSettingsDraft({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "https://example.com/",
+      }),
+    ).toBe(false);
+  });
+
+  it("validateClientSettings flags an invalid CIMD URL", () => {
+    expect(
+      validateClientSettings({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "not-a-url",
+      }),
+    ).toEqual({ clientMetadataUrl: CIMD_METADATA_URL_INVALID_ERROR });
+    expect(
+      validateClientSettings({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "http://example.com/cimd.json",
+      }),
+    ).toEqual({ clientMetadataUrl: CIMD_METADATA_URL_HTTPS_ERROR });
+    expect(
+      validateClientSettings({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "https://example.com/",
+      }),
+    ).toEqual({ clientMetadataUrl: CIMD_METADATA_URL_PATH_ERROR });
+  });
+
+  it("validateClientSettings passes a valid CIMD URL", () => {
+    expect(
+      validateClientSettings({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "https://example.com/cimd.json",
+      }),
+    ).toEqual({});
+  });
+
+  it("validateClientSettings ignores an empty CIMD URL", () => {
+    expect(
+      validateClientSettings({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: true,
+        clientMetadataUrl: "",
+      }),
+    ).toEqual({});
+  });
+
+  it("validateClientSettings ignores CIMD URL when CIMD disabled", () => {
+    expect(
+      validateClientSettings({
+        emaEnabled: false,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        cimdEnabled: false,
+        clientMetadataUrl: "not-a-url",
+      }),
+    ).toEqual({});
+  });
+
+  it("validateClientSettings does not flag blank required fields by default", () => {
+    expect(
+      validateClientSettings({
+        emaEnabled: true,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        ...emptyCimd,
+      }),
+    ).toEqual({});
+  });
+
+  it("validateClientSettings with requireComplete flags blank issuer and clientId", () => {
+    expect(
+      validateClientSettings(
+        {
+          emaEnabled: true,
+          issuer: "",
+          clientId: "",
+          clientSecret: "",
+          ...emptyCimd,
+        },
+        { requireComplete: true },
+      ),
+    ).toEqual({
+      issuer: ISSUER_REQUIRED_ERROR,
+      clientId: CLIENT_ID_REQUIRED_ERROR,
+    });
+  });
+
+  it("validateClientSettings with requireComplete keeps the URL error over the required error", () => {
+    expect(
+      validateClientSettings(
+        {
+          emaEnabled: true,
+          issuer: "not-a-url",
+          clientId: "cid",
+          clientSecret: "",
+          ...emptyCimd,
+        },
+        { requireComplete: true },
+      ),
+    ).toEqual({ issuer: ISSUER_URL_ERROR });
+  });
+
+  it("validateClientSettings with requireComplete flags only the blank clientId when the issuer is valid", () => {
+    expect(
+      validateClientSettings(
+        {
+          emaEnabled: true,
+          issuer: "https://idp.test",
+          clientId: "",
+          clientSecret: "",
+          ...emptyCimd,
+        },
+        { requireComplete: true },
+      ),
+    ).toEqual({ clientId: CLIENT_ID_REQUIRED_ERROR });
+  });
+
+  it("validateClientSettings with requireComplete flags a blank CIMD URL", () => {
+    expect(
+      validateClientSettings(
+        {
+          emaEnabled: false,
+          issuer: "",
+          clientId: "",
+          clientSecret: "",
+          cimdEnabled: true,
+          clientMetadataUrl: "",
+        },
+        { requireComplete: true },
+      ),
+    ).toEqual({ clientMetadataUrl: CLIENT_METADATA_URL_REQUIRED_ERROR });
+  });
+
+  it("canPersistClientSettingsDraft blocks a blank clientId with a valid issuer", () => {
+    expect(
+      canPersistClientSettingsDraft({
+        emaEnabled: true,
+        issuer: "https://idp.test",
+        clientId: "",
+        clientSecret: "",
+        ...emptyCimd,
+      }),
+    ).toBe(false);
   });
 });

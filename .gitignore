@@ -18,3 +18,4 @@ test-servers/build
 /*.png
 /inspector-history-*.json
 /*.server.json
+/configs/

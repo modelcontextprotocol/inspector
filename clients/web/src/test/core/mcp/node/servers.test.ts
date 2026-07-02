@@ -9,6 +9,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  InMemorySecretStore,
+  SECRET_FIELD_OAUTH_CLIENT_SECRET,
+} from "@inspector/core/auth/node/secret-store";
+import {
   headersToServerSettings,
   loadServerEntries,
   selectServerEntry,
@@ -42,7 +46,7 @@ describe("loadServerEntries", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("lifts disk headers, timeouts, and OAuth into per-server settings", () => {
+  it("lifts disk headers, timeouts, and OAuth into per-server settings", async () => {
     const configPath = join(tempDir, "mcp.json");
     writeFileSync(
       configPath,
@@ -64,7 +68,7 @@ describe("loadServerEntries", () => {
       }),
     );
 
-    const servers = loadServerEntries({ configPath });
+    const servers = await loadServerEntries({ configPath });
     const settings = servers.web?.settings;
     expect(settings?.headers).toEqual([
       { key: "Authorization", value: "Bearer disk" },
@@ -76,7 +80,43 @@ describe("loadServerEntries", () => {
     expect(settings?.oauthScopes).toEqual(["a", "b"]);
   });
 
-  it("merges --header over disk headers while preserving disk timeouts", () => {
+  it("rehydrates OAuth client secrets from the keychain when stripped on disk", async () => {
+    const configPath = join(tempDir, "mcp.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          Todo0: {
+            type: "streamable-http",
+            url: "https://mcp.xaa.dev/mcp",
+            oauth: {
+              clientId: "client_febcc047cef20866-at-todo0-mcp",
+              scopes: "todos.read mcp.access",
+              enterpriseManaged: true,
+            },
+          },
+        },
+      }),
+    );
+
+    const secretStore = new InMemorySecretStore();
+    await secretStore.set(
+      "Todo0",
+      SECRET_FIELD_OAUTH_CLIENT_SECRET,
+      "resource-as-secret-from-keychain",
+    );
+
+    const servers = await loadServerEntries({ configPath, secretStore });
+    expect(servers.Todo0?.settings?.oauthClientId).toBe(
+      "client_febcc047cef20866-at-todo0-mcp",
+    );
+    expect(servers.Todo0?.settings?.oauthClientSecret).toBe(
+      "resource-as-secret-from-keychain",
+    );
+    expect(servers.Todo0?.settings?.enterpriseManaged).toBe(true);
+  });
+
+  it("merges --header over disk headers while preserving disk timeouts", async () => {
     const configPath = join(tempDir, "mcp.json");
     writeFileSync(
       configPath,
@@ -92,7 +132,7 @@ describe("loadServerEntries", () => {
       }),
     );
 
-    const servers = loadServerEntries({
+    const servers = await loadServerEntries({
       configPath,
       headers: { Authorization: "Bearer cli" },
     });
@@ -103,7 +143,7 @@ describe("loadServerEntries", () => {
     expect(servers.web?.settings?.requestTimeout).toBe(9000);
   });
 
-  it("merges --header into a server that has no disk settings", () => {
+  it("merges --header into a server that has no disk settings", async () => {
     const configPath = join(tempDir, "mcp.json");
     writeFileSync(
       configPath,
@@ -114,7 +154,7 @@ describe("loadServerEntries", () => {
       }),
     );
 
-    const servers = loadServerEntries({
+    const servers = await loadServerEntries({
       configPath,
       headers: { Authorization: "Bearer cli" },
     });
@@ -123,7 +163,7 @@ describe("loadServerEntries", () => {
     ]);
   });
 
-  it("applies env and cwd overrides to stdio configs only", () => {
+  it("applies env and cwd overrides to stdio configs only", async () => {
     const configPath = join(tempDir, "mcp.json");
     writeFileSync(
       configPath,
@@ -135,7 +175,7 @@ describe("loadServerEntries", () => {
       }),
     );
 
-    const servers = loadServerEntries({
+    const servers = await loadServerEntries({
       configPath,
       env: { B: "2" },
       cwd: "/tmp/work",
@@ -153,9 +193,9 @@ describe("loadServerEntries", () => {
     });
   });
 
-  it("seeds an empty writable catalog when --catalog is missing", () => {
+  it("seeds an empty writable catalog when --catalog is missing", async () => {
     const catalogPath = join(tempDir, "catalog.json");
-    const servers = loadServerEntries({ catalogPath });
+    const servers = await loadServerEntries({ catalogPath });
     expect(servers).toEqual({});
     expect(existsSync(catalogPath)).toBe(true);
     expect(JSON.parse(readFileSync(catalogPath, "utf-8"))).toEqual({
@@ -163,34 +203,34 @@ describe("loadServerEntries", () => {
     });
   });
 
-  it("throws when a read-only --config file is missing (never seeds)", () => {
+  it("throws when a read-only --config file is missing (never seeds)", async () => {
     const configPath = join(tempDir, "absent.json");
-    expect(() => loadServerEntries({ configPath })).toThrow(
+    await expect(loadServerEntries({ configPath })).rejects.toThrow(
       /Config file not found/,
     );
     expect(existsSync(configPath)).toBe(false);
   });
 
-  it("rejects --catalog and --config together", () => {
+  it("rejects --catalog and --config together", async () => {
     const catalogPath = join(tempDir, "catalog.json");
     const configPath = join(tempDir, "config.json");
     writeFileSync(catalogPath, JSON.stringify({ mcpServers: {} }));
     writeFileSync(configPath, JSON.stringify({ mcpServers: {} }));
-    expect(() => loadServerEntries({ catalogPath, configPath })).toThrow(
-      /mutually exclusive/,
-    );
+    await expect(
+      loadServerEntries({ catalogPath, configPath }),
+    ).rejects.toThrow(/mutually exclusive/);
   });
 
-  it("rejects --catalog combined with an ad-hoc target", () => {
+  it("rejects --catalog combined with an ad-hoc target", async () => {
     const catalogPath = join(tempDir, "catalog.json");
     writeFileSync(catalogPath, JSON.stringify({ mcpServers: {} }));
-    expect(() =>
+    await expect(
       loadServerEntries({ catalogPath, target: ["my-server"] }),
-    ).toThrow(/--catalog cannot be combined/);
+    ).rejects.toThrow(/--catalog cannot be combined/);
   });
 
-  it("builds a single ad-hoc server from a positional target", () => {
-    const servers = loadServerEntries({
+  it("builds a single ad-hoc server from a positional target", async () => {
+    const servers = await loadServerEntries({
       target: ["my-server", "--flag"],
       headers: { Authorization: "Bearer t" },
     });

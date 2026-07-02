@@ -22,7 +22,9 @@ import {
   isAbsoluteHttpUrl,
 } from "@inspector/core/client/config-parse.js";
 import {
+  getActiveCimdClientMetadataUrl,
   getActiveEnterpriseManagedAuthIdp,
+  isCimdEnabled,
   isEnterpriseManagedAuthEnabled,
 } from "@inspector/core/client/types.js";
 
@@ -98,6 +100,25 @@ describe("client config", () => {
     expect(isAbsoluteHttpUrl("")).toBe(false);
   });
 
+  it("isAbsoluteHttpUrl accepts dotted domains, IPv4, IPv6 and localhost", () => {
+    expect(isAbsoluteHttpUrl("https://idp.example.com/realms/main")).toBe(true);
+    expect(isAbsoluteHttpUrl("https://127.0.0.1:8443")).toBe(true);
+    expect(isAbsoluteHttpUrl("http://[::1]:3000")).toBe(true);
+    expect(isAbsoluteHttpUrl("https://你好.com")).toBe(true);
+  });
+
+  it("isAbsoluteHttpUrl rejects bare/degenerate hosts the URL parser allows", () => {
+    // "Looks like a URL" but is not actually one — these all parse and start
+    // with https:// yet have no real host.
+    expect(isAbsoluteHttpUrl("https://")).toBe(false);
+    expect(isAbsoluteHttpUrl("https://foo")).toBe(false); // single-label
+    expect(isAbsoluteHttpUrl("https://example")).toBe(false); // no TLD
+    expect(isAbsoluteHttpUrl("https://.")).toBe(false);
+    expect(isAbsoluteHttpUrl("https://..")).toBe(false);
+    expect(isAbsoluteHttpUrl("https://idp..example.com")).toBe(false); // empty label
+    expect(isAbsoluteHttpUrl("https:///path")).toBe(false); // empty host
+  });
+
   it("isAbsoluteHttpUrl rejects non-http(s) schemes", () => {
     expect(isAbsoluteHttpUrl("foo:bar")).toBe(false);
     expect(isAbsoluteHttpUrl("mailto:a@b.com")).toBe(false);
@@ -113,6 +134,80 @@ describe("client config", () => {
         },
       }),
     ).toThrow(/Invalid URL/);
+  });
+
+  it("parseClientConfig accepts cimd clientMetadataUrl", () => {
+    const config = parseClientConfig({
+      cimd: {
+        enabled: true,
+        clientMetadataUrl: "https://example.com/oauth/client.json",
+      },
+    });
+    expect(config.cimd?.clientMetadataUrl).toBe(
+      "https://example.com/oauth/client.json",
+    );
+    expect(isCimdEnabled(config)).toBe(true);
+    expect(getActiveCimdClientMetadataUrl(config)).toBe(
+      "https://example.com/oauth/client.json",
+    );
+  });
+
+  it("parseClientConfig accepts enabled: false with stored CIMD URL", () => {
+    const config = parseClientConfig({
+      cimd: {
+        enabled: false,
+        clientMetadataUrl: "https://example.com/oauth/client.json",
+      },
+    });
+    expect(config.cimd?.enabled).toBe(false);
+    expect(isCimdEnabled(config)).toBe(false);
+    expect(getActiveCimdClientMetadataUrl(config)).toBeUndefined();
+  });
+
+  it("parseClientConfig accepts disabled CIMD with empty URL", () => {
+    const config = parseClientConfig({
+      cimd: {
+        enabled: false,
+        clientMetadataUrl: "",
+      },
+    });
+    expect(config.cimd).toEqual({
+      enabled: false,
+      clientMetadataUrl: "",
+    });
+  });
+
+  it("parseClientConfig rejects enabled CIMD with empty URL", () => {
+    expect(() =>
+      parseClientConfig({
+        cimd: {
+          enabled: true,
+          clientMetadataUrl: "",
+        },
+      }),
+    ).toThrow(/required when CIMD is enabled/);
+  });
+
+  it("parseClientConfig rejects non-HTTPS CIMD URL", () => {
+    expect(() =>
+      parseClientConfig({
+        cimd: {
+          enabled: true,
+          clientMetadataUrl: "http://example.com/oauth/client.json",
+        },
+      }),
+    ).toThrow(/HTTPS/);
+  });
+
+  it("parseClientConfig rejects CIMD URL without path", () => {
+    expect(() =>
+      parseClientConfig({
+        cimd: {
+          enabled: true,
+          clientMetadataUrl: "https://example.com/",
+        },
+      }),
+    ).toThrow(/path/);
   });
 
   it("loadClientConfig returns {} when file is absent", async () => {

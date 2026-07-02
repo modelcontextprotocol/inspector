@@ -3,6 +3,7 @@ import {
   ActionIcon,
   Button,
   Checkbox,
+  Flex,
   Group,
   NumberInput,
   Stack,
@@ -56,6 +57,7 @@ export interface ServerSettingsFormProps {
   onAutoRefreshChange: (value: boolean) => void;
   onMaxFetchRequestsChange: (value: number) => void;
   onOAuthChange: (oauth: OAuthSettings) => void;
+  onClearStoredOAuth?: () => void;
   onAddRoot: () => void;
   onRemoveRoot: (index: number) => void;
   onRootChange: (index: number, uri: string, name: string) => void;
@@ -80,6 +82,20 @@ const EmptyHint = Text.withProps({
   size: "sm",
   c: "dimmed",
   fs: "italic",
+});
+
+const ClearStoredOAuthButton = Button.withProps({
+  variant: "light",
+  color: "red",
+  size: "compact-sm",
+  flex: "0 0 auto",
+});
+
+const ClearStoredOAuthHint = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+  flex: 1,
+  miw: "12rem",
 });
 
 function KeyValueRows({
@@ -204,6 +220,7 @@ export function ServerSettingsForm({
   onAutoRefreshChange,
   onMaxFetchRequestsChange,
   onOAuthChange,
+  onClearStoredOAuth,
   onAddRoot,
   onRemoveRoot,
   onRootChange,
@@ -494,6 +511,17 @@ export function ServerSettingsForm({
                   ) : null
                 }
               />
+              {onClearStoredOAuth ? (
+                <Flex align="flex-start" gap="sm" wrap="wrap">
+                  <ClearStoredOAuthButton onClick={onClearStoredOAuth}>
+                    Clear stored OAuth state
+                  </ClearStoredOAuthButton>
+                  <ClearStoredOAuthHint>
+                    Removes stored tokens and client registration for this
+                    server. Disconnects if this server is currently connected.
+                  </ClearStoredOAuthHint>
+                </Flex>
+              ) : null}
             </Stack>
           </Accordion.Panel>
         </Accordion.Item>

@@ -16,6 +16,7 @@ export interface ConnectionInfoModalProps {
   clientCapabilities: ClientCapabilities;
   transport: ServerType;
   oauth?: OAuthDetails;
+  onClearOAuth?: () => void;
 }
 
 export function ConnectionInfoModal({
@@ -25,6 +26,7 @@ export function ConnectionInfoModal({
   clientCapabilities,
   transport,
   oauth,
+  onClearOAuth,
 }: ConnectionInfoModalProps) {
   return (
     <Modal
@@ -46,6 +48,7 @@ export function ConnectionInfoModal({
           clientCapabilities={clientCapabilities}
           transport={transport}
           oauth={oauth}
+          onClearOAuth={onClearOAuth}
         />
       </Stack>
     </Modal>

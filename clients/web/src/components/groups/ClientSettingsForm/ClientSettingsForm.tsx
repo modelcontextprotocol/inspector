@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Accordion,
   Badge,
@@ -15,15 +16,26 @@ import {
   type ClientSettingsFormValues,
 } from "./clientSettingsValues.js";
 
-export type ClientSettingsSection = "ema";
+export type ClientSettingsSection = "ema" | "cimd";
 
 export interface ClientSettingsFormProps {
   settings: ClientSettingsFormValues;
   expandedSections: ClientSettingsSection[];
   onExpandedSectionsChange: (sections: ClientSettingsSection[]) => void;
-  onSettingsChange: (settings: ClientSettingsFormValues) => void;
+  onSettingsChange: (
+    settings:
+      | ClientSettingsFormValues
+      | ((prev: ClientSettingsFormValues) => ClientSettingsFormValues),
+  ) => void;
   emaIdpLoginState?: EmaIdpLoginState;
   onEmaIdpLogout?: () => void;
+  /**
+   * Force all field errors to show, including required-but-blank fields (EMA's
+   * issuer/clientId, CIMD's metadata URL). The parent sets this when a
+   * save/close is attempted with an incomplete or invalid config, so nothing is
+   * silently dropped without explanation.
+   */
+  revealErrors?: boolean;
 }
 
 const HintText = Text.withProps({
@@ -38,12 +50,41 @@ export function ClientSettingsForm({
   onSettingsChange,
   emaIdpLoginState = "none",
   onEmaIdpLogout,
+  revealErrors = false,
 }: ClientSettingsFormProps) {
   function patch(partial: Partial<ClientSettingsFormValues>) {
-    onSettingsChange({ ...settings, ...partial });
+    onSettingsChange((prev) => ({ ...prev, ...partial }));
   }
 
-  const errors = validateClientSettings(settings);
+  // Defer the issuer error until the field has been blurred so it doesn't nag
+  // mid-typing (e.g. while "https:/…" is still incomplete). Once touched it
+  // updates live, so the error clears as soon as a valid URL is entered. The
+  // parent forces all errors on via `revealErrors` when a close/save is
+  // attempted with an incomplete or invalid config — including the
+  // required-but-blank fields, which inline validation otherwise leaves silent.
+  // The persist gate (canPersistClientSettingsDraft) validates independently, so
+  // an incomplete/invalid config is never written regardless of these flags.
+  const [issuerTouched, setIssuerTouched] = useState(false);
+  const [clientMetadataUrlTouched, setClientMetadataUrlTouched] =
+    useState(false);
+
+  // Inline errors flag only a filled-in-wrong field (issuer URL); the
+  // require-complete set adds the blank-required fields surfaced on reveal.
+  const inlineErrors = validateClientSettings(settings);
+  const revealedErrors = validateClientSettings(settings, {
+    requireComplete: true,
+  });
+  const showIssuerError = revealErrors
+    ? revealedErrors.issuer
+    : issuerTouched
+      ? inlineErrors.issuer
+      : undefined;
+  const showClientIdError = revealErrors ? revealedErrors.clientId : undefined;
+  const showClientMetadataUrlError = revealErrors
+    ? revealedErrors.clientMetadataUrl
+    : clientMetadataUrlTouched
+      ? inlineErrors.clientMetadataUrl
+      : undefined;
 
   const showIdpSession =
     settings.emaEnabled &&
@@ -82,7 +123,8 @@ export function ClientSettingsForm({
                   description="Your enterprise IdP issuer URL."
                   value={settings.issuer}
                   onChange={(e) => patch({ issuer: e.currentTarget.value })}
-                  error={errors.issuer}
+                  onBlur={() => setIssuerTouched(true)}
+                  error={showIssuerError}
                   rightSectionPointerEvents="auto"
                   rightSection={
                     settings.issuer ? (
@@ -95,6 +137,7 @@ export function ClientSettingsForm({
                   description="Client id registered with your enterprise IdP."
                   value={settings.clientId}
                   onChange={(e) => patch({ clientId: e.currentTarget.value })}
+                  error={showClientIdError}
                   rightSectionPointerEvents="auto"
                   rightSection={
                     settings.clientId ? (
@@ -170,6 +213,48 @@ export function ClientSettingsForm({
                     ) : null}
                   </Group>
                 )}
+              </>
+            )}
+          </Stack>
+        </Accordion.Panel>
+      </Accordion.Item>
+      <Accordion.Item value="cimd">
+        <Accordion.Control>OAuth Client ID Metadata Document</Accordion.Control>
+        <Accordion.Panel>
+          <Stack gap="md">
+            <Checkbox
+              label="Use Client ID Metadata Document"
+              description="When the authorization server supports CIMD, Inspector uses this metadata document URL as the client id. The server fetches and verifies the document during OAuth."
+              checked={settings.cimdEnabled}
+              onChange={(e) => patch({ cimdEnabled: e.currentTarget.checked })}
+            />
+            {settings.cimdEnabled && (
+              <>
+                <HintText>
+                  The metadata document must be served over HTTPS and list this
+                  redirect URI:{" "}
+                  {typeof window !== "undefined"
+                    ? `${window.location.origin}/oauth/callback`
+                    : "http://localhost:6274/oauth/callback"}
+                </HintText>
+                <TextInput
+                  label="Client ID metadata document URL"
+                  description="Public HTTPS URL of your OAuth client metadata JSON document."
+                  value={settings.clientMetadataUrl}
+                  onChange={(e) =>
+                    patch({ clientMetadataUrl: e.currentTarget.value })
+                  }
+                  onBlur={() => setClientMetadataUrlTouched(true)}
+                  error={showClientMetadataUrlError}
+                  rightSectionPointerEvents="auto"
+                  rightSection={
+                    settings.clientMetadataUrl ? (
+                      <ClearButton
+                        onClick={() => patch({ clientMetadataUrl: "" })}
+                      />
+                    ) : null
+                  }
+                />
               </>
             )}
           </Stack>
