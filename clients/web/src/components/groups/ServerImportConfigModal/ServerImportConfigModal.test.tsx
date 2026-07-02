@@ -94,14 +94,14 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("enables Import once a client is selected", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     setup();
     await user.selectOptions(screen.getByLabelText("Client"), "Cursor");
     expect(screen.getByRole("button", { name: "Import" })).toBeEnabled();
   });
 
   it("fetches a source and shows additions + conflicts in review", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const h = setup();
     await pickClientAndImport(user, "Cursor");
     await waitFor(() =>
@@ -114,7 +114,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("imports additions and skips conflicts by default", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const h = setup();
     await pickClientAndImport(user, "Cursor");
     await waitFor(() => screen.getByText("New servers (1)"));
@@ -136,7 +136,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("lets the user skip an individual new server", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     setup();
     await pickClientAndImport(user, "Cursor");
     await waitFor(() => screen.getByText("New servers (1)"));
@@ -150,7 +150,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("skips a deselected new server while still importing others", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const h = setup();
     await pickClientAndImport(user, "Cursor");
     await waitFor(() => screen.getByText("New servers (1)"));
@@ -171,7 +171,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("overwrites a conflict when chosen", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const h = setup();
     await pickClientAndImport(user, "Cursor");
     await waitFor(() => screen.getByText("Already exists (1)"));
@@ -185,7 +185,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("renames a conflict to the supplied id", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const h = setup();
     await pickClientAndImport(user, "Cursor");
     await waitFor(() => screen.getByText("Already exists (1)"));
@@ -204,7 +204,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("flags an invalid/colliding rename target and blocks import", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     setup();
     await pickClientAndImport(user, "Cursor");
     await waitFor(() => screen.getByText("Already exists (1)"));
@@ -240,7 +240,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("reports a per-server failure in the summary", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const h = setup();
     h.onAddServer.mockRejectedValueOnce(new Error("boom"));
     await pickClientAndImport(user, "Cursor");
@@ -253,7 +253,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("shows the searched-paths notice when no config is found", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     setup({
       type: "cursor",
       found: false,
@@ -266,7 +266,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("shows an error when the source has a parse error", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     setup({
       type: "cursor",
       found: true,
@@ -280,7 +280,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("shows an error when the fetch rejects", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     setup(new Error("network down"));
     await pickClientAndImport(user, "Cursor");
     await waitFor(() =>
@@ -289,7 +289,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("parses an uploaded file (mcpServers) into review", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     setup();
     const file = new File(
       [JSON.stringify({ mcpServers: { fromfile: { command: "x" } } })],
@@ -306,7 +306,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("parses an uploaded VS Code file (servers) into review", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     setup();
     const file = new File(
       [JSON.stringify({ servers: { vscodesrv: { command: "x" } } })],
@@ -323,7 +323,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("shows an error for an unparseable uploaded file", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     setup();
     const file = new File(["{not json"], "mcp.json", {
       type: "application/json",
@@ -338,7 +338,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("reports when the selected source has no servers", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     setup({
       type: "cursor",
       found: true,
@@ -352,7 +352,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("reflects the chosen client as the dropdown value", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     setup();
     // Selecting a client makes the dropdown's value non-empty (the truthy
     // branch of `vm.selectedType ?? ""`).
@@ -361,7 +361,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("resets the dropdown to no selection when the placeholder is re-chosen", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     setup();
     const dropdown = screen.getByLabelText("Client");
     await user.selectOptions(dropdown, "Cursor");
@@ -374,7 +374,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("renders a conflicts-only review without a new-servers section", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     // Every incoming server already exists → no additions, only conflicts (the
     // false branch of `plan.additions.length > 0`).
     setup(
@@ -395,7 +395,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("renders an additions-only review without a conflicts section", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     // No existing ids → every incoming server is a brand-new addition, so the
     // "Already exists" conflicts section never renders (the false branch of
     // `plan.conflicts.length > 0`).
@@ -415,7 +415,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("goes back from review to the source picker", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     setup();
     await pickClientAndImport(user, "Cursor");
     await waitFor(() => screen.getByText("New servers (1)"));
@@ -426,7 +426,7 @@ describe("ServerImportConfigModal", () => {
   });
 
   it("closes from the summary via Done", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const h = setup({
       type: "cursor",
       found: true,

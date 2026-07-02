@@ -114,7 +114,7 @@ describe("ServerImportJsonModal", () => {
   });
 
   it("builds the config with env overrides and calls onAddServer", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onAddServer = vi.fn().mockResolvedValue(undefined);
     const onClose = vi.fn();
     renderWithMantine(
@@ -142,7 +142,7 @@ describe("ServerImportJsonModal", () => {
   });
 
   it("honors a server name override", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onAddServer = vi.fn().mockResolvedValue(undefined);
     renderWithMantine(
       <ServerImportJsonModal
@@ -163,7 +163,7 @@ describe("ServerImportJsonModal", () => {
   });
 
   it("lets the user pick among multiple packages", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onAddServer = vi.fn().mockResolvedValue(undefined);
     renderWithMantine(
       <ServerImportJsonModal
@@ -182,7 +182,7 @@ describe("ServerImportJsonModal", () => {
   });
 
   it("surfaces an onAddServer rejection instead of closing", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onAddServer = vi.fn().mockRejectedValue(new Error("disk full"));
     const onClose = vi.fn();
     renderWithMantine(
@@ -241,7 +241,7 @@ describe("ServerImportJsonModal", () => {
   });
 
   it("loads server.json from a chosen file", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ServerImportJsonModal
         opened
@@ -284,7 +284,7 @@ describe("ServerImportJsonModal", () => {
   });
 
   it("re-opens File Contents when the textarea is cleared", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ServerImportJsonModal
         opened
@@ -301,7 +301,7 @@ describe("ServerImportJsonModal", () => {
   });
 
   it("rejects an invalid id override and blocks Add Server", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onAddServer = vi.fn();
     renderWithMantine(
       <ServerImportJsonModal
@@ -322,7 +322,7 @@ describe("ServerImportJsonModal", () => {
   });
 
   it("closes via the Escape key (no Cancel button)", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onClose = vi.fn();
     renderWithMantine(
       <ServerImportJsonModal
