@@ -230,6 +230,62 @@ export function resolveRef(
 }
 
 /**
+ * Merges allOf branches into a single flat schema for form rendering.
+ * Properties from all branches are combined, required arrays are unioned,
+ * and for other keywords the schema's own values win over branch values
+ * (earlier branches win over later ones).
+ * @param schema The schema that may contain allOf
+ * @param rootSchema The root schema to resolve $ref branches against
+ * @param visitedRefs Set of visited $ref paths to detect circular references
+ * @returns A flattened schema without allOf
+ */
+export function mergeAllOf(
+  schema: JsonSchemaType,
+  rootSchema: JsonSchemaType = schema,
+  visitedRefs: Set<string> = new Set(),
+): JsonSchemaType {
+  if (!Array.isArray(schema.allOf)) {
+    return schema;
+  }
+
+  const { allOf, ...base } = schema;
+  let merged: JsonSchemaType = base;
+
+  for (const branch of allOf) {
+    if (typeof branch !== "object" || branch === null) {
+      continue;
+    }
+    // Each branch gets its own copy so sibling branches can share refs
+    // while circular chains through nested allOf still terminate
+    const branchRefs = new Set(visitedRefs);
+    const resolvedBranch = resolveRef(branch, rootSchema, branchRefs);
+    if (resolvedBranch.$ref) {
+      continue;
+    }
+    const resolved = mergeAllOf(resolvedBranch, rootSchema, branchRefs);
+    const properties =
+      merged.properties || resolved.properties
+        ? { ...resolved.properties, ...merged.properties }
+        : undefined;
+    const required =
+      merged.required || resolved.required
+        ? Array.from(
+            new Set([...(merged.required ?? []), ...(resolved.required ?? [])]),
+          )
+        : undefined;
+    merged = { ...resolved, ...merged };
+    if (properties) {
+      merged.properties = properties;
+    }
+    if (required) {
+      merged.required = required;
+    }
+  }
+
+  return merged;
+}
+
+/**
  * Normalizes union types (like string|null from FastMCP) to simple types for form rendering
  * @param schema The JSON schema to normalize
  * @returns A normalized schema or the original schema

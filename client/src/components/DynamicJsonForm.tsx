@@ -2,6 +2,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
   forwardRef,
   useImperativeHandle,
@@ -10,7 +11,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import JsonEditor from "./JsonEditor";
 import { updateValueAtPath } from "@/utils/jsonUtils";
-import { generateDefaultValue } from "@/utils/schemaUtils";
+import {
+  generateDefaultValue,
+  mergeAllOf,
+  resolveRef,
+} from "@/utils/schemaUtils";
 import type {
   JsonValue,
   JsonSchemaType,
@@ -55,6 +60,44 @@ const isSimpleObject = (schema: JsonSchemaType): boolean => {
   return false;
 };
 
+// A oneOf whose members are full schemas is a variant union rendered with a
+// selector. oneOf members carrying const are titled enum options and keep
+// their existing select rendering, as do schemas that already render on
+// their own (a type other than a property-less object).
+const getVariantOptions = (schema: JsonSchemaType): JsonSchemaType[] | null => {
+  if (!schema.oneOf || schema.oneOf.length === 0) return null;
+  if (schema.oneOf.some((opt) => "const" in opt)) return null;
+  if (schema.type && !(schema.type === "object" && !schema.properties)) {
+    return null;
+  }
+  return schema.oneOf as JsonSchemaType[];
+};
+
+// Picks the variant whose properties best match the keys already present in
+// the value, so an existing value does not silently render the first variant
+const inferVariantIndex = (
+  variants: JsonSchemaType[],
+  value: JsonValue,
+): number | undefined => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const keys = Object.keys(value);
+  if (keys.length === 0) return undefined;
+
+  let bestIdx: number | undefined;
+  let bestScore = 0;
+  variants.forEach((variant, idx) => {
+    const props = variant.properties ?? {};
+    const score = keys.filter((key) => key in props).length;
+    if (score > bestScore) {
+      bestScore = score;
+      bestIdx = idx;
+    }
+  });
+  return bestIdx;
+};
+
 const getArrayItemDefault = (schema: JsonSchemaType): JsonValue => {
   if ("default" in schema && schema.default !== undefined) {
     return schema.default;
@@ -81,13 +124,19 @@ const getArrayItemDefault = (schema: JsonSchemaType): JsonValue => {
 
 const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
   ({ schema, value, onChange, maxDepth = 3 }, ref) => {
+    // Merge allOf branches up front so composed schemas render like flat ones
+    const resolvedSchema = useMemo(() => mergeAllOf(schema), [schema]);
+
     // Determine if we can render a form at the top level.
     // This is more permissive than isSimpleObject():
     // - Objects with any properties are form-capable (individual complex fields may still fallback to JSON)
     // - Arrays with defined items are form-capable
     // - Primitive types are form-capable
+    // - oneOf variant unions are form-capable via the variant selector
     const canRenderTopLevelForm = (s: JsonSchemaType): boolean => {
       const primitiveTypes = ["string", "number", "integer", "boolean", "null"];
+
+      if (getVariantOptions(s)) return true;
 
       const hasType = Array.isArray(s.type) ? s.type.length > 0 : !!s.type;
       if (!hasType) return false;
@@ -114,7 +163,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
       return false;
     };
 
-    const isOnlyJSON = !canRenderTopLevelForm(schema);
+    const isOnlyJSON = !canRenderTopLevelForm(resolvedSchema);
     const [isJsonMode, setIsJsonMode] = useState(isOnlyJSON);
     const [jsonError, setJsonError] = useState<string>();
     const [copiedJson, setCopiedJson] = useState<boolean>(false);
@@ -123,10 +172,13 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
     // Store the raw JSON string to allow immediate feedback during typing
     // while deferring parsing until the user stops typing
     const [rawJsonValue, setRawJsonValue] = useState<string>(
-      JSON.stringify(value ?? generateDefaultValue(schema), null, 2),
+      JSON.stringify(value ?? generateDefaultValue(resolvedSchema), null, 2),
     );
     const [numericInputDrafts, setNumericInputDrafts] = useState<
       Record<string, string>
+    >({});
+    const [variantSelections, setVariantSelections] = useState<
+      Record<string, number>
     >({});
 
     // Use a ref to manage debouncing timeouts to avoid parsing JSON
@@ -191,22 +243,26 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
             // Reset to default for clearly invalid JSON (not just incomplete typing)
             const trimmed = jsonString?.trim();
             if (trimmed && trimmed.length > 5 && !trimmed.match(/^[\s[{]/)) {
-              onChange(generateDefaultValue(schema));
+              onChange(generateDefaultValue(resolvedSchema));
             }
           }
         }, 300);
       },
-      [onChange, setJsonError, schema],
+      [onChange, setJsonError, resolvedSchema],
     );
 
     // Update rawJsonValue when value prop changes
     useEffect(() => {
       if (!isJsonMode) {
         setRawJsonValue(
-          JSON.stringify(value ?? generateDefaultValue(schema), null, 2),
+          JSON.stringify(
+            value ?? generateDefaultValue(resolvedSchema),
+            null,
+            2,
+          ),
         );
       }
-    }, [value, schema, isJsonMode]);
+    }, [value, resolvedSchema, isJsonMode]);
 
     const handleSwitchToFormMode = () => {
       if (isJsonMode) {
@@ -223,7 +279,11 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
       } else {
         // Update raw JSON value when switching to JSON mode
         setRawJsonValue(
-          JSON.stringify(value ?? generateDefaultValue(schema), null, 2),
+          JSON.stringify(
+            value ?? generateDefaultValue(resolvedSchema),
+            null,
+            2,
+          ),
         );
         setIsJsonMode(true);
       }
@@ -302,7 +362,81 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
       depth: number = 0,
       parentSchema?: JsonSchemaType,
       propertyName?: string,
+      variantDepth: number = 0,
     ) => {
+      if (propSchema.allOf) {
+        propSchema = mergeAllOf(propSchema, resolvedSchema);
+      }
+
+      const variants = getVariantOptions(propSchema);
+      if (variants) {
+        // variantDepth keeps directly nested selectors (a variant that is
+        // itself a oneOf) from sharing one state slot at the same path
+        const selectorKey = `${variantDepth}:${getPathKey(path)}`;
+        const selectedIdx = Math.min(
+          variantSelections[selectorKey] ??
+            inferVariantIndex(variants, currentValue) ??
+            0,
+          variants.length - 1,
+        );
+        const resolveVariant = (idx: number): JsonSchemaType => {
+          const variant = mergeAllOf(
+            resolveRef(variants[idx] ?? {}, resolvedSchema),
+            resolvedSchema,
+          );
+          // properties without an explicit type is a common object shorthand
+          if (!variant.type && variant.properties) {
+            return { ...variant, type: "object" };
+          }
+          return variant;
+        };
+        return (
+          <div className="space-y-2">
+            {propSchema.description && (
+              <p className="text-sm text-gray-600">{propSchema.description}</p>
+            )}
+            <select
+              value={selectedIdx}
+              onChange={(e) => {
+                const idx = Number(e.target.value);
+                setVariantSelections((prev) => ({
+                  ...prev,
+                  [selectorKey]: idx,
+                }));
+                // Values from another variant rarely validate, so reset
+                handleFieldChange(
+                  path,
+                  generateDefaultValue(
+                    resolveVariant(idx),
+                    propertyName,
+                    parentSchema,
+                  ),
+                );
+              }}
+              aria-label={
+                propertyName ? `Select ${propertyName} option` : "Select option"
+              }
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+            >
+              {variants.map((option, idx) => (
+                <option key={idx} value={idx}>
+                  {option.title ?? `Option ${idx + 1}`}
+                </option>
+              ))}
+            </select>
+            {renderFormFields(
+              resolveVariant(selectedIdx),
+              currentValue,
+              path,
+              depth,
+              parentSchema,
+              propertyName,
+              variantDepth + 1,
+            )}
+          </div>
+        );
+      }
+
       if (
         depth >= maxDepth &&
         (propSchema.type === "object" || propSchema.type === "array")
@@ -347,8 +481,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
           // Titled single-select using oneOf/anyOf with const/title pairs
           const titledOptions = (
             (propSchema.oneOf ?? propSchema.anyOf) as
-              | (JsonSchemaType | JsonSchemaConst)[]
-              | undefined
+              (JsonSchemaType | JsonSchemaConst)[] | undefined
           )?.filter((opt): opt is JsonSchemaConst => "const" in opt);
 
           if (titledOptions && titledOptions.length > 0) {
@@ -606,8 +739,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
 
           const titledMulti = (
             (itemSchema.anyOf ?? itemSchema.oneOf) as
-              | (JsonSchemaType | JsonSchemaConst)[]
-              | undefined
+              (JsonSchemaType | JsonSchemaConst)[] | undefined
           )?.filter((opt): opt is JsonSchemaConst => "const" in opt);
 
           if (titledMulti && titledMulti.length > 0) {
@@ -766,8 +898,10 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
     };
 
     const shouldUseJsonMode =
-      schema.type === "object" &&
-      (!schema.properties || Object.keys(schema.properties).length === 0);
+      resolvedSchema.type === "object" &&
+      (!resolvedSchema.properties ||
+        Object.keys(resolvedSchema.properties).length === 0) &&
+      !getVariantOptions(resolvedSchema);
 
     useEffect(() => {
       if (shouldUseJsonMode && !isJsonMode) {
@@ -825,11 +959,11 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
               debouncedUpdateParent(newValue);
             }}
             error={jsonError}
-            placeholder={schema.description}
+            placeholder={resolvedSchema.description}
           />
         ) : // If schema type is object but value is not an object or is empty, and we have actual JSON data,
         // render a simple representation of the JSON data
-        schema.type === "object" &&
+        resolvedSchema.type === "object" &&
           (typeof value !== "object" ||
             value === null ||
             Object.keys(value).length === 0) &&
@@ -848,7 +982,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
             </p>
           </div>
         ) : (
-          renderFormFields(schema, value)
+          renderFormFields(resolvedSchema, value)
         )}
       </div>
     );

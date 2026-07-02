@@ -51,6 +51,7 @@ export type JsonSchemaType = {
   // Non-standard legacy support: titles for enum values
   enumNames?: string[];
   const?: JsonValue;
+  allOf?: JsonSchemaType[];
   oneOf?: (JsonSchemaType | JsonSchemaConst)[];
   anyOf?: (JsonSchemaType | JsonSchemaConst)[];
   $ref?: string;

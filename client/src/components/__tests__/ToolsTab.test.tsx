@@ -215,6 +215,117 @@ describe("ToolsTab", () => {
     );
   });
 
+  it("should render fields for a tool whose inputSchema uses allOf", async () => {
+    const allOfTool: Tool = {
+      name: "allOfTool",
+      description: "Tool with allOf schema",
+      inputSchema: {
+        type: "object" as const,
+        required: ["operation"],
+        allOf: [
+          {
+            properties: {
+              operation: { type: "string" as const },
+              count: { type: "number" as const },
+            },
+            required: ["count"],
+          },
+        ],
+      } as Tool["inputSchema"],
+    };
+    renderToolsTab({ tools: [allOfTool], selectedTool: allOfTool });
+
+    expect(screen.getByText("operation")).toBeInTheDocument();
+    expect(screen.getByText("count")).toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton")).toBeInTheDocument();
+    // required merges from both the schema and its allOf branch
+    expect(screen.getAllByText("*")).toHaveLength(2);
+  });
+
+  it("should render a variant selector for a oneOf property", async () => {
+    const oneOfTool: Tool = {
+      name: "oneOfTool",
+      description: "Tool with oneOf property",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          target: {
+            oneOf: [
+              {
+                title: "By id",
+                type: "object",
+                properties: { id: { type: "string" } },
+              },
+              {
+                title: "By name",
+                type: "object",
+                properties: { name: { type: "string" } },
+              },
+            ],
+          },
+        },
+      } as Tool["inputSchema"],
+    };
+    renderToolsTab({ tools: [oneOfTool], selectedTool: oneOfTool });
+
+    const options = screen.getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["By id", "By name"]);
+    expect(screen.getByText("id")).toBeInTheDocument();
+  });
+
+  it("should not leak variant selection between tools sharing a property name", async () => {
+    const makeTool = (name: string, titles: [string, string]): Tool => ({
+      name,
+      description: `${name} description`,
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          config: {
+            oneOf: [
+              {
+                title: titles[0],
+                type: "object",
+                properties: { a: { type: "string" } },
+              },
+              {
+                title: titles[1],
+                type: "object",
+                properties: { b: { type: "string" } },
+              },
+            ],
+          },
+        },
+      } as Tool["inputSchema"],
+    });
+    const toolOne = makeTool("toolOne", ["One A", "One B"]);
+    const toolTwo = makeTool("toolTwo", ["Two A", "Two B"]);
+
+    const { rerender } = renderToolsTab({
+      tools: [toolOne, toolTwo],
+      selectedTool: toolOne,
+    });
+
+    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    await act(async () => {
+      fireEvent.change(select, { target: { value: "1" } });
+    });
+    expect(select.value).toBe("1");
+
+    rerender(
+      <Tabs defaultValue="tools">
+        <ToolsTab
+          {...defaultProps}
+          tools={[toolOne, toolTwo]}
+          selectedTool={toolTwo}
+        />
+      </Tabs>,
+    );
+
+    const newSelect = screen.getByRole("combobox") as HTMLSelectElement;
+    expect(newSelect.value).toBe("0");
+  });
+
   it("should allow typing negative numbers", async () => {
     renderToolsTab({
       selectedTool: mockTools[0],

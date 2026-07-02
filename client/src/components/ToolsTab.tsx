@@ -17,6 +17,7 @@ import type { JsonValue, JsonSchemaType } from "@/utils/jsonUtils";
 import {
   generateDefaultValue,
   isPropertyRequired,
+  mergeAllOf,
   normalizeUnionType,
   resolveRef,
 } from "@/utils/schemaUtils";
@@ -225,23 +226,27 @@ const ToolsTab = ({
   };
 
   useEffect(() => {
-    const params = Object.entries(
-      selectedTool?.inputSchema.properties ?? [],
-    ).map(([key, value]) => {
-      // First resolve any $ref references
-      const resolvedValue = resolveRef(
-        value as JsonSchemaType,
-        selectedTool?.inputSchema as JsonSchemaType,
-      );
-      return [
-        key,
-        generateDefaultValue(
-          resolvedValue,
+    // Merge allOf branches so composed schemas expose their properties
+    const inputSchema = selectedTool
+      ? mergeAllOf(selectedTool.inputSchema as JsonSchemaType)
+      : undefined;
+    const params = Object.entries(inputSchema?.properties ?? []).map(
+      ([key, value]) => {
+        // First resolve any $ref references
+        const resolvedValue = resolveRef(
+          value as JsonSchemaType,
+          inputSchema as JsonSchemaType,
+        );
+        return [
           key,
-          selectedTool?.inputSchema as JsonSchemaType,
-        ),
-      ];
-    });
+          generateDefaultValue(
+            mergeAllOf(resolvedValue, inputSchema),
+            key,
+            inputSchema as JsonSchemaType,
+          ),
+        ];
+      },
+    );
     setParams(Object.fromEntries(params));
     const toolTaskSupport = serverSupportsTaskRequests
       ? getTaskSupport(selectedTool)
@@ -273,6 +278,11 @@ const ToolsTab = ({
   const taskSupport = serverSupportsTaskRequests
     ? getTaskSupport(selectedTool)
     : "forbidden";
+
+  // Merge allOf branches so composed schemas expose their properties
+  const inputSchema = selectedTool
+    ? mergeAllOf(selectedTool.inputSchema as JsonSchemaType)
+    : undefined;
 
   return (
     <TabsContent value="tools">
@@ -343,19 +353,24 @@ const ToolsTab = ({
                       : undefined
                   }
                 />
-                {Object.entries(selectedTool.inputSchema.properties ?? []).map(
+                {Object.entries(inputSchema?.properties ?? []).map(
                   ([key, value]) => {
                     // First resolve any $ref references
                     const resolvedValue = resolveRef(
                       value as JsonSchemaType,
-                      selectedTool.inputSchema as JsonSchemaType,
+                      inputSchema as JsonSchemaType,
                     );
-                    const prop = normalizeUnionType(resolvedValue);
-                    const inputSchema =
-                      selectedTool.inputSchema as JsonSchemaType;
-                    const required = isPropertyRequired(key, inputSchema);
+                    const prop = normalizeUnionType(
+                      mergeAllOf(resolvedValue, inputSchema),
+                    );
+                    const required = isPropertyRequired(
+                      key,
+                      inputSchema as JsonSchemaType,
+                    );
+                    // Key by tool too, so form state never leaks between
+                    // tools that share a property name
                     return (
-                      <div key={key}>
+                      <div key={`${selectedTool.name}-${key}`}>
                         <div className="flex justify-between">
                           <Label
                             htmlFor={key}
@@ -500,6 +515,8 @@ const ToolsTab = ({
                                   properties: prop.properties,
                                   description: prop.description,
                                   items: prop.items,
+                                  required: prop.required,
+                                  oneOf: prop.oneOf,
                                 }}
                                 value={
                                   (params[key] as JsonValue) ??
@@ -563,6 +580,8 @@ const ToolsTab = ({
                                   properties: prop.properties,
                                   description: prop.description,
                                   items: prop.items,
+                                  required: prop.required,
+                                  oneOf: prop.oneOf,
                                 }}
                                 value={params[key] as JsonValue}
                                 onChange={(newValue: JsonValue) => {

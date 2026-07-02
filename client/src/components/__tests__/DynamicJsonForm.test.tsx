@@ -994,3 +994,228 @@ describe("DynamicJsonForm Validation Functionality", () => {
     });
   });
 });
+
+describe("DynamicJsonForm allOf Fields", () => {
+  it("should render form fields for an allOf composed object schema", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      allOf: [
+        { properties: { name: { type: "string" } }, required: ["name"] },
+        { properties: { count: { type: "integer" } } },
+      ],
+    };
+    render(<DynamicJsonForm schema={schema} value={{}} onChange={jest.fn()} />);
+
+    expect(screen.getByText("name")).toBeInTheDocument();
+    expect(screen.getByText("count")).toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton")).toBeInTheDocument();
+  });
+
+  it("should update values for fields merged from allOf branches", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      allOf: [{ properties: { name: { type: "string" } }, required: ["name"] }],
+    };
+    const onChange = jest.fn();
+    render(<DynamicJsonForm schema={schema} value={{}} onChange={onChange} />);
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "hello" },
+    });
+
+    expect(onChange).toHaveBeenCalledWith({ name: "hello" });
+  });
+
+  it("should render nested allOf property schemas as forms", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      properties: {
+        config: {
+          allOf: [
+            {
+              type: "object",
+              properties: { mode: { type: "string" } },
+              required: ["mode"],
+            },
+          ],
+        },
+      },
+    };
+    render(<DynamicJsonForm schema={schema} value={{}} onChange={jest.fn()} />);
+
+    expect(screen.getByText("config")).toBeInTheDocument();
+    expect(screen.getByText("mode")).toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+  });
+});
+
+describe("DynamicJsonForm oneOf Variant Fields", () => {
+  const variantSchema: JsonSchemaType = {
+    oneOf: [
+      {
+        title: "Email",
+        type: "object",
+        properties: { email: { type: "string" } },
+        required: ["email"],
+      },
+      {
+        title: "Phone",
+        type: "object",
+        properties: { phone: { type: "string" } },
+        required: ["phone"],
+      },
+    ],
+  };
+
+  it("should render a selector listing each variant by title", () => {
+    render(
+      <DynamicJsonForm
+        schema={variantSchema}
+        value={{}}
+        onChange={jest.fn()}
+      />,
+    );
+
+    const options = screen.getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["Email", "Phone"]);
+  });
+
+  it("should render the first variant's fields by default", () => {
+    render(
+      <DynamicJsonForm
+        schema={variantSchema}
+        value={{}}
+        onChange={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText("email")).toBeInTheDocument();
+    expect(screen.queryByText("phone")).not.toBeInTheDocument();
+  });
+
+  it("should switch fields and reset the value when another variant is selected", () => {
+    const onChange = jest.fn();
+    render(
+      <DynamicJsonForm schema={variantSchema} value={{}} onChange={onChange} />,
+    );
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "1" } });
+
+    expect(screen.getByText("phone")).toBeInTheDocument();
+    expect(screen.queryByText("email")).not.toBeInTheDocument();
+    expect(onChange).toHaveBeenCalledWith({ phone: "" });
+  });
+
+  it("should label untitled variants by position", () => {
+    const schema: JsonSchemaType = {
+      oneOf: [
+        { type: "object", properties: { a: { type: "string" } } },
+        { type: "object", properties: { b: { type: "string" } } },
+      ],
+    };
+    render(<DynamicJsonForm schema={schema} value={{}} onChange={jest.fn()} />);
+
+    const options = screen.getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["Option 1", "Option 2"]);
+  });
+
+  it("should render a variant selector for oneOf nested in a property", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      properties: {
+        contact: variantSchema,
+      },
+    };
+    render(<DynamicJsonForm schema={schema} value={{}} onChange={jest.fn()} />);
+
+    expect(screen.getByText("contact")).toBeInTheDocument();
+    const options = screen.getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["Email", "Phone"]);
+  });
+});
+
+describe("DynamicJsonForm oneOf Variant Edge Cases", () => {
+  const variantSchema: JsonSchemaType = {
+    oneOf: [
+      {
+        title: "Email",
+        type: "object",
+        properties: { email: { type: "string" } },
+        required: ["email"],
+      },
+      {
+        title: "Phone",
+        type: "object",
+        properties: { phone: { type: "string" } },
+        required: ["phone"],
+      },
+    ],
+  };
+
+  it("should render fields for variants that omit type but define properties", () => {
+    const schema: JsonSchemaType = {
+      oneOf: [
+        { title: "A", properties: { alpha: { type: "string" } } },
+        { title: "B", properties: { beta: { type: "string" } } },
+      ],
+    };
+    render(<DynamicJsonForm schema={schema} value={{}} onChange={jest.fn()} />);
+
+    expect(screen.getByText("alpha")).toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+  });
+
+  it("should open on the variant matching the existing value", () => {
+    render(
+      <DynamicJsonForm
+        schema={variantSchema}
+        value={{ phone: "555-1234" }}
+        onChange={jest.fn()}
+      />,
+    );
+
+    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    expect(select.value).toBe("1");
+    expect(screen.getByText("phone")).toBeInTheDocument();
+    expect(screen.queryByText("email")).not.toBeInTheDocument();
+  });
+
+  it("should keep directly nested variant selectors independent", () => {
+    const schema: JsonSchemaType = {
+      oneOf: [
+        {
+          title: "Composite",
+          oneOf: [
+            {
+              title: "Inner A",
+              type: "object",
+              properties: { a: { type: "string" } },
+            },
+            {
+              title: "Inner B",
+              type: "object",
+              properties: { b: { type: "string" } },
+            },
+          ],
+        },
+        {
+          title: "Simple",
+          type: "object",
+          properties: { s: { type: "string" } },
+        },
+      ],
+    };
+    render(<DynamicJsonForm schema={schema} value={{}} onChange={jest.fn()} />);
+
+    const selects = screen.getAllByRole("combobox") as HTMLSelectElement[];
+    expect(selects).toHaveLength(2);
+
+    fireEvent.change(selects[1], { target: { value: "1" } });
+
+    const updated = screen.getAllByRole("combobox") as HTMLSelectElement[];
+    expect(updated[0].value).toBe("0");
+    expect(updated[1].value).toBe("1");
+    expect(screen.getByText("b")).toBeInTheDocument();
+  });
+});

@@ -1,6 +1,7 @@
 import {
   generateDefaultValue,
   formatFieldLabel,
+  mergeAllOf,
   normalizeUnionType,
   cacheToolOutputSchemas,
   getToolOutputValidator,
@@ -600,5 +601,138 @@ describe("Output Schema Validation", () => {
     test("returns false for non-existent tools", () => {
       expect(hasOutputSchema("nonExistentTool")).toBe(false);
     });
+  });
+});
+
+describe("mergeAllOf", () => {
+  test("returns a schema without allOf unchanged", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      properties: { name: { type: "string" } },
+    };
+    expect(mergeAllOf(schema)).toBe(schema);
+  });
+
+  test("merges properties and required from an allOf branch", () => {
+    // Shape from issue #496: properties live only inside allOf
+    const schema: JsonSchemaType = {
+      type: "object",
+      required: ["operation"],
+      allOf: [
+        {
+          properties: {
+            operation: { type: "string" },
+            verbose: { type: "boolean" },
+          },
+          required: ["verbose"],
+        },
+      ],
+    };
+
+    const merged = mergeAllOf(schema);
+
+    expect(merged.allOf).toBeUndefined();
+    expect(merged.type).toBe("object");
+    expect(Object.keys(merged.properties ?? {}).sort()).toEqual([
+      "operation",
+      "verbose",
+    ]);
+    expect(merged.required).toEqual(
+      expect.arrayContaining(["operation", "verbose"]),
+    );
+  });
+
+  test("combines properties across multiple branches", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      allOf: [
+        { properties: { first: { type: "string" } }, required: ["first"] },
+        { properties: { second: { type: "number" } }, required: ["second"] },
+      ],
+    };
+
+    const merged = mergeAllOf(schema);
+
+    expect(Object.keys(merged.properties ?? {}).sort()).toEqual([
+      "first",
+      "second",
+    ]);
+    expect(merged.required?.sort()).toEqual(["first", "second"]);
+  });
+
+  test("keeps the schema's own keywords over branch values", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      description: "own description",
+      allOf: [{ type: "string", description: "branch description" }],
+    };
+
+    const merged = mergeAllOf(schema);
+
+    expect(merged.type).toBe("object");
+    expect(merged.description).toBe("own description");
+  });
+
+  test("flattens allOf nested inside a branch", () => {
+    const schema: JsonSchemaType = {
+      type: "object",
+      allOf: [{ allOf: [{ properties: { inner: { type: "string" } } }] }],
+    };
+
+    expect(mergeAllOf(schema).properties).toHaveProperty("inner");
+  });
+
+  test("resolves $ref branches against the root schema", () => {
+    const schema = {
+      type: "object",
+      allOf: [{ $ref: "#/$defs/base" }],
+      $defs: {
+        base: {
+          properties: { name: { type: "string" } },
+          required: ["name"],
+        },
+      },
+    } as JsonSchemaType;
+
+    const merged = mergeAllOf(schema);
+
+    expect(merged.properties).toHaveProperty("name");
+    expect(merged.required).toEqual(["name"]);
+  });
+});
+
+describe("mergeAllOf circular references", () => {
+  test("does not recurse forever on circular $ref chains in allOf", () => {
+    const schema = {
+      type: "object",
+      allOf: [{ $ref: "#/$defs/a" }],
+      $defs: {
+        a: {
+          properties: { fromA: { type: "string" } },
+          allOf: [{ $ref: "#/$defs/b" }],
+        },
+        b: {
+          properties: { fromB: { type: "string" } },
+          allOf: [{ $ref: "#/$defs/a" }],
+        },
+      },
+    } as JsonSchemaType;
+
+    const merged = mergeAllOf(schema);
+
+    expect(merged.properties).toHaveProperty("fromA");
+    expect(merged.properties).toHaveProperty("fromB");
+  });
+
+  test("allows sibling branches to reference the same definition", () => {
+    const schema = {
+      type: "object",
+      allOf: [{ $ref: "#/$defs/shared" }, { $ref: "#/$defs/shared" }],
+      $defs: {
+        shared: { properties: { common: { type: "string" } } },
+      },
+    } as JsonSchemaType;
+
+    expect(mergeAllOf(schema).properties).toHaveProperty("common");
   });
 });
