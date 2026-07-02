@@ -25,18 +25,27 @@ jobs:
       - name: Validate (format, lint, build, fast tests)
         # Each client self-validates: format:check + lint + build + test (no
         # coverage instrumentation — fast). This also builds every client bundle
-        # (web dist, cli/tui/launcher) that the smokes below need. The per-file
-        # coverage gate (`npm run coverage`) is intentionally NOT run in CI — run
-        # it locally before pushing when you want the gate (#1484).
+        # (web dist, cli/tui/launcher) that the smokes below need. The heavier
+        # per-file coverage gate runs in its own step below. Unit tests run in
+        # both steps (fast here, instrumented under coverage); the double unit
+        # run is an accepted trade-off for keeping this fast build step intact.
+        # A future optimization could split coverage into per-client parallel
+        # jobs, but that's a larger restructure and deliberately out of scope.
         run: npm run validate
 
-      - name: Run web integration tests
-        # `validate` runs the web UNIT project only (fast); the integration
-        # project (real stdio/HTTP servers, e2e OAuth, filesystem storage) is
-        # otherwise only reached via test:coverage. Run it here without coverage
-        # so CI still exercises those paths even though the gate is local-only.
-        working-directory: ./clients/web
-        run: npm run test:integration
+      - name: Enforce per-file coverage gate (≥90% on all four dimensions)
+        # CI-ENFORCED coverage gate (#1550): runs `npm run coverage`, which
+        # chains every client's `test:coverage` (v8-instrumented) and fails the
+        # job if ANY file drops below 90% on lines, statements, functions, or
+        # branches. This is the whole point of the step — a PR that regresses
+        # coverage below the threshold now blocks merge instead of relying on a
+        # contributor remembering to run the gate locally.
+        #
+        # This also covers the web integration project: web's `test:coverage`
+        # runs `--project=unit --project=integration --coverage`, so the former
+        # standalone `Run web integration tests` step was removed to avoid
+        # running the integration suite twice.
+        run: npm run coverage
 
       - name: Run cross-client smokes
         # End-to-end smokes through the built launcher (--help dispatch + prod
