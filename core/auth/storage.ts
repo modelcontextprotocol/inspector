@@ -22,6 +22,12 @@ export interface SaveClientInformationOptions {
 
 export interface OAuthStorage {
   /**
+   * Resolves once any async hydration of the underlying store has completed.
+   * With a synchronous storage adapter this resolves immediately.
+   */
+  ready(): Promise<void>;
+
+  /**
    * Get client information (preregistered or dynamically registered)
    */
   getClientInformation(
@@ -78,9 +84,13 @@ export interface OAuthStorage {
   clearTokens(serverUrl: string): void;
 
   /**
-   * Get code verifier (for PKCE)
+   * Get code verifier (for PKCE).
+   *
+   * Async because the backend-backed store may still be hydrating when this is
+   * read on the post-redirect OAuth callback path; the implementation awaits
+   * hydration before reading.
    */
-  getCodeVerifier(serverUrl: string): string | undefined;
+  getCodeVerifier(serverUrl: string): Promise<string | undefined>;
 
   /**
    * Save code verifier (for PKCE)
@@ -108,9 +118,13 @@ export interface OAuthStorage {
   clearScope(serverUrl: string): void;
 
   /**
-   * Get server metadata discovered during OAuth
+   * Get server metadata discovered during OAuth.
+   *
+   * Async because the backend-backed store may still be hydrating when this is
+   * read on the post-redirect OAuth callback path; the implementation awaits
+   * hydration before reading.
    */
-  getServerMetadata(serverUrl: string): OAuthMetadata | null;
+  getServerMetadata(serverUrl: string): Promise<OAuthMetadata | null>;
 
   /**
    * Save server metadata discovered during OAuth

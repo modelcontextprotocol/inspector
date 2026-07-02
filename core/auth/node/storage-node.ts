@@ -10,11 +10,17 @@ import {
 const DEFAULT_STATE_PATH = getStoreFilePath(getDefaultStorageDir(), "oauth");
 
 /**
- * Get path to OAuth state file.
- * @param customPath - Optional custom path (full path to state file). Default: ~/.mcp-inspector/storage/oauth.json
+ * Get path to OAuth state file. Resolution order: explicit `customPath`, then
+ * the `MCP_INSPECTOR_OAUTH_STATE_PATH` environment variable (so tests and
+ * scripted runs can point at an isolated fixture without touching
+ * `~/.mcp-inspector`), then the default `~/.mcp-inspector/storage/oauth.json`.
  */
 export function getStateFilePath(customPath?: string): string {
-  return customPath ?? DEFAULT_STATE_PATH;
+  return (
+    customPath ??
+    process.env.MCP_INSPECTOR_OAUTH_STATE_PATH ??
+    DEFAULT_STATE_PATH
+  );
 }
 
 const storeCache = new Map<string, ReturnType<typeof createOAuthStore>>();

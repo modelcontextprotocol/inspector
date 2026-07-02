@@ -35,7 +35,7 @@ async function resolveIdpMetadata(
   fetchFn?: typeof fetch,
 ): Promise<OAuthMetadata> {
   const storageKey = idpOAuthStorageKey(issuer);
-  const cached = storage.getServerMetadata(storageKey);
+  const cached = await storage.getServerMetadata(storageKey);
   if (cached?.token_endpoint) {
     return cached;
   }
@@ -101,7 +101,7 @@ export async function completeIdpOidcAuthorization(params: {
 }> {
   const issuer = normalizeIdpIssuer(params.idp.issuer);
   const storageKey = idpOAuthStorageKey(issuer);
-  const metadata = params.storage.getServerMetadata(storageKey);
+  const metadata = await params.storage.getServerMetadata(storageKey);
   if (!metadata) {
     throw new Error("IdP OAuth metadata not found — restart EMA IdP login");
   }
@@ -111,7 +111,7 @@ export async function completeIdpOidcAuthorization(params: {
   if (!clientInformation) {
     throw new Error("IdP client information not found — restart EMA IdP login");
   }
-  const codeVerifier = params.storage.getCodeVerifier(storageKey);
+  const codeVerifier = await params.storage.getCodeVerifier(storageKey);
   if (!codeVerifier) {
     throw new Error("IdP PKCE verifier not found — restart EMA IdP login");
   }

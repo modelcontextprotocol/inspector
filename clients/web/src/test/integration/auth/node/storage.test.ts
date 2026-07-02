@@ -4,6 +4,7 @@ import {
   getOAuthStore,
   clearAllOAuthClientState,
 } from "@inspector/core/auth/node/storage-node.js";
+import { normalizeServerUrl } from "@inspector/core/auth/store.js";
 import type {
   OAuthClientInformation,
   OAuthTokens,
@@ -341,9 +342,9 @@ describe("NodeOAuthStorage", () => {
 
     it("clearCodeVerifier removes only the PKCE verifier", async () => {
       await storage.saveCodeVerifier(testServerUrl, "verifier");
-      expect(storage.getCodeVerifier(testServerUrl)).toBe("verifier");
+      expect(await storage.getCodeVerifier(testServerUrl)).toBe("verifier");
       storage.clearCodeVerifier(testServerUrl);
-      expect(storage.getCodeVerifier(testServerUrl)).toBeUndefined();
+      expect(await storage.getCodeVerifier(testServerUrl)).toBeUndefined();
     });
 
     it("clearScope removes only the scope", async () => {
@@ -361,9 +362,9 @@ describe("NodeOAuthStorage", () => {
         response_types_supported: ["code"],
       };
       await storage.saveServerMetadata(testServerUrl, metadata);
-      expect(storage.getServerMetadata(testServerUrl)).toEqual(metadata);
+      expect(await storage.getServerMetadata(testServerUrl)).toEqual(metadata);
       storage.clearServerMetadata(testServerUrl);
-      expect(storage.getServerMetadata(testServerUrl)).toBeNull();
+      expect(await storage.getServerMetadata(testServerUrl)).toBeNull();
     });
   });
 
@@ -505,9 +506,9 @@ describe("OAuth Store (Zustand)", () => {
       const parsed = JSON.parse(
         await fs.readFile(persistTestPath, "utf-8"),
       ) as StateShape;
-      expect(parsed.state.servers[serverUrl]?.clientInformation).toEqual(
-        clientInfo,
-      );
+      expect(
+        parsed.state.servers[normalizeServerUrl(serverUrl)]?.clientInformation,
+      ).toEqual(clientInfo);
     } finally {
       try {
         await fs.unlink(persistTestPath);
@@ -582,9 +583,10 @@ describe("NodeOAuthStorage with custom storagePath", () => {
         await fs.readFile(customPath, "utf-8"),
       ) as StateShape;
 
-      expect(parsed.state.servers[testServerUrl]?.tokens?.access_token).toBe(
-        tokens.access_token,
-      );
+      expect(
+        parsed.state.servers[normalizeServerUrl(testServerUrl)]?.tokens
+          ?.access_token,
+      ).toBe(tokens.access_token);
 
       const stored = await storage.getTokens(testServerUrl);
       expect(stored?.access_token).toBe(tokens.access_token);
@@ -635,7 +637,13 @@ describe("NodeOAuthStorage with custom storagePath", () => {
     );
 
     try {
+      // The store is created with skipHydration: true; OAuthStorageBase
+      // normally drives rehydrate(), but this test writes via the raw store
+      // so hydrate it explicitly first (otherwise the later `new
+      // NodeOAuthStorage()` wrapper would drive the first rehydrate and clobber
+      // these unpersisted in-memory writes).
       const defaultStore = getOAuthStore();
+      await defaultStore.persist.rehydrate();
       defaultStore.getState().setServerState(testServerUrl, {
         tokens: {
           access_token: "default-token",

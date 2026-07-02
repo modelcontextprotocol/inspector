@@ -11,7 +11,10 @@ import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import { createFileStorageAdapter } from "@inspector/core/storage/adapters/file-storage.js";
 import { createRemoteStorageAdapter } from "@inspector/core/storage/adapters/remote-storage.js";
-import { createOAuthStore } from "@inspector/core/auth/store.js";
+import {
+  createOAuthStore,
+  normalizeServerUrl,
+} from "@inspector/core/auth/store.js";
 import { createRemoteApp } from "@inspector/core/mcp/remote/node/server.js";
 import {
   writeStoreFile,
@@ -90,13 +93,46 @@ describe("Storage adapters", () => {
     });
 
     it("setItem throws when the POST fails", async () => {
+      // The adapter logs the swallowed-persist failure via console.error before
+      // rethrowing; suppress the expected noise.
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const fetchFn = vi
+          .fn<typeof fetch>()
+          .mockResolvedValueOnce(new Response("nope", { status: 500 }));
+        const adapter = makeAdapter(fetchFn as typeof fetch);
+        await expect(
+          adapter.setItem("name", { state: { a: 1 }, version: 0 }),
+        ).rejects.toThrow(/500/);
+        expect(errorSpy).toHaveBeenCalled();
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
+
+    it("setItem sends keepalive so the POST survives an immediate redirect", async () => {
       const fetchFn = vi
         .fn<typeof fetch>()
-        .mockResolvedValueOnce(new Response("nope", { status: 500 }));
+        .mockResolvedValueOnce(new Response("{}"));
       const adapter = makeAdapter(fetchFn as typeof fetch);
-      await expect(
-        adapter.setItem("name", { state: { a: 1 }, version: 0 }),
-      ).rejects.toThrow(/500/);
+      await adapter.setItem("name", { state: { a: 1 }, version: 0 });
+      expect(fetchFn.mock.calls[0]?.[1]?.keepalive).toBe(true);
+    });
+
+    it("setItem rethrows a network-level fetch rejection after logging it", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const fetchFn = vi
+          .fn<typeof fetch>()
+          .mockRejectedValueOnce(new Error("network down"));
+        const adapter = makeAdapter(fetchFn as typeof fetch);
+        await expect(
+          adapter.setItem("name", { state: { a: 1 }, version: 0 }),
+        ).rejects.toThrow(/network down/);
+        expect(errorSpy).toHaveBeenCalled();
+      } finally {
+        errorSpy.mockRestore();
+      }
     });
 
     it("removeItem tolerates 404 but rethrows on other failures", async () => {
@@ -155,7 +191,9 @@ describe("Storage adapters", () => {
       await flushStoreFileWrites(filePath);
       const fileContent = readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(fileContent);
-      expect(parsed.state.servers["https://example.com"].tokens).toEqual({
+      expect(
+        parsed.state.servers[normalizeServerUrl("https://example.com")].tokens,
+      ).toEqual({
         access_token: "test-token",
         token_type: "Bearer",
       });
@@ -173,10 +211,12 @@ describe("Storage adapters", () => {
       });
       await flushStoreFileWrites(filePath);
 
-      // Create new store instance (should load persisted state)
+      // Create new store instance and load persisted state. The store is
+      // created with skipHydration: true, so drive the single rehydrate
+      // explicitly (OAuthStorageBase does this in production).
       const storage2 = createFileStorageAdapter({ filePath });
       const store2 = createOAuthStore(storage2);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await store2.persist.rehydrate();
 
       const state = store2.getState().getServerState("https://example.com");
       expect(state.tokens).toEqual({
@@ -332,6 +372,7 @@ describe("Storage adapters", () => {
         tokens: { access_token: "test-token", token_type: "Bearer" },
       });
 
+      const exampleKey = normalizeServerUrl("https://example.com");
       await waitForRemoteStore(baseUrl, "test-store", authToken, (body) => {
         const d = body as {
           state?: {
@@ -339,8 +380,7 @@ describe("Storage adapters", () => {
           };
         };
         return (
-          d?.state?.servers?.["https://example.com"]?.tokens?.access_token ===
-          "test-token"
+          d?.state?.servers?.[exampleKey]?.tokens?.access_token === "test-token"
         );
       });
 
@@ -353,7 +393,7 @@ describe("Storage adapters", () => {
       });
       expect(res.status).toBe(200);
       const storeData = await res.json();
-      expect(storeData.state.servers["https://example.com"].tokens).toEqual({
+      expect(storeData.state.servers[exampleKey].tokens).toEqual({
         access_token: "test-token",
         token_type: "Bearer",
       });
@@ -376,6 +416,7 @@ describe("Storage adapters", () => {
       store1.getState().setServerState("https://example.com", {
         tokens: { access_token: "initial-token", token_type: "Bearer" },
       });
+      const exampleKey = normalizeServerUrl("https://example.com");
       await waitForRemoteStore(baseUrl, "test-store", authToken, (body) => {
         const d = body as {
           state?: {
@@ -383,26 +424,21 @@ describe("Storage adapters", () => {
           };
         };
         return (
-          d?.state?.servers?.["https://example.com"]?.tokens?.access_token ===
+          d?.state?.servers?.[exampleKey]?.tokens?.access_token ===
           "initial-token"
         );
       });
 
-      // Create new store instance (should load persisted state)
+      // Create new store instance and load persisted state. The store is
+      // created with skipHydration: true, so drive the single rehydrate
+      // explicitly (OAuthStorageBase does this in production).
       const storage2 = createRemoteStorageAdapter({
         baseUrl,
         storeId: "test-store",
         authToken,
       });
       const store2 = createOAuthStore(storage2);
-      await vi.waitFor(
-        () => {
-          const state = store2.getState().getServerState("https://example.com");
-          if (!state.tokens) throw new Error("Store not yet hydrated");
-          return state;
-        },
-        { timeout: 2000, interval: 50 },
-      );
+      await store2.persist.rehydrate();
 
       const state = store2.getState().getServerState("https://example.com");
       expect(state.tokens).toEqual({

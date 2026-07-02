@@ -16,18 +16,19 @@ function createStorage(
     dynamic: Awaited<ReturnType<OAuthStorage["getClientInformation"]>>;
     registrationKind: ReturnType<OAuthStorage["getClientRegistrationKind"]>;
     scope: string | undefined;
-    serverMetadata: ReturnType<OAuthStorage["getServerMetadata"]>;
+    serverMetadata: Awaited<ReturnType<OAuthStorage["getServerMetadata"]>>;
     idpSession: Awaited<ReturnType<OAuthStorage["getIdpSession"]>>;
-    idpMetadata: ReturnType<OAuthStorage["getServerMetadata"]>;
+    idpMetadata: Awaited<ReturnType<OAuthStorage["getServerMetadata"]>>;
   }> = {},
 ): OAuthStorage {
   return {
+    ready: vi.fn().mockResolvedValue(undefined),
     getTokens: vi.fn().mockResolvedValue(overrides.tokens),
     getClientInformation: vi.fn(async (_url, isPreregistered) =>
       isPreregistered ? overrides.preregistered : overrides.dynamic,
     ),
     getScope: vi.fn().mockReturnValue(overrides.scope),
-    getServerMetadata: vi.fn((url: string) => {
+    getServerMetadata: vi.fn(async (url: string) => {
       if (url.startsWith("ema-idp:")) {
         return overrides.idpMetadata ?? null;
       }
