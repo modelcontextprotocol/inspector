@@ -101,10 +101,7 @@ export default defineConfig(({ command }) => {
       include: [
         'src/components/**/*.{ts,tsx}',
         'src/utils/**/*.{ts,tsx}',
-        // Pure, fully-tested sandbox CSP builder library. Listed by file (not a
-        // `src/lib/**` glob) so the untested legacy siblings in src/lib are not
-        // pulled under the gate before they have tests of their own.
-        'src/lib/sandbox-csp.{ts,tsx}',
+        'src/lib/**/*.{ts,tsx}',
         'clients/web/server/**/*.{ts,tsx}',
         path.join(repoRoot, 'core/mcp/**/*.{ts,tsx}'),
         path.join(repoRoot, 'core/react/**/*.{ts,tsx}'),
