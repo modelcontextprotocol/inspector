@@ -6,6 +6,8 @@ import {
   renderWithMantine,
   screen,
   waitFor,
+  fireEvent,
+  act,
 } from "../../../test/renderWithMantine";
 import { PromptArgumentsForm } from "./PromptArgumentsForm";
 
@@ -363,8 +365,9 @@ describe("PromptArgumentsForm", () => {
       );
 
       // Poll until the debounced "text" call fires, then assert it captured a
-      // non-empty sibling (read at fire time). The exact string may be "e" or
-      // "es" depending on where the fire lands relative to the keystrokes.
+      // non-empty sibling (read at fire time, not the empty value present when
+      // the call was scheduled). With delay:null the sibling is fully typed
+      // ("es") before the debounce fires; the /^es?$/ regex stays tolerant.
       await waitFor(() => {
         const textCalls = onCompleteArgument.mock.calls.filter(
           ([n]) => n === "text",
@@ -504,45 +507,67 @@ describe("PromptArgumentsForm", () => {
     });
 
     it("cancels a pending debounce timer when the input is re-focused", async () => {
-      const user = userEvent.setup({ delay: null });
-      const onCompleteArgument = vi
-        .fn<
-          (
-            argName: string,
-            value: string,
-            context: Record<string, string>,
-          ) => Promise<string[]>
-        >()
-        .mockResolvedValue([]);
+      // This is the one completion test that must let the 300ms debounce
+      // window fully elapse to be meaningful — asserting at t≈0 (as the
+      // sibling negative tests do) would pass whether or not handleFocus's
+      // clearTimeout actually cancels the pending timer. Fake timers make that
+      // window deterministic: we advance the clock directly. The interaction
+      // is driven with fireEvent rather than userEvent, because userEvent's
+      // async internals deadlock under vitest fake timers with this
+      // Mantine/happy-dom stack. This test is load-bearing: if the
+      // clearTimeout in handleFocus were removed, the debounce would fire
+      // during the advance and the final assertion would fail (verified).
+      vi.useFakeTimers();
+      try {
+        const onCompleteArgument = vi
+          .fn<
+            (
+              argName: string,
+              value: string,
+              context: Record<string, string>,
+            ) => Promise<string[]>
+          >()
+          .mockResolvedValue([]);
 
-      renderWithMantine(
-        <StatefulForm
-          prompt={promptWithArgs}
-          onGetPrompt={vi.fn()}
-          completionsSupported
-          onCompleteArgument={onCompleteArgument}
-        />,
-      );
+        renderWithMantine(
+          <StatefulForm
+            prompt={promptWithArgs}
+            onGetPrompt={vi.fn()}
+            completionsSupported
+            onCompleteArgument={onCompleteArgument}
+          />,
+        );
 
-      const textInput = screen.getByRole("textbox", { name: /^text/ });
-      const siblingInput = screen.getByRole("textbox", {
-        name: /targetLanguage/,
-      });
+        const textInput = screen.getByRole("textbox", { name: /^text/ });
+        const siblingInput = screen.getByRole("textbox", {
+          name: /targetLanguage/,
+        });
 
-      // Type into text → schedules a debounce timer. Immediately move focus
-      // away and back (synchronous under delay: null, so well within the 300ms
-      // window), so handleFocus sees the pending timer for "text" and clears
-      // it. Clearing is synchronous, so the keystroke completion can never
-      // fire afterward regardless of machine speed.
-      await user.type(textInput, "h");
-      await user.click(siblingInput);
-      await user.click(textInput);
-      onCompleteArgument.mockClear();
-      const textCalls = onCompleteArgument.mock.calls.filter(
-        ([n]) => n === "text",
-      );
-      // The cancelled debounce produced no post-clear "text" completion.
-      expect(textCalls.length).toBe(0);
+        // Type into text → schedules the 300ms debounce timer for "text".
+        fireEvent.focus(textInput);
+        fireEvent.change(textInput, { target: { value: "h" } });
+        // Move focus to the sibling and back — the re-focus makes
+        // handleFocus("text") see the pending debounce timer and clear it.
+        fireEvent.focus(siblingInput);
+        fireEvent.focus(textInput);
+
+        // Drop the focus-fire calls made above; only a *debounce* fire after
+        // this point would indicate the cancellation failed.
+        onCompleteArgument.mockClear();
+
+        // Elapse well past the debounce window. The cancelled timer must not
+        // fire a stale keystroke completion.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(400);
+        });
+
+        const textCalls = onCompleteArgument.mock.calls.filter(
+          ([n]) => n === "text",
+        );
+        expect(textCalls.length).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("does not call onCompleteArgument when completions are unsupported", async () => {
