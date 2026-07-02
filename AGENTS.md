@@ -67,20 +67,19 @@ After installing, `npm run build` builds all clients. The launcher scripts (`npm
 ## Repository & Project Board
 
 - **Repo**: https://github.com/modelcontextprotocol/inspector.git
-- **Base Branches**: v2/main, v1.5/main, main
+- **Base Branches**: v2/main (active), main (v1). v1.5/main is merged into v2/main and no longer takes new work.
 - **Project Boards**: 
-  - v2 - https://github.com/orgs/modelcontextprotocol/projects/28
-  - v1.5 - https://github.com/orgs/modelcontextprotocol/projects/39
-  - v1 - https://github.com/orgs/modelcontextprotocol/projects/11
+  - v2 - https://github.com/orgs/modelcontextprotocol/projects/28 (active board — all current work goes here)
+  - v1 - https://github.com/orgs/modelcontextprotocol/projects/11 (existing inspector version, no new activity except security and bug fixes)
 
 ## Project Status and Direction
 * The main branch currently contains the legacy version of the Inspector, which we are accepting bug fixes and minor improvement PRs for.
 
-* The v1.5/main branch contains an intermediate version of the Inspector, where the shared logic between the three incarnations of the Inspector are extracted into a core subsystem with InspectorClient class as the common entry point. It also includes the TUI, a refactored CLI, and streamlined launcher.
+* The v1.5/main branch was the intermediate version of the Inspector, where the shared logic between the three incarnations of the Inspector was extracted into a core subsystem with InspectorClient class as the common entry point. It also included the TUI, a refactored CLI, and streamlined launcher. The branch still exists but is **frozen** — it takes no new work. It is kept as a reference point (e.g. for tracking down a regression introduced by the merge into v2/main), so do not delete it.
 
-* The v2/main branch currently contains the new version of the web Inspector, composed of "dumb" components which accept data and callbacks as props and contain only display logic. 
+* The v2/main branch currently contains the new version of the web Inspector, composed of "dumb" components which accept data and callbacks as props and contain only display logic.
 
-* The InspectorClient from v1.5/main will be merged into v2/main, and wired up to the new web Inspector. The TUI and CLI will follow. Eventually when everything works on v2/main we will replace main with v2/main, eliminating the legacy implementations.
+The Launcher, TUI, CLI, and InspectorClient from v1.5/main have been merged into v2/main. InspectorClient is wired up to the new web Inspector. Eventually, we will replace main with v2/main, eliminating the legacy implementations.
 
 ## Web backend auth token
 
@@ -104,19 +103,66 @@ Injection is a no-op when auth is disabled (`DANGEROUSLY_OMIT_AUTH`), and the gl
 
 All work should be driven by items on the project board.
 
+> **A v2 issue is not "created" until it is BOTH labeled `v2` AND on board #28 with a Status set.** Labeling alone is not enough — a label is a repo tag; the board is a separate org project. Applying `--label v2` does **not** add the item to the board, and adding it to the board does **not** set a Status. All three are distinct steps; do all three (see the recipes below). **Only issues go on the board — never PRs.** A PR still gets the `v2` label, but it is tracked through its linked issue's card (via `Closes #N`), not its own board item.
+
 - Before starting work, check the board for the relevant item.
-- **Draft items vs. issues**: Board items may be draft items (no issue number) or full GitHub issues. Before creating a new issue, always check if a matching draft item already exists on the board. If it does, convert it to an issue using `gh project item-edit` or create the issue and link it — **never create a duplicate**.
+- **Every board item is a real GitHub issue.** Do not create draft items (board cards with no issue number). If you find work that needs tracking, create an actual issue and add that to the board. Before creating a new issue, check the board for a matching item to avoid duplicates — **never create a duplicate**.
+- **Assign the issue to its creator.** When you create an issue, assign it to the user it is created on behalf of (`gh issue create --assignee @me ...`, or `--assignee <login>`). Board items should never be unassigned.
 - **Label by version.** New issues and PRs must carry the label matching the target board / branch:
   - `main` → `v1`
-  - `v1.5/main` → `v1.5`
   - `v2/main` → `v2`
 
   Set the label at create time (`gh issue create --label v2 ...`, `gh pr create --label v2 ...`) — don't rely on backfilling later, since unlabeled PRs are easy to miss when filtering by version.
-- When work begins, create a feature branch and move the item to "In Progress".
+- **Add the issue to the board and set Status.** After creating an issue, add it to board #28 and set its Status. (PRs are never added to the board — they're tracked through their linked issue's card.) This is the step most easily forgotten because it needs several IDs — copy the recipes below verbatim.
+- When work begins, create a feature branch and set the item's Status to **In progress** (or one of the building statuses below).
 - When work is complete:
   - Run format, lint, typecheck, build, and test — ensure all checks pass
-  - Open a PR against the matching base branch (`main` for v1, `v1.5/main` for v1.5, `v2/main` for v2) and move the item to "In Review"
+  - Open a PR against the matching base branch (`main` for v1, `v2/main` for v2) and set the item's Status to **In review**
+  - **Link the PR to its issue.** The PR body's **first line must be `Closes #<ISSUE_NUMBER>`**. ⚠️ Note: closing keywords only auto-link/auto-close for PRs targeting the repo's **default branch** (`main`). Because v2 PRs target `v2/main` (a non-default branch), `Closes #N` there is only a cross-reference — it will **not** create a hard link or close the issue on merge. (There is no `gh` flag for manual linking — `gh pr edit` has no `--add-issue`; closing keywords are the only mechanism GitHub exposes, and they're gated to the default branch.)
+  - **On merge of a v2 PR, manually close its issue and move the board item to Done** (option id `1bbc5632`), since auto-close won't fire on `v2/main`. Keep the `Closes #N` line anyway so the issues close automatically if/when `v2/main` is eventually merged to `main`.
 - If new tasks are discovered or requested during development, create issues and add them to the board.
+
+#### V2 board (#28) `gh` recipes
+
+The board is an **org project**, so all commands use `--owner modelcontextprotocol` and the numeric project `28`. The IDs below are stable; if a command rejects one, re-fetch with `gh project field-list 28 --owner modelcontextprotocol --format json`.
+
+| Thing | ID |
+| --- | --- |
+| Project node ID | `PVT_kwDOCt2Azc4BJVxt` |
+| Status field ID | `PVTSSF_lADOCt2Azc4BJVxtzg5iI8c` |
+
+Status option IDs (`--single-select-option-id`):
+
+| Status | Option ID |
+| --- | --- |
+| Backlog | `6080ca99` |
+| Building CLI / TUI / CORE | `fe170c62` |
+| Building Web | `4faeae7a` |
+| MCP Apps Extension | `588c6a63` |
+| In progress | `d43284fe` |
+| In review | `fb2103f2` |
+| Done | `1bbc5632` |
+
+Use **In progress** for general work, one of the **Building** statuses (or **MCP Apps Extension**) while actively coding that surface, **In review** once a PR is open, and **Done** on merge.
+
+```sh
+# 1. Add an issue to the board — prints the item id (PVTI_…); capture it.
+gh project item-add 28 --owner modelcontextprotocol --url <issue-url> --format json
+
+# 2. Set its Status (here: In progress). Use the option id from the table above.
+gh project item-edit \
+  --project-id PVT_kwDOCt2Azc4BJVxt \
+  --id <item-id-from-step-1> \
+  --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c \
+  --single-select-option-id d43284fe
+```
+
+The one-liner that does both, capturing the item id (use the option id for the status you want):
+
+```sh
+ITEM_ID=$(gh project item-add 28 --owner modelcontextprotocol --url <issue-url> --format json --jq '.id')
+gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id d43284fe
+```
 
 ### Always test new or modified code
 - Ensure all code has corresponding tests
@@ -131,8 +177,8 @@ All work should be driven by items on the project board.
 - The **same per-file gate** is enforced for the CLI and TUI (#1484), not just web:
   - **CLI** (`clients/cli`): tests run **in-process** by importing `runCli()` (see `__tests__/helpers/cli-runner.ts`) so `clients/cli/src` is measured under v8 instrumentation. A thin out-of-process layer (`__tests__/e2e.test.ts` + `scripts/smoke-cli.mjs`) still spawns the built binary for the shebang/`process.exit` paths; `src/index.ts` (binary bootstrap) is the only coverage exclusion. `commander` uses `.exitOverride()` so a parse error throws instead of tearing down the test worker.
   - **TUI** (`clients/tui`): the gate covers the **non-React logic** only — `logger.ts`, `components/tabsConfig.ts`, and `utils/*` (server resolution lives in `core/` and is measured by the web suite). The Ink components, `App.tsx`, and `hooks/` are an **interim exclusion** in `clients/tui/vitest.config.ts` pending the renderer-based follow-up (#1501). When adding new **non-React** logic under `clients/tui/src`, it falls under the gate automatically — add tests for it.
-- Run `npm run test:integration` (also from `clients/web/`) for the v1.5-ported InspectorClient + transport + auth integration suite. It runs under a separate `integration` vitest project in node env (no happy-dom) with 30s timeouts. The script builds `test-servers/` first via `tsc -p ../../test-servers --noCheck` so the stdio MCP test server can be spawned as a real subprocess. CI runs it as its own step after unit tests.
-- Test files live alongside the source as `<Name>.test.tsx` (or `.test.ts` for non-React modules). v1.5-ported integration tests live under `clients/web/src/test/integration/`, mirroring the `core/` source layout (`mcp/`, `mcp/node/`, `mcp/remote/`, `auth/`, `auth/node/`, `storage/`). Any test file under that folder is automatically picked up by the `integration` vitest project (node env, 30s timeouts) via the folder glob in `vite.config.ts` — placement is the manifest, there is no enumeration to keep in sync. Tests outside the folder run in the `unit` project (happy-dom). When adding a new test for, e.g., `core/mcp/remote/foo.ts`, put it at `src/test/integration/mcp/remote/foo.test.ts`.
+- Run `npm run test:integration` (also from `clients/web/`) for the InspectorClient + transport + auth integration suite. It runs under a separate `integration` vitest project in node env (no happy-dom) with 30s timeouts. The script builds `test-servers/` first via `tsc -p ../../test-servers --noCheck` so the stdio MCP test server can be spawned as a real subprocess. CI runs it as its own step after unit tests.
+- Test files live alongside the source as `<Name>.test.tsx` (or `.test.ts` for non-React modules). Integration tests live under `clients/web/src/test/integration/`, mirroring the `core/` source layout (`mcp/`, `mcp/node/`, `mcp/remote/`, `auth/`, `auth/node/`, `storage/`). Any test file under that folder is automatically picked up by the `integration` vitest project (node env, 30s timeouts) via the folder glob in `vite.config.ts` — placement is the manifest, there is no enumeration to keep in sync. Tests outside the folder run in the `unit` project (happy-dom). When adding a new test for, e.g., `core/mcp/remote/foo.ts`, put it at `src/test/integration/mcp/remote/foo.test.ts`.
 - Use `renderWithMantine` from `src/test/renderWithMantine.tsx` to render components — it wraps in `MantineProvider` with the project theme
 
 ### Responding to Code Reviews

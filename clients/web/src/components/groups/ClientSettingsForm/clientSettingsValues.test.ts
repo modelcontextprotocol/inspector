@@ -10,6 +10,9 @@ import {
   EMPTY_CLIENT_SETTINGS,
   formValuesToClientConfig,
   ISSUER_URL_ERROR,
+  ISSUER_REQUIRED_ERROR,
+  CLIENT_ID_REQUIRED_ERROR,
+  CLIENT_METADATA_URL_REQUIRED_ERROR,
   validateClientSettings,
 } from "./clientSettingsValues";
 
@@ -456,5 +459,93 @@ describe("clientSettingsValues", () => {
         clientMetadataUrl: "not-a-url",
       }),
     ).toEqual({});
+  });
+
+  it("validateClientSettings does not flag blank required fields by default", () => {
+    expect(
+      validateClientSettings({
+        emaEnabled: true,
+        issuer: "",
+        clientId: "",
+        clientSecret: "",
+        ...emptyCimd,
+      }),
+    ).toEqual({});
+  });
+
+  it("validateClientSettings with requireComplete flags blank issuer and clientId", () => {
+    expect(
+      validateClientSettings(
+        {
+          emaEnabled: true,
+          issuer: "",
+          clientId: "",
+          clientSecret: "",
+          ...emptyCimd,
+        },
+        { requireComplete: true },
+      ),
+    ).toEqual({
+      issuer: ISSUER_REQUIRED_ERROR,
+      clientId: CLIENT_ID_REQUIRED_ERROR,
+    });
+  });
+
+  it("validateClientSettings with requireComplete keeps the URL error over the required error", () => {
+    expect(
+      validateClientSettings(
+        {
+          emaEnabled: true,
+          issuer: "not-a-url",
+          clientId: "cid",
+          clientSecret: "",
+          ...emptyCimd,
+        },
+        { requireComplete: true },
+      ),
+    ).toEqual({ issuer: ISSUER_URL_ERROR });
+  });
+
+  it("validateClientSettings with requireComplete flags only the blank clientId when the issuer is valid", () => {
+    expect(
+      validateClientSettings(
+        {
+          emaEnabled: true,
+          issuer: "https://idp.test",
+          clientId: "",
+          clientSecret: "",
+          ...emptyCimd,
+        },
+        { requireComplete: true },
+      ),
+    ).toEqual({ clientId: CLIENT_ID_REQUIRED_ERROR });
+  });
+
+  it("validateClientSettings with requireComplete flags a blank CIMD URL", () => {
+    expect(
+      validateClientSettings(
+        {
+          emaEnabled: false,
+          issuer: "",
+          clientId: "",
+          clientSecret: "",
+          cimdEnabled: true,
+          clientMetadataUrl: "",
+        },
+        { requireComplete: true },
+      ),
+    ).toEqual({ clientMetadataUrl: CLIENT_METADATA_URL_REQUIRED_ERROR });
+  });
+
+  it("canPersistClientSettingsDraft blocks a blank clientId with a valid issuer", () => {
+    expect(
+      canPersistClientSettingsDraft({
+        emaEnabled: true,
+        issuer: "https://idp.test",
+        clientId: "",
+        clientSecret: "",
+        ...emptyCimd,
+      }),
+    ).toBe(false);
   });
 });

@@ -22,7 +22,16 @@
       "chokidar": ["./node_modules/chokidar"],
       "express": ["./node_modules/@types/express"],
       "yaml": ["./node_modules/yaml"],
-      "@napi-rs/keyring": ["./node_modules/@napi-rs/keyring"]
+      "@napi-rs/keyring": ["./node_modules/@napi-rs/keyring"],
+      "react-syntax-highlighter/dist/esm/prism-light": [
+        "./src/types/react-syntax-highlighter-prism-light"
+      ],
+      "react-syntax-highlighter/dist/esm/styles/prism/tomorrow": [
+        "./src/types/react-syntax-highlighter-style"
+      ],
+      "react-syntax-highlighter/dist/esm/languages/prism/*": [
+        "./src/types/react-syntax-highlighter-grammar"
+      ]
     }
   },
   "include": [

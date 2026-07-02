@@ -10,6 +10,8 @@ import {
 import {
   EMPTY_CLIENT_SETTINGS,
   ISSUER_URL_ERROR,
+  ISSUER_REQUIRED_ERROR,
+  CLIENT_ID_REQUIRED_ERROR,
   type ClientSettingsFormValues,
 } from "./clientSettingsValues";
 
@@ -139,7 +141,7 @@ describe("ClientSettingsForm EMA IdP session", () => {
     expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
   });
 
-  it("reveals the issuer error without blur when revealIssuerError is set", () => {
+  it("reveals the issuer error without blur when revealErrors is set", () => {
     renderWithMantine(
       <ClientSettingsForm
         settings={{
@@ -151,7 +153,7 @@ describe("ClientSettingsForm EMA IdP session", () => {
         onExpandedSectionsChange={vi.fn()}
         onSettingsChange={vi.fn()}
         emaIdpLoginState="none"
-        revealIssuerError
+        revealErrors
       />,
     );
 
@@ -160,23 +162,63 @@ describe("ClientSettingsForm EMA IdP session", () => {
     expect(screen.getByText(ISSUER_URL_ERROR)).toBeInTheDocument();
   });
 
-  it("shows no error for a valid issuer even when revealIssuerError is set", () => {
+  it("reveals required errors for blank issuer and client ID when revealErrors is set", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={{ ...EMPTY_CLIENT_SETTINGS, emaEnabled: true }}
+        expandedSections={["ema"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        emaIdpLoginState="none"
+        revealErrors
+      />,
+    );
+
+    // Both required IdP fields are blank; a close/save attempt surfaces them
+    // instead of silently dropping the config.
+    expect(screen.getByText(ISSUER_REQUIRED_ERROR)).toBeInTheDocument();
+    expect(screen.getByText(CLIENT_ID_REQUIRED_ERROR)).toBeInTheDocument();
+  });
+
+  it("does not show required errors for blank fields before revealErrors", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={{ ...EMPTY_CLIENT_SETTINGS, emaEnabled: true }}
+        expandedSections={["ema"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        emaIdpLoginState="none"
+      />,
+    );
+
+    // Inline validation must not nag about not-yet-filled required fields.
+    expect(screen.queryByText(ISSUER_REQUIRED_ERROR)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(CLIENT_ID_REQUIRED_ERROR),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows no error for a valid issuer even when revealErrors is set", () => {
     renderWithMantine(
       <ClientSettingsForm
         settings={{
           ...EMPTY_CLIENT_SETTINGS,
           emaEnabled: true,
           issuer: "https://idp.test",
+          clientId: "client-1",
         }}
         expandedSections={["ema"]}
         onExpandedSectionsChange={vi.fn()}
         onSettingsChange={vi.fn()}
         emaIdpLoginState="none"
-        revealIssuerError
+        revealErrors
       />,
     );
 
     expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(CLIENT_ID_REQUIRED_ERROR),
+    ).not.toBeInTheDocument();
   });
 
   it("shows no issuer error for a valid URL", () => {
@@ -251,7 +293,7 @@ describe("ClientSettingsForm EMA IdP session", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("reveals the CIMD URL error without blur when revealClientMetadataUrlError is set", () => {
+  it("reveals the CIMD URL error without blur when revealErrors is set", () => {
     renderWithMantine(
       <ClientSettingsForm
         settings={{
@@ -263,7 +305,7 @@ describe("ClientSettingsForm EMA IdP session", () => {
         onExpandedSectionsChange={vi.fn()}
         onSettingsChange={vi.fn()}
         emaIdpLoginState="none"
-        revealClientMetadataUrlError
+        revealErrors
       />,
     );
 

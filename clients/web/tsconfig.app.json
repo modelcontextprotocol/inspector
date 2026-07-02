@@ -46,7 +46,16 @@
       "@hono/node-server": ["./node_modules/@hono/node-server"],
       "atomically": ["./node_modules/atomically"],
       "chokidar": ["./node_modules/chokidar"],
-      "@napi-rs/keyring": ["./node_modules/@napi-rs/keyring"]
+      "@napi-rs/keyring": ["./node_modules/@napi-rs/keyring"],
+      "react-syntax-highlighter/dist/esm/prism-light": [
+        "./src/types/react-syntax-highlighter-prism-light"
+      ],
+      "react-syntax-highlighter/dist/esm/styles/prism/tomorrow": [
+        "./src/types/react-syntax-highlighter-style"
+      ],
+      "react-syntax-highlighter/dist/esm/languages/prism/*": [
+        "./src/types/react-syntax-highlighter-grammar"
+      ]
     }
   },
   "include": ["src", "../../core/**/*.ts"],
