@@ -41,7 +41,12 @@ const SENSITIVE_BODY_FIELDS: ReadonlySet<string> = new Set([
   "token",
 ]);
 
-/** Placeholder substituted for sensitive body / URL values in recorded entries. */
+/**
+ * Placeholder substituted for sensitive body / URL values in recorded entries.
+ * Deliberately kept separate from {@link REDACTED_HEADER_VALUE} (even though both
+ * are `"[REDACTED]"` today) so the header and body/URL redaction paths can evolve
+ * their sentinels independently.
+ */
 export const REDACTED_VALUE = "[REDACTED]";
 
 /** Whether `name` (any casing) is a known-sensitive field / query-param name. */
@@ -124,6 +129,11 @@ function redactJsonValue(value: unknown): unknown {
  * values change. Best-effort and never throws: an empty, non-string, or
  * unparseable body is returned unchanged. Only the recorded copy is redacted;
  * the live request body is never touched.
+ *
+ * Scope is deliberately limited to `application/x-www-form-urlencoded` and JSON:
+ * these cover the OAuth token flows this redaction targets. `multipart/form-data`
+ * (and other binary/opaque bodies) are passed through verbatim — OAuth never uses
+ * multipart, so the risk is low; revisit if a multipart secret path appears.
  */
 export function redactBody(
   body: string | undefined,

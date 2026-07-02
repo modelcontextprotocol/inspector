@@ -477,6 +477,35 @@ describe("createFetchTracker", () => {
     expect(bodies[0]!.body).toBe('{"tools":[]}');
   });
 
+  it("redacts a nested sensitive key in a JSON request body through the tracker", async () => {
+    let outboundInit: RequestInit | undefined;
+    const baseFetch = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        outboundInit = init;
+        return new Response("ok");
+      },
+    );
+    const tracked: FetchRequestEntryBase[] = [];
+    const fetcher = createFetchTracker(baseFetch as typeof fetch, {
+      trackRequest: (entry) => tracked.push(entry),
+    });
+    const liveBody = JSON.stringify({
+      params: { arguments: { access_token: "sekret", page: 2 } },
+    });
+    await fetcher("https://example.com/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: liveBody,
+    });
+    // Recorded copy has the nested secret masked; non-sensitive siblings kept.
+    expect(JSON.parse(tracked[0]!.requestBody!)).toEqual({
+      params: { arguments: { access_token: REDACTED_VALUE, page: 2 } },
+    });
+    expect(JSON.stringify(tracked[0])).not.toContain("sekret");
+    // The live outbound request body is byte-identical (unredacted).
+    expect(outboundInit?.body).toBe(liveBody);
+  });
+
   it("does not throw on a malformed body — logs it as-is", async () => {
     const baseFetch = vi.fn(async () => new Response("ok"));
     const tracked: FetchRequestEntryBase[] = [];
