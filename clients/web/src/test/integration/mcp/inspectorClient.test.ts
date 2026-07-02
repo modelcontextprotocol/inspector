@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as z from "zod/v4";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import {
@@ -2452,11 +2452,21 @@ describe("InspectorClient", () => {
       const writeToStderrTool = await getTool(client, "write_to_stderr");
       await client.callTool(writeToStderrTool, { message: testMessage });
 
-      const logs = stderrLogState.getStderrLogs();
-      expect(Array.isArray(logs)).toBe(true);
-      const matching = logs.filter((l) => l.message.includes(testMessage));
-      expect(matching.length).toBeGreaterThan(0);
-      expect(matching[0]!.message).toContain(testMessage);
+      // The child's stderr is piped out-of-band from the tool's JSON-RPC
+      // response, so the "data" chunk carrying `testMessage` can still be in
+      // flight when `callTool` resolves. Reading the log synchronously here
+      // races that chunk (the historical flake). Poll until the line lands
+      // instead of asserting on a single sample.
+      await vi.waitFor(
+        () => {
+          const logs = stderrLogState.getStderrLogs();
+          expect(Array.isArray(logs)).toBe(true);
+          const matching = logs.filter((l) => l.message.includes(testMessage));
+          expect(matching.length).toBeGreaterThan(0);
+          expect(matching[0]!.message).toContain(testMessage);
+        },
+        { timeout: 5000, interval: 25 },
+      );
       stderrLogState.destroy();
     });
   });
