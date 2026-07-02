@@ -44,6 +44,7 @@ export function downloadJsonFile(filename: string, json: string): void {
  * nothing usable remains.
  */
 export function fileNameFromUri(uri: string): string {
+  /* v8 ignore next -- String.prototype.split always returns a non-empty array, so .pop() is never undefined; the `?? ""` fallback is unreachable. */
   const tail = uri.split(/[\\/]/).pop() ?? "";
   const safe = tail
     .replace(/[\p{Cc}\p{Cf}]+/gu, "")
