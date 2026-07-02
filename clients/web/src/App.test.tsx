@@ -404,6 +404,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
 }));
 
 import App from "./App";
+import { OAUTH_PENDING_SERVER_KEY } from "./utils/oauthFlow";
 import * as McpIndex from "@inspector/core/mcp/index.js";
 import * as FetchLogModule from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
@@ -1586,6 +1587,72 @@ describe("App history pin/replay", () => {
       expect(notificationsMock.show).toHaveBeenCalledWith(
         expect.objectContaining({ title: "Can't replay", color: "yellow" }),
       ),
+    );
+  });
+});
+
+// The `/oauth/callback` handler must reject a returned `state` that does not
+// parse to the expected 64-char-hex authId shape (a forgery indicator) instead
+// of silently proceeding. See #1562.
+describe("App OAuth callback state validation", () => {
+  const originalUrl = window.location.href;
+
+  beforeEach(() => {
+    notificationsMock.show.mockClear();
+    window.sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    window.history.replaceState({}, "", originalUrl);
+  });
+
+  it("rejects an unparseable state param with a clear error toast", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/oauth/callback?code=abc123&state=not-a-valid-state",
+    );
+
+    renderWithMantine(<App />);
+
+    await waitFor(() =>
+      expect(notificationsMock.show).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "OAuth callback rejected",
+          color: "red",
+        }),
+      ),
+    );
+  });
+
+  it("does not reject when the state param parses to a valid authId", async () => {
+    // A well-formed 64-char-hex state passes the shape guard, so the handler
+    // proceeds to the server-matching step. With no server registered under the
+    // seeded pending id, that step surfaces the "could not be matched" toast —
+    // asserting on that specific downstream toast proves the state was accepted
+    // (never the "OAuth callback rejected" toast) rather than relying on an
+    // indirect "some toast fired" check.
+    window.sessionStorage.setItem(
+      OAUTH_PENDING_SERVER_KEY,
+      "server-that-does-not-exist",
+    );
+    window.history.replaceState(
+      {},
+      "",
+      `/oauth/callback?code=abc123&state=${"a".repeat(64)}`,
+    );
+
+    renderWithMantine(<App />);
+
+    await waitFor(() =>
+      expect(notificationsMock.show).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "OAuth callback could not be matched",
+        }),
+      ),
+    );
+    expect(notificationsMock.show).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: "OAuth callback rejected" }),
     );
   });
 });

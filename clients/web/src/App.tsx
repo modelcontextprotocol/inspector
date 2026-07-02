@@ -1472,10 +1472,25 @@ function App() {
     // session key the pre-redirect page saved the fetch log under, so the
     // rebuilt client can restore those `auth` entries. Read it before the
     // URL is cleared below.
+    //
+    // Defense-in-depth: a `state` that is present but does not parse to our
+    // expected 64-char-hex authId shape did not originate from
+    // `generateOAuthState`, so reject the callback instead of silently
+    // proceeding with an undefined sessionId. This is a shape check, not full
+    // state-matching — the primary CSRF protection remains PKCE
+    // (`code_verifier`); this layer catches malformed/forged `state` early.
+    //
+    // Intentional asymmetry: a present-but-malformed `state` (including the
+    // empty string `?state=`) is rejected, but a wholly absent `state`
+    // (`stateParam === null`) is *not* — it falls through with
+    // `sessionId = undefined` and is matched via `OAUTH_PENDING_SERVER_KEY`
+    // instead. Rejecting the null case would turn any provider error redirect
+    // that omits `state` into a misleading "rejected" toast, hiding the real
+    // OAuth error surfaced by the `!params.successful` branch below.
     const stateParam = new URLSearchParams(window.location.search).get("state");
-    const sessionId = stateParam
-      ? (parseOAuthState(stateParam)?.authId ?? undefined)
-      : undefined;
+    const parsedState = stateParam ? parseOAuthState(stateParam) : null;
+    const stateRejected = stateParam !== null && parsedState === null;
+    const sessionId = parsedState?.authId ?? undefined;
     const pendingId =
       window.sessionStorage.getItem(OAUTH_PENDING_SERVER_KEY) ?? undefined;
     window.sessionStorage.removeItem(OAUTH_PENDING_SERVER_KEY);
@@ -1483,6 +1498,16 @@ function App() {
     // Strip the code/state off the URL immediately so a reload can't replay
     // the (now single-use) authorization code through the exchange again.
     window.history.replaceState({}, "", "/");
+
+    if (stateRejected) {
+      notifications.show({
+        title: "OAuth callback rejected",
+        message:
+          "OAuth callback carried an unrecognized state parameter that did not originate from this session. Please try connecting again.",
+        color: "red",
+      });
+      return;
+    }
 
     if (!params.successful) {
       notifications.show({
