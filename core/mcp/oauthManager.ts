@@ -10,6 +10,7 @@ import { EMPTY_OAUTH_FLOW_STATE } from "../auth/types.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { mcpAuth } from "../auth/mcpAuth.js";
+import type { OAuthStorage } from "../auth/storage.js";
 import { parseOAuthState } from "../auth/utils.js";
 import type { EnterpriseManagedAuthIdpConfig } from "../client/types.js";
 import type { ClientConfig } from "../client/types.js";
@@ -102,6 +103,19 @@ export class OAuthManager {
 
   private getServerUrl(): string {
     return this.params.getServerUrl();
+  }
+
+  /**
+   * Return the configured OAuth storage, throwing a clear error if it is
+   * absent. Used on the EMA re-mint/persist paths, which are only reached for
+   * a fully-configured OAuth-capable server (storage present).
+   */
+  private requireStorage(): OAuthStorage {
+    const storage = this.oauthConfig.storage;
+    if (!storage) {
+      throw new Error("OAuth storage is required for this operation.");
+    }
+    return storage;
   }
 
   private async createOAuthProvider(): Promise<BaseOAuthClientProvider> {
@@ -284,7 +298,7 @@ export class OAuthManager {
           requestedScope,
         );
         if (scopeToPersist) {
-          await this.oauthConfig.storage!.saveScope(
+          await this.requireStorage().saveScope(
             this.getServerUrl(),
             scopeToPersist,
           );
@@ -422,7 +436,7 @@ export class OAuthManager {
       protocol: protocolFromOAuthConfig(this.oauthConfig),
       configuredScope: this.oauthConfig.scope,
       enterpriseManagedAuth: this.params.enterpriseManagedAuth,
-      storage: this.oauthConfig.storage!,
+      storage,
       flowState: this.oauthFlowState ?? undefined,
     });
   }
@@ -618,7 +632,7 @@ export class OAuthManager {
       const silent = await trySilentEmaAuth(config);
       if (silent.status === "success") {
         if (await this.checkAuthChallengeSatisfied(enriched)) {
-          const minted = await this.oauthConfig.storage!.getTokens(
+          const minted = await this.requireStorage().getTokens(
             this.getServerUrl(),
           );
           const scopeToPersist = resolvePersistedScopeAfterGrant(
@@ -626,7 +640,7 @@ export class OAuthManager {
             enriched.authorizationScopes?.join(" "),
           );
           if (scopeToPersist) {
-            await this.oauthConfig.storage!.saveScope(
+            await this.requireStorage().saveScope(
               this.getServerUrl(),
               scopeToPersist,
             );

@@ -71,8 +71,8 @@ async function callMethod(
   serverSettings: InspectorServerSettings | undefined,
   args: MethodArgs & { method: string },
   clientConfig: ClientConfig,
-  cliAuthOverrides?: RunnerClientConfigOverrides,
-  callbackUrlConfig?: RunnerOAuthCallbackConfig,
+  cliAuthOverrides: RunnerClientConfigOverrides,
+  callbackUrlConfig: RunnerOAuthCallbackConfig,
 ): Promise<void> {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const packageJsonPath = join(__dirname, "../package.json");
@@ -93,9 +93,8 @@ async function callMethod(
   };
   const redirectUrlProvider = new MutableRedirectUrlProvider();
   if (isOAuthCapableServerConfig(serverConfig)) {
-    redirectUrlProvider.redirectUrl = formatRunnerOAuthRedirectUrl(
-      callbackUrlConfig!,
-    );
+    redirectUrlProvider.redirectUrl =
+      formatRunnerOAuthRedirectUrl(callbackUrlConfig);
     environment.oauth = {
       storage: new NodeOAuthStorage(),
       navigation: new ConsoleNavigation(),
@@ -258,14 +257,14 @@ async function callMethod(
       inspectorClient,
       serverConfig,
       redirectUrlProvider,
-      callbackUrlConfig!,
+      callbackUrlConfig,
       serverSettings,
     );
 
     const result = await withCliAuthRecoveryRetry(
       inspectorClient,
       redirectUrlProvider,
-      callbackUrlConfig!,
+      callbackUrlConfig,
       serverSettings,
       runMethod,
     );

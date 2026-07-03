@@ -29,7 +29,7 @@ function resolvePresetRefs<T extends { requiredScopes?: string[] }>(
   type: "tool" | "resource" | "resourceTemplate" | "prompt",
 ): T[] {
   if (!refs || refs.length === 0) return [];
-  const result: T[] = [];
+  const result: Array<{ requiredScopes?: string[] }> = [];
   for (const entry of refs) {
     const items = Array.isArray(entry) ? entry : [entry];
     for (const ref of items) {
@@ -42,11 +42,13 @@ function resolvePresetRefs<T extends { requiredScopes?: string[] }>(
       const resolved = resolvePreset(type, presetName, ref.params);
       const arr = Array.isArray(resolved) ? resolved : [resolved];
       for (const item of arr) {
-        result.push(mergeRequiredScopes(item as unknown as T, ref));
+        result.push(mergeRequiredScopes(item, ref));
       }
     }
   }
-  return result;
+  // The caller pairs `type` with the matching `T`, so each resolved preset is
+  // the requested definition kind; TS can't see that correspondence.
+  return result as T[];
 }
 
 /**
