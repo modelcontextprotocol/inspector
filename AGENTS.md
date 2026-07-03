@@ -22,9 +22,13 @@ inspector/
 │   ├── tui/                            # TUI client (Ink + React, tsup bundle)
 │   ├── launcher/                       # Shared launcher (relative imports into sibling build/ outputs)
 ├── core/                               # Shared core code (no package.json — consumed via the `@inspector/core` vite alias)
-│   ├── auth/                           # OAuth: state machine, providers, discovery, storage
+│   ├── auth/                           # OAuth: state machine, providers, discovery, storage;
+│   │                                   #   mid-session recovery (challenge.ts WWW-Authenticate
+│   │                                   #   parsing, scopes.ts SEP-2350 scope union, oauthUx.ts
+│   │                                   #   shared copy, mcpAuth.ts force-reauthorization)
 │   │   ├── browser/                    # Browser-side OAuth (sessionStorage, BrowserNavigation)
-│   │   ├── node/                       # Node-side OAuth (NodeOAuthStorage, OAuthCallbackServer)
+│   │   ├── node/                       # Node-side OAuth (NodeOAuthStorage, OAuthCallbackServer,
+│   │   │                               #   runner-interactive-oauth loopback callback flow)
 │   │   └── remote/                     # Remote OAuth storage (delegates to the remote server)
 │   ├── json/                           # JSON utilities and parameter/argument conversion
 │   ├── logging/                        # Silent pino logger singleton
