@@ -3,11 +3,23 @@ import {
   runRunnerInteractiveOAuth,
   type RunnerInteractiveOAuthClient,
 } from "@inspector/core/auth/node/runner-interactive-oauth.js";
-import type {
-  OAuthCallbackServer,
-  OAuthCallbackServerStartOptions,
+import {
+  createOAuthCallbackServer,
+  type OAuthCallbackServer,
+  type OAuthCallbackServerStartOptions,
 } from "@inspector/core/auth/node/oauth-callback-server.js";
 import type { AuthChallenge } from "@inspector/core/auth/challenge.js";
+
+vi.mock(
+  "@inspector/core/auth/node/oauth-callback-server.js",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@inspector/core/auth/node/oauth-callback-server.js")
+      >();
+    return { ...actual, createOAuthCallbackServer: vi.fn() };
+  },
+);
 
 function mockClient(
   overrides: Partial<RunnerInteractiveOAuthClient> = {},
@@ -307,5 +319,124 @@ describe("runRunnerInteractiveOAuth", () => {
 
     expect(onCallbackServer).toHaveBeenCalledTimes(1);
     expect(onCallbackServer).toHaveBeenCalledWith(mockServer);
+  });
+
+  it("wraps a non-Error completeOAuthFlow rejection", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    const client = mockClient({
+      authenticate: vi.fn(async () => {
+        await simulateCallback(handlers.current).catch(() => {});
+        return new URL("https://as.example/authorize");
+      }),
+      completeOAuthFlow: vi.fn(async () => {
+        throw "string failure";
+      }),
+    });
+
+    await expect(
+      runRunnerInteractiveOAuth({
+        client,
+        redirectUrlProvider,
+        callbackListen: {
+          hostname: "127.0.0.1",
+          port: 6276,
+          pathname: "/oauth/callback",
+        },
+        createCallbackServer: () => createMockCallbackServer(handlers),
+      }),
+    ).rejects.toThrow("string failure");
+  });
+
+  it("falls back to params.error when no error_description is present", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    const client = mockClient({
+      authenticate: vi.fn(async () => {
+        handlers.current.onError?.({ error: "access_denied" });
+        return new URL("https://as.example/authorize");
+      }),
+    });
+
+    await expect(
+      runRunnerInteractiveOAuth({
+        client,
+        redirectUrlProvider,
+        callbackListen: {
+          hostname: "127.0.0.1",
+          port: 6276,
+          pathname: "/oauth/callback",
+        },
+        createCallbackServer: () => createMockCallbackServer(handlers),
+      }),
+    ).rejects.toThrow("access_denied");
+  });
+
+  it("defaults to createOAuthCallbackServer when none is provided", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    vi.mocked(createOAuthCallbackServer).mockReturnValue(
+      createMockCallbackServer(handlers),
+    );
+    const client = mockClient({
+      authenticate: vi.fn(async () => undefined),
+    });
+
+    const result = await runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider,
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+    });
+
+    expect(result).toEqual({ kind: "already_authorized" });
+    expect(createOAuthCallbackServer).toHaveBeenCalled();
+  });
+
+  it("swallows a server.stop() rejection during cleanup", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    const mockServer = createMockCallbackServer(handlers);
+    vi.mocked(mockServer.stop).mockRejectedValue(new Error("stop failed"));
+    const client = mockClient({
+      authenticate: vi.fn(async () => {
+        await simulateCallback(handlers.current);
+        return new URL("https://as.example/authorize");
+      }),
+    });
+
+    const result = await runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider,
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => mockServer,
+    });
+
+    expect(result).toEqual({ kind: "success" });
+    expect(mockServer.stop).toHaveBeenCalled();
+  });
+
+  it("cleans up when the callback server fails to start", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    const mockServer = createMockCallbackServer(handlers);
+    vi.mocked(mockServer.start).mockRejectedValue(new Error("bind failed"));
+    const client = mockClient();
+
+    await expect(
+      runRunnerInteractiveOAuth({
+        client,
+        redirectUrlProvider,
+        callbackListen: {
+          hostname: "127.0.0.1",
+          port: 6276,
+          pathname: "/oauth/callback",
+        },
+        createCallbackServer: () => mockServer,
+      }),
+    ).rejects.toThrow("bind failed");
+    expect(mockServer.stop).toHaveBeenCalled();
   });
 });

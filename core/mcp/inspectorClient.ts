@@ -2529,8 +2529,7 @@ export class InspectorClient extends InspectorClientEventTarget {
           ),
         {
           method: "completion/complete",
-          toolName:
-            ref.type === "ref/prompt" ? ref.name : ref.uri,
+          toolName: ref.type === "ref/prompt" ? ref.name : ref.uri,
         },
       );
 
@@ -2941,6 +2940,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         throw err;
       }
       const challenge = parseAuthChallengeFromError(err, context);
+      /* v8 ignore next 3 -- defensive: parseAuthChallengeFromError shares isAuthChallengeError's checks, so it always returns a truthy challenge once that guard passes */
       if (!challenge) {
         throw err;
       }
@@ -2994,7 +2994,10 @@ export class InspectorClient extends InspectorClientEventTarget {
    * Direct transports reconnect after token exchange so the live MCP session
    * picks up the new Bearer token (mirrors silent recovery reconnect).
    */
-  async completeOAuthFlow(authorizationCode: string, iss?: string): Promise<void> {
+  async completeOAuthFlow(
+    authorizationCode: string,
+    iss?: string,
+  ): Promise<void> {
     await this.ensureOAuthManager().completeOAuthFlow(authorizationCode, iss);
     if (this.usesDirectAuthRecovery()) {
       await this.reconnectAfterAuthRecovery();

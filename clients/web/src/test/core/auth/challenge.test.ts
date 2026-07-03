@@ -146,6 +146,39 @@ describe("parseAuthChallengeFromResponse", () => {
     const response = new Response(null, { status: 500 });
     expect(parseAuthChallengeFromResponse(response)).toBeUndefined();
   });
+
+  it("carries error_description into the challenge message", () => {
+    const response = new Response(null, {
+      status: 401,
+      headers: {
+        "WWW-Authenticate":
+          'Bearer error="invalid_token", error_description="Token expired"',
+      },
+    });
+
+    expect(parseAuthChallengeFromResponse(response)).toEqual({
+      reason: "invalid_token",
+      message: "Token expired",
+      raw: {
+        httpStatus: 401,
+        wwwAuthenticate:
+          'Bearer error="invalid_token", error_description="Token expired"',
+      },
+    });
+  });
+
+  it("maps 403 with a non-scope error to unauthorized", () => {
+    const response = new Response(null, {
+      status: 403,
+      headers: {
+        "WWW-Authenticate": 'Bearer error="invalid_token"',
+      },
+    });
+
+    expect(parseAuthChallengeFromResponse(response)?.reason).toBe(
+      "unauthorized",
+    );
+  });
 });
 
 describe("parseAuthChallengeFromError", () => {
@@ -173,6 +206,82 @@ describe("parseAuthChallengeFromError", () => {
 
   it("returns undefined for bare 401 without auth markers", () => {
     expect(parseAuthChallengeFromError({ status: 401 })).toBeUndefined();
+  });
+
+  it("returns the challenge directly for AuthChallengeError instances", () => {
+    const err = new AuthChallengeError({ reason: "invalid_token" }, 401);
+    expect(parseAuthChallengeFromError(err)).toEqual({
+      reason: "invalid_token",
+    });
+  });
+
+  it("returns undefined for non-object and null errors", () => {
+    expect(parseAuthChallengeFromError("boom")).toBeUndefined();
+    expect(parseAuthChallengeFromError(null)).toBeUndefined();
+  });
+
+  it("merges context into an embedded authChallenge", () => {
+    expect(
+      parseAuthChallengeFromError(
+        {
+          authChallenge: { reason: "token_expired", context: { method: "x" } },
+        },
+        { toolName: "get_temp" },
+      ),
+    ).toEqual({
+      reason: "token_expired",
+      context: { method: "x", toolName: "get_temp" },
+    });
+  });
+
+  it("falls back to the numeric code when status is absent", () => {
+    expect(
+      parseAuthChallengeFromError({
+        code: 403,
+        wwwAuthenticate: 'Bearer error="insufficient_scope", scope="admin"',
+      }),
+    ).toMatchObject({
+      reason: "insufficient_scope",
+      requiredScopes: ["admin"],
+      raw: { httpStatus: 403 },
+    });
+  });
+
+  it("returns undefined when the status is neither 401 nor 403", () => {
+    expect(parseAuthChallengeFromError({ status: 500 })).toBeUndefined();
+  });
+
+  it("reads WWW-Authenticate from a headers.get accessor", () => {
+    expect(
+      parseAuthChallengeFromError({
+        status: 401,
+        headers: {
+          get: (name: string) =>
+            name === "WWW-Authenticate" ? 'Bearer error="invalid_token"' : null,
+        },
+      }),
+    ).toMatchObject({
+      reason: "invalid_token",
+      raw: { httpStatus: 401, wwwAuthenticate: 'Bearer error="invalid_token"' },
+    });
+  });
+
+  it("reads WWW-Authenticate from an embedded raw challenge", () => {
+    expect(
+      parseAuthChallengeFromError({
+        status: 401,
+        authChallenge: { raw: { wwwAuthenticate: "Bearer realm=mcp" } },
+      }),
+    ).toMatchObject({
+      reason: "token_expired",
+      raw: { httpStatus: 401, wwwAuthenticate: "Bearer realm=mcp" },
+    });
+  });
+
+  it("returns undefined for an empty WWW-Authenticate header", () => {
+    expect(
+      parseAuthChallengeFromError({ status: 401, wwwAuthenticate: "" }),
+    ).toBeUndefined();
   });
 });
 
@@ -205,6 +314,53 @@ describe("isAuthChallengeError", () => {
 
   it("does not treat connect-time unauthorized wording as auth challenge", () => {
     expect(isAuthChallengeError(new Error("network failed"))).toBe(false);
+  });
+
+  it("returns false for non-object and null errors", () => {
+    expect(isAuthChallengeError("boom")).toBe(false);
+    expect(isAuthChallengeError(null)).toBe(false);
+  });
+
+  it("detects an embedded authChallenge with a reason", () => {
+    expect(
+      isAuthChallengeError({ authChallenge: { reason: "token_expired" } }),
+    ).toBe(true);
+  });
+
+  it("uses the numeric code when status is absent", () => {
+    expect(
+      isAuthChallengeError({
+        code: 403,
+        wwwAuthenticate: 'Bearer error="insufficient_scope"',
+      }),
+    ).toBe(true);
+  });
+
+  it("reads WWW-Authenticate from a headers.get accessor", () => {
+    expect(
+      isAuthChallengeError({
+        status: 401,
+        headers: {
+          get: (name: string) =>
+            name === "WWW-Authenticate" ? "Bearer realm=mcp" : null,
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("reads WWW-Authenticate from an embedded raw challenge", () => {
+    expect(
+      isAuthChallengeError({
+        status: 401,
+        authChallenge: { raw: { wwwAuthenticate: "Bearer realm=mcp" } },
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false for an empty WWW-Authenticate header", () => {
+    expect(isAuthChallengeError({ status: 401, wwwAuthenticate: "" })).toBe(
+      false,
+    );
   });
 });
 

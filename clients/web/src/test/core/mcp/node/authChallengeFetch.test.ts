@@ -49,4 +49,38 @@ describe("createAuthChallengeInterceptFetch", () => {
       );
     }
   });
+
+  it("cancels a present response body before throwing", async () => {
+    const response = new Response("challenge body", {
+      status: 401,
+      headers: { "WWW-Authenticate": 'Bearer error="invalid_token"' },
+    });
+    const cancelSpy = vi.spyOn(response.body!, "cancel");
+    const baseFetch = vi.fn(async () => response);
+    const fetchFn = createAuthChallengeInterceptFetch(baseFetch);
+
+    await expect(fetchFn("https://example.com/mcp")).rejects.toBeInstanceOf(
+      AuthChallengeError,
+    );
+    expect(cancelSpy).toHaveBeenCalled();
+  });
+
+  it("swallows a body.cancel() rejection and still throws the challenge", async () => {
+    const response = new Response("challenge body", {
+      status: 403,
+      headers: {
+        "WWW-Authenticate":
+          'Bearer error="insufficient_scope", scope="weather:read"',
+      },
+    });
+    vi.spyOn(response.body!, "cancel").mockRejectedValue(
+      new Error("cancel failed"),
+    );
+    const baseFetch = vi.fn(async () => response);
+    const fetchFn = createAuthChallengeInterceptFetch(baseFetch);
+
+    await expect(fetchFn("https://example.com/mcp")).rejects.toBeInstanceOf(
+      AuthChallengeError,
+    );
+  });
 });

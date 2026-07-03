@@ -2042,10 +2042,8 @@ export function createRemoteApp(
         // deliberate side-effect of using `readMcpConfig` + full rewrite
         // here.
         const existing = current.mcpServers[originalId];
+        /* v8 ignore next 5 -- the `in` check above guarantees this branch is unreachable; narrowing without the non-null assertion keeps TS happy and makes the contract explicit for future refactors. */
         if (!existing) {
-          // The `in` check above guarantees this branch is unreachable;
-          // narrowing without the non-null assertion keeps TS happy and
-          // makes the contract explicit for future refactors.
           return c.json({ error: `Server '${originalId}' not found` }, 404);
         }
         // Split the existing entry into its SDK-only config (no Inspector-

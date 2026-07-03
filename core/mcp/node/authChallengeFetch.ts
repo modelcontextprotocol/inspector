@@ -17,6 +17,7 @@ export function createAuthChallengeInterceptFetch(
     }
 
     const challenge = parseAuthChallengeFromResponse(response);
+    /* v8 ignore next 3 -- parseAuthChallengeFromResponse only returns undefined for non-401/403, which the status guard above already excludes */
     if (!challenge) {
       return response;
     }

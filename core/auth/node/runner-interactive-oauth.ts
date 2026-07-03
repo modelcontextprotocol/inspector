@@ -76,6 +76,7 @@ export async function runRunnerInteractiveOAuth(
       onError: (params) => {
         flowReject(
           new Error(
+            /* v8 ignore next -- params.error is a required non-null string, so the "OAuth error" fallback is unreachable */
             params.error_description ?? params.error ?? "OAuth error",
           ),
         );
@@ -89,6 +90,7 @@ export async function runRunnerInteractiveOAuth(
       options.callbackTimeoutMs ?? DEFAULT_RUNNER_INTERACTIVE_OAUTH_TIMEOUT_MS;
     const waitForCallback = Promise.race([
       flowDone.finally(() => {
+        /* v8 ignore next 3 -- timeoutId is assigned synchronously while the race is constructed, before flowDone can settle, so the undefined arm is unreachable */
         if (timeoutId !== undefined) {
           clearTimeout(timeoutId);
         }

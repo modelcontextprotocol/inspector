@@ -103,7 +103,10 @@ function requestIdForMessage(
 
 function isConnectAuthChallenge(
   json: RemoteConnectResponse,
-): json is Extract<RemoteConnectResponse, { ok: false; kind: "auth_challenge" }> {
+): json is Extract<
+  RemoteConnectResponse,
+  { ok: false; kind: "auth_challenge" }
+> {
   return (
     typeof json === "object" &&
     json !== null &&
@@ -116,7 +119,10 @@ function isConnectAuthChallenge(
 
 function isConnectTransportError(
   json: RemoteConnectResponse,
-): json is Extract<RemoteConnectResponse, { ok: false; kind: "transport_error" }> {
+): json is Extract<
+  RemoteConnectResponse,
+  { ok: false; kind: "transport_error" }
+> {
   return (
     typeof json === "object" &&
     json !== null &&
@@ -212,7 +218,10 @@ export class RemoteClientTransport implements Transport {
   private eventStreamConsumeTask: Promise<void> | null = null;
   private restartingEventStream = false;
   private closed = false;
-  private readonly sseResponseWaits = new Map<string | number, SseResponseWait>();
+  private readonly sseResponseWaits = new Map<
+    string | number,
+    SseResponseWait
+  >();
   private readonly options: RemoteTransportOptions;
   private readonly config: import("../types.js").MCPServerConfig;
 
@@ -287,10 +296,7 @@ export class RemoteClientTransport implements Transport {
   ): Promise<void> {
     const recovery = this.options.authRecovery;
     if (!recovery) {
-      throw new AuthChallengeError(
-        challenge,
-        challenge.raw?.httpStatus ?? 401,
-      );
+      throw new AuthChallengeError(challenge, challenge.raw?.httpStatus ?? 401);
     }
 
     const outcome = await recovery.handleAuthChallenge(challenge);
@@ -536,7 +542,9 @@ export class RemoteClientTransport implements Transport {
 
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Remote auth-state update failed (${res.status}): ${text}`);
+      throw new Error(
+        `Remote auth-state update failed (${res.status}): ${text}`,
+      );
     }
 
     const json = (await res.json()) as { ok?: boolean; error?: string };

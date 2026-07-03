@@ -182,6 +182,29 @@ describe("RemoteSession", () => {
     await expect(wait).resolves.toBeUndefined();
   });
 
+  it("endSend is a no-op when no send is active", () => {
+    const session = new RemoteSession("s-endsend-noop");
+    expect(session.hasActiveSend()).toBe(false);
+    // No matching beginSend() — activeSendCount is already 0.
+    session.endSend();
+    expect(session.hasActiveSend()).toBe(false);
+  });
+
+  it("waitForRequestResponse with timeoutMs=0 never schedules a timer and still resolves", async () => {
+    const session = new RemoteSession("s-no-timeout");
+    const wait = session.waitForRequestResponse(7, 0);
+    session.onMessage({ jsonrpc: "2.0", id: 7, result: {} });
+    await expect(wait).resolves.toBeUndefined();
+  });
+
+  it("cancelRequestWait rejects a timeoutMs=0 wait without a timer to clear", async () => {
+    const session = new RemoteSession("s-no-timeout-cancel");
+    const wait = session.waitForRequestResponse(8, 0);
+    const rejection = expect(wait).rejects.toThrow(/cancelled/);
+    session.cancelRequestWait(8);
+    await rejection;
+  });
+
   it("handleTransportAuthError rejects active request waits during send", async () => {
     const session = new RemoteSession("s-auth");
     session.beginSend();
@@ -277,6 +300,28 @@ describe("RemoteSession", () => {
     expect(vi.getTimerCount()).toBe(0);
     await vi.advanceTimersByTimeAsync(5000);
     vi.useRealTimers();
+  });
+
+  it("setAuthState throws when no auth provider handle is set", () => {
+    const session = new RemoteSession("no-auth-provider");
+    expect(() =>
+      session.setAuthState({
+        oauthTokens: { access_token: "x", token_type: "Bearer" },
+      }),
+    ).toThrow(/Session has no OAuth auth provider/);
+  });
+
+  it("cancelRequestWait is a no-op when the requestId has no pending wait", () => {
+    const session = new RemoteSession("s-cancel-noop");
+    // No wait was ever registered for this id — should not throw.
+    expect(() => session.cancelRequestWait(123)).not.toThrow();
+  });
+
+  it("handleTransportAuthError returns false for a non-AuthChallengeError", () => {
+    const session = new RemoteSession("s-not-auth-error");
+    expect(session.handleTransportAuthError(new Error("plain error"))).toBe(
+      false,
+    );
   });
 
   it("setAuthState updates the session auth provider", async () => {
