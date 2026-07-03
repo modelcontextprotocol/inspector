@@ -84,6 +84,34 @@ describe("runRunnerInteractiveOAuth", () => {
     expect(client.completeOAuthFlow).not.toHaveBeenCalled();
   });
 
+  it("clears the callback timeout on already_authorized", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = mockClient({
+        authenticate: vi.fn(async () => undefined),
+      });
+      const redirectUrlProvider = { redirectUrl: "" };
+
+      const result = await runRunnerInteractiveOAuth({
+        client,
+        redirectUrlProvider,
+        callbackListen: {
+          hostname: "127.0.0.1",
+          port: 6276,
+          pathname: "/oauth/callback",
+        },
+        callbackTimeoutMs: 60_000,
+        createCallbackServer: () => createMockCallbackServer(handlers),
+      });
+
+      expect(result).toEqual({ kind: "already_authorized" });
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(60_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("completes connect-time OAuth via authenticate and callback", async () => {
     const redirectUrlProvider = { redirectUrl: "" };
     const client = mockClient({

@@ -1215,9 +1215,6 @@ describe("OAuthManager", () => {
     });
 
     it("returns satisfied for EMA insufficient_scope after user confirms", async () => {
-      const silentSpy = vi
-        .spyOn(emaFlow, "trySilentEmaAuth")
-        .mockResolvedValue({ status: "success" });
       const params = createMockParams({
         enterpriseManagedAuth: {
           idp: {
@@ -1237,6 +1234,14 @@ describe("OAuthManager", () => {
         token_type: "Bearer",
         scope: "mcp",
       });
+      const silentSpy = vi.spyOn(emaFlow, "trySilentEmaAuth").mockImplementation(async () => {
+        storageOf(params).getTokens.mockResolvedValue({
+          access_token: "tok",
+          token_type: "Bearer",
+          scope: "mcp weather:read",
+        });
+        return { status: "success" };
+      });
       const manager = new OAuthManager(params);
       manager.setOAuthConfig({ enterpriseManaged: true });
 
@@ -1255,6 +1260,51 @@ describe("OAuthManager", () => {
       );
       expect(silentSpy).toHaveBeenCalled();
       silentSpy.mockRestore();
+    });
+
+    it("does not persist union scope or return satisfied when silent EMA mint is down-scoped", async () => {
+      const silentSpy = vi
+        .spyOn(emaFlow, "trySilentEmaAuth")
+        .mockResolvedValue({ status: "success" });
+      const authUrl = new URL("https://idp.example.com/authorize?state=ema");
+      const startSpy = vi
+        .spyOn(emaFlow, "startEmaIdpAuthorization")
+        .mockResolvedValue(authUrl);
+      const params = createMockParams({
+        enterpriseManagedAuth: {
+          idp: {
+            issuer: "https://idp.example.com",
+            clientId: "app-client",
+            clientSecret: "secret",
+          },
+        },
+      });
+      storageOf(params).getScope.mockReturnValue("mcp");
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "tok",
+        token_type: "Bearer",
+        scope: "mcp",
+      });
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ enterpriseManaged: true });
+
+      const outcome = await manager.handleAuthChallenge(
+        {
+          reason: "insufficient_scope",
+          requiredScopes: ["weather:read"],
+        },
+        { confirmedStepUp: true },
+      );
+
+      expect(outcome).toEqual(
+        expect.objectContaining({
+          kind: "interactive",
+          authorizationUrl: authUrl,
+        }),
+      );
+      expect(storageOf(params).saveScope).not.toHaveBeenCalled();
+      silentSpy.mockRestore();
+      startSpy.mockRestore();
     });
 
     it("completeOAuthFlow mints EMA tokens with pending step-up union scope", async () => {

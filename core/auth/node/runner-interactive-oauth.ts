@@ -58,6 +58,8 @@ export async function runRunnerInteractiveOAuth(
     flowReject = reject;
   });
 
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
   try {
     const { redirectUrl } = await server.start({
       hostname: options.callbackListen.hostname,
@@ -85,7 +87,6 @@ export async function runRunnerInteractiveOAuth(
 
     const timeoutMs =
       options.callbackTimeoutMs ?? DEFAULT_RUNNER_INTERACTIVE_OAUTH_TIMEOUT_MS;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const waitForCallback = Promise.race([
       flowDone.finally(() => {
         if (timeoutId !== undefined) {
@@ -131,6 +132,9 @@ export async function runRunnerInteractiveOAuth(
 
     return { kind: "success" };
   } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
     await server.stop().catch(() => {});
   }
 }

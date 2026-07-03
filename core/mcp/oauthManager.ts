@@ -602,13 +602,13 @@ export class OAuthManager {
     if (enriched.reason === "insufficient_scope") {
       const silent = await trySilentEmaAuth(config);
       if (silent.status === "success") {
-        if (enriched.authorizationScopes?.length) {
-          await this.oauthConfig.storage!.saveScope(
-            this.getServerUrl(),
-            enriched.authorizationScopes.join(" "),
-          );
-        }
         if (await this.checkAuthChallengeSatisfied(enriched)) {
+          if (enriched.authorizationScopes?.length) {
+            await this.oauthConfig.storage!.saveScope(
+              this.getServerUrl(),
+              enriched.authorizationScopes.join(" "),
+            );
+          }
           return { kind: "satisfied" };
         }
       }
