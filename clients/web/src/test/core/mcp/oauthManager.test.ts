@@ -1234,14 +1234,16 @@ describe("OAuthManager", () => {
         token_type: "Bearer",
         scope: "mcp",
       });
-      const silentSpy = vi.spyOn(emaFlow, "trySilentEmaAuth").mockImplementation(async () => {
-        storageOf(params).getTokens.mockResolvedValue({
-          access_token: "tok",
-          token_type: "Bearer",
-          scope: "mcp weather:read",
+      const silentSpy = vi
+        .spyOn(emaFlow, "trySilentEmaAuth")
+        .mockImplementation(async () => {
+          storageOf(params).getTokens.mockResolvedValue({
+            access_token: "tok",
+            token_type: "Bearer",
+            scope: "mcp weather:read",
+          });
+          return { status: "success" };
         });
-        return { status: "success" };
-      });
       const manager = new OAuthManager(params);
       manager.setOAuthConfig({ enterpriseManaged: true });
 
