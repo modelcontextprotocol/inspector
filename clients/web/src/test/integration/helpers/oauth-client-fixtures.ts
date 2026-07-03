@@ -137,9 +137,8 @@ export async function createClientMetadataServer(
 }
 
 /**
- * Helper function to programmatically complete OAuth authorization
- * Makes HTTP GET request to authorization URL and extracts authorization code
- * The test server's authorization endpoint auto-approves and redirects with code
+ * Programmatically complete OAuth against the local composable test AS.
+ * GET shows an HTML consent page; approve via POST (same as CLI test helper).
  *
  * @param authorizationUrl - The authorization URL from oauthAuthorizationRequired event
  * @returns Authorization code extracted from redirect URL
@@ -147,9 +146,22 @@ export async function createClientMetadataServer(
 export async function completeOAuthAuthorization(
   authorizationUrl: URL,
 ): Promise<string> {
-  const response = await fetch(authorizationUrl.toString(), {
+  let response = await fetch(authorizationUrl.toString(), {
     redirect: "manual",
   });
+
+  if (response.status === 200) {
+    const body = new URLSearchParams(authorizationUrl.searchParams);
+    response = await fetch(
+      `${authorizationUrl.origin}${authorizationUrl.pathname}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+        redirect: "manual",
+      },
+    );
+  }
 
   if (response.status !== 302 && response.status !== 301) {
     throw new Error(
@@ -162,7 +174,7 @@ export async function completeOAuthAuthorization(
     throw new Error("No Location header in redirect response");
   }
 
-  const redirectUrlObj = new URL(redirectUrl);
+  const redirectUrlObj = new URL(redirectUrl, authorizationUrl.origin);
   const code = redirectUrlObj.searchParams.get("code");
   if (!code) {
     throw new Error(`No authorization code in redirect URL: ${redirectUrl}`);
