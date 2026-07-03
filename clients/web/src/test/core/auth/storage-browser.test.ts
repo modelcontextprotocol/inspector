@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { BrowserOAuthStorage } from "@inspector/core/auth/browser/storage.js";
+import {
+  BrowserOAuthStorage,
+  getBrowserOAuthStorage,
+} from "@inspector/core/auth/browser/storage.js";
 import type {
   OAuthClientInformation,
   OAuthTokens,
@@ -40,6 +43,14 @@ class MockSessionStorage implements Storage {
 const mockSessionStorage = new MockSessionStorage();
 (global as typeof globalThis & { sessionStorage?: Storage }).sessionStorage =
   mockSessionStorage;
+
+describe("getBrowserOAuthStorage", () => {
+  it("returns the same singleton on repeated calls", () => {
+    const first = getBrowserOAuthStorage();
+    const second = getBrowserOAuthStorage();
+    expect(second).toBe(first);
+  });
+});
 
 describe("BrowserOAuthStorage", () => {
   let storage: BrowserOAuthStorage;

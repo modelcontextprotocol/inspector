@@ -338,7 +338,7 @@ Snapshots **per app tab UI**, not message logs, tool results, or network bodies.
 
 ### Multiple browser tabs
 
-Each browser tab has its own `RemoteSession` and (today) `BrowserOAuthStorage` in `sessionStorage`. SSE `auth_challenge` is scoped to that session.
+Each browser tab has its own `RemoteSession`. OAuth runtime state is shared file-backed (`RemoteOAuthStorage` → `oauth.json`) across tabs on the same backend; SSE `auth_challenge` is scoped to that tab's session.
 
 When a tab is **hidden**, **interactive** OAuth must not steal focus:
 
@@ -413,7 +413,7 @@ Legacy **SSE** transport: **401 only** on mid-session `send()` (no 403 step-up).
 | ------- | --- | --- | --- |
 | Challenge detection | Inline send + SSE ambient | SDK transport + intercept | Same as TUI |
 | Auth execution | Browser `OAuthManager` | Node `OAuthManager` | Node `OAuthManager` |
-| OAuth storage | `BrowserOAuthStorage` (sessionStorage) | `NodeOAuthStorage` (file) | Same file as TUI |
+| OAuth storage | `RemoteOAuthStorage` → `oauth.json` (via `/api/storage/oauth`) | `NodeOAuthStorage` (file) | Same file as TUI |
 | Silent recovery | `auth-state` push + send retry | Reconnect / SDK retry (v2) | One-shot RPC retry |
 | Interactive recovery | Modal + full-page redirect + snapshot | Auth tab + callback | stderr **y/N** + callback |
 | Step-up confirm | `StepUpAuthModal` | Auth tab **A** / **C** | **y/N** |

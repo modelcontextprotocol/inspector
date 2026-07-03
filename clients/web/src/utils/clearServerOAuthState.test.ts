@@ -1,14 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { getBrowserOAuthStorage } from "@inspector/core/auth/browser/index.js";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { BrowserOAuthStorage } from "@inspector/core/auth/browser/storage.js";
 import { clearServerOAuthState } from "./clearServerOAuthState";
 
 describe("clearServerOAuthState", () => {
+  let storage: BrowserOAuthStorage;
+
   beforeEach(() => {
-    getBrowserOAuthStorage().clear("https://mcp.example.com/mcp");
+    storage = new BrowserOAuthStorage();
+    storage.clear("https://mcp.example.com/mcp");
   });
 
   it("clears storage by server URL when not the active connection", async () => {
-    const storage = getBrowserOAuthStorage();
     await storage.saveTokens("https://mcp.example.com/mcp", {
       access_token: "tok",
       token_type: "Bearer",
@@ -17,6 +19,7 @@ describe("clearServerOAuthState", () => {
     const cleared = clearServerOAuthState({
       config: { type: "streamable-http", url: "https://mcp.example.com/mcp" },
       isActiveConnection: false,
+      oauthStorage: storage,
     });
 
     expect(cleared).toBe(true);
@@ -26,18 +29,18 @@ describe("clearServerOAuthState", () => {
   });
 
   it("uses the live client when clearing the active connection", () => {
-    const inspectorClient = {
-      clearOAuthTokens: vi.fn(),
-    };
+    const clearOAuthTokens = vi.fn<() => void>();
+    const inspectorClient = { clearOAuthTokens };
 
     const cleared = clearServerOAuthState({
       config: { type: "streamable-http", url: "https://mcp.example.com/mcp" },
-      inspectorClient: inspectorClient as never,
+      inspectorClient,
       isActiveConnection: true,
+      oauthStorage: storage,
     });
 
     expect(cleared).toBe(true);
-    expect(inspectorClient.clearOAuthTokens).toHaveBeenCalledTimes(1);
+    expect(clearOAuthTokens).toHaveBeenCalledTimes(1);
   });
 
   it("returns false for stdio servers", () => {
@@ -45,6 +48,7 @@ describe("clearServerOAuthState", () => {
       clearServerOAuthState({
         config: { type: "stdio", command: "node", args: [] },
         isActiveConnection: false,
+        oauthStorage: storage,
       }),
     ).toBe(false);
   });
