@@ -3064,8 +3064,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   /**
    * Clears OAuth tokens and client information
    */
-  clearOAuthTokens(): void {
-    this.oauthManager?.clearOAuthTokens();
+  async clearOAuthTokens(): Promise<void> {
+    await this.oauthManager?.clearOAuthTokens();
   }
 
   /**

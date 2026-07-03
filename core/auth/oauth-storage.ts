@@ -16,22 +16,48 @@ import type {
   SaveTokensOptions,
 } from "./storage.js";
 
+type OAuthStoreWithPersist = ReturnType<typeof createOAuthStore> & {
+  persist: {
+    hasHydrated: () => boolean;
+    onFinishHydration: (fn: () => void) => void;
+  };
+};
+
 /**
  * Concrete OAuthStorage implementation parameterized on a Zustand store.
  * The store carries the storage adapter (sessionStorage, file, remote HTTP, …),
  * so the same body works for browser, Node, and remote environments.
  */
 export class OAuthStorageBase implements OAuthStorage {
-  private readonly store: ReturnType<typeof createOAuthStore>;
+  private readonly store: OAuthStoreWithPersist;
+  private loadedPromise: Promise<void> | undefined;
 
   constructor(store: ReturnType<typeof createOAuthStore>) {
-    this.store = store;
+    this.store = store as OAuthStoreWithPersist;
+  }
+
+  load(): Promise<void> {
+    if (!this.loadedPromise) {
+      this.loadedPromise = new Promise((resolve) => {
+        if (this.store.persist.hasHydrated()) {
+          resolve();
+          return;
+        }
+        this.store.persist.onFinishHydration(() => resolve());
+      });
+    }
+    return this.loadedPromise;
+  }
+
+  private async ensureLoaded(): Promise<void> {
+    await this.load();
   }
 
   async getClientInformation(
     serverUrl: string,
     isPreregistered?: boolean,
   ): Promise<OAuthClientInformation | undefined> {
+    await this.ensureLoaded();
     const state = this.store.getState().getServerState(serverUrl);
     const clientInfo = isPreregistered
       ? state.preregisteredClientInformation
@@ -56,6 +82,7 @@ export class OAuthStorageBase implements OAuthStorage {
     clientInformation: OAuthClientInformation,
     options: SaveClientInformationOptions,
   ): Promise<void> {
+    await this.ensureLoaded();
     this.store.getState().setServerState(serverUrl, {
       clientInformation,
       clientRegistrationKind: options.registrationKind,
@@ -66,13 +93,18 @@ export class OAuthStorageBase implements OAuthStorage {
     serverUrl: string,
     clientInformation: OAuthClientInformation,
   ): Promise<void> {
+    await this.ensureLoaded();
     this.store.getState().setServerState(serverUrl, {
       preregisteredClientInformation: clientInformation,
       clientRegistrationKind: "static",
     });
   }
 
-  clearClientInformation(serverUrl: string, isPreregistered?: boolean): void {
+  async clearClientInformation(
+    serverUrl: string,
+    isPreregistered?: boolean,
+  ): Promise<void> {
+    await this.ensureLoaded();
     const updates: Partial<ServerOAuthState> = {};
 
     if (isPreregistered) {
@@ -86,6 +118,7 @@ export class OAuthStorageBase implements OAuthStorage {
   }
 
   async getTokens(serverUrl: string): Promise<OAuthTokens | undefined> {
+    await this.ensureLoaded();
     const state = this.store.getState().getServerState(serverUrl);
     if (!state.tokens) {
       return undefined;
@@ -99,13 +132,15 @@ export class OAuthStorageBase implements OAuthStorage {
     tokens: OAuthTokens,
     options?: SaveTokensOptions,
   ): Promise<void> {
+    await this.ensureLoaded();
     this.store.getState().setServerState(serverUrl, {
       tokens,
       ...(options?.enterpriseManaged === true && { enterpriseManaged: true }),
     });
   }
 
-  clearTokens(serverUrl: string): void {
+  async clearTokens(serverUrl: string): Promise<void> {
+    await this.ensureLoaded();
     this.store.getState().setServerState(serverUrl, { tokens: undefined });
   }
 
@@ -118,10 +153,12 @@ export class OAuthStorageBase implements OAuthStorage {
     serverUrl: string,
     codeVerifier: string,
   ): Promise<void> {
+    await this.ensureLoaded();
     this.store.getState().setServerState(serverUrl, { codeVerifier });
   }
 
-  clearCodeVerifier(serverUrl: string): void {
+  async clearCodeVerifier(serverUrl: string): Promise<void> {
+    await this.ensureLoaded();
     this.store
       .getState()
       .setServerState(serverUrl, { codeVerifier: undefined });
@@ -133,10 +170,12 @@ export class OAuthStorageBase implements OAuthStorage {
   }
 
   async saveScope(serverUrl: string, scope: string | undefined): Promise<void> {
+    await this.ensureLoaded();
     this.store.getState().setServerState(serverUrl, { scope });
   }
 
-  clearScope(serverUrl: string): void {
+  async clearScope(serverUrl: string): Promise<void> {
+    await this.ensureLoaded();
     this.store.getState().setServerState(serverUrl, { scope: undefined });
   }
 
@@ -149,22 +188,26 @@ export class OAuthStorageBase implements OAuthStorage {
     serverUrl: string,
     metadata: OAuthMetadata,
   ): Promise<void> {
+    await this.ensureLoaded();
     this.store
       .getState()
       .setServerState(serverUrl, { serverMetadata: metadata });
   }
 
-  clearServerMetadata(serverUrl: string): void {
+  async clearServerMetadata(serverUrl: string): Promise<void> {
+    await this.ensureLoaded();
     this.store
       .getState()
       .setServerState(serverUrl, { serverMetadata: undefined });
   }
 
-  clear(serverUrl: string): void {
+  async clear(serverUrl: string): Promise<void> {
+    await this.ensureLoaded();
     this.store.getState().clearServerState(serverUrl);
   }
 
   async getIdpSession(issuer: string): Promise<IdpSessionState | undefined> {
+    await this.ensureLoaded();
     const session = this.store.getState().getIdpSession(issuer);
     if (
       !session.idToken &&
@@ -180,14 +223,17 @@ export class OAuthStorageBase implements OAuthStorage {
     issuer: string,
     session: Partial<IdpSessionState>,
   ): Promise<void> {
+    await this.ensureLoaded();
     this.store.getState().setIdpSession(issuer, session);
   }
 
-  clearIdpSession(issuer: string): void {
+  async clearIdpSession(issuer: string): Promise<void> {
+    await this.ensureLoaded();
     this.store.getState().clearIdpSession(issuer);
   }
 
-  clearEnterpriseManagedResourceServers(): void {
+  async clearEnterpriseManagedResourceServers(): Promise<void> {
+    await this.ensureLoaded();
     this.store.getState().clearEnterpriseManagedResourceServers();
   }
 }

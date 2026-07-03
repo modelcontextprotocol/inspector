@@ -8,10 +8,13 @@ describe("useEmaIdpLoginState", () => {
 
   beforeEach(() => {
     storage = {
+      load: vi.fn().mockResolvedValue(undefined),
       getIdpSession: vi.fn().mockResolvedValue(undefined),
-      clearIdpSession: vi.fn(),
-      clear: vi.fn(),
-      clearEnterpriseManagedResourceServers: vi.fn(),
+      clearIdpSession: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+      clearEnterpriseManagedResourceServers: vi
+        .fn()
+        .mockResolvedValue(undefined),
     } as unknown as OAuthStorage;
   });
 
@@ -56,10 +59,12 @@ describe("useEmaIdpLoginState", () => {
       result.current.logout();
     });
 
-    expect(storage.clearIdpSession).toHaveBeenCalledWith("https://idp.test");
-    expect(storage.clear).toHaveBeenCalledWith("ema-idp:https://idp.test");
-    expect(storage.clearEnterpriseManagedResourceServers).toHaveBeenCalled();
-    expect(result.current.loginState).toBe("none");
+    await waitFor(() => {
+      expect(storage.clearIdpSession).toHaveBeenCalledWith("https://idp.test");
+      expect(storage.clear).toHaveBeenCalledWith("ema-idp:https://idp.test");
+      expect(storage.clearEnterpriseManagedResourceServers).toHaveBeenCalled();
+      expect(result.current.loginState).toBe("none");
+    });
   });
 
   it("reports 'expired' for an expired token with no refresh token", async () => {

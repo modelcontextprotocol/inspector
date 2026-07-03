@@ -17,18 +17,18 @@ export interface ClearServerOAuthStateParams {
  * HTTP MCP server. When clearing the active connection, uses the live client so
  * in-memory flow state is reset too.
  */
-export function clearServerOAuthState(
+export async function clearServerOAuthState(
   params: ClearServerOAuthStateParams,
-): boolean {
+): Promise<boolean> {
   const serverUrl = getOAuthServerUrl(params.config);
   if (!serverUrl) {
     return false;
   }
 
   if (params.isActiveConnection && params.inspectorClient) {
-    params.inspectorClient.clearOAuthTokens();
+    await params.inspectorClient.clearOAuthTokens();
   } else {
-    params.oauthStorage.clear(serverUrl);
+    await params.oauthStorage.clear(serverUrl);
   }
   return true;
 }

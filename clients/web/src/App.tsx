@@ -2191,6 +2191,7 @@ function App() {
     }
 
     void (async () => {
+      await webOAuthStorage.load();
       const client = setupClientForServer(server, sessionId);
       setActiveServerId(server.id);
       try {
@@ -2246,7 +2247,7 @@ function App() {
         });
       }
     })();
-  }, [servers, setupClientForServer, showReAuthBanner]);
+  }, [servers, setupClientForServer, showReAuthBanner, webOAuthStorage]);
 
   const onToggleConnection = useCallback(
     async (id: string) => {
@@ -3273,7 +3274,7 @@ function App() {
   const clearServerOAuthAndDisconnect = useCallback(
     async (server: { id: string; name: string; config: MCPServerConfig }) => {
       const isActive = server.id === activeServerId;
-      const cleared = clearServerOAuthState({
+      const cleared = await clearServerOAuthState({
         config: server.config,
         inspectorClient: isActive ? inspectorClient : null,
         isActiveConnection: isActive,

@@ -50,7 +50,7 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
       { client_id: "dyn" },
       { registrationKind: "dcr" },
     );
-    storage.clearClientInformation(serverUrl);
+    await storage.clearClientInformation(serverUrl);
     expect(await storage.getClientInformation(serverUrl)).toBeUndefined();
   });
 
@@ -58,7 +58,7 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
     await storage.savePreregisteredClientInformation(serverUrl, {
       client_id: "pre",
     });
-    storage.clearClientInformation(serverUrl, true);
+    await storage.clearClientInformation(serverUrl, true);
     expect(await storage.getClientInformation(serverUrl, true)).toBeUndefined();
   });
 
@@ -66,21 +66,21 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
     const tokens = { access_token: "t", token_type: "Bearer" };
     await storage.saveTokens(serverUrl, tokens);
     expect(await storage.getTokens(serverUrl)).toEqual(tokens);
-    storage.clearTokens(serverUrl);
+    await storage.clearTokens(serverUrl);
     expect(await storage.getTokens(serverUrl)).toBeUndefined();
   });
 
   it("codeVerifier round-trip and clearCodeVerifier", async () => {
     await storage.saveCodeVerifier(serverUrl, "verifier");
     expect(storage.getCodeVerifier(serverUrl)).toBe("verifier");
-    storage.clearCodeVerifier(serverUrl);
+    await storage.clearCodeVerifier(serverUrl);
     expect(storage.getCodeVerifier(serverUrl)).toBeUndefined();
   });
 
   it("scope round-trip and clearScope", async () => {
     await storage.saveScope(serverUrl, "read write");
     expect(storage.getScope(serverUrl)).toBe("read write");
-    storage.clearScope(serverUrl);
+    await storage.clearScope(serverUrl);
     expect(storage.getScope(serverUrl)).toBeUndefined();
   });
 
@@ -93,7 +93,7 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
     };
     await storage.saveServerMetadata(serverUrl, md);
     expect(storage.getServerMetadata(serverUrl)).toEqual(md);
-    storage.clearServerMetadata(serverUrl);
+    await storage.clearServerMetadata(serverUrl);
     expect(storage.getServerMetadata(serverUrl)).toBeNull();
   });
 
@@ -107,7 +107,7 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
       access_token: "t",
       token_type: "Bearer",
     });
-    storage.clear(serverUrl);
+    await storage.clear(serverUrl);
     expect(await storage.getClientInformation(serverUrl)).toBeUndefined();
     expect(await storage.getTokens(serverUrl)).toBeUndefined();
   });
@@ -119,5 +119,40 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
     });
     // No public accessor; constructing without throwing covers the default-branch.
     expect(s).toBeInstanceOf(RemoteOAuthStorage);
+  });
+
+  it("load() waits for remote GET before sync reads see persisted state", async () => {
+    const persisted = {
+      state: {
+        servers: {
+          [serverUrl]: { codeVerifier: "persisted-verifier" },
+        },
+        idpSessions: {},
+      },
+      version: 0,
+    };
+    let resolveFetch!: (value: Response) => void;
+    const delayedFetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    ) as unknown as typeof fetch;
+
+    const delayedStorage = new RemoteOAuthStorage({
+      baseUrl: "http://remote.example",
+      storeId: `delayed-${Math.random().toString(36).slice(2)}`,
+      fetchFn: delayedFetch,
+    });
+
+    const loadPromise = delayedStorage.load();
+    expect(delayedStorage.getCodeVerifier(serverUrl)).toBeUndefined();
+
+    resolveFetch(new Response(JSON.stringify(persisted), { status: 200 }));
+    await loadPromise;
+
+    expect(delayedStorage.getCodeVerifier(serverUrl)).toBe(
+      "persisted-verifier",
+    );
   });
 });

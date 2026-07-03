@@ -630,7 +630,7 @@ describe("InspectorClient OAuth E2E", () => {
         expect(client.getStatus()).toBe("connected");
 
         await client.disconnect();
-        client.clearOAuthTokens();
+        await client.clearOAuthTokens();
 
         const authUrlSecond = await client.authenticate();
         if (!authUrlSecond) throw new Error("Expected authorization URL");
@@ -995,7 +995,7 @@ describe("InspectorClient OAuth E2E", () => {
       expect(tokens?.access_token).toBeDefined();
       expect(await client.isOAuthAuthorized()).toBe(true);
 
-      client.clearOAuthTokens();
+      await client.clearOAuthTokens();
       expect(await client.isOAuthAuthorized()).toBe(false);
       expect(await client.getOAuthTokens()).toBeUndefined();
     });

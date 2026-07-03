@@ -126,10 +126,10 @@ describe("NodeOAuthStorage", () => {
         client_id: "second-id",
       };
 
-      storage.saveClientInformation(testServerUrl, firstInfo, {
+      await storage.saveClientInformation(testServerUrl, firstInfo, {
         registrationKind: "dcr",
       });
-      storage.saveClientInformation(testServerUrl, secondInfo, {
+      await storage.saveClientInformation(testServerUrl, secondInfo, {
         registrationKind: "dcr",
       });
       const result = await storage.getClientInformation(testServerUrl);
@@ -310,7 +310,7 @@ describe("NodeOAuthStorage", () => {
       expect(await storage.getClientInformation(testServerUrl)).toEqual({
         client_id: "dyn",
       });
-      storage.clearClientInformation(testServerUrl);
+      await storage.clearClientInformation(testServerUrl);
       expect(await storage.getClientInformation(testServerUrl)).toBeUndefined();
     });
 
@@ -321,7 +321,7 @@ describe("NodeOAuthStorage", () => {
       expect(await storage.getClientInformation(testServerUrl, true)).toEqual({
         client_id: "pre",
       });
-      storage.clearClientInformation(testServerUrl, true);
+      await storage.clearClientInformation(testServerUrl, true);
       expect(
         await storage.getClientInformation(testServerUrl, true),
       ).toBeUndefined();
@@ -335,21 +335,21 @@ describe("NodeOAuthStorage", () => {
         token_type: "Bearer",
       });
       expect(await storage.getTokens(testServerUrl)).toBeDefined();
-      storage.clearTokens(testServerUrl);
+      await storage.clearTokens(testServerUrl);
       expect(await storage.getTokens(testServerUrl)).toBeUndefined();
     });
 
     it("clearCodeVerifier removes only the PKCE verifier", async () => {
       await storage.saveCodeVerifier(testServerUrl, "verifier");
       expect(storage.getCodeVerifier(testServerUrl)).toBe("verifier");
-      storage.clearCodeVerifier(testServerUrl);
+      await storage.clearCodeVerifier(testServerUrl);
       expect(storage.getCodeVerifier(testServerUrl)).toBeUndefined();
     });
 
     it("clearScope removes only the scope", async () => {
       await storage.saveScope(testServerUrl, "read write");
       expect(storage.getScope(testServerUrl)).toBe("read write");
-      storage.clearScope(testServerUrl);
+      await storage.clearScope(testServerUrl);
       expect(storage.getScope(testServerUrl)).toBeUndefined();
     });
 
@@ -362,7 +362,7 @@ describe("NodeOAuthStorage", () => {
       };
       await storage.saveServerMetadata(testServerUrl, metadata);
       expect(storage.getServerMetadata(testServerUrl)).toEqual(metadata);
-      storage.clearServerMetadata(testServerUrl);
+      await storage.clearServerMetadata(testServerUrl);
       expect(storage.getServerMetadata(testServerUrl)).toBeNull();
     });
   });
@@ -382,7 +382,7 @@ describe("NodeOAuthStorage", () => {
       });
       await storage.saveTokens(testServerUrl, tokens);
 
-      storage.clear(testServerUrl);
+      await storage.clear(testServerUrl);
 
       expect(await storage.getClientInformation(testServerUrl)).toBeUndefined();
       expect(await storage.getTokens(testServerUrl)).toBeUndefined();
@@ -401,7 +401,7 @@ describe("NodeOAuthStorage", () => {
         registrationKind: "dcr",
       });
 
-      storage.clear(testServerUrl);
+      await storage.clear(testServerUrl);
 
       expect(await storage.getClientInformation(testServerUrl)).toBeUndefined();
       const otherResult = await storage.getClientInformation(otherServerUrl);
@@ -424,10 +424,10 @@ describe("NodeOAuthStorage", () => {
         client_id: "client-2",
       };
 
-      storage.saveClientInformation(server1Url, clientInfo1, {
+      await storage.saveClientInformation(server1Url, clientInfo1, {
         registrationKind: "dcr",
       });
-      storage.saveClientInformation(server2Url, clientInfo2, {
+      await storage.saveClientInformation(server2Url, clientInfo2, {
         registrationKind: "dcr",
       });
 
@@ -547,7 +547,7 @@ describe("NodeOAuthStorage idpSessions (EMA)", () => {
     expect(session?.idToken).toBe("eyJ.id.token");
     expect(session?.refreshToken).toBe("rt-1");
 
-    storage.clearIdpSession(issuer);
+    await storage.clearIdpSession(issuer);
     await flushStoreFileWrites(testStatePath);
     expect(await storage.getIdpSession(issuer)).toBeUndefined();
   });
@@ -635,12 +635,10 @@ describe("NodeOAuthStorage with custom storagePath", () => {
     );
 
     try {
-      const defaultStore = getOAuthStore();
-      defaultStore.getState().setServerState(testServerUrl, {
-        tokens: {
-          access_token: "default-token",
-          token_type: "Bearer",
-        },
+      const defaultStorage = new NodeOAuthStorage();
+      await defaultStorage.saveTokens(testServerUrl, {
+        access_token: "default-token",
+        token_type: "Bearer",
       });
 
       const customStorage = new NodeOAuthStorage(customPath);
@@ -652,11 +650,10 @@ describe("NodeOAuthStorage with custom storagePath", () => {
       const fromCustom = await customStorage.getTokens(testServerUrl);
       expect(fromCustom?.access_token).toBe("custom-token");
 
-      const defaultStorage = new NodeOAuthStorage();
       const fromDefault = await defaultStorage.getTokens(testServerUrl);
       expect(fromDefault?.access_token).toBe("default-token");
 
-      defaultStore.getState().clearServerState(testServerUrl);
+      getOAuthStore().getState().clearServerState(testServerUrl);
     } finally {
       try {
         await fs.unlink(customPath);

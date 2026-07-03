@@ -213,6 +213,7 @@ describe("OAuthNavigation", () => {
 
     function makeStorage(): OAuthStorage {
       return {
+        load: vi.fn().mockResolvedValue(undefined),
         getScope: vi.fn(() => undefined),
         getClientInformation: vi.fn(async () => undefined),
         saveClientInformation: vi.fn(async () => undefined),
@@ -240,11 +241,11 @@ describe("OAuthNavigation", () => {
       return new BaseOAuthClientProvider(SERVER, config);
     }
 
-    it("clear() delegates to storage.clear with the server url", () => {
+    it("clear() delegates to storage.clear with the server url", async () => {
       const storage = makeStorage();
       const provider = makeProvider(storage);
 
-      provider.clear();
+      await provider.clear();
 
       expect(storage.clear).toHaveBeenCalledWith(SERVER);
     });

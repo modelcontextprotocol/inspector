@@ -22,6 +22,13 @@ export interface SaveClientInformationOptions {
 
 export interface OAuthStorage {
   /**
+   * Load persisted OAuth state into memory. Resolves when the backing store
+   * (file, remote API, sessionStorage, …) has been read. Call before relying on
+   * sync reads, or await mutating methods which call this internally.
+   */
+  load(): Promise<void>;
+
+  /**
    * Get client information (preregistered or dynamically registered)
    */
   getClientInformation(
@@ -56,7 +63,10 @@ export interface OAuthStorage {
   /**
    * Clear client information
    */
-  clearClientInformation(serverUrl: string, isPreregistered?: boolean): void;
+  clearClientInformation(
+    serverUrl: string,
+    isPreregistered?: boolean,
+  ): Promise<void>;
 
   /**
    * Get OAuth tokens
@@ -75,7 +85,7 @@ export interface OAuthStorage {
   /**
    * Clear OAuth tokens
    */
-  clearTokens(serverUrl: string): void;
+  clearTokens(serverUrl: string): Promise<void>;
 
   /**
    * Get code verifier (for PKCE)
@@ -90,7 +100,7 @@ export interface OAuthStorage {
   /**
    * Clear code verifier
    */
-  clearCodeVerifier(serverUrl: string): void;
+  clearCodeVerifier(serverUrl: string): Promise<void>;
 
   /**
    * Get scope
@@ -105,7 +115,7 @@ export interface OAuthStorage {
   /**
    * Clear scope
    */
-  clearScope(serverUrl: string): void;
+  clearScope(serverUrl: string): Promise<void>;
 
   /**
    * Get server metadata discovered during OAuth
@@ -120,12 +130,12 @@ export interface OAuthStorage {
   /**
    * Clear server metadata
    */
-  clearServerMetadata(serverUrl: string): void;
+  clearServerMetadata(serverUrl: string): Promise<void>;
 
   /**
    * Clear all OAuth data for a server
    */
-  clear(serverUrl: string): void;
+  clear(serverUrl: string): Promise<void>;
 
   /**
    * Get cached IdP OIDC session for EMA (keyed by issuer).
@@ -143,12 +153,12 @@ export interface OAuthStorage {
   /**
    * Clear cached IdP session for an issuer.
    */
-  clearIdpSession(issuer: string): void;
+  clearIdpSession(issuer: string): Promise<void>;
 
   /**
    * Remove per-server OAuth state for MCP servers whose tokens were minted via EMA.
    */
-  clearEnterpriseManagedResourceServers(): void;
+  clearEnterpriseManagedResourceServers(): Promise<void>;
 }
 
 /**

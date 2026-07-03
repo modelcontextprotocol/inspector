@@ -40,8 +40,9 @@ export function useEmaIdpLoginState(
 
   const logout = useCallback(() => {
     if (!normalizedIssuer) return;
-    clearEmaIdpSession(storage, normalizedIssuer);
-    setLoginState("none");
+    void clearEmaIdpSession(storage, normalizedIssuer).then(() => {
+      setLoginState("none");
+    });
   }, [storage, normalizedIssuer]);
 
   return { loginState, refresh, logout };

@@ -35,6 +35,7 @@ function createMockParams(
   const dispatchOAuthError = vi.fn();
 
   const storage = {
+    load: vi.fn().mockResolvedValue(undefined),
     getScope: vi.fn().mockReturnValue(undefined),
     getClientInformation: vi.fn().mockResolvedValue(undefined),
     getClientRegistrationKind: vi.fn().mockReturnValue(undefined),
@@ -45,7 +46,7 @@ function createMockParams(
     saveTokens: vi.fn().mockResolvedValue(undefined),
     getCodeVerifier: vi.fn().mockReturnValue("verifier"),
     saveCodeVerifier: vi.fn().mockResolvedValue(undefined),
-    clear: vi.fn(),
+    clear: vi.fn().mockResolvedValue(undefined),
     clearClientInformation: vi.fn(),
     clearTokens: vi.fn(),
     clearCodeVerifier: vi.fn(),
@@ -126,10 +127,10 @@ describe("OAuthManager", () => {
   });
 
   describe("clearOAuthTokens", () => {
-    it("calls storage.clear(serverUrl) when storage is configured", () => {
+    it("calls storage.clear(serverUrl) when storage is configured", async () => {
       const params = createMockParams();
       const manager = new OAuthManager(params);
-      manager.clearOAuthTokens();
+      await manager.clearOAuthTokens();
       expect(params.initialConfig.storage!.clear).toHaveBeenCalledWith(
         SERVER_URL,
       );
@@ -137,7 +138,7 @@ describe("OAuthManager", () => {
       expect(manager.getOAuthFlowStep()).toBeUndefined();
     });
 
-    it("no-ops when storage is not configured", () => {
+    it("no-ops when storage is not configured", async () => {
       const params = createMockParams({
         initialConfig: {
           redirectUrlProvider: {
@@ -147,7 +148,7 @@ describe("OAuthManager", () => {
         } as OAuthManagerConfig,
       });
       const manager = new OAuthManager(params);
-      manager.clearOAuthTokens();
+      await manager.clearOAuthTokens();
       expect(params.getServerUrl).not.toHaveBeenCalled();
     });
   });
