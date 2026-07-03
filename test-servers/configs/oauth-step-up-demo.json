@@ -1,0 +1,22 @@
+{
+  "serverInfo": {
+    "name": "oauth-step-up-demo",
+    "version": "1.0.0"
+  },
+  "tools": [
+    { "preset": "echo" },
+    { "preset": "get_temp", "requiredScopes": ["weather:read"] }
+  ],
+  "oauth": {
+    "enabled": true,
+    "mode": "combined",
+    "requireAuth": true,
+    "scopesSupported": ["mcp", "tools:read", "weather:read"],
+    "supportRefreshTokens": true,
+    "supportDCR": true
+  },
+  "transport": {
+    "type": "streamable-http",
+    "port": 8081
+  }
+}

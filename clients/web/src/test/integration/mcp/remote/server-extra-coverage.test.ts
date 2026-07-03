@@ -788,4 +788,113 @@ describe("server.ts supplemental coverage", () => {
       }
     });
   });
+
+  describe("keychain-unavailable 503 on PUT/DELETE", () => {
+    class UnavailableOnWriteStore implements SecretStore {
+      async get(): Promise<string | null> {
+        return null;
+      }
+      async set(): Promise<void> {
+        throw new KeychainUnavailableError(new Error("libsecret missing"));
+      }
+      async delete(): Promise<void> {
+        /* no-op */
+      }
+      async deleteAllForServer(): Promise<void> {
+        throw new KeychainUnavailableError(new Error("libsecret missing"));
+      }
+    }
+
+    it("PUT returns 503 when the keychain write is unavailable", async () => {
+      const h = await start({
+        secretStore: new UnavailableOnWriteStore(),
+        seedConfig: JSON.stringify({
+          mcpServers: {
+            srv: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              oauth: { clientId: "cid", clientSecret: "shh" },
+            },
+          },
+        }),
+      });
+      try {
+        const res = await fetch(`${h.baseUrl}/api/servers/srv`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            config: { type: "streamable-http", url: "https://x.test/mcp" },
+            settings: {
+              headers: [],
+              metadata: [],
+              connectionTimeout: 0,
+              requestTimeout: 0,
+              oauthClientSecret: "new-secret",
+            },
+          }),
+        });
+        expect(res.status).toBe(503);
+        expect((await res.json()).error).toMatch(/libsecret missing/);
+      } finally {
+        await stop(h);
+      }
+    });
+
+    it("DELETE returns 503 when the keychain sweep is unavailable", async () => {
+      const h = await start({
+        secretStore: new UnavailableOnWriteStore(),
+        seedConfig: JSON.stringify({
+          mcpServers: { srv: { type: "stdio", command: "node" } },
+        }),
+      });
+      try {
+        const res = await fetch(`${h.baseUrl}/api/servers/srv`, {
+          method: "DELETE",
+        });
+        expect(res.status).toBe(503);
+        expect((await res.json()).error).toMatch(/libsecret missing/);
+      } finally {
+        await stop(h);
+      }
+    });
+  });
+
+  describe("migratePlaintextSecrets rethrows a non-keychain error", () => {
+    class ThrowingOnGetStore implements SecretStore {
+      async get(): Promise<string | null> {
+        throw new Error("disk full");
+      }
+      async set(): Promise<void> {
+        /* unreachable in this test */
+      }
+      async delete(): Promise<void> {
+        /* no-op */
+      }
+      async deleteAllForServer(): Promise<void> {
+        /* no-op */
+      }
+    }
+
+    it("GET /api/servers returns 500 when migration hits a non-KeychainUnavailableError", async () => {
+      const h = await start({
+        secretStore: new ThrowingOnGetStore(),
+        seedConfig: JSON.stringify({
+          mcpServers: {
+            srv: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              oauth: { clientId: "cid", clientSecret: "shh" },
+            },
+          },
+        }),
+      });
+      try {
+        const res = await fetch(`${h.baseUrl}/api/servers`);
+        expect(res.status).toBe(500);
+        expect((await res.json()).error).toMatch(/Failed to read server list/);
+      } finally {
+        await stop(h);
+      }
+    });
+  });
 });

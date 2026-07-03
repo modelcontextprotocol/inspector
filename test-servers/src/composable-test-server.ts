@@ -100,6 +100,8 @@ export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema?: ToolInputSchema;
+  /** OAuth scopes required to invoke this tool (enforced at HTTP layer). */
+  requiredScopes?: string[];
   /** Optional Zod object schema for tool output; when set, handler must return structuredContent. */
   outputSchema?: unknown;
   handler: (
@@ -113,6 +115,8 @@ export interface TaskToolDefinition {
   name: string;
   description: string;
   inputSchema?: ToolInputSchema;
+  /** OAuth scopes required to invoke this tool (enforced at HTTP layer). */
+  requiredScopes?: string[];
   execution?: { taskSupport: "required" | "optional" };
   handler: ToolTaskHandler<ToolInputSchema | undefined>;
 }
@@ -123,11 +127,15 @@ export interface ResourceDefinition {
   description?: string;
   mimeType?: string;
   text?: string;
+  /** OAuth scopes required to read this resource (enforced at HTTP layer). */
+  requiredScopes?: string[];
 }
 
 export interface PromptDefinition {
   name: string;
   description?: string;
+  /** OAuth scopes required to fetch this prompt (enforced at HTTP layer). */
+  requiredScopes?: string[];
   promptString: string; // The prompt text with optional {argName} placeholders
   argsSchema?: PromptArgsSchema; // Can include completable() schemas
   // Optional completion callbacks keyed by argument name
@@ -145,6 +153,8 @@ export interface ResourceTemplateDefinition {
   name: string;
   uriTemplate: string; // URI template with {variable} placeholders (RFC 6570)
   description?: string;
+  /** OAuth scopes required to read resources from this template (enforced at HTTP layer). */
+  requiredScopes?: string[];
   inputSchema?: ZodRawShapeCompat; // Schema for template variables
   handler: (
     uri: URL,

@@ -2,6 +2,7 @@ import React from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "ink-testing-library";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
+import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
 
 // ScrollView: passthrough so the results JSX actually mounts (and is counted
@@ -340,5 +341,35 @@ describe("PromptTestModal", () => {
     unmount();
     await tick();
     expect(true).toBe(true);
+  });
+
+  it("delegates AuthRecoveryRequiredError to onAuthRecoveryRequired and closes", async () => {
+    const recovery = new AuthRecoveryRequiredError(
+      new URL("https://auth.example.com/authorize"),
+      { reason: "insufficient_scope", requiredScopes: ["weather:read"] },
+    );
+    const getPrompt = vi.fn().mockRejectedValue(recovery);
+    const onClose = vi.fn();
+    const onAuthRecoveryRequired = vi.fn();
+    setFormSubmitValue({ topic: "x" });
+
+    const { stdin } = render(
+      <PromptTestModal
+        prompt={makePrompt()}
+        inspectorClient={{ getPrompt } as unknown as InspectorClient}
+        width={120}
+        height={30}
+        onClose={onClose}
+        onAuthRecoveryRequired={onAuthRecoveryRequired}
+      />,
+    );
+
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    await tick();
+
+    expect(onAuthRecoveryRequired).toHaveBeenCalledWith(recovery);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

@@ -366,6 +366,22 @@ Leg 1 reuses the existing OAuth redirect/callback/PKCE machinery but **targets t
 
 **401 re-auth:** on EMA connections, re-run legs 2–3 (and leg 1 only if the cached ID Token is missing or expired). Do not fall back to standard resource authorization-code OAuth. Mid-session detection, step-up scopes, and web remote propagation are specified in **[Mid-session auth](v2_auth_mid_session.md)**.
 
+### EMA step-up (web confirmation)
+
+When an EMA server returns **403** + `insufficient_scope`, `OAuthManager.handleAuthChallenge()` returns **`step_up_confirm`** until the web user clicks **Authorize** in `StepUpAuthModal`. Only then does Inspector call `trySilentEmaAuth()` (legs 2–3 re-mint with SEP-2350 union scopes) or start IdP leg 1 if the organization session is missing.
+
+**Why confirm on web?** EMA can often upgrade scopes silently when the IdP session is still valid. Inspector deliberately shows the additional scopes first — same pattern as standard OAuth step-up — because it is a **testing and exploration** client: operators should see permission elevation while validating MCP servers, not discover it only after the fact.
+
+**Web UX after Authorize:**
+
+| Outcome | User sees |
+| ------- | --------- |
+| `satisfied` (silent re-mint) | Blue in-progress toast → green “Organization permissions were updated” (+ “Retry your action” when step-up was triggered by a tool/prompt/resource/app) |
+| `interactive` (IdP redirect) | Pre-redirect toast → full-page IdP callback → same resume snapshot behavior as other EMA flows |
+| `failed` | Red toast with error detail; triggering panel shows failure |
+
+TUI/CLI still use their existing confirm prompts (Auth tab **A**/**C**, CLI **y/N**) before silent re-mint — no web modal.
+
 **EMA resource token tagging + sign-out:** per-server `oauth.enterpriseManaged` in `mcp.json` is **config** (routing); the OAuth store does not read the catalog on sign-out. Instead, when EMA legs 2–3 persist a resource access token, the store tags that entry (`ServerOAuthState.enterpriseManaged: true` via `SaveTokensOptions`). Sign-out uses that tag to find and clear EMA resource state inside the same `OAuthStorage` blob without the client enumerating MCP servers. This avoids clearing standard OAuth servers and avoids clearing EMA catalog entries that were never connected.
 
 ## Inspector mapping
@@ -449,7 +465,7 @@ Design decisions for EMA are complete. Remaining work is the phased plan and che
 #### Phase 4 — Other clients (after web works)
 
 13. ~~Wire TUI/CLI to load `client.json` and pass `enterpriseManagedAuth` into `InspectorClient`.~~ **Done** — `loadRunnerClientConfig` + `buildRunnerClientAuthOptions` in TUI/CLI entrypoints. EMA sign-out (`clearEmaIdpSession`) is already client-agnostic in `core/` — Phase 4 clients can call it without catalog enumeration once Client Settings / logout UX lands.
-14. ~~TUI interactive EMA + standard OAuth connect~~ **Done (TUI)** — 401 → `authenticate()` → `OAuthCallbackServer` on `6276` → reconnect; Auth tab OAuth snapshot + **S** clear (disconnects when connected). **Still open:** dedicated Client Settings UX in terminal, CLI local callback server for interactive login, EMA-specific terminal UX refinements.
+14. ~~TUI interactive EMA + standard OAuth connect~~ **Done (TUI)** — 401 → `authenticate()` → `OAuthCallbackServer` on `6276` → reconnect; Auth tab OAuth snapshot + **S** clear (disconnects when connected). **Still open:** dedicated Client Settings UX in terminal, [CLI interactive OAuth](v2_auth_mid_session.md#tui-and-cli-implementation), EMA-specific terminal UX refinements.
 
 ## Implementation checklist
 
@@ -494,7 +510,7 @@ Design decisions for EMA are complete. Remaining work is the phased plan and che
 
 - [x] Wire TUI/CLI to load client config → `InspectorClientOptions.enterpriseManagedAuth` (+ CIMD / per-server OAuth via `buildRunnerClientAuthOptions`)
 - [x] TUI interactive EMA + standard OAuth connect (401 → authenticate → callback → reconnect; Auth tab; keychain secret rehydration via `loadServerEntries`)
-- [ ] TUI/CLI polish: Client Settings dialog, CLI interactive callback server, terminal EMA UX refinements
+- [ ] TUI/CLI polish: Client Settings dialog, [CLI interactive OAuth](v2_auth_mid_session.md#tui-and-cli-implementation), terminal EMA UX refinements
 
 ### Later
 

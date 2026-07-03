@@ -1,28 +1,53 @@
 import { describe, it, expect } from "vitest";
-import { createTokenAuthProvider } from "@inspector/core/mcp/remote/node/tokenAuthProvider.js";
+import { createRemoteAuthProvider } from "@inspector/core/mcp/remote/node/tokenAuthProvider.js";
 
-describe("createTokenAuthProvider", () => {
-  it("returns undefined when tokens are not provided", () => {
-    expect(createTokenAuthProvider(undefined)).toBeUndefined();
+describe("createRemoteAuthProvider", () => {
+  it("returns undefined when no auth state is provided", () => {
+    expect(createRemoteAuthProvider(undefined)).toBeUndefined();
+    expect(createRemoteAuthProvider({})).toBeUndefined();
   });
 
   it("returns a provider whose tokens() resolves with the supplied tokens", async () => {
     const tokens = { access_token: "abc", token_type: "Bearer" };
-    const provider = createTokenAuthProvider(tokens);
-    expect(provider).toBeDefined();
-    await expect(provider!.tokens()).resolves.toEqual(tokens);
+    const handle = createRemoteAuthProvider({ oauthTokens: tokens });
+    expect(handle).toBeDefined();
+    await expect(handle!.provider.tokens()).resolves.toEqual(tokens);
   });
 
-  it("exposes no-op stubs for the auxiliary OAuthClientProvider methods", async () => {
-    const provider = createTokenAuthProvider({
-      access_token: "abc",
-      token_type: "Bearer",
+  it("updates tokens via setAuthState without replacing the provider", async () => {
+    const handle = createRemoteAuthProvider({
+      oauthTokens: { access_token: "old", token_type: "Bearer" },
     });
-    expect(provider).toBeDefined();
-    // The aux methods are no-op stubs that satisfy the OAuthClientProvider
-    // surface; the underlying object type widens via the `as unknown as`
-    // cast in the source, so we narrow here for the test assertions.
-    const p = provider! as unknown as {
+    handle!.setAuthState({
+      oauthTokens: {
+        access_token: "new",
+        token_type: "Bearer",
+        refresh_token: "rt",
+      },
+    });
+    await expect(handle!.provider.tokens()).resolves.toEqual({
+      access_token: "new",
+      token_type: "Bearer",
+      refresh_token: "rt",
+    });
+    expect(handle!.getAuthState().oauthTokens?.access_token).toBe("new");
+  });
+
+  it("exposes clientInformation when oauthClient is set", async () => {
+    const handle = createRemoteAuthProvider({
+      oauthClient: { client_id: "cid", client_secret: "sec" },
+    });
+    await expect(handle!.provider.clientInformation()).resolves.toEqual({
+      client_id: "cid",
+      client_secret: "sec",
+    });
+  });
+
+  it("exposes no-op stubs for auxiliary OAuthClientProvider methods", async () => {
+    const handle = createRemoteAuthProvider({
+      oauthTokens: { access_token: "abc", token_type: "Bearer" },
+    });
+    const p = handle!.provider as unknown as {
       clientInformation: () => Promise<undefined>;
       saveTokens: (t: {
         access_token: string;
@@ -37,8 +62,12 @@ describe("createTokenAuthProvider", () => {
 
     await expect(p.clientInformation()).resolves.toBeUndefined();
     await expect(
-      p.saveTokens({ access_token: "noop", token_type: "Bearer" }),
+      p.saveTokens({ access_token: "saved", token_type: "Bearer" }),
     ).resolves.toBeUndefined();
+    await expect(handle!.provider.tokens()).resolves.toEqual({
+      access_token: "saved",
+      token_type: "Bearer",
+    });
     expect(p.codeVerifier()).toBeUndefined();
     await expect(p.saveCodeVerifier("v")).resolves.toBeUndefined();
     expect(() => p.clear()).not.toThrow();
@@ -49,10 +78,9 @@ describe("createTokenAuthProvider", () => {
   });
 
   it("exposes clientMetadata so SDK auth() does not throw on 401 retry", () => {
-    const provider = createTokenAuthProvider({
-      access_token: "abc",
-      token_type: "Bearer",
+    const handle = createRemoteAuthProvider({
+      oauthTokens: { access_token: "abc", token_type: "Bearer" },
     });
-    expect(provider!.clientMetadata.scope).toBe("");
+    expect(handle!.provider.clientMetadata.scope).toBe("");
   });
 });

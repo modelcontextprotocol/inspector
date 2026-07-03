@@ -33,6 +33,34 @@ function audienceMatches(aud: unknown, expected: string): boolean {
   return false;
 }
 
+function parseScopeString(scope: string | undefined): string[] {
+  if (!scope?.trim()) {
+    return [];
+  }
+  return scope.trim().split(/\s+/).filter(Boolean);
+}
+
+/** Extract granted OAuth scopes from a verified JWT access token payload. */
+export function extractScopesFromJwtPayload(
+  payload: Record<string, unknown>,
+): string[] {
+  if (typeof payload.scope === "string") {
+    return parseScopeString(payload.scope);
+  }
+  if (Array.isArray(payload.scp)) {
+    return payload.scp.filter((s): s is string => typeof s === "string");
+  }
+  if (Array.isArray(payload.scopes)) {
+    return payload.scopes.filter((s): s is string => typeof s === "string");
+  }
+  return [];
+}
+
+export interface ValidatedAccessToken {
+  valid: boolean;
+  scopes: string[];
+}
+
 export class ExternalAccessTokenValidator {
   private jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
   private allowedIssuers = new Set<string>();
@@ -97,11 +125,15 @@ export class ExternalAccessTokenValidator {
     });
   }
 
-  async validateAccessToken(token: string): Promise<boolean> {
+  async validateAccessTokenWithScopes(
+    token: string,
+  ): Promise<ValidatedAccessToken> {
     if (!this.jwks) {
       await this.ensureReady();
     }
-    if (!this.jwks) return false;
+    if (!this.jwks) {
+      return { valid: false, scopes: [] };
+    }
 
     try {
       const { payload } = await jwtVerify(token, this.jwks, {
@@ -111,13 +143,20 @@ export class ExternalAccessTokenValidator {
       if (this.config.resourceAudience) {
         const aud = payload.aud;
         if (!audienceMatches(aud, this.config.resourceAudience)) {
-          return false;
+          return { valid: false, scopes: [] };
         }
       }
 
-      return true;
+      return {
+        valid: true,
+        scopes: extractScopesFromJwtPayload(payload as Record<string, unknown>),
+      };
     } catch {
-      return false;
+      return { valid: false, scopes: [] };
     }
+  }
+
+  async validateAccessToken(token: string): Promise<boolean> {
+    return (await this.validateAccessTokenWithScopes(token)).valid;
   }
 }

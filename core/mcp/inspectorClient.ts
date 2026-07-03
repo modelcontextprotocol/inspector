@@ -118,11 +118,26 @@ import {
   UrlElicitationLoopError,
 } from "./urlElicitation.js";
 import { ToolCallCancelledError } from "./toolCallCancelledError.js";
-import type { OAuthConnectionState, OAuthFlowState, OAuthStep } from "../auth/types.js";
+import type {
+  OAuthConnectionState,
+  OAuthFlowState,
+  OAuthStep,
+} from "../auth/types.js";
+import {
+  AuthRecoveryRequiredError,
+  EMA_STEP_UP_PENDING_URL,
+  isAuthChallengeError,
+  isConnectAuthRecoveryError,
+  parseAuthChallengeFromError,
+  type AuthChallenge,
+  type AuthChallengeOutcome,
+  type HandleAuthChallengeOptions,
+} from "../auth/challenge.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { silentLogger, type InspectorLogger } from "../logging/logger.js";
 import { createFetchTracker } from "./fetchTracking.js";
 import { OAuthManager, type OAuthManagerConfig } from "./oauthManager.js";
+import { RemoteClientTransport } from "./remote/remoteClientTransport.js";
 
 /** Internal record for a receiver task (server polls us for status/result). */
 interface ReceiverTaskRecord {
@@ -181,6 +196,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   private baseTransport: Transport | null = null;
   /** True when the cached transport was built with an OAuth authProvider attached. */
   private transportHasAuthProvider = false;
+  /** Dedupes concurrent ambient auth challenges (reason + scopes). */
+  private ambientAuthChallengeInFlight = new Map<string, Promise<void>>();
   private pipeStderr: boolean;
   private initialLoggingLevel?: LoggingLevel;
   private sample: boolean;
@@ -249,6 +266,14 @@ export class InspectorClient extends InspectorClientEventTarget {
   // Session ID (for OAuth state and saveSession event; persistence is in FetchRequestLogState)
   private sessionId?: string;
   private transportConfig: MCPServerConfig;
+  /** null until first transport is built; then true for in-process OAuth runners. */
+  private directAuthRecoveryActive: boolean | null = null;
+  /**
+   * Opt-in from {@link InspectorClientOptions.directAuthRecovery}: when true and
+   * the live transport is direct (not {@link RemoteClientTransport}), RPCs use
+   * fetch intercept + {@link withDirectAuthRecovery}.
+   */
+  private readonly directAuthRecovery: boolean;
 
   constructor(
     transportConfig: MCPServerConfig,
@@ -276,6 +301,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         ? options.defaultMetadata
         : undefined;
     this.serverSettings = options.serverSettings;
+    this.directAuthRecovery = options.directAuthRecovery ?? false;
     // Only set roots if explicitly provided (even if empty array) - this enables roots capability
     this.roots = options.roots;
     // Initialize listChangedNotifications config (default: all enabled)
@@ -426,7 +452,10 @@ export class InspectorClient extends InspectorClientEventTarget {
         };
         this.dispatchTypedEvent("message", entry);
       },
-      trackNotification: (message: JSONRPCNotification, origin: MessageOrigin) => {
+      trackNotification: (
+        message: JSONRPCNotification,
+        origin: MessageOrigin,
+      ) => {
         const entry: MessageEntry = {
           id: crypto.randomUUID(),
           timestamp: new Date(),
@@ -761,12 +790,40 @@ export class InspectorClient extends InspectorClientEventTarget {
             await oauthManager.createOAuthProviderForTransport();
         }
       }
+      if (
+        this.directAuthRecovery &&
+        this.directAuthRecoveryActive !== false &&
+        this.isHttpOAuthConfig() &&
+        oauthManager &&
+        transportOptions.authProvider
+      ) {
+        transportOptions.interceptAuthChallenges = true;
+      }
       this.transportHasAuthProvider = !!transportOptions.authProvider;
       const { transport: baseTransport } = this.transportClientFactory(
         this.transportConfig,
         transportOptions,
       );
       this.baseTransport = baseTransport;
+      if (this.directAuthRecovery) {
+        this.directAuthRecoveryActive = !(
+          baseTransport instanceof RemoteClientTransport
+        );
+      }
+      if (
+        baseTransport instanceof RemoteClientTransport &&
+        oauthManager &&
+        this.isHttpOAuthConfig()
+      ) {
+        baseTransport.setAuthRecovery({
+          handleAuthChallenge: (challenge, options) =>
+            oauthManager.handleAuthChallenge(challenge, options),
+          pushAuthState: () => this.pushRemoteAuthState(),
+        });
+        baseTransport.setOnAuthChallenge((challenge) => {
+          void this.handleAmbientAuthChallenge(challenge);
+        });
+      }
       const messageTracking = this.createMessageTrackingCallbacks();
       this.transport = new MessageTrackingTransport(
         baseTransport,
@@ -789,38 +846,38 @@ export class InspectorClient extends InspectorClientEventTarget {
       // connect() starts clean and the upstream socket isn't left hanging.
       const connectTimeoutMs = this.serverSettings?.connectionTimeout ?? 0;
       const connectPromise = this.client.connect(this.transport);
-      if (connectTimeoutMs > 0) {
-        // Absorb any late rejection from `connectPromise` — when the timeout
-        // wins the race and `disconnect()` tears the transport down, real
-        // transports (SSE / streamable-http) reject the in-flight handshake
-        // *after* Promise.race has already settled. Without a handler here
-        // Node emits an unhandledRejection warning (and in test runs vitest
-        // can surface it as a suite failure). Only needed on the race path;
-        // the await-only branch below propagates rejection cleanly through
-        // the outer try/catch.
-        connectPromise.catch(() => {});
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () =>
-              reject(
-                new Error(
-                  `Connection timed out after ${connectTimeoutMs} ms`,
+      const runConnect = async (): Promise<void> => {
+        if (connectTimeoutMs > 0) {
+          connectPromise.catch(() => {});
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    `Connection timed out after ${connectTimeoutMs} ms`,
+                  ),
                 ),
-              ),
-            connectTimeoutMs,
-          );
-        });
-        try {
-          await Promise.race([connectPromise, timeoutPromise]);
-        } catch (err) {
-          await this.disconnect().catch(() => {});
-          throw err;
-        } finally {
-          if (timer) clearTimeout(timer);
+              connectTimeoutMs,
+            );
+          });
+          try {
+            await Promise.race([connectPromise, timeoutPromise]);
+          } finally {
+            if (timer) clearTimeout(timer);
+          }
+        } else {
+          await connectPromise;
         }
-      } else {
-        await connectPromise;
+      };
+
+      try {
+        await this.invokeMcpClient(runConnect);
+      } catch (err) {
+        if (connectTimeoutMs > 0) {
+          await this.disconnect().catch(() => {});
+        }
+        throw err;
       }
       this.status = "connected";
       this.dispatchTypedEvent("statusChange", this.status);
@@ -1116,8 +1173,10 @@ export class InspectorClient extends InspectorClientEventTarget {
         // and routing work, and we inject the caller's progressToken into dispatched events.
       }
     } catch (error) {
-      this.status = "error";
-      this.dispatchTypedEvent("statusChange", this.status);
+      if (!isConnectAuthRecoveryError(error)) {
+        this.status = "error";
+        this.dispatchTypedEvent("statusChange", this.status);
+      }
       if (this.baseTransport && !this.transportHasAuthProvider) {
         await this.dropCachedTransport();
       }
@@ -1221,7 +1280,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.instructions = undefined;
     this.protocolVersion = undefined;
     this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
-    this.dispatchTypedEvent("pendingElicitationsChange", this.pendingElicitations);
+    this.dispatchTypedEvent(
+      "pendingElicitationsChange",
+      this.pendingElicitations,
+    );
     this.dispatchTypedEvent("capabilitiesChange", this.capabilities);
     this.dispatchTypedEvent("serverInfoChange", this.serverInfo);
     this.dispatchTypedEvent("instructionsChange", this.instructions);
@@ -1558,9 +1620,11 @@ export class InspectorClient extends InspectorClientEventTarget {
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
       ...(cursor ? { cursor } : {}),
     };
-    const response = await this.client.listTools(
-      params,
-      this.getRequestOptions(metadata?.progressToken),
+    const response = await this.invokeMcpClient(() =>
+      this.client!.listTools(
+        params,
+        this.getRequestOptions(metadata?.progressToken),
+      ),
     );
     const tools = [...(response.tools || [])];
     return { tools, nextCursor: response.nextCursor };
@@ -1803,13 +1867,17 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Both branches yield a CallToolResult: request() parsed it with
     // CallToolResultSchema above, callTool() returns the same shape — so the
     // `as CallToolResult` casts below are safe.
-    const result = options?.skipOutputValidation
-      ? await client.request(
-          { method: "tools/call", params: callParams },
-          CallToolResultSchema,
-          requestOptions,
-        )
-      : await client.callTool(callParams, undefined, requestOptions);
+    const result = await this.invokeMcpClient(
+      () =>
+        options?.skipOutputValidation
+          ? client.request(
+              { method: "tools/call", params: callParams },
+              CallToolResultSchema,
+              requestOptions,
+            )
+          : client.callTool(callParams, undefined, requestOptions),
+      { method: "tools/call", toolName: tool.name },
+    );
 
     // On the bypass path the result was delivered without the SDK's strict
     // output validation. Run that check ourselves, non-fatally, so callers can
@@ -2197,9 +2265,11 @@ export class InspectorClient extends InspectorClientEventTarget {
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
       ...(cursor ? { cursor } : {}),
     };
-    const response = await this.client.listResources(
-      params,
-      this.getRequestOptions(metadata?.progressToken),
+    const response = await this.invokeMcpClient(() =>
+      this.client!.listResources(
+        params,
+        this.getRequestOptions(metadata?.progressToken),
+      ),
     );
     return {
       resources: response.resources || [],
@@ -2225,9 +2295,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       uri,
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
     };
-    const result = await this.client.readResource(
-      params,
-      this.getRequestOptions(metadata?.progressToken),
+    const result = await this.invokeMcpClient(
+      () =>
+        this.client!.readResource(
+          params,
+          this.getRequestOptions(metadata?.progressToken),
+        ),
+      { method: "resources/read" },
     );
     const invocation: ResourceReadInvocation = {
       result,
@@ -2317,9 +2391,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
       ...(cursor ? { cursor } : {}),
     };
-    const response = await this.client.listResourceTemplates(
-      params,
-      this.getRequestOptions(metadata?.progressToken),
+    const response = await this.invokeMcpClient(
+      () =>
+        this.client!.listResourceTemplates(
+          params,
+          this.getRequestOptions(metadata?.progressToken),
+        ),
+      { method: "resources/templates/list" },
     );
     return {
       resourceTemplates: response.resourceTemplates || [],
@@ -2345,9 +2423,11 @@ export class InspectorClient extends InspectorClientEventTarget {
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
       ...(cursor ? { cursor } : {}),
     };
-    const response = await this.client.listPrompts(
-      params,
-      this.getRequestOptions(metadata?.progressToken),
+    const response = await this.invokeMcpClient(() =>
+      this.client!.listPrompts(
+        params,
+        this.getRequestOptions(metadata?.progressToken),
+      ),
     );
     return {
       prompts: response.prompts || [],
@@ -2380,9 +2460,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
     };
 
-    const result = await this.client.getPrompt(
-      params,
-      this.getRequestOptions(metadata?.progressToken),
+    const result = await this.invokeMcpClient(
+      () =>
+        this.client!.getPrompt(
+          params,
+          this.getRequestOptions(metadata?.progressToken),
+        ),
+      { method: "prompts/get", toolName: name },
     );
 
     const invocation: PromptGetInvocation = {
@@ -2437,9 +2521,16 @@ export class InspectorClient extends InspectorClientEventTarget {
         ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
       };
 
-      const response = await this.client.complete(
-        params,
-        this.getRequestOptions(metadata?.progressToken),
+      const response = await this.invokeMcpClient(
+        () =>
+          this.client!.complete(
+            params,
+            this.getRequestOptions(metadata?.progressToken),
+          ),
+        {
+          method: "completion/complete",
+          toolName: ref.type === "ref/prompt" ? ref.name : ref.uri,
+        },
       );
 
       return {
@@ -2721,10 +2812,243 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Completes OAuth flow with authorization code from the redirect callback.
+   * Satisfy a mid-session auth challenge (token refresh, step-up, or interactive re-auth).
    */
-  async completeOAuthFlow(authorizationCode: string): Promise<void> {
-    return this.ensureOAuthManager().completeOAuthFlow(authorizationCode);
+  async handleAuthChallenge(
+    challenge: AuthChallenge,
+    options?: HandleAuthChallengeOptions,
+  ): Promise<AuthChallengeOutcome> {
+    return this.ensureOAuthManager().handleAuthChallenge(challenge, options);
+  }
+
+  /**
+   * Re-read OAuth storage and test whether a challenge is already satisfied.
+   * See {@link OAuthManager.checkAuthChallengeSatisfied}.
+   */
+  async checkAuthChallengeSatisfied(
+    challenge: AuthChallenge,
+  ): Promise<boolean> {
+    return this.ensureOAuthManager().checkAuthChallengeSatisfied(challenge);
+  }
+
+  /**
+   * Push recovered OAuth auth state to the remote backend (same MCP session).
+   */
+  async pushRemoteAuthState(): Promise<void> {
+    if (!(this.baseTransport instanceof RemoteClientTransport)) {
+      return;
+    }
+    await this.baseTransport.pushAuthState();
+  }
+
+  /**
+   * Handle an ambient (SSE) auth challenge when no command-scoped send is active.
+   * Recovers session tokens on the remote backend; does not retry RPCs.
+   */
+  async handleAmbientAuthChallenge(challenge: AuthChallenge): Promise<void> {
+    const key = this.ambientAuthChallengeKey(challenge);
+    const existing = this.ambientAuthChallengeInFlight.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const promise = this.runAmbientAuthChallenge(challenge);
+    this.ambientAuthChallengeInFlight.set(key, promise);
+    try {
+      await promise;
+    } finally {
+      if (this.ambientAuthChallengeInFlight.get(key) === promise) {
+        this.ambientAuthChallengeInFlight.delete(key);
+      }
+    }
+  }
+
+  private async runAmbientAuthChallenge(
+    challenge: AuthChallenge,
+  ): Promise<void> {
+    try {
+      this.dispatchTypedEvent("authChallengeAmbient", { challenge });
+      const oauthManager = this.oauthManager;
+      if (!oauthManager) {
+        return;
+      }
+
+      const outcome = await oauthManager.handleAuthChallenge(challenge);
+      if (outcome.kind === "satisfied") {
+        if (this.baseTransport instanceof RemoteClientTransport) {
+          await this.pushRemoteAuthState();
+        } else {
+          await this.reconnectAfterAuthRecovery();
+        }
+        this.dispatchTypedEvent("authChallengeRecovered", { challenge });
+      } else if (outcome.kind === "step_up_confirm") {
+        this.dispatchTypedEvent("authChallengeInteractive", {
+          challenge: outcome.challenge,
+          authorizationUrl: EMA_STEP_UP_PENDING_URL,
+        });
+      } else if (outcome.kind === "interactive") {
+        this.dispatchTypedEvent("authChallengeInteractive", {
+          challenge: outcome.challenge,
+          authorizationUrl: outcome.authorizationUrl,
+        });
+      } else {
+        this.dispatchTypedEvent("oauthError", { error: outcome.error });
+      }
+    } catch (error) {
+      this.dispatchTypedEvent("oauthError", {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+    }
+  }
+
+  private ambientAuthChallengeKey(challenge: AuthChallenge): string {
+    const requiredScopes = [...(challenge.requiredScopes ?? [])]
+      .sort()
+      .join(" ");
+    const authorizationScopes = [...(challenge.authorizationScopes ?? [])]
+      .sort()
+      .join(" ");
+    return `${challenge.reason}:${requiredScopes}:${authorizationScopes}`;
+  }
+
+  /**
+   * Full disconnect + reconnect after ambient auth recovery on direct transports.
+   */
+  private async reconnectAfterAuthRecovery(): Promise<void> {
+    await this.disconnect().catch(() => {});
+    await this.dropCachedTransport();
+    await this.connect();
+  }
+
+  /** Direct (non-remote) OAuth transports recover via fetch intercept + handleAuthChallenge. */
+  private usesDirectAuthRecovery(): boolean {
+    return this.directAuthRecovery && this.directAuthRecoveryActive === true;
+  }
+
+  private async withDirectAuthRecovery<T>(
+    operation: () => Promise<T>,
+    context?: { method?: string; toolName?: string },
+    attempt = 0,
+  ): Promise<T> {
+    try {
+      return await operation();
+    } catch (err) {
+      if (attempt >= 1 || !this.usesDirectAuthRecovery()) {
+        throw err;
+      }
+      if (!isAuthChallengeError(err)) {
+        throw err;
+      }
+      const challenge = parseAuthChallengeFromError(err, context);
+      /* v8 ignore next 3 -- defensive: parseAuthChallengeFromError shares isAuthChallengeError's checks, so it always returns a truthy challenge once that guard passes */
+      if (!challenge) {
+        throw err;
+      }
+
+      if (context?.method || context?.toolName) {
+        this.dispatchTypedEvent("authChallengeCommand", { challenge });
+      } else {
+        this.dispatchTypedEvent("authChallengeAmbient", { challenge });
+      }
+      const outcome = await this.handleAuthChallenge(challenge);
+      if (outcome.kind === "satisfied") {
+        // Reconnect aborts activeToolCallAbortController; clear it so callTool
+        // retries are not immediately rejected with "Disconnected".
+        if (this.activeToolCallAbortController) {
+          this.activeToolCallAbortController = undefined;
+        }
+        await this.reconnectAfterAuthRecovery();
+        this.dispatchTypedEvent("authChallengeRecovered", { challenge });
+        return this.withDirectAuthRecovery(operation, context, attempt + 1);
+      }
+      if (outcome.kind === "step_up_confirm") {
+        throw new AuthRecoveryRequiredError(
+          EMA_STEP_UP_PENDING_URL,
+          outcome.challenge,
+          { emaStepUpConfirm: true },
+        );
+      }
+      if (outcome.kind === "interactive") {
+        throw new AuthRecoveryRequiredError(
+          outcome.authorizationUrl,
+          outcome.challenge,
+        );
+      }
+      this.dispatchTypedEvent("oauthError", { error: outcome.error });
+      throw outcome.error;
+    }
+  }
+
+  private async invokeMcpClient<T>(
+    operation: () => Promise<T>,
+    context?: { method?: string; toolName?: string },
+  ): Promise<T> {
+    if (!this.usesDirectAuthRecovery()) {
+      return operation();
+    }
+    return this.withDirectAuthRecovery(operation, context);
+  }
+
+  /**
+   * Completes OAuth flow with authorization code from the redirect callback.
+   * Direct transports reconnect after token exchange so the live MCP session
+   * picks up the new Bearer token (mirrors silent recovery reconnect).
+   */
+  async completeOAuthFlow(
+    authorizationCode: string,
+    iss?: string,
+  ): Promise<void> {
+    await this.ensureOAuthManager().completeOAuthFlow(authorizationCode, iss);
+    if (this.usesDirectAuthRecovery()) {
+      await this.reconnectAfterAuthRecovery();
+    }
+  }
+
+  /**
+   * Navigate to the authorization server for interactive recovery.
+   */
+  async beginInteractiveAuthorization(authorizationUrl: URL): Promise<void> {
+    return this.ensureOAuthManager().beginInteractiveAuthorization(
+      authorizationUrl,
+    );
+  }
+
+  /** Remote Hono session id when using {@link RemoteClientTransport}. */
+  getRemoteBackendSessionId(): string | undefined {
+    if (this.baseTransport instanceof RemoteClientTransport) {
+      return this.baseTransport.getRemoteBackendSessionId();
+    }
+    return undefined;
+  }
+
+  /**
+   * Finish OAuth after a full-page redirect and reconnect (or reattach) the MCP session.
+   */
+  async resumeAfterOAuth(
+    authorizationCode: string,
+    options?: { remoteSessionId?: string },
+  ): Promise<void> {
+    await this.completeOAuthFlow(authorizationCode);
+
+    const remoteSessionId = options?.remoteSessionId;
+    const transport = this.baseTransport;
+
+    if (remoteSessionId && transport instanceof RemoteClientTransport) {
+      try {
+        await transport.attachToSession(remoteSessionId);
+        await transport.pushAuthState();
+        if (this.status !== "connected") {
+          await this.connect();
+        }
+        return;
+      } catch {
+        // Session expired during OAuth round trip — fall back to fresh connect.
+      }
+    }
+
+    if (this.status !== "connected") {
+      await this.connect();
+    }
   }
 
   /**

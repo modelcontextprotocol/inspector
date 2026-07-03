@@ -102,9 +102,15 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 
 ### CLI-specific (OAuth for HTTP servers)
 
-The CLI **reuses** OAuth tokens from `~/.mcp-inspector/storage/oauth.json` (same file as the TUI). Complete first-time authorization in the **web** or **TUI** client, then run one-shot CLI commands against HTTP/SSE servers without signing in again.
+The CLI runs the same loopback callback server as the TUI (`http://127.0.0.1:6276/oauth/callback` by default). On connect **401** or mid-session interactive auth (re-login / step-up), it:
 
-The CLI does **not** start a local callback server or retry connect on 401. If tokens are missing or expired, connect fails; `ConsoleNavigation` may print an authorize URL to stdout, but the CLI cannot finish the redirect flow. Use the TUI for interactive runner OAuth until Phase 4 adds a CLI callback server.
+1. Starts the callback listener on `--callback-url` (or `MCP_OAUTH_CALLBACK_URL`)
+2. Prints the authorization URL to the console (`ConsoleNavigation`)
+3. Waits for the browser redirect, exchanges the code, and retries connect or the failed RPC
+
+**Step-up (standard OAuth):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues; **N** exits with an error. EMA step-up re-mints silently (no prompt).
+
+**Shared OAuth storage:** the CLI **reuses** tokens from `~/.mcp-inspector/storage/oauth.json` when they already exist (same file as other Inspector clients). That is passive file sharing, not launching another app.
 
 **Shared with TUI** (config only, not interactive login):
 
@@ -119,9 +125,9 @@ The CLI does **not** start a local callback server or retry connect on 401. If t
 | ------- | ---------------- |
 | **Web** | `http://localhost:6274/oauth/callback` |
 | **TUI** | `http://127.0.0.1:6276/oauth/callback` (interactive — callback server) |
-| **CLI** | `http://127.0.0.1:6276/oauth/callback` (redirect URI in OAuth metadata only; no listener) |
+| **CLI** | `http://127.0.0.1:6276/oauth/callback` (interactive — same callback server as TUI) |
 
-Register `http://127.0.0.1:6276/oauth/callback` on static or enterprise IdPs that require pre-registered redirect URIs before using the **TUI** (or when your OAuth app expects that URI). Override with `--callback-url` or `MCP_OAUTH_CALLBACK_URL`. The CLI passes this value as `redirect_uri` when an OAuth flow runs, but does not listen on the port.
+Register `http://127.0.0.1:6276/oauth/callback` on static or enterprise IdPs that require pre-registered redirect URIs before using the **TUI** or **CLI**. Override with `--callback-url` or `MCP_OAUTH_CALLBACK_URL`. Only one process should bind the default port at a time.
 
 #### Flags
 
@@ -141,7 +147,7 @@ npx @modelcontextprotocol/inspector --cli --catalog mcp.json --server my-http-se
   --method tools/list
 ```
 
-See [EMA / enterprise-managed auth](../../specification/v2_auth_ema.md) and [OAuth smoke testing](../../specification/v2_auth_smoke_testing.md) for configuration details and staging servers.
+See [EMA / enterprise-managed auth](../../specification/v2_auth_ema.md) and [OAuth smoke testing](../../specification/v2_auth_smoke_testing.md) (§3 Stytch/CIMD; [§5 mid-session manual validation](v2_auth_smoke_testing.md#5-mid-session-auth--step-up--manual-validation) — CLI **C1–C2**).
 
 ## Why use the CLI?
 

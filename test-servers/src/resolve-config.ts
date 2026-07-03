@@ -14,12 +14,22 @@ import { createTestServerInfo } from "./test-server-fixtures.js";
 import { resolvePreset } from "./preset-registry.js";
 import type { ConfigFile, PresetRef } from "./load-config.js";
 
-function resolvePresetRefs<T>(
+function mergeRequiredScopes<T extends { requiredScopes?: string[] }>(
+  item: T,
+  ref: PresetRef,
+): T {
+  if (!ref.requiredScopes?.length) {
+    return item;
+  }
+  return { ...item, requiredScopes: ref.requiredScopes };
+}
+
+function resolvePresetRefs<T extends { requiredScopes?: string[] }>(
   refs: Array<PresetRef | PresetRef[]> | undefined,
   type: "tool" | "resource" | "resourceTemplate" | "prompt",
 ): T[] {
   if (!refs || refs.length === 0) return [];
-  const result: T[] = [];
+  const result: Array<{ requiredScopes?: string[] }> = [];
   for (const entry of refs) {
     const items = Array.isArray(entry) ? entry : [entry];
     for (const ref of items) {
@@ -31,10 +41,14 @@ function resolvePresetRefs<T>(
       }
       const resolved = resolvePreset(type, presetName, ref.params);
       const arr = Array.isArray(resolved) ? resolved : [resolved];
-      result.push(...(arr as T[]));
+      for (const item of arr) {
+        result.push(mergeRequiredScopes(item, ref));
+      }
     }
   }
-  return result;
+  // The caller pairs `type` with the matching `T`, so each resolved preset is
+  // the requested definition kind; TS can't see that correspondence.
+  return result as T[];
 }
 
 /**

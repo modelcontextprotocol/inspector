@@ -1,4 +1,69 @@
 import type { CallbackParams } from "./types.js";
+import { ZodError } from "zod";
+
+type ZodIssueLike = {
+  path?: unknown[];
+  message?: string;
+  code?: string;
+};
+
+function isZodIssueArray(value: unknown): value is ZodIssueLike[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    typeof value[0] === "object" &&
+    value[0] !== null &&
+    "code" in value[0]
+  );
+}
+
+function formatZodIssues(issues: ZodIssueLike[]): string {
+  const tokenResponseIssue = issues.some(
+    (issue) =>
+      Array.isArray(issue.path) &&
+      (issue.path.includes("access_token") ||
+        issue.path.includes("token_type")),
+  );
+  if (tokenResponseIssue) {
+    return "The authorization server did not return valid tokens. Check your OAuth client ID and secret, then try again.";
+  }
+  return issues
+    .map((issue) => {
+      const path =
+        Array.isArray(issue.path) && issue.path.length
+          ? issue.path.join(".")
+          : "input";
+      return `${path}: ${issue.message ?? "invalid"}`;
+    })
+    .join(" ");
+}
+
+/**
+ * Human-readable detail for OAuth failure toasts/banners (never raw Zod JSON).
+ */
+export function formatOAuthFailureDetail(detail: unknown): string {
+  if (detail instanceof ZodError) {
+    return formatZodIssues(detail.issues);
+  }
+  const raw =
+    detail instanceof Error
+      ? detail.message
+      : typeof detail === "string"
+        ? detail
+        : String(detail);
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (isZodIssueArray(parsed)) {
+        return formatZodIssues(parsed);
+      }
+    } catch {
+      // fall through
+    }
+  }
+  return raw;
+}
 
 /**
  * Parse a string as an absolute URL. On failure, throws with `label` and the

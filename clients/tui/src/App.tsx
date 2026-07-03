@@ -45,7 +45,10 @@ import {
   CallbackNavigation,
   MutableRedirectUrlProvider,
   isUnauthorizedError,
+  AuthRecoveryRequiredError,
 } from "@inspector/core/auth/index.js";
+import type { AuthChallenge } from "@inspector/core/auth/challenge.js";
+import type { TypedEvent } from "@inspector/core/mcp/inspectorClientEventTarget.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
 import type { ClientConfig } from "@inspector/core/client/types.js";
 import {
@@ -57,9 +60,15 @@ import {
   createOAuthCallbackServer,
   type OAuthCallbackServer,
   NodeOAuthStorage,
+  runRunnerInteractiveOAuth,
 } from "@inspector/core/auth/node/index.js";
 import { getTuiLogger } from "./logger.js";
 import { openUrl } from "./utils/openUrl.js";
+import {
+  isStepUpConfirmation,
+  stepUpInsufficientScopeMessage,
+} from "./utils/tuiOAuth.js";
+import { emaStepUpFailureMessage } from "@inspector/core/auth/oauthUx.js";
 import { Tabs } from "./components/Tabs.js";
 import { type TabType, tabs as tabList } from "./components/tabsConfig.js";
 import { InfoTab } from "./components/InfoTab.js";
@@ -141,14 +150,6 @@ function App({
   callbackUrlConfig,
 }: AppProps) {
   const { exit } = useApp();
-  const callbackServerBaseOptions = useMemo(
-    () => ({
-      port: callbackUrlConfig.port,
-      hostname: callbackUrlConfig.hostname,
-      path: callbackUrlConfig.pathname,
-    }),
-    [callbackUrlConfig],
-  );
 
   useEffect(() => {
     getTuiLogger().info(
@@ -174,9 +175,22 @@ function App({
   >("idle");
   const [oauthMessage, setOauthMessage] = useState<string | null>(null);
   const [oauthRevision, setOauthRevision] = useState(0);
+  const [pendingStepUp, setPendingStepUp] = useState<{
+    serverName: string;
+    challenge: AuthChallenge;
+    authorizationUrl: URL;
+    enterpriseManaged?: boolean;
+  } | null>(null);
+  const pendingStepUpRef = useRef(pendingStepUp);
+  useEffect(() => {
+    pendingStepUpRef.current = pendingStepUp;
+  }, [pendingStepUp]);
   const [connectError, setConnectError] = useState<string | null>(null);
   const oauthInProgressRef = useRef(false);
   const callbackServerRef = useRef<OAuthCallbackServer | null>(null);
+  const selectedServerRef = useRef<string | null>(null);
+  const mcpServersRef = useRef(mcpServers);
+  const inspectorClientsRef = useRef<Record<string, InspectorClient>>({});
 
   // Tool test modal state
   const [toolTestModal, setToolTestModal] = useState<{
@@ -419,11 +433,21 @@ function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Clear OAuth status when switching servers
+  // Clear OAuth status when switching servers; drop step-up for other servers.
   useEffect(() => {
     setOauthStatus("idle");
     setOauthMessage(null);
+    const stepUp = pendingStepUpRef.current;
+    if (stepUp && selectedServer && stepUp.serverName !== selectedServer) {
+      setPendingStepUp(null);
+    }
   }, [selectedServer]);
+
+  useEffect(() => {
+    selectedServerRef.current = selectedServer;
+    mcpServersRef.current = mcpServers;
+    inspectorClientsRef.current = inspectorClients;
+  }, [selectedServer, mcpServers, inspectorClients]);
 
   // Switch away from Auth tab when server is not OAuth-capable
   useEffect(() => {
@@ -534,79 +558,203 @@ function App({
     selectedManagedPromptsState,
   );
 
-  // Shared ref for OAuth callback server; stop before starting new (avoids EADDRINUSE when prior auth failed without redirect)
+  // Connect — on 401 or mid-session auth recovery, run OAuth then retry.
+  type TuiOAuthRunResult =
+    | "success"
+    | "already_authorized"
+    | "insufficient_scope"
+    | "skipped"
+    | "unsupported";
 
-  // Connect — on 401, run OAuth then retry (same pattern as web App.tsx).
-  const runOAuthAuthentication = useCallback(async () => {
-    if (
-      !selectedServer ||
-      !selectedInspectorClient ||
-      !selectedServerConfig ||
-      !isOAuthCapableServerConfig(selectedServerConfig)
-    ) {
-      return;
-    }
-    if (oauthInProgressRef.current) return;
-    oauthInProgressRef.current = true;
-    getTuiLogger().info(
-      { server: selectedServer },
-      "OAuth authentication started",
-    );
-    const existing = callbackServerRef.current;
-    if (existing) {
-      await existing.stop();
-      callbackServerRef.current = null;
-    }
-    const callbackServer = createOAuthCallbackServer();
-    callbackServerRef.current = callbackServer;
-    let flowResolve: () => void;
-    let flowReject: (err: Error) => void;
-    const flowDone = new Promise<void>((resolve, reject) => {
-      flowResolve = resolve;
-      flowReject = reject;
-    });
-    try {
-      const { redirectUrl } = await callbackServer.start({
-        ...callbackServerBaseOptions,
-        onCallback: async (params) => {
-          try {
-            await selectedInspectorClient!.completeOAuthFlow(params.code);
-            flowResolve!();
-          } catch (err) {
-            flowReject!(err instanceof Error ? err : new Error(String(err)));
-          } finally {
-            callbackServerRef.current = null;
-          }
-        },
-        onError: (params) => {
-          flowReject!(
-            new Error(
-              params.error_description ?? params.error ?? "OAuth error",
-            ),
-          );
-          void callbackServer.stop();
-          callbackServerRef.current = null;
-        },
+  const runOAuthAuthentication = useCallback(
+    async (options?: {
+      challenge?: AuthChallenge;
+      authorizationUrl?: URL;
+      /** When set, run OAuth for this server (may differ from the selected server). */
+      serverName?: string;
+    }): Promise<TuiOAuthRunResult> => {
+      const serverName = options?.serverName ?? selectedServer;
+      if (!serverName) {
+        return "unsupported";
+      }
+      const client = inspectorClientsRef.current[serverName];
+      const serverEntry = mcpServersRef.current[serverName];
+      const serverConfig = serverEntry?.config;
+      if (
+        !client ||
+        !serverConfig ||
+        !isOAuthCapableServerConfig(serverConfig)
+      ) {
+        return "unsupported";
+      }
+      if (oauthInProgressRef.current) {
+        return "skipped";
+      }
+      oauthInProgressRef.current = true;
+      getTuiLogger().info(
+        { server: serverName },
+        "OAuth authentication started",
+      );
+      const existing = callbackServerRef.current;
+      if (existing) {
+        await existing.stop();
+        callbackServerRef.current = null;
+      }
+      const redirectUrlProvider = redirectUrlProvidersRef.current[serverName];
+      if (!redirectUrlProvider) {
+        oauthInProgressRef.current = false;
+        return "unsupported";
+      }
+      try {
+        const result = await runRunnerInteractiveOAuth({
+          client,
+          redirectUrlProvider,
+          callbackListen: callbackUrlConfig,
+          createCallbackServer: createOAuthCallbackServer,
+          onCallbackServer: (server) => {
+            callbackServerRef.current = server;
+          },
+          authorizationUrl: options?.authorizationUrl,
+          authChallenge: options?.challenge,
+        });
+
+        if (result.kind === "insufficient_scope") {
+          setOauthStatus("error");
+          setOauthMessage(stepUpInsufficientScopeMessage(result.challenge));
+          return "insufficient_scope";
+        }
+        if (result.kind === "success" || result.kind === "already_authorized") {
+          setOauthRevision((n) => n + 1);
+          return result.kind;
+        }
+        return "unsupported";
+      } finally {
+        oauthInProgressRef.current = false;
+        callbackServerRef.current = null;
+      }
+    },
+    [selectedServer, callbackUrlConfig],
+  );
+
+  const presentStepUpForServer = useCallback(
+    (
+      serverName: string,
+      challenge: AuthChallenge,
+      authorizationUrl: URL,
+      enterpriseManaged?: boolean,
+    ) => {
+      const pending = pendingStepUpRef.current;
+      if (pending && pending.serverName !== serverName) {
+        setOauthMessage(
+          "A step-up prompt is already open. Complete or decline it before continuing.",
+        );
+        return;
+      }
+      if (pending?.serverName === serverName) {
+        setOauthMessage(
+          "Updated step-up request — review the scopes on the Auth tab.",
+        );
+      } else {
+        setOauthMessage(null);
+      }
+      setSelectedServer(serverName);
+      setPendingStepUp({
+        serverName,
+        challenge,
+        authorizationUrl,
+        enterpriseManaged,
       });
-      const redirectUrlProvider =
-        redirectUrlProvidersRef.current[selectedServer];
-      if (redirectUrlProvider) {
-        redirectUrlProvider.redirectUrl = redirectUrl;
+      setActiveTab("auth");
+      setOauthStatus("idle");
+      setFocus("tabContentList");
+    },
+    [],
+  );
+
+  const handleAuthRecoveryRequired = useCallback(
+    (serverName: string, error: AuthRecoveryRequiredError) => {
+      const serverEntry = mcpServersRef.current[serverName];
+      const settings = serverEntry?.settings;
+      const client = inspectorClientsRef.current[serverName];
+      const needsStepUpConfirm =
+        error.emaStepUpConfirm ||
+        isStepUpConfirmation(error.authChallenge, settings);
+      if (needsStepUpConfirm) {
+        void (async () => {
+          if (
+            client &&
+            (await client.checkAuthChallengeSatisfied(error.authChallenge))
+          ) {
+            setOauthStatus("idle");
+            setOauthMessage("Authorization updated. Retry your action.");
+            setOauthRevision((n) => n + 1);
+            return;
+          }
+          presentStepUpForServer(
+            serverName,
+            error.authChallenge,
+            error.authorizationUrl,
+            settings?.enterpriseManaged,
+          );
+        })();
+        return;
       }
-      const authUrl = await selectedInspectorClient.authenticate();
-      if (authUrl !== undefined) {
-        await flowDone;
+      void (async () => {
+        if (
+          client &&
+          (await client.checkAuthChallengeSatisfied(error.authChallenge))
+        ) {
+          setOauthStatus("idle");
+          setOauthMessage("Authorization updated. Retry your action.");
+          setOauthRevision((n) => n + 1);
+          return;
+        }
+        const needsSwitch = selectedServerRef.current !== serverName;
+        if (needsSwitch) {
+          setSelectedServer(serverName);
+          setActiveTab("auth");
+          setOauthMessage(
+            `Authentication required for "${serverName}". Re-authenticating…`,
+          );
+        } else {
+          setOauthMessage(null);
+        }
+        setOauthStatus("authenticating");
+        try {
+          const oauthResult = await runOAuthAuthentication({
+            challenge: error.authChallenge,
+            authorizationUrl: error.authorizationUrl,
+            serverName,
+          });
+          if (
+            oauthResult === "success" ||
+            oauthResult === "already_authorized"
+          ) {
+            setOauthStatus("idle");
+            setOauthMessage("Authorization updated. Retry your action.");
+          } else if (oauthResult === "skipped") {
+            setOauthStatus("idle");
+            setOauthMessage("OAuth already in progress.");
+          }
+        } catch (authErr) {
+          const authMsg =
+            authErr instanceof Error ? authErr.message : String(authErr);
+          setOauthStatus("error");
+          setOauthMessage(authMsg);
+        }
+      })();
+    },
+    [presentStepUpForServer, runOAuthAuthentication],
+  );
+
+  const onAuthRecoveryRequired = useCallback(
+    (error: AuthRecoveryRequiredError) => {
+      if (selectedServer) {
+        handleAuthRecoveryRequired(selectedServer, error);
       }
-      setOauthRevision((n) => n + 1);
-    } finally {
-      oauthInProgressRef.current = false;
-    }
-  }, [
-    selectedServer,
-    selectedInspectorClient,
-    selectedServerConfig,
-    callbackServerBaseOptions,
-  ]);
+    },
+    [selectedServer, handleAuthRecoveryRequired],
+  );
 
   const handleConnect = useCallback(async () => {
     if (!selectedServer || !selectedInspectorClient || !selectedServerConfig) {
@@ -618,6 +766,7 @@ function App({
       setConnectError(null);
       setOauthStatus("idle");
       setOauthMessage(null);
+      setOauthRevision((n) => n + 1);
     };
 
     try {
@@ -639,13 +788,22 @@ function App({
         try {
           setOauthStatus("authenticating");
           setOauthMessage(null);
-          // Tear down the failed handshake transport so the post-OAuth connect
-          // creates a fresh transport with tokens from storage (same as web,
-          // which reloads the client after redirect).
           await disconnectInspector();
-          await runOAuthAuthentication();
-          await finishConnect();
+          const oauthResult = await runOAuthAuthentication();
+          if (
+            oauthResult === "success" ||
+            oauthResult === "already_authorized"
+          ) {
+            await finishConnect();
+          } else if (oauthResult === "skipped") {
+            setOauthStatus("idle");
+            setOauthMessage("OAuth already in progress.");
+          }
         } catch (authErr) {
+          if (authErr instanceof AuthRecoveryRequiredError) {
+            handleAuthRecoveryRequired(selectedServer, authErr);
+            return;
+          }
           const authMsg =
             authErr instanceof Error ? authErr.message : String(authErr);
           setConnectError(authMsg);
@@ -659,6 +817,11 @@ function App({
         }
         return;
       }
+
+      if (err instanceof AuthRecoveryRequiredError && selectedServer) {
+        handleAuthRecoveryRequired(selectedServer, err);
+        return;
+      }
     }
   }, [
     selectedServer,
@@ -667,7 +830,62 @@ function App({
     connectInspector,
     disconnectInspector,
     runOAuthAuthentication,
+    handleAuthRecoveryRequired,
   ]);
+
+  useEffect(() => {
+    const cleanups: Array<() => void> = [];
+
+    for (const [serverName, client] of Object.entries(inspectorClients)) {
+      const onAmbient = (): void => {
+        if (selectedServerRef.current !== serverName) return;
+        setOauthStatus("idle");
+        setOauthMessage("Refreshing authorization…");
+      };
+      const onRecovered = (): void => {
+        if (selectedServerRef.current !== serverName) return;
+        setOauthMessage(null);
+        setOauthRevision((n) => n + 1);
+      };
+      const onInteractive = (
+        event: TypedEvent<"authChallengeInteractive">,
+      ): void => {
+        handleAuthRecoveryRequired(
+          serverName,
+          new AuthRecoveryRequiredError(
+            event.detail.authorizationUrl,
+            event.detail.challenge,
+          ),
+        );
+      };
+      const onOAuthError = (event: TypedEvent<"oauthError">): void => {
+        if (selectedServerRef.current !== serverName) return;
+        const message =
+          event.detail.error instanceof Error
+            ? event.detail.error.message
+            : String(event.detail.error);
+        setOauthStatus("error");
+        setOauthMessage(message);
+      };
+
+      client.addEventListener("authChallengeAmbient", onAmbient);
+      client.addEventListener("authChallengeRecovered", onRecovered);
+      client.addEventListener("authChallengeInteractive", onInteractive);
+      client.addEventListener("oauthError", onOAuthError);
+      cleanups.push(() => {
+        client.removeEventListener("authChallengeAmbient", onAmbient);
+        client.removeEventListener("authChallengeRecovered", onRecovered);
+        client.removeEventListener("authChallengeInteractive", onInteractive);
+        client.removeEventListener("oauthError", onOAuthError);
+      });
+    }
+
+    return () => {
+      for (const cleanup of cleanups) {
+        cleanup();
+      }
+    };
+  }, [inspectorClients, handleAuthRecoveryRequired]);
 
   // Disconnect handler
   const handleDisconnect = useCallback(async () => {
@@ -1108,15 +1326,15 @@ function App({
     );
     if (tabAccelerators[input.toLowerCase()]) {
       const nextTab = tabAccelerators[input.toLowerCase()]!;
-      setActiveTab(nextTab);
-      setFocus(nextTab === "auth" ? "tabContentList" : "tabs");
-    } else if (
-      activeTab === "auth" &&
-      showAuthTab &&
-      input.toLowerCase() === "s"
-    ) {
-      void handleClearOAuth();
-      setFocus("tabContentList");
+      const authStepUpAccelerator =
+        input.toLowerCase() === "a" &&
+        nextTab === "auth" &&
+        activeTab === "auth" &&
+        pendingStepUp?.serverName === selectedServer;
+      if (!authStepUpAccelerator) {
+        setActiveTab(nextTab);
+        setFocus(nextTab === "auth" ? "tabContentList" : "tabs");
+      }
     } else if (key.tab && !key.shift) {
       // Flat focus order: servers -> tabs -> list -> details -> wrap to servers
       const focusOrder: FocusArea[] =
@@ -1470,6 +1688,102 @@ function App({
                 oauthStatus={oauthStatus}
                 oauthMessage={oauthMessage}
                 oauthRevision={oauthRevision}
+                pendingStepUp={
+                  pendingStepUp?.serverName === selectedServer
+                    ? {
+                        challenge: pendingStepUp.challenge,
+                        authorizationScopes:
+                          pendingStepUp.challenge.authorizationScopes,
+                        enterpriseManaged: pendingStepUp.enterpriseManaged,
+                      }
+                    : null
+                }
+                onAuthorizeStepUp={() => {
+                  if (!pendingStepUp || !selectedInspectorClient) return;
+                  const { challenge, authorizationUrl, enterpriseManaged } =
+                    pendingStepUp;
+                  setPendingStepUp(null);
+                  setOauthStatus("authenticating");
+                  void (async () => {
+                    try {
+                      if (enterpriseManaged) {
+                        const outcome =
+                          await selectedInspectorClient.handleAuthChallenge(
+                            challenge,
+                            { confirmedStepUp: true },
+                          );
+                        if (outcome.kind === "satisfied") {
+                          await disconnectInspector().catch(() => {});
+                          await connectInspector();
+                          setOauthStatus("idle");
+                          setOauthMessage(
+                            "Step-up authorization succeeded. Retry your action.",
+                          );
+                          setOauthRevision((n) => n + 1);
+                          return;
+                        }
+                        if (outcome.kind === "interactive") {
+                          const oauthResult = await runOAuthAuthentication({
+                            challenge: outcome.challenge,
+                            authorizationUrl: outcome.authorizationUrl,
+                          });
+                          if (
+                            oauthResult === "success" ||
+                            oauthResult === "already_authorized"
+                          ) {
+                            setOauthStatus("idle");
+                            setOauthMessage(
+                              "Step-up authorization succeeded. Retry your action.",
+                            );
+                          } else if (oauthResult === "skipped") {
+                            setOauthStatus("idle");
+                            setOauthMessage("OAuth already in progress.");
+                          }
+                          return;
+                        }
+                        if (outcome.kind === "failed") {
+                          setOauthStatus("error");
+                          setOauthMessage(
+                            emaStepUpFailureMessage(outcome.error.message),
+                          );
+                          return;
+                        }
+                        setOauthStatus("idle");
+                        setOauthMessage(
+                          "Step-up authorization succeeded. Retry your action.",
+                        );
+                        return;
+                      }
+                      const oauthResult = await runOAuthAuthentication({
+                        challenge,
+                        authorizationUrl,
+                      });
+                      if (
+                        oauthResult === "success" ||
+                        oauthResult === "already_authorized"
+                      ) {
+                        setOauthStatus("idle");
+                        setOauthMessage(
+                          "Step-up authorization succeeded. Retry your action.",
+                        );
+                      } else if (oauthResult === "skipped") {
+                        setOauthStatus("idle");
+                        setOauthMessage("OAuth already in progress.");
+                      }
+                    } catch (authErr) {
+                      const authMsg =
+                        authErr instanceof Error
+                          ? authErr.message
+                          : String(authErr);
+                      setOauthStatus("error");
+                      setOauthMessage(authMsg);
+                    }
+                  })();
+                }}
+                onCancelStepUp={() => {
+                  setPendingStepUp(null);
+                  setOauthMessage("Authorization cancelled.");
+                }}
                 width={contentWidth}
                 height={contentHeight}
                 focused={
@@ -1517,8 +1831,14 @@ function App({
                     inspectorClient: selectedInspectorClient,
                   });
                 }}
+                onAuthRecoveryRequired={onAuthRecoveryRequired}
                 modalOpen={
-                  !!(toolTestModal || resourceTestModal || detailsModal)
+                  !!(
+                    toolTestModal ||
+                    resourceTestModal ||
+                    promptTestModal ||
+                    detailsModal
+                  )
                 }
               />
             ) : activeTab === "prompts" &&
@@ -1552,6 +1872,7 @@ function App({
                     inspectorClient: selectedInspectorClient,
                   });
                 }}
+                onAuthRecoveryRequired={onAuthRecoveryRequired}
                 modalOpen={
                   !!(
                     toolTestModal ||
@@ -1680,6 +2001,10 @@ function App({
           width={dimensions.width}
           height={dimensions.height}
           onClose={() => setToolTestModal(null)}
+          onAuthRecoveryRequired={(error) => {
+            onAuthRecoveryRequired(error);
+            setToolTestModal(null);
+          }}
         />
       )}
 
@@ -1691,6 +2016,10 @@ function App({
           width={dimensions.width}
           height={dimensions.height}
           onClose={() => setResourceTestModal(null)}
+          onAuthRecoveryRequired={(error) => {
+            onAuthRecoveryRequired(error);
+            setResourceTestModal(null);
+          }}
         />
       )}
 
@@ -1701,6 +2030,10 @@ function App({
           width={dimensions.width}
           height={dimensions.height}
           onClose={() => setPromptTestModal(null)}
+          onAuthRecoveryRequired={(error) => {
+            onAuthRecoveryRequired(error);
+            setPromptTestModal(null);
+          }}
         />
       )}
 
