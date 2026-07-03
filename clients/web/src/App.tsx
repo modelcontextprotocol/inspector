@@ -3434,20 +3434,154 @@ function App() {
     [pendingElicitations],
   );
 
+  const handleStepUpAuthorize = async () => {
+    if (!pendingStepUp || stepUpAuthorizeInProgressRef.current) {
+      return;
+    }
+    const stepUp = pendingStepUp;
+    const client = inspectorClient;
+    if (!client) {
+      return;
+    }
+
+    if (stepUp.enterpriseManaged) {
+      stepUpAuthorizeInProgressRef.current = true;
+      setPendingStepUp(null);
+      notifications.show({
+        title: "Organization permissions",
+        message: emaStepUpInProgressMessage(),
+        color: "blue",
+        autoClose: 4000,
+      });
+      try {
+        const outcome = await client.handleAuthChallenge(stepUp.challenge, {
+          confirmedStepUp: true,
+        });
+        if (outcome.kind === "satisfied") {
+          await client.pushRemoteAuthState();
+          notifications.show({
+            title: "Permissions updated",
+            message: emaStepUpSuccessMessage({
+              recoverySource: stepUp.source,
+            }),
+            color: "green",
+            autoClose: 5000,
+          });
+          const retry = pendingStepUpRetryRef.current;
+          pendingStepUpRetryRef.current = null;
+          if (retry) {
+            await retry();
+          }
+          return;
+        }
+        if (outcome.kind === "interactive") {
+          prepareOAuthRedirect({
+            serverId: stepUp.serverId,
+            authKind: "step_up",
+            authorizationUrl: outcome.authorizationUrl,
+            authChallenge: outcome.challenge,
+            recoverySource: stepUp.source,
+          });
+          return;
+        }
+        if (outcome.kind === "failed") {
+          const failureMessage = emaStepUpFailureMessage(outcome.error.message);
+          notifications.show({
+            title: "Organization permissions",
+            message: failureMessage,
+            color: "red",
+            autoClose: 6000,
+          });
+          switch (stepUp.source) {
+            case "tool":
+              setToolCallState({
+                status: "error",
+                error: failureMessage,
+              });
+              break;
+            case "prompt":
+              setGetPromptState((prev) =>
+                prev
+                  ? { ...prev, status: "error", error: failureMessage }
+                  : prev,
+              );
+              break;
+            case "resource":
+              setReadResourceState((prev) =>
+                prev
+                  ? { ...prev, status: "error", error: failureMessage }
+                  : prev,
+              );
+              break;
+            default:
+              break;
+          }
+        }
+      } finally {
+        stepUpAuthorizeInProgressRef.current = false;
+      }
+      return;
+    }
+
+    stepUpAuthorizeInProgressRef.current = true;
+    prepareOAuthRedirect({
+      serverId: stepUp.serverId,
+      authKind: "step_up",
+      authorizationUrl: stepUp.authorizationUrl,
+      authChallenge: stepUp.challenge,
+      recoverySource: stepUp.source,
+    });
+    setPendingStepUp(null);
+    pendingStepUpRetryRef.current = null;
+    stepUpAuthorizeInProgressRef.current = false;
+  };
+
+  const handleStepUpCancel = () => {
+    const stepUp = pendingStepUpRef.current;
+    setPendingStepUp(null);
+    pendingStepUpRetryRef.current = null;
+    if (!stepUp) {
+      return;
+    }
+    const cancelled = "Authorization cancelled.";
+    switch (stepUp.source) {
+      case "tool":
+        setToolCallState({ status: "error", error: cancelled });
+        break;
+      case "prompt":
+        setGetPromptState((prev) =>
+          prev ? { ...prev, status: "error", error: cancelled } : prev,
+        );
+        break;
+      case "resource":
+        setReadResourceState((prev) =>
+          prev ? { ...prev, status: "error", error: cancelled } : prev,
+        );
+        break;
+      case "app":
+        notifications.show({
+          title: "Authorization cancelled",
+          message: cancelled,
+          color: "gray",
+          autoClose: 4000,
+        });
+        break;
+      case "ambient":
+        break;
+    }
+  };
+
   return (
     <>
       <Box>
         {reAuthBanner ? (
           <Box
+            className="reauth-banner-bar"
             px="md"
             pt="xs"
-            style={{
-              position: "sticky",
-              top: 60,
-              zIndex: 200,
-              backgroundColor: "var(--mantine-color-body)",
-              boxShadow: "var(--mantine-shadow-sm)",
-            }}
+            pos="sticky"
+            top={60}
+            bg="var(--mantine-color-body)"
           >
             <ReAuthBanner
               message={reAuthBanner.message}
@@ -3693,144 +3827,8 @@ function App() {
         challenge={pendingStepUp?.challenge ?? null}
         authorizationScopes={pendingStepUp?.challenge?.authorizationScopes}
         enterpriseManaged={pendingStepUp?.enterpriseManaged}
-        onAuthorize={async () => {
-          if (!pendingStepUp || stepUpAuthorizeInProgressRef.current) {
-            return;
-          }
-          const stepUp = pendingStepUp;
-          const client = inspectorClient;
-          if (!client) {
-            return;
-          }
-
-          if (stepUp.enterpriseManaged) {
-            stepUpAuthorizeInProgressRef.current = true;
-            setPendingStepUp(null);
-            notifications.show({
-              title: "Organization permissions",
-              message: emaStepUpInProgressMessage(),
-              color: "blue",
-              autoClose: 4000,
-            });
-            try {
-              const outcome = await client.handleAuthChallenge(
-                stepUp.challenge,
-                { confirmedStepUp: true },
-              );
-              if (outcome.kind === "satisfied") {
-                await client.pushRemoteAuthState();
-                notifications.show({
-                  title: "Permissions updated",
-                  message: emaStepUpSuccessMessage({
-                    recoverySource: stepUp.source,
-                  }),
-                  color: "green",
-                  autoClose: 5000,
-                });
-                const retry = pendingStepUpRetryRef.current;
-                pendingStepUpRetryRef.current = null;
-                if (retry) {
-                  await retry();
-                }
-                return;
-              }
-              if (outcome.kind === "interactive") {
-                prepareOAuthRedirect({
-                  serverId: stepUp.serverId,
-                  authKind: "step_up",
-                  authorizationUrl: outcome.authorizationUrl,
-                  authChallenge: outcome.challenge,
-                  recoverySource: stepUp.source,
-                });
-                return;
-              }
-              if (outcome.kind === "failed") {
-                const failureMessage = emaStepUpFailureMessage(
-                  outcome.error.message,
-                );
-                notifications.show({
-                  title: "Organization permissions",
-                  message: failureMessage,
-                  color: "red",
-                  autoClose: 6000,
-                });
-                switch (stepUp.source) {
-                  case "tool":
-                    setToolCallState({
-                      status: "error",
-                      error: failureMessage,
-                    });
-                    break;
-                  case "prompt":
-                    setGetPromptState((prev) =>
-                      prev
-                        ? { ...prev, status: "error", error: failureMessage }
-                        : prev,
-                    );
-                    break;
-                  case "resource":
-                    setReadResourceState((prev) =>
-                      prev
-                        ? { ...prev, status: "error", error: failureMessage }
-                        : prev,
-                    );
-                    break;
-                  default:
-                    break;
-                }
-              }
-            } finally {
-              stepUpAuthorizeInProgressRef.current = false;
-            }
-            return;
-          }
-
-          stepUpAuthorizeInProgressRef.current = true;
-          prepareOAuthRedirect({
-            serverId: stepUp.serverId,
-            authKind: "step_up",
-            authorizationUrl: stepUp.authorizationUrl,
-            authChallenge: stepUp.challenge,
-            recoverySource: stepUp.source,
-          });
-          setPendingStepUp(null);
-          pendingStepUpRetryRef.current = null;
-          stepUpAuthorizeInProgressRef.current = false;
-        }}
-        onCancel={() => {
-          const stepUp = pendingStepUpRef.current;
-          setPendingStepUp(null);
-          pendingStepUpRetryRef.current = null;
-          if (!stepUp) {
-            return;
-          }
-          const cancelled = "Authorization cancelled.";
-          switch (stepUp.source) {
-            case "tool":
-              setToolCallState({ status: "error", error: cancelled });
-              break;
-            case "prompt":
-              setGetPromptState((prev) =>
-                prev ? { ...prev, status: "error", error: cancelled } : prev,
-              );
-              break;
-            case "resource":
-              setReadResourceState((prev) =>
-                prev ? { ...prev, status: "error", error: cancelled } : prev,
-              );
-              break;
-            case "app":
-              notifications.show({
-                title: "Authorization cancelled",
-                message: cancelled,
-                color: "gray",
-                autoClose: 4000,
-              });
-              break;
-            case "ambient":
-              break;
-          }
-        }}
+        onAuthorize={handleStepUpAuthorize}
+        onCancel={handleStepUpCancel}
       />
     </>
   );

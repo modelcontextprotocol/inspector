@@ -30,6 +30,7 @@ export function StepUpAuthModal({
 }: StepUpAuthModalProps) {
   const additionalScopes = challenge ? stepUpAdditionalScopes(challenge) : [];
   const ema = enterpriseManaged === true;
+  const handleAuthorize = () => void onAuthorize();
 
   return (
     <Modal
@@ -79,7 +80,7 @@ export function StepUpAuthModal({
           <Button variant="default" onClick={onCancel}>
             Cancel
           </Button>
-          <Button onClick={() => void onAuthorize()}>Authorize</Button>
+          <Button onClick={handleAuthorize}>Authorize</Button>
         </Actions>
       </Stack>
     </Modal>

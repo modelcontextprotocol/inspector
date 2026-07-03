@@ -1,4 +1,4 @@
-import { Alert, Button, Group } from "@mantine/core";
+import { Alert, Button, Group, Text } from "@mantine/core";
 
 export interface ReAuthBannerProps {
   message: string;
@@ -14,19 +14,15 @@ export function ReAuthBanner({
   return (
     <Alert
       color="red"
-      variant="light"
+      variant="reauth"
       title="Re-authentication required"
       withCloseButton
       onClose={onDismiss}
-      styles={{
-        root: {
-          backgroundColor: "var(--mantine-color-body)",
-          border: "1px solid var(--mantine-color-red-3)",
-        },
-      }}
     >
       <Group justify="space-between" align="center" wrap="nowrap" gap="md">
-        <span>{message}</span>
+        <Text component="span" size="sm">
+          {message}
+        </Text>
         <Button size="xs" variant="filled" onClick={onReauthenticate}>
           Re-authenticate
         </Button>
