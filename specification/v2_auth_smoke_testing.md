@@ -1,6 +1,7 @@
-# Inspector V2 — OAuth smoke testing (real servers)
+# Inspector V2 Auth — OAuth smoke testing (real servers)
 
-### [Brief](README.md) | [V2 Scope](v2_scope.md) | [Servers file](v2_servers_file.md) | [Auth hardening](v2_auth_hardening.md) | [Mid-session auth](v2_auth_mid_session.md) | [EMA / XAA](v2_auth_ema.md)
+### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_web_client.md) | [V2 UX](v2_ux.md) | V2 Auth | [V2 New Spec Impact](v2_new_spec_impact.md)
+#### [Overview](v2_auth.md) | [EMA / XAA](v2_auth_ema.md) | [Hardening](v2_auth_hardening.md) | [Mid-session](v2_auth_mid_session.md) | Smoke testing
 
 Manual smoke procedures for exercising Inspector OAuth against **hosted** MCP servers. Complements automated coverage in `clients/web/src/test/integration/mcp/inspectorClient-oauth-e2e.test.ts`, which uses the in-repo `TestServerHttp` (`createOAuthTestServerConfig`).
 

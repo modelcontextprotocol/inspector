@@ -1,6 +1,7 @@
-# Inspector V2 — Authorization hardening (MCP 2026-07-28)
+# Inspector V2 Auth — Authorization hardening (MCP 2026-07-28)
 
-### [Brief](README.md) | [V2 Scope](v2_scope.md) | [Mid-session auth](v2_auth_mid_session.md) | [EMA / XAA](v2_auth_ema.md) | [Smoke testing](v2_auth_smoke_testing.md)
+### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_web_client.md) | [V2 UX](v2_ux.md) | V2 Auth | [V2 New Spec Impact](v2_new_spec_impact.md)
+#### [Overview](v2_auth.md) | [EMA / XAA](v2_auth_ema.md) | Hardening | [Mid-session](v2_auth_mid_session.md) | [Smoke testing](v2_auth_smoke_testing.md)
 
 Align Inspector v2 with the **authorization hardening** in the upcoming MCP **`2026-07-28`** specification release — six SEPs that tighten OAuth/OIDC client behavior for MCP's single-client, many-server deployment pattern.
 

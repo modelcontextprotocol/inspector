@@ -1,6 +1,7 @@
-# Inspector V2 — Enterprise-Managed Authorization (EMA / XAA)
+# Inspector V2 Auth — Enterprise-Managed Authorization (EMA / XAA)
 
-### [Brief](README.md) | [V2 Scope](v2_scope.md) | [Servers file](v2_servers_file.md) | [Auth hardening](v2_auth_hardening.md) | [Mid-session auth](v2_auth_mid_session.md) | [Smoke testing](v2_auth_smoke_testing.md)
+### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_web_client.md) | [V2 UX](v2_ux.md) | V2 Auth | [V2 New Spec Impact](v2_new_spec_impact.md)
+#### [Overview](v2_auth.md) | EMA / XAA | [Hardening](v2_auth_hardening.md) | [Mid-session](v2_auth_mid_session.md) | [Smoke testing](v2_auth_smoke_testing.md)
 
 Tracks [#1509](https://github.com/modelcontextprotocol/inspector/issues/1509).
 

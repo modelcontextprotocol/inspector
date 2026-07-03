@@ -1,6 +1,6 @@
 # Inspector V2 Tech Stack - CLI, TUI, and Launcher
 
-### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | V2 Tech Stack | [V2 UX](v2_ux.md)
+### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | V2 Tech Stack | [V2 UX](v2_ux.md) | [V2 Auth](v2_auth.md) | [V2 New Spec Impact](v2_new_spec_impact.md)
 
 #### [Web Client](v2_web_client.md) | CLI, TUI, Launcher | [Server](v2_server.md) | [Storage](v2_storage.md)
 
