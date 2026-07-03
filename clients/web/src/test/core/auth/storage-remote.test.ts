@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { RemoteOAuthStorage } from "@inspector/core/auth/remote/storage-remote.js";
+import {
+  type OAuthStore,
+  waitForOAuthStorePersistLoad,
+} from "@inspector/core/auth/store.js";
 
 const NOOP_FETCH = vi.fn(
   async () =>
@@ -121,6 +125,12 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
     expect(s).toBeInstanceOf(RemoteOAuthStorage);
   });
 
+  it("waitForOAuthStorePersistLoad resolves for an unregistered store handle", async () => {
+    await expect(
+      waitForOAuthStorePersistLoad({} as OAuthStore),
+    ).resolves.toBeUndefined();
+  });
+
   it("load() waits for remote GET before sync reads see persisted state", async () => {
     const persisted = {
       state: {
@@ -153,6 +163,22 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
 
     expect(delayedStorage.getCodeVerifier(serverUrl)).toBe(
       "persisted-verifier",
+    );
+  });
+
+  it("load() rejects when remote GET fails instead of hanging", async () => {
+    const failingFetch = vi.fn(
+      async () => new Response("server error", { status: 500 }),
+    ) as unknown as typeof fetch;
+
+    const failingStorage = new RemoteOAuthStorage({
+      baseUrl: "http://remote.example",
+      storeId: `fail-${Math.random().toString(36).slice(2)}`,
+      fetchFn: failingFetch,
+    });
+
+    await expect(failingStorage.load()).rejects.toThrow(
+      "Failed to read store: 500",
     );
   });
 });

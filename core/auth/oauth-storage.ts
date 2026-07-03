@@ -8,7 +8,11 @@ import {
   OAuthTokensSchema,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { OAuthStorage } from "./storage.js";
-import { type createOAuthStore, type ServerOAuthState } from "./store.js";
+import {
+  type OAuthStore,
+  type ServerOAuthState,
+  waitForOAuthStorePersistLoad,
+} from "./store.js";
 import type {
   IdpSessionState,
   OAuthClientRegistrationKind,
@@ -16,10 +20,9 @@ import type {
   SaveTokensOptions,
 } from "./storage.js";
 
-type OAuthStoreWithPersist = ReturnType<typeof createOAuthStore> & {
+type OAuthStoreWithPersist = OAuthStore & {
   persist: {
     hasHydrated: () => boolean;
-    onFinishHydration: (fn: () => void) => void;
   };
 };
 
@@ -32,19 +35,18 @@ export class OAuthStorageBase implements OAuthStorage {
   private readonly store: OAuthStoreWithPersist;
   private loadedPromise: Promise<void> | undefined;
 
-  constructor(store: ReturnType<typeof createOAuthStore>) {
+  constructor(store: OAuthStore) {
     this.store = store as OAuthStoreWithPersist;
   }
 
   load(): Promise<void> {
     if (!this.loadedPromise) {
-      this.loadedPromise = new Promise((resolve) => {
+      this.loadedPromise = (async () => {
         if (this.store.persist.hasHydrated()) {
-          resolve();
           return;
         }
-        this.store.persist.onFinishHydration(() => resolve());
-      });
+        await waitForOAuthStorePersistLoad(this.store);
+      })();
     }
     return this.loadedPromise;
   }

@@ -43,6 +43,23 @@ export interface OAuthStoreState {
   clearEnterpriseManagedResourceServers: () => void;
 }
 
+export type OAuthStore = ReturnType<typeof createOAuthStore>;
+
+const persistLoadByStore = new WeakMap<OAuthStore, Promise<void>>();
+
+/**
+ * Wait until the store's initial persist read has finished (success or failure).
+ * Used by {@link OAuthStorageBase.load}; resolves on success, rejects when the
+ * storage adapter's getItem fails (Zustand does not fire onFinishHydration on error).
+ */
+export function waitForOAuthStorePersistLoad(store: OAuthStore): Promise<void> {
+  const promise = persistLoadByStore.get(store);
+  if (!promise) {
+    return Promise.resolve();
+  }
+  return promise;
+}
+
 /**
  * Creates a Zustand store for OAuth state with the given storage adapter.
  * The storage adapter handles persistence (file, remote HTTP, sessionStorage, etc.).
@@ -53,7 +70,29 @@ export interface OAuthStoreState {
 export function createOAuthStore(
   storage: ReturnType<typeof createJSONStorage>,
 ) {
-  return createStore<OAuthStoreState>()(
+  let resolvePersistLoad!: () => void;
+  let rejectPersistLoad!: (error: unknown) => void;
+  let persistLoadSettled = false;
+
+  const persistLoadPromise = new Promise<void>((resolve, reject) => {
+    resolvePersistLoad = resolve;
+    rejectPersistLoad = reject;
+  });
+
+  const settlePersistLoad = (error?: unknown) => {
+    if (persistLoadSettled) {
+      /* v8 ignore next -- idempotent if persist signals completion more than once */
+      return;
+    }
+    persistLoadSettled = true;
+    if (error) {
+      rejectPersistLoad(error);
+      return;
+    }
+    resolvePersistLoad();
+  };
+
+  const store = createStore<OAuthStoreState>()(
     persist(
       (set, get) => ({
         servers: {},
@@ -118,7 +157,13 @@ export function createOAuthStore(
       {
         name: "mcp-inspector-oauth",
         storage,
+        onRehydrateStorage: () => (_state, error) => {
+          settlePersistLoad(error);
+        },
       },
     ),
   );
+
+  persistLoadByStore.set(store, persistLoadPromise);
+  return store;
 }

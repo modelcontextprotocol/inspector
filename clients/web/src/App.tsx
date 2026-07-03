@@ -2191,7 +2191,15 @@ function App() {
     }
 
     void (async () => {
-      await webOAuthStorage.load();
+      try {
+        await webOAuthStorage.load();
+      } catch (err) {
+        connectStartRef.current = undefined;
+        queueMicrotask(() => {
+          showReAuthBanner(server.id, err instanceof Error ? err : String(err));
+        });
+        return;
+      }
       const client = setupClientForServer(server, sessionId);
       setActiveServerId(server.id);
       try {
