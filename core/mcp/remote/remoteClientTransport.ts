@@ -578,7 +578,12 @@ export class RemoteClientTransport implements Transport {
   }
 
   private cancelSseResponseWait(requestId: string | number): void {
+    const wait = this.sseResponseWaits.get(requestId);
+    if (!wait) {
+      return;
+    }
     this.sseResponseWaits.delete(requestId);
+    wait.reject(new Error("SSE response wait cancelled"));
   }
 
   private cancelAllSseWaits(error: Error): void {

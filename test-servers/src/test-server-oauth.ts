@@ -837,6 +837,13 @@ export interface ScopeRequirementRegistry {
   tools: Map<string, string[]>;
   resources: Map<string, string[]>;
   prompts: Map<string, string[]>;
+  resourceTemplates: Map<string, string[]>;
+}
+
+function resourceUriMatchesTemplate(uri: string, uriTemplate: string): boolean {
+  const brace = uriTemplate.indexOf("{");
+  const prefix = brace >= 0 ? uriTemplate.slice(0, brace) : uriTemplate;
+  return uri.startsWith(prefix);
 }
 
 /** Build lookup tables from merged ServerConfig capability definitions. */
@@ -847,6 +854,7 @@ export function buildScopeRequirementRegistry(
     tools: new Map(),
     resources: new Map(),
     prompts: new Map(),
+    resourceTemplates: new Map(),
   };
 
   for (const tool of config.tools ?? []) {
@@ -864,6 +872,11 @@ export function buildScopeRequirementRegistry(
       registry.prompts.set(prompt.name, prompt.requiredScopes);
     }
   }
+  for (const template of config.resourceTemplates ?? []) {
+    if (template.requiredScopes?.length) {
+      registry.resourceTemplates.set(template.uriTemplate, template.requiredScopes);
+    }
+  }
 
   return registry;
 }
@@ -874,7 +887,8 @@ export function scopeRequirementRegistryHasEntries(
   return (
     registry.tools.size > 0 ||
     registry.resources.size > 0 ||
-    registry.prompts.size > 0
+    registry.prompts.size > 0 ||
+    registry.resourceTemplates.size > 0
   );
 }
 
@@ -937,6 +951,14 @@ export function createScopeCheckMiddleware(
       requiredScopes = registry.tools.get(target);
     } else if (method === "resources/read") {
       requiredScopes = registry.resources.get(target);
+      if (!requiredScopes?.length) {
+        for (const [uriTemplate, scopes] of registry.resourceTemplates) {
+          if (resourceUriMatchesTemplate(target, uriTemplate)) {
+            requiredScopes = scopes;
+            break;
+          }
+        }
+      }
     } else if (method === "prompts/get") {
       requiredScopes = registry.prompts.get(target);
     }

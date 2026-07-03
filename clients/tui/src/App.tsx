@@ -559,16 +559,23 @@ function App({
   );
 
   // Connect — on 401 or mid-session auth recovery, run OAuth then retry.
+  type TuiOAuthRunResult =
+    | "success"
+    | "already_authorized"
+    | "insufficient_scope"
+    | "skipped"
+    | "unsupported";
+
   const runOAuthAuthentication = useCallback(
     async (options?: {
       challenge?: AuthChallenge;
       authorizationUrl?: URL;
       /** When set, run OAuth for this server (may differ from the selected server). */
       serverName?: string;
-    }) => {
+    }): Promise<TuiOAuthRunResult> => {
       const serverName = options?.serverName ?? selectedServer;
       if (!serverName) {
-        return;
+        return "unsupported";
       }
       const client = inspectorClientsRef.current[serverName];
       const serverEntry = mcpServersRef.current[serverName];
@@ -578,9 +585,11 @@ function App({
         !serverConfig ||
         !isOAuthCapableServerConfig(serverConfig)
       ) {
-        return;
+        return "unsupported";
       }
-      if (oauthInProgressRef.current) return;
+      if (oauthInProgressRef.current) {
+        return "skipped";
+      }
       oauthInProgressRef.current = true;
       getTuiLogger().info(
         { server: serverName },
@@ -594,7 +603,7 @@ function App({
       const redirectUrlProvider = redirectUrlProvidersRef.current[serverName];
       if (!redirectUrlProvider) {
         oauthInProgressRef.current = false;
-        return;
+        return "unsupported";
       }
       try {
         const result = await runRunnerInteractiveOAuth({
@@ -612,11 +621,13 @@ function App({
         if (result.kind === "insufficient_scope") {
           setOauthStatus("error");
           setOauthMessage(stepUpInsufficientScopeMessage(result.challenge));
-          return;
+          return "insufficient_scope";
         }
         if (result.kind === "success" || result.kind === "already_authorized") {
           setOauthRevision((n) => n + 1);
+          return result.kind;
         }
+        return "unsupported";
       } finally {
         oauthInProgressRef.current = false;
         callbackServerRef.current = null;
@@ -710,13 +721,21 @@ function App({
         }
         setOauthStatus("authenticating");
         try {
-          await runOAuthAuthentication({
+          const oauthResult = await runOAuthAuthentication({
             challenge: error.authChallenge,
             authorizationUrl: error.authorizationUrl,
             serverName,
           });
-          setOauthStatus("idle");
-          setOauthMessage("Authorization updated. Retry your action.");
+          if (
+            oauthResult === "success" ||
+            oauthResult === "already_authorized"
+          ) {
+            setOauthStatus("idle");
+            setOauthMessage("Authorization updated. Retry your action.");
+          } else if (oauthResult === "skipped") {
+            setOauthStatus("idle");
+            setOauthMessage("OAuth already in progress.");
+          }
         } catch (authErr) {
           const authMsg =
             authErr instanceof Error ? authErr.message : String(authErr);
@@ -770,8 +789,16 @@ function App({
           setOauthStatus("authenticating");
           setOauthMessage(null);
           await disconnectInspector();
-          await runOAuthAuthentication();
-          await finishConnect();
+          const oauthResult = await runOAuthAuthentication();
+          if (
+            oauthResult === "success" ||
+            oauthResult === "already_authorized"
+          ) {
+            await finishConnect();
+          } else if (oauthResult === "skipped") {
+            setOauthStatus("idle");
+            setOauthMessage("OAuth already in progress.");
+          }
         } catch (authErr) {
           if (authErr instanceof AuthRecoveryRequiredError) {
             handleAuthRecoveryRequired(selectedServer, authErr);
@@ -1299,8 +1326,15 @@ function App({
     );
     if (tabAccelerators[input.toLowerCase()]) {
       const nextTab = tabAccelerators[input.toLowerCase()]!;
-      setActiveTab(nextTab);
-      setFocus(nextTab === "auth" ? "tabContentList" : "tabs");
+      const authStepUpAccelerator =
+        input.toLowerCase() === "a" &&
+        nextTab === "auth" &&
+        activeTab === "auth" &&
+        pendingStepUp?.serverName === selectedServer;
+      if (!authStepUpAccelerator) {
+        setActiveTab(nextTab);
+        setFocus(nextTab === "auth" ? "tabContentList" : "tabs");
+      }
     } else if (key.tab && !key.shift) {
       // Flat focus order: servers -> tabs -> list -> details -> wrap to servers
       const focusOrder: FocusArea[] =
@@ -1689,14 +1723,22 @@ function App({
                           return;
                         }
                         if (outcome.kind === "interactive") {
-                          await runOAuthAuthentication({
+                          const oauthResult = await runOAuthAuthentication({
                             challenge: outcome.challenge,
                             authorizationUrl: outcome.authorizationUrl,
                           });
-                          setOauthStatus("idle");
-                          setOauthMessage(
-                            "Step-up authorization succeeded. Retry your action.",
-                          );
+                          if (
+                            oauthResult === "success" ||
+                            oauthResult === "already_authorized"
+                          ) {
+                            setOauthStatus("idle");
+                            setOauthMessage(
+                              "Step-up authorization succeeded. Retry your action.",
+                            );
+                          } else if (oauthResult === "skipped") {
+                            setOauthStatus("idle");
+                            setOauthMessage("OAuth already in progress.");
+                          }
                           return;
                         }
                         if (outcome.kind === "failed") {
@@ -1712,14 +1754,22 @@ function App({
                         );
                         return;
                       }
-                      await runOAuthAuthentication({
+                      const oauthResult = await runOAuthAuthentication({
                         challenge,
                         authorizationUrl,
                       });
-                      setOauthStatus("idle");
-                      setOauthMessage(
-                        "Step-up authorization succeeded. Retry your action.",
-                      );
+                      if (
+                        oauthResult === "success" ||
+                        oauthResult === "already_authorized"
+                      ) {
+                        setOauthStatus("idle");
+                        setOauthMessage(
+                          "Step-up authorization succeeded. Retry your action.",
+                        );
+                      } else if (oauthResult === "skipped") {
+                        setOauthStatus("idle");
+                        setOauthMessage("OAuth already in progress.");
+                      }
                     } catch (authErr) {
                       const authMsg =
                         authErr instanceof Error

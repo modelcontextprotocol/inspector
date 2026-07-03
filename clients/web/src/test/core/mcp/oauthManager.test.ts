@@ -606,6 +606,54 @@ describe("OAuthManager", () => {
       );
       captureSpy.mockRestore();
     });
+
+    it("persists granted scope when AS down-scopes the token response", async () => {
+      mockedMcpAuth.mockResolvedValue("AUTHORIZED");
+      const params = createMockParams();
+      storageOf(params).getScope.mockReturnValue("mcp");
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "access",
+        token_type: "Bearer",
+        scope: "mcp",
+      });
+      storageOf(params).getClientInformation.mockResolvedValue({
+        client_id: "cid",
+      });
+      const manager = new OAuthManager(params);
+      (
+        manager as unknown as { pendingAuthorizationScope: string | undefined }
+      ).pendingAuthorizationScope = "mcp weather:read";
+
+      await manager.completeOAuthFlow("code");
+
+      expect(storageOf(params).saveScope).toHaveBeenCalledWith(
+        SERVER_URL,
+        "mcp",
+      );
+    });
+
+    it("persists requested scope when the token response omits scope", async () => {
+      mockedMcpAuth.mockResolvedValue("AUTHORIZED");
+      const params = createMockParams();
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "access",
+        token_type: "Bearer",
+      });
+      storageOf(params).getClientInformation.mockResolvedValue({
+        client_id: "cid",
+      });
+      const manager = new OAuthManager(params);
+      (
+        manager as unknown as { pendingAuthorizationScope: string | undefined }
+      ).pendingAuthorizationScope = "mcp weather:read";
+
+      await manager.completeOAuthFlow("code");
+
+      expect(storageOf(params).saveScope).toHaveBeenCalledWith(
+        SERVER_URL,
+        "mcp weather:read",
+      );
+    });
   });
 
   describe("completeOAuthFlow (EMA)", () => {
@@ -823,6 +871,34 @@ describe("OAuthManager", () => {
       ).toBe(true);
     });
 
+    it("returns false for invalid_token even when a locally valid token exists", async () => {
+      const params = createMockParams();
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "tok",
+        token_type: "Bearer",
+        expires_in: 3600,
+      });
+      const manager = new OAuthManager(params);
+
+      expect(
+        await manager.checkAuthChallengeSatisfied({ reason: "invalid_token" }),
+      ).toBe(false);
+    });
+
+    it("returns false for unauthorized even when a locally valid token exists", async () => {
+      const params = createMockParams();
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "tok",
+        token_type: "Bearer",
+        expires_in: 3600,
+      });
+      const manager = new OAuthManager(params);
+
+      expect(
+        await manager.checkAuthChallengeSatisfied({ reason: "unauthorized" }),
+      ).toBe(false);
+    });
+
     it("returns true when stored scope covers step-up union", async () => {
       const params = createMockParams();
       storageOf(params).getTokens.mockResolvedValue({
@@ -855,6 +931,24 @@ describe("OAuthManager", () => {
         await manager.checkAuthChallengeSatisfied({
           reason: "insufficient_scope",
           requiredScopes: ["tools:write"],
+        }),
+      ).toBe(false);
+    });
+
+    it("ignores inflated stored scope when token scope is explicit", async () => {
+      const params = createMockParams();
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "tok",
+        token_type: "Bearer",
+        scope: "mcp",
+      });
+      storageOf(params).getScope.mockReturnValue("mcp weather:read");
+      const manager = new OAuthManager(params);
+
+      expect(
+        await manager.checkAuthChallengeSatisfied({
+          reason: "insufficient_scope",
+          requiredScopes: ["weather:read"],
         }),
       ).toBe(false);
     });

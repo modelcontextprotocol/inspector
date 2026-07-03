@@ -173,7 +173,12 @@ export class RemoteSession {
   }
 
   cancelRequestWait(requestId: string | number): void {
+    const wait = this.requestWaits.get(requestId);
+    if (!wait) {
+      return;
+    }
     this.requestWaits.delete(requestId);
+    wait.reject(new Error("MCP request wait cancelled"));
   }
 
   rejectActiveRequestWaits(error: Error): void {

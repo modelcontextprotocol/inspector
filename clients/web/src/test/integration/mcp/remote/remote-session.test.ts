@@ -267,6 +267,18 @@ describe("RemoteSession", () => {
     vi.useRealTimers();
   });
 
+  it("cancelRequestWait clears the timeout for a pending wait", async () => {
+    vi.useFakeTimers();
+    const session = new RemoteSession("s-cancel");
+    const wait = session.waitForRequestResponse(42, 5000);
+    const rejection = expect(wait).rejects.toThrow(/cancelled/);
+    session.cancelRequestWait(42);
+    await rejection;
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(5000);
+    vi.useRealTimers();
+  });
+
   it("setAuthState updates the session auth provider", async () => {
     const { createRemoteAuthProvider } =
       await import("@inspector/core/mcp/remote/node/tokenAuthProvider.js");

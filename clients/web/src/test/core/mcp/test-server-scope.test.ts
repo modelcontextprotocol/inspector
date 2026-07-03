@@ -121,6 +121,50 @@ describe("test server scope requirements", () => {
     expect(result.status).toBe(200);
   });
 
+  it("enforces requiredScopes on resource templates for resources/read", () => {
+    const registry = buildScopeRequirementRegistry({
+      ...createMinimalConfig({ tools: [] }),
+      resourceTemplates: [
+        {
+          name: "files",
+          uriTemplate: "file:///{path}",
+          requiredScopes: ["files:read"],
+          handler: async () => ({
+            contents: [{ uri: "file:///tmp/x", text: "ok" }],
+          }),
+        },
+      ],
+    });
+    expect(registry.resourceTemplates.get("file:///{path}")).toEqual([
+      "files:read",
+    ]);
+
+    const denied = invokeScopeMiddleware(
+      registry,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "resources/read",
+        params: { uri: "file:///tmp/example.txt" },
+      },
+      mintTestAccessToken("mcp"),
+    );
+    expect(denied.next).toBe(false);
+    expect(denied.status).toBe(403);
+
+    const allowed = invokeScopeMiddleware(
+      registry,
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "resources/read",
+        params: { uri: "file:///tmp/example.txt" },
+      },
+      mintTestAccessToken("mcp files:read"),
+    );
+    expect(allowed.next).toBe(true);
+  });
+
   it("uses oauthTokenScopes attached by bearer middleware (external JWT path)", () => {
     const registry = buildScopeRequirementRegistry({
       ...createMinimalConfig(),

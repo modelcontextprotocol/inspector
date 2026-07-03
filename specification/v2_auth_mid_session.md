@@ -54,7 +54,9 @@ By contrast, **401** means the token is missing, invalid, or expired — fix by 
 | **403** step-up | **Union** previously requested scopes with scopes from the challenge — do not drop scopes needed for other tools |
 | **401** re-login | **Replace** scope set (user may down-scope at the AS) |
 
-Inspector persists the previously requested set in `OAuthStorage.scope` (`saveScope()`), computes `authorizationScopes` as the union in `handleAuthChallenge()`, and only persists the union after a **successful** `completeOAuthFlow()`.
+Inspector persists granted scopes in `OAuthStorage.scope` (`saveScope()`): when the authorization server returns a `scope` parameter on the token response, that value is **authoritative** (RFC 6749 §5.1 — including when the grant is a subset of what was requested). When `scope` is **omitted** on a successful response, granted scope is assumed to equal what was requested for that exchange. Storage must never claim scopes the access token was not granted.
+
+For step-up, `handleAuthChallenge()` computes `authorizationScopes` as the union of stored grant + challenge scopes for the **authorization request**; `saveScope()` runs only after a successful grant, using the rules above — not the pre-redirect requested union when the AS returned an explicit smaller `scope`.
 
 **UX consequence:** standard-OAuth and **web EMA** step-up need **user-visible consent** before proceeding (web modal, TUI Auth tab confirm, CLI **y/N**). On the web client, EMA `insufficient_scope` shows the same **`StepUpAuthModal`** pattern as standard OAuth, with organization/IdP copy; only after **Authorize** does Inspector run silent re-mint or start an IdP redirect. TUI/CLI may still re-mint silently after their own confirm prompt — see [EMA step-up (web)](v2_auth_ema.md#ema-step-up-web-confirmation).
 
@@ -214,7 +216,7 @@ Read-only check against **current storage** (and token expiry helpers). Used bef
 | `token_expired`, `invalid_token`, `unauthorized` | Refresh via `refresh_token` when supported | Authorization code flow (`authenticate()`) |
 | `insufficient_scope` | N/A | Authorize with **`authorizationScopes`** = union(previous, challenge) via `mcpAuth({ forceReauthorization: true })`; navigation **deferred** until UI confirms (web modal / TUI Auth / CLI prompt) |
 
-Union scope is held in `pendingAuthorizationScope` until `completeOAuthFlow()` succeeds; cleared on failure.
+Union scope is held in `pendingAuthorizationScope` until `completeOAuthFlow()` succeeds; cleared on failure. On success, `saveScope()` stores the AS-granted scope (explicit `scope` on the token response, or the requested union when `scope` is omitted per RFC 6749 §5.1).
 
 #### EMA
 

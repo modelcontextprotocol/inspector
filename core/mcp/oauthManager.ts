@@ -43,6 +43,8 @@ import {
 import {
   computeScopeUnion,
   isStrictScopeSuperset,
+  resolveEffectiveGrantedScope,
+  resolvePersistedScopeAfterGrant,
 } from "../auth/scopes.js";
 import { stepUpInsufficientScopeMessage } from "../auth/oauthUx.js";
 import type {
@@ -276,10 +278,15 @@ export class OAuthManager {
           config,
           authorizationCode,
         );
-        if (this.pendingAuthorizationScope) {
+        const requestedScope = this.pendingAuthorizationScope;
+        const scopeToPersist = resolvePersistedScopeAfterGrant(
+          tokens.scope,
+          requestedScope,
+        );
+        if (scopeToPersist) {
           await this.oauthConfig.storage!.saveScope(
             this.getServerUrl(),
-            this.pendingAuthorizationScope,
+            scopeToPersist,
           );
         }
         this.pendingAuthorizationScope = undefined;
@@ -315,8 +322,11 @@ export class OAuthManager {
         throw new Error("Failed to retrieve tokens after authorization");
       }
 
-      const scopeToPersist =
-        this.pendingAuthorizationScope ?? tokens.scope;
+      const requestedScope = this.pendingAuthorizationScope;
+      const scopeToPersist = resolvePersistedScopeAfterGrant(
+        tokens.scope,
+        requestedScope,
+      );
       if (scopeToPersist) {
         await provider.saveScope(scopeToPersist);
       }
@@ -431,8 +441,9 @@ export class OAuthManager {
    * satisfied without an authorization-server round-trip.
    *
    * Returns `true` for `insufficient_scope` when stored + token scope cover the
-   * SEP-2350 union. For `token_expired` / `unauthorized` / `invalid_token`,
-   * returns `true` when a usable access token is already in storage.
+   * SEP-2350 union. For `token_expired`, returns `true` when a usable access
+   * token is already in storage. `invalid_token` and `unauthorized` always
+   * return `false` — the resource server explicitly rejected the credential.
    */
   async checkAuthChallengeSatisfied(
     challenge: AuthChallenge,
@@ -450,10 +461,8 @@ export class OAuthManager {
 
     if (challenge.reason !== "insufficient_scope") {
       return (
-        challenge.reason === "token_expired" ||
-        challenge.reason === "unauthorized" ||
-        challenge.reason === "invalid_token"
-      ) && isAccessTokenUsable(tokens);
+        challenge.reason === "token_expired" && isAccessTokenUsable(tokens)
+      );
     }
 
     const enriched = await this.enrichChallengeWithAuthorizationScopes(
@@ -467,7 +476,7 @@ export class OAuthManager {
       return false;
     }
 
-    const effectiveScope = computeScopeUnion(
+    const effectiveScope = resolveEffectiveGrantedScope(
       storage.getScope(serverUrl),
       tokens.scope,
     );
@@ -603,10 +612,17 @@ export class OAuthManager {
       const silent = await trySilentEmaAuth(config);
       if (silent.status === "success") {
         if (await this.checkAuthChallengeSatisfied(enriched)) {
-          if (enriched.authorizationScopes?.length) {
+          const minted = await this.oauthConfig.storage!.getTokens(
+            this.getServerUrl(),
+          );
+          const scopeToPersist = resolvePersistedScopeAfterGrant(
+            minted?.scope,
+            enriched.authorizationScopes?.join(" "),
+          );
+          if (scopeToPersist) {
             await this.oauthConfig.storage!.saveScope(
               this.getServerUrl(),
-              enriched.authorizationScopes.join(" "),
+              scopeToPersist,
             );
           }
           return { kind: "satisfied" };
@@ -688,8 +704,13 @@ export class OAuthManager {
     if (result === "AUTHORIZED") {
       if (enriched.reason === "insufficient_scope") {
         if (await this.checkAuthChallengeSatisfied(enriched)) {
-          if (scopeForAuth) {
-            await provider.saveScope(scopeForAuth);
+          const freshTokens = await provider.tokens();
+          const scopeToPersist = resolvePersistedScopeAfterGrant(
+            freshTokens?.scope,
+            scopeForAuth,
+          );
+          if (scopeToPersist) {
+            await provider.saveScope(scopeToPersist);
           }
           return { kind: "satisfied" };
         }
@@ -799,8 +820,13 @@ export class OAuthManager {
       return null;
     }
     if (await this.checkAuthChallengeSatisfied(enriched)) {
-      if (scopeForAuth) {
-        await provider.saveScope(scopeForAuth);
+      const freshTokens = await provider.tokens();
+      const scopeToPersist = resolvePersistedScopeAfterGrant(
+        freshTokens?.scope,
+        scopeForAuth,
+      );
+      if (scopeToPersist) {
+        await provider.saveScope(scopeToPersist);
       }
       return { kind: "satisfied" };
     }
