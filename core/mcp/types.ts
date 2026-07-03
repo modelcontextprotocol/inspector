@@ -545,6 +545,12 @@ export interface CreateTransportOptions {
    * Stdio ignores this — headers are not applicable.
    */
   settings?: InspectorServerSettings;
+
+  /**
+   * When true, wrap HTTP transport fetch with auth-challenge detection so 401/403
+   * become {@link AuthChallengeError} before the SDK calls `auth()` on a frozen provider.
+   */
+  interceptAuthChallenges?: boolean;
 }
 
 export interface CreateTransportResult {
@@ -745,6 +751,13 @@ export interface InspectorClientOptions {
    * Used to produce friendly errors when a server expects EMA but IdP is inactive.
    */
   installEnterpriseManagedAuth?: ClientConfig["enterpriseManagedAuth"];
+
+  /**
+   * When true, direct transports (TUI/CLI) route MCP 401/403 through
+   * `handleAuthChallenge()` via fetch intercept instead of the SDK auth() path.
+   * Web remote clients should leave this false (default).
+   */
+  directAuthRecovery?: boolean;
 
   /**
    * Optional session ID. If not provided, will be extracted from OAuth state

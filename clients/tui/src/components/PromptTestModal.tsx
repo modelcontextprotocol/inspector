@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { Form } from "ink-form";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type {
   Prompt,
   GetPromptResult,
@@ -29,6 +30,7 @@ interface PromptTestModalProps {
   width: number;
   height: number;
   onClose: () => void;
+  onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
 }
 
 type ModalState = "form" | "loading" | "results";
@@ -47,6 +49,7 @@ export function PromptTestModal({
   width,
   height,
   onClose,
+  onAuthRecoveryRequired,
 }: PromptTestModalProps) {
   const [state, setState] = useState<ModalState>("form");
   const [result, setResult] = useState<PromptResult | null>(null);
@@ -144,6 +147,11 @@ export function PromptTestModal({
       });
       setState("results");
     } catch (error) {
+      if (error instanceof AuthRecoveryRequiredError) {
+        onAuthRecoveryRequired?.(error);
+        onClose();
+        return;
+      }
       const duration = Date.now() - startTime;
       const errorMessage = getErrorMessage(error);
 

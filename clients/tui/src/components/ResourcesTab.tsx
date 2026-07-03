@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
+import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type {
   Resource,
   ReadResourceResult,
@@ -27,6 +28,7 @@ interface ResourcesTabProps {
   ) => void;
   onFetchResource?: (resource: Resource) => void;
   onFetchTemplate?: (template: ResourceTemplate) => void;
+  onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
   modalOpen?: boolean;
 }
 
@@ -41,6 +43,7 @@ export function ResourcesTab({
   onViewDetails,
   onFetchResource,
   onFetchTemplate,
+  onAuthRecoveryRequired,
   modalOpen = false,
 }: ResourcesTabProps) {
   const [error, setError] = useState<string | null>(null);
@@ -169,6 +172,10 @@ export function ResourcesTab({
           await inspectorClient.readResource(shouldFetchResource);
         setResourceContent(invocation.result);
       } catch (err) {
+        if (err instanceof AuthRecoveryRequiredError) {
+          onAuthRecoveryRequired?.(err);
+          return;
+        }
         setError(
           err instanceof Error ? err.message : "Failed to read resource",
         );
@@ -180,7 +187,7 @@ export function ResourcesTab({
     };
 
     fetchContent();
-  }, [shouldFetchResource, inspectorClient]);
+  }, [shouldFetchResource, inspectorClient, onAuthRecoveryRequired]);
 
   const listWidth = Math.floor(width * 0.4);
   const detailWidth = width - listWidth;

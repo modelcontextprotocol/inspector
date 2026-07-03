@@ -6,6 +6,7 @@
 export {
   RemoteClientTransport,
   type RemoteTransportOptions,
+  type AuthRecoveryHandlers,
 } from "./remoteClientTransport.js";
 export {
   createRemoteTransport,
@@ -26,6 +27,7 @@ export {
 export type {
   RemoteConnectRequest,
   RemoteConnectResponse,
+  RemoteSendResponse,
   RemoteEvent,
 } from "./types.js";
 export { API_SERVER_ENV_VARS, LEGACY_AUTH_TOKEN_ENV } from "./constants.js";

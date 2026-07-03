@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { Form } from "ink-form";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
 import { uriTemplateToForm } from "../utils/uriTemplateToForm.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
@@ -30,6 +31,7 @@ interface ResourceTestModalProps {
   width: number;
   height: number;
   onClose: () => void;
+  onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
 }
 
 type ModalState = "form" | "loading" | "results";
@@ -49,6 +51,7 @@ export function ResourceTestModal({
   width,
   height,
   onClose,
+  onAuthRecoveryRequired,
 }: ResourceTestModalProps) {
   const [state, setState] = useState<ModalState>("form");
   const [result, setResult] = useState<ResourceResult | null>(null);
@@ -150,6 +153,11 @@ export function ResourceTestModal({
       });
       setState("results");
     } catch (error) {
+      if (error instanceof AuthRecoveryRequiredError) {
+        onAuthRecoveryRequired?.(error);
+        onClose();
+        return;
+      }
       const duration = Date.now() - startTime;
       const errorMessage = getErrorMessage(error);
 

@@ -100,6 +100,8 @@ export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema?: ToolInputSchema;
+  /** OAuth scopes required to invoke this tool (enforced at HTTP layer). */
+  requiredScopes?: string[];
   /** Optional Zod object schema for tool output; when set, handler must return structuredContent. */
   outputSchema?: unknown;
   /** Passed through to the SDK so clients can read tool-level `_meta` (e.g. `_meta.ui.resourceUri` for MCP App tools). */
@@ -115,6 +117,8 @@ export interface TaskToolDefinition {
   name: string;
   description: string;
   inputSchema?: ToolInputSchema;
+  /** OAuth scopes required to invoke this tool (enforced at HTTP layer). */
+  requiredScopes?: string[];
   execution?: { taskSupport: "required" | "optional" };
   /** Passed through to the SDK so clients can read tool-level `_meta` (e.g. `_meta.ui.resourceUri` for an App-flavored task tool). Mirrors {@link ToolDefinition._meta}. */
   _meta?: Record<string, unknown>;
@@ -132,11 +136,15 @@ export interface ResourceDefinition {
    * Only the default read handler applies this; a `customHandler` from `config.onRegisterResource` replaces the `contents` wholesale, so such a handler must re-add `_meta` itself if the resource needs it on the read response.
    */
   _meta?: Record<string, unknown>;
+  /** OAuth scopes required to read this resource (enforced at HTTP layer). */
+  requiredScopes?: string[];
 }
 
 export interface PromptDefinition {
   name: string;
   description?: string;
+  /** OAuth scopes required to fetch this prompt (enforced at HTTP layer). */
+  requiredScopes?: string[];
   promptString: string; // The prompt text with optional {argName} placeholders
   argsSchema?: PromptArgsSchema; // Can include completable() schemas
   // Optional completion callbacks keyed by argument name
@@ -154,6 +162,8 @@ export interface ResourceTemplateDefinition {
   name: string;
   uriTemplate: string; // URI template with {variable} placeholders (RFC 6570)
   description?: string;
+  /** OAuth scopes required to read resources from this template (enforced at HTTP layer). */
+  requiredScopes?: string[];
   inputSchema?: ZodRawShapeCompat; // Schema for template variables
   handler: (
     uri: URL,

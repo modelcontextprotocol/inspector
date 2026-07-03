@@ -1340,7 +1340,7 @@ describe("Remote transport e2e", () => {
       expect((await res.json()).error).toMatch(/Failed to create transport:/);
     });
 
-    it("/api/mcp/send returns 500 when transport is dead", async () => {
+    it("/api/mcp/send returns transport_error when transport is dead", async () => {
       mcpHttpServer = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
@@ -1387,9 +1387,11 @@ describe("Remote transport e2e", () => {
           message: { jsonrpc: "2.0", id: 99, method: "ping" },
         }),
       });
-      // Either the dead-transport short-circuit (500) or a downstream send
-      // failure (500) — either way, the path is covered.
-      expect(sendRes.status).toBeGreaterThanOrEqual(500);
+      expect(sendRes.status).toBe(200);
+      expect(await sendRes.json()).toMatchObject({
+        ok: false,
+        kind: "transport_error",
+      });
     });
 
     it("/api/log accepts non-JSON body silently via the catch fallback", async () => {

@@ -41,6 +41,28 @@ function sseStreamResponse(): Response {
   });
 }
 
+function createPushableSseStream() {
+  const encoder = new TextEncoder();
+  let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+      c.enqueue(encoder.encode(": keepalive\n\n"));
+    },
+  });
+  const pushMessage = (message: unknown) => {
+    const payload = JSON.stringify({ type: "message", data: message });
+    controller?.enqueue(encoder.encode(`data: ${payload}\n\n`));
+  };
+  return {
+    response: new Response(stream, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    }),
+    pushMessage,
+  };
+}
+
 describe("RemoteClientTransport", () => {
   it("send() throws when called before start()", async () => {
     const transport = new RemoteClientTransport(
@@ -383,5 +405,114 @@ describe("RemoteClientTransport", () => {
     await transport.close();
     const parsed = JSON.parse(seenBodies[0]!) as Record<string, unknown>;
     expect("settings" in parsed).toBe(false);
+  });
+
+  it("retries send once after satisfied auth challenge and pushAuthState", async () => {
+    let sessionCounter = 0;
+    let sendAttempts = 0;
+    let authStateUpdates = 0;
+    let sse = createPushableSseStream();
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/api/mcp/connect") && init?.method === "POST") {
+          sessionCounter += 1;
+          return new Response(
+            JSON.stringify({ sessionId: `session-${sessionCounter}` }),
+            { status: 200 },
+          );
+        }
+        if (url.includes("/api/mcp/events")) {
+          sse = createPushableSseStream();
+          return sse.response;
+        }
+        if (url.endsWith("/api/mcp/auth-state") && init?.method === "POST") {
+          authStateUpdates += 1;
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }
+        if (url.endsWith("/api/mcp/send") && init?.method === "POST") {
+          sendAttempts += 1;
+          const body = JSON.parse(String(init.body)) as {
+            message: { id?: string | number };
+          };
+          if (sendAttempts === 1) {
+            return new Response(
+              JSON.stringify({
+                ok: false,
+                kind: "auth_challenge",
+                authChallenge: { reason: "token_expired" },
+              }),
+              { status: 200 },
+            );
+          }
+          sse.pushMessage({
+            jsonrpc: "2.0",
+            id: body.message.id,
+            result: { tools: [] },
+          });
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }
+        return new Response("not found", { status: 404 });
+      });
+
+    const authProvider = {
+      tokens: vi.fn().mockResolvedValue({
+        access_token: "refreshed",
+        token_type: "Bearer",
+      }),
+    };
+
+    const transport = new RemoteClientTransport(
+      {
+        baseUrl,
+        fetchFn: fetchFn as unknown as typeof fetch,
+        sseResponseTimeoutMs: 2000,
+        authProvider: authProvider as never,
+      },
+      config,
+    );
+    transport.setAuthRecovery({
+      handleAuthChallenge: vi.fn().mockResolvedValue({ kind: "satisfied" }),
+      pushAuthState: () => transport.pushAuthState(),
+    });
+
+    await transport.start();
+    await transport.send({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+
+    expect(sendAttempts).toBe(2);
+    expect(sessionCounter).toBe(1);
+    expect(authStateUpdates).toBe(1);
+    await transport.close();
+  });
+
+  it("forwards ambient auth_challenge SSE events to onAuthChallenge", async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sessionId: "abc" }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        sseResponse(
+          'data: {"type":"auth_challenge","data":{"reason":"token_expired"}}\n\n',
+        ),
+      );
+    const onAuthChallenge = vi.fn();
+    const transport = new RemoteClientTransport(
+      {
+        baseUrl,
+        fetchFn: fetchFn as unknown as typeof fetch,
+        onAuthChallenge,
+      },
+      config,
+    );
+    await transport.start();
+    await vi.waitFor(() => expect(onAuthChallenge).toHaveBeenCalled(), {
+      timeout: 1000,
+      interval: 10,
+    });
+    expect(onAuthChallenge.mock.calls[0]?.[0]).toEqual({
+      reason: "token_expired",
+    });
   });
 });

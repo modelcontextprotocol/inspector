@@ -17,6 +17,7 @@
     "build:runner": "tsup --config tsup.runner.config.ts",
     "build:storybook": "storybook build",
     "validate": "npm run format:check && npm run lint && npm run build && npm run test",
+    "pretest": "npm run test-servers:build",
     "test": "vitest run --project=unit",
     "test:watch": "vitest --project=unit",
     "test:coverage": "npm run test-servers:build && vitest run --project=unit --project=integration --coverage",

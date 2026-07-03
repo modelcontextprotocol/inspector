@@ -170,6 +170,22 @@ export function createEchoTool(): ToolDefinition {
 }
 
 /**
+ * Create a "get-env" tool matching @modelcontextprotocol/server-everything.
+ * Returns the server process environment as pretty-printed JSON text.
+ */
+export function createGetEnvTool(): ToolDefinition {
+  return {
+    name: "get-env",
+    description:
+      "Returns all environment variables, helpful for debugging MCP server configuration",
+    inputSchema: {},
+    handler: async () => {
+      return toToolResult(JSON.stringify(process.env, null, 2));
+    },
+  };
+}
+
+/**
  * Create a tool that writes a message to stderr. Used to test stderr capture/piping.
  */
 export function createWriteToStderrTool(): ToolDefinition {

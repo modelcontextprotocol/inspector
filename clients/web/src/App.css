@@ -412,3 +412,13 @@
 .server-drag-handle:active {
   cursor: grabbing;
 }
+
+/*
+ * Sticky re-auth banner bar. Positioning (pos/top) and background are set via
+ * Mantine props on the Box; z-index and box-shadow have no Mantine style-prop
+ * shorthand, so they live here.
+ */
+.reauth-banner-bar {
+  z-index: 200;
+  box-shadow: var(--mantine-shadow-sm);
+}

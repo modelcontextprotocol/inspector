@@ -16,6 +16,11 @@ import type { RemoteTransportOptions } from "@inspector/core/mcp/remote/remoteCl
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import type { RemoteEvent } from "@inspector/core/mcp/remote/types.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import {
+  AuthChallengeError,
+  AuthRecoveryRequiredError,
+  EMA_STEP_UP_PENDING_URL,
+} from "@inspector/core/auth/challenge.js";
 
 const CONFIG: MCPServerConfig = {
   type: "sse",
@@ -53,10 +58,26 @@ function sseFrame(event: RemoteEvent): string {
 }
 
 interface MockFetchPlan {
-  connect?: () => Response | Promise<Response>;
-  events?: () => Response | Promise<Response>;
-  send?: () => Response | Promise<Response>;
-  disconnect?: () => Response | Promise<Response>;
+  connect?: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Response | Promise<Response>;
+  events?: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Response | Promise<Response>;
+  send?: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Response | Promise<Response>;
+  disconnect?: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Response | Promise<Response>;
+  authState?: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Response | Promise<Response>;
 }
 
 /**
@@ -64,25 +85,56 @@ interface MockFetchPlan {
  * handlers, defaulting to sensible success responses when a handler is omitted.
  */
 function mockFetch(plan: MockFetchPlan): typeof fetch {
-  const fn = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
-    const url = typeof input === "string" ? input : input.toString();
-    if (url.includes("/api/mcp/connect")) {
-      return plan.connect
-        ? plan.connect()
-        : jsonResponse({ sessionId: "sess-1" });
-    }
-    if (url.includes("/api/mcp/events")) {
-      return plan.events ? plan.events() : sseResponse([]);
-    }
-    if (url.includes("/api/mcp/send")) {
-      return plan.send ? plan.send() : jsonResponse({ ok: true });
-    }
-    if (url.includes("/api/mcp/disconnect")) {
-      return plan.disconnect ? plan.disconnect() : jsonResponse({ ok: true });
-    }
-    throw new Error(`unexpected fetch to ${url}`);
-  });
+  const fn = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/mcp/connect")) {
+        return plan.connect
+          ? plan.connect(input, init)
+          : jsonResponse({ sessionId: "sess-1" });
+      }
+      if (url.includes("/api/mcp/events")) {
+        return plan.events ? plan.events(input, init) : sseResponse([]);
+      }
+      if (url.includes("/api/mcp/auth-state")) {
+        return plan.authState
+          ? plan.authState(input, init)
+          : jsonResponse({ ok: true });
+      }
+      if (url.includes("/api/mcp/send")) {
+        return plan.send ? plan.send(input, init) : jsonResponse({ ok: true });
+      }
+      if (url.includes("/api/mcp/disconnect")) {
+        return plan.disconnect
+          ? plan.disconnect(input, init)
+          : jsonResponse({ ok: true });
+      }
+      throw new Error(`unexpected fetch to ${url}`);
+    },
+  );
   return fn as unknown as typeof fetch;
+}
+
+/** Push arbitrary RemoteEvent frames onto a controllable SSE stream. */
+function createPushableEventStream() {
+  const encoder = new TextEncoder();
+  let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+      c.enqueue(encoder.encode(": keepalive\n\n"));
+    },
+  });
+  const push = (event: RemoteEvent) => {
+    controller?.enqueue(encoder.encode(sseFrame(event)));
+  };
+  return {
+    response: new Response(stream, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    }),
+    push,
+  };
 }
 
 function makeTransport(
@@ -102,6 +154,19 @@ function makeTransport(
 
 /** Wait a tick so the detached consumeEventStream loop can advance. */
 const tick = () => new Promise<void>((r) => setTimeout(r, 10));
+
+/**
+ * An SSE response whose stream stays open (never closes on its own) until the
+ * transport cancels it. Use for tests that need the transport to remain
+ * started/open past the initial start() call — the plan's default `events()`
+ * handler returns an already-closed empty stream, which auto-closes the
+ * transport shortly after start() resolves.
+ */
+function openEventsResponse(): Response {
+  return new Response(new ReadableStream<Uint8Array>({ start() {} }), {
+    status: 200,
+  });
+}
 
 describe("RemoteClientTransport (focused branch coverage)", () => {
   describe("start()", () => {
@@ -172,7 +237,9 @@ describe("RemoteClientTransport (focused branch coverage)", () => {
       );
       await t.start();
       expect(connectBody).toMatchObject({
-        oauthTokens: { access_token: "AT", refresh_token: "RT" },
+        authState: {
+          oauthTokens: { access_token: "AT", refresh_token: "RT" },
+        },
       });
       await t.close();
     });
@@ -497,17 +564,38 @@ describe("RemoteClientTransport (focused branch coverage)", () => {
 
     it("posts a message including relatedRequestId and succeeds", async () => {
       let sentBody: { relatedRequestId?: unknown } | undefined;
+      const encoder = new TextEncoder();
+      let sseController: ReadableStreamDefaultController<Uint8Array> | null =
+        null;
+      const pushSseMessage = (message: JSONRPCMessage) => {
+        const payload = JSON.stringify({ type: "message", data: message });
+        sseController?.enqueue(encoder.encode(`data: ${payload}\n\n`));
+      };
       const fetchFn = vi.fn(
         async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = typeof input === "string" ? input : input.toString();
           if (url.includes("/connect")) return jsonResponse({ sessionId: "s" });
-          if (url.includes("/events"))
+          if (url.includes("/events")) {
             return new Response(
-              new ReadableStream<Uint8Array>({ start() {} }),
+              new ReadableStream<Uint8Array>({
+                start(controller) {
+                  sseController = controller;
+                  controller.enqueue(encoder.encode(": keepalive\n\n"));
+                },
+              }),
               { status: 200 },
             );
+          }
           if (url.includes("/send")) {
             sentBody = JSON.parse(init!.body as string);
+            const requestId = (
+              sentBody as { message: { id?: string | number } }
+            ).message.id;
+            pushSseMessage({
+              jsonrpc: "2.0",
+              id: requestId!,
+              result: {},
+            });
             return jsonResponse({ ok: true });
           }
           return jsonResponse({ ok: true });
@@ -517,6 +605,7 @@ describe("RemoteClientTransport (focused branch coverage)", () => {
         {
           baseUrl: "http://remote.test",
           fetchFn: fetchFn as unknown as typeof fetch,
+          sseResponseTimeoutMs: 2000,
         },
         CONFIG,
       );
@@ -577,6 +666,22 @@ describe("RemoteClientTransport (focused branch coverage)", () => {
     });
   });
 
+  describe("attachToSession", () => {
+    it("opens SSE for an existing session without POST /connect", async () => {
+      const connect = vi.fn(() => jsonResponse({ sessionId: "new" }));
+      const events = vi.fn(() => sseResponse([]));
+      const t = makeTransport({ connect, events });
+      await t.attachToSession("existing-sess");
+      expect(connect).not.toHaveBeenCalled();
+      expect(events).toHaveBeenCalledWith(
+        expect.stringContaining("sessionId=existing-sess"),
+        expect.anything(),
+      );
+      expect(t.getRemoteBackendSessionId()).toBe("existing-sess");
+      await t.close();
+    });
+  });
+
   describe("sessionId getter", () => {
     it("always returns undefined (intentional)", () => {
       const t = makeTransport({});
@@ -606,6 +711,640 @@ describe("RemoteClientTransport (focused branch coverage)", () => {
       await t.close();
       // connect headers should not include the auth header
       expect(seen[0]!["x-mcp-remote-auth"]).toBeUndefined();
+    });
+  });
+
+  describe("start() connect-time auth challenge and error branches", () => {
+    it("accepts the ok:true connect response shape (ok-wrapped sessionId)", async () => {
+      const t = makeTransport({
+        connect: () => jsonResponse({ ok: true, sessionId: "sess-ok" }),
+      });
+      await t.start();
+      expect(t.getRemoteBackendSessionId()).toBe("sess-ok");
+      await t.close();
+    });
+
+    it("throws a formatted error when connect returns a transport_error", async () => {
+      const t = makeTransport({
+        connect: () =>
+          jsonResponse({
+            ok: false,
+            kind: "transport_error",
+            error: "upstream unreachable",
+          }),
+      });
+      await expect(t.start()).rejects.toThrow(
+        /Remote connect failed: upstream unreachable/,
+      );
+    });
+
+    it("throws AuthChallengeError immediately when connect returns an auth_challenge and no authRecovery is configured", async () => {
+      const t = makeTransport({
+        connect: () =>
+          jsonResponse({
+            ok: false,
+            kind: "auth_challenge",
+            authChallenge: { reason: "token_expired" },
+          }),
+      });
+      try {
+        await t.start();
+        throw new Error("expected start() to throw");
+      } catch (e) {
+        expect(e).toBeInstanceOf(AuthChallengeError);
+        expect((e as AuthChallengeError).status).toBe(401);
+      }
+    });
+
+    it("preserves the raw httpStatus on the AuthChallengeError when no authRecovery is configured", async () => {
+      const t = makeTransport({
+        connect: () =>
+          jsonResponse({
+            ok: false,
+            kind: "auth_challenge",
+            authChallenge: {
+              reason: "invalid_token",
+              raw: { httpStatus: 403 },
+            },
+          }),
+      });
+      try {
+        await t.start();
+        throw new Error("expected start() to throw");
+      } catch (e) {
+        expect((e as AuthChallengeError).status).toBe(403);
+      }
+    });
+
+    it("throws AuthRecoveryRequiredError with the EMA pending URL for a step_up_confirm outcome", async () => {
+      const t = makeTransport(
+        {
+          connect: () =>
+            jsonResponse({
+              ok: false,
+              kind: "auth_challenge",
+              authChallenge: { reason: "insufficient_scope" },
+            }),
+        },
+        {
+          authRecovery: {
+            handleAuthChallenge: vi.fn().mockResolvedValue({
+              kind: "step_up_confirm",
+              challenge: { reason: "insufficient_scope" },
+            }),
+          },
+        },
+      );
+      try {
+        await t.start();
+        throw new Error("expected start() to throw");
+      } catch (e) {
+        expect(e).toBeInstanceOf(AuthRecoveryRequiredError);
+        const err = e as AuthRecoveryRequiredError;
+        expect(err.authorizationUrl).toBe(EMA_STEP_UP_PENDING_URL);
+        expect(err.emaStepUpConfirm).toBe(true);
+      }
+    });
+
+    it("throws AuthRecoveryRequiredError with the authorization URL for an interactive outcome", async () => {
+      const authorizationUrl = new URL("https://idp.example/authorize");
+      const t = makeTransport(
+        {
+          connect: () =>
+            jsonResponse({
+              ok: false,
+              kind: "auth_challenge",
+              authChallenge: { reason: "unauthorized" },
+            }),
+        },
+        {
+          authRecovery: {
+            handleAuthChallenge: vi.fn().mockResolvedValue({
+              kind: "interactive",
+              authorizationUrl,
+              challenge: { reason: "unauthorized" },
+            }),
+          },
+        },
+      );
+      try {
+        await t.start();
+        throw new Error("expected start() to throw");
+      } catch (e) {
+        const err = e as AuthRecoveryRequiredError;
+        expect(err.authorizationUrl).toBe(authorizationUrl);
+        expect(err.emaStepUpConfirm).toBeUndefined();
+      }
+    });
+
+    it("rethrows the recovery error for a failed outcome", async () => {
+      const recoveryError = new Error("recovery failed");
+      const t = makeTransport(
+        {
+          connect: () =>
+            jsonResponse({
+              ok: false,
+              kind: "auth_challenge",
+              authChallenge: { reason: "unauthorized" },
+            }),
+        },
+        {
+          authRecovery: {
+            handleAuthChallenge: vi
+              .fn()
+              .mockResolvedValue({ kind: "failed", error: recoveryError }),
+          },
+        },
+      );
+      await expect(t.start()).rejects.toBe(recoveryError);
+    });
+
+    it("succeeds after a satisfied outcome retries connect and receives a session", async () => {
+      let connectAttempt = 0;
+      const t = makeTransport(
+        {
+          connect: () => {
+            connectAttempt += 1;
+            if (connectAttempt === 1) {
+              return jsonResponse({
+                ok: false,
+                kind: "auth_challenge",
+                authChallenge: { reason: "token_expired" },
+              });
+            }
+            return jsonResponse({ sessionId: "recovered-session" });
+          },
+          events: () => openEventsResponse(),
+        },
+        {
+          authRecovery: {
+            handleAuthChallenge: vi
+              .fn()
+              .mockResolvedValue({ kind: "satisfied" }),
+          },
+        },
+      );
+      await t.start();
+      expect(connectAttempt).toBe(2);
+      expect(t.getRemoteBackendSessionId()).toBe("recovered-session");
+      await t.close();
+    });
+
+    it("throws AuthChallengeError when a retried connect still returns an auth_challenge", async () => {
+      const t = makeTransport(
+        {
+          connect: () =>
+            jsonResponse({
+              ok: false,
+              kind: "auth_challenge",
+              authChallenge: { reason: "token_expired" },
+            }),
+        },
+        {
+          authRecovery: {
+            handleAuthChallenge: vi
+              .fn()
+              .mockResolvedValue({ kind: "satisfied" }),
+          },
+        },
+      );
+      await expect(t.start()).rejects.toBeInstanceOf(AuthChallengeError);
+    });
+  });
+
+  describe("attachToSession while closed", () => {
+    it("un-closes a previously closed transport before reattaching", async () => {
+      const events = vi.fn(() => openEventsResponse());
+      const t = makeTransport({ events });
+      await t.close(); // never started; closed=true, no sessionId so disconnect is skipped
+      expect((t as unknown as { closed: boolean }).closed).toBe(true);
+      await t.attachToSession("resumed-session");
+      expect((t as unknown as { closed: boolean }).closed).toBe(false);
+      expect(t.getRemoteBackendSessionId()).toBe("resumed-session");
+      await t.close();
+    });
+  });
+
+  describe("fetchFn default", () => {
+    it("falls back to globalThis.fetch when no fetchFn option is configured", () => {
+      const t = new RemoteClientTransport(
+        { baseUrl: "http://remote.test" },
+        CONFIG,
+      );
+      expect((t as unknown as { fetchFn: typeof fetch }).fetchFn).toBe(
+        globalThis.fetch,
+      );
+    });
+  });
+
+  describe("parseSSE trailing buffer", () => {
+    it("ignores a trailing buffer line that is neither an event: nor a data: field", async () => {
+      const onmessage = vi.fn();
+      const t = makeTransport({
+        events: () => sseResponse([": trailing comment with no newline"]),
+      });
+      t.onmessage = onmessage;
+      await t.start();
+      await tick();
+      expect(onmessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("consumeEventStream stops after transport_error closes it", () => {
+    it("does not process a message frame that follows a transport_error frame in the same batch", async () => {
+      const m: JSONRPCMessage = { jsonrpc: "2.0", id: 99, result: {} };
+      const onmessage = vi.fn();
+      const onerror = vi.fn();
+      const onclose = vi.fn();
+      const t = makeTransport({
+        events: () =>
+          sseResponse([
+            sseFrame({ type: "transport_error", data: { error: "died" } }),
+            sseFrame({ type: "message", data: m }),
+          ]),
+      });
+      t.onmessage = onmessage;
+      t.onerror = onerror;
+      t.onclose = onclose;
+      await t.start();
+      await tick();
+      expect(onerror).toHaveBeenCalledTimes(1);
+      expect(onclose).toHaveBeenCalledTimes(1);
+      expect(onmessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("consumeEventStream restart / re-entrancy suppression", () => {
+    it("suppresses transport_error handling entirely while a reconnect is in flight", async () => {
+      const sse = createPushableEventStream();
+      const onerror = vi.fn();
+      const onclose = vi.fn();
+      const t = makeTransport({ events: () => sse.response });
+      t.onerror = onerror;
+      t.onclose = onclose;
+      await t.start();
+      await tick();
+      // Simulate a reconnect (attachToSession/close) already in flight on this
+      // transport when a stale transport_error frame from the old stream lands.
+      (
+        t as unknown as { restartingEventStream: boolean }
+      ).restartingEventStream = true;
+      sse.push({ type: "transport_error", data: { error: "stale" } });
+      await tick();
+      expect(onerror).not.toHaveBeenCalled();
+      expect(onclose).not.toHaveBeenCalled();
+      (
+        t as unknown as { restartingEventStream: boolean }
+      ).restartingEventStream = false;
+      await t.close();
+    });
+
+    it("does not double-fire onclose when the onerror handler synchronously closes the transport", async () => {
+      const t = makeTransport({
+        events: () =>
+          sseResponse([
+            sseFrame({ type: "transport_error", data: { error: "boom" } }),
+          ]),
+      });
+      const onclose = vi.fn();
+      let closePromise: Promise<void> | undefined;
+      t.onerror = () => {
+        closePromise = t.close();
+      };
+      t.onclose = onclose;
+      await t.start();
+      await tick();
+      await closePromise;
+      expect(onclose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("settleSseResponseWait guard", () => {
+    it("ignores a message-type SSE event with no id (notification)", async () => {
+      const onmessage = vi.fn();
+      const t = makeTransport({
+        events: () =>
+          sseResponse([
+            sseFrame({
+              type: "message",
+              data: {
+                jsonrpc: "2.0",
+                method: "notifications/progress",
+                params: {},
+              },
+            }),
+          ]),
+      });
+      t.onmessage = onmessage;
+      await t.start();
+      await tick();
+      expect(onmessage).toHaveBeenCalledTimes(1);
+    });
+
+    it("ignores a message-type SSE event that has an id but neither result nor error", async () => {
+      const onmessage = vi.fn();
+      const t = makeTransport({
+        events: () =>
+          sseResponse([
+            sseFrame({
+              type: "message",
+              data: { jsonrpc: "2.0", id: 3, method: "sampling/createMessage" },
+            }),
+          ]),
+      });
+      t.onmessage = onmessage;
+      await t.start();
+      await tick();
+      expect(onmessage).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("cancelSseResponseWait no-op when already settled", () => {
+    it("no-ops when the SSE response for the id already settled before the auth_challenge HTTP reply arrives", async () => {
+      const sse = createPushableEventStream();
+      const t = makeTransport({
+        events: () => sse.response,
+        send: async (_input, init) => {
+          const body = JSON.parse(String(init?.body)) as {
+            message: { id?: string | number };
+          };
+          // Simulate the SSE response for this id landing first...
+          sse.push({
+            type: "message",
+            data: { jsonrpc: "2.0", id: body.message.id, result: {} },
+          });
+          // ...and let the independent SSE consumer settle it before the
+          // HTTP reply (an auth_challenge for the same id) comes back.
+          await tick();
+          return jsonResponse({
+            ok: false,
+            kind: "auth_challenge",
+            authChallenge: { reason: "token_expired" },
+          });
+        },
+      });
+      await t.start();
+      await expect(
+        t.send({ jsonrpc: "2.0", id: 11, method: "tools/list" }),
+      ).rejects.toBeInstanceOf(AuthChallengeError);
+      await t.close();
+    });
+  });
+
+  describe("postSend catch skips cancel for requestId-less messages", () => {
+    it("does not attempt to cancel an SSE wait for a notification when requestSend throws", async () => {
+      const notif: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "notifications/cancelled",
+      };
+      const t = makeTransport({
+        events: () => openEventsResponse(),
+        send: () => {
+          throw new Error("network down");
+        },
+      });
+      await t.start();
+      await expect(t.send(notif)).rejects.toThrow(/network down/);
+      await t.close();
+    });
+  });
+
+  describe("send() generic transport_error and notification failure paths", () => {
+    it("throws the raw error message when send returns a non-auth_challenge failure kind", async () => {
+      const t = makeTransport({
+        events: () => openEventsResponse(),
+        send: () =>
+          jsonResponse({
+            ok: false,
+            kind: "transport_error",
+            error: "upstream 503",
+          }),
+      });
+      await t.start();
+      await expect(
+        t.send({ jsonrpc: "2.0", id: 1, method: "ping" }),
+      ).rejects.toThrow(/upstream 503/);
+      await t.close();
+    });
+
+    it("skips cancelSseResponseWait for a notification whose send fails", async () => {
+      const notif: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "notifications/cancelled",
+      };
+      const t = makeTransport({
+        events: () => openEventsResponse(),
+        send: () =>
+          jsonResponse({ ok: false, kind: "transport_error", error: "boom" }),
+      });
+      await t.start();
+      await expect(t.send(notif)).rejects.toThrow(/boom/);
+      await t.close();
+    });
+  });
+
+  describe("send() auth_challenge without recovery configured", () => {
+    it("throws immediately when no authRecovery is configured", async () => {
+      const t = makeTransport({
+        events: () => openEventsResponse(),
+        send: () =>
+          jsonResponse({
+            ok: false,
+            kind: "auth_challenge",
+            authChallenge: { reason: "token_expired" },
+          }),
+      });
+      await t.start();
+      await expect(
+        t.send({ jsonrpc: "2.0", id: 1, method: "ping" }),
+      ).rejects.toBeInstanceOf(AuthChallengeError);
+      await t.close();
+    });
+
+    it("throws immediately with the raw httpStatus when authRecovery has no pushAuthState handler", async () => {
+      const t = makeTransport(
+        {
+          events: () => openEventsResponse(),
+          send: () =>
+            jsonResponse({
+              ok: false,
+              kind: "auth_challenge",
+              authChallenge: {
+                reason: "token_expired",
+                raw: { httpStatus: 403 },
+              },
+            }),
+        },
+        { authRecovery: { handleAuthChallenge: vi.fn() } },
+      );
+      await t.start();
+      try {
+        await t.send({ jsonrpc: "2.0", id: 1, method: "ping" });
+        throw new Error("expected send() to throw");
+      } catch (e) {
+        expect((e as AuthChallengeError).status).toBe(403);
+      }
+      await t.close();
+    });
+  });
+
+  describe("pushAuthState guards", () => {
+    it("throws Transport not started when called before start()", async () => {
+      const t = makeTransport({});
+      await expect(
+        t.pushAuthState({
+          oauthTokens: { access_token: "a", token_type: "Bearer" },
+        }),
+      ).rejects.toThrow(/Transport not started/);
+    });
+
+    it("throws Transport is closed after close()", async () => {
+      const t = makeTransport({});
+      await t.start();
+      await t.close();
+      await expect(
+        t.pushAuthState({
+          oauthTokens: { access_token: "a", token_type: "Bearer" },
+        }),
+      ).rejects.toThrow(/Transport is closed/);
+    });
+
+    it("throws when the resolved auth state has neither oauthTokens nor oauthClient", async () => {
+      const t = makeTransport({ events: () => openEventsResponse() });
+      await t.start();
+      await expect(t.pushAuthState({})).rejects.toThrow(
+        /No auth state to push/,
+      );
+      await t.close();
+    });
+
+    it("throws No auth provider configured when called with no explicit state and no authProvider", async () => {
+      const t = makeTransport({ events: () => openEventsResponse() });
+      await t.start();
+      await expect(t.pushAuthState()).rejects.toThrow(
+        /No auth provider configured/,
+      );
+      await t.close();
+    });
+
+    it("throws No OAuth tokens available when the configured authProvider has no tokens", async () => {
+      const authProvider = {
+        tokens: async () => undefined,
+      } as unknown as NonNullable<RemoteTransportOptions["authProvider"]>;
+      const t = makeTransport(
+        { events: () => openEventsResponse() },
+        { authProvider },
+      );
+      await t.start();
+      await expect(t.pushAuthState()).rejects.toThrow(
+        /No OAuth tokens available/,
+      );
+      await t.close();
+    });
+
+    it("throws a formatted error when the auth-state POST responds non-OK", async () => {
+      const t = makeTransport({
+        events: () => openEventsResponse(),
+        authState: () => new Response("nope", { status: 500 }),
+      });
+      await t.start();
+      await expect(
+        t.pushAuthState({
+          oauthTokens: { access_token: "a", token_type: "Bearer" },
+        }),
+      ).rejects.toThrow(/Remote auth-state update failed \(500\)/);
+      await t.close();
+    });
+
+    it("throws the server-provided error message when the auth-state POST reports ok:false", async () => {
+      const t = makeTransport({
+        events: () => openEventsResponse(),
+        authState: () => jsonResponse({ ok: false, error: "session gone" }),
+      });
+      await t.start();
+      await expect(
+        t.pushAuthState({
+          oauthTokens: { access_token: "a", token_type: "Bearer" },
+        }),
+      ).rejects.toThrow(/session gone/);
+      await t.close();
+    });
+
+    it("throws a default error message when the auth-state POST reports ok:false with no error field", async () => {
+      const t = makeTransport({
+        events: () => openEventsResponse(),
+        authState: () => jsonResponse({ ok: false }),
+      });
+      await t.start();
+      await expect(
+        t.pushAuthState({
+          oauthTokens: { access_token: "a", token_type: "Bearer" },
+        }),
+      ).rejects.toThrow(/Remote auth-state update failed/);
+      await t.close();
+    });
+
+    it("accepts an explicit authState argument without consulting authProvider", async () => {
+      const authProvider = {
+        tokens: vi.fn(),
+      } as unknown as NonNullable<RemoteTransportOptions["authProvider"]>;
+      const authStateCalls: unknown[] = [];
+      const t = makeTransport(
+        {
+          events: () => openEventsResponse(),
+          authState: (_input, init) => {
+            authStateCalls.push(JSON.parse(String(init?.body)));
+            return jsonResponse({ ok: true });
+          },
+        },
+        { authProvider },
+      );
+      await t.start();
+      await t.pushAuthState({
+        oauthTokens: { access_token: "explicit", token_type: "Bearer" },
+      });
+      expect(authStateCalls).toHaveLength(1);
+      await t.close();
+    });
+  });
+
+  describe("misc coverage", () => {
+    it("setOnAuthChallenge updates the ambient auth challenge handler", async () => {
+      const t = makeTransport({
+        events: () =>
+          sseResponse([
+            sseFrame({
+              type: "auth_challenge",
+              data: { reason: "token_expired" },
+            }),
+          ]),
+      });
+      const onAuthChallenge = vi.fn();
+      t.setOnAuthChallenge(onAuthChallenge);
+      await t.start();
+      await tick();
+      expect(onAuthChallenge).toHaveBeenCalledWith({ reason: "token_expired" });
+    });
+
+    it("is a no-op when start() is called again while already connected", async () => {
+      const connect = vi.fn(() => jsonResponse({ sessionId: "s" }));
+      const t = makeTransport({ connect, events: () => openEventsResponse() });
+      await t.start();
+      await t.start();
+      expect(connect).toHaveBeenCalledTimes(1);
+      await t.close();
+    });
+
+    it("rejects a pending SSE response wait when close() runs mid-send", async () => {
+      const t = makeTransport({
+        events: () => openEventsResponse(),
+        send: () => jsonResponse({ ok: true }),
+      });
+      await t.start();
+      const sendPromise = t.send({ jsonrpc: "2.0", id: 1, method: "ping" });
+      const rejection = expect(sendPromise).rejects.toThrow(/Transport closed/);
+      await t.close();
+      await rejection;
     });
   });
 });

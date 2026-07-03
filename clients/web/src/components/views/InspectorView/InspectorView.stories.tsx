@@ -14,6 +14,7 @@ import type {
   ServerEntry,
 } from "@inspector/core/mcp/types.js";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import { expect, fn } from "storybook/test";
 import { InspectorView } from "./InspectorView";
 import {
@@ -400,6 +401,18 @@ const meta: Meta<typeof InspectorView> = {
     onCloseApp: fn(),
     onAppError: fn(),
     onRefreshApps: fn(),
+    activeTab: "Servers",
+    onActiveTabChange: fn(),
+  },
+  render: (args) => {
+    const [activeTab, setActiveTab] = useState(args.activeTab ?? "Servers");
+    return (
+      <InspectorView
+        {...args}
+        activeTab={activeTab}
+        onActiveTabChange={setActiveTab}
+      />
+    );
   },
 };
 

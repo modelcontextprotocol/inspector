@@ -75,6 +75,8 @@ vi.mock("@inspector/core/mcp/index.js", async (importOriginal) => {
     getRoots = vi.fn().mockReturnValue([]);
     setRoots = vi.fn().mockResolvedValue(undefined);
     setServerSettings = vi.fn();
+    resumeAfterOAuth = vi.fn().mockResolvedValue(undefined);
+    checkAuthChallengeSatisfied = vi.fn().mockResolvedValue(true);
   }
   const instances: FakeInspectorClient[] = [];
   return {
@@ -257,6 +259,8 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
     getPromptState?: { status?: string };
     readResourceState?: { status?: string };
     currentLogLevel?: string;
+    activeTab?: string;
+    onActiveTabChange: (tab: string) => void;
     onToggleConnection: (id: string) => void;
     onToolsUiChange: (next: {
       selectedToolName?: string;
@@ -314,6 +318,10 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
         {props.readResourceState?.status ?? "none"}
       </span>
       <span data-testid="log-level">{props.currentLogLevel}</span>
+      <span data-testid="active-tab">{props.activeTab ?? "none"}</span>
+      <button onClick={() => props.onActiveTabChange("Servers")}>
+        switch-servers-tab
+      </button>
       <button onClick={() => props.onToggleConnection("A")}>connect</button>
       <button
         onClick={() =>
@@ -404,7 +412,13 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
 }));
 
 import App from "./App";
-import { OAUTH_PENDING_SERVER_KEY } from "./utils/oauthFlow";
+import { OAUTH_CALLBACK_PATH } from "./utils/oauthFlow.js";
+import { INSPECTOR_SERVERS_TAB } from "./utils/inspectorTabs.js";
+import {
+  readOAuthResumeSnapshot,
+  writeOAuthResumeSnapshot,
+  type OAuthResumeSnapshot,
+} from "./utils/oauthResume.js";
 import * as McpIndex from "@inspector/core/mcp/index.js";
 import * as FetchLogModule from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
@@ -1627,15 +1641,18 @@ describe("App OAuth callback state validation", () => {
 
   it("does not reject when the state param parses to a valid authId", async () => {
     // A well-formed 64-char-hex state passes the shape guard, so the handler
-    // proceeds to the server-matching step. With no server registered under the
-    // seeded pending id, that step surfaces the "could not be matched" toast —
-    // asserting on that specific downstream toast proves the state was accepted
-    // (never the "OAuth callback rejected" toast) rather than relying on an
-    // indirect "some toast fired" check.
-    window.sessionStorage.setItem(
-      OAUTH_PENDING_SERVER_KEY,
-      "server-that-does-not-exist",
-    );
+    // proceeds to the server-matching step. With the resume snapshot pointing at
+    // a server id that is not registered, that step surfaces the "could not be
+    // matched" toast — asserting on that specific downstream toast proves the
+    // state was accepted (never the "OAuth callback rejected" toast) rather than
+    // relying on an indirect "some toast fired" check.
+    writeOAuthResumeSnapshot({
+      version: 1,
+      serverId: "server-that-does-not-exist",
+      activeTab: "Tools",
+      authKind: "reauth",
+      tabUi: {},
+    });
     window.history.replaceState(
       {},
       "",
@@ -1653,6 +1670,155 @@ describe("App OAuth callback state validation", () => {
     );
     expect(notificationsMock.show).not.toHaveBeenCalledWith(
       expect.objectContaining({ title: "OAuth callback rejected" }),
+    );
+  });
+});
+
+describe("App OAuth resume lifecycle", () => {
+  const storage = new Map<string, string>();
+
+  const writeTestOAuthSnapshot = (
+    overrides?: Partial<OAuthResumeSnapshot>,
+  ): void => {
+    writeOAuthResumeSnapshot({
+      version: 1,
+      serverId: "A",
+      activeTab: "Tools",
+      authKind: "reauth",
+      tabUi: {},
+      ...overrides,
+    });
+  };
+
+  beforeEach(() => {
+    clientInstances.length = 0;
+    storage.clear();
+    notificationsMock.show.mockClear();
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storage.set(key, value);
+      },
+      removeItem: (key: string) => {
+        storage.delete(key);
+      },
+    });
+    window.history.replaceState({}, "", "/");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.history.replaceState({}, "", "/");
+  });
+
+  it("preserves the OAuth resume snapshot when the transport disconnects", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+    writeTestOAuthSnapshot();
+
+    await user.click(screen.getByText("select-tool"));
+    await waitFor(() =>
+      expect(screen.getByTestId("selected-tool")).toHaveTextContent("get_acts"),
+    );
+
+    act(() => {
+      clientInstances[0].dispatchEvent(new Event("disconnect"));
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("selected-tool")).toHaveTextContent("none"),
+    );
+    expect(readOAuthResumeSnapshot()?.serverId).toBe("A");
+  });
+
+  it("preserves the OAuth resume snapshot when reconnect rebuilds the client", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+    writeTestOAuthSnapshot();
+
+    act(() => {
+      clientInstances[0].dispatchEvent(new Event("disconnect"));
+    });
+
+    expect(readOAuthResumeSnapshot()?.serverId).toBe("A");
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(2));
+    expect(readOAuthResumeSnapshot()?.serverId).toBe("A");
+  });
+
+  it("clears the OAuth resume snapshot on explicit disconnect toggle", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+    writeTestOAuthSnapshot();
+    expect(readOAuthResumeSnapshot()?.serverId).toBe("A");
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(readOAuthResumeSnapshot()).toBeUndefined());
+  });
+
+  it("matches the OAuth callback to the pending server when a resume snapshot exists", async () => {
+    writeTestOAuthSnapshot();
+    window.history.replaceState({}, "", `${OAUTH_CALLBACK_PATH}?code=test`);
+
+    renderWithMantine(<App />);
+
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+    const client = clientInstances[0] as unknown as {
+      resumeAfterOAuth: ReturnType<typeof vi.fn>;
+    };
+    await waitFor(() =>
+      expect(client.resumeAfterOAuth).toHaveBeenCalledWith(
+        "test",
+        expect.any(Object),
+      ),
+    );
+
+    expect(readOAuthResumeSnapshot()).toBeUndefined();
+    expect(
+      notificationsMock.show.mock.calls.some(
+        ([args]) => args.title === "OAuth callback could not be matched",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not restore a stale tab after callback consume and reconnect", async () => {
+    writeTestOAuthSnapshot({ activeTab: "Tools" });
+    window.history.replaceState({}, "", `${OAUTH_CALLBACK_PATH}?code=test`);
+
+    renderWithMantine(<App />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("active-tab")).toHaveTextContent("Tools"),
+    );
+    expect(readOAuthResumeSnapshot()).toBeUndefined();
+
+    window.history.replaceState({}, "", "/");
+    const user = userEvent.setup();
+
+    // Explicit disconnect while still on Tools (InspectorView clamps to Servers
+    // visually, but App must reset activeTab so reconnect does not pop back).
+    await user.click(screen.getByText("connect"));
+    await waitFor(() =>
+      expect(screen.getByTestId("active-tab")).toHaveTextContent(
+        INSPECTOR_SERVERS_TAB,
+      ),
+    );
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() =>
+      expect(screen.getByTestId("active-tab")).toHaveTextContent(
+        INSPECTOR_SERVERS_TAB,
+      ),
     );
   });
 });

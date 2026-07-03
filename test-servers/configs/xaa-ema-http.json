@@ -3,7 +3,10 @@
     "name": "xaa-ema-resource",
     "version": "1.0.0"
   },
-  "tools": [{ "preset": "echo" }, { "preset": "get_temp" }],
+  "tools": [
+    { "preset": "echo", "requiredScopes": ["tools:read"] }, 
+    { "preset": "get_env", "requiredScopes": ["tools:read", "env:read"] }
+  ],
   "transport": {
     "type": "streamable-http",
     "port": 8080
@@ -13,7 +16,7 @@
     "mode": "protected-resource",
     "authorizationServers": ["https://auth.resource.xaa.dev"],
     "requireAuth": true,
-    "scopesSupported": ["mcp"],
+    "scopesSupported": ["mcp", "tools:read", "env:read"],
     "accessTokenIssuers": ["https://auth.resource.xaa.dev"],
     "jwksUri": "https://auth.resource.xaa.dev/jwks",
     "resource": "http://localhost:8080/",

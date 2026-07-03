@@ -327,6 +327,23 @@ describe("OAuthNavigation", () => {
       expect(navCallback).toHaveBeenCalledWith(url);
     });
 
+    it("redirectToAuthorization captures URL but skips navigation when suppressed", () => {
+      const storage = makeStorage();
+      const navCallback = vi.fn();
+      const provider = makeProvider(storage, navCallback);
+      const url = new URL("https://mcp.example.com/authorize");
+
+      provider.setSuppressAuthorizationNavigation(true);
+      provider.redirectToAuthorization(url);
+
+      expect(provider.getCapturedAuthUrl()).toBe(url);
+      expect(navCallback).not.toHaveBeenCalled();
+
+      provider.setSuppressAuthorizationNavigation(false);
+      provider.redirectToAuthorization(url);
+      expect(navCallback).toHaveBeenCalledWith(url);
+    });
+
     it("delegates token and scope persistence to storage", async () => {
       const storage = makeStorage();
       const provider = makeProvider(storage);

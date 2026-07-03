@@ -102,6 +102,7 @@ export type OAuthProviderConfig = {
 export class BaseOAuthClientProvider implements OAuthClientProvider {
   private capturedAuthUrl: URL | null = null;
   private eventTarget: EventTarget | null = null;
+  private suppressAuthorizationNavigation = false;
 
   protected serverUrl: string;
   protected storage: OAuthStorage;
@@ -136,6 +137,11 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
    */
   clearCapturedAuthUrl(): void {
     this.capturedAuthUrl = null;
+  }
+
+  /** Capture authorize URL without navigating (step-up confirmation modal). */
+  setSuppressAuthorizationNavigation(suppress: boolean): void {
+    this.suppressAuthorizationNavigation = suppress;
   }
 
   get scope(): string | undefined {
@@ -217,17 +223,16 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     // Capture URL for return value
     this.capturedAuthUrl = authorizationUrl;
 
-    // Dispatch event if event target is set
-    if (this.eventTarget) {
-      this.eventTarget.dispatchEvent(
-        new CustomEvent("oauthAuthorizationRequired", {
-          detail: { url: authorizationUrl },
-        }),
-      );
+    if (!this.suppressAuthorizationNavigation) {
+      if (this.eventTarget) {
+        this.eventTarget.dispatchEvent(
+          new CustomEvent("oauthAuthorizationRequired", {
+            detail: { url: authorizationUrl },
+          }),
+        );
+      }
+      this.navigation.navigateToAuthorization(authorizationUrl);
     }
-
-    // Original navigation behavior
-    this.navigation.navigateToAuthorization(authorizationUrl);
   }
 
   async saveCodeVerifier(codeVerifier: string): Promise<void> {

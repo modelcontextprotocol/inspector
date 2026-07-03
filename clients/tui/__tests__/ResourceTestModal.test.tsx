@@ -2,6 +2,7 @@ import React from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "ink-testing-library";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
+import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 
 // ScrollView passthrough so the results JSX actually mounts (and is covered).
 vi.mock("ink-scroll-view", () => import("./helpers/inkScrollViewMock.js"));
@@ -262,6 +263,34 @@ describe("ResourceTestModal", () => {
     await tick();
     process.stdout.emit("resize");
     await tick();
+    api.unmount();
+  });
+
+  it("delegates AuthRecoveryRequiredError to onAuthRecoveryRequired and closes", async () => {
+    const recovery = new AuthRecoveryRequiredError(
+      new URL("https://auth.example.com/authorize"),
+      { reason: "insufficient_scope", requiredScopes: ["weather:read"] },
+    );
+    const read = vi.fn().mockRejectedValue(recovery);
+    const onClose = vi.fn();
+    const onAuthRecoveryRequired = vi.fn();
+    const api = render(
+      <ResourceTestModal
+        template={makeTemplate()}
+        inspectorClient={fakeClient(read)}
+        width={80}
+        height={24}
+        onClose={onClose}
+        onAuthRecoveryRequired={onAuthRecoveryRequired}
+      />,
+    );
+    await tick();
+    setSubmitValue({ name: "world" });
+    api.stdin.write("\r");
+    await tick();
+    await tick();
+    expect(onAuthRecoveryRequired).toHaveBeenCalledWith(recovery);
+    expect(onClose).toHaveBeenCalledTimes(1);
     api.unmount();
   });
 });

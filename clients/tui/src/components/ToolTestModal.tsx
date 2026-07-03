@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { Form } from "ink-form";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
 import { schemaToForm } from "../utils/schemaToForm.js";
@@ -13,6 +14,7 @@ interface ToolTestModalProps {
   width: number;
   height: number;
   onClose: () => void;
+  onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
 }
 
 type ModalState = "form" | "loading" | "results";
@@ -31,6 +33,7 @@ export function ToolTestModal({
   width,
   height,
   onClose,
+  onAuthRecoveryRequired,
 }: ToolTestModalProps) {
   const [state, setState] = useState<ModalState>("form");
   const [result, setResult] = useState<ToolResult | null>(null);
@@ -150,6 +153,11 @@ export function ToolTestModal({
       }
       setState("results");
     } catch (error) {
+      if (error instanceof AuthRecoveryRequiredError) {
+        onAuthRecoveryRequired?.(error);
+        onClose();
+        return;
+      }
       const duration = Date.now() - startTime;
       const errorObj =
         error instanceof Error

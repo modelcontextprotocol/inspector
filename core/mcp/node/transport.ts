@@ -12,6 +12,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createFetchTracker } from "../fetchTracking.js";
+import { createAuthChallengeInterceptFetch } from "./authChallengeFetch.js";
 import type { Dispatcher } from "undici";
 
 /** Node's `RequestInit` plus the undici-specific `dispatcher` option. */
@@ -108,9 +109,15 @@ export function createTransportNode(
     onFetchResponseBody,
     authProvider,
     settings,
+    interceptAuthChallenges = false,
   } = options;
 
+  // Proxy-wrap first so the auth-challenge interceptor observes responses from
+  // the (optionally proxied) network call.
   const baseFetch = withProxyDispatcher(optionsFetchFn ?? globalThis.fetch);
+  const fetchWithOptionalAuthIntercept = interceptAuthChallenges
+    ? createAuthChallengeInterceptFetch(baseFetch)
+    : baseFetch;
 
   if (serverType === "stdio") {
     const stdioConfig = config as StdioServerConfig;
@@ -143,7 +150,8 @@ export function createTransportNode(
     // A caller-supplied eventSourceInit.fetch wins as-is (explicit fetch is not
     // re-wrapped for proxying); the default path uses the proxy-aware baseFetch.
     const sseFetch =
-      (sseConfig.eventSourceInit?.fetch as typeof fetch) || baseFetch;
+      (sseConfig.eventSourceInit?.fetch as typeof fetch) ||
+      fetchWithOptionalAuthIntercept;
     const trackedFetch = onFetchRequest
       ? createFetchTracker(sseFetch, {
           trackRequest: onFetchRequest,
@@ -165,11 +173,11 @@ export function createTransportNode(
     };
 
     const postFetch = onFetchRequest
-      ? createFetchTracker(baseFetch, {
+      ? createFetchTracker(fetchWithOptionalAuthIntercept, {
           trackRequest: onFetchRequest,
           updateResponseBody: onFetchResponseBody,
         })
-      : baseFetch;
+      : fetchWithOptionalAuthIntercept;
 
     const transport = new SSEClientTransport(url, {
       authProvider,
@@ -192,11 +200,11 @@ export function createTransportNode(
     };
 
     const transportFetch = onFetchRequest
-      ? createFetchTracker(baseFetch, {
+      ? createFetchTracker(fetchWithOptionalAuthIntercept, {
           trackRequest: onFetchRequest,
           updateResponseBody: onFetchResponseBody,
         })
-      : baseFetch;
+      : fetchWithOptionalAuthIntercept;
 
     const transport = new StreamableHTTPClientTransport(url, {
       authProvider,

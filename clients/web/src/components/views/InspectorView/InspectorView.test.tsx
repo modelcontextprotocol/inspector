@@ -18,7 +18,6 @@ import {
 } from "../../../test/renderWithMantine";
 import { InspectorView, type InspectorViewProps } from "./InspectorView";
 import type { BridgeFactory } from "../../elements/AppRenderer/AppRenderer";
-import type { AppsUiState } from "../../screens/AppsScreen/AppsScreen";
 import {
   EMPTY_TOOLS_UI,
   EMPTY_APPS_UI,
@@ -130,21 +129,23 @@ function makeProps(
     onCloseApp: vi.fn(),
     onAppError: vi.fn(),
     onRefreshApps: vi.fn(),
+    activeTab: "Servers",
+    onActiveTabChange: vi.fn(),
     ...overrides,
   };
 }
 
-// Most tests render the view fully prop-driven (every callback is a spy). A few
-// interactions — selecting an App and watching it auto-launch — depend on the
-// parent-owned selection state actually updating, since the view is controlled
-// (#1417). This host holds the App-tab selection/form state and threads it back
-// in as controlled props, mirroring how App.tsx owns it in the real wiring.
-function StatefulInspectorView({ props }: { props: InspectorViewProps }) {
-  const [appsUi, setAppsUi] = useState<AppsUiState>(
-    props.appsUi ?? EMPTY_APPS_UI,
-  );
+function StatefulInspectorViewHost(props: InspectorViewProps) {
+  const [activeTab, setActiveTab] = useState(props.activeTab ?? "Servers");
+  const [appsUi, setAppsUi] = useState(props.appsUi ?? EMPTY_APPS_UI);
   return (
-    <InspectorView {...props} appsUi={appsUi} onAppsUiChange={setAppsUi} />
+    <InspectorView
+      {...props}
+      activeTab={activeTab}
+      onActiveTabChange={setActiveTab}
+      appsUi={appsUi}
+      onAppsUiChange={setAppsUi}
+    />
   );
 }
 
@@ -210,7 +211,7 @@ const sampleTask: Task = {
 
 describe("InspectorView", () => {
   it("renders the empty-server-list placeholder when no servers are configured", () => {
-    renderWithMantine(<InspectorView {...makeProps()} />);
+    renderWithMantine(<StatefulInspectorViewHost {...makeProps()} />);
     expect(
       screen.getByText("No servers configured. Add a server to get started."),
     ).toBeInTheDocument();
@@ -218,7 +219,7 @@ describe("InspectorView", () => {
 
   it("renders the server card from the input list", () => {
     renderWithMantine(
-      <InspectorView {...makeProps({ servers: [sampleServer] })} />,
+      <StatefulInspectorViewHost {...makeProps({ servers: [sampleServer] })} />,
     );
     expect(screen.getByText("Alpha")).toBeInTheDocument();
   });
@@ -227,7 +228,7 @@ describe("InspectorView", () => {
     const onToggleConnection = vi.fn();
     const user = userEvent.setup({ delay: null });
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({ servers: [sampleServer], onToggleConnection })}
       />,
     );
@@ -237,7 +238,7 @@ describe("InspectorView", () => {
 
   it("renders the connected header when connectionStatus + initializeResult are set", () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -256,7 +257,7 @@ describe("InspectorView", () => {
 
   it("surfaces the negotiated protocol version on the active connected card", () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -272,7 +273,7 @@ describe("InspectorView", () => {
 
   it("does not show a protocol version on the card while disconnected", () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -291,7 +292,7 @@ describe("InspectorView", () => {
     // version is somehow absent — the connected header/modal must still render
     // (gated on serverInfo, not the version), and the card label stays hidden.
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -311,7 +312,7 @@ describe("InspectorView", () => {
 
   it("snaps activeTab back to Servers when connection drops", async () => {
     const { rerender } = renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -330,7 +331,7 @@ describe("InspectorView", () => {
     );
 
     rerender(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: undefined,
@@ -347,7 +348,7 @@ describe("InspectorView", () => {
   });
 
   it("disables non-Servers tabs while disconnected", () => {
-    renderWithMantine(<InspectorView {...makeProps()} />);
+    renderWithMantine(<StatefulInspectorViewHost {...makeProps()} />);
     // The disconnected ViewHeader doesn't render the tab Select at all —
     // only the connected branch does. Asserting on the empty-state copy is
     // enough; a follow-up could deepen this once the disconnected header
@@ -359,7 +360,7 @@ describe("InspectorView", () => {
 
   it("hides the Network tab when the active server is stdio", async () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -389,7 +390,7 @@ describe("InspectorView", () => {
       serverInfo: { name: "Beta", version: "1.0.0" },
     };
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [httpServer],
           activeServer: "beta",
@@ -405,7 +406,7 @@ describe("InspectorView", () => {
 
   it("hides the Tools tab when the server does not advertise the tools capability", async () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -428,7 +429,7 @@ describe("InspectorView", () => {
 
   it("shows the Tools tab when the server advertises tools even with an empty list", async () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -444,7 +445,7 @@ describe("InspectorView", () => {
 
   it("hides the Logs tab when the server does not advertise the logging capability", async () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -461,7 +462,7 @@ describe("InspectorView", () => {
 
   it("shows the Logs tab when the server advertises the logging capability", async () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -477,7 +478,7 @@ describe("InspectorView", () => {
   it("keeps History available regardless of advertised server capabilities", async () => {
     // History is a local client-side log — never gated on server capabilities.
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -497,7 +498,7 @@ describe("InspectorView", () => {
 
   it("hides the Apps tab when app tools exist but the server omits the tools capability", async () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -530,8 +531,8 @@ describe("InspectorView", () => {
       _meta: { ui: { resourceUri: "not-a-ui-uri" } },
     };
     renderWithMantine(
-      <StatefulInspectorView
-        props={makeProps({
+      <StatefulInspectorViewHost
+        {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
           connectionStatus: "connected",
@@ -556,7 +557,7 @@ describe("InspectorView", () => {
       inputSchema: { type: "object" },
     };
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -575,7 +576,7 @@ describe("InspectorView", () => {
 
   it("shows the Apps tab when the server exposes one or more MCP App tools", async () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -597,7 +598,7 @@ describe("InspectorView", () => {
       inputSchema: { type: "object" },
     };
     const { rerender } = renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -613,7 +614,7 @@ describe("InspectorView", () => {
 
     // A tools/list_changed refresh adds an app tool — the tab appears reactively.
     rerender(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -632,7 +633,7 @@ describe("InspectorView", () => {
   it("snaps activeTab back to Servers when the Apps tab disappears after a refresh", async () => {
     const user = userEvent.setup({ delay: null });
     const { rerender } = renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -652,7 +653,7 @@ describe("InspectorView", () => {
     // The app tool goes away (server switch / list-changed) — the Apps tab is
     // pulled from availableTabs and the activeTab fallback lands on Servers.
     rerender(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -670,7 +671,7 @@ describe("InspectorView", () => {
 
   it("hides the Prompts tab when the server does not advertise the prompts capability", async () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -691,7 +692,7 @@ describe("InspectorView", () => {
 
   it("shows the Prompts tab when the server advertises prompts even with an empty list", async () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -709,7 +710,7 @@ describe("InspectorView", () => {
 
   it("hides the Resources tab when the server does not advertise the resources capability", async () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -729,7 +730,7 @@ describe("InspectorView", () => {
 
   it("shows the Resources tab when the server advertises resources even with empty lists", async () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -746,7 +747,7 @@ describe("InspectorView", () => {
 
   it("hides the Tasks tab when the server does not advertise the tasks capability", async () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -765,7 +766,7 @@ describe("InspectorView", () => {
 
   it("shows the Tasks tab when the server advertises tasks even with no tasks yet", async () => {
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -782,7 +783,7 @@ describe("InspectorView", () => {
   it("recomputes tabs from the new capability set when reconnecting to a different server", async () => {
     // First server advertises tasks but not logging.
     const { rerender } = renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -799,7 +800,7 @@ describe("InspectorView", () => {
     // Reconnect to a server that advertises logging but not tasks — the tabs
     // recompute purely from the new capability set.
     rerender(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -820,7 +821,7 @@ describe("InspectorView", () => {
     const onSetLogLevel = vi.fn();
     const user = userEvent.setup({ delay: null });
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -851,7 +852,7 @@ describe("InspectorView", () => {
   it("persists Logs sort direction to localStorage and restores it on remount", async () => {
     const user = userEvent.setup({ delay: null });
     const { unmount } = renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -880,7 +881,7 @@ describe("InspectorView", () => {
 
     unmount();
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -903,7 +904,7 @@ describe("InspectorView", () => {
     const user = userEvent.setup({ delay: null });
     window.localStorage.setItem("inspector.sortDirection.history", "garbage");
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -935,7 +936,7 @@ describe("InspectorView", () => {
       },
     };
     const { unmount } = renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -960,7 +961,7 @@ describe("InspectorView", () => {
 
     unmount();
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -994,7 +995,7 @@ describe("InspectorView", () => {
       },
     };
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer],
           activeServer: "alpha",
@@ -1021,7 +1022,7 @@ describe("InspectorView", () => {
       connection: { status: "disconnected" },
     };
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer, betaServer],
           activeServer: "alpha",
@@ -1045,7 +1046,7 @@ describe("InspectorView", () => {
     };
     // Live session on alpha → beta starts out dimmed/inert.
     const { rerender } = renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer, betaServer],
           activeServer: "alpha",
@@ -1066,7 +1067,7 @@ describe("InspectorView", () => {
     // id still points at alpha. The other cards must re-enable anyway; only a
     // *live* session should dim them.
     rerender(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [sampleServer, betaServer],
           activeServer: "alpha",
@@ -1086,7 +1087,7 @@ describe("InspectorView", () => {
   it("toggles the Servers list compact state from the list toggle", async () => {
     const user = userEvent.setup({ delay: null });
     renderWithMantine(
-      <InspectorView {...makeProps({ servers: [sampleServer] })} />,
+      <StatefulInspectorViewHost {...makeProps({ servers: [sampleServer] })} />,
     );
     // Servers default to expanded (compact=false), so the toggle reads
     // "Collapse all"; clicking it flips serversCompact via the inline callback.
@@ -1106,7 +1107,7 @@ describe("InspectorView", () => {
       connection: { status: "connected" },
     };
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [httpServer],
           activeServer: "beta",
@@ -1150,7 +1151,7 @@ describe("InspectorView", () => {
       connection: { status: "connected" },
     };
     renderWithMantine(
-      <InspectorView
+      <StatefulInspectorViewHost
         {...makeProps({
           servers: [httpServer],
           activeServer: "ghost",
@@ -1176,7 +1177,7 @@ describe("InspectorView", () => {
 
     it("routes toolsListChanged to the Tools screen indicator", async () => {
       renderWithMantine(
-        <InspectorView
+        <StatefulInspectorViewHost
           {...makeProps({
             servers: [sampleServer],
             activeServer: "alpha",
@@ -1192,7 +1193,7 @@ describe("InspectorView", () => {
 
     it("shares the tools flag with the Apps screen (apps are filtered tools)", async () => {
       renderWithMantine(
-        <InspectorView
+        <StatefulInspectorViewHost
           {...makeProps({
             servers: [sampleServer],
             activeServer: "alpha",
@@ -1211,7 +1212,7 @@ describe("InspectorView", () => {
 
     it("routes promptsListChanged to the Prompts screen indicator", async () => {
       renderWithMantine(
-        <InspectorView
+        <StatefulInspectorViewHost
           {...makeProps({
             servers: [sampleServer],
             activeServer: "alpha",
@@ -1230,7 +1231,7 @@ describe("InspectorView", () => {
 
     it("routes resourcesListChanged to the Resources screen indicator", async () => {
       renderWithMantine(
-        <InspectorView
+        <StatefulInspectorViewHost
           {...makeProps({
             servers: [sampleServer],
             activeServer: "alpha",
@@ -1249,7 +1250,7 @@ describe("InspectorView", () => {
 
     it("does not show the indicator on a screen whose flag is false (no cross-wiring)", async () => {
       renderWithMantine(
-        <InspectorView
+        <StatefulInspectorViewHost
           {...makeProps({
             servers: [sampleServer],
             activeServer: "alpha",
