@@ -78,9 +78,25 @@ const h = vi.hoisted(() => {
   // Registry of the auth-lifecycle listeners App registers per client, so a test
   // can fire authChallengeAmbient / authChallengeRecovered / authChallengeInteractive
   // / oauthError against whichever FakeClient instance App built.
-  const clientEvents = new Map<string, Set<(event: unknown) => void>>();
+  // Each entry records which FakeClient registered the handler so a test can
+  // fire an event for a single client (`fireClientEventFor`) — needed to truly
+  // assert the per-server `selectedServerRef.current !== serverName` guards,
+  // not merely execute them. `fireClientEvent` still fires every client's
+  // handler for the event (the common single-server case).
+  type EventEntry = { client: unknown; fn: (event: unknown) => void };
+  const clientEvents = new Map<string, Set<EventEntry>>();
+  const clientInstances: Array<{ cfg?: { type?: string; url?: string } }> = [];
   const fireClientEvent = (event: string, detail?: unknown) => {
-    clientEvents.get(event)?.forEach((fn) => fn({ detail }));
+    clientEvents.get(event)?.forEach((e) => e.fn({ detail }));
+  };
+  const fireClientEventFor = (
+    client: unknown,
+    event: string,
+    detail?: unknown,
+  ) => {
+    clientEvents.get(event)?.forEach((e) => {
+      if (e.client === client) e.fn({ detail });
+    });
   };
   // Optional per-test override for runRunnerInteractiveOAuth. Left null, the real
   // runner runs (existing tests drive it via the captured callback opts); set it
@@ -93,9 +109,10 @@ const h = vi.hoisted(() => {
     destroy = vi.fn();
   }
   class FakeClient {
-    cfg: { type?: string } | undefined;
-    constructor(config?: { type?: string }) {
+    cfg: { type?: string; url?: string } | undefined;
+    constructor(config?: { type?: string; url?: string }) {
       this.cfg = config;
+      clientInstances.push(this);
     }
     // Derive the transport type from the server config the client was built
     // with (config.type aligns with the serverType union) so per-server gating
@@ -122,11 +139,18 @@ const h = vi.hoisted(() => {
     }));
     addEventListener = vi.fn((event: string, fn: (event: unknown) => void) => {
       if (!clientEvents.has(event)) clientEvents.set(event, new Set());
-      clientEvents.get(event)!.add(fn);
+      clientEvents.get(event)!.add({ client: this, fn });
     });
     removeEventListener = vi.fn(
       (event: string, fn: (event: unknown) => void) => {
-        clientEvents.get(event)?.delete(fn);
+        const set = clientEvents.get(event);
+        if (!set) return;
+        for (const entry of set) {
+          if (entry.fn === fn) {
+            set.delete(entry);
+            break;
+          }
+        }
       },
     );
     // Reject so the unmount cleanup's `.catch(() => {})` arrow is exercised.
@@ -143,7 +167,9 @@ const h = vi.hoisted(() => {
     callbackStart,
     callbackStop,
     clientEvents,
+    clientInstances,
     fireClientEvent,
+    fireClientEventFor,
     runner,
     FakeManager,
     FakeClient,
@@ -539,6 +565,7 @@ beforeEach(() => {
   h.callbackStart.mockClear();
   h.callbackStop.mockClear();
   h.clientEvents.clear();
+  h.clientInstances.length = 0;
   h.runner.override = null;
   h.clientSpies.authenticate.mockReset();
   h.clientSpies.authenticate.mockResolvedValue("https://auth.example/start");
@@ -1410,13 +1437,24 @@ describe("App (OAuth result branches)", () => {
   it("ignores auth lifecycle events from a non-selected server", async () => {
     const r = await mount(twoHttp()); // web is selected; api is not
     await press(r, ["a"]);
-    // Fired for every registered client; the non-selected `api` handlers hit
-    // their early-return guards while the selected `web` handlers proceed.
-    h.fireClientEvent("authChallengeAmbient");
-    h.fireClientEvent("authChallengeRecovered");
-    h.fireClientEvent("oauthError", {
-      error: new Error("selected-only error"),
+    const api = h.clientInstances.find((c) => c.cfg?.url === "http://b");
+    const web = h.clientInstances.find((c) => c.cfg?.url === "http://a");
+    // Firing ONLY the non-selected server's handlers must hit the
+    // `selectedServerRef.current !== serverName` guard on each listener and set
+    // no message — if any guard were removed, a negative assertion would fail.
+    h.fireClientEventFor(api, "authChallengeAmbient");
+    h.fireClientEventFor(api, "authChallengeRecovered");
+    h.fireClientEventFor(api, "oauthError", {
+      error: new Error("api-only error"),
     });
-    await expectFrame(r, "selected-only error");
+    await tick();
+    expect(r.lastFrame() ?? "").not.toContain("Refreshing authorization");
+    expect(r.lastFrame() ?? "").not.toContain("api-only error");
+    // The selected server's handlers do act (guard false): ambient refreshes,
+    // then an error surfaces.
+    h.fireClientEventFor(web, "authChallengeAmbient");
+    await expectFrame(r, "Refreshing authorization");
+    h.fireClientEventFor(web, "oauthError", { error: new Error("web error") });
+    await expectFrame(r, "web error");
   });
 });
