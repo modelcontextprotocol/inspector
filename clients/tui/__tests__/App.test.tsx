@@ -75,6 +75,20 @@ const h = vi.hoisted(() => {
     start: callbackStart,
     stop: callbackStop,
   }));
+  // Registry of the auth-lifecycle listeners App registers per client, so a test
+  // can fire authChallengeAmbient / authChallengeRecovered / authChallengeInteractive
+  // / oauthError against whichever FakeClient instance App built.
+  const clientEvents = new Map<string, Set<(event: unknown) => void>>();
+  const fireClientEvent = (event: string, detail?: unknown) => {
+    clientEvents.get(event)?.forEach((fn) => fn({ detail }));
+  };
+  // Optional per-test override for runRunnerInteractiveOAuth. Left null, the real
+  // runner runs (existing tests drive it via the captured callback opts); set it
+  // to return a specific { kind } to deterministically exercise the result
+  // branches without steering the real callback flow.
+  const runner: {
+    override: null | ((opts: unknown) => Promise<unknown>);
+  } = { override: null };
   class FakeManager {
     destroy = vi.fn();
   }
@@ -106,8 +120,15 @@ const h = vi.hoisted(() => {
     readResource = vi.fn(async () => ({
       result: { contents: [{ uri: "file://x", text: "hello" }] },
     }));
-    addEventListener = vi.fn();
-    removeEventListener = vi.fn();
+    addEventListener = vi.fn((event: string, fn: (event: unknown) => void) => {
+      if (!clientEvents.has(event)) clientEvents.set(event, new Set());
+      clientEvents.get(event)!.add(fn);
+    });
+    removeEventListener = vi.fn(
+      (event: string, fn: (event: unknown) => void) => {
+        clientEvents.get(event)?.delete(fn);
+      },
+    );
     // Reject so the unmount cleanup's `.catch(() => {})` arrow is exercised.
     disconnect = vi.fn().mockRejectedValue(new Error("cleanup disconnect"));
   }
@@ -121,6 +142,9 @@ const h = vi.hoisted(() => {
     createOAuthCallbackServer,
     callbackStart,
     callbackStop,
+    clientEvents,
+    fireClientEvent,
+    runner,
     FakeManager,
     FakeClient,
     useInspectorClient: vi.fn(() => ({
@@ -200,6 +224,12 @@ vi.mock("@inspector/core/auth/node/index.js", async (importOriginal) => {
     ...actual,
     createOAuthCallbackServer: h.createOAuthCallbackServer,
     NodeOAuthStorage: class {},
+    runRunnerInteractiveOAuth: (opts: unknown) =>
+      h.runner.override
+        ? h.runner.override(opts)
+        : actual.runRunnerInteractiveOAuth(
+            opts as Parameters<typeof actual.runRunnerInteractiveOAuth>[0],
+          ),
   };
 });
 vi.mock("../src/utils/openUrl.js", () => ({
@@ -212,6 +242,7 @@ import {
   AuthRecoveryRequiredError,
   EMA_STEP_UP_PENDING_URL,
 } from "@inspector/core/auth/challenge.js";
+import { EmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
 
 const tick = () => new Promise((r) => setTimeout(r, 25));
 const callbackUrlConfig = { hostname: "127.0.0.1", port: 0, pathname: "/cb" };
@@ -269,6 +300,16 @@ function oneEmaHttp(): Record<string, TuiServer> {
         enterpriseManaged: true,
       },
     } as never,
+  };
+}
+
+// Two OAuth-capable http servers (first auto-selected). Drives the per-server
+// auth-event guards (events from the non-selected server return early) and the
+// "a step-up is already pending for another server" branch.
+function twoHttp(): Record<string, TuiServer> {
+  return {
+    web: { config: { type: "streamable-http", url: "http://a" } } as never,
+    api: { config: { type: "streamable-http", url: "http://b" } } as never,
   };
 }
 
@@ -497,6 +538,8 @@ beforeEach(() => {
   h.cb.opts = null;
   h.callbackStart.mockClear();
   h.callbackStop.mockClear();
+  h.clientEvents.clear();
+  h.runner.override = null;
   h.clientSpies.authenticate.mockReset();
   h.clientSpies.authenticate.mockResolvedValue("https://auth.example/start");
   h.clientSpies.clearOAuthTokens.mockReset();
@@ -1039,5 +1082,341 @@ describe("App (OAuth flows)", () => {
     });
     expect(h.callbackStart).not.toHaveBeenCalled();
     await expectFrame(r, "Step-up authorization succeeded");
+  });
+});
+
+describe("App (mid-session auth lifecycle events)", () => {
+  it("shows the ambient-refresh message then clears it on recovery", async () => {
+    const r = await mount(oneHttp());
+    await press(r, ["a"]); // Auth tab so oauthMessage is visible
+    h.fireClientEvent("authChallengeAmbient");
+    await expectFrame(r, "Refreshing authorization");
+    h.fireClientEvent("authChallengeRecovered");
+    await waitUntil(
+      () => !(r.lastFrame() ?? "").includes("Refreshing authorization"),
+    );
+    expect(r.lastFrame() ?? "").not.toContain("Refreshing authorization");
+  });
+
+  it("surfaces an oauthError event for both Error and non-Error payloads", async () => {
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    h.fireClientEvent("oauthError", { error: new Error("oauth boom") });
+    await expectFrame(r, "oauth boom");
+    h.fireClientEvent("oauthError", { error: "plain oauth string" });
+    await expectFrame(r, "plain oauth string");
+  });
+
+  it("clears OAuth tokens and disconnects when connected", async () => {
+    h.ctrl.status = "connected";
+    const r = await mount(oneHttp());
+    await press(r, ["a", "s"]);
+    await waitUntil(() => h.clientSpies.clearOAuthTokens.mock.calls.length > 0);
+    expect(h.clientSpies.clearOAuthTokens).toHaveBeenCalled();
+    expect(h.disconnect).toHaveBeenCalled();
+  });
+
+  const stepUpChallenge = {
+    reason: "insufficient_scope" as const,
+    requiredScopes: ["env:read"],
+    authorizationScopes: ["tools:read", "env:read"],
+    context: { toolName: "get-env" },
+  };
+
+  it("presents a standard step-up on an interactive auth-challenge event", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: new URL("https://as.example/authorize"),
+      challenge: stepUpChallenge,
+    });
+    await expectFrame(r, "needs additional OAuth scopes");
+  });
+
+  it("skips step-up when the challenge is already satisfied (interactive event)", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(true);
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: new URL("https://as.example/authorize"),
+      challenge: stepUpChallenge,
+    });
+    await expectFrame(r, "Authorization updated");
+  });
+
+  it("auto-runs OAuth on an interactive reauth event (no step-up confirm)", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: new URL("https://as.example/authorize"),
+      challenge: { reason: "unauthorized" as const },
+    });
+    await waitUntil(() => h.callbackStart.mock.calls.length > 0);
+    expect(h.callbackStart).toHaveBeenCalled();
+  });
+
+  it("routes a connect AuthRecoveryRequiredError into recovery", async () => {
+    h.connect
+      .mockRejectedValueOnce(
+        new AuthRecoveryRequiredError(new URL("https://as.example/authorize"), {
+          reason: "unauthorized",
+        }),
+      )
+      .mockResolvedValue(undefined);
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    const r = await mount(oneHttp());
+    await press(r, ["c"]);
+    await waitUntil(() => h.callbackStart.mock.calls.length > 0);
+    expect(h.callbackStart).toHaveBeenCalled();
+  });
+
+  it("surfaces an EMA-client-not-configured error on connect", async () => {
+    h.connect.mockRejectedValue(
+      new EmaClientNotConfiguredError("not_configured"),
+    );
+    const r = await mount(oneEmaHttp());
+    await press(r, ["a", "c"]);
+    await waitUntil(() => (r.lastFrame() ?? "").length > 0);
+    await expectFrame(r, "enterprise");
+  });
+});
+
+describe("App (step-up authorize outcomes)", () => {
+  const challenge = {
+    reason: "insufficient_scope" as const,
+    requiredScopes: ["env:read"],
+    authorizationScopes: ["tools:read", "env:read"],
+    context: { toolName: "get-env" },
+  };
+
+  async function presentEmaStepUp() {
+    h.clientSpies.callTool.mockRejectedValue(
+      new AuthRecoveryRequiredError(EMA_STEP_UP_PENDING_URL, challenge, {
+        emaStepUpConfirm: true,
+      }),
+    );
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [sampleTool];
+    const r = await mount(oneEmaHttp());
+    await press(r, ["t", TAB, ENTER]);
+    await expectFrame(r, "MOCK_FORM");
+    await press(r, [ENTER]);
+    await waitUntil(() => h.clientSpies.callTool.mock.calls.length > 0);
+    await expectFrame(r, "organization before it can continue");
+    return r;
+  }
+
+  it("reports a failed EMA step-up outcome", async () => {
+    const r = await presentEmaStepUp();
+    h.clientSpies.handleAuthChallenge.mockResolvedValue({
+      kind: "failed",
+      error: new Error("mint failed"),
+    });
+    await press(r, ["a"]);
+    await expectFrame(r, "mint failed");
+  });
+
+  it("runs interactive OAuth when EMA step-up returns interactive", async () => {
+    const r = await presentEmaStepUp();
+    h.clientSpies.handleAuthChallenge.mockResolvedValue({
+      kind: "interactive",
+      challenge,
+      authorizationUrl: new URL("https://as.example/authorize"),
+    });
+    await press(r, ["a"]);
+    await waitUntil(() => h.callbackStart.mock.calls.length > 0);
+    expect(h.callbackStart).toHaveBeenCalled();
+  });
+
+  it("surfaces an error when EMA handleAuthChallenge throws", async () => {
+    const r = await presentEmaStepUp();
+    h.clientSpies.handleAuthChallenge.mockRejectedValue(
+      new Error("challenge boom"),
+    );
+    await press(r, ["a"]);
+    await expectFrame(r, "challenge boom");
+  });
+
+  it("cancels a pending step-up with 'c'", async () => {
+    const r = await presentEmaStepUp();
+    await press(r, ["c"]);
+    await expectFrame(r, "Authorization cancelled");
+  });
+
+  it("completes an EMA interactive step-up when OAuth succeeds", async () => {
+    const r = await presentEmaStepUp();
+    h.clientSpies.handleAuthChallenge.mockResolvedValue({
+      kind: "interactive",
+      challenge,
+      authorizationUrl: new URL("https://as.example/authorize"),
+    });
+    h.runner.override = async () => ({ kind: "success" });
+    await press(r, ["a"]);
+    await expectFrame(r, "Step-up authorization succeeded");
+  });
+
+  it("completes an EMA interactive step-up when OAuth returns already_authorized", async () => {
+    const r = await presentEmaStepUp();
+    h.clientSpies.handleAuthChallenge.mockResolvedValue({
+      kind: "interactive",
+      challenge,
+      authorizationUrl: new URL("https://as.example/authorize"),
+    });
+    h.runner.override = async () => ({ kind: "already_authorized" });
+    await press(r, ["a"]);
+    await expectFrame(r, "Step-up authorization succeeded");
+  });
+});
+
+describe("App (OAuth result branches)", () => {
+  const unauthorized = Object.assign(new Error("request failed (401)"), {
+    status: 401,
+  });
+  const stepUpChallenge = {
+    reason: "insufficient_scope" as const,
+    requiredScopes: ["env:read"],
+    authorizationScopes: ["tools:read", "env:read"],
+    context: { toolName: "get-env" },
+  };
+  const authUrl = () => new URL("https://as.example/authorize");
+
+  it("re-connects after OAuth returns already_authorized on a 401", async () => {
+    h.connect.mockRejectedValueOnce(unauthorized).mockResolvedValue(undefined);
+    h.runner.override = async () => ({ kind: "already_authorized" });
+    const r = await mount(oneHttp());
+    await press(r, ["c"]);
+    await waitUntil(() => h.connect.mock.calls.length >= 2);
+    expect(h.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it("handles an unsupported OAuth result on a 401 without reconnecting", async () => {
+    h.connect.mockRejectedValueOnce(unauthorized).mockResolvedValue(undefined);
+    h.runner.override = async () => ({ kind: "failed" });
+    const r = await mount(oneHttp());
+    await press(r, ["c"]);
+    await tick();
+    await tick();
+    expect(h.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes an AuthRecoveryRequiredError thrown during 401 OAuth to recovery", async () => {
+    h.connect.mockRejectedValueOnce(unauthorized).mockResolvedValue(undefined);
+    h.runner.override = async () => {
+      throw new AuthRecoveryRequiredError(authUrl(), {
+        reason: "unauthorized",
+      });
+    };
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(true);
+    const r = await mount(oneHttp());
+    await press(r, ["c"]);
+    await waitUntil(() => h.disconnect.mock.calls.length > 0);
+    await press(r, ["a"]); // view the Auth tab where oauthMessage renders
+    await expectFrame(r, "Authorization updated");
+  });
+
+  it("surfaces an EMA-not-configured error thrown during 401 OAuth", async () => {
+    h.connect.mockRejectedValueOnce(unauthorized).mockResolvedValue(undefined);
+    h.runner.override = async () => {
+      throw new EmaClientNotConfiguredError("disabled");
+    };
+    const r = await mount(oneHttp());
+    await press(r, ["a", "c"]);
+    await expectFrame(r, "enterprise");
+  });
+
+  it("completes a standard step-up authorize when OAuth succeeds", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    h.runner.override = async () => ({ kind: "success" });
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: authUrl(),
+      challenge: stepUpChallenge,
+    });
+    await expectFrame(r, "needs additional OAuth scopes");
+    await press(r, ["a"]);
+    await expectFrame(r, "Step-up authorization succeeded");
+  });
+
+  it("completes a standard step-up authorize when OAuth returns already_authorized", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    h.runner.override = async () => ({ kind: "already_authorized" });
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: authUrl(),
+      challenge: stepUpChallenge,
+    });
+    await expectFrame(r, "needs additional OAuth scopes");
+    await press(r, ["a"]);
+    await expectFrame(r, "Step-up authorization succeeded");
+  });
+
+  it("shows insufficient-scope message when step-up OAuth stays insufficient", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    h.runner.override = async () => ({
+      kind: "insufficient_scope",
+      challenge: stepUpChallenge,
+    });
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: authUrl(),
+      challenge: stepUpChallenge,
+    });
+    await expectFrame(r, "needs additional OAuth scopes");
+    await press(r, ["a"]);
+    await expectFrame(r, "were not granted");
+  });
+
+  it("skips reauth when already satisfied (interactive event)", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(true);
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: authUrl(),
+      challenge: { reason: "unauthorized" },
+    });
+    await expectFrame(r, "Authorization updated");
+  });
+
+  it("completes reauth via OAuth on an interactive event", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    h.runner.override = async () => ({ kind: "success" });
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: authUrl(),
+      challenge: { reason: "unauthorized" },
+    });
+    await expectFrame(r, "Authorization updated. Retry your action");
+  });
+
+  it("completes reauth when OAuth returns already_authorized", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    h.runner.override = async () => ({ kind: "already_authorized" });
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: authUrl(),
+      challenge: { reason: "unauthorized" },
+    });
+    await expectFrame(r, "Authorization updated. Retry your action");
+  });
+
+  it("ignores auth lifecycle events from a non-selected server", async () => {
+    const r = await mount(twoHttp()); // web is selected; api is not
+    await press(r, ["a"]);
+    // Fired for every registered client; the non-selected `api` handlers hit
+    // their early-return guards while the selected `web` handlers proceed.
+    h.fireClientEvent("authChallengeAmbient");
+    h.fireClientEvent("authChallengeRecovered");
+    h.fireClientEvent("oauthError", {
+      error: new Error("selected-only error"),
+    });
+    await expectFrame(r, "selected-only error");
   });
 });
