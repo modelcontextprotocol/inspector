@@ -153,7 +153,7 @@ npx @modelcontextprotocol/inspector --cli --catalog mcp.json --server my-http-se
   --method tools/list
 ```
 
-See [EMA / enterprise-managed auth](../../specification/v2_auth_ema.md) and [OAuth smoke testing](../../specification/v2_auth_smoke_testing.md) (§3 Stytch/CIMD; [§5 mid-session manual validation](v2_auth_smoke_testing.md#5-mid-session-auth--step-up--manual-validation) — CLI **C1–C2**).
+See [EMA / enterprise-managed auth](../../specification/v2_auth_ema.md) and [OAuth smoke testing](../../specification/v2_auth_smoke_testing.md) (§3 Stytch/CIMD; [§5 mid-session manual validation](../../specification/v2_auth_smoke_testing.md#5-mid-session-auth--step-up--manual-validation) — CLI **C1–C2**).
 
 ## Exit codes & error envelopes
 

@@ -148,7 +148,8 @@ export function createTransportNode(
     const url = new URL(sseConfig.url);
 
     // A caller-supplied eventSourceInit.fetch wins as-is (explicit fetch is not
-    // re-wrapped for proxying); the default path uses the proxy-aware baseFetch.
+    // re-wrapped for proxying); the default path uses fetchWithOptionalAuthIntercept
+    // (the proxy-aware baseFetch plus the optional auth-challenge intercept).
     const sseFetch =
       (sseConfig.eventSourceInit?.fetch as typeof fetch) ||
       fetchWithOptionalAuthIntercept;
