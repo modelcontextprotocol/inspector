@@ -59,8 +59,7 @@
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
     "remark-gfm": "^4.0.1",
-    "zod": "^4.3.6",
-    "zustand": "^5.0.13"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^5.0.1",

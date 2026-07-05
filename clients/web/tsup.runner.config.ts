@@ -22,7 +22,6 @@ export default defineConfig({
     '@hono/node-server',
     'vite',
     '@vitejs/plugin-react',
-    'zustand',
     'atomically',
     'chokidar',
     '@napi-rs/keyring',

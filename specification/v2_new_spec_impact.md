@@ -302,7 +302,7 @@ The Inspector v2 currently depends on `@modelcontextprotocol/sdk@1.29.0`. SDK v2
 
 ## 9. Impact on MCP Inspector V2 (`v2/main`)
 
-Grounded in the current branch architecture: `InspectorClient` (core/mcp/inspectorClient.ts) wrapping SDK 1.29 with typed events → state stores → React hooks; browser transport remoted through the Hono backend (`core/mcp/remote/`); zustand-persisted OAuth store; capability-gated tabs.
+Grounded in the current branch architecture: `InspectorClient` (core/mcp/inspectorClient.ts) wrapping SDK 1.29 with typed events → `core/mcp/state` stores → React hooks; browser transport remoted through the Hono backend (`core/mcp/remote/`); file-backed OAuth via `OAuthStorageBase` (`oauth.json`); capability-gated tabs.
 
 ### 9.1 Connection model and state management
 
@@ -331,7 +331,7 @@ This is the deepest change. Today `InspectorClient` and the UI assume: connect �
 
 ### 9.4 Auth and the OAuth store
 
-- **Re-key the zustand OAuth store** (`core/auth/store.ts`) from per-server to per-`(server, issuer)`: stamp `issuer` on stored `clientInformation`/`tokens`, detect issuer changes against freshly fetched PRM/AS metadata on every flow, invalidate + re-register (DCR) / error (static) / continue (CIMD) accordingly. SDK v2 handles the flow logic but expects providers to round-trip issuer-stamped objects and optionally implement `discoveryState()`/`saveDiscoveryState()`.
+- **Re-key OAuth storage** (`core/auth/store.ts` / `OAuthStorage`) from per-server to per-`(server, issuer)`: stamp `issuer` on stored `clientInformation`/`tokens`, detect issuer changes against freshly fetched PRM/AS metadata on every flow, invalidate + re-register (DCR) / error (static) / continue (CIMD) accordingly. SDK v2 handles the flow logic but expects providers to round-trip issuer-stamped objects and optionally implement `discoveryState()`/`saveDiscoveryState()`.
 - **Persist the requested-scope set** per (server, issuer) and show the step-up union computation in the auth visualizations — this is exactly the kind of thing Inspector users will want to see when debugging 403 loops. Surface the `onInsufficientScope` policy as a setting.
 - **DCR panel:** show the `application_type` sent (Inspector = `"native"`), render registration rejections meaningfully, and reflect DCR's deprecated-in-favor-of-CIMD status (Inspector v2 already supports CIMD registration kind — good position).
 - **401 handling under negotiation:** unwrap `EraNegotiationFailed` → `UnauthorizedError` in `oauthManager.ts`; switch to `finishAuth(callbackParams)` whole-params form (RFC 9207 iss validation happens inside; mismatches throw `IssuerMismatchError` — a new error state to display).

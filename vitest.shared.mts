@@ -44,15 +44,6 @@ export function vitestSharedPaths(clientDir: string) {
       find: /^pino\/browser\.js$/,
       replacement: path.resolve(dirname, 'node_modules/pino/browser.js'),
     },
-    { find: /^zustand$/, replacement: path.resolve(dirname, 'node_modules/zustand') },
-    {
-      find: /^zustand\/middleware$/,
-      replacement: path.resolve(dirname, 'node_modules/zustand/middleware.js'),
-    },
-    {
-      find: /^zustand\/vanilla$/,
-      replacement: path.resolve(dirname, 'node_modules/zustand/vanilla.js'),
-    },
     {
       find: /^hono$/,
       replacement: path.resolve(dirname, 'node_modules/hono/dist/index.js'),

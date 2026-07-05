@@ -1,16 +1,14 @@
-import { createJSONStorage } from "zustand/middleware";
 import { OAuthStorageBase } from "../oauth-storage.js";
-import { createOAuthStore } from "../store.js";
+import { OAuthMemoryStore } from "../store.js";
+import { createSessionOAuthPersistBackend } from "../oauth-persist.js";
 
 /**
- * Browser storage implementation using Zustand with sessionStorage.
+ * Browser storage implementation using sessionStorage.
  * For web client (can be used by InspectorClient in browser).
  */
 export class BrowserOAuthStorage extends OAuthStorageBase {
   constructor() {
-    // Use Zustand's built-in sessionStorage adapter
-    // The `name` option in persist() ("mcp-inspector-oauth") becomes the sessionStorage key
-    super(createOAuthStore(createJSONStorage(() => sessionStorage)));
+    super(new OAuthMemoryStore(), createSessionOAuthPersistBackend());
   }
 }
 

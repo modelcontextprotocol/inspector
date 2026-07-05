@@ -7,7 +7,7 @@ import type { OAuthClientRegistrationKind } from "./types.js";
 
 /**
  * Abstract storage interface for OAuth state
- * Supports both browser (sessionStorage) and Node.js (Zustand) environments
+ * Supports browser (sessionStorage), Node.js (file), and remote HTTP backends.
  */
 export interface SaveTokensOptions {
   /** Marks resource tokens minted via EMA (legs 2–3) for sign-out cleanup. */
@@ -22,9 +22,9 @@ export interface SaveClientInformationOptions {
 
 export interface OAuthStorage {
   /**
-   * Load persisted OAuth state into memory. Resolves when the backing store
-   * (file, remote API, sessionStorage, …) has been read. Call before relying on
-   * sync reads, or await mutating methods which call this internally.
+   * Optional preload of persisted state into memory. Getters and setters load
+   * automatically when needed; use this only for fail-fast at known boundaries
+   * (e.g. OAuth callback resume after a full-page navigation).
    */
   load(): Promise<void>;
 
@@ -41,7 +41,7 @@ export interface OAuthStorage {
    */
   getClientRegistrationKind(
     serverUrl: string,
-  ): OAuthClientRegistrationKind | undefined;
+  ): Promise<OAuthClientRegistrationKind | undefined>;
 
   /**
    * Save client information (dynamically registered)
@@ -90,7 +90,7 @@ export interface OAuthStorage {
   /**
    * Get code verifier (for PKCE)
    */
-  getCodeVerifier(serverUrl: string): string | undefined;
+  getCodeVerifier(serverUrl: string): Promise<string | undefined>;
 
   /**
    * Save code verifier (for PKCE)
@@ -105,7 +105,7 @@ export interface OAuthStorage {
   /**
    * Get scope
    */
-  getScope(serverUrl: string): string | undefined;
+  getScope(serverUrl: string): Promise<string | undefined>;
 
   /**
    * Save scope
@@ -120,7 +120,7 @@ export interface OAuthStorage {
   /**
    * Get server metadata discovered during OAuth
    */
-  getServerMetadata(serverUrl: string): OAuthMetadata | null;
+  getServerMetadata(serverUrl: string): Promise<OAuthMetadata | null>;
 
   /**
    * Save server metadata discovered during OAuth

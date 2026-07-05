@@ -91,15 +91,10 @@ describe("BrowserOAuthStorage", () => {
         client_secret: "preregistered-secret",
       };
 
-      // Use the storage API instead of manually setting sessionStorage
-      // since BrowserOAuthStorage now uses Zustand with a different storage format
       await storage.savePreregisteredClientInformation(
         testServerUrl,
         preregisteredInfo,
       );
-
-      // Wait for Zustand to persist
-      await new Promise((resolve) => setTimeout(resolve, 100));
 
       const result = await storage.getClientInformation(testServerUrl, true);
 
@@ -139,14 +134,18 @@ describe("BrowserOAuthStorage", () => {
       const result = await storage.getClientInformation(testServerUrl);
 
       expect(result).toEqual(secondInfo);
-      expect(storage.getClientRegistrationKind(testServerUrl)).toBe("cimd");
+      expect(await storage.getClientRegistrationKind(testServerUrl)).toBe(
+        "cimd",
+      );
     });
 
     it("savePreregisteredClientInformation sets static registration kind", async () => {
       await storage.savePreregisteredClientInformation(testServerUrl, {
         client_id: "static-id",
       });
-      expect(storage.getClientRegistrationKind(testServerUrl)).toBe("static");
+      expect(await storage.getClientRegistrationKind(testServerUrl)).toBe(
+        "static",
+      );
     });
   });
 
@@ -333,16 +332,16 @@ describe("BrowserOAuthStorage", () => {
 
     it("clearCodeVerifier removes only the PKCE verifier", async () => {
       await storage.saveCodeVerifier(testServerUrl, "verifier");
-      expect(storage.getCodeVerifier(testServerUrl)).toBe("verifier");
+      expect(await storage.getCodeVerifier(testServerUrl)).toBe("verifier");
       await storage.clearCodeVerifier(testServerUrl);
-      expect(storage.getCodeVerifier(testServerUrl)).toBeUndefined();
+      expect(await storage.getCodeVerifier(testServerUrl)).toBeUndefined();
     });
 
     it("clearScope removes only the scope", async () => {
       await storage.saveScope(testServerUrl, "read");
-      expect(storage.getScope(testServerUrl)).toBe("read");
+      expect(await storage.getScope(testServerUrl)).toBe("read");
       await storage.clearScope(testServerUrl);
-      expect(storage.getScope(testServerUrl)).toBeUndefined();
+      expect(await storage.getScope(testServerUrl)).toBeUndefined();
     });
 
     it("clearServerMetadata removes only the cached metadata", async () => {
@@ -353,9 +352,9 @@ describe("BrowserOAuthStorage", () => {
         response_types_supported: ["code"],
       };
       await storage.saveServerMetadata(testServerUrl, metadata);
-      expect(storage.getServerMetadata(testServerUrl)).toEqual(metadata);
+      expect(await storage.getServerMetadata(testServerUrl)).toEqual(metadata);
       await storage.clearServerMetadata(testServerUrl);
-      expect(storage.getServerMetadata(testServerUrl)).toBeNull();
+      expect(await storage.getServerMetadata(testServerUrl)).toBeNull();
     });
   });
 

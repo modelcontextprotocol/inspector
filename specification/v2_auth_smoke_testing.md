@@ -136,7 +136,7 @@ Per-server OAuth fields live on the same entry (lifted to `InspectorServerSettin
 
 ### Notes
 
-- First connect performs discovery + DCR + authorization code + PKCE. Tokens persist in `~/.mcp-inspector/storage/oauth.json` (TUI/CLI path) or browser session storage (web).
+- First connect performs discovery + DCR + authorization code + PKCE. Tokens persist in `~/.mcp-inspector/storage/oauth.json` (CLI/TUI direct file, web via `RemoteOAuthStorage` → same file on the local backend).
 - Reconnect should reuse stored DCR `client_id` unless storage was cleared.
 
 ---
@@ -847,7 +847,7 @@ Session from C1 must have **`mcp tools:read` only**. If step-up does not prompt,
 
 ## Known gaps (Inspector)
 
-**Mid-session auth** is implemented for web (remote transport), TUI, and CLI — see [Mid-session authorization](v2_auth_mid_session.md). **Remaining:** shared `RemoteOAuthStorage` on web, optional idle SSE E2E, v2 SDK transport upgrade for direct silent retry.
+**Mid-session auth** is implemented for web (remote transport), TUI, and CLI — see [Mid-session authorization](v2_auth_mid_session.md). **Remaining:** optional idle SSE E2E, v2 SDK transport upgrade for direct silent retry.
 
 See **[Auth hardening (MCP 2026-07-28)](v2_auth_hardening.md)** for connect-time OAuth hardening (SEP-2468, SEP-837, SEP-2352, SEP-2207, SEP-2350, SEP-2351) and the v2 SDK upgrade strategy.
 

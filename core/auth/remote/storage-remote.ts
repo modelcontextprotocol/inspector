@@ -1,12 +1,11 @@
 /**
  * Remote HTTP storage implementation for OAuth state.
- * Uses Zustand with remote storage adapter (HTTP API).
  * For web clients that need to share state with Node apps.
  */
 
 import { OAuthStorageBase } from "../oauth-storage.js";
-import { createOAuthStore } from "../store.js";
-import { createRemoteStorageAdapter } from "../../storage/adapters/remote-storage.js";
+import { OAuthMemoryStore } from "../store.js";
+import { createRemoteOAuthPersistBackend } from "../oauth-persist.js";
 
 export interface RemoteOAuthStorageOptions {
   /** Base URL of the remote server (e.g. http://localhost:3000) */
@@ -20,21 +19,20 @@ export interface RemoteOAuthStorageOptions {
 }
 
 /**
- * Remote HTTP storage implementation using Zustand with remote storage adapter.
+ * Remote HTTP storage implementation.
  * Stores OAuth state via HTTP API (GET/POST/DELETE /api/storage/:storeId).
  * For web clients that need to share state with Node apps (TUI, CLI).
  */
 export class RemoteOAuthStorage extends OAuthStorageBase {
   constructor(options: RemoteOAuthStorageOptions) {
     super(
-      createOAuthStore(
-        createRemoteStorageAdapter({
-          baseUrl: options.baseUrl,
-          storeId: options.storeId ?? "oauth",
-          authToken: options.authToken,
-          fetchFn: options.fetchFn,
-        }),
-      ),
+      new OAuthMemoryStore(),
+      createRemoteOAuthPersistBackend({
+        baseUrl: options.baseUrl,
+        storeId: options.storeId ?? "oauth",
+        authToken: options.authToken,
+        fetchFn: options.fetchFn,
+      }),
     );
   }
 }

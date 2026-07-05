@@ -1,16 +1,15 @@
 /**
- * OAuth store factory using Zustand.
- * Creates a store with any storage adapter (file, remote, sessionStorage).
+ * In-memory OAuth state store (servers + IdP sessions).
+ * Persisted via `OAuthStorageBase` + `OAuthPersistBackend` backends.
  */
 
-import { createStore } from "zustand/vanilla";
-import { persist, createJSONStorage } from "zustand/middleware";
 import type {
   OAuthClientInformation,
   OAuthTokens,
   OAuthMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { IdpSessionState, OAuthClientRegistrationKind } from "./storage.js";
+import type { OAuthPersistSnapshot } from "./oauth-persist.js";
 
 /**
  * OAuth state for a single server
@@ -29,7 +28,7 @@ export interface ServerOAuthState {
 }
 
 /**
- * Zustand store state (all servers)
+ * OAuth store state (all servers) plus mutation helpers.
  */
 export interface OAuthStoreState {
   servers: Record<string, ServerOAuthState>;
@@ -43,127 +42,81 @@ export interface OAuthStoreState {
   clearEnterpriseManagedResourceServers: () => void;
 }
 
-export type OAuthStore = ReturnType<typeof createOAuthStore>;
-
-const persistLoadByStore = new WeakMap<OAuthStore, Promise<void>>();
-
 /**
- * Wait until the store's initial persist read has finished (success or failure).
- * Used by {@link OAuthStorageBase.load}; resolves on success, rejects when the
- * storage adapter's getItem fails (Zustand does not fire onFinishHydration on error).
+ * Mutable in-memory OAuth state keyed by server URL and IdP issuer.
  */
-export function waitForOAuthStorePersistLoad(store: OAuthStore): Promise<void> {
-  const promise = persistLoadByStore.get(store);
-  if (!promise) {
-    return Promise.resolve();
+export class OAuthMemoryStore {
+  private servers: Record<string, ServerOAuthState> = {};
+  private idpSessions: Record<string, IdpSessionState> = {};
+
+  constructor(initial?: OAuthPersistSnapshot) {
+    if (initial) {
+      this.replace(initial);
+    }
   }
-  return promise;
-}
 
-/**
- * Creates a Zustand store for OAuth state with the given storage adapter.
- * The storage adapter handles persistence (file, remote HTTP, sessionStorage, etc.).
- *
- * @param storage - Zustand storage adapter (from createJSONStorage)
- * @returns Zustand store instance
- */
-export function createOAuthStore(
-  storage: ReturnType<typeof createJSONStorage>,
-) {
-  let resolvePersistLoad!: () => void;
-  let rejectPersistLoad!: (error: unknown) => void;
-  let persistLoadSettled = false;
-
-  const persistLoadPromise = new Promise<void>((resolve, reject) => {
-    resolvePersistLoad = resolve;
-    rejectPersistLoad = reject;
-  });
-
-  const settlePersistLoad = (error?: unknown) => {
-    if (persistLoadSettled) {
-      /* v8 ignore next -- idempotent if persist signals completion more than once */
-      return;
-    }
-    persistLoadSettled = true;
-    if (error) {
-      rejectPersistLoad(error);
-      return;
-    }
-    resolvePersistLoad();
-  };
-
-  const store = createStore<OAuthStoreState>()(
-    persist(
-      (set, get) => ({
-        servers: {},
-        idpSessions: {},
-        getServerState: (serverUrl: string) => {
-          return get().servers[serverUrl] || {};
-        },
-        setServerState: (
-          serverUrl: string,
-          updates: Partial<ServerOAuthState>,
-        ) => {
-          set((state) => ({
-            servers: {
-              ...state.servers,
-              [serverUrl]: {
-                ...state.servers[serverUrl],
-                ...updates,
-              },
-            },
-          }));
-        },
-        clearServerState: (serverUrl: string) => {
-          set((state) => {
-            const rest = { ...state.servers };
-            delete rest[serverUrl];
-            return { servers: rest };
-          });
-        },
-        getIdpSession: (issuer: string) => {
-          return get().idpSessions[issuer] || {};
-        },
-        setIdpSession: (issuer: string, updates: Partial<IdpSessionState>) => {
-          set((state) => ({
-            idpSessions: {
-              ...state.idpSessions,
-              [issuer]: {
-                ...state.idpSessions[issuer],
-                ...updates,
-              },
-            },
-          }));
-        },
-        clearIdpSession: (issuer: string) => {
-          set((state) => {
-            const rest = { ...state.idpSessions };
-            delete rest[issuer];
-            return { idpSessions: rest };
-          });
-        },
-        clearEnterpriseManagedResourceServers: () => {
-          set((state) => {
-            const rest = { ...state.servers };
-            for (const [url, serverState] of Object.entries(state.servers)) {
-              if (serverState.enterpriseManaged === true) {
-                delete rest[url];
-              }
-            }
-            return { servers: rest };
-          });
-        },
-      }),
-      {
-        name: "mcp-inspector-oauth",
-        storage,
-        onRehydrateStorage: () => (_state, error) => {
-          settlePersistLoad(error);
-        },
+  getState(): OAuthStoreState {
+    return {
+      servers: this.servers,
+      idpSessions: this.idpSessions,
+      getServerState: (serverUrl: string) => {
+        return this.servers[serverUrl] || {};
       },
-    ),
-  );
+      setServerState: (
+        serverUrl: string,
+        updates: Partial<ServerOAuthState>,
+      ) => {
+        this.servers = {
+          ...this.servers,
+          [serverUrl]: {
+            ...this.servers[serverUrl],
+            ...updates,
+          },
+        };
+      },
+      clearServerState: (serverUrl: string) => {
+        const rest = { ...this.servers };
+        delete rest[serverUrl];
+        this.servers = rest;
+      },
+      getIdpSession: (issuer: string) => {
+        return this.idpSessions[issuer] || {};
+      },
+      setIdpSession: (issuer: string, updates: Partial<IdpSessionState>) => {
+        this.idpSessions = {
+          ...this.idpSessions,
+          [issuer]: {
+            ...this.idpSessions[issuer],
+            ...updates,
+          },
+        };
+      },
+      clearIdpSession: (issuer: string) => {
+        const rest = { ...this.idpSessions };
+        delete rest[issuer];
+        this.idpSessions = rest;
+      },
+      clearEnterpriseManagedResourceServers: () => {
+        const rest = { ...this.servers };
+        for (const [url, serverState] of Object.entries(this.servers)) {
+          if (serverState.enterpriseManaged === true) {
+            delete rest[url];
+          }
+        }
+        this.servers = rest;
+      },
+    };
+  }
 
-  persistLoadByStore.set(store, persistLoadPromise);
-  return store;
+  snapshot(): OAuthPersistSnapshot {
+    return {
+      servers: { ...this.servers },
+      idpSessions: { ...this.idpSessions },
+    };
+  }
+
+  replace(snapshot: OAuthPersistSnapshot): void {
+    this.servers = { ...(snapshot.servers ?? {}) };
+    this.idpSessions = { ...(snapshot.idpSessions ?? {}) };
+  }
 }

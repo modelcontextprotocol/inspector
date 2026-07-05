@@ -536,13 +536,13 @@ On each MCP request, after bearer validation:
 | [v2_auth_hardening.md](v2_auth_hardening.md) | Connect-time SEPs; v2 SDK upgrade; direct transport silent retry delegation |
 | [v2_auth_ema.md](v2_auth_ema.md) | EMA legs 2–3 re-mint; scope resolution; no resource-OAuth fallback |
 | [v2_auth_smoke_testing.md](v2_auth_smoke_testing.md) | Manual OAuth and mid-session validation procedures |
-| [v2_storage.md](v2_storage.md) | Target: shared `oauth.json` via `RemoteOAuthStorage` on web |
+| [v2_storage.md](v2_storage.md) | Shared `oauth.json` via `RemoteOAuthStorage` on web (implemented) |
 
 ---
 
 ## Future work
 
-- **Web default `RemoteOAuthStorage`** — shared `oauth.json` with TUI/CLI; optional `navigator.locks` for silent refresh single-flight across browser tabs.
+- **Optional `navigator.locks`** on shared `RemoteOAuthStorage` — single-flight silent refresh across browser tabs (see [EMA §Shared storage](v2_auth_ema.md)).
 - **v2 SDK transport upgrade** — delegate direct streamable HTTP silent 401/403 + SEP-2350 union to SDK; remove `mcpAuth` / client intercept shims where redundant.
 - **Server-side token refresh** on the node using `RemoteAuthState.oauthClient` + `refresh_token` (browser owns refresh today).
 - **Connection Info** — display effective vs pending scopes.

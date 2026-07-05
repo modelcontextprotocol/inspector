@@ -139,7 +139,8 @@ export class OAuthManager {
 
     provider.setEventTarget(this.params.getEventTarget());
 
-    const storedScope = this.oauthConfig.storage.getScope(serverUrl);
+    await provider.prepareForAuth();
+    const storedScope = provider.scope;
     if (storedScope === undefined && this.oauthConfig.scope) {
       await provider.saveScope(this.oauthConfig.scope);
     }
@@ -162,7 +163,7 @@ export class OAuthManager {
     return this.oauthConfig.enterpriseManaged === true;
   }
 
-  private getEmaFlowConfig(): EmaFlowConfig {
+  private async getEmaFlowConfig(): Promise<EmaFlowConfig> {
     if (!this.oauthConfig.storage || !this.oauthConfig.redirectUrlProvider) {
       throw new Error(
         "OAuth environment components (storage, redirectUrlProvider) are required.",
@@ -177,16 +178,17 @@ export class OAuthManager {
           : "not_configured",
       );
     }
+    const storedScope = await this.oauthConfig.storage.getScope(
+      this.getServerUrl(),
+    );
     return {
       serverUrl: this.getServerUrl(),
       idp,
       resourceClientId: this.oauthConfig.clientId,
       resourceClientSecret: this.oauthConfig.clientSecret,
       scope:
-        computeScopeUnion(
-          this.oauthConfig.scope,
-          this.oauthConfig.storage.getScope(this.getServerUrl()),
-        ) || this.oauthConfig.scope,
+        computeScopeUnion(this.oauthConfig.scope, storedScope) ||
+        this.oauthConfig.scope,
       redirectUrl: this.oauthConfig.redirectUrlProvider.getRedirectUrl(),
       storage: this.oauthConfig.storage,
       fetchFn: this.params.effectiveAuthFetch,
@@ -196,14 +198,14 @@ export class OAuthManager {
   /** Attempt silent EMA (cached IdP session + legs 2–3). */
   async trySilentEnterpriseManagedAuth(): Promise<boolean> {
     if (!this.isEnterpriseManaged()) return false;
-    const result = await trySilentEmaAuth(this.getEmaFlowConfig());
+    const result = await trySilentEmaAuth(await this.getEmaFlowConfig());
     if (result.status === "success") return true;
     if (result.status === "mint_failed") throw result.error;
     return false;
   }
 
   private async authenticateEnterpriseManaged(): Promise<URL | undefined> {
-    const config = this.getEmaFlowConfig();
+    const config = await this.getEmaFlowConfig();
     const silent = await trySilentEmaAuth(config);
     if (silent.status === "success") {
       return undefined;
@@ -282,14 +284,13 @@ export class OAuthManager {
     iss?: string,
   ): Promise<void> {
     try {
-      await this.requireStorage().load();
-
       if (this.isEnterpriseManaged()) {
+        const emaConfig = await this.getEmaFlowConfig();
         const scopeForMint =
-          this.pendingAuthorizationScope ?? this.getEmaFlowConfig().scope;
+          this.pendingAuthorizationScope ?? emaConfig.scope;
         const config = scopeForMint
-          ? { ...this.getEmaFlowConfig(), scope: scopeForMint }
-          : this.getEmaFlowConfig();
+          ? { ...emaConfig, scope: scopeForMint }
+          : emaConfig;
         const tokens = await completeEmaIdpAuthorizationAndMint(
           config,
           authorizationCode,
@@ -448,7 +449,7 @@ export class OAuthManager {
    */
   async refreshEnterpriseManagedTokens(): Promise<boolean> {
     if (!this.isEnterpriseManaged()) return false;
-    const tokens = await refreshEmaResourceTokens(this.getEmaFlowConfig());
+    const tokens = await refreshEmaResourceTokens(await this.getEmaFlowConfig());
     return tokens !== undefined;
   }
 
@@ -494,7 +495,7 @@ export class OAuthManager {
     }
 
     const effectiveScope = resolveEffectiveGrantedScope(
-      storage.getScope(serverUrl),
+      await storage.getScope(serverUrl),
       tokens.scope,
     );
     return !isStrictScopeSuperset(scopeForAuth, effectiveScope);
@@ -570,7 +571,7 @@ export class OAuthManager {
     }
 
     const previousScope = computeScopeUnion(
-      storage?.getScope(serverUrl),
+      storage ? await storage.getScope(serverUrl) : undefined,
       grantedTokenScope,
     );
     const requiredFromChallenge =
@@ -607,8 +608,10 @@ export class OAuthManager {
     return this.oauthConfig.scope?.trim() || undefined;
   }
 
-  private emaFlowConfigForChallenge(challenge: AuthChallenge): EmaFlowConfig {
-    const base = this.getEmaFlowConfig();
+  private async emaFlowConfigForChallenge(
+    challenge: AuthChallenge,
+  ): Promise<EmaFlowConfig> {
+    const base = await this.getEmaFlowConfig();
     const enriched = challenge.authorizationScopes;
     if (enriched && enriched.length > 0) {
       return { ...base, scope: enriched.join(" ") };
@@ -628,7 +631,7 @@ export class OAuthManager {
       return { kind: "step_up_confirm", challenge: enriched };
     }
 
-    const config = this.emaFlowConfigForChallenge(enriched);
+    const config = await this.emaFlowConfigForChallenge(enriched);
 
     if (enriched.reason === "insufficient_scope") {
       const silent = await trySilentEmaAuth(config);
@@ -863,7 +866,10 @@ export class OAuthManager {
   > {
     const provider = await this.createOAuthProvider();
     if (this.isEnterpriseManaged()) {
-      return new EmaTransportOAuthProvider(provider, this.getEmaFlowConfig());
+      return new EmaTransportOAuthProvider(
+        provider,
+        await this.getEmaFlowConfig(),
+      );
     }
     return provider;
   }

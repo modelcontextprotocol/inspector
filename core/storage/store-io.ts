@@ -1,6 +1,6 @@
 /**
  * Shared storage path resolution, validation, and atomic file I/O.
- * Used by the file storage adapter and the remote server's /api/storage routes.
+ * Used by OAuth file persistence and the remote server's /api/storage routes.
  */
 
 import * as path from "node:path";
@@ -57,15 +57,7 @@ export async function readStoreFile(filePath: string): Promise<string | null> {
 /**
  * In-flight writeStoreFile() promises, keyed by resolved path. Lets callers
  * await persistence completion via flushStoreFileWrites() instead of polling
- * the file — Zustand's persist middleware invokes writeStoreFile() fire-and-
- * forget, so the in-memory store updates synchronously while the file write
- * lags. Entries are removed once their write settles.
- *
- * Load-bearing: pendingWrites.set() below runs synchronously before the first
- * await in writeStoreFile(), so a flushStoreFileWrites() called right after a
- * persist sees the in-flight entry. Callers (e.g. the storage adapter's
- * setItem) must not introduce an await before writeStoreFile() — doing so would
- * let a flush run before registration and return early.
+ * the file. Entries are removed once their write settles.
  */
 const pendingWrites = new Map<string, Promise<void>>();
 
@@ -104,9 +96,8 @@ export async function writeStoreFile(
 
 /**
  * Await pending writeStoreFile() writes — those for `filePath` if given, else
- * all of them. Use in tests after triggering persistence (Zustand persist
- * writes fire-and-forget) instead of polling the file, and for graceful
- * shutdown. Resolves immediately when nothing is in flight.
+ * all of them. Use in tests after triggering persistence instead of polling
+ * the file, and for graceful shutdown. Resolves immediately when nothing is in flight.
  */
 export async function flushStoreFileWrites(filePath?: string): Promise<void> {
   if (filePath !== undefined) {
