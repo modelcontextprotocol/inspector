@@ -24,6 +24,8 @@ import type {
 export class OAuthStorageBase implements OAuthStorage {
   private loaded = false;
   private loadPromise: Promise<void> | undefined;
+  /** Serializes persist writes so concurrent mutators cannot reorder POSTs. */
+  private persistQueue: Promise<void> = Promise.resolve();
   private readonly memory: OAuthMemoryStore;
   private readonly backend: OAuthPersistBackend;
 
@@ -55,7 +57,13 @@ export class OAuthStorageBase implements OAuthStorage {
   }
 
   private async persist(): Promise<void> {
-    await this.backend.write(this.memory.snapshot());
+    const snapshot = this.memory.snapshot();
+    const prior = this.persistQueue;
+    const tracked = prior
+      .catch(() => {})
+      .then(() => this.backend.write(snapshot));
+    this.persistQueue = tracked;
+    await tracked;
   }
 
   async getClientInformation(

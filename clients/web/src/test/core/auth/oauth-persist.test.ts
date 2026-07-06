@@ -21,6 +21,16 @@ describe("parseOAuthPersistBlob", () => {
     expect(parseOAuthPersistBlob(JSON.stringify(snapshot))).toEqual(snapshot);
   });
 
+  it("accepts an already-parsed object without re-serializing", () => {
+    const snapshot = {
+      servers: {
+        "http://example.com": { codeVerifier: "v1" },
+      },
+      idpSessions: {},
+    };
+    expect(parseOAuthPersistBlob(snapshot)).toEqual(snapshot);
+  });
+
   it("promotes legacy persist envelope state to the top level", () => {
     const legacy = {
       state: {

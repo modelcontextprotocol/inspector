@@ -36,14 +36,22 @@ function snapshotFromPayload(payload: Partial<OAuthPersistSnapshot>): OAuthPersi
 /**
  * Parse OAuth store JSON from disk, remote API, or sessionStorage.
  * Accepts plain `{ servers, idpSessions }` or legacy `{ state, version }`.
+ * `raw` may be a JSON string or an already-parsed object (e.g. from `res.json()`).
  */
 export function parseOAuthPersistBlob(
-  raw: string | null,
+  raw: string | null | unknown,
 ): OAuthPersistSnapshot | null {
-  if (!raw) {
+  if (raw === null || raw === undefined) {
     return null;
   }
-  const parsed = parseStore(raw);
+
+  const parsed =
+    typeof raw === "string"
+      ? raw
+        ? parseStore(raw)
+        : null
+      : raw;
+
   if (!isRecord(parsed)) {
     return null;
   }
@@ -131,7 +139,7 @@ export function createRemoteOAuthPersistBackend(
       if (Object.keys(store as object).length === 0) {
         return null;
       }
-      return parseOAuthPersistBlob(JSON.stringify(store));
+      return parseOAuthPersistBlob(store);
     },
     async write(snapshot) {
       const headers: Record<string, string> = {
