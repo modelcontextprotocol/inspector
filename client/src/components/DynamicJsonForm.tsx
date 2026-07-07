@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import JsonEditor from "./JsonEditor";
 import { updateValueAtPath } from "@/utils/jsonUtils";
 import { generateDefaultValue } from "@/utils/schemaUtils";
+import { shouldDeferNumericCommit } from "@/utils/numericInputUtils";
 import type {
   JsonValue,
   JsonSchemaType,
@@ -462,14 +463,15 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
         case "number":
           return (
             <Input
-              type="number"
+              type="text"
+              inputMode="decimal"
               value={getNumericDisplayValue(path, currentValue)}
               onChange={(e) => {
                 const val = e.target.value;
                 updateNumericDraft(path, val);
                 if (!val && !isRequired) {
                   handleFieldChange(path, undefined);
-                } else {
+                } else if (!shouldDeferNumericCommit(val)) {
                   const num = Number(val);
                   if (!isNaN(num)) {
                     handleFieldChange(path, num);
@@ -507,7 +509,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
                 updateNumericDraft(path, val);
                 if (!val && !isRequired) {
                   handleFieldChange(path, undefined);
-                } else {
+                } else if (!shouldDeferNumericCommit(val)) {
                   const num = Number(val);
                   if (!isNaN(num) && Number.isInteger(num)) {
                     handleFieldChange(path, num);
