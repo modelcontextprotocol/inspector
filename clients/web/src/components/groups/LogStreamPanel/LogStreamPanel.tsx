@@ -93,7 +93,6 @@ export function LogStreamPanel({
       <Group justify="space-between" mb="sm">
         <Title order={4}>Log Stream</Title>
         <Group>
-          {onPin ? <PinColumnButton onPin={onPin} /> : null}
           <SortToggle
             value={sortDirection}
             onChange={onSortChange}
@@ -113,6 +112,7 @@ export function LogStreamPanel({
           >
             Export
           </Button>
+          {onPin ? <PinColumnButton onPin={onPin} /> : null}
         </Group>
       </Group>
       {filteredEntries.length > 0 ? (

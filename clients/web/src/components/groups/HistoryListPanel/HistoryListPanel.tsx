@@ -245,7 +245,6 @@ export function HistoryListPanel({
       <Group justify="space-between" mb="sm">
         <Title order={4}>Requests</Title>
         <Group gap="xs">
-          {onPin ? <PinColumnButton onPin={onPin} /> : null}
           {hasResults && (
             <ListToggle compact={compact} onToggle={onToggleCompact} />
           )}
@@ -264,6 +263,7 @@ export function HistoryListPanel({
           <Button variant="default" onClick={onExport} disabled={!hasResults}>
             Export
           </Button>
+          {onPin ? <PinColumnButton onPin={onPin} /> : null}
         </Group>
       </Group>
 

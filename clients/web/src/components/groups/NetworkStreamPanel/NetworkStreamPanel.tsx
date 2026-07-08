@@ -114,7 +114,6 @@ export function NetworkStreamPanel({
       <Group justify="space-between" mb="sm">
         <Title order={4}>{formatTitle(filteredEntries.length)}</Title>
         <Group gap="xs">
-          {onPin ? <PinColumnButton onPin={onPin} /> : null}
           {hasResults && (
             <ListToggle compact={compact} onToggle={onToggleCompact} />
           )}
@@ -129,6 +128,7 @@ export function NetworkStreamPanel({
           <Button variant="default" onClick={onExport} disabled={!hasEntries}>
             Export
           </Button>
+          {onPin ? <PinColumnButton onPin={onPin} /> : null}
         </Group>
       </Group>
 
