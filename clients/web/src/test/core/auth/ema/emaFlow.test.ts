@@ -43,6 +43,7 @@ function createMemoryStorage(
   const clientInfoByKey: Record<string, unknown> = {};
   const codeVerifierByKey: Record<string, string> = {};
   return {
+    load: vi.fn().mockResolvedValue(undefined),
     getIdpSession: vi.fn(async (issuer: string) => idpSessions[issuer]),
     saveIdpSession: vi.fn(async (issuer: string, updates) => {
       idpSessions[issuer] = { ...idpSessions[issuer], ...updates };

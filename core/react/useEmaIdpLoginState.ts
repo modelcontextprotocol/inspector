@@ -40,8 +40,17 @@ export function useEmaIdpLoginState(
 
   const logout = useCallback(() => {
     if (!normalizedIssuer) return;
-    clearEmaIdpSession(storage, normalizedIssuer);
-    setLoginState("none");
+    void clearEmaIdpSession(storage, normalizedIssuer)
+      .then(() => {
+        setLoginState("none");
+      })
+      .catch(() => {
+        // Clearing the persisted IdP session failed (e.g. the storage backend
+        // is unreachable). Swallow the rejection so it does not surface as an
+        // unhandled promise, and leave loginState unchanged so the UI keeps
+        // reflecting the still-present session rather than falsely showing
+        // signed-out.
+      });
   }, [storage, normalizedIssuer]);
 
   return { loginState, refresh, logout };

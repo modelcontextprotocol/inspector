@@ -34,6 +34,7 @@ async function resolveIdpMetadata(
   storage: OAuthStorage,
   fetchFn?: typeof fetch,
 ): Promise<OAuthMetadata> {
+  await storage.load();
   const storageKey = idpOAuthStorageKey(issuer);
   const cached = storage.getServerMetadata(storageKey);
   if (cached?.token_endpoint) {
@@ -63,7 +64,7 @@ export async function startIdpOidcAuthorization(params: {
   fetchFn?: typeof fetch;
 }): Promise<{ authorizationUrl: URL }> {
   const issuer = normalizeIdpIssuer(params.idp.issuer);
-  const metadata = await discoverIdpMetadata(issuer, params.fetchFn);
+  const metadata = await resolveIdpMetadata(issuer, params.storage, params.fetchFn);
   const clientInformation = idpClientInformation(params.idp);
   const storageKey = idpOAuthStorageKey(issuer);
   const state = generateOAuthState();
@@ -101,6 +102,7 @@ export async function completeIdpOidcAuthorization(params: {
 }> {
   const issuer = normalizeIdpIssuer(params.idp.issuer);
   const storageKey = idpOAuthStorageKey(issuer);
+  await params.storage.load();
   const metadata = params.storage.getServerMetadata(storageKey);
   if (!metadata) {
     throw new Error("IdP OAuth metadata not found — restart EMA IdP login");
@@ -131,7 +133,7 @@ export async function completeIdpOidcAuthorization(params: {
     throw new Error("IdP token response did not include an ID Token");
   }
 
-  params.storage.clearCodeVerifier(storageKey);
+  await params.storage.clearCodeVerifier(storageKey);
   const idTokenExpiresAt = jwtExpiresAtMs(idToken);
   await params.storage.saveIdpSession(issuer, {
     idToken,

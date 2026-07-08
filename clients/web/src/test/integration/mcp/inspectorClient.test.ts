@@ -4949,7 +4949,7 @@ describe("InspectorClient", () => {
         expect(c.getOAuthFlowState()).toBeUndefined();
         await expect(c.getOAuthState()).resolves.toBeUndefined();
         // clearOAuthTokens is a no-op when there is no manager
-        expect(() => c.clearOAuthTokens()).not.toThrow();
+        await expect(c.clearOAuthTokens()).resolves.toBeUndefined();
       });
 
       it("setOAuthConfig throws when oauthManager is unset", () => {

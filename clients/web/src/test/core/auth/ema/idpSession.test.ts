@@ -19,6 +19,7 @@ describe("idpSession", () => {
 
   beforeEach(() => {
     storage = {
+      load: vi.fn().mockResolvedValue(undefined),
       getIdpSession: vi.fn(),
       saveIdpSession: vi.fn(),
       clearIdpSession: vi.fn(),
@@ -73,15 +74,15 @@ describe("idpSession", () => {
     );
   });
 
-  it("clearEmaIdpSession clears idp session, leg-1 key, and tagged resource servers", () => {
-    clearEmaIdpSession(storage, "https://idp.test/");
+  it("clearEmaIdpSession clears idp session, leg-1 key, and tagged resource servers", async () => {
+    await clearEmaIdpSession(storage, "https://idp.test/");
     expect(storage.clearIdpSession).toHaveBeenCalledWith("https://idp.test");
     expect(storage.clear).toHaveBeenCalledWith("ema-idp:https://idp.test");
     expect(storage.clearEnterpriseManagedResourceServers).toHaveBeenCalled();
   });
 
-  it("clearEmaIdpSession no-ops when issuer normalizes to empty", () => {
-    clearEmaIdpSession(storage, "");
+  it("clearEmaIdpSession no-ops when issuer normalizes to empty", async () => {
+    await clearEmaIdpSession(storage, "");
     expect(storage.clearIdpSession).not.toHaveBeenCalled();
     expect(storage.clear).not.toHaveBeenCalled();
     expect(

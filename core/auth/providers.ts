@@ -247,8 +247,8 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     return verifier;
   }
 
-  clear(): void {
-    this.storage.clear(this.serverUrl);
+  async clear(): Promise<void> {
+    await this.storage.clear(this.serverUrl);
   }
 
   getServerMetadata(): OAuthMetadata | null {

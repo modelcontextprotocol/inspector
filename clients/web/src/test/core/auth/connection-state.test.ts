@@ -22,6 +22,7 @@ function createStorage(
   }> = {},
 ): OAuthStorage {
   return {
+    load: vi.fn().mockResolvedValue(undefined),
     getTokens: vi.fn().mockResolvedValue(overrides.tokens),
     getClientInformation: vi.fn(async (_url, isPreregistered) =>
       isPreregistered ? overrides.preregistered : overrides.dynamic,

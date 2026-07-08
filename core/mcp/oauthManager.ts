@@ -282,6 +282,8 @@ export class OAuthManager {
     iss?: string,
   ): Promise<void> {
     try {
+      await this.requireStorage().load();
+
       if (this.isEnterpriseManaged()) {
         const scopeForMint =
           this.pendingAuthorizationScope ?? this.getEmaFlowConfig().scope;
@@ -387,13 +389,13 @@ export class OAuthManager {
     }
   }
 
-  clearOAuthTokens(): void {
+  async clearOAuthTokens(): Promise<void> {
     if (!this.oauthConfig?.storage) {
       return;
     }
 
     const serverUrl = this.getServerUrl();
-    this.oauthConfig.storage.clear(serverUrl);
+    await this.oauthConfig.storage.clear(serverUrl);
 
     this.oauthFlowState = null;
     this.pendingAuthorizationScope = undefined;

@@ -21,10 +21,13 @@ export async function getEmaIdpLoginState(
   return "expired";
 }
 
-export function clearEmaIdpSession(storage: OAuthStorage, issuer: string): void {
+export async function clearEmaIdpSession(
+  storage: OAuthStorage,
+  issuer: string,
+): Promise<void> {
   const normalized = normalizeIdpIssuer(issuer);
   if (!normalized) return;
-  storage.clearIdpSession(normalized);
-  storage.clear(idpOAuthStorageKey(normalized));
-  storage.clearEnterpriseManagedResourceServers();
+  await storage.clearIdpSession(normalized);
+  await storage.clear(idpOAuthStorageKey(normalized));
+  await storage.clearEnterpriseManagedResourceServers();
 }

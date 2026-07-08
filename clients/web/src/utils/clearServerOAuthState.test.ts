@@ -1,22 +1,26 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { getBrowserOAuthStorage } from "@inspector/core/auth/browser/index.js";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { BrowserOAuthStorage } from "@inspector/core/auth/browser/storage.js";
+import type { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import { clearServerOAuthState } from "./clearServerOAuthState";
 
 describe("clearServerOAuthState", () => {
-  beforeEach(() => {
-    getBrowserOAuthStorage().clear("https://mcp.example.com/mcp");
+  let storage: BrowserOAuthStorage;
+
+  beforeEach(async () => {
+    storage = new BrowserOAuthStorage();
+    await storage.clear("https://mcp.example.com/mcp");
   });
 
   it("clears storage by server URL when not the active connection", async () => {
-    const storage = getBrowserOAuthStorage();
     await storage.saveTokens("https://mcp.example.com/mcp", {
       access_token: "tok",
       token_type: "Bearer",
     });
 
-    const cleared = clearServerOAuthState({
+    const cleared = await clearServerOAuthState({
       config: { type: "streamable-http", url: "https://mcp.example.com/mcp" },
       isActiveConnection: false,
+      oauthStorage: storage,
     });
 
     expect(cleared).toBe(true);
@@ -25,27 +29,28 @@ describe("clearServerOAuthState", () => {
     ).toBeUndefined();
   });
 
-  it("uses the live client when clearing the active connection", () => {
-    const inspectorClient = {
-      clearOAuthTokens: vi.fn(),
-    };
+  it("uses the live client when clearing the active connection", async () => {
+    const clearOAuthTokens = vi.fn<InspectorClient["clearOAuthTokens"]>();
+    const inspectorClient = { clearOAuthTokens };
 
-    const cleared = clearServerOAuthState({
+    const cleared = await clearServerOAuthState({
       config: { type: "streamable-http", url: "https://mcp.example.com/mcp" },
-      inspectorClient: inspectorClient as never,
+      inspectorClient,
       isActiveConnection: true,
+      oauthStorage: storage,
     });
 
     expect(cleared).toBe(true);
-    expect(inspectorClient.clearOAuthTokens).toHaveBeenCalledTimes(1);
+    expect(clearOAuthTokens).toHaveBeenCalledTimes(1);
   });
 
-  it("returns false for stdio servers", () => {
-    expect(
+  it("returns false for stdio servers", async () => {
+    await expect(
       clearServerOAuthState({
         config: { type: "stdio", command: "node", args: [] },
         isActiveConnection: false,
+        oauthStorage: storage,
       }),
-    ).toBe(false);
+    ).resolves.toBe(false);
   });
 });
