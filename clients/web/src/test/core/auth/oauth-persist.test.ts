@@ -131,19 +131,22 @@ describe("createRemoteOAuthPersistBackend", () => {
   });
 
   it("write() POSTs the serialized snapshot and throws on failure", async () => {
-    const ok = vi.fn(async () => new Response("", { status: 200 }));
+    let capturedBody: string | undefined;
+    const ok = vi.fn<typeof fetch>(async (_input, init) => {
+      capturedBody = init?.body as string | undefined;
+      return new Response("", { status: 200 });
+    });
     const backend = createRemoteOAuthPersistBackend({
       baseUrl,
       storeId,
-      fetchFn: ok as unknown as typeof fetch,
+      fetchFn: ok,
     });
     await backend.write(SNAPSHOT);
     expect(ok).toHaveBeenCalledWith(
       url,
       expect.objectContaining({ method: "POST" }),
     );
-    const body = ok.mock.calls[0][1].body;
-    expect(JSON.parse(body)).toEqual(SNAPSHOT);
+    expect(JSON.parse(capturedBody ?? "")).toEqual(SNAPSHOT);
 
     const failing = createRemoteOAuthPersistBackend({
       baseUrl,
