@@ -107,6 +107,21 @@ const notificationEntry: MessageEntry = {
   },
 };
 
+// A standalone direction:"response" entry (e.g. the client's answer to a
+// server→client request such as roots/list or sampling) — no request-style
+// status badge should appear; "Pending" in particular would be misleading.
+const standaloneResponseEntry: MessageEntry = {
+  id: "resp-1",
+  timestamp: new Date("2026-03-17T10:37:00Z"),
+  direction: "response",
+  origin: "client",
+  message: {
+    jsonrpc: "2.0",
+    id: 10,
+    result: { roots: [] },
+  },
+};
+
 const baseProps = {
   isPinned: false,
   isListExpanded: false,
@@ -148,6 +163,17 @@ describe("HistoryEntry", () => {
     // The method badge still labels it; there is no Pending/OK/Error badge,
     // since a fire-and-forget notification has no request lifecycle.
     expect(screen.getByText("notifications/message")).toBeInTheDocument();
+    expect(screen.queryByText("Pending")).not.toBeInTheDocument();
+    expect(screen.queryByText("OK")).not.toBeInTheDocument();
+    expect(screen.queryByText("Error")).not.toBeInTheDocument();
+  });
+
+  it("renders no request-style status badge for a standalone response entry", () => {
+    renderWithMantine(
+      <HistoryEntry {...baseProps} entry={standaloneResponseEntry} />,
+    );
+    // A standalone direction:"response" (e.g. client answering roots/list or
+    // sampling) carries no request lifecycle — no Pending/OK/Error badge.
     expect(screen.queryByText("Pending")).not.toBeInTheDocument();
     expect(screen.queryByText("OK")).not.toBeInTheDocument();
     expect(screen.queryByText("Error")).not.toBeInTheDocument();
