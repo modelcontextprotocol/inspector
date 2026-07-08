@@ -26,7 +26,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function snapshotFromPayload(payload: Partial<OAuthPersistSnapshot>): OAuthPersistSnapshot {
+function snapshotFromPayload(
+  payload: Partial<OAuthPersistSnapshot>,
+): OAuthPersistSnapshot {
   return {
     servers: payload.servers ?? {},
     idpSessions: payload.idpSessions ?? {},
@@ -45,12 +47,7 @@ export function parseOAuthPersistBlob(
     return null;
   }
 
-  const parsed =
-    typeof raw === "string"
-      ? raw
-        ? parseStore(raw)
-        : null
-      : raw;
+  const parsed = typeof raw === "string" ? (raw ? parseStore(raw) : null) : raw;
 
   if (!isRecord(parsed)) {
     return null;
@@ -135,10 +132,10 @@ export function createRemoteOAuthPersistBackend(
         throw new Error(`Failed to read store: ${res.status}`);
       }
 
+      // parseOAuthPersistBlob already returns null for {} (the server's
+      // missing-file response, server.ts) and for a literal null body, so no
+      // empty-object guard is needed — and Object.keys(null) would throw.
       const store = await res.json();
-      if (Object.keys(store as object).length === 0) {
-        return null;
-      }
       return parseOAuthPersistBlob(store);
     },
     async write(snapshot) {
