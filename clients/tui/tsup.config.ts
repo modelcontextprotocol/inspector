@@ -22,7 +22,6 @@ export default defineConfig({
     'open',
     'commander',
     'pino',
-    'zustand',
     '@modelcontextprotocol/sdk',
     '@napi-rs/keyring',
   ],

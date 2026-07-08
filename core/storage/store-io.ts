@@ -1,6 +1,6 @@
 /**
  * Shared storage path resolution, validation, and atomic file I/O.
- * Used by the file storage adapter and the remote server's /api/storage routes.
+ * Used by OAuth file persistence and the remote server's /api/storage routes.
  */
 
 import * as path from "node:path";
@@ -11,6 +11,10 @@ import { readFile, writeFile } from "atomically";
 // unaffected; the implementation lives in the Node-free `store-id` module so
 // isomorphic code can reuse it without pulling Node deps into the browser.
 export { validateStoreId } from "./store-id.js";
+
+// Likewise re-export the pure JSON (de)serializers from the Node-free
+// `store-serialize` module so existing `store-io` importers are unaffected.
+export { serializeStore, parseStore } from "./store-serialize.js";
 
 /**
  * Default storage directory (~/.mcp-inspector/storage or %USERPROFILE%\.mcp-inspector\storage on Windows).
@@ -57,15 +61,7 @@ export async function readStoreFile(filePath: string): Promise<string | null> {
 /**
  * In-flight writeStoreFile() promises, keyed by resolved path. Lets callers
  * await persistence completion via flushStoreFileWrites() instead of polling
- * the file — Zustand's persist middleware invokes writeStoreFile() fire-and-
- * forget, so the in-memory store updates synchronously while the file write
- * lags. Entries are removed once their write settles.
- *
- * Load-bearing: pendingWrites.set() below runs synchronously before the first
- * await in writeStoreFile(), so a flushStoreFileWrites() called right after a
- * persist sees the in-flight entry. Callers (e.g. the storage adapter's
- * setItem) must not introduce an await before writeStoreFile() — doing so would
- * let a flush run before registration and return early.
+ * the file. Entries are removed once their write settles.
  */
 const pendingWrites = new Map<string, Promise<void>>();
 
@@ -104,9 +100,8 @@ export async function writeStoreFile(
 
 /**
  * Await pending writeStoreFile() writes — those for `filePath` if given, else
- * all of them. Use in tests after triggering persistence (Zustand persist
- * writes fire-and-forget) instead of polling the file, and for graceful
- * shutdown. Resolves immediately when nothing is in flight.
+ * all of them. Use in tests after triggering persistence instead of polling
+ * the file, and for graceful shutdown. Resolves immediately when nothing is in flight.
  */
 export async function flushStoreFileWrites(filePath?: string): Promise<void> {
   if (filePath !== undefined) {
@@ -128,18 +123,4 @@ export async function deleteStoreFile(filePath: string): Promise<void> {
       throw error;
     }
   }
-}
-
-/**
- * Serialize store data to JSON string (consistent format for server writes).
- */
-export function serializeStore(data: unknown): string {
-  return JSON.stringify(data, null, 2);
-}
-
-/**
- * Parse store JSON string. Use after readStoreFile when returning parsed object.
- */
-export function parseStore(raw: string): unknown {
-  return JSON.parse(raw);
 }

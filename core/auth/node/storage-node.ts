@@ -1,6 +1,6 @@
 import { OAuthStorageBase } from "../oauth-storage.js";
-import { createOAuthStore } from "../store.js";
-import { createFileStorageAdapter } from "../../storage/adapters/file-storage.js";
+import { OAuthMemoryStore } from "../store.js";
+import { createFileOAuthPersistBackend } from "./oauth-persist-file.js";
 import {
   getDefaultStorageDir,
   getStoreFilePath,
@@ -17,22 +17,27 @@ export function getStateFilePath(customPath?: string): string {
   return customPath ?? DEFAULT_STATE_PATH;
 }
 
-const storeCache = new Map<string, ReturnType<typeof createOAuthStore>>();
+const memoryCache = new Map<string, OAuthMemoryStore>();
+const storageCache = new Map<string, NodeOAuthStorage>();
+
+function getSharedMemory(stateFilePath?: string): OAuthMemoryStore {
+  const key = getStateFilePath(stateFilePath);
+  let memory = memoryCache.get(key);
+  if (!memory) {
+    memory = new OAuthMemoryStore();
+    memoryCache.set(key, memory);
+  }
+  return memory;
+}
 
 /**
- * Get or create the OAuth store instance for the given path.
- * @param stateFilePath - Optional custom path to state file. Default: ~/.mcp-inspector/storage/oauth.json
+ * Drop cached in-memory and {@link NodeOAuthStorage} instances for a path.
+ * @internal Test isolation only.
  */
-export function getOAuthStore(stateFilePath?: string) {
+export function resetNodeOAuthStorageCache(stateFilePath?: string): void {
   const key = getStateFilePath(stateFilePath);
-  let store = storeCache.get(key);
-  if (!store) {
-    const filePath = getStateFilePath(stateFilePath);
-    const storage = createFileStorageAdapter({ filePath });
-    store = createOAuthStore(storage);
-    storeCache.set(key, store);
-  }
-  return store;
+  memoryCache.delete(key);
+  storageCache.delete(key);
 }
 
 /**
@@ -40,24 +45,40 @@ export function getOAuthStore(stateFilePath?: string) {
  * Useful for test isolation in E2E OAuth tests.
  * Use a custom-path store and clear per serverUrl if you need to clear non-default storage.
  */
-export function clearAllOAuthClientState(): void {
-  const store = getOAuthStore();
-  const state = store.getState();
-  const urls = Object.keys(state.servers ?? {});
+export async function clearAllOAuthClientState(): Promise<void> {
+  const storage = getNodeOAuthStorage();
+  const filePath = getStateFilePath();
+  const snapshot = await createFileOAuthPersistBackend({ filePath }).read();
+  const urls = Object.keys(snapshot?.servers ?? {});
   for (const url of urls) {
-    state.clearServerState(url);
+    await storage.clear(url);
   }
 }
 
 /**
- * Node.js storage implementation using Zustand with file-based persistence.
+ * Node.js storage implementation with file-based persistence.
  * For InspectorClient, CLI, and TUI.
  */
 export class NodeOAuthStorage extends OAuthStorageBase {
   /**
-   * @param storagePath - Optional path to state file. Default: ~/.mcp-inspector/oauth/state.json
+   * @param storagePath - Optional path to state file. Default: ~/.mcp-inspector/storage/oauth.json
    */
   constructor(storagePath?: string) {
-    super(getOAuthStore(storagePath));
+    const filePath = getStateFilePath(storagePath);
+    super(
+      getSharedMemory(storagePath),
+      createFileOAuthPersistBackend({ filePath }),
+    );
   }
+}
+
+/** Cached NodeOAuthStorage instances keyed by resolved file path. */
+function getNodeOAuthStorage(storagePath?: string): NodeOAuthStorage {
+  const key = getStateFilePath(storagePath);
+  let storage = storageCache.get(key);
+  if (!storage) {
+    storage = new NodeOAuthStorage(storagePath);
+    storageCache.set(key, storage);
+  }
+  return storage;
 }

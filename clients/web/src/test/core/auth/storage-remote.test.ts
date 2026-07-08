@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { RemoteOAuthStorage } from "@inspector/core/auth/remote/storage-remote.js";
-import {
-  type OAuthStore,
-  waitForOAuthStorePersistLoad,
-} from "@inspector/core/auth/store.js";
 
 const NOOP_FETCH = vi.fn(
   async () =>
@@ -76,16 +72,16 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
 
   it("codeVerifier round-trip and clearCodeVerifier", async () => {
     await storage.saveCodeVerifier(serverUrl, "verifier");
-    expect(storage.getCodeVerifier(serverUrl)).toBe("verifier");
+    expect(await storage.getCodeVerifier(serverUrl)).toBe("verifier");
     await storage.clearCodeVerifier(serverUrl);
-    expect(storage.getCodeVerifier(serverUrl)).toBeUndefined();
+    expect(await storage.getCodeVerifier(serverUrl)).toBeUndefined();
   });
 
   it("scope round-trip and clearScope", async () => {
     await storage.saveScope(serverUrl, "read write");
-    expect(storage.getScope(serverUrl)).toBe("read write");
+    expect(await storage.getScope(serverUrl)).toBe("read write");
     await storage.clearScope(serverUrl);
-    expect(storage.getScope(serverUrl)).toBeUndefined();
+    expect(await storage.getScope(serverUrl)).toBeUndefined();
   });
 
   it("serverMetadata round-trip and clearServerMetadata", async () => {
@@ -96,9 +92,9 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
       response_types_supported: ["code"],
     };
     await storage.saveServerMetadata(serverUrl, md);
-    expect(storage.getServerMetadata(serverUrl)).toEqual(md);
+    expect(await storage.getServerMetadata(serverUrl)).toEqual(md);
     await storage.clearServerMetadata(serverUrl);
-    expect(storage.getServerMetadata(serverUrl)).toBeNull();
+    expect(await storage.getServerMetadata(serverUrl)).toBeNull();
   });
 
   it("clear() wipes all state for a server", async () => {
@@ -125,13 +121,7 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
     expect(s).toBeInstanceOf(RemoteOAuthStorage);
   });
 
-  it("waitForOAuthStorePersistLoad resolves for an unregistered store handle", async () => {
-    await expect(
-      waitForOAuthStorePersistLoad({} as OAuthStore),
-    ).resolves.toBeUndefined();
-  });
-
-  it("load() waits for remote GET before sync reads see persisted state", async () => {
+  it("getCodeVerifier loads remote state automatically when not preloaded", async () => {
     const persisted = {
       state: {
         servers: {
@@ -155,15 +145,10 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
       fetchFn: delayedFetch,
     });
 
-    const loadPromise = delayedStorage.load();
-    expect(delayedStorage.getCodeVerifier(serverUrl)).toBeUndefined();
-
+    const getPromise = delayedStorage.getCodeVerifier(serverUrl);
     resolveFetch(new Response(JSON.stringify(persisted), { status: 200 }));
-    await loadPromise;
 
-    expect(delayedStorage.getCodeVerifier(serverUrl)).toBe(
-      "persisted-verifier",
-    );
+    expect(await getPromise).toBe("persisted-verifier");
   });
 
   it("load() rejects when remote GET fails instead of hanging", async () => {

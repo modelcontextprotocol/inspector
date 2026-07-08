@@ -1,17 +1,18 @@
 /**
- * Tests for storage adapters (file, remote).
+ * Tests for OAuth persistence (file + remote) and store-io flush helpers.
  */
 
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { waitForRemoteStore } from "@modelcontextprotocol/inspector-test-server";
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
-import { createFileStorageAdapter } from "@inspector/core/storage/adapters/file-storage.js";
-import { createRemoteStorageAdapter } from "@inspector/core/storage/adapters/remote-storage.js";
-import { createOAuthStore } from "@inspector/core/auth/store.js";
+import { NodeOAuthStorage } from "@inspector/core/auth/node/storage-node.js";
+import { RemoteOAuthStorage } from "@inspector/core/auth/remote/storage-remote.js";
+import { OAuthMemoryStore } from "@inspector/core/auth/store.js";
+import { createFileOAuthPersistBackend } from "@inspector/core/auth/node/oauth-persist-file.js";
 import { createRemoteApp } from "@inspector/core/mcp/remote/node/server.js";
 import {
   writeStoreFile,
@@ -53,80 +54,8 @@ async function startRemoteServer(
   });
 }
 
-describe("Storage adapters", () => {
-  describe("createRemoteStorageAdapter (unit, mocked fetch)", () => {
-    function makeAdapter(fetchFn: typeof fetch, authToken?: string) {
-      return createRemoteStorageAdapter({
-        baseUrl: "http://remote.example/",
-        storeId: "test",
-        fetchFn,
-        authToken,
-      })!;
-    }
-
-    it("getItem returns null on 404 and parses stored blob otherwise", async () => {
-      const fetchFn = vi
-        .fn<typeof fetch>()
-        .mockResolvedValueOnce(new Response("not found", { status: 404 }))
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ state: { hi: 1 }, version: 0 })),
-        )
-        .mockResolvedValueOnce(new Response("{}"));
-
-      const adapter = makeAdapter(fetchFn as typeof fetch);
-      expect(await adapter.getItem("anything")).toBeNull();
-      const blob = await adapter.getItem("anything");
-      expect(blob).toBeTruthy();
-      // Empty object response → treated as "not initialized" → null.
-      expect(await adapter.getItem("anything")).toBeNull();
-    });
-
-    it("getItem throws on non-404 error responses", async () => {
-      const fetchFn = vi
-        .fn<typeof fetch>()
-        .mockResolvedValueOnce(new Response("boom", { status: 500 }));
-      const adapter = makeAdapter(fetchFn as typeof fetch);
-      await expect(adapter.getItem("x")).rejects.toThrow(/500/);
-    });
-
-    it("setItem throws when the POST fails", async () => {
-      const fetchFn = vi
-        .fn<typeof fetch>()
-        .mockResolvedValueOnce(new Response("nope", { status: 500 }));
-      const adapter = makeAdapter(fetchFn as typeof fetch);
-      await expect(
-        adapter.setItem("name", { state: { a: 1 }, version: 0 }),
-      ).rejects.toThrow(/500/);
-    });
-
-    it("removeItem tolerates 404 but rethrows on other failures", async () => {
-      const fetchFn = vi
-        .fn<typeof fetch>()
-        .mockResolvedValueOnce(new Response(null, { status: 204 }))
-        .mockResolvedValueOnce(new Response(null, { status: 404 }))
-        .mockResolvedValueOnce(new Response("boom", { status: 500 }));
-      const adapter = makeAdapter(fetchFn as typeof fetch);
-      await expect(adapter.removeItem("x")).resolves.toBeUndefined();
-      await expect(adapter.removeItem("x")).resolves.toBeUndefined();
-      await expect(adapter.removeItem("x")).rejects.toThrow(/500/);
-    });
-
-    it("sends the x-mcp-remote-auth header on all three verbs when authToken is set", async () => {
-      const fetchFn = vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(new Response("{}"));
-      const adapter = makeAdapter(fetchFn as typeof fetch, "secret");
-      await adapter.getItem("x");
-      await adapter.setItem("x", { state: {}, version: 0 });
-      await adapter.removeItem("x");
-      for (const call of fetchFn.mock.calls) {
-        const headers = call[1]?.headers as Record<string, string> | undefined;
-        expect(headers?.["x-mcp-remote-auth"]).toBe("Bearer secret");
-      }
-    });
-  });
-
-  describe("FileStorageAdapter", () => {
+describe("OAuth persistence", () => {
+  describe("OAuth file persistence", () => {
     let tempDir: string | null = null;
 
     afterEach(() => {
@@ -143,19 +72,17 @@ describe("Storage adapters", () => {
     it("creates store and persists state", async () => {
       tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
       const filePath = join(tempDir!, "test-store.json");
-      const storage = createFileStorageAdapter({ filePath });
-      const store = createOAuthStore(storage);
+      const storage = new NodeOAuthStorage(filePath);
 
-      // Set some state
-      store.getState().setServerState("https://example.com", {
-        tokens: { access_token: "test-token", token_type: "Bearer" },
+      await storage.saveTokens("https://example.com", {
+        access_token: "test-token",
+        token_type: "Bearer",
       });
 
-      // Persistence is fire-and-forget; await the write rather than polling.
       await flushStoreFileWrites(filePath);
       const fileContent = readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(fileContent);
-      expect(parsed.state.servers["https://example.com"].tokens).toEqual({
+      expect(parsed.servers["https://example.com"].tokens).toEqual({
         access_token: "test-token",
         token_type: "Bearer",
       });
@@ -165,67 +92,91 @@ describe("Storage adapters", () => {
       tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
       const filePath = join(tempDir!, "test-store.json");
 
-      // Create initial store and persist
-      const storage1 = createFileStorageAdapter({ filePath });
-      const store1 = createOAuthStore(storage1);
-      store1.getState().setServerState("https://example.com", {
-        tokens: { access_token: "initial-token", token_type: "Bearer" },
+      const storage1 = new NodeOAuthStorage(filePath);
+      await storage1.saveTokens("https://example.com", {
+        access_token: "initial-token",
+        token_type: "Bearer",
       });
       await flushStoreFileWrites(filePath);
 
-      // Create new store instance (should load persisted state)
-      const storage2 = createFileStorageAdapter({ filePath });
-      const store2 = createOAuthStore(storage2);
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      const state = store2.getState().getServerState("https://example.com");
+      const backend = createFileOAuthPersistBackend({ filePath });
+      const snapshot = await backend.read();
+      const freshMemory = new OAuthMemoryStore(snapshot ?? undefined);
+      const state = freshMemory
+        .getState()
+        .getServerState("https://example.com");
       expect(state.tokens).toEqual({
         access_token: "initial-token",
         token_type: "Bearer",
       });
     });
 
+    it("reads legacy persist envelope and rewrites as plain JSON on save", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const filePath = join(tempDir!, "test-store.json");
+      await writeStoreFile(
+        filePath,
+        JSON.stringify({
+          state: {
+            servers: {
+              "https://example.com": {
+                tokens: { access_token: "legacy", token_type: "Bearer" },
+              },
+            },
+            idpSessions: {},
+          },
+          version: 0,
+        }),
+      );
+
+      const storage = new NodeOAuthStorage(filePath);
+      expect(await storage.getTokens("https://example.com")).toEqual({
+        access_token: "legacy",
+        token_type: "Bearer",
+      });
+
+      await storage.saveScope("https://example.com", "read");
+      await flushStoreFileWrites(filePath);
+
+      const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
+      expect(parsed.servers["https://example.com"].scope).toBe("read");
+      expect(parsed.version).toBeUndefined();
+      expect(parsed.state).toBeUndefined();
+    });
+
     it("handles empty state after clear", async () => {
       tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
       const filePath = join(tempDir!, "test-store.json");
-      const storage = createFileStorageAdapter({ filePath });
-      const store = createOAuthStore(storage);
+      const storage = new NodeOAuthStorage(filePath);
 
-      // Set state and persist
-      store.getState().setServerState("https://example.com", {
-        tokens: { access_token: "test-token", token_type: "Bearer" },
+      await storage.saveTokens("https://example.com", {
+        access_token: "test-token",
+        token_type: "Bearer",
       });
       await flushStoreFileWrites(filePath);
       expect(existsSync(filePath)).toBe(true);
 
-      // Clear all servers (this will persist empty state)
-      const state = store.getState();
-      const urls = Object.keys(state.servers);
-      for (const url of urls) {
-        state.clearServerState(url);
-      }
+      await storage.clear("https://example.com");
       await flushStoreFileWrites(filePath);
 
-      // Verify file still exists but with empty servers
       expect(existsSync(filePath)).toBe(true);
       const fileContent = readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(fileContent);
-      expect(Object.keys(parsed.state.servers).length).toBe(0);
+      expect(Object.keys(parsed.servers).length).toBe(0);
     });
 
-    it("removeItem deletes the underlying file", async () => {
+    it("remove deletes the underlying file", async () => {
       tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
       const filePath = join(tempDir!, "test-store.json");
-      const storage = createFileStorageAdapter({ filePath });
-      // createJSONStorage returns a PersistStorage<S> wrapper that delegates to
-      // our adapter's removeItem callback (line 25 of file-storage.ts).
-      const store = createOAuthStore(storage);
-      store.getState().setServerState("https://example.com", {
-        tokens: { access_token: "t", token_type: "Bearer" },
+      const storage = new NodeOAuthStorage(filePath);
+      await storage.saveTokens("https://example.com", {
+        access_token: "t",
+        token_type: "Bearer",
       });
       await flushStoreFileWrites(filePath);
       expect(existsSync(filePath)).toBe(true);
-      await storage!.removeItem("inspector-oauth-store");
+      const backend = createFileOAuthPersistBackend({ filePath });
+      await backend.remove!();
       expect(existsSync(filePath)).toBe(false);
     });
   });
@@ -255,7 +206,6 @@ describe("Storage adapters", () => {
       tempDir = mkdtempSync(join(tmpdir(), "inspector-flush-test-"));
       const filePath = join(tempDir, "store.json");
 
-      // Kick off the write without awaiting it, then flush.
       const write = writeStoreFile(filePath, '{"hello":"world"}');
       await flushStoreFileWrites(filePath);
       expect(existsSync(filePath)).toBe(true);
@@ -292,7 +242,7 @@ describe("Storage adapters", () => {
     });
   });
 
-  describe("RemoteStorageAdapter", () => {
+  describe("Remote OAuth persistence", () => {
     let remoteServer: ServerType | null = null;
     let tempDir: string | null = null;
 
@@ -320,31 +270,27 @@ describe("Storage adapters", () => {
       });
       remoteServer = server;
 
-      const storage = createRemoteStorageAdapter({
+      const storage = new RemoteOAuthStorage({
         baseUrl,
         storeId: "test-store",
         authToken,
       });
-      const store = createOAuthStore(storage);
 
-      // Set some state
-      store.getState().setServerState("https://example.com", {
-        tokens: { access_token: "test-token", token_type: "Bearer" },
+      await storage.saveTokens("https://example.com", {
+        access_token: "test-token",
+        token_type: "Bearer",
       });
 
       await waitForRemoteStore(baseUrl, "test-store", authToken, (body) => {
         const d = body as {
-          state?: {
-            servers?: Record<string, { tokens?: { access_token?: string } }>;
-          };
+          servers?: Record<string, { tokens?: { access_token?: string } }>;
         };
         return (
-          d?.state?.servers?.["https://example.com"]?.tokens?.access_token ===
+          d?.servers?.["https://example.com"]?.tokens?.access_token ===
           "test-token"
         );
       });
 
-      // Verify via API
       const res = await fetch(`${baseUrl}/api/storage/test-store`, {
         method: "GET",
         headers: {
@@ -353,7 +299,7 @@ describe("Storage adapters", () => {
       });
       expect(res.status).toBe(200);
       const storeData = await res.json();
-      expect(storeData.state.servers["https://example.com"].tokens).toEqual({
+      expect(storeData.servers["https://example.com"].tokens).toEqual({
         access_token: "test-token",
         token_type: "Bearer",
       });
@@ -366,46 +312,32 @@ describe("Storage adapters", () => {
       });
       remoteServer = server;
 
-      // Create initial store and persist
-      const storage1 = createRemoteStorageAdapter({
+      const storage1 = new RemoteOAuthStorage({
         baseUrl,
         storeId: "test-store",
         authToken,
       });
-      const store1 = createOAuthStore(storage1);
-      store1.getState().setServerState("https://example.com", {
-        tokens: { access_token: "initial-token", token_type: "Bearer" },
+      await storage1.saveTokens("https://example.com", {
+        access_token: "initial-token",
+        token_type: "Bearer",
       });
       await waitForRemoteStore(baseUrl, "test-store", authToken, (body) => {
         const d = body as {
-          state?: {
-            servers?: Record<string, { tokens?: { access_token?: string } }>;
-          };
+          servers?: Record<string, { tokens?: { access_token?: string } }>;
         };
         return (
-          d?.state?.servers?.["https://example.com"]?.tokens?.access_token ===
+          d?.servers?.["https://example.com"]?.tokens?.access_token ===
           "initial-token"
         );
       });
 
-      // Create new store instance (should load persisted state)
-      const storage2 = createRemoteStorageAdapter({
+      const storage2 = new RemoteOAuthStorage({
         baseUrl,
         storeId: "test-store",
         authToken,
       });
-      const store2 = createOAuthStore(storage2);
-      await vi.waitFor(
-        () => {
-          const state = store2.getState().getServerState("https://example.com");
-          if (!state.tokens) throw new Error("Store not yet hydrated");
-          return state;
-        },
-        { timeout: 2000, interval: 50 },
-      );
 
-      const state = store2.getState().getServerState("https://example.com");
-      expect(state.tokens).toEqual({
+      expect(await storage2.getTokens("https://example.com")).toEqual({
         access_token: "initial-token",
         token_type: "Bearer",
       });
@@ -418,23 +350,21 @@ describe("Storage adapters", () => {
       });
       remoteServer = server;
 
-      const storage = createRemoteStorageAdapter({
+      const storage = new RemoteOAuthStorage({
         baseUrl,
         storeId: "test-store",
         authToken,
       });
-      const store = createOAuthStore(storage);
 
-      // Set state and persist
-      store.getState().setServerState("https://example.com", {
-        tokens: { access_token: "test-token", token_type: "Bearer" },
+      await storage.saveTokens("https://example.com", {
+        access_token: "test-token",
+        token_type: "Bearer",
       });
       await waitForRemoteStore(baseUrl, "test-store", authToken, (body) => {
-        const d = body as { state?: { servers?: Record<string, unknown> } };
-        return !!d?.state?.servers && Object.keys(d.state.servers).length > 0;
+        const d = body as { servers?: Record<string, unknown> };
+        return !!d?.servers && Object.keys(d.servers).length > 0;
       });
 
-      // Verify it exists
       let res = await fetch(`${baseUrl}/api/storage/test-store`, {
         method: "GET",
         headers: {
@@ -443,20 +373,14 @@ describe("Storage adapters", () => {
       });
       expect(res.status).toBe(200);
       const storeData = await res.json();
-      expect(Object.keys(storeData.state.servers).length).toBeGreaterThan(0);
+      expect(Object.keys(storeData.servers).length).toBeGreaterThan(0);
 
-      // Clear all servers (this will persist empty state)
-      const state = store.getState();
-      const urls = Object.keys(state.servers);
-      for (const url of urls) {
-        state.clearServerState(url);
-      }
+      await storage.clear("https://example.com");
       await waitForRemoteStore(baseUrl, "test-store", authToken, (body) => {
-        const d = body as { state?: { servers?: Record<string, unknown> } };
-        return !d?.state?.servers || Object.keys(d.state.servers).length === 0;
+        const d = body as { servers?: Record<string, unknown> };
+        return !d?.servers || Object.keys(d.servers).length === 0;
       });
 
-      // Verify it's empty
       res = await fetch(`${baseUrl}/api/storage/test-store`, {
         method: "GET",
         headers: {
@@ -465,7 +389,7 @@ describe("Storage adapters", () => {
       });
       expect(res.status).toBe(200);
       const emptyStore = await res.json();
-      expect(Object.keys(emptyStore.state.servers).length).toBe(0);
+      expect(Object.keys(emptyStore.servers).length).toBe(0);
     });
   });
 });

@@ -22,13 +22,14 @@ This specification defines the storage and state management architecture for Ins
 
 | Category | Examples | Persistence | Location |
 |----------|----------|-------------|----------|
+| **OAuth runtime state** | Tokens, PKCE, scopes, IdP sessions, AS metadata | File (`oauth.json`) | `OAuthStorageBase` + persist backends |
 | **Server Configurations** | URL, transport, headers | File (mcp.json) | Proxy server |
 | **User Preferences** | Theme, log level, panel sizes | localStorage | Browser |
 | **Connection State** | Status, server info, errors | Memory | React Context |
 | **Execution State** | Current request, pending queue | Memory | React Context |
-| **Logs Display** | Filtered view, pause state | Memory | Zustand store |
-| **Execution Form State** | Selected tool, form values | Memory | Zustand store |
-| **Testing Profiles** | Custom profiles, active selection | localStorage | Zustand store |
+| **Logs Display** | Filtered view, pause state | Memory | `core/mcp/state` + React hooks |
+| **Execution Form State** | Selected tool, form values | Memory | React component state / hooks |
+| **Testing Profiles** | Custom profiles, active selection | localStorage | Browser (planned) |
 | **History Data** | Request/response records | NDJSON file (Pino) | Proxy server |
 
 ### Server-Side vs Client-Side Storage
@@ -38,14 +39,30 @@ This spec focuses on **client-side** state management. Server-side persistence u
 | Layer | Technology | Purpose |
 |-------|------------|---------|
 | **Proxy (Pino)** | NDJSON files | Raw history persistence (`history.ndjson`), parsed by History API |
-| **Client (Zustand)** | localStorage + memory | UI state, display buffers, user preferences |
+| **Client (browser UI)** | localStorage + memory | UI preferences, display buffers |
 
-The Pino logger on the proxy writes MCP request/response records to NDJSON format. The History API endpoint parses this file and returns filtered JSON. Client-side Zustand stores handle:
+The Pino logger on the proxy writes MCP request/response records to NDJSON format. The History API endpoint parses this file and returns filtered JSON. Client-side `core/mcp/state` stores and React hooks handle:
 - How logs are **displayed** (filters, pause, auto-scroll)
 - Caching fetched history for UI performance
 - User preferences that don't belong on the server
 
 See [v2_server.md](./v2_server.md#pino-rationale) for Pino configuration details.
+
+---
+
+## OAuth runtime persistence
+
+OAuth and EMA **runtime state** (access/refresh tokens, PKCE verifiers, granted scopes, cached authorization-server metadata, IdP sessions) is stored separately from `mcp.json` in **`~/.mcp-inspector/storage/oauth.json`** by default.
+
+| Client | Implementation | Path |
+| ------ | -------------- | ---- |
+| **Web** | `RemoteOAuthStorage` → `/api/storage/oauth` | Same on-disk file via Hono backend |
+| **CLI / TUI** | `NodeOAuthStorage` | Direct file I/O |
+| **Tests / reference** | `BrowserOAuthStorage` | sessionStorage (not wired in v2 web app) |
+
+**Stack (#1549):** `OAuthStorage` interface → `OAuthStorageBase` + `OAuthMemoryStore` + `OAuthPersistBackend` (`core/auth/oauth-storage.ts`, `core/auth/store.ts`, `core/auth/oauth-persist.ts`). Writes plain JSON `{ servers, idpSessions }`. Reads still promote legacy `{ state, version }` envelopes (migrate-on-write). All getters are async; setters auto-persist. Web shares one store via `getWebRemoteOAuthStorage()`.
+
+Details: [EMA auth](v2_auth_ema.md#oauth-persistence-1549--done), [Mid-session auth](v2_auth_mid_session.md).
 
 ---
 
@@ -196,6 +213,8 @@ This pattern is already implemented in `McpContext.tsx` and working well. No mig
 ---
 
 ## Zustand Store Specifications
+
+> **Historical note:** This section captured an early plan to use [Zustand](https://docs.pmnd.rs/zustand) for browser UI state. The **shipped** web client uses **`core/mcp/state`** event-driven stores and **`core/react`** hooks instead. **OAuth runtime persistence** uses **`OAuthStorageBase`** (see [OAuth runtime persistence](#oauth-runtime-persistence) above), not Zustand. The comparison matrix below remains useful for evaluating future UI-state libraries.
 
 ### 1. Preferences Store
 

@@ -38,8 +38,7 @@
     "open": "^10.2.0",
     "pino": "^9.14.0",
     "react": "^19.2.4",
-    "zod": "^4.3.6",
-    "zustand": "^5.0.13"
+    "zod": "^4.3.6"
   },
   "overrides": {
     "ink-select-input": "^6.2.0"

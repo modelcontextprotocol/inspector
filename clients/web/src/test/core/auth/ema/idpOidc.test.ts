@@ -34,7 +34,7 @@ describe("idpOidc refresh", () => {
       saveIdpSession: vi.fn(async (issuer: string, updates) => {
         idpSessions[issuer] = { ...idpSessions[issuer], ...updates };
       }),
-      getServerMetadata: vi.fn(() => minimalOAuthAsMetadata(IDP_ISSUER)),
+      getServerMetadata: vi.fn(async () => minimalOAuthAsMetadata(IDP_ISSUER)),
       clearIdpSession: vi.fn(),
     } as unknown as OAuthStorage;
   });
@@ -266,7 +266,7 @@ describe("startIdpOidcAuthorization", () => {
     Object.keys(saved).forEach((k) => delete saved[k]);
     storage = {
       load: vi.fn().mockResolvedValue(undefined),
-      getServerMetadata: vi.fn(() => null),
+      getServerMetadata: vi.fn(async () => null),
       saveCodeVerifier: vi.fn(async (key: string, value: string) => {
         saved[`cv:${key}`] = value;
       }),
@@ -335,13 +335,13 @@ describe("completeIdpOidcAuthorization", () => {
   function buildStorage(overrides: Partial<OAuthStorage> = {}): OAuthStorage {
     return {
       load: vi.fn().mockResolvedValue(undefined),
-      getServerMetadata: vi.fn(() => minimalOAuthAsMetadata(IDP_ISSUER)),
+      getServerMetadata: vi.fn(async () => minimalOAuthAsMetadata(IDP_ISSUER)),
       getClientInformation: vi.fn(async () => ({
         client_id: "idp-client",
         client_secret: "idp-secret",
         token_endpoint_auth_method: "client_secret_post",
       })),
-      getCodeVerifier: vi.fn(() => "verifier-123"),
+      getCodeVerifier: vi.fn(async () => "verifier-123"),
       clearCodeVerifier: vi.fn((key: string) => {
         clearedVerifiers.push(key);
       }),
@@ -474,7 +474,7 @@ describe("completeIdpOidcAuthorization", () => {
   });
 
   it("throws when the PKCE verifier is missing", async () => {
-    storage = buildStorage({ getCodeVerifier: vi.fn(() => undefined) });
+    storage = buildStorage({ getCodeVerifier: vi.fn(async () => undefined) });
     await expect(
       completeIdpOidcAuthorization({
         idp,

@@ -36,15 +36,15 @@ function createMockParams(
 
   const storage = {
     load: vi.fn().mockResolvedValue(undefined),
-    getScope: vi.fn().mockReturnValue(undefined),
+    getScope: vi.fn().mockResolvedValue(undefined),
     getClientInformation: vi.fn().mockResolvedValue(undefined),
-    getClientRegistrationKind: vi.fn().mockReturnValue(undefined),
+    getClientRegistrationKind: vi.fn().mockResolvedValue(undefined),
     saveClientInformation: vi.fn().mockResolvedValue(undefined),
     savePreregisteredClientInformation: vi.fn().mockResolvedValue(undefined),
     saveScope: vi.fn().mockResolvedValue(undefined),
     getTokens: vi.fn().mockResolvedValue(undefined),
     saveTokens: vi.fn().mockResolvedValue(undefined),
-    getCodeVerifier: vi.fn().mockReturnValue("verifier"),
+    getCodeVerifier: vi.fn().mockResolvedValue("verifier"),
     saveCodeVerifier: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn().mockResolvedValue(undefined),
     clearClientInformation: vi.fn(),
@@ -52,7 +52,7 @@ function createMockParams(
     clearCodeVerifier: vi.fn(),
     clearScope: vi.fn(),
     clearServerMetadata: vi.fn(),
-    getServerMetadata: vi.fn().mockReturnValue(null),
+    getServerMetadata: vi.fn().mockResolvedValue(null),
     saveServerMetadata: vi.fn().mockResolvedValue(undefined),
     getIdpSession: vi.fn().mockResolvedValue(undefined),
     saveIdpSession: vi.fn().mockResolvedValue(undefined),
@@ -428,7 +428,7 @@ describe("OAuthManager", () => {
       const params = createMockParams({ onBeforeOAuthRedirect });
       // A configured scope exercises the saveScope branch in createOAuthProvider.
       params.initialConfig.scope = "read write";
-      storageOf(params).getScope.mockReturnValue(undefined);
+      storageOf(params).getScope.mockResolvedValue(undefined);
       storageOf(params).getClientInformation.mockResolvedValue({
         client_id: "cid",
       });
@@ -466,7 +466,9 @@ describe("OAuthManager", () => {
       mockedMcpAuth.mockResolvedValue("REDIRECT");
       const params = createMockParams();
       params.initialConfig.scope = "mcp tools:read";
-      storageOf(params).getScope.mockReturnValue("mcp tools:read weather:read");
+      storageOf(params).getScope.mockResolvedValue(
+        "mcp tools:read weather:read",
+      );
       storageOf(params).getClientInformation.mockResolvedValue({
         client_id: "cid",
       });
@@ -586,7 +588,7 @@ describe("OAuthManager", () => {
         .mockResolvedValueOnce("REDIRECT")
         .mockResolvedValueOnce("AUTHORIZED");
       const params = createMockParams();
-      storageOf(params).getScope.mockReturnValue("mcp");
+      storageOf(params).getScope.mockResolvedValue("mcp");
       storageOf(params).getTokens.mockResolvedValue({
         access_token: "access",
         refresh_token: "refresh",
@@ -629,7 +631,7 @@ describe("OAuthManager", () => {
     it("persists granted scope when AS down-scopes the token response", async () => {
       mockedMcpAuth.mockResolvedValue("AUTHORIZED");
       const params = createMockParams();
-      storageOf(params).getScope.mockReturnValue("mcp");
+      storageOf(params).getScope.mockResolvedValue("mcp");
       storageOf(params).getTokens.mockResolvedValue({
         access_token: "access",
         token_type: "Bearer",
@@ -984,7 +986,9 @@ describe("OAuthManager", () => {
         token_type: "Bearer",
         scope: "mcp tools:read tools:write",
       });
-      storageOf(params).getScope.mockReturnValue("mcp tools:read tools:write");
+      storageOf(params).getScope.mockResolvedValue(
+        "mcp tools:read tools:write",
+      );
       const manager = new OAuthManager(params);
 
       expect(
@@ -1002,7 +1006,7 @@ describe("OAuthManager", () => {
         token_type: "Bearer",
         scope: "mcp tools:read",
       });
-      storageOf(params).getScope.mockReturnValue("mcp tools:read");
+      storageOf(params).getScope.mockResolvedValue("mcp tools:read");
       const manager = new OAuthManager(params);
 
       expect(
@@ -1020,7 +1024,7 @@ describe("OAuthManager", () => {
         token_type: "Bearer",
         scope: "mcp",
       });
-      storageOf(params).getScope.mockReturnValue("mcp weather:read");
+      storageOf(params).getScope.mockResolvedValue("mcp weather:read");
       const manager = new OAuthManager(params);
 
       expect(
@@ -1037,7 +1041,7 @@ describe("OAuthManager", () => {
         access_token: "tok",
         token_type: "Bearer",
       });
-      storageOf(params).getScope.mockReturnValue(undefined);
+      storageOf(params).getScope.mockResolvedValue(undefined);
       const manager = new OAuthManager(params);
 
       expect(
@@ -1054,7 +1058,9 @@ describe("OAuthManager", () => {
         token_type: "Bearer",
         scope: "mcp tools:read tools:write",
       });
-      storageOf(params).getScope.mockReturnValue("mcp tools:read tools:write");
+      storageOf(params).getScope.mockResolvedValue(
+        "mcp tools:read tools:write",
+      );
       const manager = new OAuthManager(params);
 
       const outcome = await manager.handleAuthChallenge({
@@ -1136,7 +1142,7 @@ describe("OAuthManager", () => {
       const params = createMockParams();
       const manager = new OAuthManager(params);
       manager.setOAuthConfig({ scope: "catalog:scope" });
-      storageOf(params).getScope.mockReturnValue("stored union scope");
+      storageOf(params).getScope.mockResolvedValue("stored union scope");
       const captureSpy = vi
         .spyOn(
           (await import("@inspector/core/auth/providers.js"))
@@ -1164,7 +1170,7 @@ describe("OAuthManager", () => {
         token_type: "Bearer",
         scope: "mcp tools:read",
       });
-      storageOf(params).getScope.mockReturnValue("mcp tools:read");
+      storageOf(params).getScope.mockResolvedValue("mcp tools:read");
       const manager = new OAuthManager(params);
 
       const outcome = await manager.handleAuthChallenge({
@@ -1201,7 +1207,7 @@ describe("OAuthManager", () => {
       );
       mockedMcpAuth.mockResolvedValue("REDIRECT");
       const params = createMockParams();
-      storageOf(params).getScope.mockReturnValue("mcp tools:read");
+      storageOf(params).getScope.mockResolvedValue("mcp tools:read");
       const manager = new OAuthManager(params);
       const captureSpy = vi
         .spyOn(
@@ -1234,7 +1240,7 @@ describe("OAuthManager", () => {
       );
       mockedMcpAuth.mockResolvedValue("REDIRECT");
       const params = createMockParams();
-      storageOf(params).getScope.mockReturnValue("mcp tools:read");
+      storageOf(params).getScope.mockResolvedValue("mcp tools:read");
       storageOf(params).getTokens.mockResolvedValue({
         access_token: "access",
         refresh_token: "refresh",
@@ -1322,7 +1328,7 @@ describe("OAuthManager", () => {
           },
         },
       });
-      storageOf(params).getScope.mockReturnValue("mcp");
+      storageOf(params).getScope.mockResolvedValue("mcp");
       storageOf(params).getTokens.mockResolvedValue({
         access_token: "tok",
         token_type: "Bearer",
@@ -1360,7 +1366,7 @@ describe("OAuthManager", () => {
           },
         },
       });
-      storageOf(params).getScope.mockReturnValue("mcp tools:read");
+      storageOf(params).getScope.mockResolvedValue("mcp tools:read");
       storageOf(params).getTokens.mockResolvedValue({
         access_token: "tok",
         token_type: "Bearer",
@@ -1453,7 +1459,7 @@ describe("OAuthManager", () => {
           },
         },
       });
-      storageOf(params).getScope.mockReturnValue("mcp");
+      storageOf(params).getScope.mockResolvedValue("mcp");
       storageOf(params).getTokens.mockResolvedValue({
         access_token: "tok",
         token_type: "Bearer",
@@ -1501,7 +1507,7 @@ describe("OAuthManager", () => {
           },
         },
       });
-      storageOf(params).getScope.mockReturnValue("mcp tools:read");
+      storageOf(params).getScope.mockResolvedValue("mcp tools:read");
       storageOf(params).getTokens.mockResolvedValue({
         access_token: "old",
         token_type: "Bearer",
@@ -1635,7 +1641,7 @@ describe("OAuthManager", () => {
         token_type: "Bearer",
         scope: "mcp tools:read weather:read",
       };
-      storageOf(params).getScope.mockReturnValue("mcp tools:read");
+      storageOf(params).getScope.mockResolvedValue("mcp tools:read");
       storageOf(params)
         .getTokens.mockResolvedValueOnce(insufficientTokens)
         .mockResolvedValue(sufficientTokens);
@@ -1665,7 +1671,7 @@ describe("OAuthManager", () => {
         token_type: "Bearer",
         scope: "mcp tools:read weather:read",
       };
-      storageOf(params).getScope.mockReturnValue("mcp tools:read");
+      storageOf(params).getScope.mockResolvedValue("mcp tools:read");
       storageOf(params)
         .getTokens.mockResolvedValueOnce(insufficientTokens)
         .mockResolvedValueOnce(insufficientTokens)
@@ -1801,7 +1807,7 @@ describe("OAuthManager", () => {
         .mockResolvedValueOnce("AUTHORIZED")
         .mockResolvedValueOnce("REDIRECT");
       const params = createMockParams();
-      storageOf(params).getScope.mockReturnValue("mcp tools:read");
+      storageOf(params).getScope.mockResolvedValue("mcp tools:read");
       storageOf(params).getTokens.mockResolvedValue({
         access_token: "access",
         token_type: "Bearer",

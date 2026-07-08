@@ -143,7 +143,7 @@ export interface WaitForRemoteStoreOptions {
  * Poll GET /api/storage/:storeId until the response body satisfies `predicate`.
  * Use after persisting state (e.g. setServerState or client disconnect) and before
  * creating a second client/store or asserting on the API, so the test doesn't race
- * with async persist (Zustand setItem).
+ * with async persist before asserting on the API.
  *
  * Uses x-mcp-remote-auth: Bearer <authToken> for the request.
  *

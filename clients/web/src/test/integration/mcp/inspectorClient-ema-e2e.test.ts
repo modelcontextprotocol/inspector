@@ -83,7 +83,7 @@ describe("InspectorClient EMA E2E", () => {
   });
 
   beforeEach(async () => {
-    clearAllOAuthClientState();
+    await clearAllOAuthClientState();
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     const keys = await createEmaMockKeyMaterial();
@@ -199,14 +199,12 @@ describe("InspectorClient EMA E2E", () => {
     await flushStoreFileWrites(oauthTestStatePath);
 
     const raw = JSON.parse(await fs.readFile(oauthTestStatePath, "utf-8")) as {
-      state: {
-        servers: Record<
-          string,
-          { tokens?: { access_token?: string }; enterpriseManaged?: boolean }
-        >;
-      };
+      servers: Record<
+        string,
+        { tokens?: { access_token?: string }; enterpriseManaged?: boolean }
+      >;
     };
-    const entry = raw.state.servers[mcpUrl];
+    const entry = raw.servers[mcpUrl];
     expect(entry?.tokens?.access_token).toBeDefined();
     expect(entry?.enterpriseManaged).toBe(true);
   });
