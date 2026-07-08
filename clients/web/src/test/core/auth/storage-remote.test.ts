@@ -132,12 +132,12 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
       version: 0,
     };
     let resolveFetch!: (value: Response) => void;
-    const delayedFetch = vi.fn(
+    const delayedFetch = vi.fn<typeof fetch>(
       () =>
         new Promise<Response>((resolve) => {
           resolveFetch = resolve;
         }),
-    ) as unknown as typeof fetch;
+    );
 
     const delayedStorage = new RemoteOAuthStorage({
       baseUrl: "http://remote.example",
@@ -152,9 +152,9 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
   });
 
   it("load() rejects when remote GET fails instead of hanging", async () => {
-    const failingFetch = vi.fn(
+    const failingFetch = vi.fn<typeof fetch>(
       async () => new Response("server error", { status: 500 }),
-    ) as unknown as typeof fetch;
+    );
 
     const failingStorage = new RemoteOAuthStorage({
       baseUrl: "http://remote.example",

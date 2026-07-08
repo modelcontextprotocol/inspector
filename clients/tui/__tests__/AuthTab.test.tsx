@@ -309,6 +309,66 @@ describe("AuthTab", () => {
     expect(lastFrame() ?? "").toContain("OAuth Details");
   });
 
+  it("moves the step-up selection back up with the up arrow", async () => {
+    const onAuthorizeStepUp = vi.fn();
+    const onCancelStepUp = vi.fn();
+    const { client } = makeClient(sampleOAuthState);
+    const { stdin } = render(
+      <AuthTab
+        {...baseProps}
+        focused
+        inspectorClient={client}
+        oauthStatus="idle"
+        oauthMessage={null}
+        pendingStepUp={pendingStepUp}
+        onAuthorizeStepUp={onAuthorizeStepUp}
+        onCancelStepUp={onCancelStepUp}
+      />,
+    );
+    await tick();
+    // Move down to "cancel" (index 1), then back up to "authorize" (index 0).
+    stdin.write(DOWN);
+    await tick();
+    stdin.write(UP);
+    await tick();
+    stdin.write("\r");
+    await tick();
+    expect(onAuthorizeStepUp).toHaveBeenCalledTimes(1);
+    expect(onCancelStepUp).not.toHaveBeenCalled();
+  });
+
+  it("authorizes step-up with 'a', cancels with 'c', and ignores other keys", async () => {
+    const onAuthorizeStepUp = vi.fn();
+    const onCancelStepUp = vi.fn();
+    const { client } = makeClient(sampleOAuthState);
+    const { stdin } = render(
+      <AuthTab
+        {...baseProps}
+        focused
+        inspectorClient={client}
+        oauthStatus="idle"
+        oauthMessage={null}
+        pendingStepUp={pendingStepUp}
+        onAuthorizeStepUp={onAuthorizeStepUp}
+        onCancelStepUp={onCancelStepUp}
+      />,
+    );
+    await tick();
+    stdin.write("a");
+    await tick();
+    expect(onAuthorizeStepUp).toHaveBeenCalledTimes(1);
+
+    stdin.write("c");
+    await tick();
+    expect(onCancelStepUp).toHaveBeenCalledTimes(1);
+
+    // An unrelated key is swallowed while the step-up prompt is pending.
+    stdin.write("x");
+    await tick();
+    expect(onAuthorizeStepUp).toHaveBeenCalledTimes(1);
+    expect(onCancelStepUp).toHaveBeenCalledTimes(1);
+  });
+
   it("refreshes OAuth state when oauthComplete fires", async () => {
     const { client, getOAuthState, fire, listeners } =
       makeClient(sampleOAuthState);

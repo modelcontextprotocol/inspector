@@ -8,7 +8,10 @@ import type {
   OAuthTokens,
   OAuthMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import type { IdpSessionState, OAuthClientRegistrationKind } from "./storage.js";
+import type {
+  IdpSessionState,
+  OAuthClientRegistrationKind,
+} from "./storage.js";
 import type { OAuthPersistSnapshot } from "./oauth-persist.js";
 
 /**
