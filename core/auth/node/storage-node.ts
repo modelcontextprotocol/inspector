@@ -1,6 +1,6 @@
 import { OAuthStorageBase } from "../oauth-storage.js";
 import { OAuthMemoryStore } from "../store.js";
-import { createFileOAuthPersistBackend } from "../oauth-persist.js";
+import { createFileOAuthPersistBackend } from "./oauth-persist-file.js";
 import {
   getDefaultStorageDir,
   getStoreFilePath,

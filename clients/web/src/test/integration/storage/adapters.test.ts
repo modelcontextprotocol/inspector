@@ -12,7 +12,7 @@ import type { ServerType } from "@hono/node-server";
 import { NodeOAuthStorage } from "@inspector/core/auth/node/storage-node.js";
 import { RemoteOAuthStorage } from "@inspector/core/auth/remote/storage-remote.js";
 import { OAuthMemoryStore } from "@inspector/core/auth/store.js";
-import { createFileOAuthPersistBackend } from "@inspector/core/auth/oauth-persist.js";
+import { createFileOAuthPersistBackend } from "@inspector/core/auth/node/oauth-persist-file.js";
 import { createRemoteApp } from "@inspector/core/mcp/remote/node/server.js";
 import {
   writeStoreFile,

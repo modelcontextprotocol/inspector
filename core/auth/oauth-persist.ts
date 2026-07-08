@@ -1,17 +1,15 @@
 /**
- * OAuth persistence format and backends (file, remote HTTP, sessionStorage).
- * Writes plain JSON `{ servers, idpSessions }`. On read, accepts legacy
- * persist envelopes `{ state: { servers, idpSessions }, version }` and
- * promotes the inner payload.
+ * OAuth persistence format and isomorphic backends (remote HTTP,
+ * sessionStorage). Writes plain JSON `{ servers, idpSessions }`. On read,
+ * accepts legacy persist envelopes `{ state: { servers, idpSessions },
+ * version }` and promotes the inner payload.
+ *
+ * This module must stay browser-safe: it imports only the Node-free
+ * `store-serialize` helpers, never `store-io` (which pulls `node:fs`). The
+ * Node-only file backend lives in `./node/oauth-persist-file.ts`.
  */
 
-import {
-  readStoreFile,
-  writeStoreFile,
-  deleteStoreFile,
-  serializeStore,
-  parseStore,
-} from "../storage/store-io.js";
+import { serializeStore, parseStore } from "../storage/store-serialize.js";
 import type { IdpSessionState } from "./storage.js";
 import type { ServerOAuthState } from "./store.js";
 
@@ -74,30 +72,6 @@ export interface OAuthPersistBackend {
   read(): Promise<OAuthPersistSnapshot | null>;
   write(snapshot: OAuthPersistSnapshot): Promise<void>;
   remove?(): Promise<void>;
-}
-
-export interface FileOAuthPersistBackendOptions {
-  filePath: string;
-}
-
-export function createFileOAuthPersistBackend(
-  options: FileOAuthPersistBackendOptions,
-): OAuthPersistBackend {
-  return {
-    async read() {
-      const raw = await readStoreFile(options.filePath);
-      return parseOAuthPersistBlob(raw);
-    },
-    async write(snapshot) {
-      await writeStoreFile(
-        options.filePath,
-        serializeOAuthPersistBlob(snapshot),
-      );
-    },
-    async remove() {
-      await deleteStoreFile(options.filePath);
-    },
-  };
 }
 
 export interface RemoteOAuthPersistBackendOptions {

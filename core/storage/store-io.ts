@@ -12,6 +12,10 @@ import { readFile, writeFile } from "atomically";
 // isomorphic code can reuse it without pulling Node deps into the browser.
 export { validateStoreId } from "./store-id.js";
 
+// Likewise re-export the pure JSON (de)serializers from the Node-free
+// `store-serialize` module so existing `store-io` importers are unaffected.
+export { serializeStore, parseStore } from "./store-serialize.js";
+
 /**
  * Default storage directory (~/.mcp-inspector/storage or %USERPROFILE%\.mcp-inspector\storage on Windows).
  */
@@ -119,18 +123,4 @@ export async function deleteStoreFile(filePath: string): Promise<void> {
       throw error;
     }
   }
-}
-
-/**
- * Serialize store data to JSON string (consistent format for server writes).
- */
-export function serializeStore(data: unknown): string {
-  return JSON.stringify(data, null, 2);
-}
-
-/**
- * Parse store JSON string. Use after readStoreFile when returning parsed object.
- */
-export function parseStore(raw: string): unknown {
-  return JSON.parse(raw);
 }

@@ -579,6 +579,18 @@ describe("NodeOAuthStorage with custom storagePath", () => {
     resetNodeOAuthStorageCache();
   });
 
+  it("clearAllOAuthClientState is a no-op when no store file exists", async () => {
+    // Exercises the null-snapshot branch: read() returns null, so
+    // `snapshot?.servers ?? {}` yields no urls and nothing is cleared.
+    const filePath = getStateFilePath();
+    resetNodeOAuthStorageCache();
+    await fs.unlink(filePath).catch(() => {});
+
+    await expect(clearAllOAuthClientState()).resolves.toBeUndefined();
+
+    resetNodeOAuthStorageCache();
+  });
+
   it("should isolate state from default store", async () => {
     const customPath = path.join(
       os.tmpdir(),
