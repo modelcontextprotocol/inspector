@@ -126,4 +126,17 @@ describe("HistoryScreen", () => {
     // The sidebar (HistoryControls, with its Search box) is not rendered.
     expect(screen.queryByPlaceholderText("Search...")).toBeNull();
   });
+
+  it("shows the full stream when embedded, ignoring the live filter", () => {
+    // A search that matches nothing would empty the full-size screen...
+    renderWithMantine(
+      <HistoryScreen
+        {...baseProps}
+        ui={{ ...EMPTY_HISTORY_UI, search: "zzz-no-match" }}
+        embedded
+      />,
+    );
+    // ...but the embedded column shows the full stream (not the empty state).
+    expect(screen.queryByText("No request history")).toBeNull();
+  });
 });

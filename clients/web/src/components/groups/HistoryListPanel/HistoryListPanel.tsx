@@ -215,15 +215,26 @@ export function HistoryListPanel({
   const [pinnedOpen, setPinnedOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(true);
   const filteredEntries = useMemo(() => {
-    // `.filter()` returns a fresh array, so sorting in-place is safe.
+    // Embedded column: show the full stream (no filter sidebar to explain a
+    // mirrored filter). See LogStreamPanel (#1616). `.filter()` returns a fresh
+    // array, so sorting in-place is safe.
     const sorted = entries
-      .filter((e) =>
-        matchesFilters(e, searchText, visibleDirections, methodFilter),
+      .filter(
+        (e) =>
+          embedded ||
+          matchesFilters(e, searchText, visibleDirections, methodFilter),
       )
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     if (sortDirection === "newest-first") sorted.reverse();
     return sorted;
-  }, [entries, searchText, visibleDirections, methodFilter, sortDirection]);
+  }, [
+    entries,
+    searchText,
+    visibleDirections,
+    methodFilter,
+    sortDirection,
+    embedded,
+  ]);
 
   const pinnedEntries = useMemo(
     () => filteredEntries.filter((e) => pinnedIds.has(e.id)),

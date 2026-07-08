@@ -98,13 +98,17 @@ export function NetworkStreamPanel({
 }: NetworkStreamPanelProps) {
   const viewportRef = useScrollMemory("network-stream");
   const filteredEntries = useMemo(() => {
-    // `.filter()` returns a fresh array, so sorting in-place is safe.
+    // Embedded column: show the full stream (no filter sidebar to explain a
+    // mirrored filter). See LogStreamPanel (#1616). `.filter()` returns a fresh
+    // array, so sorting in-place is safe.
     const sorted = entries
-      .filter((e) => matchesFilters(e, filterText, visibleCategories))
+      .filter(
+        (e) => embedded || matchesFilters(e, filterText, visibleCategories),
+      )
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     if (sortDirection === "newest-first") sorted.reverse();
     return sorted;
-  }, [entries, filterText, visibleCategories, sortDirection]);
+  }, [entries, filterText, visibleCategories, sortDirection, embedded]);
 
   const hasEntries = entries.length > 0;
   const hasResults = filteredEntries.length > 0;

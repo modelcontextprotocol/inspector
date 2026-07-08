@@ -86,6 +86,28 @@ describe("ResizeHandle", () => {
     expect(document.body.classList.contains("resizing-col")).toBe(false);
   });
 
+  it("clears the drag body class if it unmounts mid-drag", () => {
+    const onChange = vi.fn();
+    const onCommit = vi.fn();
+    const { unmount } = renderWithMantine(
+      <ResizeHandle
+        value={400}
+        min={320}
+        max={720}
+        onChange={onChange}
+        onCommit={onCommit}
+      />,
+    );
+    fireEvent.pointerDown(screen.getByRole("separator"), {
+      clientX: 500,
+      pointerId: 1,
+    });
+    expect(document.body.classList.contains("resizing-col")).toBe(true);
+    // No pointerup/cancel — the handle is removed from the tree first.
+    unmount();
+    expect(document.body.classList.contains("resizing-col")).toBe(false);
+  });
+
   it("ignores pointer moves when no drag is active", () => {
     const { handle, onChange, onCommit } = setup();
     fireEvent.pointerMove(handle, { clientX: 460, pointerId: 1 });

@@ -1,4 +1,9 @@
-import { useRef, type KeyboardEvent, type PointerEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react";
 import { Box } from "@mantine/core";
 
 export interface ResizeHandleProps {
@@ -44,6 +49,13 @@ export function ResizeHandle({
 }: ResizeHandleProps) {
   // Gesture origin, captured on pointer down. `null` while idle.
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  // If the handle unmounts mid-drag — the window narrows past the split
+  // breakpoint or the server disconnects, either of which removes the handle
+  // from the tree before a pointerup/cancel fires — the drag body class would
+  // otherwise linger and leave `user-select: none` + `col-resize` applied
+  // page-wide. Clear it on unmount so the class is self-healing.
+  useEffect(() => () => document.body.classList.remove("resizing-col"), []);
 
   function handlePointerDown(e: PointerEvent<HTMLDivElement>) {
     drag.current = { startX: e.clientX, startWidth: value };

@@ -179,4 +179,17 @@ describe("NetworkScreen", () => {
     // The stream toolbar (Export) is still present.
     expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
   });
+
+  it("shows the full stream when embedded, ignoring the live filter", () => {
+    // A filter that matches nothing would empty the full-size screen...
+    renderWithMantine(
+      <NetworkScreen
+        {...baseProps}
+        ui={{ ...EMPTY_NETWORK_UI, filterText: "zzz-no-match" }}
+        embedded
+      />,
+    );
+    // ...but the embedded column shows the full stream (not the empty state).
+    expect(screen.queryByText("No network requests")).toBeNull();
+  });
 });

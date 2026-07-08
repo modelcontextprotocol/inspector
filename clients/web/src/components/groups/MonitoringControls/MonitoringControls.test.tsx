@@ -33,6 +33,20 @@ describe("MonitoringControls", () => {
     expect(screen.queryByRole("radio", { name: "Network" })).toBeNull();
   });
 
+  it("gives the tab switcher an accessible name", () => {
+    const { container } = renderWithMantine(
+      <MonitoringControls
+        tabs={TABS}
+        value="Logs"
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(
+      container.querySelector('[aria-label="Monitoring screen"]'),
+    ).not.toBeNull();
+  });
+
   it("marks the active tab as selected", () => {
     renderWithMantine(
       <MonitoringControls

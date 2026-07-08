@@ -80,13 +80,16 @@ export function LogStreamPanel({
 }: LogStreamPanelProps) {
   const viewportRef = useScrollMemory("logs-stream");
   const filteredEntries = useMemo(() => {
-    // `.filter()` returns a fresh array, so sorting in-place is safe.
+    // The embedded column has no filter sidebar, so it shows the full stream
+    // rather than mirroring the full-size screen's live filter with no visible
+    // control to explain it (#1616). `.filter()` returns a fresh array, so
+    // sorting in-place is safe.
     const sorted = entries
-      .filter((e) => matchesFilters(e, filterText, visibleLevels))
+      .filter((e) => embedded || matchesFilters(e, filterText, visibleLevels))
       .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime());
     if (sortDirection === "newest-first") sorted.reverse();
     return sorted;
-  }, [entries, filterText, visibleLevels, sortDirection]);
+  }, [entries, filterText, visibleLevels, sortDirection, embedded]);
 
   return (
     <PanelContainer>

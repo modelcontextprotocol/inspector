@@ -39,6 +39,7 @@ export function MonitoringControls({
         value={value}
         onChange={onChange}
         data={tabs}
+        aria-label="Monitoring screen"
       />
       <CloseButton aria-label="Close monitoring column" onClick={onClose} />
     </ControlsBar>

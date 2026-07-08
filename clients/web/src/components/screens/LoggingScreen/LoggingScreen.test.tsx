@@ -146,4 +146,24 @@ describe("LoggingScreen", () => {
     // The sidebar (LogControls, with its Set button) is not rendered.
     expect(screen.queryByRole("button", { name: "Set" })).toBeNull();
   });
+
+  it("shows the full stream when embedded, ignoring the live filter", () => {
+    const entries = [
+      {
+        receivedAt: new Date(),
+        params: { level: "info" as const, data: "hello" },
+      },
+    ];
+    // A filter that would hide the entry on the full-size screen...
+    renderWithMantine(
+      <LoggingScreen
+        {...baseProps}
+        entries={entries}
+        ui={{ ...EMPTY_LOGS_UI, filterText: "zzz-no-match" }}
+        embedded
+      />,
+    );
+    // ...is ignored in the embedded, sidebar-less column.
+    expect(screen.getByText("hello")).toBeInTheDocument();
+  });
 });
