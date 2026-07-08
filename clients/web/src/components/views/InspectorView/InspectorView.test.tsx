@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type {
   InitializeResult,
@@ -15,8 +15,25 @@ import {
   renderWithMantine,
   screen,
   waitFor,
+  within,
+  fireEvent,
 } from "../../../test/renderWithMantine";
 import { InspectorView, type InspectorViewProps } from "./InspectorView";
+
+// The monitoring column (#1616) is gated on a 1040px viewport media query.
+// happy-dom's viewport is 1024px, so that query is really false; make just that
+// gate controllable per test. ViewHeader's own 992/768 queries stay "wide" (as
+// they are in the real 1024px happy-dom viewport), so header rendering — and
+// every existing test below — is unaffected.
+const monitorWide = vi.hoisted(() => ({ value: false }));
+vi.mock("@mantine/hooks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@mantine/hooks")>();
+  return {
+    ...actual,
+    useMediaQuery: (query: string): boolean =>
+      query === "(min-width: 1040px)" ? monitorWide.value : true,
+  };
+});
 import type { BridgeFactory } from "../../elements/AppRenderer/AppRenderer";
 import {
   EMPTY_TOOLS_UI,
@@ -1272,6 +1289,271 @@ describe("InspectorView", () => {
       ).toBeInTheDocument();
       // ...but the indicator is not, since promptsListChanged is false.
       expect(screen.queryByText("List updated")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("pinned monitoring column (#1616)", () => {
+    const httpServer: ServerEntry = {
+      id: "beta",
+      name: "Beta",
+      config: { type: "streamable-http", url: "http://localhost:3000/mcp" },
+      connection: { status: "connected" },
+    };
+    const httpInit = initWithCapabilities(allCapabilities);
+
+    beforeEach(() => {
+      // Default narrow so a test only pins when it opts in.
+      monitorWide.value = false;
+    });
+
+    function connectedHttp(overrides: Partial<InspectorViewProps> = {}) {
+      return makeProps({
+        servers: [httpServer],
+        activeServer: "beta",
+        connectionStatus: "connected",
+        initializeResult: httpInit,
+        ...overrides,
+      });
+    }
+
+    async function gotoTab(tab: string) {
+      const user = userEvent.setup();
+      const tabSelect = await screen.findByDisplayValue("Servers");
+      await user.click(tabSelect);
+      await user.click(await screen.findByText(tab));
+      return user;
+    }
+
+    it("shows the Pin as column button on a monitor screen only when wide", async () => {
+      monitorWide.value = false;
+      const { unmount } = renderWithMantine(
+        <StatefulInspectorViewHost {...connectedHttp()} />,
+      );
+      await gotoTab("Logs");
+      expect(
+        screen.queryByRole("button", { name: "Pin as column" }),
+      ).not.toBeInTheDocument();
+      unmount();
+
+      monitorWide.value = true;
+      renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
+      await gotoTab("Logs");
+      expect(
+        await screen.findByRole("button", { name: "Pin as column" }),
+      ).toBeInTheDocument();
+    });
+
+    it("pins the monitor group into the column and removes it from the header", async () => {
+      monitorWide.value = true;
+      renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
+      const user = await gotoTab("Logs");
+      await user.click(
+        await screen.findByRole("button", { name: "Pin as column" }),
+      );
+
+      // Column is open (its close control is present).
+      expect(
+        await screen.findByRole("button", { name: "Close monitoring column" }),
+      ).toBeInTheDocument();
+
+      // The monitor group is gone from the header tab bar...
+      const header = screen.getByRole("banner");
+      expect(within(header).queryByRole("radio", { name: "Logs" })).toBeNull();
+      expect(
+        within(header).queryByRole("radio", { name: "History" }),
+      ).toBeNull();
+      expect(
+        within(header).queryByRole("radio", { name: "Network" }),
+      ).toBeNull();
+      // ...and a non-monitor tab still sits in the header.
+      expect(
+        within(header).getByRole("radio", { name: "Tools" }),
+      ).toBeInTheDocument();
+
+      // The column hosts the monitor tabs, defaulting to the pinned one.
+      expect(screen.getByRole("radio", { name: "Logs" })).toBeChecked();
+      expect(
+        screen.getByRole("radio", { name: "Network" }),
+      ).toBeInTheDocument();
+    });
+
+    it("returns the monitor group to the header when the column is closed", async () => {
+      monitorWide.value = true;
+      renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
+      const user = await gotoTab("Logs");
+      await user.click(
+        await screen.findByRole("button", { name: "Pin as column" }),
+      );
+      await user.click(
+        await screen.findByRole("button", { name: "Close monitoring column" }),
+      );
+
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring column" }),
+      ).toBeNull();
+      const header = screen.getByRole("banner");
+      expect(
+        within(header).getByRole("radio", { name: "Logs" }),
+      ).toBeInTheDocument();
+    });
+
+    it("persists the pin preference and reopens the column when wide", () => {
+      // Stored preference from a prior wide session.
+      window.localStorage.setItem("inspector.monitor.pinned", "true");
+
+      // Narrow: the column stays closed and the group is in the header.
+      monitorWide.value = false;
+      const { unmount } = renderWithMantine(
+        <StatefulInspectorViewHost {...connectedHttp()} />,
+      );
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring column" }),
+      ).toBeNull();
+      expect(
+        within(screen.getByRole("banner")).getByRole("radio", { name: "Logs" }),
+      ).toBeInTheDocument();
+      unmount();
+
+      // Wide: the preserved preference reopens the column without re-pinning.
+      monitorWide.value = true;
+      renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
+      expect(
+        screen.getByRole("button", { name: "Close monitoring column" }),
+      ).toBeInTheDocument();
+    });
+
+    it("keeps the column closed when the stored preference is explicitly false", () => {
+      window.localStorage.setItem("inspector.monitor.pinned", "false");
+      monitorWide.value = true;
+      renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring column" }),
+      ).toBeNull();
+    });
+
+    it("hides the column on disconnect but keeps the pin preference", () => {
+      window.localStorage.setItem("inspector.monitor.pinned", "true");
+      monitorWide.value = true;
+      const { rerender } = renderWithMantine(
+        <StatefulInspectorViewHost {...connectedHttp()} />,
+      );
+      expect(
+        screen.getByRole("button", { name: "Close monitoring column" }),
+      ).toBeInTheDocument();
+
+      rerender(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [httpServer],
+            activeServer: undefined,
+            connectionStatus: "disconnected",
+          })}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring column" }),
+      ).toBeNull();
+      // Preference is untouched — only the column's close button clears it.
+      expect(window.localStorage.getItem("inspector.monitor.pinned")).toBe(
+        "true",
+      );
+    });
+
+    it("drops Network from the column tabs for a stdio server", () => {
+      window.localStorage.setItem("inspector.monitor.pinned", "true");
+      monitorWide.value = true;
+      renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [sampleServer],
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities(allCapabilities),
+          })}
+        />,
+      );
+      // Column open, but Network is unavailable over stdio.
+      expect(
+        screen.getByRole("button", { name: "Close monitoring column" }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Logs" })).toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: "Network" })).toBeNull();
+    });
+
+    it("falls back to an available tab when the stored monitor tab is unavailable", () => {
+      // Stored tab is Network, but a stdio + logging-only server can't offer it.
+      window.localStorage.setItem("inspector.monitor.pinned", "true");
+      window.localStorage.setItem("inspector.monitor.tab", "Network");
+      monitorWide.value = true;
+      renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [sampleServer],
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({ logging: {} }),
+          })}
+        />,
+      );
+      // Column active tab clamps to the first available monitor tab (Logs).
+      expect(screen.getByRole("radio", { name: "Logs" })).toBeChecked();
+      expect(screen.queryByRole("radio", { name: "Network" })).toBeNull();
+    });
+
+    it("clamps the primary tab to Servers when the header has no other tab", () => {
+      // stdio + logging only ⇒ availableTabs = [Servers, Logs, History]; pinning
+      // moves both monitor tabs out, leaving [Servers] as the only header tab.
+      window.localStorage.setItem("inspector.monitor.pinned", "true");
+      monitorWide.value = true;
+      renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [sampleServer],
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({ logging: {} }),
+          })}
+        />,
+      );
+      const header = screen.getByRole("banner");
+      expect(
+        within(header)
+          .getAllByRole("radio")
+          .map((r) => r.getAttribute("value")),
+      ).toEqual(["Servers"]);
+      expect(
+        screen.getByRole("button", { name: "Close monitoring column" }),
+      ).toBeInTheDocument();
+    });
+
+    it("persists the selected column tab", async () => {
+      window.localStorage.setItem("inspector.monitor.pinned", "true");
+      monitorWide.value = true;
+      const user = userEvent.setup();
+      renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
+      await user.click(await screen.findByRole("radio", { name: "History" }));
+      await waitFor(() =>
+        expect(window.localStorage.getItem("inspector.monitor.tab")).toBe(
+          "History",
+        ),
+      );
+    });
+
+    it("resizes and persists the column width from the keyboard", async () => {
+      window.localStorage.setItem("inspector.monitor.pinned", "true");
+      window.localStorage.setItem("inspector.monitor.width", "420");
+      monitorWide.value = true;
+      renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
+      const handle = await screen.findByRole("separator", {
+        name: "Resize monitoring column",
+      });
+      // ArrowLeft widens by the 16px step (panel is on the right).
+      fireEvent.keyDown(handle, { key: "ArrowLeft" });
+      await waitFor(() =>
+        expect(window.localStorage.getItem("inspector.monitor.width")).toBe(
+          "436",
+        ),
+      );
     });
   });
 });

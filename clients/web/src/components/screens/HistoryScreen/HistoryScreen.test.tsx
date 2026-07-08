@@ -111,4 +111,19 @@ describe("HistoryScreen", () => {
       expect.objectContaining({ methodFilter: undefined }),
     );
   });
+
+  it("renders a pin-as-column button when onPin is provided and invokes it", async () => {
+    const user = userEvent.setup();
+    const onPin = vi.fn();
+    renderWithMantine(<HistoryScreen {...baseProps} onPin={onPin} />);
+    await user.click(screen.getByRole("button", { name: "Pin as column" }));
+    expect(onPin).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops the filter sidebar when embedded, keeping the request list", () => {
+    renderWithMantine(<HistoryScreen {...baseProps} embedded />);
+    expect(screen.getByText("Requests")).toBeInTheDocument();
+    // The sidebar (HistoryControls, with its Search box) is not rendered.
+    expect(screen.queryByPlaceholderText("Search...")).toBeNull();
+  });
 });

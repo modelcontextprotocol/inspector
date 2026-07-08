@@ -1,13 +1,5 @@
 import { useMemo } from "react";
-import {
-  Button,
-  Group,
-  Paper,
-  ScrollArea,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import type {
   FetchRequestCategory,
   FetchRequestEntry,
@@ -18,6 +10,8 @@ import {
   SortToggle,
   type SortDirection,
 } from "../../elements/SortToggle/SortToggle";
+import { PinColumnButton } from "../../elements/PinColumnButton/PinColumnButton";
+import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
 export interface NetworkStreamPanelProps {
@@ -30,6 +24,10 @@ export interface NetworkStreamPanelProps {
   onSortChange: (next: SortDirection) => void;
   compact: boolean;
   onToggleCompact: () => void;
+  /** See LogStreamPanel: shows a "pin as column" button when set (#1616). */
+  onPin?: () => void;
+  /** See LogStreamPanel: fills the flex parent instead of the viewport calc. */
+  embedded?: boolean;
 }
 
 const PanelContainer = Paper.withProps({
@@ -95,6 +93,8 @@ export function NetworkStreamPanel({
   onSortChange,
   compact,
   onToggleCompact,
+  onPin,
+  embedded = false,
 }: NetworkStreamPanelProps) {
   const viewportRef = useScrollMemory("network-stream");
   const filteredEntries = useMemo(() => {
@@ -114,6 +114,7 @@ export function NetworkStreamPanel({
       <Group justify="space-between" mb="sm">
         <Title order={4}>{formatTitle(filteredEntries.length)}</Title>
         <Group gap="xs">
+          {onPin ? <PinColumnButton onPin={onPin} /> : null}
           {hasResults && (
             <ListToggle compact={compact} onToggle={onToggleCompact} />
           )}
@@ -134,12 +135,7 @@ export function NetworkStreamPanel({
       {!hasResults ? (
         <EmptyState>No network requests</EmptyState>
       ) : (
-        <ScrollArea.Autosize
-          viewportRef={viewportRef}
-          mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)"
-          type="scroll"
-          offsetScrollbars
-        >
+        <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
           <Stack gap="md">
             {filteredEntries.map((entry) => (
               <NetworkEntry
@@ -149,7 +145,7 @@ export function NetworkStreamPanel({
               />
             ))}
           </Stack>
-        </ScrollArea.Autosize>
+        </EmbeddableScrollArea>
       )}
     </PanelContainer>
   );

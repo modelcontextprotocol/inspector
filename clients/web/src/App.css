@@ -422,3 +422,30 @@
   z-index: 200;
   box-shadow: var(--mantine-shadow-sm);
 }
+
+/*
+ * Draggable vertical divider between the primary screen area and the pinned
+ * monitoring column (#1616). The col-resize cursor, the hover/active accent,
+ * and the drag-time user-select suppression are all pseudo-selector / cursor /
+ * cross-element concerns that can't be expressed as Mantine props, so the whole
+ * unit lives here rather than split across the theme.
+ */
+.resize-handle {
+  flex: 0 0 auto;
+  width: 6px;
+  cursor: col-resize;
+  background-color: var(--inspector-border-default);
+  transition: background-color 120ms ease;
+  touch-action: none;
+}
+
+.resize-handle:hover,
+.resize-handle:focus-visible {
+  background-color: var(--mantine-primary-color-filled);
+}
+
+/* Suppress text selection anywhere on the page while a drag is in progress. */
+body.resizing-col {
+  user-select: none;
+  cursor: col-resize;
+}

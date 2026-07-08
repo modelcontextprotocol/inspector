@@ -4,7 +4,6 @@ import {
   Collapse,
   Group,
   Paper,
-  ScrollArea,
   Stack,
   Text,
   Title,
@@ -21,6 +20,8 @@ import {
   SortToggle,
   type SortDirection,
 } from "../../elements/SortToggle/SortToggle";
+import { PinColumnButton } from "../../elements/PinColumnButton/PinColumnButton";
+import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
 import { extractMethod } from "../historyUtils.js";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
@@ -43,6 +44,10 @@ export interface HistoryListPanelProps {
   onSortChange: (next: SortDirection) => void;
   compact: boolean;
   onToggleCompact: () => void;
+  /** See LogStreamPanel: shows a "pin as column" button when set (#1616). */
+  onPin?: () => void;
+  /** See LogStreamPanel: fills the flex parent instead of the viewport calc. */
+  embedded?: boolean;
 }
 
 const PanelContainer = Paper.withProps({
@@ -201,6 +206,8 @@ export function HistoryListPanel({
   onSortChange,
   compact,
   onToggleCompact,
+  onPin,
+  embedded = false,
 }: HistoryListPanelProps) {
   const viewportRef = useScrollMemory("history-list");
   // Per-section expand/collapse, like the LogControls level toggles. Both start
@@ -238,6 +245,7 @@ export function HistoryListPanel({
       <Group justify="space-between" mb="sm">
         <Title order={4}>Requests</Title>
         <Group gap="xs">
+          {onPin ? <PinColumnButton onPin={onPin} /> : null}
           {hasResults && (
             <ListToggle compact={compact} onToggle={onToggleCompact} />
           )}
@@ -262,12 +270,7 @@ export function HistoryListPanel({
       {!hasResults ? (
         <EmptyState>No request history</EmptyState>
       ) : (
-        <ScrollArea.Autosize
-          viewportRef={viewportRef}
-          mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)"
-          type="scroll"
-          offsetScrollbars
-        >
+        <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
           <Stack gap="md">
             {pinnedEntries.length > 0 && (
               <CollapsibleSection
@@ -325,7 +328,7 @@ export function HistoryListPanel({
               </CollapsibleSection>
             )}
           </Stack>
-        </ScrollArea.Autosize>
+        </EmbeddableScrollArea>
       )}
     </PanelContainer>
   );

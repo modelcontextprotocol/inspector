@@ -1,13 +1,5 @@
 import { useMemo } from "react";
-import {
-  Button,
-  Group,
-  Paper,
-  ScrollArea,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 import { LogEntry } from "../../elements/LogEntry/LogEntry";
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
@@ -15,6 +7,8 @@ import {
   SortToggle,
   type SortDirection,
 } from "../../elements/SortToggle/SortToggle";
+import { PinColumnButton } from "../../elements/PinColumnButton/PinColumnButton";
+import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
 export interface LogStreamPanelProps {
@@ -25,6 +19,18 @@ export interface LogStreamPanelProps {
   onExport: () => void;
   sortDirection: SortDirection;
   onSortChange: (next: SortDirection) => void;
+  /**
+   * When set, renders a "pin as column" button in the toolbar that opens this
+   * screen in the monitoring column (#1616). Omitted when the panel is already
+   * embedded in that column (or when pinning isn't available).
+   */
+  onPin?: () => void;
+  /**
+   * True when this panel is rendered inside the monitoring column. Switches the
+   * scroll region from the viewport-height calc to filling its flex parent, so
+   * it fits below the column's controls row without viewport math.
+   */
+  embedded?: boolean;
 }
 
 const PanelContainer = Paper.withProps({
@@ -69,6 +75,8 @@ export function LogStreamPanel({
   onExport,
   sortDirection,
   onSortChange,
+  onPin,
+  embedded = false,
 }: LogStreamPanelProps) {
   const viewportRef = useScrollMemory("logs-stream");
   const filteredEntries = useMemo(() => {
@@ -85,6 +93,7 @@ export function LogStreamPanel({
       <Group justify="space-between" mb="sm">
         <Title order={4}>Log Stream</Title>
         <Group>
+          {onPin ? <PinColumnButton onPin={onPin} /> : null}
           <SortToggle
             value={sortDirection}
             onChange={onSortChange}
@@ -107,18 +116,13 @@ export function LogStreamPanel({
         </Group>
       </Group>
       {filteredEntries.length > 0 ? (
-        <ScrollArea.Autosize
-          viewportRef={viewportRef}
-          mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)"
-          type="scroll"
-          offsetScrollbars
-        >
+        <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
           <Stack gap="xs">
             {filteredEntries.map((entry, index) => (
               <LogEntry key={index} entry={entry} />
             ))}
           </Stack>
-        </ScrollArea.Autosize>
+        </EmbeddableScrollArea>
       ) : (
         <EmptyCenter>
           <Text c="dimmed">No log entries</Text>
