@@ -67,6 +67,58 @@ describe("useEmaIdpLoginState", () => {
     });
   });
 
+  it("logout swallows a clear failure without an unhandled rejection and keeps state", async () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const payload = btoa(JSON.stringify({ exp }))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    vi.mocked(storage.getIdpSession).mockResolvedValue({
+      idToken: `h.${payload}.s`,
+    });
+    vi.mocked(storage.clearIdpSession).mockRejectedValue(
+      new Error("storage backend unreachable"),
+    );
+    const unhandled = vi.fn();
+    const onUnhandled = (event: PromiseRejectionEvent) => {
+      event.preventDefault();
+      unhandled();
+    };
+    window.addEventListener("unhandledrejection", onUnhandled);
+
+    try {
+      const { result } = renderHook(() =>
+        useEmaIdpLoginState(storage, "https://idp.test", true),
+      );
+
+      await waitFor(() => {
+        expect(result.current.loginState).toBe("logged_in");
+      });
+
+      act(() => {
+        result.current.logout();
+      });
+
+      await waitFor(() => {
+        expect(storage.clearIdpSession).toHaveBeenCalledWith(
+          "https://idp.test",
+        );
+      });
+      // Give the rejected promise a turn to settle so any unhandled rejection
+      // would have fired.
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // Clear failed, so the session is still present: state stays "logged_in"
+      // and no unhandled rejection escaped.
+      expect(result.current.loginState).toBe("logged_in");
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("unhandledrejection", onUnhandled);
+    }
+  });
+
   it("reports 'expired' for an expired token with no refresh token", async () => {
     const exp = Math.floor(Date.now() / 1000) - 3600;
     const payload = btoa(JSON.stringify({ exp }))

@@ -17,8 +17,12 @@ const defaultFetch: typeof fetch = (...args) => globalThis.fetch(...args);
  * Shared web OAuth store: `RemoteOAuthStorage` → `GET/POST /api/storage/oauth`
  * → `~/.mcp-inspector/storage/oauth.json` (same file as CLI/TUI).
  *
- * Memoized by `{ baseUrl, authToken }` so connect, EMA IdP session, and
- * per-server clear all mutate the same in-memory view.
+ * Caches a single instance keyed by `{ baseUrl, authToken }`: repeat calls with
+ * the same key return that instance, so connect, EMA IdP session, and per-server
+ * clear all mutate the same in-memory view. A call with a different key replaces
+ * the cached instance (cache of one). That is sufficient because the web app
+ * uses a stable origin + page-lifetime API token, so the key never changes
+ * within a session.
  */
 export function getRemoteOAuthStorage(
   options: WebRemoteOAuthStorageOptions,

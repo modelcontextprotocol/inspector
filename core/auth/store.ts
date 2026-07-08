@@ -78,6 +78,13 @@ export function createOAuthStore(
     resolvePersistLoad = resolve;
     rejectPersistLoad = reject;
   });
+  // Zustand kicks off async hydration as soon as the store is created, before
+  // any consumer calls `OAuthStorageBase.load()`. If that initial read fails
+  // and no one is awaiting yet, `persistLoadPromise` would reject with no
+  // handler and surface as an unhandled rejection. Attach a no-op handler so
+  // the promise is always "handled"; real awaiters still observe the rejection
+  // through the reference returned by `waitForOAuthStorePersistLoad`.
+  void persistLoadPromise.catch(() => {});
 
   const settlePersistLoad = (error?: unknown) => {
     if (persistLoadSettled) {
