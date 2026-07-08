@@ -9,6 +9,13 @@ describe("parseOAuthPersistBlob", () => {
     expect(parseOAuthPersistBlob(null)).toBeNull();
   });
 
+  it("returns null for an empty object (server missing-file response)", () => {
+    // The remote read() path relies on this: the server answers a missing
+    // store with `c.json({}, 200)`, and the backend passes that straight
+    // through instead of special-casing an empty object.
+    expect(parseOAuthPersistBlob({})).toBeNull();
+  });
+
   it("reads plain JSON with servers and idpSessions", () => {
     const snapshot = {
       servers: {
