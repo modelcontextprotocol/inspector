@@ -21,6 +21,10 @@ export interface NetworkScreenProps {
   onSortChange: (next: SortDirection) => void;
   compact: boolean;
   onToggleCompact: () => void;
+  /** See LoggingScreen: shows a "pin as column" button when set (#1616). */
+  onPin?: () => void;
+  /** See LoggingScreen: fills the parent height and drops the filter sidebar. */
+  embedded?: boolean;
 }
 
 // Filter text + visible-category set — controlled by the parent (App) as one
@@ -57,6 +61,8 @@ export function NetworkScreen({
   onSortChange,
   compact,
   onToggleCompact,
+  onPin,
+  embedded = false,
 }: NetworkScreenProps) {
   const { filterText, visibleCategories } = ui;
 
@@ -81,18 +87,22 @@ export function NetworkScreen({
   }
 
   return (
-    <ScreenLayout>
-      <Sidebar>
-        <SidebarCard>
-          <NetworkControls
-            filterText={filterText}
-            visibleCategories={visibleCategories}
-            onFilterChange={(value) => onUiChange({ ...ui, filterText: value })}
-            onToggleCategory={handleToggleCategory}
-            onToggleAllCategories={handleToggleAllCategories}
-          />
-        </SidebarCard>
-      </Sidebar>
+    <ScreenLayout h={embedded ? "100%" : undefined}>
+      {embedded ? null : (
+        <Sidebar>
+          <SidebarCard>
+            <NetworkControls
+              filterText={filterText}
+              visibleCategories={visibleCategories}
+              onFilterChange={(value) =>
+                onUiChange({ ...ui, filterText: value })
+              }
+              onToggleCategory={handleToggleCategory}
+              onToggleAllCategories={handleToggleAllCategories}
+            />
+          </SidebarCard>
+        </Sidebar>
+      )}
       <NetworkStreamPanel
         entries={entries}
         filterText={filterText}
@@ -103,6 +113,8 @@ export function NetworkScreen({
         onSortChange={onSortChange}
         compact={compact}
         onToggleCompact={onToggleCompact}
+        onPin={onPin}
+        embedded={embedded}
       />
     </ScreenLayout>
   );

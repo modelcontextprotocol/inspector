@@ -131,4 +131,62 @@ describe("LoggingScreen", () => {
     await user.click(screen.getByRole("button", { name: "Set" }));
     expect(onSetLevel).toHaveBeenCalledWith("info");
   });
+
+  it("renders a pin-as-column button when onPin is provided and invokes it", async () => {
+    const user = userEvent.setup();
+    const onPin = vi.fn();
+    renderWithMantine(<LoggingScreen {...baseProps} onPin={onPin} />);
+    await user.click(screen.getByRole("button", { name: "Pin as column" }));
+    expect(onPin).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops the filter sidebar when embedded, keeping the stream", () => {
+    renderWithMantine(<LoggingScreen {...baseProps} embedded />);
+    expect(screen.getByText("Log Stream")).toBeInTheDocument();
+    // The sidebar (LogControls, with its Set button) is not rendered.
+    expect(screen.queryByRole("button", { name: "Set" })).toBeNull();
+  });
+
+  it("applies the search text but ignores the level filter when embedded", () => {
+    const entries = [
+      {
+        receivedAt: new Date(),
+        params: { level: "info" as const, data: "hello" },
+      },
+    ];
+    renderWithMantine(
+      <LoggingScreen
+        {...baseProps}
+        entries={entries}
+        ui={{
+          ...EMPTY_LOGS_UI,
+          // The level filter would hide this entry on the full-size screen...
+          visibleLevels: { ...EMPTY_LOGS_UI.visibleLevels, info: false },
+          // ...but the column search matches it.
+          filterText: "hello",
+        }}
+        embedded
+      />,
+    );
+    // Search matches + level filter is ignored → the entry shows.
+    expect(screen.getByText("hello")).toBeInTheDocument();
+  });
+
+  it("hides entries not matching the column search when embedded", () => {
+    const entries = [
+      {
+        receivedAt: new Date(),
+        params: { level: "info" as const, data: "hello" },
+      },
+    ];
+    renderWithMantine(
+      <LoggingScreen
+        {...baseProps}
+        entries={entries}
+        ui={{ ...EMPTY_LOGS_UI, filterText: "zzz-no-match" }}
+        embedded
+      />,
+    );
+    expect(screen.queryByText("hello")).toBeNull();
+  });
 });

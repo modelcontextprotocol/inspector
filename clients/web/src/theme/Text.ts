@@ -16,6 +16,16 @@ export const ThemeText = Text.extend({
         },
       };
     }
+    // Single-line text that never wraps — used inside a horizontal ScrollArea so
+    // a long value (e.g. a network URL in the compact column) scrolls instead of
+    // wrapping to many lines (#1616).
+    if (props.variant === "nowrap") {
+      return {
+        root: {
+          whiteSpace: "nowrap",
+        },
+      };
+    }
     return { root: {} };
   },
 });

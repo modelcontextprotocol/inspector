@@ -163,4 +163,49 @@ describe("NetworkScreen", () => {
     expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Export" })).toBeDisabled();
   });
+
+  it("renders a pin-as-column button when onPin is provided and invokes it", async () => {
+    const user = userEvent.setup();
+    const onPin = vi.fn();
+    renderWithMantine(<NetworkScreen {...baseProps} onPin={onPin} />);
+    await user.click(screen.getByRole("button", { name: "Pin as column" }));
+    expect(onPin).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops the filter sidebar when embedded, keeping the request list", () => {
+    renderWithMantine(<NetworkScreen {...baseProps} embedded />);
+    // The sidebar (NetworkControls, with its Search box) is not rendered.
+    expect(screen.queryByPlaceholderText("Search...")).toBeNull();
+    // The stream toolbar (Export) is still present.
+    expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
+  });
+
+  it("applies the search text but ignores the category filter when embedded", () => {
+    renderWithMantine(
+      <NetworkScreen
+        {...baseProps}
+        ui={{
+          ...EMPTY_NETWORK_UI,
+          // Category filter would hide the transport entry on the full-size
+          // screen...
+          visibleCategories: { auth: true, transport: false },
+          // ...but the column search matches it.
+          filterText: "example.com",
+        }}
+        embedded
+      />,
+    );
+    expect(screen.queryByText("No network requests")).toBeNull();
+  });
+
+  it("hides entries not matching the column search when embedded", () => {
+    renderWithMantine(
+      <NetworkScreen
+        {...baseProps}
+        ui={{ ...EMPTY_NETWORK_UI, filterText: "zzz-no-match" }}
+        embedded
+      />,
+    );
+    expect(screen.getByText("No network requests")).toBeInTheDocument();
+  });
 });

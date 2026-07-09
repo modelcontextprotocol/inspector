@@ -25,6 +25,10 @@ export interface HistoryScreenProps {
   onSortChange: (next: SortDirection) => void;
   compact: boolean;
   onToggleCompact: () => void;
+  /** See LoggingScreen: shows a "pin as column" button when set (#1616). */
+  onPin?: () => void;
+  /** See LoggingScreen: fills the parent height and drops the filter sidebar. */
+  embedded?: boolean;
 }
 
 // Search text, method filter, and per-direction visibility — controlled by the
@@ -69,6 +73,8 @@ export function HistoryScreen({
   onSortChange,
   compact,
   onToggleCompact,
+  onPin,
+  embedded = false,
 }: HistoryScreenProps) {
   const { search, methodFilter, visibleDirections } = ui;
 
@@ -101,23 +107,25 @@ export function HistoryScreen({
   }, [ui, visibleDirections, onUiChange]);
 
   return (
-    <ScreenLayout>
-      <Sidebar>
-        <SidebarCard>
-          <HistoryControls
-            searchText={search}
-            methodFilter={methodFilter}
-            availableMethods={availableMethods}
-            visibleDirections={visibleDirections}
-            onSearchChange={(value) => onUiChange({ ...ui, search: value })}
-            onMethodFilterChange={(value) =>
-              onUiChange({ ...ui, methodFilter: value })
-            }
-            onToggleDirection={handleToggleDirection}
-            onToggleAllDirections={handleToggleAllDirections}
-          />
-        </SidebarCard>
-      </Sidebar>
+    <ScreenLayout h={embedded ? "100%" : undefined}>
+      {embedded ? null : (
+        <Sidebar>
+          <SidebarCard>
+            <HistoryControls
+              searchText={search}
+              methodFilter={methodFilter}
+              availableMethods={availableMethods}
+              visibleDirections={visibleDirections}
+              onSearchChange={(value) => onUiChange({ ...ui, search: value })}
+              onMethodFilterChange={(value) =>
+                onUiChange({ ...ui, methodFilter: value })
+              }
+              onToggleDirection={handleToggleDirection}
+              onToggleAllDirections={handleToggleAllDirections}
+            />
+          </SidebarCard>
+        </Sidebar>
+      )}
       <HistoryListPanel
         entries={entries}
         pinnedIds={pinnedIds}
@@ -134,6 +142,8 @@ export function HistoryScreen({
         onSortChange={onSortChange}
         compact={compact}
         onToggleCompact={onToggleCompact}
+        onPin={onPin}
+        embedded={embedded}
       />
     </ScreenLayout>
   );
