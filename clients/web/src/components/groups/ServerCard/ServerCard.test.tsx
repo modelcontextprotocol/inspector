@@ -363,4 +363,112 @@ describe("ServerCard", () => {
       expect(onClearHighlight).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("connection-failed border (#1621)", () => {
+    it("draws the red errored-variant border when errored", () => {
+      const { container } = renderWithMantine(
+        <ServerCard {...baseProps} connection={disconnected} errored />,
+      );
+      expect(
+        container.querySelector('[data-variant="errored"]'),
+      ).not.toBeNull();
+    });
+
+    it("does not draw the errored border when not errored", () => {
+      const { container } = renderWithMantine(
+        <ServerCard {...baseProps} connection={disconnected} />,
+      );
+      expect(container.querySelector('[data-variant="errored"]')).toBeNull();
+    });
+
+    it("prefers the dimmed (disabled) variant over the errored border", () => {
+      // A dimmed card (another server active) is inert; that wins over the
+      // error border so the card can't look interactive.
+      const { container } = renderWithMantine(
+        <ServerCard
+          {...baseProps}
+          connection={disconnected}
+          activeServer="other"
+          errored
+        />,
+      );
+      expect(
+        container.querySelector('[data-variant="disabled"]'),
+      ).not.toBeNull();
+      expect(container.querySelector('[data-variant="errored"]')).toBeNull();
+    });
+
+    it("prefers the errored border over the freshly-added highlight", () => {
+      const { container } = renderWithMantine(
+        <ServerCard
+          {...baseProps}
+          connection={disconnected}
+          errored
+          highlighted
+        />,
+      );
+      expect(
+        container.querySelector('[data-variant="errored"]'),
+      ).not.toBeNull();
+      expect(
+        container.querySelector('[data-variant="highlighted"]'),
+      ).toBeNull();
+    });
+
+    it("scrolls the card into view on the errored transition", () => {
+      vi.useFakeTimers();
+      const scrollIntoView = vi.fn();
+      const orig = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoView;
+      try {
+        const { rerender } = renderWithMantine(
+          <ServerCard {...baseProps} connection={disconnected} />,
+        );
+        // No scroll while not errored.
+        vi.advanceTimersByTime(1000);
+        expect(scrollIntoView).not.toHaveBeenCalled();
+
+        // Becoming errored schedules a deferred scroll (past the column open).
+        rerender(
+          <ServerCard {...baseProps} connection={disconnected} errored />,
+        );
+        expect(scrollIntoView).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(320);
+        expect(scrollIntoView).toHaveBeenCalledTimes(1);
+
+        // A further re-render while still errored does not scroll again (so it
+        // won't fight a user who scrolled away).
+        rerender(
+          <ServerCard
+            {...baseProps}
+            name="Renamed"
+            connection={disconnected}
+            errored
+          />,
+        );
+        vi.advanceTimersByTime(1000);
+        expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      } finally {
+        Element.prototype.scrollIntoView = orig;
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not scroll when mounted already errored (no transition)", () => {
+      vi.useFakeTimers();
+      const scrollIntoView = vi.fn();
+      const orig = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoView;
+      try {
+        renderWithMantine(
+          <ServerCard {...baseProps} connection={disconnected} errored />,
+        );
+        vi.advanceTimersByTime(1000);
+        expect(scrollIntoView).not.toHaveBeenCalled();
+      } finally {
+        Element.prototype.scrollIntoView = orig;
+        vi.useRealTimers();
+      }
+    });
+  });
 });

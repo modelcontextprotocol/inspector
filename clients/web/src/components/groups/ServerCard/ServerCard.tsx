@@ -9,6 +9,7 @@ import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/Serv
 import { TransportBadge } from "../../elements/TransportBadge/TransportBadge";
 import { ConnectionToggle } from "../../elements/ConnectionToggle/ConnectionToggle";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { FAILED_CARD_SCROLL_DELAY_MS } from "../../views/InspectorView/monitorColumnAnimation";
 
 export interface ServerCardProps extends ServerEntry {
   activeServer?: string;
@@ -38,6 +39,12 @@ export interface ServerCardProps extends ServerEntry {
    * eye. Cleared by `onClearHighlight` on any click on the card.
    */
   highlighted?: boolean;
+  /**
+   * When true, this server's last connection attempt failed: the card draws a
+   * red border to flag it (#1621). The parent clears this when another server
+   * is connected or a new connection is attempted.
+   */
+  errored?: boolean;
   /**
    * Whether a highlighted card scrolls itself into view. When several cards are
    * highlighted at once (a batch import) only the first should scroll, so the
@@ -135,6 +142,7 @@ export function ServerCard({
   writable = true,
   dragHandle,
   highlighted = false,
+  errored = false,
   scrollOnHighlight = true,
   onClearHighlight,
 }: ServerCardProps) {
@@ -148,6 +156,23 @@ export function ServerCard({
       rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [highlighted, scrollOnHighlight]);
+
+  // Scroll the failed card into view on the disconnected→errored transition
+  // (#1621), deferred past the monitoring column's open (`FAILED_CARD_SCROLL_
+  // DELAY_MS`, derived from the column's slide duration) so the grid reflow
+  // settles before `scrollIntoView` measures the card. Guarded by a ref so a
+  // re-render while still errored doesn't re-scroll and fight the user if they've
+  // scrolled away.
+  const wasErroredRef = useRef(errored);
+  useEffect(() => {
+    const justErrored = errored && !wasErroredRef.current;
+    wasErroredRef.current = errored;
+    if (!justErrored) return;
+    const timer = setTimeout(() => {
+      rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, FAILED_CARD_SCROLL_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [errored]);
   const transport = getTransport(config);
   const commandOrUrl = getCommandOrUrl(config);
   const version = info?.version;
@@ -155,12 +180,15 @@ export function ServerCard({
     connection.status === "connected" ? connection.protocolVersion : undefined;
 
   // A dimmed card (another server is active) is inert, so the disabled variant
-  // wins; otherwise a freshly-added card draws the highlighted green border.
+  // wins; otherwise a failed-connection card draws the red error border, then a
+  // freshly-added card draws the highlighted green border.
   const variant = isDimmed
     ? "disabled"
-    : highlighted
-      ? "highlighted"
-      : undefined;
+    : errored
+      ? "errored"
+      : highlighted
+        ? "highlighted"
+        : undefined;
 
   return (
     <Card

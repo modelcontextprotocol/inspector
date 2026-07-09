@@ -11,6 +11,7 @@ import type { TasksUiState } from "./TasksScreen/TasksScreen";
 import type { LogsUiState } from "./LoggingScreen/LoggingScreen";
 import type { HistoryUiState } from "./HistoryScreen/HistoryScreen";
 import type { NetworkUiState } from "./NetworkScreen/NetworkScreen";
+import type { ConsoleUiState } from "./ConsoleScreen/ConsoleScreen";
 import { ALL_LEVELS_VISIBLE } from "./LoggingScreen/logLevels";
 import { ALL_CATEGORIES_VISIBLE } from "./NetworkScreen/fetchCategories";
 
@@ -61,6 +62,10 @@ export const EMPTY_HISTORY_UI: HistoryUiState = {
 export const EMPTY_NETWORK_UI: NetworkUiState = {
   filterText: "",
   visibleCategories: ALL_CATEGORIES_VISIBLE,
+};
+
+export const EMPTY_CONSOLE_UI: ConsoleUiState = {
+  filterText: "",
 };
 
 /** Registry for OAuth resume snapshot restore (data-only; setters live in App). */

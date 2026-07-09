@@ -50,6 +50,19 @@ export const ThemeCard = Card.extend({
         },
       };
     }
+    if (props.variant === "errored") {
+      // Server card whose last connection attempt failed: a red border flags it
+      // until another server is connected/attempted (#1621). Mirrors the
+      // `highlighted` variant; the border itself comes from the inherited
+      // `withBorder: true` default above.
+      return {
+        root: {
+          backgroundColor: "var(--inspector-surface-card)",
+          borderColor: "var(--inspector-error-border)",
+          borderWidth: 2,
+        },
+      };
+    }
     if (props.variant === "preview") {
       // Container for the resource preview / template form panels: sizes to
       // content (no forced height) but caps at the screen's available area

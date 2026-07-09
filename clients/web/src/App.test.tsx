@@ -44,8 +44,18 @@ const { messageLogClear } = vi.hoisted(() => ({ messageLogClear: vi.fn() }));
 vi.mock("@inspector/core/mcp/index.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@inspector/core/mcp/index.js")>();
+  // When set, the next `connect()` rejects with this value (one-shot), so a test
+  // can exercise the handshake-failure path. Cleared after it fires.
+  let nextConnectRejection: unknown = null;
   class FakeInspectorClient extends EventTarget {
-    connect = vi.fn().mockResolvedValue(undefined);
+    connect = vi.fn(() => {
+      if (nextConnectRejection !== null) {
+        const err = nextConnectRejection;
+        nextConnectRejection = null;
+        return Promise.reject(err);
+      }
+      return Promise.resolve(undefined);
+    });
     disconnect = vi.fn().mockResolvedValue(undefined);
     callTool = vi
       .fn()
@@ -88,6 +98,10 @@ vi.mock("@inspector/core/mcp/index.js", async (importOriginal) => {
     }),
     // Test-only handle so the test can grab the live instance and fire events.
     __clientInstances: instances,
+    // Test-only: arm the next connect() to reject (handshake-failure path).
+    __rejectNextConnect: (err: unknown) => {
+      nextConnectRejection = err;
+    },
   };
 });
 
@@ -227,6 +241,9 @@ vi.mock("@inspector/core/react/useMessageLog.js", () => ({
 vi.mock("@inspector/core/react/useFetchRequestLog.js", () => ({
   useFetchRequestLog: vi.fn(() => ({ fetchRequests: [] })),
 }));
+vi.mock("@inspector/core/react/useStderrLog.js", () => ({
+  useStderrLog: vi.fn(() => ({ stderrLogs: [] })),
+}));
 vi.mock("@inspector/core/react/useSettingsDraft.js", () => ({
   useSettingsDraft: vi.fn(() => ({
     // `draft` is widened so tests can override the return with a populated
@@ -260,6 +277,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
     readResourceState?: { status?: string };
     currentLogLevel?: string;
     activeTab?: string;
+    erroredServerId?: string;
     onActiveTabChange: (tab: string) => void;
     onToggleConnection: (id: string) => void;
     onToolsUiChange: (next: {
@@ -319,6 +337,9 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
       </span>
       <span data-testid="log-level">{props.currentLogLevel}</span>
       <span data-testid="active-tab">{props.activeTab ?? "none"}</span>
+      <span data-testid="errored-server">
+        {props.erroredServerId ?? "none"}
+      </span>
       <button onClick={() => props.onActiveTabChange("Servers")}>
         switch-servers-tab
       </button>
@@ -447,9 +468,57 @@ const clientInstances = (
   McpIndex as unknown as { __clientInstances: EventTarget[] }
 ).__clientInstances;
 
+const rejectNextConnect = (
+  McpIndex as unknown as { __rejectNextConnect: (err: unknown) => void }
+).__rejectNextConnect;
+
 const fetchLogInstances = (
   FetchLogModule as unknown as { __fetchLogInstances: EventTarget[] }
 ).__fetchLogInstances;
+
+describe("App failed-connection card border (#1621)", () => {
+  beforeEach(() => {
+    clientInstances.length = 0;
+    vi.mocked(useInspectorClient).mockReturnValue(DEFAULT_USE_INSPECTOR_CLIENT);
+  });
+
+  it("flags the server whose connect attempt fails as erroredServerId", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    expect(screen.getByTestId("errored-server")).toHaveTextContent("none");
+
+    // Arm the next connect() to reject with a plain (non-auth) handshake error.
+    rejectNextConnect(new Error("spawn failed"));
+    await user.click(screen.getByText("connect"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("errored-server")).toHaveTextContent("A"),
+    );
+  });
+
+  it("clears the flag when a new connection attempt starts", async () => {
+    // Report status "error" so the *second* connect click is treated as a fresh
+    // attempt (not a disconnect of a live session), exercising the clear.
+    vi.mocked(useInspectorClient).mockReturnValue({
+      ...DEFAULT_USE_INSPECTOR_CLIENT,
+      status: "error",
+    });
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+
+    rejectNextConnect(new Error("spawn failed"));
+    await user.click(screen.getByText("connect"));
+    await waitFor(() =>
+      expect(screen.getByTestId("errored-server")).toHaveTextContent("A"),
+    );
+
+    // A new attempt (this one resolves) clears the red-border flag.
+    await user.click(screen.getByText("connect"));
+    await waitFor(() =>
+      expect(screen.getByTestId("errored-server")).toHaveTextContent("none"),
+    );
+  });
+});
 
 describe("App session-scoped state reset on disconnect", () => {
   beforeEach(() => {

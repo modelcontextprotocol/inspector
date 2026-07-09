@@ -44,6 +44,7 @@ import {
   EMPTY_LOGS_UI,
   EMPTY_HISTORY_UI,
   EMPTY_NETWORK_UI,
+  EMPTY_CONSOLE_UI,
 } from "../../screens/screenUiState";
 
 // Stub bridge factory — AppsScreen mounts the inner iframe and invokes
@@ -84,6 +85,7 @@ function makeProps(
     tasks: [],
     history: [],
     network: [],
+    stderrLogs: [],
     currentLogLevel: "info",
     sandboxPath: "about:blank",
     bridgeFactory: noopBridgeFactory,
@@ -96,6 +98,7 @@ function makeProps(
     logsUi: EMPTY_LOGS_UI,
     historyUi: EMPTY_HISTORY_UI,
     networkUi: EMPTY_NETWORK_UI,
+    consoleUi: EMPTY_CONSOLE_UI,
     onToggleTheme: vi.fn(),
     onOpenClientSettings: vi.fn(),
     onToggleConnection: vi.fn(),
@@ -140,6 +143,9 @@ function makeProps(
     onNetworkUiChange: vi.fn(),
     onClearNetwork: vi.fn(),
     onExportNetwork: vi.fn(),
+    onConsoleUiChange: vi.fn(),
+    onClearConsole: vi.fn(),
+    onExportConsole: vi.fn(),
     onAppsUiChange: vi.fn(),
     onSelectApp: vi.fn(),
     onOpenApp: vi.fn(),
@@ -1373,6 +1379,324 @@ describe("InspectorView", () => {
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       expect(
         screen.queryByRole("button", { name: "Close monitoring column" }),
+      ).toBeNull();
+    });
+
+    // A failed connect leaves the errored server's id set but no
+    // initializeResult (capabilities were never negotiated). `erroredServerId`
+    // is the parent's connect-attempt-failure signal (it survives the failure's
+    // `disconnect` clearing `activeServer`), which gates the failure column.
+    function failedHttp(overrides: Partial<InspectorViewProps> = {}) {
+      return makeProps({
+        servers: [httpServer],
+        activeServer: "beta",
+        erroredServerId: "beta",
+        connectionStatus: "error",
+        initializeResult: undefined,
+        ...overrides,
+      });
+    }
+
+    it("opens the monitoring column on a failed connection attempt (#1621)", async () => {
+      monitorWide.value = true;
+      const { rerender } = renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [httpServer],
+            activeServer: undefined,
+            connectionStatus: "disconnected",
+          })}
+        />,
+      );
+      // Disconnected: the column is closed.
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring column" }),
+      ).toBeNull();
+
+      // A connection failure (→ error) opens it to surface the diagnostics. The
+      // failed HTTP request is what captured the failure, so Network is present.
+      rerender(
+        <StatefulInspectorViewHost
+          {...failedHttp({
+            network: [
+              {
+                id: "f1",
+                timestamp: new Date(),
+                method: "POST",
+                url: "http://localhost:3000/mcp",
+                requestHeaders: {},
+                error: "fetch failed: ECONNREFUSED",
+                category: "transport",
+              },
+            ],
+          })}
+        />,
+      );
+      expect(
+        await screen.findByRole("button", { name: "Close monitoring column" }),
+      ).toBeInTheDocument();
+
+      // The failure column leads with Network (the captured request) — the only
+      // diagnostic with content. History is content-gated and empty here (the
+      // message log clears on the error transition), so it isn't offered; nor is
+      // Logs (no logging capability was negotiated) or Console (HTTP has no
+      // child-process stderr).
+      expect(screen.getByRole("radio", { name: "Network" })).toBeChecked();
+      expect(screen.queryByRole("radio", { name: "History" })).toBeNull();
+      expect(screen.queryByRole("radio", { name: "Logs" })).toBeNull();
+      expect(screen.queryByRole("radio", { name: "Console" })).toBeNull();
+    });
+
+    it("surfaces Console (stderr), not Network, in the failure column for a stdio server (#1621)", async () => {
+      monitorWide.value = true;
+      const stdioErr: ServerEntry = {
+        id: "beta",
+        name: "Beta",
+        config: { type: "stdio", command: "missing-bin" },
+        connection: { status: "disconnected" },
+      };
+      const { rerender } = renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [stdioErr],
+            activeServer: undefined,
+            connectionStatus: "disconnected",
+          })}
+        />,
+      );
+      rerender(
+        <StatefulInspectorViewHost
+          {...failedHttp({
+            servers: [stdioErr],
+            // A connect failure fires the client `disconnect` event, which
+            // clears activeServer — so the failure column must key off captured
+            // stderr, NOT the (now-undefined) active server's transport.
+            activeServer: undefined,
+            stderrLogs: [
+              { timestamp: new Date(), message: "ModuleNotFoundError: boom" },
+            ],
+          })}
+        />,
+      );
+      // The captured stderr means it was a stdio launch: the column leads with
+      // Console (the process's stderr) — that's where the spawn error is — with
+      // no Network (no HTTP traffic) and no History (content-gated, empty on a
+      // fresh failure). The stderr line renders.
+      expect(
+        await screen.findByRole("radio", { name: "Console" }),
+      ).toBeChecked();
+      expect(screen.queryByRole("radio", { name: "History" })).toBeNull();
+      expect(screen.queryByRole("radio", { name: "Network" })).toBeNull();
+      expect(screen.getByText("ModuleNotFoundError: boom")).toBeInTheDocument();
+    });
+
+    it("leads with Console even when the stored tab was History, on a stdio failure (#1621)", async () => {
+      // Regression for the review note: a returning user whose last-pinned tab
+      // was History must still land on the Console diagnostic, not the (empty)
+      // History — History is content-gated out of the failure column.
+      window.localStorage.setItem("inspector.monitor.tab", "History");
+      monitorWide.value = true;
+      const stdioErr: ServerEntry = {
+        id: "beta",
+        name: "Beta",
+        config: { type: "stdio", command: "missing-bin" },
+        connection: { status: "disconnected" },
+      };
+      const { rerender } = renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [stdioErr],
+            activeServer: undefined,
+            connectionStatus: "disconnected",
+          })}
+        />,
+      );
+      rerender(
+        <StatefulInspectorViewHost
+          {...failedHttp({
+            servers: [stdioErr],
+            activeServer: undefined,
+            stderrLogs: [
+              { timestamp: new Date(), message: "ModuleNotFoundError: boom" },
+            ],
+          })}
+        />,
+      );
+      expect(
+        await screen.findByRole("radio", { name: "Console" }),
+      ).toBeChecked();
+      expect(screen.queryByRole("radio", { name: "History" })).toBeNull();
+    });
+
+    it("keeps the failure column closed until a diagnostic has content (#1621)", () => {
+      // A connect failure with nothing captured yet (no stderr, no fetch, and
+      // History cleared on the error transition) opens onto nothing — so the
+      // column stays closed rather than showing an empty pane.
+      monitorWide.value = true;
+      const { rerender } = renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [httpServer],
+            activeServer: undefined,
+            connectionStatus: "disconnected",
+          })}
+        />,
+      );
+      rerender(
+        <StatefulInspectorViewHost
+          {...failedHttp({ network: [], history: [], stderrLogs: [] })}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring column" }),
+      ).toBeNull();
+    });
+
+    it("offers History in the failure column when it has captured content (#1621)", async () => {
+      // The failure History tab is content-gated, so when the message log *does*
+      // hold entries it's offered alongside the diagnostic (Network here).
+      monitorWide.value = true;
+      const { rerender } = renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [httpServer],
+            activeServer: undefined,
+            connectionStatus: "disconnected",
+          })}
+        />,
+      );
+      rerender(
+        <StatefulInspectorViewHost
+          {...failedHttp({
+            network: [
+              {
+                id: "f1",
+                timestamp: new Date(),
+                method: "POST",
+                url: "http://localhost:3000/mcp",
+                requestHeaders: {},
+                error: "boom",
+                category: "transport",
+              },
+            ],
+            history: [
+              {
+                id: "h1",
+                timestamp: new Date(),
+                direction: "request",
+                message: { jsonrpc: "2.0", id: 1, method: "initialize" },
+              },
+            ],
+          })}
+        />,
+      );
+      expect(
+        await screen.findByRole("radio", { name: "Network" }),
+      ).toBeChecked();
+      expect(
+        screen.getByRole("radio", { name: "History" }),
+      ).toBeInTheDocument();
+    });
+
+    it("does not auto-open on a mount that starts already errored (#1621)", () => {
+      // No transition into error, and no stored preference, so the column stays
+      // closed — a user who closed it isn't fought on remount.
+      monitorWide.value = true;
+      renderWithMantine(<StatefulInspectorViewHost {...failedHttp()} />);
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring column" }),
+      ).toBeNull();
+    });
+
+    it("does not treat a mid-session crash as a connect-attempt failure (#1621)", async () => {
+      // A previously-connected server that crashes settles to `error` too, but
+      // with no `erroredServerId` (the parent sets that only for connect
+      // attempts). That must NOT reorganize the column into the failure tab set
+      // — it closes like any session teardown, so a user who closed the column
+      // mid-session isn't reopened onto diagnostics.
+      monitorWide.value = true;
+      window.localStorage.setItem("inspector.monitor.pinned", "true");
+      const { rerender } = renderWithMantine(
+        <StatefulInspectorViewHost {...connectedHttp()} />,
+      );
+      // Connected + pinned: the column is open with the live monitor tabs.
+      expect(
+        await screen.findByRole("button", { name: "Close monitoring column" }),
+      ).toBeInTheDocument();
+
+      // Crash: connected → error, activeServer cleared, NO erroredServerId.
+      rerender(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [httpServer],
+            activeServer: undefined,
+            connectionStatus: "error",
+          })}
+        />,
+      );
+      // The column closes (after its slide-out) rather than switching to the
+      // failure tabs.
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "Close monitoring column" }),
+        ).toBeNull(),
+      );
+    });
+
+    const stdioServer: ServerEntry = {
+      id: "gamma",
+      name: "Gamma",
+      config: { type: "stdio", command: "echo" },
+      connection: { status: "connected" },
+    };
+
+    it("offers Console (not Network) as a monitor tab for a connected stdio server (#1621)", async () => {
+      monitorWide.value = true;
+      window.localStorage.setItem("inspector.monitor.pinned", "true");
+      renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [stdioServer],
+            activeServer: "gamma",
+            connectionStatus: "connected",
+            initializeResult: httpInit,
+            stderrLogs: [{ timestamp: new Date(), message: "server booting" }],
+          })}
+        />,
+      );
+      // Pinned column for a stdio server hosts Logs/History/Console — never
+      // Network (no HTTP traffic to show).
+      expect(
+        await screen.findByRole("radio", { name: "Console" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("radio", { name: "History" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: "Network" })).toBeNull();
+    });
+
+    it("lists Console in the header tab menu for a connected stdio server when unpinned (#1621)", async () => {
+      // Column not pinned, so the monitor group (incl. Console) lives in the
+      // header menu — the user can reach the stderr stream during a live
+      // session, not only on failure.
+      monitorWide.value = true;
+      renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [stdioServer],
+            activeServer: "gamma",
+            connectionStatus: "connected",
+            initializeResult: httpInit,
+          })}
+        />,
+      );
+      const header = screen.getByRole("banner");
+      expect(
+        within(header).getByRole("radio", { name: "Console" }),
+      ).toBeInTheDocument();
+      // stdio: Network is not in the header menu.
+      expect(
+        within(header).queryByRole("radio", { name: "Network" }),
       ).toBeNull();
     });
 
