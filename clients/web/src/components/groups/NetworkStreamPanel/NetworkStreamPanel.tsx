@@ -147,6 +147,7 @@ export function NetworkStreamPanel({
                 key={entry.id}
                 entry={entry}
                 isListExpanded={!compact}
+                embedded={embedded}
               />
             ))}
           </Stack>

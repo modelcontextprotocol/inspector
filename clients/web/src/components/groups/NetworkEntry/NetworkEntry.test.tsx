@@ -31,6 +31,20 @@ describe("NetworkEntry", () => {
     expect(screen.getByText("transport")).toBeInTheDocument();
   });
 
+  it("renders the compact two-line layout (line 1 meta, line 2 URL) when embedded", () => {
+    renderWithMantine(
+      <NetworkEntry entry={baseEntry} isListExpanded={false} embedded />,
+    );
+    // Line 1: method, category, duration, status.
+    expect(screen.getByText("POST")).toBeInTheDocument();
+    expect(screen.getByText("transport")).toBeInTheDocument();
+    expect(screen.getByText("45ms")).toBeInTheDocument();
+    expect(screen.getByText("200 OK")).toBeInTheDocument();
+    // Line 2: the URL (in its scroll area) and the expand toggle.
+    expect(screen.getByText("https://example.com/mcp")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Expand" })).toBeInTheDocument();
+  });
+
   it("shows body / header detail when expanded", async () => {
     const user = userEvent.setup();
     renderWithMantine(

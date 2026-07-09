@@ -208,6 +208,49 @@ describe("HistoryEntry", () => {
     expect(names.indexOf("Pin")).toBeLessThan(names.indexOf("Expand"));
   });
 
+  it("renders the compact two-line layout with Replay as an icon when embedded", () => {
+    renderWithMantine(
+      <HistoryEntry {...baseProps} entry={successEntry} embedded />,
+    );
+    // Line 1 essentials plus the method are still shown.
+    expect(screen.getByText("client → server")).toBeInTheDocument();
+    expect(screen.getByText("142ms")).toBeInTheDocument();
+    expect(screen.getByText("OK")).toBeInTheDocument();
+    expect(screen.getByText("tools/call")).toBeInTheDocument();
+    // Replay is an icon button (aria-label), not the text button.
+    expect(screen.getByRole("button", { name: "Replay" })).toBeInTheDocument();
+    expect(screen.queryByText("Replay")).toBeNull();
+  });
+
+  it("keeps action order Replay, Pin, Expand in the compact layout", () => {
+    renderWithMantine(
+      <HistoryEntry {...baseProps} entry={successEntry} embedded />,
+    );
+    const names = screen
+      .getAllByRole("button")
+      .map((b) => b.getAttribute("aria-label") ?? b.textContent);
+    expect(names.indexOf("Replay")).toBeLessThan(names.indexOf("Pin"));
+    expect(names.indexOf("Pin")).toBeLessThan(names.indexOf("Expand"));
+  });
+
+  it("does not render a Replay icon for a non-replayable method when embedded", () => {
+    // A server→client response isn't replayable.
+    const responseEntry: MessageEntry = {
+      id: "resp-1",
+      timestamp: new Date("2026-03-17T10:30:00Z"),
+      direction: "response",
+      origin: "server",
+      message: { jsonrpc: "2.0", id: 1, result: {} },
+    };
+    renderWithMantine(
+      <HistoryEntry {...baseProps} entry={responseEntry} embedded />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Replay" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pin" })).toBeInTheDocument();
+  });
+
   it("invokes onTogglePin when Pin button is clicked", async () => {
     const user = userEvent.setup();
     const onTogglePin = vi.fn();

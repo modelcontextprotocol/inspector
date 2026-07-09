@@ -6,6 +6,7 @@ import {
   Collapse,
   Divider,
   Group,
+  ScrollArea,
   Stack,
   Table,
   Text,
@@ -19,6 +20,12 @@ import { maskSecretsInBody } from "../../../utils/maskSecrets";
 export interface NetworkEntryProps {
   entry: FetchRequestEntry;
   isListExpanded: boolean;
+  /**
+   * Compact two-line header for the narrow monitoring column (#1616): line 1 is
+   * time + method + category + duration + status; line 2 is the URL in a
+   * horizontal scroll area with the expand toggle on the right.
+   */
+  embedded?: boolean;
 }
 
 const EntryContainer = Card.withProps({
@@ -41,6 +48,26 @@ const UrlText = Text.withProps({
   size: "sm",
   fw: 500,
   truncate: "end",
+});
+
+// Compact-header URL: never wraps, so a long URL scrolls horizontally inside its
+// ScrollArea instead of wrapping to many lines.
+const UrlScroll = Text.withProps({
+  size: "sm",
+  fw: 500,
+  variant: "nowrap",
+});
+
+// Left / right clusters for a compact header line (mirrors HistoryEntry).
+const HeaderCluster = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
+  miw: 0,
+});
+
+const ControlsCluster = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
 });
 
 const DurationText = Text.withProps({
@@ -197,7 +224,11 @@ function BodyPreview({
   );
 }
 
-export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
+export function NetworkEntry({
+  entry,
+  isListExpanded,
+  embedded = false,
+}: NetworkEntryProps) {
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
 
   // The list-level Expand/Collapse toggle is authoritative: each time the
@@ -210,33 +241,70 @@ export function NetworkEntry({ entry, isListExpanded }: NetworkEntryProps) {
     setIsExpanded(isListExpanded);
   }, [isListExpanded]);
 
+  const metaBadges = (
+    <>
+      {entry.duration != null && (
+        <DurationText>{formatDuration(entry.duration)}</DurationText>
+      )}
+      {isLongLivedStream(entry) && <Badge color="orange">SSE</Badge>}
+      <Badge color={statusColor(entry)}>{statusLabel(entry)}</Badge>
+    </>
+  );
+  const expandToggle = (
+    <ExpandToggle
+      expanded={isExpanded}
+      onToggle={() => setIsExpanded((v) => !v)}
+    />
+  );
+
   return (
     <EntryContainer>
       <Stack gap="sm">
-        <HeaderRow>
-          <Group gap="sm" wrap="nowrap" miw={0} flex={1}>
-            <TimestampText>{formatTimestamp(entry.timestamp)}</TimestampText>
-            <Badge color="dark">{entry.method}</Badge>
-            <Badge color={categoryColor(entry.category)} variant="light">
-              {entry.category}
-            </Badge>
-            <UrlText>{entry.url}</UrlText>
-          </Group>
-          <Group gap="sm" wrap="nowrap">
-            {entry.duration != null && (
-              <DurationText>{formatDuration(entry.duration)}</DurationText>
-            )}
-            {isLongLivedStream(entry) && <Badge color="orange">SSE</Badge>}
-            <Badge color={statusColor(entry)}>{statusLabel(entry)}</Badge>
-          </Group>
-        </HeaderRow>
+        {embedded ? (
+          // Compact two-line header for the narrow column.
+          <Stack gap="xs">
+            <HeaderRow>
+              <HeaderCluster>
+                <TimestampText>
+                  {formatTimestamp(entry.timestamp)}
+                </TimestampText>
+                <Badge color="dark">{entry.method}</Badge>
+                <Badge color={categoryColor(entry.category)} variant="light">
+                  {entry.category}
+                </Badge>
+              </HeaderCluster>
+              <ControlsCluster>{metaBadges}</ControlsCluster>
+            </HeaderRow>
+            <Group gap="xs" wrap="nowrap" justify="space-between">
+              <ScrollArea type="hover" scrollbarSize={6} flex={1} miw={0}>
+                <UrlScroll>{entry.url}</UrlScroll>
+              </ScrollArea>
+              {expandToggle}
+            </Group>
+          </Stack>
+        ) : (
+          <>
+            <HeaderRow>
+              <Group gap="sm" wrap="nowrap" miw={0} flex={1}>
+                <TimestampText>
+                  {formatTimestamp(entry.timestamp)}
+                </TimestampText>
+                <Badge color="dark">{entry.method}</Badge>
+                <Badge color={categoryColor(entry.category)} variant="light">
+                  {entry.category}
+                </Badge>
+                <UrlText>{entry.url}</UrlText>
+              </Group>
+              <Group gap="sm" wrap="nowrap">
+                {metaBadges}
+              </Group>
+            </HeaderRow>
 
-        <Group gap="xs" justify="flex-end">
-          <ExpandToggle
-            expanded={isExpanded}
-            onToggle={() => setIsExpanded((v) => !v)}
-          />
-        </Group>
+            <Group gap="xs" justify="flex-end">
+              {expandToggle}
+            </Group>
+          </>
+        )}
 
         <Collapse in={isExpanded}>
           <Stack gap="sm">

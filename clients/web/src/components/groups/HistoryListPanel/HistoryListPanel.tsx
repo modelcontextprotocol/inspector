@@ -318,6 +318,7 @@ export function HistoryListPanel({
                     entry={entry}
                     isPinned={true}
                     isListExpanded={!compact}
+                    embedded={embedded}
                     onReplay={() => onReplay(entry.id)}
                     onTogglePin={() => onTogglePin(entry.id)}
                   />
@@ -349,6 +350,7 @@ export function HistoryListPanel({
                     entry={entry}
                     isPinned={false}
                     isListExpanded={!compact}
+                    embedded={embedded}
                     onReplay={() => onReplay(entry.id)}
                     onTogglePin={() => onTogglePin(entry.id)}
                   />

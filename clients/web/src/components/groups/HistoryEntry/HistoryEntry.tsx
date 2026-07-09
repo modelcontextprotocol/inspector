@@ -14,6 +14,7 @@ import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { MessageDirectionBadge } from "../../elements/MessageDirectionBadge/MessageDirectionBadge";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { PinToggle } from "../../elements/PinToggle/PinToggle";
+import { ReplayButton } from "../../elements/ReplayButton/ReplayButton";
 import { extractMethod, isReplayableHistoryMethod } from "../historyUtils.js";
 
 export interface HistoryEntryProps {
@@ -22,6 +23,12 @@ export interface HistoryEntryProps {
   isListExpanded: boolean;
   onReplay: () => void;
   onTogglePin: () => void;
+  /**
+   * Compact two-line header for the narrow monitoring column (#1616): line 1 is
+   * time + direction + duration + status; line 2 is the method (and target) with
+   * the controls — Replay as an icon — on the right.
+   */
+  embedded?: boolean;
 }
 
 const EntryContainer = Card.withProps({
@@ -31,6 +38,19 @@ const EntryContainer = Card.withProps({
 
 const HeaderRow = Group.withProps({
   justify: "space-between",
+  wrap: "nowrap",
+});
+
+// Left / right clusters within a compact header line. The left cluster shrinks
+// (`miw: 0`) so a long target can truncate rather than push the row wider.
+const HeaderCluster = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
+  miw: 0,
+});
+
+const ControlsCluster = Group.withProps({
+  gap: "xs",
   wrap: "nowrap",
 });
 
@@ -108,6 +128,7 @@ export function HistoryEntry({
   isListExpanded,
   onReplay,
   onTogglePin,
+  embedded = false,
 }: HistoryEntryProps) {
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
   const method = extractMethod(entry);
@@ -119,44 +140,88 @@ export function HistoryEntry({
     setIsExpanded(isListExpanded);
   }, [isListExpanded]);
 
+  const directionBadge = entry.origin && (
+    <MessageDirectionBadge
+      direction={entry.origin === "client" ? "outgoing" : "incoming"}
+    />
+  );
+  const statusBadge = status !== "none" && (
+    <Badge color={statusColor(status)}>{statusLabel(status)}</Badge>
+  );
+  const durationText = entry.duration != null && (
+    <DurationText>{formatDuration(entry.duration)}</DurationText>
+  );
+
   return (
     <EntryContainer>
       <Stack gap="sm">
-        <HeaderRow>
-          <Group gap="sm">
-            <TimestampText>{formatTimestamp(entry.timestamp)}</TimestampText>
-            {entry.origin && (
-              <MessageDirectionBadge
-                direction={entry.origin === "client" ? "outgoing" : "incoming"}
-              />
-            )}
-            <Badge color="dark">{method}</Badge>
-            {target && <TargetText>{target}</TargetText>}
-          </Group>
-          <Group gap="sm">
-            {entry.duration != null && (
-              <DurationText>{formatDuration(entry.duration)}</DurationText>
-            )}
-            {status !== "none" && (
-              <Badge color={statusColor(status)}>{statusLabel(status)}</Badge>
-            )}
-          </Group>
-        </HeaderRow>
+        {embedded ? (
+          // Compact two-line header for the narrow column.
+          <Stack gap="xs">
+            <HeaderRow>
+              <HeaderCluster>
+                <TimestampText>
+                  {formatTimestamp(entry.timestamp)}
+                </TimestampText>
+                {directionBadge}
+              </HeaderCluster>
+              <ControlsCluster>
+                {durationText}
+                {statusBadge}
+              </ControlsCluster>
+            </HeaderRow>
+            <HeaderRow>
+              <HeaderCluster flex={1}>
+                <Badge color="dark">{method}</Badge>
+                {target && (
+                  <TargetText truncate="end" miw={0}>
+                    {target}
+                  </TargetText>
+                )}
+              </HeaderCluster>
+              <ControlsCluster>
+                {canReplay && <ReplayButton onReplay={onReplay} />}
+                <PinToggle pinned={isPinned} onToggle={onTogglePin} />
+                <ExpandToggle
+                  expanded={isExpanded}
+                  onToggle={() => setIsExpanded((v) => !v)}
+                />
+              </ControlsCluster>
+            </HeaderRow>
+          </Stack>
+        ) : (
+          <>
+            <HeaderRow>
+              <Group gap="sm">
+                <TimestampText>
+                  {formatTimestamp(entry.timestamp)}
+                </TimestampText>
+                {directionBadge}
+                <Badge color="dark">{method}</Badge>
+                {target && <TargetText>{target}</TargetText>}
+              </Group>
+              <Group gap="sm">
+                {durationText}
+                {statusBadge}
+              </Group>
+            </HeaderRow>
 
-        <Group gap="xs" justify="space-between">
-          <Group gap="xs">
-            {canReplay && (
-              <SubtleButton onClick={onReplay}>Replay</SubtleButton>
-            )}
-          </Group>
-          <Group gap="xs">
-            <PinToggle pinned={isPinned} onToggle={onTogglePin} />
-            <ExpandToggle
-              expanded={isExpanded}
-              onToggle={() => setIsExpanded((v) => !v)}
-            />
-          </Group>
-        </Group>
+            <Group gap="xs" justify="space-between">
+              <Group gap="xs">
+                {canReplay && (
+                  <SubtleButton onClick={onReplay}>Replay</SubtleButton>
+                )}
+              </Group>
+              <Group gap="xs">
+                <PinToggle pinned={isPinned} onToggle={onTogglePin} />
+                <ExpandToggle
+                  expanded={isExpanded}
+                  onToggle={() => setIsExpanded((v) => !v)}
+                />
+              </Group>
+            </Group>
+          </>
+        )}
 
         <Collapse in={isExpanded}>
           <Stack gap="sm">
