@@ -83,6 +83,12 @@ function formatTimestamp(date: Date): string {
   return date.toISOString();
 }
 
+// Time-only (HH:MM:SS, UTC) for the compact column header, where the full ISO
+// string would eat most of the narrow line-1 width (#1616).
+function formatTimestampCompact(date: Date): string {
+  return date.toISOString().slice(11, 19);
+}
+
 function extractTarget(entry: MessageEntry): string | undefined {
   const msg = entry.message;
   if (!("params" in msg) || !msg.params) return undefined;
@@ -161,7 +167,7 @@ export function HistoryEntry({
             <HeaderRow>
               <HeaderCluster>
                 <TimestampText>
-                  {formatTimestamp(entry.timestamp)}
+                  {formatTimestampCompact(entry.timestamp)}
                 </TimestampText>
                 {directionBadge}
               </HeaderCluster>

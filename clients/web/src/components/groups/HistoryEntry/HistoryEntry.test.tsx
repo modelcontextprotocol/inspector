@@ -212,7 +212,12 @@ describe("HistoryEntry", () => {
     renderWithMantine(
       <HistoryEntry {...baseProps} entry={successEntry} embedded />,
     );
-    // Line 1 essentials plus the method are still shown.
+    // Line 1 essentials plus the method are still shown. The timestamp is the
+    // compact time-only form (not the full ISO) to fit the narrow line.
+    expect(screen.getByText("10:30:00")).toBeInTheDocument();
+    expect(
+      screen.queryByText("2026-03-17T10:30:00.000Z"),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("client → server")).toBeInTheDocument();
     expect(screen.getByText("142ms")).toBeInTheDocument();
     expect(screen.getByText("OK")).toBeInTheDocument();

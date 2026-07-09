@@ -35,7 +35,11 @@ describe("NetworkEntry", () => {
     renderWithMantine(
       <NetworkEntry entry={baseEntry} isListExpanded={false} embedded />,
     );
-    // Line 1: method, category, duration, status.
+    // Line 1: compact time-only timestamp, method, category, duration, status.
+    expect(screen.getByText("10:00:00")).toBeInTheDocument();
+    expect(
+      screen.queryByText("2026-03-17T10:00:00.000Z"),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("POST")).toBeInTheDocument();
     expect(screen.getByText("transport")).toBeInTheDocument();
     expect(screen.getByText("45ms")).toBeInTheDocument();

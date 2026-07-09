@@ -89,6 +89,12 @@ function formatTimestamp(date: Date): string {
   return date.toISOString();
 }
 
+// Time-only (HH:MM:SS, UTC) for the compact column header, where the full ISO
+// string would eat most of the narrow line-1 width (#1616).
+function formatTimestampCompact(date: Date): string {
+  return date.toISOString().slice(11, 19);
+}
+
 function statusColor(entry: FetchRequestEntry): string {
   if (entry.error) return "red";
   const status = entry.responseStatus;
@@ -266,7 +272,7 @@ export function NetworkEntry({
             <HeaderRow>
               <HeaderCluster>
                 <TimestampText>
-                  {formatTimestamp(entry.timestamp)}
+                  {formatTimestampCompact(entry.timestamp)}
                 </TimestampText>
                 <Badge color="dark">{entry.method}</Badge>
                 <Badge color={categoryColor(entry.category)} variant="light">
