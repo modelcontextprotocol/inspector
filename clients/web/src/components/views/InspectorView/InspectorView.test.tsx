@@ -1436,13 +1436,13 @@ describe("InspectorView", () => {
         await screen.findByRole("button", { name: "Close monitoring column" }),
       ).toBeInTheDocument();
 
-      // The failure column offers History + Network (the captured request), but
-      // not Logs (a failed connect never negotiated the logging capability) nor
-      // Console (an HTTP transport has no child-process stderr).
-      expect(screen.getByRole("radio", { name: "History" })).toBeChecked();
-      expect(
-        screen.getByRole("radio", { name: "Network" }),
-      ).toBeInTheDocument();
+      // The failure column leads with Network (the captured request) — the only
+      // diagnostic with content. History is content-gated and empty here (the
+      // message log clears on the error transition), so it isn't offered; nor is
+      // Logs (no logging capability was negotiated) or Console (HTTP has no
+      // child-process stderr).
+      expect(screen.getByRole("radio", { name: "Network" })).toBeChecked();
+      expect(screen.queryByRole("radio", { name: "History" })).toBeNull();
       expect(screen.queryByRole("radio", { name: "Logs" })).toBeNull();
       expect(screen.queryByRole("radio", { name: "Console" })).toBeNull();
     });
@@ -1478,17 +1478,124 @@ describe("InspectorView", () => {
           })}
         />,
       );
-      // The captured stderr means it was a stdio launch: the column surfaces
-      // Console (the process's stderr) and defaults to it — that's where the
-      // spawn error is — with no Network (no HTTP traffic). The stderr renders.
+      // The captured stderr means it was a stdio launch: the column leads with
+      // Console (the process's stderr) — that's where the spawn error is — with
+      // no Network (no HTTP traffic) and no History (content-gated, empty on a
+      // fresh failure). The stderr line renders.
       expect(
         await screen.findByRole("radio", { name: "Console" }),
+      ).toBeChecked();
+      expect(screen.queryByRole("radio", { name: "History" })).toBeNull();
+      expect(screen.queryByRole("radio", { name: "Network" })).toBeNull();
+      expect(screen.getByText("ModuleNotFoundError: boom")).toBeInTheDocument();
+    });
+
+    it("leads with Console even when the stored tab was History, on a stdio failure (#1621)", async () => {
+      // Regression for the review note: a returning user whose last-pinned tab
+      // was History must still land on the Console diagnostic, not the (empty)
+      // History — History is content-gated out of the failure column.
+      window.localStorage.setItem("inspector.monitor.tab", "History");
+      monitorWide.value = true;
+      const stdioErr: ServerEntry = {
+        id: "beta",
+        name: "Beta",
+        config: { type: "stdio", command: "missing-bin" },
+        connection: { status: "disconnected" },
+      };
+      const { rerender } = renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [stdioErr],
+            activeServer: undefined,
+            connectionStatus: "disconnected",
+          })}
+        />,
+      );
+      rerender(
+        <StatefulInspectorViewHost
+          {...failedHttp({
+            servers: [stdioErr],
+            activeServer: undefined,
+            stderrLogs: [
+              { timestamp: new Date(), message: "ModuleNotFoundError: boom" },
+            ],
+          })}
+        />,
+      );
+      expect(
+        await screen.findByRole("radio", { name: "Console" }),
+      ).toBeChecked();
+      expect(screen.queryByRole("radio", { name: "History" })).toBeNull();
+    });
+
+    it("keeps the failure column closed until a diagnostic has content (#1621)", () => {
+      // A connect failure with nothing captured yet (no stderr, no fetch, and
+      // History cleared on the error transition) opens onto nothing — so the
+      // column stays closed rather than showing an empty pane.
+      monitorWide.value = true;
+      const { rerender } = renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [httpServer],
+            activeServer: undefined,
+            connectionStatus: "disconnected",
+          })}
+        />,
+      );
+      rerender(
+        <StatefulInspectorViewHost
+          {...failedHttp({ network: [], history: [], stderrLogs: [] })}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring column" }),
+      ).toBeNull();
+    });
+
+    it("offers History in the failure column when it has captured content (#1621)", async () => {
+      // The failure History tab is content-gated, so when the message log *does*
+      // hold entries it's offered alongside the diagnostic (Network here).
+      monitorWide.value = true;
+      const { rerender } = renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [httpServer],
+            activeServer: undefined,
+            connectionStatus: "disconnected",
+          })}
+        />,
+      );
+      rerender(
+        <StatefulInspectorViewHost
+          {...failedHttp({
+            network: [
+              {
+                id: "f1",
+                timestamp: new Date(),
+                method: "POST",
+                url: "http://localhost:3000/mcp",
+                requestHeaders: {},
+                error: "boom",
+                category: "transport",
+              },
+            ],
+            history: [
+              {
+                id: "h1",
+                timestamp: new Date(),
+                direction: "request",
+                message: { jsonrpc: "2.0", id: 1, method: "initialize" },
+              },
+            ],
+          })}
+        />,
+      );
+      expect(
+        await screen.findByRole("radio", { name: "Network" }),
       ).toBeChecked();
       expect(
         screen.getByRole("radio", { name: "History" }),
       ).toBeInTheDocument();
-      expect(screen.queryByRole("radio", { name: "Network" })).toBeNull();
-      expect(screen.getByText("ModuleNotFoundError: boom")).toBeInTheDocument();
     });
 
     it("does not auto-open on a mount that starts already errored (#1621)", () => {

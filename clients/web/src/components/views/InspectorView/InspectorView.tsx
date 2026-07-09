@@ -817,27 +817,29 @@ export function InspectorView({
     if (connected) return availableTabs.filter((t) => MONITOR_TABS.includes(t));
     if (failed) {
       // A failed connect never negotiated capabilities, so Logs (gated on the
-      // server's `logging` capability) isn't meaningful. What explains the
-      // failure is whichever diagnostic actually captured something:
+      // server's `logging` capability) isn't meaningful. Offer exactly the tabs
+      // whose diagnostic actually *captured something* — keyed on content, not
+      // the declared transport (a connect failure fires the client `disconnect`
+      // event, which clears `activeServer`, so transport can't be read back):
       //   • stdio → the process's stderr (Console): the spawn/startup error the
       //     child printed before dying.
       //   • HTTP  → the failed requests (Network).
-      // We key off *captured content*, not the server's declared transport,
-      // because a connect failure fires the client `disconnect` event, which
-      // clears `activeServer` — so transport can't be read back reliably here.
-      // History is always offered, though a pre-handshake failure usually
-      // leaves it empty. Console leads (it's the stdio failure's story); Network
-      // trails History (matching the connected order). This memo re-runs as
-      // stderr/fetch entries stream in, so the diagnostic tab appears as soon as
-      // the failing process/request produces output.
+      //   • History only if it has entries — the message log is cleared on the
+      //     error transition, so on a fresh connect failure it's empty; offering
+      //     it anyway would let an empty tab lead over (and hide) the real
+      //     diagnostic. Content-gating it keeps the actual diagnostic first.
+      // If nothing captured anything yet, `monitorAvailable` is empty and the
+      // column stays closed rather than opening onto an empty pane; this memo
+      // re-runs as stderr/fetch entries stream in, so the column opens (and the
+      // diagnostic tab appears) the moment the failing process/request emits.
       const tabs: string[] = [];
       if (stderrLogs.length > 0) tabs.push(CONSOLE_TAB);
-      tabs.push(HISTORY_TAB);
       if (network.length > 0) tabs.push(NETWORK_TAB);
+      if (history.length > 0) tabs.push(HISTORY_TAB);
       return tabs;
     }
     return [];
-  }, [connected, failed, availableTabs, stderrLogs, network]);
+  }, [connected, failed, availableTabs, stderrLogs, network, history]);
   const effectivePinned =
     monitorPinned &&
     !!isWide &&

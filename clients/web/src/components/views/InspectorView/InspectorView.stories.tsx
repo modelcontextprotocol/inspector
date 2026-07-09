@@ -513,11 +513,13 @@ export const Connected: Story = {
 export const ConnectionError: Story = {
   // demoServers[0] is a stdio server; a failed launch has an empty History (the
   // message log clears on the error transition) and no HTTP traffic, so the
-  // auto-opened column keys off the captured stderr and defaults to Console —
-  // the process's startup error (#1621). `network: []` keeps it a pure stdio
-  // failure so Network isn't offered.
+  // auto-opened column keys off the captured stderr and leads with Console —
+  // the process's startup error (#1621). `erroredServerId` is the parent's
+  // connect-attempt-failure signal that gates the failure column; `network: []`
+  // (and empty History) keep it a pure stdio failure so only Console is offered.
   args: {
     activeServer: demoServers[0]!.id,
+    erroredServerId: demoServers[0]!.id,
     connectionStatus: "error",
     network: [],
     stderrLogs: demoStderr,
