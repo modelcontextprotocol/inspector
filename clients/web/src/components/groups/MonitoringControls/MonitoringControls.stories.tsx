@@ -9,6 +9,8 @@ const meta: Meta<typeof MonitoringControls> = {
     tabs: ["Logs", "History", "Network"],
     value: "Logs",
     onChange: fn(),
+    searchValue: "",
+    onSearchChange: fn(),
     onClose: fn(),
   },
 };

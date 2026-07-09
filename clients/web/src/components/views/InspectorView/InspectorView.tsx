@@ -1,5 +1,13 @@
 import { useMemo, useState, type ReactNode, type Ref } from "react";
-import { AppShell, Box, Flex, Stack, Transition } from "@mantine/core";
+import {
+  AppShell,
+  Box,
+  Flex,
+  Group,
+  Stack,
+  Transition,
+  type MantineTransition,
+} from "@mantine/core";
 import { useLocalStorage, useMediaQuery } from "@mantine/hooks";
 import type {
   InitializeResult,
@@ -242,6 +250,27 @@ const MonitoringColumn = Stack.withProps({
   h: "100%",
   gap: 0,
   miw: 0,
+});
+
+// Column open/close animation (#1616): the handle + column slide in from the
+// right edge and fade as they mount, reversing on close, so pinning reads as the
+// screen moving into a side column rather than snapping in. `AppShell.Main`'s
+// `overflow: hidden` clips the off-screen portion during the slide.
+const COLUMN_ANIM_MS = 300;
+const slideInFromRight: MantineTransition = {
+  in: { opacity: 1, transform: "translateX(0)" },
+  out: { opacity: 0, transform: "translateX(100%)" },
+  common: { transformOrigin: "right center" },
+  transitionProperty: "transform, opacity",
+};
+
+// Flex-row wrapper holding the resize handle + column so the whole unit animates
+// as one (the Transition interpolation is applied to it via `style`).
+const MonitorColumnGroup = Group.withProps({
+  wrap: "nowrap",
+  gap: 0,
+  h: "100%",
+  flex: "0 0 auto",
 });
 
 // Wraps each screen in a Mantine Transition. With Transition's default
@@ -744,10 +773,24 @@ export function InspectorView({
     /* v8 ignore next */
     if (isMonitorTab(tab)) setMonitorTab(tab);
   }
+  // Closing the column carries its selection back to the primary area: the
+  // screen the user was watching in the column becomes the active header tab,
+  // rather than snapping back to whatever was selected before they pinned.
+  function closeMonitorColumn() {
+    onActiveTabChange(effectiveMonitorTab);
+    setMonitorPinned(false);
+  }
   function commitMonitorWidth(next: number) {
     setMonitorWidth(next);
     setDragWidth(null);
   }
+
+  // A single search shared across the column's tabs (kept as you move between
+  // Logs/History/Network so it filters each one), distinct from the full-size
+  // screens' own searches. The embedded panels apply only this text; their other
+  // filters (levels / categories / directions / method) have no control in the
+  // column and are bypassed there.
+  const [monitorSearch, setMonitorSearch] = useState("");
 
   // Merge the parent's `serversInput` (static config) with the runtime
   // connection state owned by the parent — only the active server reflects
@@ -840,11 +883,31 @@ export function InspectorView({
   };
 
   // Embedded instances for the pinned column, keyed by tab. MonitoringScreen
-  // renders only the active one; the rest are unmounted element values.
+  // renders only the active one; the rest are unmounted element values. Each
+  // screen's search field is overridden with the shared column search so it
+  // filters whichever tab is showing, and carries over as tabs change.
   const monitorScreens: Record<string, ReactNode> = {
-    [LOGS_TAB]: <LoggingScreen {...loggingScreenProps} embedded />,
-    [HISTORY_TAB]: <HistoryScreen {...historyScreenProps} embedded />,
-    [NETWORK_TAB]: <NetworkScreen {...networkScreenProps} embedded />,
+    [LOGS_TAB]: (
+      <LoggingScreen
+        {...loggingScreenProps}
+        ui={{ ...logsUi, filterText: monitorSearch }}
+        embedded
+      />
+    ),
+    [HISTORY_TAB]: (
+      <HistoryScreen
+        {...historyScreenProps}
+        ui={{ ...historyUi, search: monitorSearch }}
+        embedded
+      />
+    ),
+    [NETWORK_TAB]: (
+      <NetworkScreen
+        {...networkScreenProps}
+        ui={{ ...networkUi, filterText: monitorSearch }}
+        embedded
+      />
+    ),
   };
 
   return (
@@ -997,28 +1060,40 @@ export function InspectorView({
               />
             </ScreenStage>
           </ScreenStageContainer>
-          {effectivePinned ? (
-            <>
-              <ResizeHandle
-                value={columnWidth}
-                min={MONITOR_WIDTH_MIN}
-                max={MONITOR_WIDTH_MAX}
-                step={MONITOR_WIDTH_STEP}
-                onChange={setDragWidth}
-                onCommit={commitMonitorWidth}
-                aria-label="Resize monitoring column"
-              />
-              <MonitoringColumn w={columnWidth}>
-                <MonitoringScreen
-                  tabs={monitorAvailable}
-                  value={effectiveMonitorTab}
-                  onChange={handleMonitorTabChange}
-                  onClose={() => setMonitorPinned(false)}
-                  screens={monitorScreens}
+          <Transition
+            mounted={effectivePinned}
+            transition={slideInFromRight}
+            duration={COLUMN_ANIM_MS}
+            exitDuration={COLUMN_ANIM_MS}
+            timingFunction="ease"
+          >
+            {(styles) => (
+              // `style={styles}` is Mantine's runtime Transition interpolation,
+              // not static styling — same pattern as ScreenStage above.
+              <MonitorColumnGroup style={styles}>
+                <ResizeHandle
+                  value={columnWidth}
+                  min={MONITOR_WIDTH_MIN}
+                  max={MONITOR_WIDTH_MAX}
+                  step={MONITOR_WIDTH_STEP}
+                  onChange={setDragWidth}
+                  onCommit={commitMonitorWidth}
+                  aria-label="Resize monitoring column"
                 />
-              </MonitoringColumn>
-            </>
-          ) : null}
+                <MonitoringColumn w={columnWidth}>
+                  <MonitoringScreen
+                    tabs={monitorAvailable}
+                    value={effectiveMonitorTab}
+                    onChange={handleMonitorTabChange}
+                    searchValue={monitorSearch}
+                    onSearchChange={setMonitorSearch}
+                    onClose={closeMonitorColumn}
+                    screens={monitorScreens}
+                  />
+                </MonitoringColumn>
+              </MonitorColumnGroup>
+            )}
+          </Transition>
         </SplitRow>
       </AppShell.Main>
     </AppShell>

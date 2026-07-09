@@ -1388,13 +1388,36 @@ describe("InspectorView", () => {
         await screen.findByRole("button", { name: "Close monitoring column" }),
       );
 
-      expect(
-        screen.queryByRole("button", { name: "Close monitoring column" }),
-      ).toBeNull();
+      // The column plays its slide-out animation before unmounting.
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "Close monitoring column" }),
+        ).toBeNull(),
+      );
       const header = screen.getByRole("banner");
       expect(
         within(header).getByRole("radio", { name: "Logs" }),
       ).toBeInTheDocument();
+    });
+
+    it("carries the column's selection to the primary view on close", async () => {
+      monitorWide.value = true;
+      renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
+      const user = await gotoTab("Logs");
+      await user.click(
+        await screen.findByRole("button", { name: "Pin as column" }),
+      );
+      // Switch the column to History, then close it.
+      await user.click(await screen.findByRole("radio", { name: "History" }));
+      await user.click(
+        await screen.findByRole("button", { name: "Close monitoring column" }),
+      );
+
+      // The primary header now has History selected (not the pre-pin Logs).
+      const header = screen.getByRole("banner");
+      expect(
+        within(header).getByRole("radio", { name: "History" }),
+      ).toBeChecked();
     });
 
     it("persists the pin preference and reopens the column when wide", () => {
@@ -1431,7 +1454,7 @@ describe("InspectorView", () => {
       ).toBeNull();
     });
 
-    it("hides the column on disconnect but keeps the pin preference", () => {
+    it("hides the column on disconnect but keeps the pin preference", async () => {
       window.localStorage.setItem("inspector.monitor.pinned", "true");
       monitorWide.value = true;
       const { rerender } = renderWithMantine(
@@ -1450,9 +1473,12 @@ describe("InspectorView", () => {
           })}
         />,
       );
-      expect(
-        screen.queryByRole("button", { name: "Close monitoring column" }),
-      ).toBeNull();
+      // The column plays its slide-out animation before unmounting.
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "Close monitoring column" }),
+        ).toBeNull(),
+      );
       // Preference is untouched — only the column's close button clears it.
       expect(window.localStorage.getItem("inspector.monitor.pinned")).toBe(
         "true",
@@ -1536,6 +1562,46 @@ describe("InspectorView", () => {
         expect(window.localStorage.getItem("inspector.monitor.tab")).toBe(
           "History",
         ),
+      );
+    });
+
+    it("keeps the column search across tabs and filters each screen", async () => {
+      window.localStorage.setItem("inspector.monitor.pinned", "true");
+      monitorWide.value = true;
+      const user = userEvent.setup();
+      renderWithMantine(
+        <StatefulInspectorViewHost
+          {...connectedHttp({
+            logs: [
+              {
+                receivedAt: new Date(),
+                params: { level: "info", data: "loghello" },
+              },
+            ],
+            history: [
+              {
+                id: "h1",
+                timestamp: new Date(),
+                direction: "request",
+                message: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+              },
+            ],
+          })}
+        />,
+      );
+      // Column defaults to Logs; the log entry shows.
+      expect(await screen.findByText("loghello")).toBeInTheDocument();
+
+      // A search matching nothing filters the Logs stream...
+      const searchBox = screen.getByRole("textbox", { name: "Search" });
+      await user.type(searchBox, "zzz");
+      expect(screen.queryByText("loghello")).toBeNull();
+
+      // ...and the same term carries over to History (still filtered → empty).
+      await user.click(screen.getByRole("radio", { name: "History" }));
+      expect(screen.getByText("No request history")).toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: "Search" })).toHaveValue(
+        "zzz",
       );
     });
 

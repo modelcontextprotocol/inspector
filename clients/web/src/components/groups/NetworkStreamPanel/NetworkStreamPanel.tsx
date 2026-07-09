@@ -58,8 +58,11 @@ function matchesFilters(
   entry: FetchRequestEntry,
   filterText: string,
   visibleCategories: Record<FetchRequestCategory, boolean>,
+  // The embedded column exposes only the search box (no category toggles), so it
+  // applies the text filter but skips the category filter (#1616).
+  ignoreCategories: boolean,
 ): boolean {
-  if (!visibleCategories[entry.category]) return false;
+  if (!ignoreCategories && !visibleCategories[entry.category]) return false;
   if (filterText) {
     const term = filterText.toLowerCase();
     const status =
@@ -98,13 +101,11 @@ export function NetworkStreamPanel({
 }: NetworkStreamPanelProps) {
   const viewportRef = useScrollMemory("network-stream");
   const filteredEntries = useMemo(() => {
-    // Embedded column: show the full stream (no filter sidebar to explain a
-    // mirrored filter). See LogStreamPanel (#1616). `.filter()` returns a fresh
-    // array, so sorting in-place is safe.
+    // Embedded column filters by text only (its category toggles live in the
+    // full-size sidebar). See LogStreamPanel (#1616). `.filter()` returns a
+    // fresh array, so sorting in-place is safe.
     const sorted = entries
-      .filter(
-        (e) => embedded || matchesFilters(e, filterText, visibleCategories),
-      )
+      .filter((e) => matchesFilters(e, filterText, visibleCategories, embedded))
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     if (sortDirection === "newest-first") sorted.reverse();
     return sorted;

@@ -56,8 +56,11 @@ function matchesFilters(
   entry: LogEntryData,
   filterText: string,
   visibleLevels: Record<LoggingLevel, boolean>,
+  // The embedded column exposes only the search box (no level toggles), so it
+  // applies the text filter but skips the level filter (#1616).
+  ignoreLevels: boolean,
 ): boolean {
-  if (!visibleLevels[entry.params.level]) return false;
+  if (!ignoreLevels && !visibleLevels[entry.params.level]) return false;
   if (filterText) {
     const term = filterText.toLowerCase();
     const searchable =
@@ -80,12 +83,11 @@ export function LogStreamPanel({
 }: LogStreamPanelProps) {
   const viewportRef = useScrollMemory("logs-stream");
   const filteredEntries = useMemo(() => {
-    // The embedded column has no filter sidebar, so it shows the full stream
-    // rather than mirroring the full-size screen's live filter with no visible
-    // control to explain it (#1616). `.filter()` returns a fresh array, so
-    // sorting in-place is safe.
+    // The embedded column has only the search box (its level toggles live in the
+    // full-size sidebar), so it filters by text but ignores the level filter
+    // (#1616). `.filter()` returns a fresh array, so sorting in-place is safe.
     const sorted = entries
-      .filter((e) => embedded || matchesFilters(e, filterText, visibleLevels))
+      .filter((e) => matchesFilters(e, filterText, visibleLevels, embedded))
       .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime());
     if (sortDirection === "newest-first") sorted.reverse();
     return sorted;

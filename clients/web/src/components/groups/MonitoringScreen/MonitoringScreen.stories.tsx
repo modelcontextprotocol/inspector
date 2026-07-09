@@ -35,6 +35,8 @@ const meta: Meta<typeof MonitoringScreen> = {
     tabs: ["Logs", "History", "Network"],
     value: "Logs",
     onChange: fn(),
+    searchValue: "",
+    onSearchChange: fn(),
     onClose: fn(),
     screens: demoScreens,
   },

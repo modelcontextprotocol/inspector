@@ -127,8 +127,25 @@ describe("HistoryScreen", () => {
     expect(screen.queryByPlaceholderText("Search...")).toBeNull();
   });
 
-  it("shows the full stream when embedded, ignoring the live filter", () => {
-    // A search that matches nothing would empty the full-size screen...
+  it("applies the search text but ignores the method filter when embedded", () => {
+    renderWithMantine(
+      <HistoryScreen
+        {...baseProps}
+        ui={{
+          ...EMPTY_HISTORY_UI,
+          // Method filter would exclude the tools/list entries on the full-size
+          // screen...
+          methodFilter: "resources/list",
+          // ...but the column search matches them.
+          search: "tools",
+        }}
+        embedded
+      />,
+    );
+    expect(screen.queryByText("No request history")).toBeNull();
+  });
+
+  it("hides entries not matching the column search when embedded", () => {
     renderWithMantine(
       <HistoryScreen
         {...baseProps}
@@ -136,7 +153,6 @@ describe("HistoryScreen", () => {
         embedded
       />,
     );
-    // ...but the embedded column shows the full stream (not the empty state).
-    expect(screen.queryByText("No request history")).toBeNull();
+    expect(screen.getByText("No request history")).toBeInTheDocument();
   });
 });

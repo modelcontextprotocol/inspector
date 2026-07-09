@@ -147,14 +147,38 @@ describe("LoggingScreen", () => {
     expect(screen.queryByRole("button", { name: "Set" })).toBeNull();
   });
 
-  it("shows the full stream when embedded, ignoring the live filter", () => {
+  it("applies the search text but ignores the level filter when embedded", () => {
     const entries = [
       {
         receivedAt: new Date(),
         params: { level: "info" as const, data: "hello" },
       },
     ];
-    // A filter that would hide the entry on the full-size screen...
+    renderWithMantine(
+      <LoggingScreen
+        {...baseProps}
+        entries={entries}
+        ui={{
+          ...EMPTY_LOGS_UI,
+          // The level filter would hide this entry on the full-size screen...
+          visibleLevels: { ...EMPTY_LOGS_UI.visibleLevels, info: false },
+          // ...but the column search matches it.
+          filterText: "hello",
+        }}
+        embedded
+      />,
+    );
+    // Search matches + level filter is ignored → the entry shows.
+    expect(screen.getByText("hello")).toBeInTheDocument();
+  });
+
+  it("hides entries not matching the column search when embedded", () => {
+    const entries = [
+      {
+        receivedAt: new Date(),
+        params: { level: "info" as const, data: "hello" },
+      },
+    ];
     renderWithMantine(
       <LoggingScreen
         {...baseProps}
@@ -163,7 +187,6 @@ describe("LoggingScreen", () => {
         embedded
       />,
     );
-    // ...is ignored in the embedded, sidebar-less column.
-    expect(screen.getByText("hello")).toBeInTheDocument();
+    expect(screen.queryByText("hello")).toBeNull();
   });
 });

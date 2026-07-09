@@ -8,6 +8,9 @@ export interface MonitoringScreenProps {
   /** Active monitor tab; keys into `screens` to pick what renders below. */
   value: string;
   onChange: (tab: string) => void;
+  /** Search text for the active screen; wired by the caller to its filter state. */
+  searchValue: string;
+  onSearchChange: (next: string) => void;
   onClose: () => void;
   /**
    * The embedded screen node for each tab, keyed by tab label. The caller builds
@@ -38,6 +41,8 @@ export function MonitoringScreen({
   tabs,
   value,
   onChange,
+  searchValue,
+  onSearchChange,
   onClose,
   screens,
 }: MonitoringScreenProps) {
@@ -47,6 +52,8 @@ export function MonitoringScreen({
         tabs={tabs}
         value={value}
         onChange={onChange}
+        searchValue={searchValue}
+        onSearchChange={onSearchChange}
         onClose={onClose}
       />
       <Divider />

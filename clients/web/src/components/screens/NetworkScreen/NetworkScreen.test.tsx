@@ -180,8 +180,25 @@ describe("NetworkScreen", () => {
     expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
   });
 
-  it("shows the full stream when embedded, ignoring the live filter", () => {
-    // A filter that matches nothing would empty the full-size screen...
+  it("applies the search text but ignores the category filter when embedded", () => {
+    renderWithMantine(
+      <NetworkScreen
+        {...baseProps}
+        ui={{
+          ...EMPTY_NETWORK_UI,
+          // Category filter would hide the transport entry on the full-size
+          // screen...
+          visibleCategories: { auth: true, transport: false },
+          // ...but the column search matches it.
+          filterText: "example.com",
+        }}
+        embedded
+      />,
+    );
+    expect(screen.queryByText("No network requests")).toBeNull();
+  });
+
+  it("hides entries not matching the column search when embedded", () => {
     renderWithMantine(
       <NetworkScreen
         {...baseProps}
@@ -189,7 +206,6 @@ describe("NetworkScreen", () => {
         embedded
       />,
     );
-    // ...but the embedded column shows the full stream (not the empty state).
-    expect(screen.queryByText("No network requests")).toBeNull();
+    expect(screen.getByText("No network requests")).toBeInTheDocument();
   });
 });
