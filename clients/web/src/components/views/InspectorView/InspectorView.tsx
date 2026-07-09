@@ -654,21 +654,26 @@ export function InspectorView({
     getInitialValueInEffect: false,
   });
 
-  // Open the monitoring column when a connection is established (#1616). Gated on
-  // the disconnected → connected *transition* (via the ref) rather than the
-  // "connected" state itself, so it fires on an actual connect — not on every
-  // render while connected, and not on a mount that starts already-connected
-  // (which would fight a user who closed it). The column still only *appears*
-  // when wide + a monitor tab is available (`effectivePinned`); this just sets
-  // the preference. Closing it stays closed until the next connect, since this
+  // Open the monitoring column when a connection is established (#1616) OR when a
+  // connection attempt fails (#1621). Gated on the *transition into* the target
+  // status (via the ref) rather than the status itself, so it fires once on an
+  // actual connect/failure — not on every render, and not on a mount that starts
+  // already in that status (which would fight a user who closed it). On success
+  // the column surfaces the live stream; on failure it surfaces the History /
+  // Network entries that explain what went wrong. The column still only *appears*
+  // when wide + a monitor tab is available (`effectivePinned`); this just sets the
+  // preference. Closing it stays closed until the next connect/failure, since this
   // effect only re-runs when `connectionStatus` changes.
-  const wasConnectedRef = useRef(connectionStatus === "connected");
+  const prevStatusRef = useRef(connectionStatus);
   useEffect(() => {
-    const isConnected = connectionStatus === "connected";
-    if (isConnected && !wasConnectedRef.current) {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = connectionStatus;
+    const becameConnected =
+      connectionStatus === "connected" && prev !== "connected";
+    const becameError = connectionStatus === "error" && prev !== "error";
+    if (becameConnected || becameError) {
       setMonitorPinned(true);
     }
-    wasConnectedRef.current = isConnected;
   }, [connectionStatus, setMonitorPinned]);
 
   const appTools = useMemo<Tool[]>(() => {
@@ -740,20 +745,37 @@ export function InspectorView({
     appTools,
   ]);
 
-  // Monitoring column, derived (#1616). The monitor group is pinned into the
-  // right column only when: the user asked for it, the viewport is wide enough,
-  // a server is connected, and at least one monitor tab is actually available
-  // (capability/stdio aware). Narrowing, disconnecting, or losing the last
-  // monitor capability flips `effectivePinned` false and closes the column —
-  // WITHOUT clearing `monitorPinned`, so it re-opens when the condition returns.
-  // Only the column's close button writes `monitorPinned = false`.
+  // Monitoring column, derived (#1616, #1621). The monitor group is pinned into
+  // the right column only when: the user asked for it, the viewport is wide
+  // enough, the session is connected OR a connect attempt failed, and at least
+  // one monitor tab is actually available (capability/stdio aware). Narrowing,
+  // returning to a clean disconnect, or losing the last monitor capability flips
+  // `effectivePinned` false and closes the column — WITHOUT clearing
+  // `monitorPinned`, so it re-opens when the condition returns. Only the column's
+  // close button writes `monitorPinned = false`.
   const connected = connectionStatus === "connected";
-  const monitorAvailable = useMemo<string[]>(
-    () => availableTabs.filter((t) => MONITOR_TABS.includes(t)),
-    [availableTabs],
-  );
+  // A failed connection attempt (#1621) keeps the column available so the user
+  // can see why, even though no live session exists.
+  const failed = connectionStatus === "error";
+  const monitorAvailable = useMemo<string[]>(() => {
+    if (connected) return availableTabs.filter((t) => MONITOR_TABS.includes(t));
+    if (failed) {
+      // A failed connect never negotiated capabilities, so Logs (gated on the
+      // server's `logging` capability) isn't meaningful. History (the local
+      // client-side message log) always captured the attempt, and Network (HTTP
+      // requests) did too for non-stdio transports — those are what explain the
+      // failure, so offer exactly them.
+      const active = serversInput.find((s) => s.id === activeServer);
+      const isStdio = active ? getServerType(active.config) === "stdio" : false;
+      return isStdio ? [HISTORY_TAB] : [HISTORY_TAB, NETWORK_TAB];
+    }
+    return [];
+  }, [connected, failed, availableTabs, serversInput, activeServer]);
   const effectivePinned =
-    monitorPinned && !!isWide && connected && monitorAvailable.length > 0;
+    monitorPinned &&
+    !!isWide &&
+    (connected || failed) &&
+    monitorAvailable.length > 0;
 
   // The header loses the monitor group while the column is open (its screens
   // live in the column instead); otherwise it shows every available tab.

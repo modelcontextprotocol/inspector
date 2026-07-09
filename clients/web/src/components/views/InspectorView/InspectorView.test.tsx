@@ -1376,6 +1376,86 @@ describe("InspectorView", () => {
       ).toBeNull();
     });
 
+    // A failed connect leaves the errored server's id set but no
+    // initializeResult (capabilities were never negotiated).
+    function failedHttp(overrides: Partial<InspectorViewProps> = {}) {
+      return makeProps({
+        servers: [httpServer],
+        activeServer: "beta",
+        connectionStatus: "error",
+        initializeResult: undefined,
+        ...overrides,
+      });
+    }
+
+    it("opens the monitoring column on a failed connection attempt (#1621)", async () => {
+      monitorWide.value = true;
+      const { rerender } = renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [httpServer],
+            activeServer: undefined,
+            connectionStatus: "disconnected",
+          })}
+        />,
+      );
+      // Disconnected: the column is closed.
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring column" }),
+      ).toBeNull();
+
+      // A connection failure (→ error) opens it to surface the diagnostics.
+      rerender(<StatefulInspectorViewHost {...failedHttp()} />);
+      expect(
+        await screen.findByRole("button", { name: "Close monitoring column" }),
+      ).toBeInTheDocument();
+
+      // The failure column offers the History + Network diagnostics, but not
+      // Logs (a failed connect never negotiated the logging capability).
+      expect(screen.getByRole("radio", { name: "History" })).toBeChecked();
+      expect(
+        screen.getByRole("radio", { name: "Network" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: "Logs" })).toBeNull();
+    });
+
+    it("omits Network from the failure column for a stdio server (#1621)", async () => {
+      monitorWide.value = true;
+      const stdioErr: ServerEntry = {
+        id: "beta",
+        name: "Beta",
+        config: { type: "stdio", command: "missing-bin" },
+        connection: { status: "disconnected" },
+      };
+      const { rerender } = renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [stdioErr],
+            activeServer: undefined,
+            connectionStatus: "disconnected",
+          })}
+        />,
+      );
+      rerender(
+        <StatefulInspectorViewHost {...failedHttp({ servers: [stdioErr] })} />,
+      );
+      // stdio has no HTTP traffic, so the failure column shows History only.
+      expect(
+        await screen.findByRole("radio", { name: "History" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: "Network" })).toBeNull();
+    });
+
+    it("does not auto-open on a mount that starts already errored (#1621)", () => {
+      // No transition into error, and no stored preference, so the column stays
+      // closed — a user who closed it isn't fought on remount.
+      monitorWide.value = true;
+      renderWithMantine(<StatefulInspectorViewHost {...failedHttp()} />);
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring column" }),
+      ).toBeNull();
+    });
+
     it("pins the monitor group into the column and removes it from the header", async () => {
       monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
