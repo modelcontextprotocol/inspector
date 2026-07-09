@@ -183,7 +183,7 @@ export function ConsoleScreen({
           <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
             <Stack gap="xs">
               {filteredEntries.map((entry, index) => (
-                <EntryRow key={index}>
+                <EntryRow key={`${entry.timestamp.getTime()}-${index}`}>
                   <TimestampText>
                     {formatTimestamp(entry.timestamp)}
                   </TimestampText>

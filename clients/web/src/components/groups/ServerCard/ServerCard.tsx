@@ -9,6 +9,7 @@ import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/Serv
 import { TransportBadge } from "../../elements/TransportBadge/TransportBadge";
 import { ConnectionToggle } from "../../elements/ConnectionToggle/ConnectionToggle";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { FAILED_CARD_SCROLL_DELAY_MS } from "../../views/InspectorView/monitorColumnAnimation";
 
 export interface ServerCardProps extends ServerEntry {
   activeServer?: string;
@@ -101,14 +102,6 @@ const RemoveButton = Button.withProps({
   color: "red.6",
 });
 
-// Delay before scrolling a newly-failed card into view (#1621). A connection
-// failure both flags the card and opens the monitoring column, which reflows
-// the server grid (fewer, narrower columns) and can push the failed card below
-// the fold. Deferring past the column's open lets that reflow settle so
-// `scrollIntoView` targets the card's final position rather than its pre-reflow
-// one. Kept just above the column's slide duration.
-const ERROR_SCROLL_DELAY_MS = 320;
-
 function getTransport(config: MCPServerConfig): ServerType {
   return config.type ?? "stdio";
 }
@@ -165,9 +158,11 @@ export function ServerCard({
   }, [highlighted, scrollOnHighlight]);
 
   // Scroll the failed card into view on the disconnected→errored transition
-  // (#1621), deferred so the monitoring column's open + grid reflow settle
-  // first. Guarded by a ref so a re-render while still errored doesn't re-scroll
-  // and fight the user if they've scrolled away.
+  // (#1621), deferred past the monitoring column's open (`FAILED_CARD_SCROLL_
+  // DELAY_MS`, derived from the column's slide duration) so the grid reflow
+  // settles before `scrollIntoView` measures the card. Guarded by a ref so a
+  // re-render while still errored doesn't re-scroll and fight the user if they've
+  // scrolled away.
   const wasErroredRef = useRef(errored);
   useEffect(() => {
     const justErrored = errored && !wasErroredRef.current;
@@ -175,7 +170,7 @@ export function ServerCard({
     if (!justErrored) return;
     const timer = setTimeout(() => {
       rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, ERROR_SCROLL_DELAY_MS);
+    }, FAILED_CARD_SCROLL_DELAY_MS);
     return () => clearTimeout(timer);
   }, [errored]);
   const transport = getTransport(config);

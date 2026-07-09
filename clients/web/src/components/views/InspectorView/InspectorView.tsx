@@ -88,6 +88,7 @@ import { MonitoringScreen } from "../../groups/MonitoringScreen/MonitoringScreen
 import { ResizeHandle } from "../../elements/ResizeHandle/ResizeHandle";
 import { getServerType } from "@inspector/core/mcp/config.js";
 import { INSPECTOR_SERVERS_TAB } from "../../../utils/inspectorTabs";
+import { MONITOR_COLUMN_ANIM_MS } from "./monitorColumnAnimation";
 
 const SORT_DEFAULT: SortDirection = "newest-first";
 
@@ -283,8 +284,9 @@ const MonitoringColumn = Stack.withProps({
 // side column sliding open rather than snapping in. The primary screen keeps its
 // standard `ScreenStage` transition. Mantine plays `out → in` on enter and
 // `in → out` on exit. `AppShell.Main`'s `overflow: hidden` clips the off-screen
-// portion during the slide.
-const COLUMN_ANIM_MS = 300;
+// portion during the slide. The duration is shared (`ServerCard` waits on it
+// before scrolling a failed card into view) so the two can't drift.
+const COLUMN_ANIM_MS = MONITOR_COLUMN_ANIM_MS;
 const columnSlide: MantineTransition = {
   in: { opacity: 1, transform: "translateX(0)" },
   out: { opacity: 0, transform: "translateX(100%)" },
@@ -695,22 +697,30 @@ export function InspectorView({
   });
 
   // Open the monitoring column when a connection is established (#1616) OR when a
-  // connection attempt fails (#1621). Gated on the *transition into* the target
+  // connect *attempt* fails (#1621). Gated on the *transition into* the target
   // status (via the ref) rather than the status itself, so it fires once on an
   // actual connect/failure — not on every render, and not on a mount that starts
   // already in that status (which would fight a user who closed it). On success
-  // the column surfaces the live stream; on failure it surfaces the History /
-  // Network entries that explain what went wrong. The column still only *appears*
-  // when wide + a monitor tab is available (`effectivePinned`); this just sets the
-  // preference. Closing it stays closed until the next connect/failure, since this
-  // effect only re-runs when `connectionStatus` changes.
+  // the column surfaces the live stream; on failure it surfaces the diagnostics
+  // that explain what went wrong. The column still only *appears* when wide + a
+  // monitor tab is available (`effectivePinned`); this just sets the preference.
+  //
+  // `"error"` is also the resting status of a *mid-session crash* of a
+  // previously-connected server (per isTerminalStatus/#1490), but that is NOT a
+  // connect attempt: reopening a column the user closed mid-session (and swapping
+  // their live tab set for the failure set) would be surprising. So the error
+  // arm requires the previous status to NOT be `connected` — i.e. we went
+  // connecting/disconnected → error, never connected → error. This keeps the
+  // auto-open aligned with the red-border (`erroredServerId`), which the parent
+  // also sets only for connect-attempt failures.
   const prevStatusRef = useRef(connectionStatus);
   useEffect(() => {
     const prev = prevStatusRef.current;
     prevStatusRef.current = connectionStatus;
     const becameConnected =
       connectionStatus === "connected" && prev !== "connected";
-    const becameError = connectionStatus === "error" && prev !== "error";
+    const becameError =
+      connectionStatus === "error" && prev !== "error" && prev !== "connected";
     if (becameConnected || becameError) {
       setMonitorPinned(true);
     }
@@ -797,9 +807,12 @@ export function InspectorView({
   // `monitorPinned`, so it re-opens when the condition returns. Only the column's
   // close button writes `monitorPinned = false`.
   const connected = connectionStatus === "connected";
-  // A failed connection attempt (#1621) keeps the column available so the user
-  // can see why, even though no live session exists.
-  const failed = connectionStatus === "error";
+  // A failed connection *attempt* (#1621) keeps the column available so the user
+  // can see why, even though no live session exists. Gated on `erroredServerId`
+  // (set by the parent only for connect-attempt failures, not mid-session
+  // crashes) so a crash of a previously-connected server doesn't reorganize the
+  // column into the failure tab set — matching the auto-open effect above.
+  const failed = connectionStatus === "error" && erroredServerId !== undefined;
   const monitorAvailable = useMemo<string[]>(() => {
     if (connected) return availableTabs.filter((t) => MONITOR_TABS.includes(t));
     if (failed) {

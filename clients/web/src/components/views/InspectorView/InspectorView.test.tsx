@@ -1383,11 +1383,14 @@ describe("InspectorView", () => {
     });
 
     // A failed connect leaves the errored server's id set but no
-    // initializeResult (capabilities were never negotiated).
+    // initializeResult (capabilities were never negotiated). `erroredServerId`
+    // is the parent's connect-attempt-failure signal (it survives the failure's
+    // `disconnect` clearing `activeServer`), which gates the failure column.
     function failedHttp(overrides: Partial<InspectorViewProps> = {}) {
       return makeProps({
         servers: [httpServer],
         activeServer: "beta",
+        erroredServerId: "beta",
         connectionStatus: "error",
         initializeResult: undefined,
         ...overrides,
@@ -1496,6 +1499,41 @@ describe("InspectorView", () => {
       expect(
         screen.queryByRole("button", { name: "Close monitoring column" }),
       ).toBeNull();
+    });
+
+    it("does not treat a mid-session crash as a connect-attempt failure (#1621)", async () => {
+      // A previously-connected server that crashes settles to `error` too, but
+      // with no `erroredServerId` (the parent sets that only for connect
+      // attempts). That must NOT reorganize the column into the failure tab set
+      // — it closes like any session teardown, so a user who closed the column
+      // mid-session isn't reopened onto diagnostics.
+      monitorWide.value = true;
+      window.localStorage.setItem("inspector.monitor.pinned", "true");
+      const { rerender } = renderWithMantine(
+        <StatefulInspectorViewHost {...connectedHttp()} />,
+      );
+      // Connected + pinned: the column is open with the live monitor tabs.
+      expect(
+        await screen.findByRole("button", { name: "Close monitoring column" }),
+      ).toBeInTheDocument();
+
+      // Crash: connected → error, activeServer cleared, NO erroredServerId.
+      rerender(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [httpServer],
+            activeServer: undefined,
+            connectionStatus: "error",
+          })}
+        />,
+      );
+      // The column closes (after its slide-out) rather than switching to the
+      // failure tabs.
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "Close monitoring column" }),
+        ).toBeNull(),
+      );
     });
 
     const stdioServer: ServerEntry = {
