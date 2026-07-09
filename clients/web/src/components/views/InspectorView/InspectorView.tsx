@@ -32,6 +32,7 @@ import type {
   InspectorResourceSubscription,
   MessageEntry,
   ServerEntry,
+  StderrLogEntry,
 } from "@inspector/core/mcp/types.js";
 import { isTerminalStatus } from "@inspector/core/mcp/types.js";
 import { isAppTool } from "@inspector/core/mcp/apps.js";
@@ -78,6 +79,10 @@ import {
   NetworkScreen,
   type NetworkUiState,
 } from "../../screens/NetworkScreen/NetworkScreen";
+import {
+  ConsoleScreen,
+  type ConsoleUiState,
+} from "../../screens/ConsoleScreen/ConsoleScreen";
 import type { SortDirection } from "../../elements/SortToggle/SortToggle";
 import { MonitoringScreen } from "../../groups/MonitoringScreen/MonitoringScreen";
 import { ResizeHandle } from "../../elements/ResizeHandle/ResizeHandle";
@@ -120,7 +125,7 @@ function serializeListCompact(value: boolean): string {
 // SPA only, no SSR — so the persisted value lands without a one-frame
 // flicker through the default. The `inspector.<kind>.<scope>` namespace
 // keeps related preferences grouped and easy to clear in bulk.
-function useSortDirection(scope: "logs" | "history" | "network") {
+function useSortDirection(scope: "logs" | "history" | "network" | "console") {
   return useLocalStorage<SortDirection>({
     key: `inspector.sortDirection.${scope}`,
     defaultValue: SORT_DEFAULT,
@@ -147,6 +152,7 @@ const SERVERS_TAB = INSPECTOR_SERVERS_TAB;
 const LOGS_TAB = "Logs";
 const HISTORY_TAB = "History";
 const NETWORK_TAB = "Network";
+const CONSOLE_TAB = "Console";
 
 const ALL_TABS: string[] = [
   SERVERS_TAB,
@@ -158,16 +164,29 @@ const ALL_TABS: string[] = [
   LOGS_TAB,
   HISTORY_TAB,
   NETWORK_TAB,
+  CONSOLE_TAB,
 ];
 
 // The screens that can be pinned into the monitoring column (#1616). Pinning is
 // a group action: opening the column removes all *available* monitor tabs from
-// the header and hosts them in the column instead.
-type MonitorTab = "Logs" | "History" | "Network";
-const MONITOR_TABS: string[] = [LOGS_TAB, HISTORY_TAB, NETWORK_TAB];
+// the header and hosts them in the column instead. Console (#1621) is the
+// stdio server's stderr stream — mutually exclusive with Network (Console shows
+// for stdio, Network for HTTP), but both live in the monitor group.
+type MonitorTab = "Logs" | "History" | "Network" | "Console";
+const MONITOR_TABS: string[] = [
+  LOGS_TAB,
+  HISTORY_TAB,
+  NETWORK_TAB,
+  CONSOLE_TAB,
+];
 
 function isMonitorTab(tab: string): tab is MonitorTab {
-  return tab === LOGS_TAB || tab === HISTORY_TAB || tab === NETWORK_TAB;
+  return (
+    tab === LOGS_TAB ||
+    tab === HISTORY_TAB ||
+    tab === NETWORK_TAB ||
+    tab === CONSOLE_TAB
+  );
 }
 
 // The viewport width below which the split collapses to a single column: matches
@@ -351,6 +370,8 @@ export interface InspectorViewProps {
   progressByTaskId?: Record<string, TaskProgress>;
   history: MessageEntry[];
   network: FetchRequestEntry[];
+  /** Captured stdio stderr (the Console screen). Empty for HTTP servers. (#1621) */
+  stderrLogs: StderrLogEntry[];
 
   // Per-screen "operation in flight" states (panel-level; optional because
   // the underlying screens accept them as optional).
@@ -370,6 +391,7 @@ export interface InspectorViewProps {
   logsUi: LogsUiState;
   historyUi: HistoryUiState;
   networkUi: NetworkUiState;
+  consoleUi: ConsoleUiState;
 
   /** Active inspector tab (lifted to App for OAuth resume). */
   activeTab: string;
@@ -486,6 +508,10 @@ export interface InspectorViewProps {
   onClearNetwork: () => void;
   onExportNetwork: () => void;
 
+  onConsoleUiChange: (next: ConsoleUiState) => void;
+  onClearConsole: () => void;
+  onExportConsole: () => void;
+
   onAppsUiChange: (next: AppsUiState) => void;
   onSelectApp: (name: string) => void;
   onOpenApp: (name: string, args: Record<string, unknown>) => void;
@@ -514,6 +540,7 @@ export function InspectorView({
   progressByTaskId,
   history,
   network,
+  stderrLogs,
   toolCallState,
   getPromptState,
   readResourceState,
@@ -525,6 +552,7 @@ export function InspectorView({
   logsUi,
   historyUi,
   networkUi,
+  consoleUi,
   currentLogLevel,
   sandboxPath,
   bridgeFactory,
@@ -583,6 +611,9 @@ export function InspectorView({
   onNetworkUiChange,
   onClearNetwork,
   onExportNetwork,
+  onConsoleUiChange,
+  onClearConsole,
+  onExportConsole,
   onAppsUiChange,
   onSelectApp,
   onOpenApp,
@@ -599,6 +630,7 @@ export function InspectorView({
   const [logsSort, setLogsSort] = useSortDirection("logs");
   const [historySort, setHistorySort] = useSortDirection("history");
   const [networkSort, setNetworkSort] = useSortDirection("network");
+  const [consoleSort, setConsoleSort] = useSortDirection("console");
 
   // Servers and Resources default to expanded (collapsed=false) so new
   // users see content on first paint; History/Network default to
@@ -729,6 +761,9 @@ export function InspectorView({
     const hasLogging = capabilities?.logging !== undefined;
     return ALL_TABS.filter((t) => {
       if (t === NETWORK_TAB && isStdio) return false;
+      // Console is the stdio process's stderr stream — shown only for stdio
+      // servers (HTTP transports have no child process to capture). (#1621)
+      if (t === CONSOLE_TAB && !isStdio) return false;
       if (t === "Tools" && !hasTools) return false;
       if (t === "Apps" && !hasApps) return false;
       if (t === "Prompts" && !hasPrompts) return false;
@@ -761,16 +796,27 @@ export function InspectorView({
     if (connected) return availableTabs.filter((t) => MONITOR_TABS.includes(t));
     if (failed) {
       // A failed connect never negotiated capabilities, so Logs (gated on the
-      // server's `logging` capability) isn't meaningful. History (the local
-      // client-side message log) always captured the attempt, and Network (HTTP
-      // requests) did too for non-stdio transports — those are what explain the
-      // failure, so offer exactly them.
-      const active = serversInput.find((s) => s.id === activeServer);
-      const isStdio = active ? getServerType(active.config) === "stdio" : false;
-      return isStdio ? [HISTORY_TAB] : [HISTORY_TAB, NETWORK_TAB];
+      // server's `logging` capability) isn't meaningful. What explains the
+      // failure is whichever diagnostic actually captured something:
+      //   • stdio → the process's stderr (Console): the spawn/startup error the
+      //     child printed before dying.
+      //   • HTTP  → the failed requests (Network).
+      // We key off *captured content*, not the server's declared transport,
+      // because a connect failure fires the client `disconnect` event, which
+      // clears `activeServer` — so transport can't be read back reliably here.
+      // History is always offered, though a pre-handshake failure usually
+      // leaves it empty. Console leads (it's the stdio failure's story); Network
+      // trails History (matching the connected order). This memo re-runs as
+      // stderr/fetch entries stream in, so the diagnostic tab appears as soon as
+      // the failing process/request produces output.
+      const tabs: string[] = [];
+      if (stderrLogs.length > 0) tabs.push(CONSOLE_TAB);
+      tabs.push(HISTORY_TAB);
+      if (network.length > 0) tabs.push(NETWORK_TAB);
+      return tabs;
     }
     return [];
-  }, [connected, failed, availableTabs, serversInput, activeServer]);
+  }, [connected, failed, availableTabs, stderrLogs, network]);
   const effectivePinned =
     monitorPinned &&
     !!isWide &&
@@ -933,6 +979,15 @@ export function InspectorView({
     compact: networkCompact,
     onToggleCompact: () => setNetworkCompact((c) => !c),
   };
+  const consoleScreenProps = {
+    entries: stderrLogs,
+    ui: consoleUi,
+    onUiChange: onConsoleUiChange,
+    onClear: onClearConsole,
+    onExport: onExportConsole,
+    sortDirection: consoleSort,
+    onSortChange: setConsoleSort,
+  };
 
   // Embedded instances for the pinned column, keyed by tab. MonitoringScreen
   // renders only the active one; the rest are unmounted element values. Each
@@ -957,6 +1012,13 @@ export function InspectorView({
       <NetworkScreen
         {...networkScreenProps}
         ui={{ ...networkUi, filterText: monitorSearch }}
+        embedded
+      />
+    ),
+    [CONSOLE_TAB]: (
+      <ConsoleScreen
+        {...consoleScreenProps}
+        ui={{ filterText: monitorSearch }}
         embedded
       />
     ),
@@ -1109,6 +1171,12 @@ export function InspectorView({
               <NetworkScreen
                 {...networkScreenProps}
                 onPin={canPin ? () => pinMonitor(NETWORK_TAB) : undefined}
+              />
+            </ScreenStage>
+            <ScreenStage active={activeTab === CONSOLE_TAB}>
+              <ConsoleScreen
+                {...consoleScreenProps}
+                onPin={canPin ? () => pinMonitor(CONSOLE_TAB) : undefined}
               />
             </ScreenStage>
           </ScreenStageContainer>

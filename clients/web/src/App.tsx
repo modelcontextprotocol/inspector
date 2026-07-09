@@ -95,6 +95,7 @@ import { useManagedRequestorTasks } from "@inspector/core/react/useManagedReques
 import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubscriptions.js";
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js";
+import { useStderrLog } from "@inspector/core/react/useStderrLog.js";
 import { useSandboxUrl } from "@inspector/core/react/useSandboxUrl.js";
 import { useServerListWritable } from "@inspector/core/react/useServerListWritable.js";
 import { usePendingClientRequests } from "@inspector/core/react/usePendingClientRequests.js";
@@ -115,6 +116,7 @@ import {
   EMPTY_LOGS_UI,
   EMPTY_HISTORY_UI,
   EMPTY_NETWORK_UI,
+  EMPTY_CONSOLE_UI,
 } from "./components/screens/screenUiState";
 import { clearScrollMemory } from "./hooks/useScrollMemory";
 import type { AppRendererHandle } from "./components/elements/AppRenderer/AppRenderer";
@@ -751,6 +753,7 @@ function App() {
     () => new Set(),
   );
   const [networkUi, setNetworkUi] = useState(EMPTY_NETWORK_UI);
+  const [consoleUi, setConsoleUi] = useState(EMPTY_CONSOLE_UI);
   const [activeTab, setActiveTab] = useState(INSPECTOR_SERVERS_TAB);
   const [pendingStepUp, setPendingStepUp] = useState<{
     challenge: AuthChallenge;
@@ -887,6 +890,7 @@ function App() {
   );
   const { messages } = useMessageLog(messageLogState);
   const { fetchRequests } = useFetchRequestLog(fetchRequestLogState);
+  const { stderrLogs } = useStderrLog(stderrLogState);
 
   // Surface the otherwise-invisible "response body dropped after rotation" case
   // (#1390) as a deduped toast that links to this server's Network Log Size
@@ -1003,6 +1007,10 @@ function App() {
     setHistoryUi(EMPTY_HISTORY_UI);
     setPinnedHistoryIds(new Set());
     setNetworkUi(EMPTY_NETWORK_UI);
+    // Only the search filter resets here; the stderr entries themselves live in
+    // StderrLogState, which deliberately survives connect/disconnect so a failed
+    // launch's output stays visible for diagnosis (#1621).
+    setConsoleUi(EMPTY_CONSOLE_UI);
     setProgressByTaskId({});
     setCurrentLogLevel("info");
     setPendingStepUp(null);
@@ -3091,6 +3099,18 @@ function App() {
     );
   }, [logs, activeServerId]);
 
+  const onClearConsole = useCallback(() => {
+    stderrLogState?.clearStderrLogs();
+  }, [stderrLogState]);
+
+  const onExportConsole = useCallback(() => {
+    if (stderrLogs.length === 0) return;
+    downloadJsonFile(
+      buildExportFilename("console", activeServerId),
+      JSON.stringify(stderrLogs, null, 2),
+    );
+  }, [stderrLogs, activeServerId]);
+
   // Download the current server list as a canonical mcp.json file. Uses the
   // in-memory `servers` list (kept in sync with disk by useServers' refresh-
   // after-mutate flow) so there's no extra HTTP roundtrip. Serialization
@@ -3653,6 +3673,7 @@ function App() {
           progressByTaskId={progressByTaskId}
           history={messages}
           network={fetchRequests}
+          stderrLogs={stderrLogs}
           toolCallState={toolCallState}
           getPromptState={getPromptState}
           readResourceState={effectiveReadResourceState}
@@ -3664,6 +3685,7 @@ function App() {
           logsUi={logsUi}
           historyUi={historyUi}
           networkUi={networkUi}
+          consoleUi={consoleUi}
           activeTab={activeTab}
           onActiveTabChange={setActiveTab}
           currentLogLevel={currentLogLevel}
@@ -3765,6 +3787,9 @@ function App() {
           onNetworkUiChange={setNetworkUi}
           onClearNetwork={onClearNetwork}
           onExportNetwork={onExportNetwork}
+          onConsoleUiChange={setConsoleUi}
+          onClearConsole={onClearConsole}
+          onExportConsole={onExportConsole}
           onAppsUiChange={setAppsUi}
           onSelectApp={onSelectApp}
           onOpenApp={(name, args) => {

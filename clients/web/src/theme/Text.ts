@@ -26,6 +26,17 @@ export const ThemeText = Text.extend({
         },
       };
     }
+    // A line of captured server stderr (#1621): preserve the process's own
+    // newlines/whitespace (`pre-wrap`) while still wrapping over-long lines
+    // inside the narrow monitoring column (`break-word`).
+    if (props.variant === "consoleLine") {
+      return {
+        root: {
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+        },
+      };
+    }
     return { root: {} };
   },
 });

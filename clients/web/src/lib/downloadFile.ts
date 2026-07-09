@@ -79,7 +79,8 @@ export type ExportKind =
   | "history-pinned"
   | "history-unpinned"
   | "logs"
-  | "network";
+  | "network"
+  | "console";
 
 /**
  * Build a sortable export filename in the shape

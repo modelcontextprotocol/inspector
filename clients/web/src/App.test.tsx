@@ -227,6 +227,9 @@ vi.mock("@inspector/core/react/useMessageLog.js", () => ({
 vi.mock("@inspector/core/react/useFetchRequestLog.js", () => ({
   useFetchRequestLog: vi.fn(() => ({ fetchRequests: [] })),
 }));
+vi.mock("@inspector/core/react/useStderrLog.js", () => ({
+  useStderrLog: vi.fn(() => ({ stderrLogs: [] })),
+}));
 vi.mock("@inspector/core/react/useSettingsDraft.js", () => ({
   useSettingsDraft: vi.fn(() => ({
     // `draft` is widened so tests can override the return with a populated
