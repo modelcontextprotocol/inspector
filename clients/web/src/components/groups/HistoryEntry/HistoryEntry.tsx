@@ -124,12 +124,12 @@ export function HistoryEntry({
       <Stack gap="sm">
         <HeaderRow>
           <Group gap="sm">
+            <TimestampText>{formatTimestamp(entry.timestamp)}</TimestampText>
             {entry.origin && (
               <MessageDirectionBadge
                 direction={entry.origin === "client" ? "outgoing" : "incoming"}
               />
             )}
-            <TimestampText>{formatTimestamp(entry.timestamp)}</TimestampText>
             <Badge color="dark">{method}</Badge>
             {target && <TargetText>{target}</TargetText>}
           </Group>
