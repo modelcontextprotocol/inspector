@@ -1,4 +1,11 @@
-import { useMemo, useState, type ReactNode, type Ref } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref,
+} from "react";
 import {
   AppShell,
   Box,
@@ -646,6 +653,23 @@ export function InspectorView({
   const isWide = useMediaQuery(MONITOR_WIDE_QUERY, true, {
     getInitialValueInEffect: false,
   });
+
+  // Open the monitoring column when a connection is established (#1616). Gated on
+  // the disconnected → connected *transition* (via the ref) rather than the
+  // "connected" state itself, so it fires on an actual connect — not on every
+  // render while connected, and not on a mount that starts already-connected
+  // (which would fight a user who closed it). The column still only *appears*
+  // when wide + a monitor tab is available (`effectivePinned`); this just sets
+  // the preference. Closing it stays closed until the next connect, since this
+  // effect only re-runs when `connectionStatus` changes.
+  const wasConnectedRef = useRef(connectionStatus === "connected");
+  useEffect(() => {
+    const isConnected = connectionStatus === "connected";
+    if (isConnected && !wasConnectedRef.current) {
+      setMonitorPinned(true);
+    }
+    wasConnectedRef.current = isConnected;
+  }, [connectionStatus, setMonitorPinned]);
 
   const appTools = useMemo<Tool[]>(() => {
     return tools.filter((tool) => {

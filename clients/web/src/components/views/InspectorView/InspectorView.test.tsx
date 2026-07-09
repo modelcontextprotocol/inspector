@@ -1343,6 +1343,39 @@ describe("InspectorView", () => {
       ).toBeInTheDocument();
     });
 
+    it("opens the monitoring column when a connection is established", async () => {
+      monitorWide.value = true;
+      const { rerender } = renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [httpServer],
+            activeServer: undefined,
+            connectionStatus: "disconnected",
+          })}
+        />,
+      );
+      // Disconnected: the column is closed.
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring column" }),
+      ).toBeNull();
+
+      // Connecting opens it (the disconnected → connected transition).
+      rerender(<StatefulInspectorViewHost {...connectedHttp()} />);
+      expect(
+        await screen.findByRole("button", { name: "Close monitoring column" }),
+      ).toBeInTheDocument();
+    });
+
+    it("does not auto-open on a mount that starts already connected", () => {
+      // No disconnected → connected transition, and no stored preference, so the
+      // column stays closed (a user who closed it isn't fought on remount).
+      monitorWide.value = true;
+      renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring column" }),
+      ).toBeNull();
+    });
+
     it("pins the monitor group into the column and removes it from the header", async () => {
       monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
