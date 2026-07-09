@@ -101,6 +101,14 @@ const RemoveButton = Button.withProps({
   color: "red.6",
 });
 
+// Delay before scrolling a newly-failed card into view (#1621). A connection
+// failure both flags the card and opens the monitoring column, which reflows
+// the server grid (fewer, narrower columns) and can push the failed card below
+// the fold. Deferring past the column's open lets that reflow settle so
+// `scrollIntoView` targets the card's final position rather than its pre-reflow
+// one. Kept just above the column's slide duration.
+const ERROR_SCROLL_DELAY_MS = 320;
+
 function getTransport(config: MCPServerConfig): ServerType {
   return config.type ?? "stdio";
 }
@@ -155,6 +163,21 @@ export function ServerCard({
       rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [highlighted, scrollOnHighlight]);
+
+  // Scroll the failed card into view on the disconnected→errored transition
+  // (#1621), deferred so the monitoring column's open + grid reflow settle
+  // first. Guarded by a ref so a re-render while still errored doesn't re-scroll
+  // and fight the user if they've scrolled away.
+  const wasErroredRef = useRef(errored);
+  useEffect(() => {
+    const justErrored = errored && !wasErroredRef.current;
+    wasErroredRef.current = errored;
+    if (!justErrored) return;
+    const timer = setTimeout(() => {
+      rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, ERROR_SCROLL_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [errored]);
   const transport = getTransport(config);
   const commandOrUrl = getCommandOrUrl(config);
   const version = info?.version;
