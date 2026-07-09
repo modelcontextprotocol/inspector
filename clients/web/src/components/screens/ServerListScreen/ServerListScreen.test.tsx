@@ -136,6 +136,27 @@ describe("ServerListScreen", () => {
     });
   });
 
+  describe("connection-failed border (#1621)", () => {
+    it("draws the red errored border only on the failed server's card", () => {
+      const { container } = renderWithMantine(
+        <ServerListScreen {...baseProps} erroredServerId="beta" />,
+      );
+      const errored = container.querySelectorAll('[data-variant="errored"]');
+      expect(errored).toHaveLength(1);
+      // The errored card is Beta's — its name is within the flagged card.
+      expect(errored[0]).toHaveTextContent("Beta");
+    });
+
+    it("draws no errored border when erroredServerId is unset", () => {
+      const { container } = renderWithMantine(
+        <ServerListScreen {...baseProps} />,
+      );
+      expect(
+        container.querySelectorAll('[data-variant="errored"]'),
+      ).toHaveLength(0);
+    });
+  });
+
   describe("freshly-added highlight", () => {
     it("draws a green highlight border on every highlighted server", () => {
       const { container } = renderWithMantine(

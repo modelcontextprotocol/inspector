@@ -363,4 +363,56 @@ describe("ServerCard", () => {
       expect(onClearHighlight).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("connection-failed border (#1621)", () => {
+    it("draws the red errored-variant border when errored", () => {
+      const { container } = renderWithMantine(
+        <ServerCard {...baseProps} connection={disconnected} errored />,
+      );
+      expect(
+        container.querySelector('[data-variant="errored"]'),
+      ).not.toBeNull();
+    });
+
+    it("does not draw the errored border when not errored", () => {
+      const { container } = renderWithMantine(
+        <ServerCard {...baseProps} connection={disconnected} />,
+      );
+      expect(container.querySelector('[data-variant="errored"]')).toBeNull();
+    });
+
+    it("prefers the dimmed (disabled) variant over the errored border", () => {
+      // A dimmed card (another server active) is inert; that wins over the
+      // error border so the card can't look interactive.
+      const { container } = renderWithMantine(
+        <ServerCard
+          {...baseProps}
+          connection={disconnected}
+          activeServer="other"
+          errored
+        />,
+      );
+      expect(
+        container.querySelector('[data-variant="disabled"]'),
+      ).not.toBeNull();
+      expect(container.querySelector('[data-variant="errored"]')).toBeNull();
+    });
+
+    it("prefers the errored border over the freshly-added highlight", () => {
+      const { container } = renderWithMantine(
+        <ServerCard
+          {...baseProps}
+          connection={disconnected}
+          errored
+          highlighted
+        />,
+      );
+      expect(
+        container.querySelector('[data-variant="errored"]'),
+      ).not.toBeNull();
+      expect(
+        container.querySelector('[data-variant="highlighted"]'),
+      ).toBeNull();
+    });
+  });
 });

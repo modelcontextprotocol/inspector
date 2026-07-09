@@ -635,6 +635,16 @@ function App() {
     undefined,
   );
 
+  // Id of the server whose last connection attempt failed (#1621). Drives the
+  // red border on that ServerCard. It is deliberately NOT reset by
+  // `resetSessionScopedUiState` (a failed connect fires the `disconnect` event,
+  // which would otherwise clear the flag the same tick we set it); instead it is
+  // cleared when a new connection attempt starts, and re-set if that attempt
+  // also fails.
+  const [failedServerId, setFailedServerId] = useState<string | undefined>(
+    undefined,
+  );
+
   // InspectorClient + per-primitive state managers. All recreated together
   // whenever the user switches active servers, then destroyed when the
   // next switch happens (or when the component unmounts).
@@ -2318,6 +2328,10 @@ function App() {
       if (id !== activeServerId) {
         setActiveServerId(id);
       }
+      // A new connection attempt has begun: clear any previous failure flag so
+      // the red border on the last-failed card is removed (#1621). If this
+      // attempt also fails, the catch below re-sets it for this server.
+      setFailedServerId(undefined);
 
       connectStartRef.current = Date.now();
       try {
@@ -2407,7 +2421,8 @@ function App() {
 
         // Non-auth handshake error: toast so the user sees what went wrong
         // instead of the ConnectionToggle silently reverting to
-        // "disconnected".
+        // "disconnected", and flag the card with a red border (#1621).
+        setFailedServerId(id);
         const message = err instanceof Error ? err.message : String(err);
         notifications.show({
           title: `Failed to connect to "${target.name}"`,
@@ -3657,6 +3672,7 @@ function App() {
           servers={servers}
           serverListWritable={serverListWritable}
           activeServer={activeServerId}
+          erroredServerId={failedServerId}
           connectionStatus={connectionStatus}
           initializeResult={initializeResult}
           latencyMs={latencyMs}

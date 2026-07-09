@@ -39,6 +39,11 @@ export interface ServerListScreenProps {
   writable?: boolean;
   /** Id of the server the wiring layer treats as active (drives card dimming). */
   activeServer?: string;
+  /**
+   * Id of the server whose last connection attempt failed (#1621). Its card
+   * draws a red border until another server is connected or attempted.
+   */
+  erroredServerId?: string;
   onAddManually: () => void;
   onImportConfig: () => void;
   onImportServerJson: () => void;
@@ -78,6 +83,7 @@ export function ServerListScreen({
   servers,
   writable = true,
   activeServer,
+  erroredServerId,
   onAddManually,
   onImportConfig,
   onImportServerJson,
@@ -138,6 +144,7 @@ export function ServerListScreen({
     onClone,
     onRemove,
     highlighted: highlightedServerIds?.includes(server.id) ?? false,
+    errored: server.id === erroredServerId,
     scrollOnHighlight: server.id === firstHighlightedId,
     onClearHighlight: onClearHighlight
       ? () => onClearHighlight(server.id)

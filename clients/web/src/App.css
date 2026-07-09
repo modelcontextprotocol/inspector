@@ -53,6 +53,10 @@
   /* Green border drawn around a freshly-added/highlighted server card (#1535) */
   --inspector-highlight-border: var(--mantine-color-green-6);
 
+  /* Red border drawn around a server card whose last connection attempt failed,
+     until another server is connected/attempted (#1621) */
+  --inspector-error-border: var(--mantine-color-red-6);
+
   /* ── Log levels (RFC 5424) ─────────────────────────────── */
   --inspector-log-debug: var(--mantine-color-gray-6);
   --inspector-log-info: var(--mantine-color-blue-6);

@@ -39,6 +39,12 @@ export interface ServerCardProps extends ServerEntry {
    */
   highlighted?: boolean;
   /**
+   * When true, this server's last connection attempt failed: the card draws a
+   * red border to flag it (#1621). The parent clears this when another server
+   * is connected or a new connection is attempted.
+   */
+  errored?: boolean;
+  /**
    * Whether a highlighted card scrolls itself into view. When several cards are
    * highlighted at once (a batch import) only the first should scroll, so the
    * list jumps to the start of the batch rather than fighting over the viewport.
@@ -135,6 +141,7 @@ export function ServerCard({
   writable = true,
   dragHandle,
   highlighted = false,
+  errored = false,
   scrollOnHighlight = true,
   onClearHighlight,
 }: ServerCardProps) {
@@ -155,12 +162,15 @@ export function ServerCard({
     connection.status === "connected" ? connection.protocolVersion : undefined;
 
   // A dimmed card (another server is active) is inert, so the disabled variant
-  // wins; otherwise a freshly-added card draws the highlighted green border.
+  // wins; otherwise a failed-connection card draws the red error border, then a
+  // freshly-added card draws the highlighted green border.
   const variant = isDimmed
     ? "disabled"
-    : highlighted
-      ? "highlighted"
-      : undefined;
+    : errored
+      ? "errored"
+      : highlighted
+        ? "highlighted"
+        : undefined;
 
   return (
     <Card

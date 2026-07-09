@@ -347,6 +347,13 @@ export interface InspectorViewProps {
 
   // Connection state — driven by the parent via `useInspectorClient`.
   activeServer?: string;
+  /**
+   * Id of the server whose last connection attempt failed (#1621). Its card in
+   * the Servers screen draws a red border until another server is connected or
+   * a new connection is attempted. Independent of `activeServer`, which the
+   * parent clears on the failure's `disconnect` event.
+   */
+  erroredServerId?: string;
   connectionStatus: ConnectionStatus;
   initializeResult?: InitializeResult;
   latencyMs?: number;
@@ -524,6 +531,7 @@ export function InspectorView({
   servers: serversInput,
   serverListWritable = true,
   activeServer,
+  erroredServerId,
   connectionStatus,
   initializeResult,
   latencyMs,
@@ -1062,6 +1070,7 @@ export function InspectorView({
                 servers={servers}
                 writable={serverListWritable}
                 activeServer={dimCardsAgainst}
+                erroredServerId={erroredServerId}
                 onAddManually={onServerAdd}
                 onImportConfig={onServerImportConfig}
                 onImportServerJson={onServerImportJson}
