@@ -78,7 +78,7 @@ describe("ProtocolScreen", () => {
     renderWithMantine(
       <ProtocolScreen {...baseProps} onUiChange={onUiChange} />,
     );
-    await user.click(screen.getByRole("button", { name: "client ← server" }));
+    await user.click(screen.getByRole("button", { name: "server → client" }));
     expect(onUiChange).toHaveBeenCalledWith(
       expect.objectContaining({
         visibleDirections: { client: true, server: false },
@@ -130,7 +130,7 @@ describe("ProtocolScreen", () => {
 
   it("drops the filter sidebar when embedded, keeping the request list", () => {
     renderWithMantine(<ProtocolScreen {...baseProps} embedded />);
-    expect(screen.getByText("Requests")).toBeInTheDocument();
+    expect(screen.getByText("Messages")).toBeInTheDocument();
     // The sidebar (ProtocolControls, with its Search box) is not rendered.
     expect(screen.queryByPlaceholderText("Search...")).toBeNull();
   });

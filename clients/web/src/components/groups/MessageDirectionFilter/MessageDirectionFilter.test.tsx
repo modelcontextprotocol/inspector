@@ -17,7 +17,7 @@ describe("MessageDirectionFilter", () => {
       screen.getByRole("button", { name: "client → server" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "client ← server" }),
+      screen.getByRole("button", { name: "server → client" }),
     ).toBeInTheDocument();
   });
 
@@ -30,7 +30,7 @@ describe("MessageDirectionFilter", () => {
         onToggleDirection={onToggleDirection}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "client ← server" }));
+    await user.click(screen.getByRole("button", { name: "server → client" }));
     expect(onToggleDirection).toHaveBeenCalledWith("server", false);
   });
 

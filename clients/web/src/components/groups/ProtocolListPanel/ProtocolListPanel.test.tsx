@@ -116,7 +116,7 @@ describe("ProtocolListPanel", () => {
         pinnedIds={new Set(["req-1"])}
       />,
     );
-    expect(screen.getByText("Pinned Requests (1)")).toBeInTheDocument();
+    expect(screen.getByText("Pinned Messages (1)")).toBeInTheDocument();
     expect(screen.getByText("History (2)")).toBeInTheDocument();
   });
 
@@ -186,7 +186,7 @@ describe("ProtocolListPanel", () => {
       />,
     );
     const pinned = screen.getByRole("button", {
-      name: "Pinned Requests (1)",
+      name: "Pinned Messages (1)",
     });
     const history = screen.getByRole("button", { name: "History (2)" });
     await user.click(pinned);
@@ -346,7 +346,7 @@ describe("ProtocolListPanel", () => {
         pinnedIds={new Set(["req-1"])}
       />,
     );
-    expect(screen.getByText("Pinned Requests (1)")).toBeInTheDocument();
+    expect(screen.getByText("Pinned Messages (1)")).toBeInTheDocument();
     expect(screen.queryByText(/^History \(/)).not.toBeInTheDocument();
   });
 

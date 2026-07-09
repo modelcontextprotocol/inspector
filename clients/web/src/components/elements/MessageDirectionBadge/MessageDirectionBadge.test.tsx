@@ -8,8 +8,8 @@ describe("MessageDirectionBadge", () => {
     expect(screen.getByText("client → server")).toBeInTheDocument();
   });
 
-  it("renders client ← server for incoming", () => {
+  it("renders server → client for incoming", () => {
     renderWithMantine(<MessageDirectionBadge direction="incoming" />);
-    expect(screen.getByText("client ← server")).toBeInTheDocument();
+    expect(screen.getByText("server → client")).toBeInTheDocument();
   });
 });

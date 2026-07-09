@@ -158,11 +158,11 @@ describe("ProtocolEntry", () => {
     expect(screen.getByText("client → server")).toBeInTheDocument();
   });
 
-  it("shows client ← server for a server-originated entry", () => {
+  it("shows server → client for a server-originated entry", () => {
     renderWithMantine(
       <ProtocolEntry {...baseProps} entry={notificationEntry} />,
     );
-    expect(screen.getByText("client ← server")).toBeInTheDocument();
+    expect(screen.getByText("server → client")).toBeInTheDocument();
   });
 
   it("renders Pin label when not pinned", () => {

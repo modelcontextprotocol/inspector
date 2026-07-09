@@ -91,7 +91,7 @@ describe("ProtocolControls", () => {
       screen.getByRole("button", { name: "client → server" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "client ← server" }),
+      screen.getByRole("button", { name: "server → client" }),
     ).toBeInTheDocument();
   });
 
@@ -102,7 +102,7 @@ describe("ProtocolControls", () => {
       <ProtocolControls {...baseProps} onToggleDirection={onToggleDirection} />,
     );
     // Currently visible → clicking turns it off.
-    await user.click(screen.getByRole("button", { name: "client ← server" }));
+    await user.click(screen.getByRole("button", { name: "server → client" }));
     expect(onToggleDirection).toHaveBeenCalledWith("server", false);
   });
 

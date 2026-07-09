@@ -98,7 +98,7 @@ const SectionLinkButton = Button.withProps({
 });
 
 function formatPinnedTitle(count: number): string {
-  return `Pinned Requests (${count})`;
+  return `Pinned Messages (${count})`;
 }
 
 function formatHistoryTitle(count: number): string {
