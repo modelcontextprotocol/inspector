@@ -12,6 +12,7 @@ import type {
   InspectorResourceSubscription,
   MessageEntry,
   ServerEntry,
+  StderrLogEntry,
 } from "@inspector/core/mcp/types.js";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
@@ -26,6 +27,7 @@ import {
   EMPTY_LOGS_UI,
   EMPTY_HISTORY_UI,
   EMPTY_NETWORK_UI,
+  EMPTY_CONSOLE_UI,
 } from "../../screens/screenUiState";
 import { mixedEntries as demoLogs } from "../../screens/LoggingScreen/LoggingScreen.fixtures";
 import { longToolList as demoRegularTools } from "../../screens/ToolsScreen/ToolsScreen.fixtures";
@@ -295,6 +297,16 @@ const demoNetwork: FetchRequestEntry[] = [
   },
 ];
 
+// Captured stdio stderr (the Console screen). Mirrors a failed `python -m
+// mcp_server_time` launch so the Connection Error story shows a real diagnostic.
+const demoStderr: StderrLogEntry[] = [
+  {
+    timestamp: new Date("2026-03-17T10:00:00Z"),
+    message:
+      "/opt/homebrew/opt/python@3.13/bin/python3.13: No module named mcp_server_time",
+  },
+];
+
 // Advertise every primitive capability so the Connected story shows the full
 // tab list — each header tab is gated on the matching capability field (#1516).
 const demoInitializeResult: InitializeResult = {
@@ -326,6 +338,7 @@ const meta: Meta<typeof InspectorView> = {
     progressByTaskId: demoProgressByTaskId,
     history: demoHistory,
     network: demoNetwork,
+    stderrLogs: demoStderr,
 
     // Connection state — stories default to "disconnected"; per-story
     // overrides drive the connected / error narratives.
@@ -349,6 +362,7 @@ const meta: Meta<typeof InspectorView> = {
     logsUi: EMPTY_LOGS_UI,
     historyUi: EMPTY_HISTORY_UI,
     networkUi: EMPTY_NETWORK_UI,
+    consoleUi: EMPTY_CONSOLE_UI,
 
     // Callbacks — all wired to storybook spies so play functions can assert
     // on dispatch. Real wiring routes these to InspectorClient methods (the
@@ -395,6 +409,9 @@ const meta: Meta<typeof InspectorView> = {
     onNetworkUiChange: fn(),
     onClearNetwork: fn(),
     onExportNetwork: fn(),
+    onConsoleUiChange: fn(),
+    onClearConsole: fn(),
+    onExportConsole: fn(),
     onAppsUiChange: fn(),
     onSelectApp: fn(),
     onOpenApp: fn(),
@@ -494,8 +511,15 @@ export const Connected: Story = {
 };
 
 export const ConnectionError: Story = {
+  // demoServers[0] is a stdio server; a failed launch has an empty History (the
+  // message log clears on the error transition) and no HTTP traffic, so the
+  // auto-opened column keys off the captured stderr and defaults to Console —
+  // the process's startup error (#1621). `network: []` keeps it a pure stdio
+  // failure so Network isn't offered.
   args: {
     activeServer: demoServers[0]!.id,
     connectionStatus: "error",
+    network: [],
+    stderrLogs: demoStderr,
   },
 };
