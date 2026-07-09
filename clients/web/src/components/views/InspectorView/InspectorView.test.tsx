@@ -243,7 +243,7 @@ describe("InspectorView", () => {
 
   it("dispatches onToggleConnection with the server id when the card toggle is clicked", async () => {
     const onToggleConnection = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({ servers: [sampleServer], onToggleConnection })}
@@ -339,7 +339,7 @@ describe("InspectorView", () => {
         })}
       />,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const tabSelect = await screen.findByDisplayValue("Servers");
     await user.click(tabSelect);
     await user.click(await screen.findByText("Tools"));
@@ -532,7 +532,7 @@ describe("InspectorView", () => {
   });
 
   it("filters tools to apps and auto-launches a no-fields app on the Apps tab", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     // Plain (non-app) tool plus a tool with a malformed UI resource URI
     // exercise both branches of the appTools filter: the non-app drop and
     // the try/catch around `isAppTool` for malformed metadata.
@@ -648,7 +648,7 @@ describe("InspectorView", () => {
   });
 
   it("snaps activeTab back to Servers when the Apps tab disappears after a refresh", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const { rerender } = renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
@@ -836,7 +836,7 @@ describe("InspectorView", () => {
 
   it("dispatches onSetLogLevel through to the Logs screen", async () => {
     const onSetLogLevel = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
@@ -867,7 +867,7 @@ describe("InspectorView", () => {
   });
 
   it("persists Logs sort direction to localStorage and restores it on remount", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const { unmount } = renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
@@ -918,7 +918,7 @@ describe("InspectorView", () => {
   });
 
   it("falls back to newest-first when a corrupted sort value is stored", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     window.localStorage.setItem("inspector.sortDirection.history", "garbage");
     renderWithMantine(
       <StatefulInspectorViewHost
@@ -941,7 +941,7 @@ describe("InspectorView", () => {
   });
 
   it("persists History list compact state to localStorage and restores it on remount", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const historyEntry = {
       id: "req-1",
       timestamp: new Date("2026-03-17T10:00:00Z"),
@@ -999,7 +999,7 @@ describe("InspectorView", () => {
   });
 
   it("falls back to collapsed when a corrupted compact value is stored", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     window.localStorage.setItem("inspector.listCompact.history", "garbage");
     const historyEntry = {
       id: "req-1",
@@ -1102,7 +1102,7 @@ describe("InspectorView", () => {
   });
 
   it("toggles the Servers list compact state from the list toggle", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <StatefulInspectorViewHost {...makeProps({ servers: [sampleServer] })} />,
     );
@@ -1116,7 +1116,7 @@ describe("InspectorView", () => {
   });
 
   it("toggles the Network list compact state from the list toggle", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const httpServer: ServerEntry = {
       id: "beta",
       name: "Beta",
@@ -1185,7 +1185,7 @@ describe("InspectorView", () => {
     // The indicator only mounts on the active screen, so each case connects,
     // navigates to the target tab, and asserts the "List updated" affordance.
     async function gotoTab(tab: string) {
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       const tabSelect = await screen.findByDisplayValue("Servers");
       await user.click(tabSelect);
       await user.click(await screen.findByText(tab));

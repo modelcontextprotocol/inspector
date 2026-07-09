@@ -77,7 +77,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("shows the read error alert when error and a resource is selected", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ControlledResourcesScreen
         readState={{ status: "error", error: "boom" }}
@@ -89,7 +89,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("falls back to default error when error message is missing", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ControlledResourcesScreen readState={{ status: "error" }} />,
     );
@@ -98,7 +98,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("shows the loading state when reading", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ControlledResourcesScreen readState={{ status: "pending" }} />,
     );
@@ -107,7 +107,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("renders the preview panel when readState has a result", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ControlledResourcesScreen
         readState={{
@@ -139,7 +139,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("toggles a section's open state through the lifted openSections handler", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(<ControlledResourcesScreen />);
     const urisHeader = screen.getByRole("button", { name: /URIs \(2\)/ });
     // Open by default (compact=false); clicking routes through ResourcesScreen's
@@ -150,7 +150,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("renders the template panel when a template is selected", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(<ControlledResourcesScreen />);
     // Templates section is open by default; select the template to open its form.
     await user.click(screen.getByText("files"));
@@ -160,7 +160,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("hides the template panel once the user reads the resource", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onReadResource = vi.fn();
     renderWithMantine(
       <ControlledResourcesScreen onReadResource={onReadResource} />,
@@ -176,7 +176,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("auto-reads when a resource is clicked in the sidebar", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onReadResource = vi.fn();
     renderWithMantine(
       <ControlledResourcesScreen onReadResource={onReadResource} />,
@@ -186,7 +186,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("forwards refresh and subscribe events from the preview panel", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onReadResource = vi.fn();
     const onSubscribeResource = vi.fn();
     renderWithMantine(
@@ -209,7 +209,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("closing the preview returns to the originating template form", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onReadResource = vi.fn();
     const templates: ResourceTemplate[] = [
       { uriTemplate: "file:///{path}", name: "files" },
@@ -251,7 +251,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("closing the preview from the error state returns to the template form", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const templates: ResourceTemplate[] = [
       { uriTemplate: "demo://resource/dynamic/text/{id}", name: "Dynamic" },
     ];
@@ -282,7 +282,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("closing the preview for a plain resource returns to the empty state", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ControlledResourcesScreen
         readState={{
@@ -300,7 +300,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("invokes onUnsubscribeResource when already subscribed", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onUnsubscribeResource = vi.fn();
     renderWithMantine(
       <ControlledResourcesScreen
@@ -319,7 +319,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("routes sidebar search text through onUiChange", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onUiChange = vi.fn();
     renderWithMantine(<ControlledResourcesScreen onUiChange={onUiChange} />);
     await user.type(screen.getByPlaceholderText("Search..."), "y.txt");
@@ -329,7 +329,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("renders nothing in the preview when an ok state carries no result", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ControlledResourcesScreen
         // readResource is truthy (selected resource exists) but the ok
@@ -348,7 +348,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("threads onCompleteArgument with a ref/resource envelope from the template form", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onCompleteArgument = vi
       .fn<
         (
@@ -379,7 +379,7 @@ describe("ResourcesScreen", () => {
   });
 
   it("hides the Subscriptions section and Subscribe button when subscriptionsSupported is false", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ControlledResourcesScreen
         subscriptionsSupported={false}

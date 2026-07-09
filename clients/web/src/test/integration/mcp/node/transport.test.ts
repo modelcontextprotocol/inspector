@@ -1,6 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { getServerType } from "@inspector/core/mcp/config.js";
-import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
+import {
+  createTransportNode,
+  readProxyEnv,
+  withProxyDispatcher,
+} from "@inspector/core/mcp/node/transport.js";
 import type {
   InspectorServerSettings,
   MCPServerConfig,
@@ -325,6 +329,113 @@ describe("Transport", () => {
       // Just exercise the empty-headers path — no transport construction
       // should throw and no client connection is necessary.
       expect(result.transport).toBeDefined();
+    });
+  });
+
+  describe("HTTPS_PROXY / HTTP_PROXY", () => {
+    const PROXY_VARS = [
+      "HTTPS_PROXY",
+      "https_proxy",
+      "HTTP_PROXY",
+      "http_proxy",
+      "NO_PROXY",
+      "no_proxy",
+    ] as const;
+
+    function clearProxyEnv() {
+      for (const name of PROXY_VARS) delete process.env[name];
+    }
+
+    afterEach(() => {
+      clearProxyEnv();
+      vi.restoreAllMocks();
+    });
+
+    it("readProxyEnv returns undefined with no proxy vars and the first set value otherwise", () => {
+      clearProxyEnv();
+      expect(readProxyEnv()).toBeUndefined();
+      process.env.HTTP_PROXY = "http://proxy.example:3128";
+      expect(readProxyEnv()).toBe("http://proxy.example:3128");
+      process.env.HTTPS_PROXY = "http://secure-proxy.example:3128";
+      // HTTPS_PROXY is checked before HTTP_PROXY
+      expect(readProxyEnv()).toBe("http://secure-proxy.example:3128");
+      clearProxyEnv();
+      process.env.https_proxy = "   ";
+      expect(readProxyEnv()).toBeUndefined();
+    });
+
+    it("withProxyDispatcher returns the original fetch unchanged when no proxy is configured", () => {
+      clearProxyEnv();
+      const base = vi.fn();
+      expect(withProxyDispatcher(base as unknown as typeof fetch)).toBe(base);
+    });
+
+    it("withProxyDispatcher injects an EnvHttpProxyAgent dispatcher into RequestInit", async () => {
+      clearProxyEnv();
+      process.env.HTTPS_PROXY = "http://proxy.example:3128";
+      const calls: Array<{
+        input: Parameters<typeof fetch>[0];
+        init: RequestInit | undefined;
+      }> = [];
+      const base = vi.fn(
+        async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+          calls.push({ input, init });
+          return new Response("ok");
+        },
+      );
+      const proxied = withProxyDispatcher(base as unknown as typeof fetch);
+      expect(proxied).not.toBe(base);
+      await proxied("https://example.com/mcp", { method: "POST" });
+      expect(calls).toHaveLength(1);
+      expect(calls[0].input).toBe("https://example.com/mcp");
+      expect(calls[0].init?.method).toBe("POST");
+      const dispatcher = (calls[0].init as { dispatcher?: object }).dispatcher;
+      expect(dispatcher).toBeDefined();
+      expect(dispatcher?.constructor.name).toBe("EnvHttpProxyAgent");
+      // Second call reuses the same dispatcher (lazy singleton).
+      await proxied("https://example.com/mcp");
+      const dispatcher2 = (calls[1].init as { dispatcher?: object }).dispatcher;
+      expect(dispatcher2).toBe(dispatcher);
+    });
+
+    it("createTransportNode wraps the supplied fetch with the proxy dispatcher for streamable-http", async () => {
+      clearProxyEnv();
+      process.env.HTTPS_PROXY = "http://proxy.example:3128";
+      let seenDispatcher: object | undefined;
+      const fetchFn = vi.fn(
+        async (_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+          seenDispatcher = (init as { dispatcher?: object } | undefined)
+            ?.dispatcher;
+          // Reject after capturing so connect() fails fast without hitting a
+          // real proxy.
+          throw new Error("stop");
+        },
+      );
+      const result = createTransportNode(
+        { type: "streamable-http", url: "https://example.com/mcp" },
+        { fetchFn: fetchFn as unknown as typeof fetch },
+      );
+      const client = new Client({ name: "t", version: "1" });
+      await expect(client.connect(result.transport)).rejects.toThrow();
+      expect(fetchFn).toHaveBeenCalled();
+      expect(seenDispatcher?.constructor.name).toBe("EnvHttpProxyAgent");
+    });
+
+    it("throws an actionable error when a proxy is configured but undici cannot be loaded", async () => {
+      clearProxyEnv();
+      process.env.HTTPS_PROXY = "http://proxy.example:3128";
+      vi.doMock("undici", () => {
+        throw new Error("Cannot find module 'undici'");
+      });
+      // Re-import after the mock so the dynamic import("undici") inside
+      // withProxyDispatcher is intercepted.
+      const { withProxyDispatcher: wrap } =
+        await import("@inspector/core/mcp/node/transport.js");
+      const proxied = wrap(globalThis.fetch);
+      await expect(proxied("https://example.com")).rejects.toThrow(
+        /HTTPS_PROXY.*undici.*not.*available/i,
+      );
+      vi.doUnmock("undici");
     });
   });
 });
