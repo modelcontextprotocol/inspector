@@ -38,7 +38,6 @@
     "build:web": "cd clients/web && npm run build",
     "build:launcher": "cd clients/launcher && npm run build",
     "ci": "npm run validate && npm run coverage && npm run smoke && npm run ci:storybook",
-    "ci:integration": "cd clients/web && npm run test:integration",
     "ci:storybook": "cd clients/web && npx playwright install chromium && npm run test:storybook",
     "validate": "npm run validate:web && npm run validate:cli && npm run validate:tui && npm run validate:launcher",
     "validate:cli": "cd clients/cli && npm run validate",
