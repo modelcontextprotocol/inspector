@@ -100,6 +100,7 @@ export default defineConfig(({ command }) => {
       reporter: ['text', 'html', 'json-summary'],
       include: [
         'src/components/**/*.{ts,tsx}',
+        'src/lib/**/*.{ts,tsx}',
         'src/utils/**/*.{ts,tsx}',
         'src/lib/**/*.{ts,tsx}',
         'clients/web/server/**/*.{ts,tsx}',

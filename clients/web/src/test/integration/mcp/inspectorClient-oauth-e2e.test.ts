@@ -91,9 +91,9 @@ describe("InspectorClient OAuth E2E", () => {
     }
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     clearOAuthTestData();
-    clearAllOAuthClientState();
+    await clearAllOAuthClientState();
     // Capture console.log output instead of printing to stdout during tests
     vi.spyOn(console, "log").mockImplementation(() => {});
   });
@@ -630,7 +630,7 @@ describe("InspectorClient OAuth E2E", () => {
         expect(client.getStatus()).toBe("connected");
 
         await client.disconnect();
-        client.clearOAuthTokens();
+        await client.clearOAuthTokens();
 
         const authUrlSecond = await client.authenticate();
         if (!authUrlSecond) throw new Error("Expected authorization URL");
@@ -995,7 +995,7 @@ describe("InspectorClient OAuth E2E", () => {
       expect(tokens?.access_token).toBeDefined();
       expect(await client.isOAuthAuthorized()).toBe(true);
 
-      client.clearOAuthTokens();
+      await client.clearOAuthTokens();
       expect(await client.isOAuthAuthorized()).toBe(false);
       expect(await client.getOAuthTokens()).toBeUndefined();
     });
@@ -1072,16 +1072,14 @@ describe("InspectorClient OAuth E2E", () => {
         expect(client.getStatus()).toBe("connected");
 
         type StateShape = {
-          state?: {
-            servers?: Record<string, { tokens?: { access_token?: string } }>;
-          };
+          servers?: Record<string, { tokens?: { access_token?: string } }>;
         };
         // Persistence is fire-and-forget; await the write rather than polling.
         await flushStoreFileWrites(customPath);
         const parsed = JSON.parse(
           await fs.readFile(customPath, "utf-8"),
         ) as StateShape;
-        const servers = parsed.state?.servers ?? {};
+        const servers = parsed.servers ?? {};
         expect(Object.keys(servers).length).toBeGreaterThan(0);
         expect(
           Object.values(servers).some((s) => !!s?.tokens?.access_token),

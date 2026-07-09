@@ -63,7 +63,7 @@ export async function startIdpOidcAuthorization(params: {
   fetchFn?: typeof fetch;
 }): Promise<{ authorizationUrl: URL }> {
   const issuer = normalizeIdpIssuer(params.idp.issuer);
-  const metadata = await discoverIdpMetadata(issuer, params.fetchFn);
+  const metadata = await resolveIdpMetadata(issuer, params.storage, params.fetchFn);
   const clientInformation = idpClientInformation(params.idp);
   const storageKey = idpOAuthStorageKey(issuer);
   const state = generateOAuthState();
@@ -131,7 +131,7 @@ export async function completeIdpOidcAuthorization(params: {
     throw new Error("IdP token response did not include an ID Token");
   }
 
-  params.storage.clearCodeVerifier(storageKey);
+  await params.storage.clearCodeVerifier(storageKey);
   const idTokenExpiresAt = jwtExpiresAtMs(idToken);
   await params.storage.saveIdpSession(issuer, {
     idToken,

@@ -213,7 +213,8 @@ describe("OAuthNavigation", () => {
 
     function makeStorage(): OAuthStorage {
       return {
-        getScope: vi.fn(() => undefined),
+        load: vi.fn().mockResolvedValue(undefined),
+        getScope: vi.fn().mockResolvedValue(undefined),
         getClientInformation: vi.fn(async () => undefined),
         saveClientInformation: vi.fn(async () => undefined),
         savePreregisteredClientInformation: vi.fn(async () => undefined),
@@ -221,9 +222,9 @@ describe("OAuthNavigation", () => {
         getTokens: vi.fn(async () => undefined),
         saveTokens: vi.fn(async () => undefined),
         saveCodeVerifier: vi.fn(async () => undefined),
-        getCodeVerifier: vi.fn(async () => undefined),
+        getCodeVerifier: vi.fn().mockResolvedValue(undefined),
         clear: vi.fn(),
-        getServerMetadata: vi.fn(async () => null),
+        getServerMetadata: vi.fn().mockResolvedValue(null),
         saveServerMetadata: vi.fn(async () => undefined),
       } as unknown as OAuthStorage;
     }
@@ -240,11 +241,11 @@ describe("OAuthNavigation", () => {
       return new BaseOAuthClientProvider(SERVER, config);
     }
 
-    it("clear() delegates to storage.clear with the server url", () => {
+    it("clear() delegates to storage.clear with the server url", async () => {
       const storage = makeStorage();
       const provider = makeProvider(storage);
 
-      provider.clear();
+      await provider.clear();
 
       expect(storage.clear).toHaveBeenCalledWith(SERVER);
     });
@@ -271,7 +272,7 @@ describe("OAuthNavigation", () => {
       expect(await provider.clientInformation()).toEqual({ client_id: "dyn" });
     });
 
-    it("codeVerifier() rejects when none is saved", async () => {
+    it("codeVerifier() throws when none is saved", async () => {
       const storage = makeStorage();
       const provider = makeProvider(storage);
 
@@ -288,10 +289,11 @@ describe("OAuthNavigation", () => {
       expect(await provider.codeVerifier()).toBe("cv-1");
     });
 
-    it("clientMetadata reflects the stored scope when present", () => {
+    it("clientMetadata reflects the stored scope when present", async () => {
       const storage = makeStorage();
-      vi.mocked(storage.getScope).mockReturnValue("read write");
+      vi.mocked(storage.getScope).mockResolvedValue("read write");
       const provider = makeProvider(storage);
+      await provider.prepareForAuth();
 
       expect(provider.clientMetadata.scope).toBe("read write");
     });

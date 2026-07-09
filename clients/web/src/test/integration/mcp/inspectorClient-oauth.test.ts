@@ -173,8 +173,8 @@ describe("InspectorClient OAuth", () => {
       expect(tokens).toBeUndefined();
     });
 
-    it("should clear OAuth tokens", () => {
-      client.clearOAuthTokens();
+    it("should clear OAuth tokens", async () => {
+      await client.clearOAuthTokens();
       // Should not throw
       expect(client).toBeDefined();
     });

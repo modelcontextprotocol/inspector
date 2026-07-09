@@ -98,11 +98,14 @@ describe("HistoryListPanel", () => {
     expect(screen.getByText("No request history")).toBeInTheDocument();
   });
 
-  it("renders the History title with count for unpinned entries", () => {
+  it("hides the History header when there are no pinned entries", () => {
     renderWithMantine(
       <HistoryListPanel {...baseProps} entries={sampleEntries} />,
     );
-    expect(screen.getByText("History (3)")).toBeInTheDocument();
+    // With no pinned section to distinguish it from, the header is dropped...
+    expect(screen.queryByText("History (3)")).toBeNull();
+    // ...but the entries themselves are still shown.
+    expect(screen.getByText("resources/read")).toBeInTheDocument();
   });
 
   it("renders the Pinned title with count when entries are pinned", () => {
@@ -135,12 +138,13 @@ describe("HistoryListPanel", () => {
     expect(header).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("renders a lone section as a plain (non-collapsible) header with its entries shown", () => {
-    // Only the unpinned section → no accordion toggle, entries always visible.
+  it("renders a lone unpinned section headerless, with its entries shown", () => {
+    // Only the unpinned section → no header at all, no accordion toggle,
+    // entries always visible.
     renderWithMantine(
       <HistoryListPanel {...baseProps} entries={sampleEntries} />,
     );
-    expect(screen.getByText("History (3)")).toBeInTheDocument();
+    expect(screen.queryByText("History (3)")).toBeNull();
     expect(
       screen.queryByRole("button", { name: "History (3)" }),
     ).not.toBeInTheDocument();
@@ -246,8 +250,9 @@ describe("HistoryListPanel", () => {
         visibleDirections={{ client: true, server: false }}
       />,
     );
-    // The server-origin entry is filtered out, leaving one.
-    expect(screen.getByText("History (1)")).toBeInTheDocument();
+    // The server-origin entry is filtered out, leaving the client one.
+    expect(screen.getByText("tools/call")).toBeInTheDocument();
+    expect(screen.queryByText("resources/read")).toBeNull();
   });
 
   it("filters entries by searchText (case-insensitive)", () => {
@@ -258,7 +263,10 @@ describe("HistoryListPanel", () => {
         searchText="config.json"
       />,
     );
-    expect(screen.getByText("History (1)")).toBeInTheDocument();
+    // Only the resources/read entry references config.json.
+    expect(screen.getByText("resources/read")).toBeInTheDocument();
+    expect(screen.queryByText("tools/call")).toBeNull();
+    expect(screen.queryByText("tools/list")).toBeNull();
   });
 
   it("filters entries by methodFilter", () => {
@@ -269,7 +277,9 @@ describe("HistoryListPanel", () => {
         methodFilter="tools/list"
       />,
     );
-    expect(screen.getByText("History (1)")).toBeInTheDocument();
+    expect(screen.getByText("tools/list")).toBeInTheDocument();
+    expect(screen.queryByText("tools/call")).toBeNull();
+    expect(screen.queryByText("resources/read")).toBeNull();
   });
 
   it("invokes onExport when Export is clicked", async () => {

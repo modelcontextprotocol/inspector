@@ -15,7 +15,7 @@ export default defineConfig({
   platform: 'node',
   // Bundle core source; leave npm deps external.
   noExternal: [/^@inspector\/core/],
-  external: ['@napi-rs/keyring', '@modelcontextprotocol/sdk', 'commander', 'pino', 'zustand'],
+  external: ['@napi-rs/keyring', '@modelcontextprotocol/sdk', 'commander', 'pino'],
   esbuildOptions(options) {
     options.alias = {
       '@inspector/core': path.join(repoRoot, 'core'),

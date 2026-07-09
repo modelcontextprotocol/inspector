@@ -388,7 +388,7 @@ describe("InspectorClient remote mid-session OAuth", () => {
     expect(recovery?.authChallenge.reason).toBe("insufficient_scope");
 
     const mcpServerUrl = `${serverUrl}/mcp`;
-    const scopeBeforeStepUp = oauthConfig.storage.getScope(mcpServerUrl);
+    const scopeBeforeStepUp = await oauthConfig.storage.getScope(mcpServerUrl);
     expect(scopeBeforeStepUp).toContain("mcp");
     expect(scopeBeforeStepUp).not.toContain("weather:read");
 
@@ -413,7 +413,7 @@ describe("InspectorClient remote mid-session OAuth", () => {
 
     expect(callbackClient.getStatus()).toBe("connected");
 
-    const scopeAfterStepUp = oauthConfig.storage.getScope(mcpServerUrl);
+    const scopeAfterStepUp = await oauthConfig.storage.getScope(mcpServerUrl);
     expect(scopeAfterStepUp).toContain("weather:read");
     expect(scopeAfterStepUp).toContain("mcp");
 

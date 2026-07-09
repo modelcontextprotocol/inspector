@@ -1,13 +1,5 @@
 import { useMemo } from "react";
-import {
-  Button,
-  Group,
-  Paper,
-  ScrollArea,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 import { LogEntry } from "../../elements/LogEntry/LogEntry";
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
@@ -15,6 +7,8 @@ import {
   SortToggle,
   type SortDirection,
 } from "../../elements/SortToggle/SortToggle";
+import { PinColumnButton } from "../../elements/PinColumnButton/PinColumnButton";
+import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
 export interface LogStreamPanelProps {
@@ -25,6 +19,18 @@ export interface LogStreamPanelProps {
   onExport: () => void;
   sortDirection: SortDirection;
   onSortChange: (next: SortDirection) => void;
+  /**
+   * When set, renders a "pin as column" button in the toolbar that opens this
+   * screen in the monitoring column (#1616). Omitted when the panel is already
+   * embedded in that column (or when pinning isn't available).
+   */
+  onPin?: () => void;
+  /**
+   * True when this panel is rendered inside the monitoring column. Switches the
+   * scroll region from the viewport-height calc to filling its flex parent, so
+   * it fits below the column's controls row without viewport math.
+   */
+  embedded?: boolean;
 }
 
 const PanelContainer = Paper.withProps({
@@ -50,8 +56,11 @@ function matchesFilters(
   entry: LogEntryData,
   filterText: string,
   visibleLevels: Record<LoggingLevel, boolean>,
+  // The embedded column exposes only the search box (no level toggles), so it
+  // applies the text filter but skips the level filter (#1616).
+  ignoreLevels: boolean,
 ): boolean {
-  if (!visibleLevels[entry.params.level]) return false;
+  if (!ignoreLevels && !visibleLevels[entry.params.level]) return false;
   if (filterText) {
     const term = filterText.toLowerCase();
     const searchable =
@@ -69,16 +78,20 @@ export function LogStreamPanel({
   onExport,
   sortDirection,
   onSortChange,
+  onPin,
+  embedded = false,
 }: LogStreamPanelProps) {
   const viewportRef = useScrollMemory("logs-stream");
   const filteredEntries = useMemo(() => {
-    // `.filter()` returns a fresh array, so sorting in-place is safe.
+    // The embedded column has only the search box (its level toggles live in the
+    // full-size sidebar), so it filters by text but ignores the level filter
+    // (#1616). `.filter()` returns a fresh array, so sorting in-place is safe.
     const sorted = entries
-      .filter((e) => matchesFilters(e, filterText, visibleLevels))
+      .filter((e) => matchesFilters(e, filterText, visibleLevels, embedded))
       .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime());
     if (sortDirection === "newest-first") sorted.reverse();
     return sorted;
-  }, [entries, filterText, visibleLevels, sortDirection]);
+  }, [entries, filterText, visibleLevels, sortDirection, embedded]);
 
   return (
     <PanelContainer>
@@ -104,21 +117,17 @@ export function LogStreamPanel({
           >
             Export
           </Button>
+          {onPin ? <PinColumnButton onPin={onPin} /> : null}
         </Group>
       </Group>
       {filteredEntries.length > 0 ? (
-        <ScrollArea.Autosize
-          viewportRef={viewportRef}
-          mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)"
-          type="scroll"
-          offsetScrollbars
-        >
+        <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
           <Stack gap="xs">
             {filteredEntries.map((entry, index) => (
               <LogEntry key={index} entry={entry} />
             ))}
           </Stack>
-        </ScrollArea.Autosize>
+        </EmbeddableScrollArea>
       ) : (
         <EmptyCenter>
           <Text c="dimmed">No log entries</Text>

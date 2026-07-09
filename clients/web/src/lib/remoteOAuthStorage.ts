@@ -1,56 +1,59 @@
-import { RemoteOAuthStorage } from "@inspector/core/auth/remote/index.js";
+import { RemoteOAuthStorage } from "@inspector/core/auth/remote/storage-remote.js";
 
-/**
- * Shared `RemoteOAuthStorage` accessor for the web client.
- *
- * The browser's OAuth state is persisted through the in-process Hono backend
- * (`POST /api/storage/oauth` → `~/.mcp-inspector/storage/oauth.json`, mode
- * 0600) rather than `sessionStorage`, so a credential obtained in the browser
- * is the same blob the TUI/CLI read on the same host (web ⇄ TUI ⇄ CLI parity).
- *
- * One instance per `{baseUrl, authToken}`. The environment factory is called
- * per-connect (a fresh `InspectorClient` is built for each server switch), but
- * the OAuth blob on disk is a single shared resource: a stale instance's
- * whole-blob POST could clobber a write made by a newer one. Memoizing also
- * avoids re-hydrating the same file on every connect, and lets the connection
- * path, the EMA IdP hook, and the per-server "clear OAuth" action all share
- * one in-memory view of the store.
- */
-const oauthStorageCache = new Map<string, RemoteOAuthStorage>();
-
-/** Backend origin the web client talks to (same origin that serves the SPA). */
-export function getWebOAuthBaseUrl(): string {
-  return `${window.location.protocol}//${window.location.host}`;
+export interface WebRemoteOAuthStorageOptions {
+  baseUrl: string;
+  authToken?: string;
 }
 
-/**
- * `window.fetch` loses its `this` binding when extracted, raising "Illegal
- * invocation"; wrap so the call site preserves the global receiver.
- */
-export const webOAuthFetch: typeof fetch = (...args) =>
-  globalThis.fetch(...args);
+let cached: { cacheKey: string; storage: RemoteOAuthStorage } | undefined;
+
+function buildCacheKey(options: WebRemoteOAuthStorageOptions): string {
+  return `${options.baseUrl}\0${options.authToken ?? ""}`;
+}
+
+const defaultFetch: typeof fetch = (...args) => globalThis.fetch(...args);
 
 /**
- * Memoized `RemoteOAuthStorage` for the given backend + auth token.
+ * Shared web OAuth store: `RemoteOAuthStorage` → `GET/POST /api/storage/oauth`
+ * → `~/.mcp-inspector/storage/oauth.json` (same file as CLI/TUI).
  *
- * The cache key is intentionally `{baseUrl, authToken}` only — `fetchFn` is NOT
- * part of it. Whichever call constructs an instance first wins, so a later
- * caller's `fetchFn` is ignored. This is safe today because every call site
- * either omits `fetchFn` (defaulting to {@link webOAuthFetch}) or passes an
- * `environmentFactory` wrapper that is functionally identical (`globalThis.fetch`),
- * so the shared-instance goal (one whole-blob writer per backend) matters more
- * than which wrapper is used. A future caller needing a genuinely different
- * transport must key on it (or bypass the cache).
+ * Caches a single instance keyed by `{ baseUrl, authToken }`: repeat calls with
+ * the same key return that instance, so connect, EMA IdP session, and per-server
+ * clear all mutate the same in-memory view. A call with a different key replaces
+ * the cached instance (cache of one). That is sufficient because the web app
+ * uses a stable origin + page-lifetime API token, so the key never changes
+ * within a session.
  */
 export function getRemoteOAuthStorage(
-  baseUrl: string,
-  authToken: string | undefined,
-  fetchFn: typeof fetch = webOAuthFetch,
+  options: WebRemoteOAuthStorageOptions,
 ): RemoteOAuthStorage {
-  const key = `${baseUrl} ${authToken ?? ""}`;
-  const cached = oauthStorageCache.get(key);
-  if (cached) return cached;
-  const storage = new RemoteOAuthStorage({ baseUrl, authToken, fetchFn });
-  oauthStorageCache.set(key, storage);
-  return storage;
+  const cacheKey = buildCacheKey(options);
+  if (cached?.cacheKey === cacheKey) {
+    return cached.storage;
+  }
+  cached = {
+    cacheKey,
+    storage: new RemoteOAuthStorage({
+      baseUrl: options.baseUrl,
+      authToken: options.authToken,
+      fetchFn: defaultFetch,
+    }),
+  };
+  return cached.storage;
+}
+
+/** Current origin + optional API token (see `getAuthToken()` in App.tsx). */
+export function getWebRemoteOAuthStorage(
+  authToken?: string,
+): RemoteOAuthStorage {
+  if (typeof window === "undefined") {
+    throw new Error("getWebRemoteOAuthStorage requires a browser environment");
+  }
+  const baseUrl = `${window.location.protocol}//${window.location.host}`;
+  return getRemoteOAuthStorage({ baseUrl, authToken });
+}
+
+/** @internal Vitest isolation */
+export function resetWebRemoteOAuthStorageCacheForTests(): void {
+  cached = undefined;
 }

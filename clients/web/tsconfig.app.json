@@ -37,8 +37,6 @@
       "react-dom": ["./node_modules/@types/react-dom"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"],
       "pino": ["./node_modules/pino"],
-      "zustand": ["./node_modules/zustand"],
-      "zustand/*": ["./node_modules/zustand/*"],
       "hono": ["./node_modules/hono"],
       "hono/streaming": [
         "./node_modules/hono/dist/types/helper/streaming/index"

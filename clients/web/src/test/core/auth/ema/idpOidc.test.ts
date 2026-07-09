@@ -29,11 +29,12 @@ describe("idpOidc refresh", () => {
   beforeEach(() => {
     Object.keys(idpSessions).forEach((k) => delete idpSessions[k]);
     storage = {
+      load: vi.fn().mockResolvedValue(undefined),
       getIdpSession: vi.fn(async (issuer: string) => idpSessions[issuer]),
       saveIdpSession: vi.fn(async (issuer: string, updates) => {
         idpSessions[issuer] = { ...idpSessions[issuer], ...updates };
       }),
-      getServerMetadata: vi.fn(() => minimalOAuthAsMetadata(IDP_ISSUER)),
+      getServerMetadata: vi.fn(async () => minimalOAuthAsMetadata(IDP_ISSUER)),
       clearIdpSession: vi.fn(),
     } as unknown as OAuthStorage;
   });
@@ -264,6 +265,8 @@ describe("startIdpOidcAuthorization", () => {
   beforeEach(() => {
     Object.keys(saved).forEach((k) => delete saved[k]);
     storage = {
+      load: vi.fn().mockResolvedValue(undefined),
+      getServerMetadata: vi.fn(async () => null),
       saveCodeVerifier: vi.fn(async (key: string, value: string) => {
         saved[`cv:${key}`] = value;
       }),
@@ -331,13 +334,14 @@ describe("completeIdpOidcAuthorization", () => {
 
   function buildStorage(overrides: Partial<OAuthStorage> = {}): OAuthStorage {
     return {
-      getServerMetadata: vi.fn(() => minimalOAuthAsMetadata(IDP_ISSUER)),
+      load: vi.fn().mockResolvedValue(undefined),
+      getServerMetadata: vi.fn(async () => minimalOAuthAsMetadata(IDP_ISSUER)),
       getClientInformation: vi.fn(async () => ({
         client_id: "idp-client",
         client_secret: "idp-secret",
         token_endpoint_auth_method: "client_secret_post",
       })),
-      getCodeVerifier: vi.fn(() => "verifier-123"),
+      getCodeVerifier: vi.fn(async () => "verifier-123"),
       clearCodeVerifier: vi.fn((key: string) => {
         clearedVerifiers.push(key);
       }),

@@ -1,7 +1,5 @@
 export {
   NodeOAuthStorage,
-  getOAuthStore,
-  getStateFilePath,
   clearAllOAuthClientState,
 } from "./storage-node.js";
 export {

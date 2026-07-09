@@ -6,7 +6,7 @@ import {
 } from "@inspector/core/mcp/remote/index.js";
 import { BrowserNavigation } from "@inspector/core/auth/browser/index.js";
 import type { RedirectUrlProvider } from "@inspector/core/auth/index.js";
-import { getRemoteOAuthStorage } from "./remoteOAuthStorage";
+import { getWebRemoteOAuthStorage } from "./remoteOAuthStorage.js";
 
 export interface WebEnvironmentResult {
   environment: InspectorClientEnvironment;
@@ -18,19 +18,17 @@ export interface WebEnvironmentResult {
  *   - transport / fetch / logger all routed through the in-process Hono
  *     backend at `window.location.origin` (the `clients/web/server`
  *     dev-backend wires this in `/api/*`).
- *   - OAuth storage uses `RemoteOAuthStorage` (POSTs to the same backend's
- *     `/api/storage/oauth`, which writes `~/.mcp-inspector/storage/oauth.json`
- *     mode 0600), so a token obtained in this browser session is also
- *     available to the CLI/TUI on the same host. Navigation still uses
- *     `BrowserNavigation` (full-page redirect).
+ *   - OAuth storage uses `RemoteOAuthStorage` (shared `oauth.json` via
+ *     `/api/storage/oauth`); navigation uses `BrowserNavigation`.
  *
  * Returns both the assembled environment and the logger so callers can share
  * the same pino instance for any direct logging they need to do, instead of
  * reaching back through the client.
  *
- * `authToken` is read from a higher level (currently unused in this app since
- * v2 has no auth-token UI yet, but kept in the signature so the wiring is
- * ready when token plumbing lands).
+ * `authToken` is supplied by `App.tsx` (`getAuthToken()`) and forwarded to
+ * remote transport/fetch/logger and `getWebRemoteOAuthStorage` so every
+ * `/api/*` call (including `/api/storage/oauth`) carries `x-mcp-remote-auth`
+ * when the backend requires it.
  *
  * `onBeforeOAuthRedirect` runs synchronously immediately before the OAuth
  * full-page redirect (see `BrowserNavigation`). The app uses it to flush the
@@ -68,7 +66,7 @@ export function createWebEnvironment(
     }),
     logger,
     oauth: {
-      storage: getRemoteOAuthStorage(baseUrl, authToken, fetchFn),
+      storage: getWebRemoteOAuthStorage(authToken),
       navigation: new BrowserNavigation(undefined, onBeforeOAuthRedirect),
       redirectUrlProvider,
     },

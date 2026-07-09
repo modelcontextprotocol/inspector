@@ -199,7 +199,7 @@ Document manual scenarios in [v2_auth_smoke_testing.md](v2_auth_smoke_testing.md
 | Upgrade | Root and client `package.json`; import paths v1 → `@modelcontextprotocol/client` |
 | Callback | `clients/web/src/App.tsx`, `core/auth/node/oauth-callback-server.ts`, `core/mcp/oauthManager.ts`, `core/mcp/inspectorClient.ts` |
 | Provider | `core/auth/providers.ts`, `core/auth/browser/providers.ts` — v2 hooks: `invalidateCredentials`, issuer-keyed storage, `application_type` |
-| Storage | `core/auth/store.ts`, `core/auth/oauth-storage.ts`, `core/mcp/remote/node/remoteOAuthStorage.ts` (if landed) |
+| Storage | `core/auth/store.ts`, `core/auth/oauth-storage.ts`, `core/auth/oauth-persist.ts`, `core/auth/remote/storage-remote.ts`, `clients/web/src/lib/remoteOAuthStorage.ts` |
 | Web remote (unchanged on v2) | `core/mcp/remote/remoteClientTransport.ts`, `core/mcp/node/authChallengeFetch.ts`, `core/mcp/remote/node/server.ts` |
 | TUI/CLI | [Mid-session § TUI and CLI](v2_auth_mid_session.md#tui-and-cli-implementation): `clients/tui/src/App.tsx`; `clients/cli/src/cliOAuth.ts`; provider wiring in `core/mcp/inspectorClient.ts` |
 | Mid-session overlap | `core/auth/challenge.ts`, `core/mcp/oauthManager.ts` (`handleAuthChallenge`, `saveScope`) |

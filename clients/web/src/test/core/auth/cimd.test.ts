@@ -24,7 +24,7 @@ describe("ensureCimdClientRegistration", () => {
     storage = {
       getClientInformation: vi.fn(async () => undefined),
       saveClientInformation: vi.fn(async () => {}),
-      getScope: vi.fn(() => undefined),
+      getScope: vi.fn().mockResolvedValue(undefined),
       getTokens: vi.fn(async () => undefined),
       saveTokens: vi.fn(async () => {}),
       clear: vi.fn(),

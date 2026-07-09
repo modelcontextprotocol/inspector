@@ -26,7 +26,7 @@ Replaces the hardcoded `SEED_SERVERS` in `clients/web/src/App.tsx:47` with a fil
 ## File location
 
 - **Path**: `~/.mcp-inspector/mcp.json` (Windows: `%USERPROFILE%\.mcp-inspector\mcp.json`).
-- **Why this dir**: `~/.mcp-inspector/storage/` already exists for the Zustand-persist stores (OAuth, settings); one Inspector dir under `$HOME` is friendlier than two. Resolution uses the same `process.env.HOME || process.env.USERPROFILE` fallback as `getDefaultStorageDir()` in `core/storage/store-io.ts:13`.
+- **Why this dir**: `~/.mcp-inspector/storage/` already holds runtime persistence files (OAuth tokens, install `client.json`, etc.); one Inspector dir under `$HOME` is friendlier than two. Resolution uses the same `process.env.HOME || process.env.USERPROFILE` fallback as `getDefaultStorageDir()` in `core/storage/store-io.ts:13`.
 - **Why canonical filename**: lets users symlink to/from Claude Desktop and similar tools.
 - **Permissions**: `0o600`, matching `writeStoreFile` in `core/storage/store-io.ts:55`.
 
@@ -88,9 +88,9 @@ If the file does not exist when the backend boots, write a file containing the t
 | Hono backend + auth + storage routes pattern | `core/mcp/remote/node/server.ts` | `/api/storage/:storeId` is the template for the new `/api/servers` routes |
 | Auth'd fetch from browser | wired via `getAuthToken()` in `clients/web/src/App.tsx:84` | `useServers` will call the backend with `x-mcp-remote-auth: Bearer <token>` |
 
-### Why not `createFileStorageAdapter` directly
+### Why not a `{ state, version }` envelope for `mcp.json`
 
-`core/storage/adapters/file-storage.ts` is a Zustand `persist` adapter — it wraps the payload as `{ state, version }` so the file ends up looking like `{"state":{...},"version":0}`. That breaks the "human-editable canonical `mcp.json`" goal. We use the underlying `store-io.ts` primitives instead.
+Older OAuth persistence used a middleware-style envelope `{ state, version }` around the payload. That shape is fine for opaque runtime blobs like `oauth.json` (still accepted on **read** for migration — see [OAuth persistence](v2_auth_ema.md#oauth-persistence-1549--done)) but breaks the goal of a **human-editable canonical `mcp.json`**. Server list I/O uses the underlying `store-io.ts` primitives and writes plain JSON.
 
 ### New code
 

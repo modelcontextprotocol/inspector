@@ -352,18 +352,11 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
           remoteAuthToken!,
           (body) => {
             const b = body as {
-              state?: {
-                servers?: Record<
-                  string,
-                  { tokens?: { access_token?: string } }
-                >;
-              };
+              servers?: Record<string, { tokens?: { access_token?: string } }>;
             };
             return !!(
-              b?.state?.servers &&
-              Object.values(b.state.servers).some(
-                (s) => s?.tokens?.access_token,
-              )
+              b?.servers &&
+              Object.values(b.servers).some((s) => s?.tokens?.access_token)
             );
           },
         );

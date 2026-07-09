@@ -1,111 +1,124 @@
-/**
- * Tests for the browser `InspectorClientEnvironment` assembly.
- *
- * The three remote factories are mocked so we can (a) assert the `baseUrl` /
- * `authToken` derived from `window.location` are threaded into each, and
- * (b) capture the internal `fetchFn` wrapper and invoke it to prove it
- * delegates to `globalThis.fetch` (exercising the arrow body that exists to
- * preserve the global receiver). `BrowserNavigation` and the OAuth storage
- * accessor are the real implementations.
- */
-
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserNavigation } from "@inspector/core/auth/browser/index.js";
-import type { RedirectUrlProvider } from "@inspector/core/auth/index.js";
-
-interface CapturedOptions {
-  baseUrl: string;
-  authToken: string | undefined;
-  fetchFn: typeof fetch;
-}
-
-const captured: {
-  transport?: CapturedOptions;
-  fetch?: CapturedOptions;
-  logger?: CapturedOptions;
-} = {};
-
-vi.mock("@inspector/core/mcp/remote/index.js", () => ({
-  createRemoteTransport: (opts: CapturedOptions) => {
-    captured.transport = opts;
-    return { transport: true };
-  },
-  createRemoteFetch: (opts: CapturedOptions) => {
-    captured.fetch = opts;
-    return (async () => new Response("ok")) as unknown as typeof fetch;
-  },
-  createRemoteLogger: (opts: CapturedOptions) => {
-    captured.logger = opts;
-    return { info: vi.fn() };
-  },
-}));
-
+import { MutableRedirectUrlProvider } from "@inspector/core/auth/providers.js";
 import { createWebEnvironment } from "./environmentFactory";
-
-const REDIRECT: RedirectUrlProvider = {
-  getRedirectUrl: () => "http://localhost/callback",
-};
+import {
+  getWebRemoteOAuthStorage,
+  resetWebRemoteOAuthStorageCacheForTests,
+} from "./remoteOAuthStorage";
 
 describe("createWebEnvironment", () => {
   beforeEach(() => {
-    captured.transport = undefined;
-    captured.fetch = undefined;
-    captured.logger = undefined;
+    vi.stubGlobal("window", {
+      location: {
+        protocol: "http:",
+        host: "127.0.0.1:6299",
+      },
+    });
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    resetWebRemoteOAuthStorageCacheForTests();
+    vi.unstubAllGlobals();
   });
 
-  it("threads the window.location origin and auth token into every remote factory", () => {
-    const expectedBaseUrl = `${window.location.protocol}//${window.location.host}`;
-    const { environment, logger } = createWebEnvironment("tok-123", REDIRECT);
+  it("wires RemoteOAuthStorage shared with getWebRemoteOAuthStorage", () => {
+    const redirectUrlProvider = new MutableRedirectUrlProvider();
+    const first = createWebEnvironment("unit-test-token", redirectUrlProvider);
+    const second = createWebEnvironment("unit-test-token", redirectUrlProvider);
 
-    for (const opts of [captured.transport, captured.fetch, captured.logger]) {
-      expect(opts?.baseUrl).toBe(expectedBaseUrl);
-      expect(opts?.authToken).toBe("tok-123");
-    }
+    expect(first.environment.oauth).toBeDefined();
+    expect(second.environment.oauth).toBeDefined();
+    expect(second.environment.oauth!.storage).toBe(
+      first.environment.oauth!.storage,
+    );
+    expect(first.environment.oauth!.storage).toBe(
+      getWebRemoteOAuthStorage("unit-test-token"),
+    );
+  });
 
-    // The returned logger is the same instance the factory produced.
+  it("uses BrowserNavigation for oauth.navigation", () => {
+    const { environment } = createWebEnvironment(
+      undefined,
+      new MutableRedirectUrlProvider(),
+    );
+    expect(environment.oauth).toBeDefined();
+    expect(environment.oauth!.navigation).toBeInstanceOf(BrowserNavigation);
+  });
+
+  it("returns the same logger instance as environment.logger", () => {
+    const { environment, logger } = createWebEnvironment(
+      "tok",
+      new MutableRedirectUrlProvider(),
+    );
     expect(logger).toBe(environment.logger);
-    expect(environment.transport).toEqual({ transport: true });
-    expect(typeof environment.fetch).toBe("function");
   });
 
-  it("passes an undefined auth token straight through", () => {
-    createWebEnvironment(undefined, REDIRECT);
-    expect(captured.logger?.authToken).toBeUndefined();
+  it("passes redirectUrlProvider into oauth config", () => {
+    const redirectUrlProvider = new MutableRedirectUrlProvider();
+    redirectUrlProvider.redirectUrl = "http://127.0.0.1:6299/oauth/callback";
+    const { environment } = createWebEnvironment("tok", redirectUrlProvider);
+    if (!environment.oauth) {
+      throw new Error("expected oauth config");
+    }
+    const { redirectUrlProvider: oauthRedirect } = environment.oauth;
+    if (!oauthRedirect) {
+      throw new Error("expected redirectUrlProvider");
+    }
+    expect(oauthRedirect.getRedirectUrl()).toBe(
+      "http://127.0.0.1:6299/oauth/callback",
+    );
   });
 
-  it("wraps fetch so the call preserves the global receiver", async () => {
-    const spy = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response("delegated", { status: 200 }));
-    createWebEnvironment("tok", REDIRECT);
-
-    // Every factory receives the identical wrapper; invoking it must delegate.
-    const wrapper = captured.transport!.fetchFn;
-    const res = await wrapper("http://example.test/x");
-    expect(spy).toHaveBeenCalledWith("http://example.test/x");
-    expect(res.status).toBe(200);
-  });
-
-  it("builds a BrowserNavigation and wires the OAuth storage + redirect provider", () => {
-    const onBeforeRedirect = vi.fn();
+  it("forwards onBeforeOAuthRedirect to BrowserNavigation", () => {
+    const onBeforeOAuthRedirect = vi.fn<(authorizationUrl: URL) => void>();
     const { environment } = createWebEnvironment(
       "tok",
-      REDIRECT,
-      onBeforeRedirect,
+      new MutableRedirectUrlProvider(),
+      onBeforeOAuthRedirect,
     );
-
-    const oauth = environment.oauth;
-    expect(oauth?.navigation).toBeInstanceOf(BrowserNavigation);
-    expect(oauth?.redirectUrlProvider).toBe(REDIRECT);
-    expect(oauth?.storage).toBeDefined();
+    if (!environment.oauth) {
+      throw new Error("expected oauth config");
+    }
+    const { navigation } = environment.oauth;
+    if (!navigation) {
+      throw new Error("expected navigation");
+    }
+    const authUrl = new URL("https://idp.example/authorize?state=abc");
+    navigation.navigateToAuthorization(authUrl);
+    expect(onBeforeOAuthRedirect).toHaveBeenCalledWith(authUrl);
   });
 
-  it("works without an onBeforeOAuthRedirect callback", () => {
-    const { environment } = createWebEnvironment(undefined, REDIRECT);
-    expect(environment.oauth?.navigation).toBeInstanceOf(BrowserNavigation);
+  it("routes fetch through the wrapped global fetch at the window origin", async () => {
+    const remoteBody = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: { "content-type": "text/plain" },
+      body: "echoed",
+    };
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(
+      async () =>
+        new Response(JSON.stringify(remoteBody), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { environment } = createWebEnvironment(
+      "api-tok",
+      new MutableRedirectUrlProvider(),
+    );
+    fetchMock.mockClear();
+
+    const res = await environment.fetch!("http://upstream.test/mcp");
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("echoed");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "http://127.0.0.1:6299/api/fetch",
+    );
   });
 });

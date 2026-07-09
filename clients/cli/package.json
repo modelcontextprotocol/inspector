@@ -39,8 +39,7 @@
     "commander": "^13.1.0",
     "pino": "^9.14.0",
     "undici": "^8.5.0",
-    "zod": "^4.3.6",
-    "zustand": "^5.0.13"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

@@ -43,24 +43,27 @@ function createMemoryStorage(
   const clientInfoByKey: Record<string, unknown> = {};
   const codeVerifierByKey: Record<string, string> = {};
   return {
+    load: vi.fn().mockResolvedValue(undefined),
     getIdpSession: vi.fn(async (issuer: string) => idpSessions[issuer]),
     saveIdpSession: vi.fn(async (issuer: string, updates) => {
       idpSessions[issuer] = { ...idpSessions[issuer], ...updates };
     }),
     clearIdpSession: vi.fn(),
-    getServerMetadata: vi.fn((key: string) => metadataByKey[key]),
-    saveServerMetadata: vi.fn((key: string, metadata: unknown) => {
+    getServerMetadata: vi.fn(async (key: string) => metadataByKey[key] ?? null),
+    saveServerMetadata: vi.fn(async (key: string, metadata: unknown) => {
       metadataByKey[key] = metadata;
     }),
-    getClientInformation: vi.fn((key: string) => clientInfoByKey[key]),
-    savePreregisteredClientInformation: vi.fn((key: string, info: unknown) => {
-      clientInfoByKey[key] = info;
-    }),
-    getCodeVerifier: vi.fn((key: string) => codeVerifierByKey[key]),
-    saveCodeVerifier: vi.fn((key: string, verifier: string) => {
+    getClientInformation: vi.fn(async (key: string) => clientInfoByKey[key]),
+    savePreregisteredClientInformation: vi.fn(
+      async (key: string, info: unknown) => {
+        clientInfoByKey[key] = info;
+      },
+    ),
+    getCodeVerifier: vi.fn(async (key: string) => codeVerifierByKey[key]),
+    saveCodeVerifier: vi.fn(async (key: string, verifier: string) => {
       codeVerifierByKey[key] = verifier;
     }),
-    clearCodeVerifier: vi.fn((key: string) => {
+    clearCodeVerifier: vi.fn(async (key: string) => {
       delete codeVerifierByKey[key];
     }),
     getTokens: vi.fn(async (url: string) => savedTokens[url] as never),

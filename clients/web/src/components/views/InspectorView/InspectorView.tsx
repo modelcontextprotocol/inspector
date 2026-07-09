@@ -1,6 +1,21 @@
-import { useMemo, type ReactNode, type Ref } from "react";
-import { AppShell, Box, Stack, Transition } from "@mantine/core";
-import { useLocalStorage } from "@mantine/hooks";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref,
+} from "react";
+import {
+  AppShell,
+  Box,
+  Flex,
+  Group,
+  Stack,
+  Transition,
+  type MantineTransition,
+} from "@mantine/core";
+import { useLocalStorage, useMediaQuery } from "@mantine/hooks";
 import type {
   InitializeResult,
   LoggingLevel,
@@ -64,6 +79,8 @@ import {
   type NetworkUiState,
 } from "../../screens/NetworkScreen/NetworkScreen";
 import type { SortDirection } from "../../elements/SortToggle/SortToggle";
+import { MonitoringScreen } from "../../groups/MonitoringScreen/MonitoringScreen";
+import { ResizeHandle } from "../../elements/ResizeHandle/ResizeHandle";
 import { getServerType } from "@inspector/core/mcp/config.js";
 import { INSPECTOR_SERVERS_TAB } from "../../../utils/inspectorTabs";
 
@@ -127,6 +144,8 @@ function useListCompact(
 }
 
 const SERVERS_TAB = INSPECTOR_SERVERS_TAB;
+const LOGS_TAB = "Logs";
+const HISTORY_TAB = "History";
 const NETWORK_TAB = "Network";
 
 const ALL_TABS: string[] = [
@@ -136,10 +155,71 @@ const ALL_TABS: string[] = [
   "Prompts",
   "Resources",
   "Tasks",
-  "Logs",
-  "History",
+  LOGS_TAB,
+  HISTORY_TAB,
   NETWORK_TAB,
 ];
+
+// The screens that can be pinned into the monitoring column (#1616). Pinning is
+// a group action: opening the column removes all *available* monitor tabs from
+// the header and hosts them in the column instead.
+type MonitorTab = "Logs" | "History" | "Network";
+const MONITOR_TABS: string[] = [LOGS_TAB, HISTORY_TAB, NETWORK_TAB];
+
+function isMonitorTab(tab: string): tab is MonitorTab {
+  return tab === LOGS_TAB || tab === HISTORY_TAB || tab === NETWORK_TAB;
+}
+
+// The viewport width below which the split collapses to a single column: matches
+// the point where ServerListScreen drops to one card, so the primary area always
+// has room for at least one full-width card beside the column.
+const MONITOR_WIDE_QUERY = "(min-width: 1040px)";
+
+// Monitoring column width bounds (px). MIN keeps the stream readable; MAX stops
+// the column from crowding out the primary area.
+const MONITOR_WIDTH_MIN = 320;
+const MONITOR_WIDTH_MAX = 720;
+const MONITOR_WIDTH_DEFAULT = 420;
+const MONITOR_WIDTH_STEP = 16;
+
+function clampMonitorWidth(value: number): number {
+  return Math.min(MONITOR_WIDTH_MAX, Math.max(MONITOR_WIDTH_MIN, value));
+}
+
+// localStorage adapters for the monitoring-column preferences, matching the
+// human-readable / clamp-on-read shape of the sort + compact adapters above.
+const MONITOR_PINNED_DEFAULT = false;
+
+function deserializeMonitorPinned(raw: string | undefined): boolean {
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return MONITOR_PINNED_DEFAULT;
+}
+
+function serializeMonitorPinned(value: boolean): string {
+  return value ? "true" : "false";
+}
+
+const MONITOR_TAB_DEFAULT: MonitorTab = LOGS_TAB;
+
+function deserializeMonitorTab(raw: string | undefined): MonitorTab {
+  return raw !== undefined && isMonitorTab(raw) ? raw : MONITOR_TAB_DEFAULT;
+}
+
+function serializeMonitorTab(value: MonitorTab): string {
+  return value;
+}
+
+function deserializeMonitorWidth(raw: string | undefined): number {
+  const parsed = raw !== undefined ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(parsed)
+    ? clampMonitorWidth(parsed)
+    : MONITOR_WIDTH_DEFAULT;
+}
+
+function serializeMonitorWidth(value: number): string {
+  return String(value);
+}
 
 const SCREEN_ENTER_MS = 350;
 const SCREEN_EXIT_MS = 250;
@@ -154,6 +234,55 @@ const ScreenStageContainer = Stack.withProps({
   gap: 0,
   flex: 1,
   mih: "100%",
+  // Let the pane shrink below its content's intrinsic width when the monitoring
+  // column opens — without this the Servers grid / SegmentedControl refuse to
+  // shrink and squeeze the column (or force a page scrollbar). (#1616)
+  miw: 0,
+});
+
+// Row wrapper turning AppShell.Main into a [primary | handle | column] split.
+// `h/w: 100%` inherit the header-offset height AppShell.Main provides, matching
+// the screens' own `calc(100dvh - header)`. (#1616)
+const SplitRow = Flex.withProps({
+  direction: "row",
+  gap: 0,
+  h: "100%",
+  w: "100%",
+});
+
+// The pinned monitoring column. Fixed-basis (its width is driven live via the
+// `w` style prop at the call site); `miw: 0` so its inner ScrollArea can bound.
+const MonitoringColumn = Stack.withProps({
+  flex: "0 0 auto",
+  h: "100%",
+  gap: 0,
+  miw: 0,
+});
+
+// Column open/close animation (#1616): the handle + column slide in from the
+// right edge and fade as they mount, reversing on close, so pinning reads as a
+// side column sliding open rather than snapping in. The primary screen keeps its
+// standard `ScreenStage` transition. Mantine plays `out → in` on enter and
+// `in → out` on exit. `AppShell.Main`'s `overflow: hidden` clips the off-screen
+// portion during the slide.
+const COLUMN_ANIM_MS = 300;
+const columnSlide: MantineTransition = {
+  in: { opacity: 1, transform: "translateX(0)" },
+  out: { opacity: 0, transform: "translateX(100%)" },
+  common: { transformOrigin: "right center" },
+  transitionProperty: "transform, opacity",
+};
+
+// Flex-row wrapper holding the resize handle + column so the whole unit animates
+// as one (the Transition interpolation is applied to it via `style`). `align:
+// stretch` overrides Group's default `center` so the full-height resize handle
+// (which has no intrinsic height) fills the column instead of collapsing.
+const MonitorColumnGroup = Group.withProps({
+  wrap: "nowrap",
+  align: "stretch",
+  gap: 0,
+  h: "100%",
+  flex: "0 0 auto",
 });
 
 // Wraps each screen in a Mantine Transition. With Transition's default
@@ -489,6 +618,59 @@ export function InspectorView({
     false,
   );
 
+  // Monitoring-column state (#1616): whether Logs/History/Network are pinned to
+  // the right column, which one is active there, and the column width. All
+  // persisted (view-layout preferences), same shape as the sort/compact hooks.
+  const [monitorPinned, setMonitorPinned] = useLocalStorage<boolean>({
+    key: "inspector.monitor.pinned",
+    defaultValue: MONITOR_PINNED_DEFAULT,
+    deserialize: deserializeMonitorPinned,
+    serialize: serializeMonitorPinned,
+    getInitialValueInEffect: false,
+  });
+  const [monitorTab, setMonitorTab] = useLocalStorage<MonitorTab>({
+    key: "inspector.monitor.tab",
+    defaultValue: MONITOR_TAB_DEFAULT,
+    deserialize: deserializeMonitorTab,
+    serialize: serializeMonitorTab,
+    getInitialValueInEffect: false,
+  });
+  const [monitorWidth, setMonitorWidth] = useLocalStorage<number>({
+    key: "inspector.monitor.width",
+    defaultValue: MONITOR_WIDTH_DEFAULT,
+    deserialize: deserializeMonitorWidth,
+    serialize: serializeMonitorWidth,
+    getInitialValueInEffect: false,
+  });
+  // Transient width during a drag; committed to `monitorWidth` on release so
+  // localStorage takes a single write per drag rather than one per pointer move.
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
+  const columnWidth = dragWidth ?? monitorWidth;
+
+  // The split only exists with enough horizontal room. `true` initial value so
+  // the first synchronous paint assumes wide (the common desktop case) rather
+  // than flashing the collapsed layout.
+  const isWide = useMediaQuery(MONITOR_WIDE_QUERY, true, {
+    getInitialValueInEffect: false,
+  });
+
+  // Open the monitoring column when a connection is established (#1616). Gated on
+  // the disconnected → connected *transition* (via the ref) rather than the
+  // "connected" state itself, so it fires on an actual connect — not on every
+  // render while connected, and not on a mount that starts already-connected
+  // (which would fight a user who closed it). The column still only *appears*
+  // when wide + a monitor tab is available (`effectivePinned`); this just sets
+  // the preference. Closing it stays closed until the next connect, since this
+  // effect only re-runs when `connectionStatus` changes.
+  const wasConnectedRef = useRef(connectionStatus === "connected");
+  useEffect(() => {
+    const isConnected = connectionStatus === "connected";
+    if (isConnected && !wasConnectedRef.current) {
+      setMonitorPinned(true);
+    }
+    wasConnectedRef.current = isConnected;
+  }, [connectionStatus, setMonitorPinned]);
+
   const appTools = useMemo<Tool[]>(() => {
     return tools.filter((tool) => {
       try {
@@ -558,15 +740,87 @@ export function InspectorView({
     appTools,
   ]);
 
-  // Clamp the rendered tab to whatever's currently available. If the user
-  // had "Tools" selected and the connection drops, `availableTabs` becomes
+  // Monitoring column, derived (#1616). The monitor group is pinned into the
+  // right column only when: the user asked for it, the viewport is wide enough,
+  // a server is connected, and at least one monitor tab is actually available
+  // (capability/stdio aware). Narrowing, disconnecting, or losing the last
+  // monitor capability flips `effectivePinned` false and closes the column —
+  // WITHOUT clearing `monitorPinned`, so it re-opens when the condition returns.
+  // Only the column's close button writes `monitorPinned = false`.
+  const connected = connectionStatus === "connected";
+  const monitorAvailable = useMemo<string[]>(
+    () => availableTabs.filter((t) => MONITOR_TABS.includes(t)),
+    [availableTabs],
+  );
+  const effectivePinned =
+    monitorPinned && !!isWide && connected && monitorAvailable.length > 0;
+
+  // The header loses the monitor group while the column is open (its screens
+  // live in the column instead); otherwise it shows every available tab.
+  const headerTabs = useMemo<string[]>(
+    () =>
+      effectivePinned
+        ? availableTabs.filter((t) => !MONITOR_TABS.includes(t))
+        : availableTabs,
+    [effectivePinned, availableTabs],
+  );
+
+  // Clamp the rendered primary tab to whatever the header currently shows. If
+  // the user had "Tools" selected and the connection drops, `headerTabs` becomes
   // `[Servers]` and the view renders Servers without us having to imperatively
-  // reset the state (and trip the `set-state-in-effect` lint). When the
-  // connection comes back, the previous selection pops in again because
-  // the parent's `activeTab` is preserved.
-  const activeTab = availableTabs.includes(activeTabProp)
+  // reset the state (and trip the `set-state-in-effect` lint). When pinning
+  // moves a monitor tab out of the header, the primary falls back to the first
+  // non-Servers tab; the lifted `activeTabProp` is left intact so closing the
+  // column restores the user's prior selection.
+  const firstNonServersTab =
+    headerTabs.find((t) => t !== SERVERS_TAB) ?? SERVERS_TAB;
+  const activeTab = headerTabs.includes(activeTabProp)
     ? activeTabProp
-    : SERVERS_TAB;
+    : effectivePinned
+      ? firstNonServersTab
+      : SERVERS_TAB;
+
+  // The monitor tab shown in the column, clamped to what's available (e.g. a
+  // switch to a stdio server drops Network). `?? LOGS_TAB` is a types-only
+  // fallback: the column only renders while `monitorAvailable.length > 0`.
+  const effectiveMonitorTab: MonitorTab =
+    monitorAvailable.includes(monitorTab) && isMonitorTab(monitorTab)
+      ? monitorTab
+      : (monitorAvailable.find(isMonitorTab) ?? LOGS_TAB);
+
+  // Pinning is a group action: remember which tab was clicked and open the
+  // column. Gated by `canPin` so the pin affordance only appears when a click
+  // would actually take effect (wide + connected).
+  const canPin = !!isWide && connected;
+  function pinMonitor(tab: MonitorTab) {
+    setMonitorTab(tab);
+    setMonitorPinned(true);
+  }
+  function handleMonitorTabChange(tab: string) {
+    // The SegmentedControl's data only holds valid monitor tabs, so the guard's
+    // false arm is unreachable through the UI.
+    /* v8 ignore next */
+    if (isMonitorTab(tab)) setMonitorTab(tab);
+  }
+  // Closing the column leaves the primary area on whatever screen is currently
+  // selected in the header — it does not swap in the column's screen. We commit
+  // the current `activeTab` to the lifted state first so unpinning can't resurrect
+  // the (now stale) monitor tab that was selected before pinning.
+  function closeMonitorColumn() {
+    onActiveTabChange(activeTab);
+    setMonitorPinned(false);
+  }
+  function commitMonitorWidth(next: number) {
+    setMonitorWidth(next);
+    setDragWidth(null);
+  }
+
+  // A single search shared across the column's tabs (kept as you move between
+  // Logs/History/Network so it filters each one), distinct from the full-size
+  // screens' own searches. The embedded panels apply only this text; their other
+  // filters (levels / categories / directions / method) have no control in the
+  // column and are bypassed there.
+  const [monitorSearch, setMonitorSearch] = useState("");
 
   // Merge the parent's `serversInput` (static config) with the runtime
   // connection state owned by the parent — only the active server reflects
@@ -616,6 +870,76 @@ export function InspectorView({
     ? undefined
     : activeServer;
 
+  // Shared props for each monitor screen, spread into both its primary
+  // (header-tab) instance and its embedded (column) instance so the two can't
+  // drift. The primary adds `onPin`; the embedded adds `embedded`. (#1616)
+  const loggingScreenProps = {
+    entries: logs,
+    currentLevel: currentLogLevel,
+    ui: logsUi,
+    onUiChange: onLogsUiChange,
+    onSetLevel: onSetLogLevel,
+    onClear: onClearLogs,
+    onExport: onExportLogs,
+    sortDirection: logsSort,
+    onSortChange: setLogsSort,
+  };
+  const historyScreenProps = {
+    entries: history,
+    pinnedIds: pinnedHistoryIds ?? new Set<string>(),
+    ui: historyUi,
+    onUiChange: onHistoryUiChange,
+    onClearAll: onClearHistory,
+    onExport: onExportHistory,
+    onClearSection: onClearHistorySection,
+    onExportSection: onExportHistorySection,
+    onReplay: onReplayHistory,
+    onTogglePin: onTogglePinHistory,
+    sortDirection: historySort,
+    onSortChange: setHistorySort,
+    compact: historyCompact,
+    onToggleCompact: () => setHistoryCompact((c) => !c),
+  };
+  const networkScreenProps = {
+    entries: network,
+    ui: networkUi,
+    onUiChange: onNetworkUiChange,
+    onClear: onClearNetwork,
+    onExport: onExportNetwork,
+    sortDirection: networkSort,
+    onSortChange: setNetworkSort,
+    compact: networkCompact,
+    onToggleCompact: () => setNetworkCompact((c) => !c),
+  };
+
+  // Embedded instances for the pinned column, keyed by tab. MonitoringScreen
+  // renders only the active one; the rest are unmounted element values. Each
+  // screen's search field is overridden with the shared column search so it
+  // filters whichever tab is showing, and carries over as tabs change.
+  const monitorScreens: Record<string, ReactNode> = {
+    [LOGS_TAB]: (
+      <LoggingScreen
+        {...loggingScreenProps}
+        ui={{ ...logsUi, filterText: monitorSearch }}
+        embedded
+      />
+    ),
+    [HISTORY_TAB]: (
+      <HistoryScreen
+        {...historyScreenProps}
+        ui={{ ...historyUi, search: monitorSearch }}
+        embedded
+      />
+    ),
+    [NETWORK_TAB]: (
+      <NetworkScreen
+        {...networkScreenProps}
+        ui={{ ...networkUi, filterText: monitorSearch }}
+        embedded
+      />
+    ),
+  };
+
   return (
     // padding={0}: each screen fills `calc(100dvh - header)` and supplies its
     // own `xl` padding, so Main must contribute only the fixed-header offset.
@@ -632,7 +956,7 @@ export function InspectorView({
             status={connectionStatus}
             latencyMs={latencyMs}
             activeTab={activeTab}
-            availableTabs={availableTabs}
+            availableTabs={headerTabs}
             onTabChange={onActiveTabChange}
             onDisconnect={onDisconnect}
             onToggleTheme={onToggleTheme}
@@ -647,150 +971,160 @@ export function InspectorView({
         )}
       </AppShell.Header>
       <AppShell.Main>
-        <ScreenStageContainer>
-          <ScreenStage active={activeTab === SERVERS_TAB}>
-            <ServerListScreen
-              servers={servers}
-              writable={serverListWritable}
-              activeServer={dimCardsAgainst}
-              onAddManually={onServerAdd}
-              onImportConfig={onServerImportConfig}
-              onImportServerJson={onServerImportJson}
-              onExport={onServerExport}
-              onToggleConnection={onToggleConnection}
-              onConnectionInfo={onConnectionInfo}
-              onSettings={onServerSettings}
-              onEdit={onServerEdit}
-              onClone={onServerClone}
-              onRemove={onServerRemove}
-              onReorder={onServerReorder}
-              highlightedServerIds={highlightedServerIds}
-              onClearHighlight={onClearHighlight}
-              compact={serversCompact}
-              onToggleCompact={() => setServersCompact((c) => !c)}
-            />
-          </ScreenStage>
-          <ScreenStage active={activeTab === "Tools"}>
-            <ToolsScreen
-              tools={tools}
-              callState={toolCallState}
-              ui={toolsUi}
-              listChanged={toolsListChanged}
-              serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
-              onUiChange={onToolsUiChange}
-              onRefreshList={onRefreshTools}
-              onCallTool={onCallTool}
-              onCancelCall={onCancelToolCall}
-              onClearResult={onClearToolResult}
-              onReadResource={onReadResourceContents}
-            />
-          </ScreenStage>
-          <ScreenStage active={activeTab === "Apps"}>
-            <AppsScreen
-              tools={appTools}
-              listChanged={toolsListChanged}
-              sandboxPath={sandboxPath}
-              bridgeFactory={bridgeFactory}
-              rendererRef={appRendererRef}
-              ui={appsUi}
-              onUiChange={onAppsUiChange}
-              onRefreshList={onRefreshApps}
-              onSelectApp={onSelectApp}
-              onOpenApp={onOpenApp}
-              onCloseApp={onCloseApp}
-              onError={onAppError}
-            />
-          </ScreenStage>
-          <ScreenStage active={activeTab === "Prompts"}>
-            <PromptsScreen
-              prompts={prompts}
-              getPromptState={getPromptState}
-              ui={promptsUi}
-              listChanged={promptsListChanged}
-              completionsSupported={completionsSupported}
-              onUiChange={onPromptsUiChange}
-              onRefreshList={onRefreshPrompts}
-              onGetPrompt={onGetPrompt}
-              onCopyMessages={onCopyPromptMessages}
-              onCompleteArgument={onCompleteArgument}
-            />
-          </ScreenStage>
-          <ScreenStage active={activeTab === "Resources"}>
-            <ResourcesScreen
-              resources={resources}
-              templates={resourceTemplates}
-              subscriptions={subscriptions}
-              readState={readResourceState}
-              ui={resourcesUi}
-              listChanged={resourcesListChanged}
-              completionsSupported={completionsSupported}
-              subscriptionsSupported={subscriptionsSupported}
-              onUiChange={onResourcesUiChange}
-              onRefreshList={onRefreshResources}
-              onReadResource={onReadResource}
-              onSubscribeResource={onSubscribeResource}
-              onUnsubscribeResource={onUnsubscribeResource}
-              onCompleteArgument={onCompleteArgument}
-              compact={resourcesCompact}
-              onCompactChange={setResourcesCompact}
-            />
-          </ScreenStage>
-          <ScreenStage active={activeTab === "Tasks"}>
-            <TasksScreen
-              tasks={tasks}
-              progressByTaskId={progressByTaskId}
-              ui={tasksUi}
-              onUiChange={onTasksUiChange}
-              onRefresh={onRefreshTasks}
-              onClearCompleted={onClearCompletedTasks}
-              onCancel={onCancelTask}
-            />
-          </ScreenStage>
-          <ScreenStage active={activeTab === "Logs"}>
-            <LoggingScreen
-              entries={logs}
-              currentLevel={currentLogLevel}
-              ui={logsUi}
-              onUiChange={onLogsUiChange}
-              onSetLevel={onSetLogLevel}
-              onClear={onClearLogs}
-              onExport={onExportLogs}
-              sortDirection={logsSort}
-              onSortChange={setLogsSort}
-            />
-          </ScreenStage>
-          <ScreenStage active={activeTab === "History"}>
-            <HistoryScreen
-              entries={history}
-              pinnedIds={pinnedHistoryIds ?? new Set()}
-              ui={historyUi}
-              onUiChange={onHistoryUiChange}
-              onClearAll={onClearHistory}
-              onExport={onExportHistory}
-              onClearSection={onClearHistorySection}
-              onExportSection={onExportHistorySection}
-              onReplay={onReplayHistory}
-              onTogglePin={onTogglePinHistory}
-              sortDirection={historySort}
-              onSortChange={setHistorySort}
-              compact={historyCompact}
-              onToggleCompact={() => setHistoryCompact((c) => !c)}
-            />
-          </ScreenStage>
-          <ScreenStage active={activeTab === "Network"}>
-            <NetworkScreen
-              entries={network}
-              ui={networkUi}
-              onUiChange={onNetworkUiChange}
-              onClear={onClearNetwork}
-              onExport={onExportNetwork}
-              sortDirection={networkSort}
-              onSortChange={setNetworkSort}
-              compact={networkCompact}
-              onToggleCompact={() => setNetworkCompact((c) => !c)}
-            />
-          </ScreenStage>
-        </ScreenStageContainer>
+        <SplitRow>
+          <ScreenStageContainer>
+            <ScreenStage active={activeTab === SERVERS_TAB}>
+              <ServerListScreen
+                servers={servers}
+                writable={serverListWritable}
+                activeServer={dimCardsAgainst}
+                onAddManually={onServerAdd}
+                onImportConfig={onServerImportConfig}
+                onImportServerJson={onServerImportJson}
+                onExport={onServerExport}
+                onToggleConnection={onToggleConnection}
+                onConnectionInfo={onConnectionInfo}
+                onSettings={onServerSettings}
+                onEdit={onServerEdit}
+                onClone={onServerClone}
+                onRemove={onServerRemove}
+                onReorder={onServerReorder}
+                highlightedServerIds={highlightedServerIds}
+                onClearHighlight={onClearHighlight}
+                compact={serversCompact}
+                onToggleCompact={() => setServersCompact((c) => !c)}
+              />
+            </ScreenStage>
+            <ScreenStage active={activeTab === "Tools"}>
+              <ToolsScreen
+                tools={tools}
+                callState={toolCallState}
+                ui={toolsUi}
+                listChanged={toolsListChanged}
+                serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
+                onUiChange={onToolsUiChange}
+                onRefreshList={onRefreshTools}
+                onCallTool={onCallTool}
+                onCancelCall={onCancelToolCall}
+                onClearResult={onClearToolResult}
+                onReadResource={onReadResourceContents}
+              />
+            </ScreenStage>
+            <ScreenStage active={activeTab === "Apps"}>
+              <AppsScreen
+                tools={appTools}
+                listChanged={toolsListChanged}
+                sandboxPath={sandboxPath}
+                bridgeFactory={bridgeFactory}
+                rendererRef={appRendererRef}
+                ui={appsUi}
+                onUiChange={onAppsUiChange}
+                onRefreshList={onRefreshApps}
+                onSelectApp={onSelectApp}
+                onOpenApp={onOpenApp}
+                onCloseApp={onCloseApp}
+                onError={onAppError}
+              />
+            </ScreenStage>
+            <ScreenStage active={activeTab === "Prompts"}>
+              <PromptsScreen
+                prompts={prompts}
+                getPromptState={getPromptState}
+                ui={promptsUi}
+                listChanged={promptsListChanged}
+                completionsSupported={completionsSupported}
+                onUiChange={onPromptsUiChange}
+                onRefreshList={onRefreshPrompts}
+                onGetPrompt={onGetPrompt}
+                onCopyMessages={onCopyPromptMessages}
+                onCompleteArgument={onCompleteArgument}
+              />
+            </ScreenStage>
+            <ScreenStage active={activeTab === "Resources"}>
+              <ResourcesScreen
+                resources={resources}
+                templates={resourceTemplates}
+                subscriptions={subscriptions}
+                readState={readResourceState}
+                ui={resourcesUi}
+                listChanged={resourcesListChanged}
+                completionsSupported={completionsSupported}
+                subscriptionsSupported={subscriptionsSupported}
+                onUiChange={onResourcesUiChange}
+                onRefreshList={onRefreshResources}
+                onReadResource={onReadResource}
+                onSubscribeResource={onSubscribeResource}
+                onUnsubscribeResource={onUnsubscribeResource}
+                onCompleteArgument={onCompleteArgument}
+                compact={resourcesCompact}
+                onCompactChange={setResourcesCompact}
+              />
+            </ScreenStage>
+            <ScreenStage active={activeTab === "Tasks"}>
+              <TasksScreen
+                tasks={tasks}
+                progressByTaskId={progressByTaskId}
+                ui={tasksUi}
+                onUiChange={onTasksUiChange}
+                onRefresh={onRefreshTasks}
+                onClearCompleted={onClearCompletedTasks}
+                onCancel={onCancelTask}
+              />
+            </ScreenStage>
+            <ScreenStage active={activeTab === LOGS_TAB}>
+              <LoggingScreen
+                {...loggingScreenProps}
+                onPin={canPin ? () => pinMonitor(LOGS_TAB) : undefined}
+              />
+            </ScreenStage>
+            <ScreenStage active={activeTab === HISTORY_TAB}>
+              <HistoryScreen
+                {...historyScreenProps}
+                onPin={canPin ? () => pinMonitor(HISTORY_TAB) : undefined}
+              />
+            </ScreenStage>
+            <ScreenStage active={activeTab === NETWORK_TAB}>
+              <NetworkScreen
+                {...networkScreenProps}
+                onPin={canPin ? () => pinMonitor(NETWORK_TAB) : undefined}
+              />
+            </ScreenStage>
+          </ScreenStageContainer>
+          <Transition
+            mounted={effectivePinned}
+            transition={columnSlide}
+            duration={COLUMN_ANIM_MS}
+            exitDuration={COLUMN_ANIM_MS}
+            timingFunction="ease"
+          >
+            {(styles) => (
+              // `style={styles}` is Mantine's runtime Transition interpolation,
+              // not static styling — same pattern as ScreenStage above.
+              <MonitorColumnGroup style={styles}>
+                <ResizeHandle
+                  value={columnWidth}
+                  min={MONITOR_WIDTH_MIN}
+                  max={MONITOR_WIDTH_MAX}
+                  step={MONITOR_WIDTH_STEP}
+                  onChange={setDragWidth}
+                  onCommit={commitMonitorWidth}
+                  aria-label="Resize monitoring column"
+                />
+                <MonitoringColumn w={columnWidth}>
+                  <MonitoringScreen
+                    tabs={monitorAvailable}
+                    value={effectiveMonitorTab}
+                    onChange={handleMonitorTabChange}
+                    searchValue={monitorSearch}
+                    onSearchChange={setMonitorSearch}
+                    onClose={closeMonitorColumn}
+                    screens={monitorScreens}
+                  />
+                </MonitoringColumn>
+              </MonitorColumnGroup>
+            )}
+          </Transition>
+        </SplitRow>
       </AppShell.Main>
     </AppShell>
   );

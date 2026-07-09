@@ -6,15 +6,10 @@ import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 export interface ClearServerOAuthStateParams {
   config: MCPServerConfig;
   /** When set and this server is the active connection, clear via the live client. */
-  inspectorClient?: InspectorClient | null;
+  inspectorClient?: Pick<InspectorClient, "clearOAuthTokens"> | null;
   isActiveConnection: boolean;
-  /**
-   * Backend-backed OAuth storage (`RemoteOAuthStorage`) used to clear a
-   * non-active server's persisted state. Must be the same shared instance the
-   * connection path writes through so the clear targets `oauth.json`, not a
-   * divergent sessionStorage copy.
-   */
-  oauthStorage: Pick<OAuthStorage, "clear">;
+  /** Shared web OAuth store; required so clear hits the same blob as connect. */
+  oauthStorage: OAuthStorage;
 }
 
 /**
@@ -22,18 +17,18 @@ export interface ClearServerOAuthStateParams {
  * HTTP MCP server. When clearing the active connection, uses the live client so
  * in-memory flow state is reset too.
  */
-export function clearServerOAuthState(
+export async function clearServerOAuthState(
   params: ClearServerOAuthStateParams,
-): boolean {
+): Promise<boolean> {
   const serverUrl = getOAuthServerUrl(params.config);
   if (!serverUrl) {
     return false;
   }
 
   if (params.isActiveConnection && params.inspectorClient) {
-    params.inspectorClient.clearOAuthTokens();
+    await params.inspectorClient.clearOAuthTokens();
   } else {
-    params.oauthStorage.clear(serverUrl);
+    await params.oauthStorage.clear(serverUrl);
   }
   return true;
 }

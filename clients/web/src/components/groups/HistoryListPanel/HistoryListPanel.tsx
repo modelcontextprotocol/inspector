@@ -4,7 +4,6 @@ import {
   Collapse,
   Group,
   Paper,
-  ScrollArea,
   Stack,
   Text,
   Title,
@@ -21,6 +20,8 @@ import {
   SortToggle,
   type SortDirection,
 } from "../../elements/SortToggle/SortToggle";
+import { PinColumnButton } from "../../elements/PinColumnButton/PinColumnButton";
+import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
 import { extractMethod } from "../historyUtils.js";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
@@ -43,6 +44,10 @@ export interface HistoryListPanelProps {
   onSortChange: (next: SortDirection) => void;
   compact: boolean;
   onToggleCompact: () => void;
+  /** See LogStreamPanel: shows a "pin as column" button when set (#1616). */
+  onPin?: () => void;
+  /** See LogStreamPanel: fills the flex parent instead of the viewport calc. */
+  embedded?: boolean;
 }
 
 const PanelContainer = Paper.withProps({
@@ -123,10 +128,14 @@ function SectionActions({
 // is a `listItem` toggle — with an optional actions slot on the right — over a
 // `Collapse` of the entries. When it's the only section, the accordion makes no
 // sense: the header is a plain title and the entries always show (so a stale
-// collapsed state from when both sections were present can't hide them).
+// collapsed state from when both sections were present can't hide them) —
+// unless `hideHeaderWhenAlone`, in which case the lone section drops its title
+// entirely (the "History" label is redundant when there's nothing to
+// distinguish it from).
 function CollapsibleSection({
   title,
   collapsible,
+  hideHeaderWhenAlone = false,
   open,
   onToggle,
   actions,
@@ -134,6 +143,7 @@ function CollapsibleSection({
 }: {
   title: string;
   collapsible: boolean;
+  hideHeaderWhenAlone?: boolean;
   open: boolean;
   onToggle: () => void;
   actions?: ReactNode;
@@ -142,7 +152,7 @@ function CollapsibleSection({
   if (!collapsible) {
     return (
       <Stack gap="md">
-        <Title order={5}>{title}</Title>
+        {hideHeaderWhenAlone ? null : <Title order={5}>{title}</Title>}
         <Stack gap="md">{children}</Stack>
       </Stack>
     );
@@ -168,13 +178,18 @@ function matchesFilters(
   entry: MessageEntry,
   searchText: string,
   visibleDirections: Record<MessageOrigin, boolean>,
-  methodFilter?: MessageMethod,
+  methodFilter: MessageMethod | undefined,
+  // The embedded column exposes only the search box (no direction/method
+  // controls), so it applies the text filter but skips those (#1616).
+  ignoreDirectionAndMethod: boolean,
 ): boolean {
-  // Hide a direction when its toggle is off. Entries with no recorded origin
-  // (legacy / pre-origin logs) are never filtered out by direction.
-  if (entry.origin && !visibleDirections[entry.origin]) return false;
   const method = extractMethod(entry);
-  if (methodFilter && method !== methodFilter) return false;
+  if (!ignoreDirectionAndMethod) {
+    // Hide a direction when its toggle is off. Entries with no recorded origin
+    // (legacy / pre-origin logs) are never filtered out by direction.
+    if (entry.origin && !visibleDirections[entry.origin]) return false;
+    if (methodFilter && method !== methodFilter) return false;
+  }
   if (searchText) {
     const term = searchText.toLowerCase();
     const responseText = entry.response ? JSON.stringify(entry.response) : "";
@@ -201,6 +216,8 @@ export function HistoryListPanel({
   onSortChange,
   compact,
   onToggleCompact,
+  onPin,
+  embedded = false,
 }: HistoryListPanelProps) {
   const viewportRef = useScrollMemory("history-list");
   // Per-section expand/collapse, like the LogControls level toggles. Both start
@@ -208,15 +225,30 @@ export function HistoryListPanel({
   const [pinnedOpen, setPinnedOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(true);
   const filteredEntries = useMemo(() => {
-    // `.filter()` returns a fresh array, so sorting in-place is safe.
+    // Embedded column filters by text only (its direction/method controls live
+    // in the full-size sidebar). See LogStreamPanel (#1616). `.filter()` returns
+    // a fresh array, so sorting in-place is safe.
     const sorted = entries
       .filter((e) =>
-        matchesFilters(e, searchText, visibleDirections, methodFilter),
+        matchesFilters(
+          e,
+          searchText,
+          visibleDirections,
+          methodFilter,
+          embedded,
+        ),
       )
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     if (sortDirection === "newest-first") sorted.reverse();
     return sorted;
-  }, [entries, searchText, visibleDirections, methodFilter, sortDirection]);
+  }, [
+    entries,
+    searchText,
+    visibleDirections,
+    methodFilter,
+    sortDirection,
+    embedded,
+  ]);
 
   const pinnedEntries = useMemo(
     () => filteredEntries.filter((e) => pinnedIds.has(e.id)),
@@ -238,9 +270,6 @@ export function HistoryListPanel({
       <Group justify="space-between" mb="sm">
         <Title order={4}>Requests</Title>
         <Group gap="xs">
-          {hasResults && (
-            <ListToggle compact={compact} onToggle={onToggleCompact} />
-          )}
           <SortToggle
             value={sortDirection}
             onChange={onSortChange}
@@ -256,18 +285,17 @@ export function HistoryListPanel({
           <Button variant="default" onClick={onExport} disabled={!hasResults}>
             Export
           </Button>
+          {hasResults && (
+            <ListToggle compact={compact} onToggle={onToggleCompact} />
+          )}
+          {onPin ? <PinColumnButton onPin={onPin} /> : null}
         </Group>
       </Group>
 
       {!hasResults ? (
         <EmptyState>No request history</EmptyState>
       ) : (
-        <ScrollArea.Autosize
-          viewportRef={viewportRef}
-          mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)"
-          type="scroll"
-          offsetScrollbars
-        >
+        <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
           <Stack gap="md">
             {pinnedEntries.length > 0 && (
               <CollapsibleSection
@@ -290,6 +318,7 @@ export function HistoryListPanel({
                     entry={entry}
                     isPinned={true}
                     isListExpanded={!compact}
+                    embedded={embedded}
                     onReplay={() => onReplay(entry.id)}
                     onTogglePin={() => onTogglePin(entry.id)}
                   />
@@ -301,6 +330,9 @@ export function HistoryListPanel({
               <CollapsibleSection
                 title={formatHistoryTitle(unpinnedEntries.length)}
                 collapsible={bothSections}
+                // With no pinned section to distinguish it from, the lone
+                // "History (N)" header is redundant — drop it.
+                hideHeaderWhenAlone
                 open={historyOpen}
                 onToggle={() => setHistoryOpen((v) => !v)}
                 actions={
@@ -318,6 +350,7 @@ export function HistoryListPanel({
                     entry={entry}
                     isPinned={false}
                     isListExpanded={!compact}
+                    embedded={embedded}
                     onReplay={() => onReplay(entry.id)}
                     onTogglePin={() => onTogglePin(entry.id)}
                   />
@@ -325,7 +358,7 @@ export function HistoryListPanel({
               </CollapsibleSection>
             )}
           </Stack>
-        </ScrollArea.Autosize>
+        </EmbeddableScrollArea>
       )}
     </PanelContainer>
   );

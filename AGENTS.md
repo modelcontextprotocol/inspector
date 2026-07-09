@@ -22,7 +22,7 @@ inspector/
 │   ├── tui/                            # TUI client (Ink + React, tsup bundle)
 │   ├── launcher/                       # Shared launcher (relative imports into sibling build/ outputs)
 ├── core/                               # Shared core code (no package.json — consumed via the `@inspector/core` vite alias)
-│   ├── auth/                           # OAuth: state machine, providers, discovery, storage;
+│   ├── auth/                           # OAuth: providers, discovery, OAuthStorage + persist backends;
 │   │                                   #   mid-session recovery (challenge.ts WWW-Authenticate
 │   │                                   #   parsing, scopes.ts SEP-2350 scope union, oauthUx.ts
 │   │                                   #   shared copy, mcpAuth.ts force-reauthorization)
@@ -41,9 +41,9 @@ inspector/
 │   │   ├── node/                       # Node stdio transport factory
 │   │   ├── remote/                     # Browser HTTP/SSE transport + remote logger/fetch
 │   │   │   └── node/                   # Hono-based remote server backend (used by remote/ above)
-│   │   └── state/                      # Zustand-style state stores consumed by core/react/
+│   │   └── state/                      # InspectorClient state stores consumed by core/react/
 │   ├── react/                          # React hooks over the state stores
-│   └── storage/                        # File and remote storage adapters (Zustand middleware)
+│   └── storage/                        # File I/O helpers (store-io.ts) used by OAuth persist backends
 ├── test-servers/                       # Composable MCP test servers + fixtures used by integration tests.
 │   ├── src/                            # TypeScript sources.
 │   ├── build/                          # Built JS (gitignored). Produced by `npm run test-servers:build`

@@ -7,7 +7,7 @@ import type { OAuthClientRegistrationKind } from "./types.js";
 
 /**
  * Abstract storage interface for OAuth state
- * Supports both browser (sessionStorage) and Node.js (Zustand) environments
+ * Supports browser (sessionStorage), Node.js (file), and remote HTTP backends.
  */
 export interface SaveTokensOptions {
   /** Marks resource tokens minted via EMA (legs 2–3) for sign-out cleanup. */
@@ -22,10 +22,11 @@ export interface SaveClientInformationOptions {
 
 export interface OAuthStorage {
   /**
-   * Resolves once any async hydration of the underlying store has completed.
-   * With a synchronous storage adapter this resolves immediately.
+   * Optional preload of persisted state into memory. Getters and setters load
+   * automatically when needed; use this only for fail-fast at known boundaries
+   * (e.g. OAuth callback resume after a full-page navigation).
    */
-  ready(): Promise<void>;
+  load(): Promise<void>;
 
   /**
    * Get client information (preregistered or dynamically registered)
@@ -40,7 +41,7 @@ export interface OAuthStorage {
    */
   getClientRegistrationKind(
     serverUrl: string,
-  ): OAuthClientRegistrationKind | undefined;
+  ): Promise<OAuthClientRegistrationKind | undefined>;
 
   /**
    * Save client information (dynamically registered)
@@ -62,7 +63,10 @@ export interface OAuthStorage {
   /**
    * Clear client information
    */
-  clearClientInformation(serverUrl: string, isPreregistered?: boolean): void;
+  clearClientInformation(
+    serverUrl: string,
+    isPreregistered?: boolean,
+  ): Promise<void>;
 
   /**
    * Get OAuth tokens
@@ -81,14 +85,10 @@ export interface OAuthStorage {
   /**
    * Clear OAuth tokens
    */
-  clearTokens(serverUrl: string): void;
+  clearTokens(serverUrl: string): Promise<void>;
 
   /**
-   * Get code verifier (for PKCE).
-   *
-   * Async because the backend-backed store may still be hydrating when this is
-   * read on the post-redirect OAuth callback path; the implementation awaits
-   * hydration before reading.
+   * Get code verifier (for PKCE)
    */
   getCodeVerifier(serverUrl: string): Promise<string | undefined>;
 
@@ -100,12 +100,12 @@ export interface OAuthStorage {
   /**
    * Clear code verifier
    */
-  clearCodeVerifier(serverUrl: string): void;
+  clearCodeVerifier(serverUrl: string): Promise<void>;
 
   /**
    * Get scope
    */
-  getScope(serverUrl: string): string | undefined;
+  getScope(serverUrl: string): Promise<string | undefined>;
 
   /**
    * Save scope
@@ -115,14 +115,10 @@ export interface OAuthStorage {
   /**
    * Clear scope
    */
-  clearScope(serverUrl: string): void;
+  clearScope(serverUrl: string): Promise<void>;
 
   /**
-   * Get server metadata discovered during OAuth.
-   *
-   * Async because the backend-backed store may still be hydrating when this is
-   * read on the post-redirect OAuth callback path; the implementation awaits
-   * hydration before reading.
+   * Get server metadata discovered during OAuth
    */
   getServerMetadata(serverUrl: string): Promise<OAuthMetadata | null>;
 
@@ -134,12 +130,12 @@ export interface OAuthStorage {
   /**
    * Clear server metadata
    */
-  clearServerMetadata(serverUrl: string): void;
+  clearServerMetadata(serverUrl: string): Promise<void>;
 
   /**
    * Clear all OAuth data for a server
    */
-  clear(serverUrl: string): void;
+  clear(serverUrl: string): Promise<void>;
 
   /**
    * Get cached IdP OIDC session for EMA (keyed by issuer).
@@ -157,12 +153,12 @@ export interface OAuthStorage {
   /**
    * Clear cached IdP session for an issuer.
    */
-  clearIdpSession(issuer: string): void;
+  clearIdpSession(issuer: string): Promise<void>;
 
   /**
    * Remove per-server OAuth state for MCP servers whose tokens were minted via EMA.
    */
-  clearEnterpriseManagedResourceServers(): void;
+  clearEnterpriseManagedResourceServers(): Promise<void>;
 }
 
 /**

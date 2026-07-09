@@ -50,7 +50,7 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
       { client_id: "dyn" },
       { registrationKind: "dcr" },
     );
-    storage.clearClientInformation(serverUrl);
+    await storage.clearClientInformation(serverUrl);
     expect(await storage.getClientInformation(serverUrl)).toBeUndefined();
   });
 
@@ -58,7 +58,7 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
     await storage.savePreregisteredClientInformation(serverUrl, {
       client_id: "pre",
     });
-    storage.clearClientInformation(serverUrl, true);
+    await storage.clearClientInformation(serverUrl, true);
     expect(await storage.getClientInformation(serverUrl, true)).toBeUndefined();
   });
 
@@ -66,22 +66,22 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
     const tokens = { access_token: "t", token_type: "Bearer" };
     await storage.saveTokens(serverUrl, tokens);
     expect(await storage.getTokens(serverUrl)).toEqual(tokens);
-    storage.clearTokens(serverUrl);
+    await storage.clearTokens(serverUrl);
     expect(await storage.getTokens(serverUrl)).toBeUndefined();
   });
 
   it("codeVerifier round-trip and clearCodeVerifier", async () => {
     await storage.saveCodeVerifier(serverUrl, "verifier");
     expect(await storage.getCodeVerifier(serverUrl)).toBe("verifier");
-    storage.clearCodeVerifier(serverUrl);
+    await storage.clearCodeVerifier(serverUrl);
     expect(await storage.getCodeVerifier(serverUrl)).toBeUndefined();
   });
 
   it("scope round-trip and clearScope", async () => {
     await storage.saveScope(serverUrl, "read write");
-    expect(storage.getScope(serverUrl)).toBe("read write");
-    storage.clearScope(serverUrl);
-    expect(storage.getScope(serverUrl)).toBeUndefined();
+    expect(await storage.getScope(serverUrl)).toBe("read write");
+    await storage.clearScope(serverUrl);
+    expect(await storage.getScope(serverUrl)).toBeUndefined();
   });
 
   it("serverMetadata round-trip and clearServerMetadata", async () => {
@@ -93,7 +93,7 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
     };
     await storage.saveServerMetadata(serverUrl, md);
     expect(await storage.getServerMetadata(serverUrl)).toEqual(md);
-    storage.clearServerMetadata(serverUrl);
+    await storage.clearServerMetadata(serverUrl);
     expect(await storage.getServerMetadata(serverUrl)).toBeNull();
   });
 
@@ -107,7 +107,7 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
       access_token: "t",
       token_type: "Bearer",
     });
-    storage.clear(serverUrl);
+    await storage.clear(serverUrl);
     expect(await storage.getClientInformation(serverUrl)).toBeUndefined();
     expect(await storage.getTokens(serverUrl)).toBeUndefined();
   });
@@ -121,64 +121,49 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
     expect(s).toBeInstanceOf(RemoteOAuthStorage);
   });
 
-  it("getCodeVerifier waits for the async hydration GET before reading", async () => {
-    // Unlike the other tests in this file (which write-then-read in the same
-    // session), this asserts that a value PERSISTED on the backend before the
-    // store was constructed is still returned — i.e. the getter awaits the
-    // remote storage adapter's hydration GET.
-    let releaseGet!: () => void;
-    const getGate = new Promise<void>((resolve) => {
-      releaseGet = resolve;
-    });
-    const fetchFn = vi.fn(
-      async (url: RequestInfo | URL, init?: RequestInit) => {
-        if ((init?.method ?? "GET") === "GET") {
-          await getGate;
-          return new Response(
-            JSON.stringify({
-              state: {
-                servers: { [serverUrl]: { codeVerifier: "from-disk" } },
-              },
-              version: 0,
-            }),
-            { status: 200 },
-          );
-        }
-        void url;
-        return new Response("{}", { status: 200 });
+  it("getCodeVerifier loads remote state automatically when not preloaded", async () => {
+    const persisted = {
+      state: {
+        servers: {
+          [serverUrl]: { codeVerifier: "persisted-verifier" },
+        },
+        idpSessions: {},
       },
+      version: 0,
+    };
+    let resolveFetch!: (value: Response) => void;
+    const delayedFetch = vi.fn<typeof fetch>(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
     );
-    const s = new RemoteOAuthStorage({
+
+    const delayedStorage = new RemoteOAuthStorage({
       baseUrl: "http://remote.example",
-      storeId: "hydration-test",
-      fetchFn: fetchFn as unknown as typeof fetch,
+      storeId: `delayed-${Math.random().toString(36).slice(2)}`,
+      fetchFn: delayedFetch,
     });
-    const p = s.getCodeVerifier(serverUrl);
-    releaseGet();
-    expect(await p).toBe("from-disk");
+
+    const getPromise = delayedStorage.getCodeVerifier(serverUrl);
+    resolveFetch(new Response(JSON.stringify(persisted), { status: 200 }));
+
+    expect(await getPromise).toBe("persisted-verifier");
   });
 
-  it("persist POST is sent with keepalive so it survives an immediate redirect", async () => {
-    const fetchFn = vi.fn(
-      async (url: RequestInfo | URL, init?: RequestInit) => {
-        void url;
-        void init;
-        return new Response("{}", { status: 200 });
-      },
+  it("load() rejects when remote GET fails instead of hanging", async () => {
+    const failingFetch = vi.fn<typeof fetch>(
+      async () => new Response("server error", { status: 500 }),
     );
-    const s = new RemoteOAuthStorage({
+
+    const failingStorage = new RemoteOAuthStorage({
       baseUrl: "http://remote.example",
-      storeId: "keepalive-test",
-      fetchFn: fetchFn as unknown as typeof fetch,
+      storeId: `fail-${Math.random().toString(36).slice(2)}`,
+      fetchFn: failingFetch,
     });
-    await s.ready();
-    await s.saveCodeVerifier(serverUrl, "v");
-    // Zustand persist fires setItem on the next microtask after set(); flush
-    // a couple of ticks so the POST has been issued.
-    await Promise.resolve();
-    await Promise.resolve();
-    const post = fetchFn.mock.calls.find((c) => c[1]?.method === "POST");
-    expect(post).toBeDefined();
-    expect(post?.[1]?.keepalive).toBe(true);
+
+    await expect(failingStorage.load()).rejects.toThrow(
+      "Failed to read store: 500",
+    );
   });
 });

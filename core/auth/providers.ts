@@ -103,6 +103,8 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   private capturedAuthUrl: URL | null = null;
   private eventTarget: EventTarget | null = null;
   private suppressAuthorizationNavigation = false;
+  /** Cached after {@link prepareForAuth} for sync SDK `clientMetadata.scope`. */
+  private cachedScope: string | undefined;
 
   protected serverUrl: string;
   protected storage: OAuthStorage;
@@ -116,6 +118,14 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     this.redirectUrlProvider = oauthConfig.redirectUrlProvider;
     this.navigation = oauthConfig.navigation;
     this.clientMetadataUrl = oauthConfig.clientMetadataUrl;
+  }
+
+  /**
+   * Load persisted scope into {@link cachedScope} before SDK `auth()` (which
+   * reads {@link clientMetadata.scope} synchronously).
+   */
+  async prepareForAuth(): Promise<void> {
+    this.cachedScope = await this.storage.getScope(this.serverUrl);
   }
 
   /**
@@ -145,7 +155,7 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   }
 
   get scope(): string | undefined {
-    return this.storage.getScope(this.serverUrl);
+    return this.cachedScope;
   }
 
   get redirectUrl(): string {
@@ -200,6 +210,7 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
 
   async saveScope(scope: string | undefined): Promise<void> {
     await this.storage.saveScope(this.serverUrl, scope);
+    this.cachedScope = scope;
   }
 
   async savePreregisteredClientInformation(
@@ -247,12 +258,12 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     return verifier;
   }
 
-  clear(): void {
-    this.storage.clear(this.serverUrl);
+  async clear(): Promise<void> {
+    await this.storage.clear(this.serverUrl);
   }
 
   async getServerMetadata(): Promise<OAuthMetadata | null> {
-    return await this.storage.getServerMetadata(this.serverUrl);
+    return this.storage.getServerMetadata(this.serverUrl);
   }
 
   async saveServerMetadata(metadata: OAuthMetadata): Promise<void> {

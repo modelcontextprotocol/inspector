@@ -896,7 +896,7 @@ function App({
 
   const handleClearOAuth = useCallback(async () => {
     if (!selectedInspectorClient) return;
-    selectedInspectorClient.clearOAuthTokens();
+    await selectedInspectorClient.clearOAuthTokens();
     setOauthStatus("idle");
     setOauthMessage(null);
     setConnectError(null);

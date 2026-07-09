@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   NodeOAuthStorage,
-  getOAuthStore,
+  getStateFilePath,
+  resetNodeOAuthStorageCache,
   clearAllOAuthClientState,
 } from "@inspector/core/auth/node/storage-node.js";
-import { normalizeServerUrl } from "@inspector/core/auth/store.js";
 import type {
   OAuthClientInformation,
   OAuthTokens,
@@ -21,44 +21,27 @@ const testStatePath = path.join(
   `mcp-inspector-oauth-${process.pid}-storage-node.json`,
 );
 
+async function resetTestStorage(stateFilePath: string): Promise<void> {
+  try {
+    await fs.unlink(stateFilePath);
+  } catch {
+    // Ignore if file doesn't exist
+  }
+  resetNodeOAuthStorageCache(stateFilePath);
+}
+
 describe("NodeOAuthStorage", () => {
   let storage: NodeOAuthStorage;
   const testServerUrl = "http://localhost:3000";
   const stateFilePath = testStatePath;
 
   beforeEach(async () => {
-    // Clean up any existing state file
-    try {
-      await fs.unlink(stateFilePath);
-    } catch {
-      // Ignore if file doesn't exist
-    }
-
-    // Reset store state by clearing all servers
-    const store = getOAuthStore(testStatePath);
-    const state = store.getState();
-    // Clear all server states
-    Object.keys(state.servers).forEach((url) => {
-      state.clearServerState(url);
-    });
-
+    await resetTestStorage(stateFilePath);
     storage = new NodeOAuthStorage(testStatePath);
   });
 
   afterEach(async () => {
-    // Clean up state file after each test
-    try {
-      await fs.unlink(stateFilePath);
-    } catch {
-      // Ignore if file doesn't exist
-    }
-
-    // Reset store state
-    const store = getOAuthStore(testStatePath);
-    const state = store.getState();
-    Object.keys(state.servers).forEach((url) => {
-      state.clearServerState(url);
-    });
+    await resetTestStorage(stateFilePath);
   });
 
   describe("getClientInformation", () => {
@@ -89,11 +72,10 @@ describe("NodeOAuthStorage", () => {
         client_secret: "preregistered-secret",
       };
 
-      // Store as preregistered by directly setting it in the store
-      const store = getOAuthStore(testStatePath);
-      store.getState().setServerState(testServerUrl, {
-        preregisteredClientInformation: preregisteredInfo,
-      });
+      await storage.savePreregisteredClientInformation(
+        testServerUrl,
+        preregisteredInfo,
+      );
 
       const result = await storage.getClientInformation(testServerUrl, true);
 
@@ -127,10 +109,10 @@ describe("NodeOAuthStorage", () => {
         client_id: "second-id",
       };
 
-      storage.saveClientInformation(testServerUrl, firstInfo, {
+      await storage.saveClientInformation(testServerUrl, firstInfo, {
         registrationKind: "dcr",
       });
-      storage.saveClientInformation(testServerUrl, secondInfo, {
+      await storage.saveClientInformation(testServerUrl, secondInfo, {
         registrationKind: "dcr",
       });
       const result = await storage.getClientInformation(testServerUrl);
@@ -311,7 +293,7 @@ describe("NodeOAuthStorage", () => {
       expect(await storage.getClientInformation(testServerUrl)).toEqual({
         client_id: "dyn",
       });
-      storage.clearClientInformation(testServerUrl);
+      await storage.clearClientInformation(testServerUrl);
       expect(await storage.getClientInformation(testServerUrl)).toBeUndefined();
     });
 
@@ -322,7 +304,7 @@ describe("NodeOAuthStorage", () => {
       expect(await storage.getClientInformation(testServerUrl, true)).toEqual({
         client_id: "pre",
       });
-      storage.clearClientInformation(testServerUrl, true);
+      await storage.clearClientInformation(testServerUrl, true);
       expect(
         await storage.getClientInformation(testServerUrl, true),
       ).toBeUndefined();
@@ -336,22 +318,22 @@ describe("NodeOAuthStorage", () => {
         token_type: "Bearer",
       });
       expect(await storage.getTokens(testServerUrl)).toBeDefined();
-      storage.clearTokens(testServerUrl);
+      await storage.clearTokens(testServerUrl);
       expect(await storage.getTokens(testServerUrl)).toBeUndefined();
     });
 
     it("clearCodeVerifier removes only the PKCE verifier", async () => {
       await storage.saveCodeVerifier(testServerUrl, "verifier");
       expect(await storage.getCodeVerifier(testServerUrl)).toBe("verifier");
-      storage.clearCodeVerifier(testServerUrl);
+      await storage.clearCodeVerifier(testServerUrl);
       expect(await storage.getCodeVerifier(testServerUrl)).toBeUndefined();
     });
 
     it("clearScope removes only the scope", async () => {
       await storage.saveScope(testServerUrl, "read write");
-      expect(storage.getScope(testServerUrl)).toBe("read write");
-      storage.clearScope(testServerUrl);
-      expect(storage.getScope(testServerUrl)).toBeUndefined();
+      expect(await storage.getScope(testServerUrl)).toBe("read write");
+      await storage.clearScope(testServerUrl);
+      expect(await storage.getScope(testServerUrl)).toBeUndefined();
     });
 
     it("clearServerMetadata removes only the cached metadata", async () => {
@@ -363,7 +345,7 @@ describe("NodeOAuthStorage", () => {
       };
       await storage.saveServerMetadata(testServerUrl, metadata);
       expect(await storage.getServerMetadata(testServerUrl)).toEqual(metadata);
-      storage.clearServerMetadata(testServerUrl);
+      await storage.clearServerMetadata(testServerUrl);
       expect(await storage.getServerMetadata(testServerUrl)).toBeNull();
     });
   });
@@ -383,7 +365,7 @@ describe("NodeOAuthStorage", () => {
       });
       await storage.saveTokens(testServerUrl, tokens);
 
-      storage.clear(testServerUrl);
+      await storage.clear(testServerUrl);
 
       expect(await storage.getClientInformation(testServerUrl)).toBeUndefined();
       expect(await storage.getTokens(testServerUrl)).toBeUndefined();
@@ -402,7 +384,7 @@ describe("NodeOAuthStorage", () => {
         registrationKind: "dcr",
       });
 
-      storage.clear(testServerUrl);
+      await storage.clear(testServerUrl);
 
       expect(await storage.getClientInformation(testServerUrl)).toBeUndefined();
       const otherResult = await storage.getClientInformation(otherServerUrl);
@@ -425,10 +407,10 @@ describe("NodeOAuthStorage", () => {
         client_id: "client-2",
       };
 
-      storage.saveClientInformation(server1Url, clientInfo1, {
+      await storage.saveClientInformation(server1Url, clientInfo1, {
         registrationKind: "dcr",
       });
-      storage.saveClientInformation(server2Url, clientInfo2, {
+      await storage.saveClientInformation(server2Url, clientInfo2, {
         registrationKind: "dcr",
       });
 
@@ -438,83 +420,52 @@ describe("NodeOAuthStorage", () => {
       expect(result2).toEqual(clientInfo2);
     });
   });
-});
 
-describe("OAuth Store (Zustand)", () => {
-  const stateFilePath = testStatePath;
+  it("reuses in-memory state for the same file path", async () => {
+    const serverUrl = "http://localhost:3000";
+    const tokens: OAuthTokens = {
+      access_token: "shared-memory-token",
+      token_type: "Bearer",
+    };
 
-  beforeEach(async () => {
-    try {
-      await fs.unlink(stateFilePath);
-    } catch {
-      // Ignore if file doesn't exist
-    }
+    await storage.saveTokens(serverUrl, tokens);
+
+    const otherView = new NodeOAuthStorage(testStatePath);
+    expect(await otherView.getTokens(serverUrl)).toEqual(tokens);
   });
 
-  afterEach(async () => {
-    try {
-      await fs.unlink(stateFilePath);
-    } catch {
-      // Ignore if file doesn't exist
-    }
-  });
-
-  it("should create a new store", () => {
-    const store = getOAuthStore(testStatePath);
-    expect(store).toBeDefined();
-    expect(store.getState).toBeDefined();
-    expect(store.setState).toBeDefined();
-  });
-
-  it("should return the same store instance via getOAuthStore", () => {
-    const store1 = getOAuthStore(testStatePath);
-    const store2 = getOAuthStore(testStatePath);
-    expect(store1).toBe(store2);
-  });
-
-  it("should persist state to file", async () => {
-    // Use a unique path so no other test (e.g. "should overwrite..." with second-id) can
-    // write to the same file; Zustand persist is async and can race with shared paths.
+  it("persists state to file on save", async () => {
     const persistTestPath = path.join(
       os.tmpdir(),
       `mcp-inspector-oauth-persist-${Date.now()}-${Math.random().toString(36).slice(2)}.json`,
     );
     try {
-      if (process.env.DEBUG_PERSIST_PATH === "1") {
-        console.error("[storage-node.test] state file path:", persistTestPath);
-      }
-      const store = getOAuthStore(persistTestPath);
+      resetNodeOAuthStorageCache(persistTestPath);
+      const fileStorage = new NodeOAuthStorage(persistTestPath);
       const serverUrl = "http://localhost:3000";
       const clientInfo: OAuthClientInformation = {
         client_id: "test-client-id",
       };
 
-      store.getState().setServerState(serverUrl, {
-        clientInformation: clientInfo,
+      await fileStorage.saveClientInformation(serverUrl, clientInfo, {
+        registrationKind: "dcr",
       });
 
       type StateShape = {
-        state: {
-          servers: Record<
-            string,
-            { clientInformation?: OAuthClientInformation }
-          >;
-        };
+        servers: Record<string, { clientInformation?: OAuthClientInformation }>;
       };
-      // Persistence is fire-and-forget; await the write rather than polling.
       await flushStoreFileWrites(persistTestPath);
       const parsed = JSON.parse(
         await fs.readFile(persistTestPath, "utf-8"),
       ) as StateShape;
-      expect(
-        parsed.state.servers[normalizeServerUrl(serverUrl)]?.clientInformation,
-      ).toEqual(clientInfo);
+      expect(parsed.servers[serverUrl]?.clientInformation).toEqual(clientInfo);
     } finally {
       try {
         await fs.unlink(persistTestPath);
       } catch {
         /* ignore */
       }
+      resetNodeOAuthStorageCache(persistTestPath);
     }
   });
 });
@@ -548,7 +499,7 @@ describe("NodeOAuthStorage idpSessions (EMA)", () => {
     expect(session?.idToken).toBe("eyJ.id.token");
     expect(session?.refreshToken).toBe("rt-1");
 
-    storage.clearIdpSession(issuer);
+    await storage.clearIdpSession(issuer);
     await flushStoreFileWrites(testStatePath);
     expect(await storage.getIdpSession(issuer)).toBeUndefined();
   });
@@ -573,9 +524,7 @@ describe("NodeOAuthStorage with custom storagePath", () => {
       await storage.saveTokens(testServerUrl, tokens);
 
       type StateShape = {
-        state: {
-          servers: Record<string, { tokens?: { access_token?: string } }>;
-        };
+        servers: Record<string, { tokens?: { access_token?: string } }>;
       };
       // Persistence is fire-and-forget; await the write rather than polling.
       await flushStoreFileWrites(customPath);
@@ -583,10 +532,9 @@ describe("NodeOAuthStorage with custom storagePath", () => {
         await fs.readFile(customPath, "utf-8"),
       ) as StateShape;
 
-      expect(
-        parsed.state.servers[normalizeServerUrl(testServerUrl)]?.tokens
-          ?.access_token,
-      ).toBe(tokens.access_token);
+      expect(parsed.servers[testServerUrl]?.tokens?.access_token).toBe(
+        tokens.access_token,
+      );
 
       const stored = await storage.getTokens(testServerUrl);
       expect(stored?.access_token).toBe(tokens.access_token);
@@ -601,33 +549,46 @@ describe("NodeOAuthStorage with custom storagePath", () => {
   });
 
   it("clearAllOAuthClientState clears every server in the default store", async () => {
-    const defaultStore = getOAuthStore();
-    defaultStore.getState().setServerState("http://server-a.test", {
-      tokens: { access_token: "a", token_type: "Bearer" },
+    resetNodeOAuthStorageCache();
+    const storage = new NodeOAuthStorage();
+    await storage.saveTokens("http://server-a.test", {
+      access_token: "a",
+      token_type: "Bearer",
     });
-    defaultStore.getState().setServerState("http://server-b.test", {
-      tokens: { access_token: "b", token_type: "Bearer" },
+    await storage.saveTokens("http://server-b.test", {
+      access_token: "b",
+      token_type: "Bearer",
     });
-    clearAllOAuthClientState();
-    const all = defaultStore.getState();
-    expect(all.getServerState("http://server-a.test").tokens).toBeUndefined();
-    expect(all.getServerState("http://server-b.test").tokens).toBeUndefined();
+    await flushStoreFileWrites(getStateFilePath());
+
+    await clearAllOAuthClientState();
+
+    expect(await storage.getTokens("http://server-a.test")).toBeUndefined();
+    expect(await storage.getTokens("http://server-b.test")).toBeUndefined();
+
+    resetNodeOAuthStorageCache();
   });
 
-  it("clearAllOAuthClientState tolerates a store whose servers map is absent", () => {
-    // Exercises the `state.servers ?? {}` nullish fallback: when the persisted
-    // state lacks a `servers` map, the iteration must default to {} (no throw).
-    const defaultStore = getOAuthStore();
-    const clearServerState = vi.fn();
-    vi.spyOn(defaultStore, "getState").mockReturnValue({
-      servers: undefined,
-      clearServerState,
-    } as unknown as ReturnType<typeof defaultStore.getState>);
+  it("clearAllOAuthClientState tolerates persisted state without a servers map", async () => {
+    const filePath = getStateFilePath();
+    resetNodeOAuthStorageCache();
+    await fs.writeFile(filePath, JSON.stringify({ idpSessions: {} }), "utf-8");
 
-    expect(() => clearAllOAuthClientState()).not.toThrow();
-    expect(clearServerState).not.toHaveBeenCalled();
+    await expect(clearAllOAuthClientState()).resolves.toBeUndefined();
 
-    vi.mocked(defaultStore.getState).mockRestore();
+    resetNodeOAuthStorageCache();
+  });
+
+  it("clearAllOAuthClientState is a no-op when no store file exists", async () => {
+    // Exercises the null-snapshot branch: read() returns null, so
+    // `snapshot?.servers ?? {}` yields no urls and nothing is cleared.
+    const filePath = getStateFilePath();
+    resetNodeOAuthStorageCache();
+    await fs.unlink(filePath).catch(() => {});
+
+    await expect(clearAllOAuthClientState()).resolves.toBeUndefined();
+
+    resetNodeOAuthStorageCache();
   });
 
   it("should isolate state from default store", async () => {
@@ -637,20 +598,14 @@ describe("NodeOAuthStorage with custom storagePath", () => {
     );
 
     try {
-      // The store is created with skipHydration: true; OAuthStorageBase
-      // normally drives rehydrate(), but this test writes via the raw store
-      // so hydrate it explicitly first (otherwise the later `new
-      // NodeOAuthStorage()` wrapper would drive the first rehydrate and clobber
-      // these unpersisted in-memory writes).
-      const defaultStore = getOAuthStore();
-      await defaultStore.persist.rehydrate();
-      defaultStore.getState().setServerState(testServerUrl, {
-        tokens: {
-          access_token: "default-token",
-          token_type: "Bearer",
-        },
+      resetNodeOAuthStorageCache();
+      const defaultStorage = new NodeOAuthStorage();
+      await defaultStorage.saveTokens(testServerUrl, {
+        access_token: "default-token",
+        token_type: "Bearer",
       });
 
+      resetNodeOAuthStorageCache(customPath);
       const customStorage = new NodeOAuthStorage(customPath);
       await customStorage.saveTokens(testServerUrl, {
         access_token: "custom-token",
@@ -660,17 +615,18 @@ describe("NodeOAuthStorage with custom storagePath", () => {
       const fromCustom = await customStorage.getTokens(testServerUrl);
       expect(fromCustom?.access_token).toBe("custom-token");
 
-      const defaultStorage = new NodeOAuthStorage();
       const fromDefault = await defaultStorage.getTokens(testServerUrl);
       expect(fromDefault?.access_token).toBe("default-token");
 
-      defaultStore.getState().clearServerState(testServerUrl);
+      await defaultStorage.clear(testServerUrl);
     } finally {
       try {
         await fs.unlink(customPath);
       } catch {
         /* ignore */
       }
+      resetNodeOAuthStorageCache(customPath);
+      resetNodeOAuthStorageCache();
     }
   });
 });

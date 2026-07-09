@@ -109,14 +109,13 @@ Until **client profiles** (see below) land, install-level client config — star
 
 **Do not** put IdP credentials in the OAuth store or per-server `mcp.json`. **Do not** use environment variables for IdP config — all clients read/write the same `client.json` file.
 
-**Runtime auth state** (standard OAuth tokens, PKCE, **and** EMA runtime state: cached IdP ID Token / refresh token, leg-1 in-flight PKCE under `ema-idp:{issuer}`, and per-server resource tokens tagged `enterpriseManaged: true` when minted via EMA legs 2–3) uses the existing **`OAuthStorage`** interface (`core/auth/storage.ts`) — whatever adapter each client already passes to `InspectorClient`. ID-JAG is **not** cached — legs 2–3 re-mint on each connect or 401 refresh. EMA does **not** mandate a specific backing store; it extends the serialized auth state that adapter already persists.
+**Runtime auth state** (standard OAuth tokens, PKCE, **and** EMA runtime state: cached IdP ID Token / refresh token, leg-1 in-flight PKCE under `ema-idp:{issuer}`, and per-server resource tokens tagged `enterpriseManaged: true` when minted via EMA legs 2–3) uses the **`OAuthStorage`** interface (`core/auth/storage.ts`) — whichever implementation each client passes to `InspectorClient` (`NodeOAuthStorage`, `RemoteOAuthStorage`, etc.). ID-JAG is **not** cached — legs 2–3 re-mint on each connect or 401 refresh.
 
-No EMA-specific migration of web OAuth persistence is required for the initial ship — sessionStorage-backed web sessions work for EMA today. **Follow-up:** shared file-backed OAuth via `RemoteOAuthStorage` → `/api/storage/oauth` so web matches CLI/TUI (see §Follow-up work).
+Web uses shared file-backed OAuth via `RemoteOAuthStorage` → `/api/storage/oauth` (same `oauth.json` as CLI/TUI). Existing **sessionStorage** OAuth blobs from before that wiring are not migrated automatically — users start fresh or re-authorize once.
 
 | Client | Config (`client.json`) | Runtime auth state (`OAuthStorage`) |
 | ------ | ---------------------- | ----------------------------------- |
-| **Web (today)** | `RemoteStorage` adapter → `/api/storage/client` | `BrowserOAuthStorage` → sessionStorage |
-| **Web (target)** | same | `RemoteOAuthStorage` → `/api/storage/oauth` → `~/.mcp-inspector/storage/oauth.json` |
+| **Web** | `RemoteStorage` adapter → `/api/storage/client` | `RemoteOAuthStorage` → `/api/storage/oauth` → `~/.mcp-inspector/storage/oauth.json` (via `getWebRemoteOAuthStorage()` in `clients/web/src/lib/remoteOAuthStorage.ts`) |
 | **CLI / TUI** | `NodeClientStorage` (file adapter) | `NodeOAuthStorage` → `oauth.json` |
 
 On-disk shape (initial):
@@ -216,7 +215,7 @@ interface OAuthStoreState {
 }
 ```
 
-Extend `OAuthStorage` / store methods accordingly. IdP **credentials** stay in `client.json`; only runtime tokens belong in `idpSessions`. Per-server `ServerOAuthState` may include `enterpriseManaged: true` when EMA legs 2–3 persist resource tokens (`saveTokens(..., { enterpriseManaged: true })`). **Sign out** clears `idpSessions` for the configured issuer and removes tagged EMA resource entries from the shared OAuth blob — standard OAuth server entries are not cleared. All adapters (`BrowserOAuthStorage`, `NodeOAuthStorage`, `RemoteOAuthStorage`) serialize the same extended shape through their existing backends.
+Extend `OAuthStorage` / store methods accordingly. IdP **credentials** stay in `client.json`; only runtime tokens belong in `idpSessions`. Per-server `ServerOAuthState` may include `enterpriseManaged: true` when EMA legs 2–3 persist resource tokens (`saveTokens(..., { enterpriseManaged: true })`). **Sign out** clears `idpSessions` for the configured issuer and removes tagged EMA resource entries from the shared OAuth blob — standard OAuth server entries are not cleared. All implementations (`BrowserOAuthStorage`, `NodeOAuthStorage`, `RemoteOAuthStorage`) extend `OAuthStorageBase` and serialize the same shape through their persist backends (`core/auth/oauth-persist.ts`).
 
 #### Later: client profiles
 
@@ -299,7 +298,7 @@ Install-level IdP credentials are edited in **Client Settings**, separate from p
   2. Clears leg-1 in-flight state at `servers["ema-idp:{issuer}"]`
   3. Calls `OAuthStorage.clearEnterpriseManagedResourceServers()` — scans the shared OAuth blob and removes `servers[url]` entries where `enterpriseManaged === true` (set when EMA legs 2–3 saved tokens via `saveTokens(url, tokens, { enterpriseManaged: true })` in `emaFlow.ts` / `EmaTransportOAuthProvider`). Standard OAuth entries in the same blob are **not** cleared. Untagged legacy EMA tokens (saved before tagging landed) are not removed until the next EMA connect re-saves with the tag.
   The next connect to a cleared EMA server has no cached access token, so a **401** triggers leg 1 (IdP login) via `authenticate()`.
-- **Web OAuth store singleton:** web uses `getBrowserOAuthStorage()` (`core/auth/browser/storage.ts`) so Client Settings sign-out updates the same in-memory Zustand store as the active `InspectorClient` (not a separate `BrowserOAuthStorage` instance per consumer).
+- **Web OAuth store singleton:** web uses `getWebRemoteOAuthStorage()` (`clients/web/src/lib/remoteOAuthStorage.ts`) — memoized `RemoteOAuthStorage` backed by `/api/storage/oauth` — so Client Settings sign-out, EMA IdP session, connect, and per-server clear all mutate the same in-memory `OAuthStorageBase` view as the active `InspectorClient`.
 
 **Future (not implemented):** explicit **Sign out** may additionally invoke the IdP's OIDC **end-session** / logout endpoint (RP-initiated logout) so the IdP SSO cookie is cleared — not just inspector-local IdP/resource token state. Today sign-out is **local-only** (clear `idpSessions`, tagged EMA resource entries, and leg-1 PKCE); the IdP may still treat the browser as signed in and skip the login prompt on the next authorize redirect until the IdP session expires or the user signs out at the IdP.
 
@@ -347,7 +346,7 @@ Leg 1 is **OIDC authorization-code login** against the enterprise IdP using cred
 
 | Client | Leg 1 mechanism (same stack as standard OAuth in that client) |
 | ------ | ------------------------------------------------------------- |
-| **Web** | Browser redirect via `navigation`; callback at `/oauth/callback`; `InspectorClient.completeOAuthFlow(code)`; `BrowserOAuthStorage` |
+| **Web** | Browser redirect via `navigation`; callback at `/oauth/callback`; `InspectorClient.completeOAuthFlow(code)`; `RemoteOAuthStorage` → shared `oauth.json` |
 | **TUI / CLI** | `OAuthCallbackServer` opens local callback; system browser for authorize URL; `completeOAuthFlow(code)`; `NodeOAuthStorage` |
 
 **Silent connect:** if a valid cached ID Token exists for the configured issuer, skip the interactive redirect and proceed to leg 2.
@@ -417,12 +416,13 @@ Inspector touchpoints to extend:
 - `core/client/` (or `core/storage/`) — `loadClientConfig` / `saveClientConfig`; `NodeClientStorage`; remote adapter for `/api/storage/client`
 - `core/auth/utils.ts` — `parseHttpUrl` (issuer and EMA URL validation)
 - `core/auth/connection-state.ts` — `buildOAuthConnectionState`, `OAuthConnectionState`
-- `core/auth/storage.ts` + `core/auth/store.ts` — `OAuthStorage` / `OAuthStoreState`: store-root `idpSessions`; `ServerOAuthState.enterpriseManaged` tag; `SaveTokensOptions`; `clearEnterpriseManagedResourceServers()`; all adapters pick up the extended shape automatically
+- `core/auth/storage.ts` + `core/auth/store.ts` + `core/auth/oauth-storage.ts` + `core/auth/oauth-persist.ts` — `OAuthStorage` / `OAuthMemoryStore`: store-root `idpSessions`; `ServerOAuthState.enterpriseManaged` tag; async getters with auto-load; setters auto-persist; legacy `{ state, version }` envelope promoted on read, plain JSON on write
 - `core/auth/ema/` — `idpOidc.ts` (leg 1), `wire.ts` (legs 2–3), `emaFlow.ts` (orchestration + tagged `saveTokens`), `transportProvider.ts` (401 re-auth + tagged `saveTokens`), `resourceContext.ts`, `idpSession.ts` (`getEmaIdpLoginState`, `clearEmaIdpSession`), `jwt.ts`, `storage.ts`, `constants.ts`, `clientConfigError.ts` (`EmaClientNotConfiguredError`)
 - `core/mcp/oauthManager.ts` — branch on `enterpriseManaged`; EMA connect via `emaFlow`; `getOAuthState()`; `createOAuthProvider()` returns `EmaTransportOAuthProvider` for EMA servers (401 re-auth); standard OAuth unchanged
 - `core/mcp/inspectorClient.ts` — declare EMA extension in `initialize` capabilities when `enterpriseManaged`; `getOAuthState()`
 - `core/react/useEmaIdpLoginState.ts` — Client Settings IdP session status; calls `clearEmaIdpSession` on sign-out (no catalog wiring)
-- `core/auth/browser/storage.ts` — `getBrowserOAuthStorage()` singleton (web)
+- `clients/web/src/lib/remoteOAuthStorage.ts` — `getWebRemoteOAuthStorage()` singleton (web OAuth runtime store)
+- `core/auth/browser/storage.ts` — `BrowserOAuthStorage` / `getBrowserOAuthStorage()` (sessionStorage; reference provider only, not wired in v2 web app)
 - `clients/web` — **Client Settings** modal; **Connection Info** OAuth snapshot; friendly EMA connect toasts; load client config at startup; `ServerSettingsForm` OAuth section (HTTP/SSE only); web callback flow tagging for IdP vs resource OAuth
 - `clients/cli`, `clients/tui` — load `client.json` at startup; pass into `InspectorClient`; leg 1 via same `OAuthCallbackServer` + `NodeOAuthStorage` stack as TUI standard OAuth today
 
@@ -503,7 +503,7 @@ Design decisions for EMA are complete. Remaining work is the phased plan and che
 
 - [x] **Manual staging validation** — full EMA connect against live xaa.dev (see §Staging validation). Confirms legs 1–3 and web UX outside CI.
 - [x] **Automated integration tests** — mock IdP + mock resource AS + composable protected-resource server (see §Phase 3b test plan). Live xaa.dev is **not** required for CI.
-- [ ] *(optional)* `RemoteOAuthStorage` EMA E2E variant — same happy path via `/api/storage/oauth` (shared-storage follow-up).
+- [ ] *(optional)* `RemoteOAuthStorage` EMA E2E variant — same happy path via `/api/storage/oauth` (standard OAuth remote E2E exists; EMA-specific variant optional).
 - [ ] *(optional)* 401 re-auth stretch — invalidate resource token, assert legs 2–3 re-run.
 
 ### Phase 4 — Other clients
@@ -514,8 +514,8 @@ Design decisions for EMA are complete. Remaining work is the phased plan and che
 
 ### Later
 
-- [ ] **Remove Zustand from OAuth persistence** — direct read/write of OAuth blob; see §Follow-up work
-- [ ] **Web shared OAuth store** — `RemoteOAuthStorage` / `oauth.json` for web + CLI + TUI parity; see §Follow-up work
+- [x] **Remove Zustand from OAuth persistence** — `OAuthStorageBase` + persist backends (#1549); see §OAuth persistence
+- [x] **Web shared OAuth store** — `RemoteOAuthStorage` / `oauth.json` for web + CLI + TUI parity (#1548); see §Shared file-backed OAuth state
 - [ ] Client profile persistence (migrate from `client.json`; may extend or replace web Client Settings)
 - [ ] Optional: adopt `@modelcontextprotocol/client` v2 Layer-2 helpers for legs 2–3 (replace `wire.ts`) or full v2 transport for EMA
 - [ ] Optional: IdP **end-session** / RP-initiated logout on explicit **Sign out** (today sign-out clears inspector-local IdP session and tagged EMA resource tokens only; IdP browser SSO may remain active)
@@ -553,29 +553,38 @@ Registration on xaa.dev: composable test server registered as a **resource serve
 
 These items came out of EMA staging and apply beyond EMA. They are **not** required to ship EMA on web but should be tracked.
 
-### Remove Zustand from OAuth persistence
+### OAuth persistence (#1549 — done)
 
-Today `OAuthStorage` is backed by a **Zustand** `persist` store (`core/auth/store.ts`) with adapters for sessionStorage (`BrowserOAuthStorage`), file (`NodeOAuthStorage` via `file-storage.ts`), and HTTP (`RemoteOAuthStorage` via `remote-storage.ts`). The Zustand layer wraps a simple `{ servers, idpSessions }` blob and adds:
+`OAuthStorage` is implemented by **`OAuthStorageBase`** (`core/auth/oauth-storage.ts`) backed by **`OAuthMemoryStore`** (`core/auth/store.ts`) and an explicit **`OAuthPersistBackend`** (`core/auth/oauth-persist.ts`):
 
-- `{ state, version }` envelope on file/remote adapters (see [Servers file](v2_servers_file.md) — intentionally avoided for `mcp.json`)
-- A second in-memory copy and async persist semantics that complicate sign-out, callback rebuild, and multi-consumer sharing (`getBrowserOAuthStorage()` singleton exists partly to paper over this)
+| Backend | Class | Where |
+| ------- | ----- | ----- |
+| File | `NodeOAuthStorage` | CLI, TUI, default `~/.mcp-inspector/storage/oauth.json` |
+| Remote HTTP | `RemoteOAuthStorage` | Web → `GET/POST/DELETE /api/storage/oauth` on the Hono backend |
+| Session | `BrowserOAuthStorage` | Reference/tests only; v2 web uses shared file-backed remote store |
 
-**Direction:** refactor `OAuthStorage` implementations to read/write the serialized shape **directly** (file I/O, `/api/storage/oauth`, or in-memory for tests) without Zustand. Keep the `OAuthStorage` interface stable for `InspectorClient` / `OAuthManager`.
+**On disk / wire:** writes plain JSON `{ servers, idpSessions }`. **Reads** still accept legacy blobs wrapped as `{ state: { servers, idpSessions }, version }` (produced by the old Zustand `persist` middleware) and promote the inner payload — migrate-on-write on the next save.
+
+**API shape:** all getters are async (`ensureLoaded()` internally); setters `await` persist. `load()` is optional preload (OAuth callback fail-fast on web), not required before reads. `BaseOAuthClientProvider.prepareForAuth()` caches scope for the SDK’s sync `clientMetadata.scope`.
+
+**Removed:** Zustand dependency, `core/storage/adapters/*`, public `getOAuthStore()`.
 
 ### Shared file-backed OAuth state (web + CLI + TUI)
 
-Today:
+**Status (July 2026):** Web is wired through `RemoteOAuthStorage` (`environmentFactory.ts`, `App.tsx`, `getWebRemoteOAuthStorage()`). CLI/TUI continue to use `NodeOAuthStorage` on the same on-disk file when using the default local backend.
 
 | Client | OAuth runtime store |
 | ------ | ------------------- |
-| **Web** | `BrowserOAuthStorage` → **sessionStorage** (tab-local; lost on new tab / callback page load relies on same tab) |
+| **Web** | `RemoteOAuthStorage` → `/api/storage/oauth` → `~/.mcp-inspector/storage/oauth.json` |
 | **CLI / TUI** | `NodeOAuthStorage` → `~/.mcp-inspector/storage/oauth.json` |
 
-`RemoteOAuthStorage` already exists (`core/auth/remote/storage-remote.ts`) and talks to **`GET/POST/DELETE /api/storage/oauth`** on the local Hono backend — the same generic storage API that persists to disk under `~/.mcp-inspector/storage/`. Integration tests use it (`inspectorClient-oauth-remote-storage-e2e.test.ts`).
+`RemoteOAuthStorage` (`core/auth/remote/storage-remote.ts`) talks to **`GET/POST/DELETE /api/storage/oauth`** on the local Hono backend — the same generic storage API that persists to disk under `~/.mcp-inspector/storage/`. Integration tests use it (`inspectorClient-oauth-remote-storage-e2e.test.ts`).
 
-**Direction:** wire the **web app** through `RemoteOAuthStorage` (via `environmentFactory.ts` / `App.tsx`) instead of `BrowserOAuthStorage`, so web, CLI, and TUI share one **`oauth.json`** when using the default local backend. Benefits: IdP session and EMA resource tokens survive browser refresh; sign-out in Client Settings and connect use the same store without a sessionStorage singleton; EMA testing matches how CLI/TUI will behave in Phase 4.
+**Benefits:** IdP session and EMA resource tokens survive browser refresh; sign-out in Client Settings and connect use the same store; EMA testing matches CLI/TUI behavior.
 
-**Migration:** one-time import or “start fresh” for existing sessionStorage OAuth blobs; document that enabling shared storage is the default for local dev.
+**Migration:** no automatic import from old sessionStorage OAuth blobs; document that local dev uses shared `oauth.json` by default.
+
+**Optional follow-up:** `navigator.locks` for cross-tab single-flight on silent refresh (see [Mid-session auth](v2_auth_mid_session.md)).
 
 ---
 
@@ -637,7 +646,7 @@ Shared helper `minimalOAuthAsMetadata()` satisfies SDK OAuth metadata schema. `c
 
 Runs under `integration` project; `test-servers:build` prerequisite (existing). Transport: `streamable-http` only (EMA is HTTP-only).
 
-**Storage variant (optional — not implemented):** same flow with `RemoteOAuthStorage` + `createRemoteApp` tmp dir — proves EMA tokens persist via `/api/storage/oauth` (feeds shared-storage follow-up).
+**Storage variant (optional — not implemented):** same flow with `RemoteOAuthStorage` + `createRemoteApp` tmp dir — proves EMA tokens persist via `/api/storage/oauth` (standard remote OAuth E2E already covers the storage API).
 
 #### Layer 4 — Protected-resource discovery — **partial**
 
@@ -656,7 +665,7 @@ Existing coverage: `xaa-ema-http.json` config load, `ExternalAccessTokenValidato
 1. ~~Layer 1 (`wire` / `emaFlow` unit tests)~~ — **done**
 2. ~~Layer 2 mock servers helper~~ — **done**
 3. ~~Layer 3 single happy-path E2E (`streamable-http`)~~ — **done**
-4. Layer 3 storage variant with `RemoteOAuthStorage` — optional, aligns with shared-storage refactor.
+4. Layer 3 storage variant with `RemoteOAuthStorage` — optional EMA-specific EMA E2E (shared storage already covered by standard remote OAuth tests).
 5. 401 re-auth case — connect, invalidate resource token, assert legs 2–3 re-run (stretch).
 
 ### Done criteria for Phase 3b checklist
