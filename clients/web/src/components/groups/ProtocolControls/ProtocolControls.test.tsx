@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { MessageMethod } from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { HistoryControls } from "./HistoryControls";
+import { ProtocolControls } from "./ProtocolControls";
 
 const baseProps = {
   searchText: "",
@@ -14,10 +14,10 @@ const baseProps = {
   onToggleAllDirections: vi.fn(),
 };
 
-describe("HistoryControls", () => {
+describe("ProtocolControls", () => {
   it("renders the title and search input", () => {
-    renderWithMantine(<HistoryControls {...baseProps} />);
-    expect(screen.getByText("History")).toBeInTheDocument();
+    renderWithMantine(<ProtocolControls {...baseProps} />);
+    expect(screen.getByText("Protocol")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search...")).toBeInTheDocument();
   });
 
@@ -25,7 +25,7 @@ describe("HistoryControls", () => {
     const user = userEvent.setup();
     const onSearchChange = vi.fn();
     renderWithMantine(
-      <HistoryControls {...baseProps} onSearchChange={onSearchChange} />,
+      <ProtocolControls {...baseProps} onSearchChange={onSearchChange} />,
     );
     await user.type(screen.getByPlaceholderText("Search..."), "a");
     expect(onSearchChange).toHaveBeenCalledWith("a");
@@ -35,7 +35,7 @@ describe("HistoryControls", () => {
     const user = userEvent.setup();
     const onSearchChange = vi.fn();
     renderWithMantine(
-      <HistoryControls
+      <ProtocolControls
         {...baseProps}
         searchText="abc"
         onSearchChange={onSearchChange}
@@ -46,7 +46,7 @@ describe("HistoryControls", () => {
   });
 
   it("keeps the search Clear button out of the keyboard tab order", () => {
-    renderWithMantine(<HistoryControls {...baseProps} searchText="abc" />);
+    renderWithMantine(<ProtocolControls {...baseProps} searchText="abc" />);
     expect(screen.getByRole("button", { name: "Clear" })).toHaveAttribute(
       "tabindex",
       "-1",
@@ -54,13 +54,13 @@ describe("HistoryControls", () => {
   });
 
   it("renders the method filter placeholder", () => {
-    renderWithMantine(<HistoryControls {...baseProps} />);
+    renderWithMantine(<ProtocolControls {...baseProps} />);
     expect(screen.getByPlaceholderText("All methods")).toBeInTheDocument();
   });
 
   it("displays the active method filter value", () => {
     renderWithMantine(
-      <HistoryControls {...baseProps} methodFilter="tools/list" />,
+      <ProtocolControls {...baseProps} methodFilter="tools/list" />,
     );
     const inputs = screen.getAllByDisplayValue("tools/list");
     expect(inputs.length).toBeGreaterThan(0);
@@ -70,7 +70,7 @@ describe("HistoryControls", () => {
     const user = userEvent.setup();
     const onMethodFilterChange = vi.fn();
     const { container } = renderWithMantine(
-      <HistoryControls
+      <ProtocolControls
         {...baseProps}
         methodFilter="tools/list"
         onMethodFilterChange={onMethodFilterChange}
@@ -85,7 +85,7 @@ describe("HistoryControls", () => {
   });
 
   it("renders the Filter by Message Direction section with both directions", () => {
-    renderWithMantine(<HistoryControls {...baseProps} />);
+    renderWithMantine(<ProtocolControls {...baseProps} />);
     expect(screen.getByText("Filter by Message Direction")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "client → server" }),
@@ -99,7 +99,7 @@ describe("HistoryControls", () => {
     const user = userEvent.setup();
     const onToggleDirection = vi.fn();
     renderWithMantine(
-      <HistoryControls {...baseProps} onToggleDirection={onToggleDirection} />,
+      <ProtocolControls {...baseProps} onToggleDirection={onToggleDirection} />,
     );
     // Currently visible → clicking turns it off.
     await user.click(screen.getByRole("button", { name: "client ← server" }));
@@ -110,7 +110,7 @@ describe("HistoryControls", () => {
     const user = userEvent.setup();
     const onToggleAllDirections = vi.fn();
     renderWithMantine(
-      <HistoryControls
+      <ProtocolControls
         {...baseProps}
         onToggleAllDirections={onToggleAllDirections}
       />,

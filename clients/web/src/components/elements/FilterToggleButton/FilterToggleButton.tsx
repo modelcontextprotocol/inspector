@@ -17,7 +17,7 @@ const ToggleLabel = Text.withProps({
 });
 
 /**
- * A single full-width filter toggle used by the Logging, History, and Network
+ * A single full-width filter toggle used by the Logging, Protocol, and Network
  * controls. The `filterToggle` theme variant + `.filter-toggle` rules own the
  * styling: hover shows a thin border, the active (`aria-pressed`) state shows a
  * filled background. Keeping hover as a border (not a fill) means toggling a

@@ -5,4 +5,4 @@ export type InspectorTab =
   | "resources"
   | "logs"
   | "tasks"
-  | "history";
+  | "protocol";

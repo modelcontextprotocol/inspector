@@ -6,12 +6,12 @@ import {
   type MonitoringScreenProps,
 } from "./MonitoringScreen";
 
-const TABS = ["Logs", "History", "Network"];
+const TABS = ["Logs", "Protocol", "Network"];
 
 function screens() {
   return {
     Logs: <div>logs-body</div>,
-    History: <div>history-body</div>,
+    Protocol: <div>history-body</div>,
     Network: <div>network-body</div>,
   };
 }
@@ -33,7 +33,7 @@ function renderScreen(overrides: Partial<MonitoringScreenProps> = {}) {
 
 describe("MonitoringScreen", () => {
   it("renders the screen for the active tab", () => {
-    renderScreen({ value: "History" });
+    renderScreen({ value: "Protocol" });
     expect(screen.getByText("history-body")).toBeInTheDocument();
     expect(screen.queryByText("logs-body")).toBeNull();
     expect(screen.queryByText("network-body")).toBeNull();

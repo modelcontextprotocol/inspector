@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { fn } from "storybook/test";
-import { HistoryEntry } from "./HistoryEntry";
+import { ProtocolEntry } from "./ProtocolEntry";
 
-const meta: Meta<typeof HistoryEntry> = {
-  title: "Groups/HistoryEntry",
-  component: HistoryEntry,
+const meta: Meta<typeof ProtocolEntry> = {
+  title: "Groups/ProtocolEntry",
+  component: ProtocolEntry,
   args: {
     onReplay: fn(),
     onTogglePin: fn(),
@@ -13,7 +13,7 @@ const meta: Meta<typeof HistoryEntry> = {
 };
 
 export default meta;
-type Story = StoryObj<typeof HistoryEntry>;
+type Story = StoryObj<typeof ProtocolEntry>;
 
 const toolCallEntry: MessageEntry = {
   id: "req-1",

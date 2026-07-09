@@ -14,7 +14,7 @@ import type {
   MessageMethod,
   MessageOrigin,
 } from "@inspector/core/mcp/types.js";
-import { HistoryEntry } from "../HistoryEntry/HistoryEntry";
+import { ProtocolEntry } from "../ProtocolEntry/ProtocolEntry";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import {
   SortToggle,
@@ -22,10 +22,10 @@ import {
 } from "../../elements/SortToggle/SortToggle";
 import { PinColumnButton } from "../../elements/PinColumnButton/PinColumnButton";
 import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
-import { extractMethod } from "../historyUtils.js";
+import { extractMethod } from "../protocolUtils.js";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
-export interface HistoryListPanelProps {
+export interface ProtocolListPanelProps {
   entries: MessageEntry[];
   pinnedIds: Set<string>;
   searchText: string;
@@ -35,9 +35,9 @@ export interface HistoryListPanelProps {
   onClearAll: () => void;
   onExport: () => void;
   /** Clear just one section's entries (pinned vs unpinned history). */
-  onClearSection: (section: HistorySectionName) => void;
+  onClearSection: (section: ProtocolSectionName) => void;
   /** Export just one section's entries. */
-  onExportSection: (section: HistorySectionName) => void;
+  onExportSection: (section: ProtocolSectionName) => void;
   onReplay: (id: string) => void;
   onTogglePin: (id: string) => void;
   sortDirection: SortDirection;
@@ -91,7 +91,7 @@ const SectionActionGroup = Group.withProps({
 });
 
 // Subtle link-style button, matching the Select/Deselect All control in
-// HistoryControls.
+// ProtocolControls.
 const SectionLinkButton = Button.withProps({
   variant: "subtle",
   size: "xs",
@@ -105,7 +105,7 @@ function formatHistoryTitle(count: number): string {
   return `History (${count})`;
 }
 
-type HistorySectionName = "pinned" | "history";
+type ProtocolSectionName = "pinned" | "history";
 
 // Per-section Clear / Export links, shown to the right of a section header when
 // both sections are present (so each can be cleared/exported on its own).
@@ -130,7 +130,7 @@ function SectionActions({
 // sense: the header is a plain title and the entries always show (so a stale
 // collapsed state from when both sections were present can't hide them) —
 // unless `hideHeaderWhenAlone`, in which case the lone section drops its title
-// entirely (the "History" label is redundant when there's nothing to
+// entirely (the "Protocol" label is redundant when there's nothing to
 // distinguish it from).
 function CollapsibleSection({
   title,
@@ -200,7 +200,7 @@ function matchesFilters(
   return true;
 }
 
-export function HistoryListPanel({
+export function ProtocolListPanel({
   entries,
   pinnedIds,
   searchText,
@@ -218,8 +218,8 @@ export function HistoryListPanel({
   onToggleCompact,
   onPin,
   embedded = false,
-}: HistoryListPanelProps) {
-  const viewportRef = useScrollMemory("history-list");
+}: ProtocolListPanelProps) {
+  const viewportRef = useScrollMemory("protocol-list");
   // Per-section expand/collapse, like the LogControls level toggles. Both start
   // open; collapsing hides that section's entries without affecting the other.
   const [pinnedOpen, setPinnedOpen] = useState(true);
@@ -313,7 +313,7 @@ export function HistoryListPanel({
                 }
               >
                 {pinnedEntries.map((entry) => (
-                  <HistoryEntry
+                  <ProtocolEntry
                     key={entry.id}
                     entry={entry}
                     isPinned={true}
@@ -345,7 +345,7 @@ export function HistoryListPanel({
                 }
               >
                 {unpinnedEntries.map((entry) => (
-                  <HistoryEntry
+                  <ProtocolEntry
                     key={entry.id}
                     entry={entry}
                     isPinned={false}

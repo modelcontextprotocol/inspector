@@ -9,7 +9,7 @@ const demoScreens = {
       <Text>Log stream</Text>
     </Box>
   ),
-  History: (
+  Protocol: (
     <Box p="md">
       <Text>Request history</Text>
     </Box>
@@ -32,7 +32,7 @@ const meta: Meta<typeof MonitoringScreen> = {
     ),
   ],
   args: {
-    tabs: ["Logs", "History", "Network"],
+    tabs: ["Logs", "Protocol", "Network"],
     value: "Logs",
     onChange: fn(),
     searchValue: "",
@@ -52,8 +52,8 @@ export const Logs: Story = {
   },
 };
 
-export const History: Story = {
-  args: { value: "History" },
+export const Protocol: Story = {
+  args: { value: "Protocol" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     expect(canvas.getByText("Request history")).toBeInTheDocument();

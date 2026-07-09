@@ -6,7 +6,7 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import { MessageDirectionFilter } from "../MessageDirectionFilter/MessageDirectionFilter";
 
-export interface HistoryControlsProps {
+export interface ProtocolControlsProps {
   searchText: string;
   methodFilter?: MessageMethod;
   availableMethods: MessageMethod[];
@@ -17,7 +17,7 @@ export interface HistoryControlsProps {
   onToggleAllDirections: () => void;
 }
 
-export function HistoryControls({
+export function ProtocolControls({
   searchText,
   methodFilter,
   availableMethods,
@@ -26,10 +26,10 @@ export function HistoryControls({
   onMethodFilterChange,
   onToggleDirection,
   onToggleAllDirections,
-}: HistoryControlsProps) {
+}: ProtocolControlsProps) {
   return (
     <Stack gap="md">
-      <Title order={4}>History</Title>
+      <Title order={4}>Protocol</Title>
       <TextInput
         placeholder="Search..."
         value={searchText}

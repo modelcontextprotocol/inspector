@@ -13,7 +13,7 @@ export const INSPECTOR_TAB_IDS = [
   "Resources",
   "Tasks",
   "Logs",
-  "History",
+  "Protocol",
   "Network",
 ] as const;
 

@@ -309,10 +309,10 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
     onClearCompletedTasks: () => void;
     onRefreshTasks: () => void;
     onServerSettings: (id: string) => void;
-    onClearHistory: () => void;
-    onReplayHistory: (id: string) => void;
-    onTogglePinHistory: (id: string) => void;
-    pinnedHistoryIds?: Set<string>;
+    onClearProtocol: () => void;
+    onReplayProtocol: (id: string) => void;
+    onTogglePinProtocol: (id: string) => void;
+    pinnedProtocolIds?: Set<string>;
   }) => (
     <div>
       <span data-testid="tool-status">
@@ -419,15 +419,15 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
       <button onClick={() => props.onSetLogLevel("debug")}>set-level</button>
       <button onClick={() => props.onServerSettings("A")}>open-settings</button>
       <span data-testid="pinned-history">
-        {Array.from(props.pinnedHistoryIds ?? []).join(",")}
+        {Array.from(props.pinnedProtocolIds ?? []).join(",")}
       </span>
-      <button onClick={() => props.onTogglePinHistory("hist-1")}>
+      <button onClick={() => props.onTogglePinProtocol("hist-1")}>
         toggle-pin
       </button>
-      <button onClick={() => props.onReplayHistory("hist-1")}>
+      <button onClick={() => props.onReplayProtocol("hist-1")}>
         replay-history
       </button>
-      <button onClick={() => props.onClearHistory()}>clear-history</button>
+      <button onClick={() => props.onClearProtocol()}>clear-history</button>
     </div>
   ),
 }));

@@ -3,7 +3,7 @@ import { Divider, Stack } from "@mantine/core";
 import { MonitoringControls } from "../MonitoringControls/MonitoringControls";
 
 export interface MonitoringScreenProps {
-  /** Available monitor tabs (Logs/History/Network, filtered by capability). */
+  /** Available monitor tabs (Logs/Protocol/Network, filtered by capability). */
   tabs: string[];
   /** Active monitor tab; keys into `screens` to pick what renders below. */
   value: string;

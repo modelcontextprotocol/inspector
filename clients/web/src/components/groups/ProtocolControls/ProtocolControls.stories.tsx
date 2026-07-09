@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import type { MessageMethod } from "@inspector/core/mcp/types.js";
-import { HistoryControls } from "./HistoryControls";
+import { ProtocolControls } from "./ProtocolControls";
 
 const SAMPLE_METHODS: MessageMethod[] = [
   "tools/call",
@@ -14,9 +14,9 @@ const SAMPLE_METHODS: MessageMethod[] = [
   "elicitation/create",
 ];
 
-const meta: Meta<typeof HistoryControls> = {
-  title: "Groups/HistoryControls",
-  component: HistoryControls,
+const meta: Meta<typeof ProtocolControls> = {
+  title: "Groups/ProtocolControls",
+  component: ProtocolControls,
   args: {
     searchText: "",
     availableMethods: SAMPLE_METHODS,
@@ -29,7 +29,7 @@ const meta: Meta<typeof HistoryControls> = {
 };
 
 export default meta;
-type Story = StoryObj<typeof HistoryControls>;
+type Story = StoryObj<typeof ProtocolControls>;
 
 export const Default: Story = {};
 

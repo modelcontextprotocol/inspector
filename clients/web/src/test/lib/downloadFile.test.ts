@@ -118,8 +118,8 @@ describe("buildExportFilename", () => {
   const fixedNow = new Date("2026-03-17T10:00:42.123Z");
 
   it("includes kind, server id, and ISO timestamp with `:` swapped for `-`", () => {
-    expect(buildExportFilename("history", "alpha", fixedNow)).toBe(
-      "inspector-history-alpha-2026-03-17T10-00-42.123Z.json",
+    expect(buildExportFilename("protocol", "alpha", fixedNow)).toBe(
+      "inspector-protocol-alpha-2026-03-17T10-00-42.123Z.json",
     );
   });
 
@@ -142,9 +142,9 @@ describe("buildExportFilename", () => {
   });
 
   it("defaults `now` to the current time when not provided", () => {
-    const name = buildExportFilename("history", "alpha");
+    const name = buildExportFilename("protocol", "alpha");
     expect(name).toMatch(
-      /^inspector-history-alpha-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z\.json$/,
+      /^inspector-protocol-alpha-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z\.json$/,
     );
   });
 });

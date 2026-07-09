@@ -25,7 +25,7 @@ import {
   EMPTY_RESOURCES_UI,
   EMPTY_TASKS_UI,
   EMPTY_LOGS_UI,
-  EMPTY_HISTORY_UI,
+  EMPTY_PROTOCOL_UI,
   EMPTY_NETWORK_UI,
   EMPTY_CONSOLE_UI,
 } from "../../screens/screenUiState";
@@ -336,7 +336,7 @@ const meta: Meta<typeof InspectorView> = {
     logs: demoLogs,
     tasks: demoTasks,
     progressByTaskId: demoProgressByTaskId,
-    history: demoHistory,
+    protocol: demoHistory,
     network: demoNetwork,
     stderrLogs: demoStderr,
 
@@ -360,7 +360,7 @@ const meta: Meta<typeof InspectorView> = {
     appsUi: EMPTY_APPS_UI,
     tasksUi: EMPTY_TASKS_UI,
     logsUi: EMPTY_LOGS_UI,
-    historyUi: EMPTY_HISTORY_UI,
+    protocolUi: EMPTY_PROTOCOL_UI,
     networkUi: EMPTY_NETWORK_UI,
     consoleUi: EMPTY_CONSOLE_UI,
 
@@ -401,11 +401,11 @@ const meta: Meta<typeof InspectorView> = {
     onLogsUiChange: fn(),
     onClearLogs: fn(),
     onExportLogs: fn(),
-    onHistoryUiChange: fn(),
-    onClearHistory: fn(),
-    onExportHistory: fn(),
-    onReplayHistory: fn(),
-    onTogglePinHistory: fn(),
+    onProtocolUiChange: fn(),
+    onClearProtocol: fn(),
+    onExportProtocol: fn(),
+    onReplayProtocol: fn(),
+    onTogglePinProtocol: fn(),
     onNetworkUiChange: fn(),
     onClearNetwork: fn(),
     onExportNetwork: fn(),
@@ -511,12 +511,12 @@ export const Connected: Story = {
 };
 
 export const ConnectionError: Story = {
-  // demoServers[0] is a stdio server; a failed launch has an empty History (the
+  // demoServers[0] is a stdio server; a failed launch has an empty Protocol (the
   // message log clears on the error transition) and no HTTP traffic, so the
   // auto-opened column keys off the captured stderr and leads with Console —
   // the process's startup error (#1621). `erroredServerId` is the parent's
   // connect-attempt-failure signal that gates the failure column; `network: []`
-  // (and empty History) keep it a pure stdio failure so only Console is offered.
+  // (and empty Protocol) keep it a pure stdio failure so only Console is offered.
   args: {
     activeServer: demoServers[0]!.id,
     erroredServerId: demoServers[0]!.id,

@@ -20,7 +20,7 @@ export interface EmbeddableScrollAreaProps {
 }
 
 /**
- * The scroll region shared by the Logs / History / Network stream panels, which
+ * The scroll region shared by the Logs / Protocol / Network stream panels, which
  * render both full-size (their own tab) and embedded (the monitoring column).
  * Centralizes the one layout difference between those two hosts.
  */

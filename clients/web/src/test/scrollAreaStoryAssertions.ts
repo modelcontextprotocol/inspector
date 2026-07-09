@@ -4,7 +4,7 @@ import { expect } from "storybook/test";
  * Assert a list `ScrollArea.Autosize` reserves a scrollbar gutter
  * (`offsetScrollbars`, so the bar never overlays the cards) and keeps the bar
  * hidden when idle (`type="scroll"`, so it shows only while scrolling rather
- * than on hover). Shared by the History/Network/Logging panel stories (#1474).
+ * than on hover). Shared by the Protocol/Network/Logging panel stories (#1474).
  */
 export function expectScrollbarGutterIdleHidden(canvasElement: HTMLElement) {
   const viewport = canvasElement.querySelector(".mantine-ScrollArea-viewport");

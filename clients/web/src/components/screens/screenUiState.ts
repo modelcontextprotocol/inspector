@@ -9,7 +9,7 @@ import type { ResourcesUiState } from "./ResourcesScreen/ResourcesScreen";
 import type { AppsUiState } from "./AppsScreen/AppsScreen";
 import type { TasksUiState } from "./TasksScreen/TasksScreen";
 import type { LogsUiState } from "./LoggingScreen/LoggingScreen";
-import type { HistoryUiState } from "./HistoryScreen/HistoryScreen";
+import type { ProtocolUiState } from "./ProtocolScreen/ProtocolScreen";
 import type { NetworkUiState } from "./NetworkScreen/NetworkScreen";
 import type { ConsoleUiState } from "./ConsoleScreen/ConsoleScreen";
 import { ALL_LEVELS_VISIBLE } from "./LoggingScreen/logLevels";
@@ -53,7 +53,7 @@ export const EMPTY_LOGS_UI: LogsUiState = {
   visibleLevels: ALL_LEVELS_VISIBLE,
 };
 
-export const EMPTY_HISTORY_UI: HistoryUiState = {
+export const EMPTY_PROTOCOL_UI: ProtocolUiState = {
   search: "",
   methodFilter: undefined,
   visibleDirections: { client: true, server: true },
@@ -76,6 +76,6 @@ export const TAB_UI_REGISTRY = {
   Resources: { empty: EMPTY_RESOURCES_UI },
   Tasks: { empty: EMPTY_TASKS_UI },
   Logs: { empty: EMPTY_LOGS_UI },
-  History: { empty: EMPTY_HISTORY_UI },
+  Protocol: { empty: EMPTY_PROTOCOL_UI },
   Network: { empty: EMPTY_NETWORK_UI },
 } as const;

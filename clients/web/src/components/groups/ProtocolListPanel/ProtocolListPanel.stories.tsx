@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { fn } from "storybook/test";
-import { HistoryListPanel } from "./HistoryListPanel.js";
+import { ProtocolListPanel } from "./ProtocolListPanel.js";
 import { expectScrollbarGutterIdleHidden } from "../../../test/scrollAreaStoryAssertions";
 
-const meta: Meta<typeof HistoryListPanel> = {
-  title: "Groups/HistoryListPanel",
-  component: HistoryListPanel,
+const meta: Meta<typeof ProtocolListPanel> = {
+  title: "Groups/ProtocolListPanel",
+  component: ProtocolListPanel,
   args: {
     searchText: "",
     pinnedIds: new Set<string>(),
@@ -24,7 +24,7 @@ const meta: Meta<typeof HistoryListPanel> = {
 };
 
 export default meta;
-type Story = StoryObj<typeof HistoryListPanel>;
+type Story = StoryObj<typeof ProtocolListPanel>;
 
 const sampleEntries: MessageEntry[] = [
   {

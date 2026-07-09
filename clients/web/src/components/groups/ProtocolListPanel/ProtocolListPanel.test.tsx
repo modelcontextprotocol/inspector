@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { MessageEntry } from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { HistoryListPanel } from "./HistoryListPanel";
+import { ProtocolListPanel } from "./ProtocolListPanel";
 
 const sampleEntries: MessageEntry[] = [
   {
@@ -75,21 +75,21 @@ const baseProps = {
   onToggleCompact: vi.fn(),
 };
 
-describe("HistoryListPanel", () => {
+describe("ProtocolListPanel", () => {
   it("renders the title and Export button", () => {
-    renderWithMantine(<HistoryListPanel {...baseProps} entries={[]} />);
+    renderWithMantine(<ProtocolListPanel {...baseProps} entries={[]} />);
     expect(screen.getByText("Requests")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
   });
 
   it("renders the empty state when there are no entries", () => {
-    renderWithMantine(<HistoryListPanel {...baseProps} entries={[]} />);
+    renderWithMantine(<ProtocolListPanel {...baseProps} entries={[]} />);
     expect(screen.getByText("No request history")).toBeInTheDocument();
   });
 
   it("renders the empty state when entries exist but none match the filter", () => {
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={sampleEntries}
         searchText="zzznotfound"
@@ -100,7 +100,7 @@ describe("HistoryListPanel", () => {
 
   it("hides the History header when there are no pinned entries", () => {
     renderWithMantine(
-      <HistoryListPanel {...baseProps} entries={sampleEntries} />,
+      <ProtocolListPanel {...baseProps} entries={sampleEntries} />,
     );
     // With no pinned section to distinguish it from, the header is dropped...
     expect(screen.queryByText("History (3)")).toBeNull();
@@ -110,7 +110,7 @@ describe("HistoryListPanel", () => {
 
   it("renders the Pinned title with count when entries are pinned", () => {
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={sampleEntries}
         pinnedIds={new Set(["req-1"])}
@@ -124,7 +124,7 @@ describe("HistoryListPanel", () => {
     const user = userEvent.setup();
     // Both sections present so the headers are collapsible toggles.
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={sampleEntries}
         pinnedIds={new Set(["req-1"])}
@@ -142,7 +142,7 @@ describe("HistoryListPanel", () => {
     // Only the unpinned section → no header at all, no accordion toggle,
     // entries always visible.
     renderWithMantine(
-      <HistoryListPanel {...baseProps} entries={sampleEntries} />,
+      <ProtocolListPanel {...baseProps} entries={sampleEntries} />,
     );
     expect(screen.queryByText("History (3)")).toBeNull();
     expect(
@@ -155,7 +155,7 @@ describe("HistoryListPanel", () => {
   it("shows the surviving section's entries after the other is removed, even if it was collapsed", async () => {
     const user = userEvent.setup();
     const { rerender } = renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={sampleEntries}
         pinnedIds={new Set(["req-1"])}
@@ -169,7 +169,7 @@ describe("HistoryListPanel", () => {
     );
     // Remove the pinned section → History is now the only section. Its entries
     // must show despite the stale collapsed state, and the header is plain.
-    rerender(<HistoryListPanel {...baseProps} entries={sampleEntries} />);
+    rerender(<ProtocolListPanel {...baseProps} entries={sampleEntries} />);
     expect(
       screen.queryByRole("button", { name: "History (3)" }),
     ).not.toBeInTheDocument();
@@ -179,7 +179,7 @@ describe("HistoryListPanel", () => {
   it("collapses the Pinned and History sections independently", async () => {
     const user = userEvent.setup();
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={sampleEntries}
         pinnedIds={new Set(["req-1"])}
@@ -198,7 +198,7 @@ describe("HistoryListPanel", () => {
   it("shows per-section Clear/Export only when both sections are present", () => {
     // Only an unpinned section → just the panel-level Clear/Export.
     const { unmount } = renderWithMantine(
-      <HistoryListPanel {...baseProps} entries={sampleEntries} />,
+      <ProtocolListPanel {...baseProps} entries={sampleEntries} />,
     );
     expect(screen.getAllByRole("button", { name: "Clear" })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Export" })).toHaveLength(1);
@@ -206,7 +206,7 @@ describe("HistoryListPanel", () => {
 
     // Both sections → panel-level plus one Clear/Export per section.
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={sampleEntries}
         pinnedIds={new Set(["req-1"])}
@@ -221,7 +221,7 @@ describe("HistoryListPanel", () => {
     const onClearSection = vi.fn();
     const onExportSection = vi.fn();
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={sampleEntries}
         pinnedIds={new Set(["req-1"])}
@@ -244,7 +244,7 @@ describe("HistoryListPanel", () => {
       { ...sampleEntries[1], id: "from-server", origin: "server" },
     ];
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={directional}
         visibleDirections={{ client: true, server: false }}
@@ -257,7 +257,7 @@ describe("HistoryListPanel", () => {
 
   it("filters entries by searchText (case-insensitive)", () => {
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={sampleEntries}
         searchText="config.json"
@@ -271,7 +271,7 @@ describe("HistoryListPanel", () => {
 
   it("filters entries by methodFilter", () => {
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={sampleEntries}
         methodFilter="tools/list"
@@ -286,7 +286,7 @@ describe("HistoryListPanel", () => {
     const user = userEvent.setup();
     const onExport = vi.fn();
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={sampleEntries}
         onExport={onExport}
@@ -300,7 +300,7 @@ describe("HistoryListPanel", () => {
     const user = userEvent.setup();
     const onClearAll = vi.fn();
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={sampleEntries}
         onClearAll={onClearAll}
@@ -314,7 +314,7 @@ describe("HistoryListPanel", () => {
     const user = userEvent.setup();
     const onReplay = vi.fn();
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={[sampleEntries[0]]}
         onReplay={onReplay}
@@ -328,7 +328,7 @@ describe("HistoryListPanel", () => {
     const user = userEvent.setup();
     const onTogglePin = vi.fn();
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={[sampleEntries[0]]}
         onTogglePin={onTogglePin}
@@ -340,7 +340,7 @@ describe("HistoryListPanel", () => {
 
   it("renders only pinned section when all entries are pinned", () => {
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={[sampleEntries[0]]}
         pinnedIds={new Set(["req-1"])}
@@ -355,7 +355,7 @@ describe("HistoryListPanel", () => {
     const onReplay = vi.fn();
     const onTogglePin = vi.fn();
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={[sampleEntries[0]]}
         pinnedIds={new Set(["req-1"])}
@@ -371,7 +371,7 @@ describe("HistoryListPanel", () => {
 
   it("renders entries newest-first by default", () => {
     renderWithMantine(
-      <HistoryListPanel {...baseProps} entries={sampleEntries} />,
+      <ProtocolListPanel {...baseProps} entries={sampleEntries} />,
     );
     const methods = screen.getAllByText(
       /tools\/call|resources\/read|tools\/list/,
@@ -382,7 +382,7 @@ describe("HistoryListPanel", () => {
 
   it("reorders entries when sortDirection is oldest-first", () => {
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={sampleEntries}
         sortDirection="oldest-first"
@@ -399,7 +399,7 @@ describe("HistoryListPanel", () => {
     const user = userEvent.setup();
     const onSortChange = vi.fn();
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={sampleEntries}
         onSortChange={onSortChange}
@@ -414,7 +414,7 @@ describe("HistoryListPanel", () => {
 
   it("renders entries collapsed when compact is true (default parity with Network)", () => {
     renderWithMantine(
-      <HistoryListPanel {...baseProps} entries={sampleEntries} compact />,
+      <ProtocolListPanel {...baseProps} entries={sampleEntries} compact />,
     );
     expect(
       screen.getAllByRole("button", { name: "Expand" }).length,
@@ -423,7 +423,7 @@ describe("HistoryListPanel", () => {
 
   it("renders entries expanded when compact is false", () => {
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={sampleEntries}
         compact={false}
@@ -438,7 +438,7 @@ describe("HistoryListPanel", () => {
     const user = userEvent.setup();
     const onToggleCompact = vi.fn();
     renderWithMantine(
-      <HistoryListPanel
+      <ProtocolListPanel
         {...baseProps}
         entries={sampleEntries}
         onToggleCompact={onToggleCompact}

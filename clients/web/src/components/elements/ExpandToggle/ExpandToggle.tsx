@@ -8,7 +8,7 @@ export interface ExpandToggleProps {
 }
 
 /**
- * Icon toggle for a per-entry expand/collapse control (History, Network, and
+ * Icon toggle for a per-entry expand/collapse control (Protocol, Network, and
  * Task cards). Uses the same expand/collapse-vertical icons as the list-level
  * ListToggle: collapsed shows the expand icon, expanded shows the collapse
  * icon. The aria-label stays "Expand"/"Collapse" so it reads the same as the

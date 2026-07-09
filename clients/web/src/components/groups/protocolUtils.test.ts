@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { MessageEntry } from "@inspector/core/mcp/types.js";
-import { extractMethod } from "./historyUtils";
+import { extractMethod } from "./protocolUtils";
 
 describe("extractMethod", () => {
   it("returns the method name for a request entry", () => {

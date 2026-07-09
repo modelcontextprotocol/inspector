@@ -5,16 +5,16 @@ import type {
   MessageMethod,
   MessageOrigin,
 } from "@inspector/core/mcp/types.js";
-import { HistoryControls } from "../../groups/HistoryControls/HistoryControls";
-import { HistoryListPanel } from "../../groups/HistoryListPanel/HistoryListPanel.js";
-import { extractMethod } from "../../groups/historyUtils.js";
+import { ProtocolControls } from "../../groups/ProtocolControls/ProtocolControls";
+import { ProtocolListPanel } from "../../groups/ProtocolListPanel/ProtocolListPanel.js";
+import { extractMethod } from "../../groups/protocolUtils.js";
 import type { SortDirection } from "../../elements/SortToggle/SortToggle";
 
-export interface HistoryScreenProps {
+export interface ProtocolScreenProps {
   entries: MessageEntry[];
   pinnedIds: Set<string>;
-  ui: HistoryUiState;
-  onUiChange: (next: HistoryUiState) => void;
+  ui: ProtocolUiState;
+  onUiChange: (next: ProtocolUiState) => void;
   onClearAll: () => void;
   onExport: () => void;
   onClearSection: (section: "pinned" | "history") => void;
@@ -34,7 +34,7 @@ export interface HistoryScreenProps {
 // Search text, method filter, and per-direction visibility — controlled by the
 // parent (App) as one object so they persist across tab navigation within a
 // live session (#1417).
-export interface HistoryUiState {
+export interface ProtocolUiState {
   search: string;
   methodFilter?: MessageMethod;
   /** Which message directions are shown, keyed by entry origin. */
@@ -58,7 +58,7 @@ const SidebarCard = Card.withProps({
   padding: "lg",
 });
 
-export function HistoryScreen({
+export function ProtocolScreen({
   entries,
   pinnedIds,
   ui,
@@ -75,7 +75,7 @@ export function HistoryScreen({
   onToggleCompact,
   onPin,
   embedded = false,
-}: HistoryScreenProps) {
+}: ProtocolScreenProps) {
   const { search, methodFilter, visibleDirections } = ui;
 
   const availableMethods = useMemo(
@@ -111,7 +111,7 @@ export function HistoryScreen({
       {embedded ? null : (
         <Sidebar>
           <SidebarCard>
-            <HistoryControls
+            <ProtocolControls
               searchText={search}
               methodFilter={methodFilter}
               availableMethods={availableMethods}
@@ -126,7 +126,7 @@ export function HistoryScreen({
           </SidebarCard>
         </Sidebar>
       )}
-      <HistoryListPanel
+      <ProtocolListPanel
         entries={entries}
         pinnedIds={pinnedIds}
         searchText={search}
