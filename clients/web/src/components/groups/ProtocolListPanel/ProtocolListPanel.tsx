@@ -268,7 +268,7 @@ export function ProtocolListPanel({
   return (
     <PanelContainer>
       <Group justify="space-between" mb="sm">
-        <Title order={4}>Requests</Title>
+        <Title order={4}>Messages</Title>
         <Group gap="xs">
           <SortToggle
             value={sortDirection}

@@ -78,7 +78,7 @@ const baseProps = {
 describe("ProtocolListPanel", () => {
   it("renders the title and Export button", () => {
     renderWithMantine(<ProtocolListPanel {...baseProps} entries={[]} />);
-    expect(screen.getByText("Requests")).toBeInTheDocument();
+    expect(screen.getByText("Messages")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
   });
 
