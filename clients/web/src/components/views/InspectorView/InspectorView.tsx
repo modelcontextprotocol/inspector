@@ -253,11 +253,13 @@ const MonitoringColumn = Stack.withProps({
 });
 
 // Column open/close animation (#1616): the handle + column slide in from the
-// right edge and fade as they mount, reversing on close, so pinning reads as the
-// screen moving into a side column rather than snapping in. `AppShell.Main`'s
-// `overflow: hidden` clips the off-screen portion during the slide.
+// right edge and fade as they mount, reversing on close, so pinning reads as a
+// side column sliding open rather than snapping in. The primary screen keeps its
+// standard `ScreenStage` transition. Mantine plays `out → in` on enter and
+// `in → out` on exit. `AppShell.Main`'s `overflow: hidden` clips the off-screen
+// portion during the slide.
 const COLUMN_ANIM_MS = 300;
-const slideInFromRight: MantineTransition = {
+const columnSlide: MantineTransition = {
   in: { opacity: 1, transform: "translateX(0)" },
   out: { opacity: 0, transform: "translateX(100%)" },
   common: { transformOrigin: "right center" },
@@ -265,9 +267,12 @@ const slideInFromRight: MantineTransition = {
 };
 
 // Flex-row wrapper holding the resize handle + column so the whole unit animates
-// as one (the Transition interpolation is applied to it via `style`).
+// as one (the Transition interpolation is applied to it via `style`). `align:
+// stretch` overrides Group's default `center` so the full-height resize handle
+// (which has no intrinsic height) fills the column instead of collapsing.
 const MonitorColumnGroup = Group.withProps({
   wrap: "nowrap",
+  align: "stretch",
   gap: 0,
   h: "100%",
   flex: "0 0 auto",
@@ -773,11 +778,12 @@ export function InspectorView({
     /* v8 ignore next */
     if (isMonitorTab(tab)) setMonitorTab(tab);
   }
-  // Closing the column carries its selection back to the primary area: the
-  // screen the user was watching in the column becomes the active header tab,
-  // rather than snapping back to whatever was selected before they pinned.
+  // Closing the column leaves the primary area on whatever screen is currently
+  // selected in the header — it does not swap in the column's screen. We commit
+  // the current `activeTab` to the lifted state first so unpinning can't resurrect
+  // the (now stale) monitor tab that was selected before pinning.
   function closeMonitorColumn() {
-    onActiveTabChange(effectiveMonitorTab);
+    onActiveTabChange(activeTab);
     setMonitorPinned(false);
   }
   function commitMonitorWidth(next: number) {
@@ -1062,7 +1068,7 @@ export function InspectorView({
           </ScreenStageContainer>
           <Transition
             mounted={effectivePinned}
-            transition={slideInFromRight}
+            transition={columnSlide}
             duration={COLUMN_ANIM_MS}
             exitDuration={COLUMN_ANIM_MS}
             timingFunction="ease"

@@ -1400,24 +1400,38 @@ describe("InspectorView", () => {
       ).toBeInTheDocument();
     });
 
-    it("carries the column's selection to the primary view on close", async () => {
+    it("keeps the current header screen (not the column's) when closed", async () => {
       monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       const user = await gotoTab("Logs");
       await user.click(
         await screen.findByRole("button", { name: "Pin as column" }),
       );
+      // Pinning moved the primary to the first non-Servers header tab (Tools).
+      const header = screen.getByRole("banner");
+      expect(
+        within(header).getByRole("radio", { name: "Tools" }),
+      ).toBeChecked();
+
       // Switch the column to History, then close it.
       await user.click(await screen.findByRole("radio", { name: "History" }));
       await user.click(
         await screen.findByRole("button", { name: "Close monitoring column" }),
       );
 
-      // The primary header now has History selected (not the pre-pin Logs).
-      const header = screen.getByRole("banner");
+      // The primary stays on the header's current screen (Tools), not the
+      // column's History, and the monitor group returns to the header.
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "Close monitoring column" }),
+        ).toBeNull(),
+      );
+      expect(
+        within(header).getByRole("radio", { name: "Tools" }),
+      ).toBeChecked();
       expect(
         within(header).getByRole("radio", { name: "History" }),
-      ).toBeChecked();
+      ).toBeInTheDocument();
     });
 
     it("persists the pin preference and reopens the column when wide", () => {
