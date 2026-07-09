@@ -80,6 +80,12 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --tr
 
 When a server is loaded from a `--catalog`/`--config` file, its per-server settings (headers, connection/request timeouts, and OAuth) are applied to the connection — the same resolution the TUI uses. A `--header` flag overrides the file's headers for that run while leaving the file's timeouts and OAuth in place.
 
+### HTTP proxy support
+
+Connections to remote HTTP/SSE servers honor the conventional proxy environment variables: `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms) select the proxy, and `NO_PROXY` exempts hosts. This applies to the Node transport shared by the CLI and the web backend — no inspector-specific flag is needed. When a proxy variable is set, outbound requests are routed through undici's `EnvHttpProxyAgent`.
+
+Proxy routing is powered by the [`undici`](https://www.npmjs.com/package/undici) package (`^8.5.0`, which requires Node `>= 22.19.0` — the inspector's supported floor). It is imported lazily only when a proxy variable is set, so runs without a proxy configured pay no cost.
+
 ## Options
 
 ### MCP server (which server to connect to)
@@ -131,13 +137,13 @@ Register `http://127.0.0.1:6276/oauth/callback` on static or enterprise IdPs tha
 
 #### Flags
 
-| Option | Env | Description |
-| ------ | --- | ----------- |
-| `--client-config <path>` | `MCP_CLIENT_CONFIG_PATH` | Install-level client config (default: `~/.mcp-inspector/storage/client.json`). |
-| `--client-id <id>` | — | OAuth client ID (static client); overrides `client.json`. |
-| `--client-secret <secret>` | — | OAuth client secret; overrides `client.json`. |
-| `--client-metadata-url <url>` | — | CIMD metadata URL; overrides `client.json`. |
-| `--callback-url <url>` | `MCP_OAUTH_CALLBACK_URL` | Redirect URI sent to the authorization server (default: `http://127.0.0.1:6276/oauth/callback`). |
+| Option                        | Env                      | Description                                                                                      |
+| ----------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------ |
+| `--client-config <path>`      | `MCP_CLIENT_CONFIG_PATH` | Install-level client config (default: `~/.mcp-inspector/storage/client.json`).                   |
+| `--client-id <id>`            | —                        | OAuth client ID (static client); overrides `client.json`.                                        |
+| `--client-secret <secret>`    | —                        | OAuth client secret; overrides `client.json`.                                                    |
+| `--client-metadata-url <url>` | —                        | CIMD metadata URL; overrides `client.json`.                                                      |
+| `--callback-url <url>`        | `MCP_OAUTH_CALLBACK_URL` | Redirect URI sent to the authorization server (default: `http://127.0.0.1:6276/oauth/callback`). |
 
 **Example** — list tools on an OAuth-protected server using stored tokens and CIMD from the command line:
 
@@ -147,7 +153,33 @@ npx @modelcontextprotocol/inspector --cli --catalog mcp.json --server my-http-se
   --method tools/list
 ```
 
-See [EMA / enterprise-managed auth](../../specification/v2_auth_ema.md) and [OAuth smoke testing](../../specification/v2_auth_smoke_testing.md) (§3 Stytch/CIMD; [§5 mid-session manual validation](v2_auth_smoke_testing.md#5-mid-session-auth--step-up--manual-validation) — CLI **C1–C2**).
+See [EMA / enterprise-managed auth](../../specification/v2_auth_ema.md) and [OAuth smoke testing](../../specification/v2_auth_smoke_testing.md) (§3 Stytch/CIMD; [§5 mid-session manual validation](../../specification/v2_auth_smoke_testing.md#5-mid-session-auth--step-up--manual-validation) — CLI **C1–C2**).
+
+## Exit codes & error envelopes
+
+Every non-zero exit maps to a stable failure class, so a programmatic caller
+(CI, a script, an agent) can branch on _why_ the CLI failed without scraping
+prose from stderr:
+
+| Code | Meaning |
+| ---- | ------- |
+| `0` | Success. |
+| `1` | Usage / unexpected error (the catch-all). |
+| `2` | No MCP App found on the tool (`--app-info` probe). |
+| `3` | Server requires authentication (401/403, `WWW-Authenticate`, OAuth). |
+| `4` | Server unreachable (DNS, connection refused, timeout, `fetch failed`). |
+| `5` | Tool error (`tools/call` returned `isError:true`, or the tool was not found). |
+
+On any non-zero exit the CLI also writes a single JSON line to **stderr** — the
+`ErrorEnvelope`:
+
+```json
+{ "error": { "code": "auth_required", "message": "Unauthorized", "status": 401, "url": "https://api.example/mcp" } }
+```
+
+The `code` is a stable identifier for the failure class; `message` is the
+human-readable error; `cause`, `status`, and `url` are included when known.
+Because it is one line, a caller can parse it with `2>&1 | tail -1 | jq .error`.
 
 ## Why use the CLI?
 

@@ -770,6 +770,166 @@ export function createArgsPrompt(
   };
 }
 
+/** Canonical URI for the {@link createMcpAppDemoResource} UI resource, referenced by {@link createMcpAppDemoTool}'s `_meta.ui.resourceUri`. Exported so tests can assert against it without redefining the literal. */
+export const MCP_APP_DEMO_URI = "ui://demo/widget.html";
+
+/**
+ * Minimal MCP App widget that exercises the host-side UI protocol surface
+ * (size-changed, ui/message, log notification, host-context render). Kept as a
+ * single inline HTML string with no external scripts so the sandbox CSP's
+ * locked-down defaults are sufficient.
+ *
+ * The lone `rgba(0,0,0,0.06)` is a deliberate exception to the AGENTS.md
+ * color-token rule: this is a self-contained static fixture served into the
+ * sandbox iframe, not a Mantine component, so the `--inspector-*` CSS custom
+ * properties (defined in the web client's App.css) are not in scope here.
+ */
+const MCP_APP_DEMO_HTML = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>mcp-app-demo widget</title>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; padding: 16px; }
+      pre { background: rgba(0,0,0,0.06); padding: 8px; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <h2 id="title">mcp-app-demo</h2>
+    <pre id="ctx">waiting for ui/initialize…</pre>
+    <script type="module">
+      // Per spec, ui/initialize is a View→Host REQUEST: the view sends it on
+      // load and the host responds with hostContext + capabilities. The view
+      // then sends notifications/initialized once it has rendered.
+      // Production apps should use @modelcontextprotocol/ext-apps (the App
+      // class handles the handshake and origin discipline internally) — this
+      // fixture is a minimal no-SDK demo of the raw protocol for testing the
+      // host side.
+      const INIT_ID = 1;
+      let nextId = 2;
+      // Captured from the host's ui/initialize RESPONSE; thereafter every send
+      // targets, and every receive is checked against, this exact origin so a
+      // sibling frame on a different origin cannot inject or intercept traffic.
+      let HOST_ORIGIN = null;
+      const send = (msg) =>
+        window.parent.postMessage(
+          { jsonrpc: "2.0", ...msg },
+          HOST_ORIGIN ?? "*",
+        );
+      let lastCtx = {};
+      const renderCtx = (patch) => {
+        // host-context-changed carries a PARTIAL (only changed fields per
+        // spec); merge into the running snapshot so unchanged fields persist.
+        lastCtx = { ...lastCtx, ...patch };
+        document.getElementById("ctx").textContent = JSON.stringify(
+          {
+            theme: lastCtx.theme,
+            displayMode: lastCtx.displayMode,
+            containerDimensions: lastCtx.containerDimensions,
+          },
+          null,
+          2,
+        );
+      };
+      const onInitialized = (hostContext) => {
+        renderCtx(hostContext);
+        // Signal the view is ready (host gates view→host requests on this).
+        send({ method: "ui/notifications/initialized" });
+        // Standard MCP log notification — surfaced by the host's log panel.
+        send({
+          method: "notifications/message",
+          params: { level: "info", data: "mcp-app-demo initialized" },
+        });
+        // Tell the host the rendered content height.
+        send({
+          method: "ui/notifications/size-changed",
+          params: {
+            width: document.body.clientWidth,
+            height: document.body.scrollHeight,
+          },
+        });
+        // Submit one user-role message via ui/message.
+        send({
+          id: nextId++,
+          method: "ui/message",
+          params: {
+            content: [{ type: "text", text: "hello from mcp-app-demo" }],
+          },
+        });
+      };
+      window.addEventListener("message", (ev) => {
+        if (HOST_ORIGIN !== null && ev.origin !== HOST_ORIGIN) return;
+        const m = ev.data;
+        if (!m || m.jsonrpc !== "2.0") return;
+        if (m.id === INIT_ID && m.result) {
+          HOST_ORIGIN = ev.origin;
+          onInitialized(m.result.hostContext);
+        } else if (m.method === "ui/notifications/host-context-changed") {
+          // params IS the partial McpUiHostContext (spec.types.d.ts:290).
+          renderCtx(m.params);
+        }
+      });
+      // Kick off the handshake.
+      send({
+        id: INIT_ID,
+        method: "ui/initialize",
+        params: {
+          protocolVersion: "2026-01-26",
+          appInfo: { name: "mcp-app-demo", version: "1.0.0" },
+          appCapabilities: {},
+        },
+      });
+    </script>
+  </body>
+</html>`;
+
+/**
+ * Tool definition for the MCP App demo. Carries `_meta.ui.resourceUri` so
+ * clients recognize it as an App tool; the call result echoes the input title
+ * so the rendered widget can be visually correlated with the call.
+ */
+export function createMcpAppDemoTool(): ToolDefinition {
+  return {
+    name: "mcp_app_demo",
+    description:
+      "Render a minimal MCP App widget that exercises size-changed, ui/message, logging, and host-context rendering.",
+    inputSchema: {
+      title: z.string().describe("Heading shown in the rendered widget"),
+    },
+    _meta: {
+      ui: { resourceUri: MCP_APP_DEMO_URI, visibility: ["model", "app"] },
+    },
+    handler: async (params: Record<string, unknown>) => {
+      return toToolResult(
+        `mcp_app_demo rendered with title="${String(params.title)}"`,
+      );
+    },
+  };
+}
+
+/**
+ * UI resource for {@link createMcpAppDemoTool}. Declares a permissive
+ * `_meta.ui.csp` (no external connect/resource domains) and a sample
+ * `permissions` block so `--app-info` and the host's CSP enforcement both have
+ * something to read.
+ */
+export function createMcpAppDemoResource(): ResourceDefinition {
+  return {
+    name: "mcp_app_demo_widget",
+    uri: MCP_APP_DEMO_URI,
+    description: "Inline HTML widget for the mcp_app_demo tool",
+    mimeType: "text/html",
+    text: MCP_APP_DEMO_HTML,
+    _meta: {
+      ui: {
+        csp: { connectDomains: [], resourceDomains: [] },
+        permissions: { clipboard: false },
+        prefersBorder: true,
+      },
+    },
+  };
+}
+
 /**
  * Create an "architecture" resource definition
  */
@@ -1899,6 +2059,7 @@ export function getDefaultServerConfig(): ServerConfig {
       createGetTempExtraTool(),
       createSendNotificationTool(),
       createWriteToStderrTool(),
+      createMcpAppDemoTool(),
     ],
     prompts: [createSimplePrompt(), createArgsPrompt()],
     resources: [
@@ -1906,6 +2067,7 @@ export function getDefaultServerConfig(): ServerConfig {
       createTestCwdResource(),
       createTestEnvResource(),
       createTestArgvResource(),
+      createMcpAppDemoResource(),
     ],
     resourceTemplates: [
       createFileResourceTemplate(),

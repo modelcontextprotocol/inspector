@@ -1,19 +1,26 @@
 /**
- * Tests for the downloadJsonFile helper. Mocks URL.createObjectURL +
+ * Tests for the download helpers. Mocks URL.createObjectURL +
  * URL.revokeObjectURL (happy-dom doesn't ship them) and asserts the temp
- * anchor's attributes + click + cleanup sequence.
+ * anchor's attributes + click + deferred cleanup sequence.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { downloadJsonFile, buildExportFilename } from "../../lib/downloadFile";
+import {
+  downloadBlob,
+  downloadJsonFile,
+  buildExportFilename,
+  fileNameFromUri,
+  isHttpUrl,
+} from "../../lib/downloadFile";
 
-describe("downloadJsonFile", () => {
+describe("downloadBlob / downloadJsonFile", () => {
   const originalCreate = URL.createObjectURL;
   const originalRevoke = URL.revokeObjectURL;
   let createMock: ReturnType<typeof vi.fn>;
   let revokeMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     createMock = vi.fn().mockReturnValue("blob:mock-url");
     revokeMock = vi.fn();
     // happy-dom doesn't implement URL.createObjectURL/revokeObjectURL.
@@ -22,6 +29,7 @@ describe("downloadJsonFile", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     URL.createObjectURL = originalCreate;
     URL.revokeObjectURL = originalRevoke;
     vi.restoreAllMocks();
@@ -54,6 +62,9 @@ describe("downloadJsonFile", () => {
 
     // After the call, the anchor must be removed and the URL revoked.
     expect(document.body.contains(anchor)).toBe(false);
+    // Revoke is deferred so the scheduled download can read the blob first.
+    expect(revokeMock).not.toHaveBeenCalled();
+    vi.runAllTimers();
     expect(revokeMock).toHaveBeenCalledWith("blob:mock-url");
   });
 
@@ -82,6 +93,7 @@ describe("downloadJsonFile", () => {
 
     // Cleanup still ran despite the throw.
     expect(removed).toHaveLength(1);
+    vi.runAllTimers();
     expect(revokeMock).toHaveBeenCalledWith("blob:mock-url");
   });
 
@@ -90,6 +102,15 @@ describe("downloadJsonFile", () => {
     const blob = createMock.mock.calls[0]?.[0] as Blob;
     const text = await blob.text();
     expect(text).toBe('{"x":1}');
+  });
+
+  it("downloadBlob passes the given blob through and honours its type", async () => {
+    const blob = new Blob(["plain text"], { type: "text/plain" });
+    downloadBlob("note.txt", blob);
+    expect(createMock).toHaveBeenCalledWith(blob);
+    const passed = createMock.mock.calls[0]?.[0] as Blob;
+    expect(passed.type).toBe("text/plain");
+    expect(await passed.text()).toBe("plain text");
   });
 });
 
@@ -125,5 +146,42 @@ describe("buildExportFilename", () => {
     expect(name).toMatch(
       /^inspector-history-alpha-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z\.json$/,
     );
+  });
+});
+
+describe("fileNameFromUri", () => {
+  it("returns the last path segment", () => {
+    expect(fileNameFromUri("https://x/y/z/report.pdf")).toBe("report.pdf");
+  });
+  it("splits on backslashes as well as forward slashes", () => {
+    expect(fileNameFromUri("C:\\Users\\me\\report.pdf")).toBe("report.pdf");
+  });
+  it("strips control/format chars and disallowed filename chars", () => {
+    // U+200B (zero-width space, Cf) and U+202E (RTL override, Cf) are
+    // stripped; the disallowed `*?` run collapses to a single `_`.
+    const uri = "https://x/a\u200bb\u202ec*?.txt";
+    expect(fileNameFromUri(uri)).toBe("abc_.txt");
+  });
+  it("truncates very long names to 255 characters", () => {
+    const long = "a".repeat(300) + ".txt";
+    expect(fileNameFromUri(`https://x/${long}`)).toHaveLength(255);
+  });
+  it("falls back to 'download' when nothing usable remains", () => {
+    expect(fileNameFromUri("https://x/")).toBe("download");
+  });
+});
+
+describe("isHttpUrl", () => {
+  it("accepts http and https", () => {
+    expect(isHttpUrl("https://example.com")?.href).toBe("https://example.com/");
+    expect(isHttpUrl("http://localhost:3000/a")?.href).toBe(
+      "http://localhost:3000/a",
+    );
+  });
+  it("rejects other schemes and unparsable input", () => {
+    expect(isHttpUrl("javascript:alert(1)")).toBeNull();
+    expect(isHttpUrl("data:text/html,<b>")).toBeNull();
+    expect(isHttpUrl("file:///etc/passwd")).toBeNull();
+    expect(isHttpUrl("not a url")).toBeNull();
   });
 });

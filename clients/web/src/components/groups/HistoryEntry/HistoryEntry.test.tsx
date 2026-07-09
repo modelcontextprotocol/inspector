@@ -280,6 +280,18 @@ describe("HistoryEntry", () => {
     ).toBeInTheDocument();
   });
 
+  it("toggles the local expand/collapse state when clicking Expand/Collapse in the compact layout", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <HistoryEntry {...baseProps} entry={successEntry} embedded />,
+    );
+    expect(screen.getByRole("button", { name: "Expand" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Expand" }));
+    expect(
+      screen.getByRole("button", { name: "Collapse" }),
+    ).toBeInTheDocument();
+  });
+
   it("starts expanded when isListExpanded is true and shows Parameters and Response", () => {
     renderWithMantine(
       <HistoryEntry

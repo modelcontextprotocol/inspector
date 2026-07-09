@@ -41,6 +41,8 @@ import {
   createOptionalTaskTool,
   createForbiddenTaskTool,
   createImmediateReturnTaskTool,
+  createMcpAppDemoTool,
+  createMcpAppDemoResource,
   createArchitectureResource,
   createTestCwdResource,
   createTestEnvResource,
@@ -157,6 +159,8 @@ function resolveToolPreset(
         get("name") as string | undefined,
         Number(get("delayMs")) || undefined,
       );
+    case "mcp_app_demo":
+      return createMcpAppDemoTool();
     default:
       throw new Error(`Unknown tool preset: ${name}`);
   }
@@ -179,6 +183,8 @@ function resolveResourcePreset(
       return createTestArgvResource();
     case "numbered_resources":
       return createNumberedResources(Number(get("count")) || 3);
+    case "mcp_app_demo_widget":
+      return createMcpAppDemoResource();
     default:
       throw new Error(`Unknown resource preset: ${name}`);
   }

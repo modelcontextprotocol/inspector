@@ -2,8 +2,24 @@ import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
-import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import {
+  renderWithMantine,
+  screen,
+  waitFor,
+  fireEvent,
+  act,
+} from "../../../test/renderWithMantine";
 import { PromptArgumentsForm } from "./PromptArgumentsForm";
+
+// Completion requests are debounced (COMPLETION_DEBOUNCE_MS = 300ms). Rather
+// than sleeping past that window on the wall clock — which races the debounce
+// timer under instrumented/concurrent load (#1596) — every completion test
+// below uses `userEvent.setup({ delay: null })` (no per-keystroke real-timer
+// scheduling) and waits on the *real* rendered outcome via `findBy`/`waitFor`.
+// Those poll until the debounce fires and the response settles, so they
+// resolve as soon as the work is done and never depend on machine speed. A
+// scoped 3s timeout covers the debounce + async settle under heavy load.
+const SETTLE = { timeout: 3000 } as const;
 
 /**
  * Wrapper that owns `argumentValues` state so completion tests can
@@ -130,7 +146,7 @@ describe("PromptArgumentsForm", () => {
   });
 
   it("invokes onArgumentChange when typing in an argument input", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onArgumentChange = vi.fn();
     renderWithMantine(
       <PromptArgumentsForm
@@ -145,7 +161,7 @@ describe("PromptArgumentsForm", () => {
   });
 
   it("clears an argument via its Clear button (onArgumentChange with empty value)", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onArgumentChange = vi.fn();
     renderWithMantine(
       <PromptArgumentsForm
@@ -162,7 +178,7 @@ describe("PromptArgumentsForm", () => {
   });
 
   it("invokes onGetPrompt when Get Prompt is clicked", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onGetPrompt = vi.fn();
     renderWithMantine(
       <PromptArgumentsForm
@@ -178,7 +194,7 @@ describe("PromptArgumentsForm", () => {
   });
 
   it("disables Get Prompt until every required argument has a value", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <StatefulForm prompt={promptWithArgs} onGetPrompt={vi.fn()} />,
     );
@@ -219,7 +235,7 @@ describe("PromptArgumentsForm", () => {
 
   describe("completions", () => {
     it("fires a completion immediately on focus before any keystroke", async () => {
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       const onCompleteArgument = vi
         .fn<
           (
@@ -240,17 +256,16 @@ describe("PromptArgumentsForm", () => {
       );
 
       await user.click(screen.getByRole("textbox", { name: /^text/ }));
-      // No debounce on focus — the call fires synchronously off the
-      // focus handler. A microtask is enough for the response to settle.
-      await new Promise((r) => setTimeout(r, 0));
+      // No debounce on focus — the call fires synchronously off the focus
+      // handler; wait on the rendered option rather than a fixed sleep.
+      expect(await screen.findByText("alpha")).toBeInTheDocument();
       expect(onCompleteArgument).toHaveBeenCalledWith("text", "", {
         targetLanguage: "",
       });
-      expect(await screen.findByText("alpha")).toBeInTheDocument();
     });
 
     it("calls onCompleteArgument (debounced) and surfaces values when supported", async () => {
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       const onCompleteArgument = vi
         .fn<
           (
@@ -271,18 +286,19 @@ describe("PromptArgumentsForm", () => {
       );
 
       await user.type(screen.getByRole("textbox", { name: /^text/ }), "al");
-      await new Promise((r) => setTimeout(r, 400));
-      // The last call carries the typed value and the context for the
-      // other (still empty) sibling.
+      // Wait for the debounced response to render, then assert the last call
+      // carries the typed value and the (still empty) sibling context.
+      expect(
+        await screen.findByText("alpha", undefined, SETTLE),
+      ).toBeInTheDocument();
+      expect(screen.getByText("alphabet")).toBeInTheDocument();
       expect(onCompleteArgument).toHaveBeenLastCalledWith("text", "al", {
         targetLanguage: "",
       });
-      expect(await screen.findByText("alpha")).toBeInTheDocument();
-      expect(screen.getByText("alphabet")).toBeInTheDocument();
     });
 
     it("sends every sibling argument in context, including the unset ones", async () => {
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       const onCompleteArgument = vi
         .fn<
           (
@@ -304,16 +320,20 @@ describe("PromptArgumentsForm", () => {
       );
 
       await user.type(screen.getByRole("textbox", { name: /^text/ }), "h");
-      await new Promise((r) => setTimeout(r, 400));
-      // The completing arg ("text") is excluded from context; every
-      // other declared argument rides along — even ones still empty.
-      expect(onCompleteArgument).toHaveBeenLastCalledWith("text", "h", {
-        targetLanguage: "es",
-      });
+      // The completing arg ("text") is excluded from context; every other
+      // declared argument rides along — even ones still empty. Poll until the
+      // debounced "text" call lands rather than sleeping past the window.
+      await waitFor(
+        () =>
+          expect(onCompleteArgument).toHaveBeenLastCalledWith("text", "h", {
+            targetLanguage: "es",
+          }),
+        SETTLE,
+      );
     });
 
     it("captures sibling values at fire time, not at schedule time", async () => {
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       const onCompleteArgument = vi
         .fn<
           (
@@ -335,34 +355,31 @@ describe("PromptArgumentsForm", () => {
 
       // Type into "text" — this schedules a debounced completion call.
       await user.type(screen.getByRole("textbox", { name: /^text/ }), "h");
-      // Before the 300ms debounce fires, update the sibling. The
-      // text-arg fire that lands at t=300 must see the latest sibling
-      // value, not the empty one captured at schedule time.
+      // Before the 300ms debounce fires, update the sibling. Because typing is
+      // synchronous (delay: null), the sibling holds its value well before the
+      // debounce window elapses. The text-arg fire must read the sibling at
+      // *fire* time, not the empty value captured at schedule time.
       await user.type(
         screen.getByRole("textbox", { name: /targetLanguage/ }),
         "es",
       );
-      await new Promise((r) => setTimeout(r, 400));
 
-      // The most recent call for "text" carries the up-to-date sibling
-      // value, even though it was scheduled before the sibling was typed.
-      // (There's also a focus-fire call when the second input gained focus —
-      // separate stream, not asserted here.) The exact sibling string depends
-      // on where the 300ms debounce lands relative to the two real-timer
-      // keystrokes ("e" then "es"), so assert the load-bearing fact: the fire
-      // captured a NON-EMPTY sibling, i.e. read at fire time rather than the
-      // empty value present when the call was scheduled.
-      const textCalls = onCompleteArgument.mock.calls.filter(
-        ([n]) => n === "text",
-      );
-      const lastTextCall = textCalls.at(-1);
-      expect(lastTextCall?.[0]).toBe("text");
-      expect(lastTextCall?.[1]).toBe("h");
-      expect(lastTextCall?.[2].targetLanguage).toMatch(/^es?$/);
+      // Poll until the debounced "text" call fires, then assert it captured a
+      // non-empty sibling (read at fire time, not the empty value present when
+      // the call was scheduled). With delay:null the sibling is fully typed
+      // ("es") before the debounce fires; the /^es?$/ regex stays tolerant.
+      await waitFor(() => {
+        const textCalls = onCompleteArgument.mock.calls.filter(
+          ([n]) => n === "text",
+        );
+        const lastTextCall = textCalls.at(-1);
+        expect(lastTextCall?.[1]).toBe("h");
+        expect(lastTextCall?.[2].targetLanguage).toMatch(/^es?$/);
+      }, SETTLE);
     });
 
     it("clears stale dropdown options the instant a new keystroke arrives", async () => {
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       const deferred: Array<{
         value: string;
         resolve: (values: string[]) => void;
@@ -386,22 +403,21 @@ describe("PromptArgumentsForm", () => {
       // Focus → first call (value=""). Resolve so the dropdown has
       // something to show.
       await user.click(screen.getByRole("textbox", { name: /^text/ }));
-      await new Promise((r) => setTimeout(r, 0));
-      expect(deferred.length).toBe(1);
+      await waitFor(() => expect(deferred.length).toBe(1));
       deferred[0].resolve(["alpha", "alphabet"]);
       expect(await screen.findByText("alpha")).toBeInTheDocument();
 
-      // Type a new character — the keystroke handler must drop the
-      // stale options immediately so the dropdown doesn't show
-      // "alpha" / "alphabet" while the next request is in flight
-      // (300ms debounce + network latency).
+      // Type a new character — the keystroke handler must drop the stale
+      // options synchronously so the dropdown doesn't show "alpha" /
+      // "alphabet" while the next request is in flight (300ms debounce +
+      // network latency).
       await user.type(screen.getByRole("textbox", { name: /^text/ }), "z");
       expect(screen.queryByText("alpha")).not.toBeInTheDocument();
       expect(screen.queryByText("alphabet")).not.toBeInTheDocument();
     });
 
     it("aborts an in-flight request when a faster keystroke arrives", async () => {
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       const calls: Array<{
         value: string;
         resolve: (values: string[]) => void;
@@ -422,22 +438,25 @@ describe("PromptArgumentsForm", () => {
         />,
       );
 
-      // Focus fires the first call (value=""). Type "h" → second call
-      // after debounce. Type "i" → third call after debounce.
+      // Focus fires the first call (value=""). Type "h" → second call after
+      // the debounce; wait for it to actually be in flight before typing more.
       await user.type(screen.getByRole("textbox", { name: /^text/ }), "h");
-      await new Promise((r) => setTimeout(r, 350));
+      await waitFor(
+        () => expect(calls.some((c) => c.value === "h")).toBe(true),
+        SETTLE,
+      );
       await user.type(screen.getByRole("textbox", { name: /^text/ }), "i");
-      await new Promise((r) => setTimeout(r, 350));
+      await waitFor(
+        () => expect(calls.some((c) => c.value === "hi")).toBe(true),
+        SETTLE,
+      );
 
       // Resolve the late "h" response — it should be dropped because
       // the form aborted that controller when the "hi" request started.
       const hi = calls.find((c) => c.value === "hi");
       const h = calls.find((c) => c.value === "h");
-      expect(hi).toBeDefined();
-      expect(h).toBeDefined();
       h?.resolve(["from-stale-h"]);
       hi?.resolve(["from-fresh-hi"]);
-      await new Promise((r) => setTimeout(r, 0));
 
       // The dropdown shows the fresh response, not the stale one.
       expect(await screen.findByText("from-fresh-hi")).toBeInTheDocument();
@@ -445,7 +464,7 @@ describe("PromptArgumentsForm", () => {
     });
 
     it("surfaces an empty dropdown when the completion request rejects", async () => {
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       // The first (focus) call resolves with options; the debounced
       // keystroke call rejects. The rejection (not aborted) must clear the
       // dropdown to [] rather than leave the stale options showing.
@@ -471,60 +490,88 @@ describe("PromptArgumentsForm", () => {
 
       const input = screen.getByRole("textbox", { name: /^text/ });
       await user.click(input);
-      await new Promise((r) => setTimeout(r, 0));
       expect(await screen.findByText("alpha")).toBeInTheDocument();
 
-      // Type a char → debounced call rejects → options reset to [].
+      // Type a char → the stale options drop synchronously, and the debounced
+      // call then rejects, leaving the dropdown empty. Wait for the second
+      // (rejecting) call to fire so the catch → reset-to-[] path runs.
       await user.type(input, "z");
-      await new Promise((r) => setTimeout(r, 400));
-      expect(screen.queryByText("alpha")).not.toBeInTheDocument();
-      expect(screen.queryByText("alphabet")).not.toBeInTheDocument();
+      await waitFor(
+        () => expect(onCompleteArgument).toHaveBeenCalledTimes(2),
+        SETTLE,
+      );
+      await waitFor(() => {
+        expect(screen.queryByText("alpha")).not.toBeInTheDocument();
+        expect(screen.queryByText("alphabet")).not.toBeInTheDocument();
+      });
     });
 
     it("cancels a pending debounce timer when the input is re-focused", async () => {
-      const user = userEvent.setup();
-      const onCompleteArgument = vi
-        .fn<
-          (
-            argName: string,
-            value: string,
-            context: Record<string, string>,
-          ) => Promise<string[]>
-        >()
-        .mockResolvedValue([]);
+      // This is the one completion test that must let the 300ms debounce
+      // window fully elapse to be meaningful — asserting at t≈0 (as the
+      // sibling negative tests do) would pass whether or not handleFocus's
+      // clearTimeout actually cancels the pending timer. Fake timers make that
+      // window deterministic: we advance the clock directly. The interaction
+      // is driven with fireEvent rather than userEvent, because userEvent's
+      // async internals deadlock under vitest fake timers with this
+      // Mantine/happy-dom stack. This test is load-bearing: if the
+      // clearTimeout in handleFocus were removed, the debounce would fire
+      // during the advance and the final assertion would fail (verified).
+      vi.useFakeTimers();
+      try {
+        const onCompleteArgument = vi
+          .fn<
+            (
+              argName: string,
+              value: string,
+              context: Record<string, string>,
+            ) => Promise<string[]>
+          >()
+          .mockResolvedValue([]);
 
-      renderWithMantine(
-        <StatefulForm
-          prompt={promptWithArgs}
-          onGetPrompt={vi.fn()}
-          completionsSupported
-          onCompleteArgument={onCompleteArgument}
-        />,
-      );
+        renderWithMantine(
+          <StatefulForm
+            prompt={promptWithArgs}
+            onGetPrompt={vi.fn()}
+            completionsSupported
+            onCompleteArgument={onCompleteArgument}
+          />,
+        );
 
-      const textInput = screen.getByRole("textbox", { name: /^text/ });
-      const siblingInput = screen.getByRole("textbox", {
-        name: /targetLanguage/,
-      });
+        const textInput = screen.getByRole("textbox", { name: /^text/ });
+        const siblingInput = screen.getByRole("textbox", {
+          name: /targetLanguage/,
+        });
 
-      // Type into text → schedules a debounce timer. Immediately move focus
-      // away and back before the 300ms fires, so handleFocus sees a pending
-      // timer for "text" and clears it.
-      await user.type(textInput, "h");
-      await user.click(siblingInput);
-      await user.click(textInput);
-      onCompleteArgument.mockClear();
-      // The cancelled debounce must not fire a stale keystroke completion.
-      await new Promise((r) => setTimeout(r, 400));
-      const textCalls = onCompleteArgument.mock.calls.filter(
-        ([n]) => n === "text",
-      );
-      // Only the focus-fire call (value "h"), never the cancelled debounce.
-      expect(textCalls.every(([, v]) => v === "h")).toBe(true);
+        // Type into text → schedules the 300ms debounce timer for "text".
+        fireEvent.focus(textInput);
+        fireEvent.change(textInput, { target: { value: "h" } });
+        // Move focus to the sibling and back — the re-focus makes
+        // handleFocus("text") see the pending debounce timer and clear it.
+        fireEvent.focus(siblingInput);
+        fireEvent.focus(textInput);
+
+        // Drop the focus-fire calls made above; only a *debounce* fire after
+        // this point would indicate the cancellation failed.
+        onCompleteArgument.mockClear();
+
+        // Elapse well past the debounce window. The cancelled timer must not
+        // fire a stale keystroke completion.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(400);
+        });
+
+        const textCalls = onCompleteArgument.mock.calls.filter(
+          ([n]) => n === "text",
+        );
+        expect(textCalls.length).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("does not call onCompleteArgument when completions are unsupported", async () => {
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       const onCompleteArgument = vi.fn();
       renderWithMantine(
         <StatefulForm
@@ -534,10 +581,10 @@ describe("PromptArgumentsForm", () => {
           onCompleteArgument={onCompleteArgument}
         />,
       );
-      // Focus the input first, then type — neither should trigger a call.
+      // Focus the input first, then type — neither path is wired to
+      // completions, so no request is ever scheduled or fired.
       await user.click(screen.getByPlaceholderText("Enter text..."));
       await user.type(screen.getByPlaceholderText("Enter text..."), "ab");
-      await new Promise((r) => setTimeout(r, 400));
       expect(onCompleteArgument).not.toHaveBeenCalled();
     });
   });

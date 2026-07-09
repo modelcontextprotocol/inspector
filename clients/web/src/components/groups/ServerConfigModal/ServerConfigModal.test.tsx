@@ -38,7 +38,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("rejects an id containing illegal characters", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(<ServerConfigModal {...base()} />);
     await user.type(screen.getByLabelText(/Server ID/i), "bad id!");
     expect(
@@ -47,7 +47,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("flags duplicate ids against existingIds", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ServerConfigModal {...base({ existingIds: ["alpha"] })} />,
     );
@@ -56,7 +56,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("calls onSubmit with a valid stdio config", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const props = base();
     renderWithMantine(<ServerConfigModal {...props} />);
 
@@ -74,7 +74,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("requires a command for stdio submission", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const props = base();
     renderWithMantine(<ServerConfigModal {...props} />);
 
@@ -86,7 +86,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("rejects malformed env lines", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const props = base();
     renderWithMantine(<ServerConfigModal {...props} />);
 
@@ -118,7 +118,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("submits an sse config with just the url (headers move to the settings form)", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const props = base();
     renderWithMantine(
       <ServerConfigModal
@@ -140,7 +140,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("submits a streamable-http config", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const props = base();
     renderWithMantine(
       <ServerConfigModal
@@ -174,7 +174,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("rejects an empty URL on sse submission", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const props = base();
     renderWithMantine(
       <ServerConfigModal
@@ -234,7 +234,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("shows the error message and stays open when onSubmit rejects", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const props = {
       ...base(),
       onSubmit: vi.fn().mockRejectedValue(new Error("server full")),
@@ -252,7 +252,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("blocks submit and shows the id error message on bad-id submit click", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const props = base({ existingIds: ["alpha"] });
     renderWithMantine(<ServerConfigModal {...props} />);
 
@@ -265,7 +265,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("supports editing the working directory field", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const props = base();
     renderWithMantine(<ServerConfigModal {...props} />);
 
@@ -283,7 +283,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("clears the Server ID field via its Clear button", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ServerConfigModal
         {...base()}
@@ -299,7 +299,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("clears the Command field via its Clear button", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ServerConfigModal
         {...base()}
@@ -315,7 +315,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("clears the URL field via its Clear button", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ServerConfigModal
         {...base()}
@@ -331,7 +331,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("clears the Arguments field via its Clear button", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ServerConfigModal
         {...base()}
@@ -351,7 +351,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("clears the Environment field via its Clear button", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ServerConfigModal
         {...base()}
@@ -371,7 +371,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("clears the Working directory field via its Clear button", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <ServerConfigModal
         {...base()}
@@ -391,7 +391,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("switches transport via the Transport select, revealing the URL field", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWithMantine(<ServerConfigModal {...base()} />);
 
     // Starts on stdio — Command is shown, URL is not.
@@ -411,7 +411,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("requires a server id before submitting", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const props = base();
     renderWithMantine(<ServerConfigModal {...props} />);
 
@@ -427,7 +427,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("rejects an env line whose '=' is at the start (no key)", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const props = base();
     renderWithMantine(<ServerConfigModal {...props} />);
 
@@ -442,7 +442,7 @@ describe("ServerConfigModal", () => {
   });
 
   it("calls onClose when Cancel is clicked", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const props = base();
     renderWithMantine(<ServerConfigModal {...props} />);
     await user.click(screen.getByRole("button", { name: /Cancel/ }));
