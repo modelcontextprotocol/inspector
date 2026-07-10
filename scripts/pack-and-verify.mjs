@@ -151,6 +151,8 @@ console.log(
 //    runs the package's postinstall).
 // ---------------------------------------------------------------------------
 const work = mkdtempSync(join(tmpdir(), "pack-verify-"));
+// Remove the packed tarball on success; retain it on failure so a packaging
+// problem can be inspected (unpack it, diff the file list).
 let cleanupTarball = true;
 try {
   ensureTestServer();
@@ -253,7 +255,9 @@ try {
       "web (prod / served dist), cli (stdio tools/list), and tui (help) end to end.",
   );
 } catch (err) {
-  cleanupTarball = true;
+  // Keep the tarball around for post-mortem inspection of the packaging failure.
+  cleanupTarball = false;
+  console.error(`pack:verify — tarball retained for inspection at ${tarball}`);
   fail(err instanceof Error ? err.message : String(err));
 } finally {
   rmSync(work, { recursive: true, force: true });
