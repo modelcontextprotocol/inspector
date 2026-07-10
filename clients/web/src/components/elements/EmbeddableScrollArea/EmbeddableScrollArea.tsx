@@ -17,7 +17,22 @@ export interface EmbeddableScrollAreaProps {
   embedded: boolean;
   viewportRef: Ref<HTMLDivElement>;
   children: ReactNode;
+  /**
+   * Constrain the scrolled content to the viewport width instead of letting it
+   * grow to its own `max-content`. Mantine's ScrollArea `content` slot defaults
+   * to `min-width: max-content`, so a row with non-wrapping content (e.g. a long
+   * network URL) stretches every card past the column and it bleeds out (#1623).
+   * When true, the content can shrink to the viewport and each row must manage
+   * its own overflow (the Network URL scrolls inside its own inner ScrollArea).
+   * Left off for panels whose rows already wrap/truncate (Logs, Protocol), where
+   * the default lets a long line scroll the list horizontally instead.
+   */
+  constrainContentWidth?: boolean;
 }
+
+// Relax the `content` slot's default `min-width: max-content` so the list can't
+// grow wider than its viewport; see `constrainContentWidth`.
+const CONSTRAIN_CONTENT_STYLES = { content: { minWidth: 0 } } as const;
 
 /**
  * The scroll region shared by the Logs / Protocol / Network stream panels, which
@@ -28,7 +43,9 @@ export function EmbeddableScrollArea({
   embedded,
   viewportRef,
   children,
+  constrainContentWidth = false,
 }: EmbeddableScrollAreaProps) {
+  const styles = constrainContentWidth ? CONSTRAIN_CONTENT_STYLES : undefined;
   if (embedded) {
     return (
       <Stack flex={1} mih={0} gap={0}>
@@ -37,6 +54,7 @@ export function EmbeddableScrollArea({
           mah="100%"
           type="scroll"
           offsetScrollbars
+          styles={styles}
         >
           {children}
         </ScrollArea.Autosize>
@@ -49,6 +67,7 @@ export function EmbeddableScrollArea({
       mah={FULLSIZE_MAH}
       type="scroll"
       offsetScrollbars
+      styles={styles}
     >
       {children}
     </ScrollArea.Autosize>
