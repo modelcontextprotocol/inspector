@@ -37,6 +37,23 @@ export const ThemeText = Text.extend({
         },
       };
     }
+    // A small, unobtrusive build-version label pinned to the lower-right corner
+    // of the screen (#1639): grey, non-interactive (clicks pass through), and
+    // out of the tab/selection flow so it never interferes with the UI beneath.
+    if (props.variant === "versionBadge") {
+      return {
+        root: {
+          position: "fixed",
+          bottom: "0.35rem",
+          right: "0.6rem",
+          zIndex: 100,
+          color: "var(--inspector-text-secondary)",
+          fontSize: "var(--mantine-font-size-xs)",
+          pointerEvents: "none",
+          userSelect: "none",
+        },
+      };
+    }
     return { root: {} };
   },
 });

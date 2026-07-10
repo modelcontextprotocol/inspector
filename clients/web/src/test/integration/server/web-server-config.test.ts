@@ -260,6 +260,12 @@ describe("webServerConfigToInitialPayload", () => {
     expect(payload.defaultTransport).toBeUndefined();
   });
 
+  it("tags the payload with the single-source Inspector version", () => {
+    // Read from the root package.json via readInspectorVersion() at module load.
+    const payload = webServerConfigToInitialPayload(baseConfig());
+    expect(payload.version).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
   it("emits stdio defaults when initialMcpConfig.type === 'stdio'", () => {
     const cfg = baseConfig();
     cfg.initialMcpConfig = {
