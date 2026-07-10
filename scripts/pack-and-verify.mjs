@@ -125,15 +125,14 @@ if (maps.length > 0) {
 
 // 2b. Runtime files that are easy to omit from the packlist and only fail once
 //     installed: both web artifacts — the prod server runner (build) AND the SPA
-//     (dist) — plus the TUI's package.json, which the TUI bundle reads at
-//     runtime for its header (name/description/version). `clients/web/build` was
-//     previously dropped by the nested .gitignore; `clients/tui/package.json`
-//     was never listed, so the installed TUI crashed on launch.
+//     (dist). `clients/web/build` was previously dropped by the nested
+//     .gitignore. (The version the CLI/TUI report is read from the root
+//     package.json — always shipped — via readInspectorVersion(), so no client
+//     package.json needs to ship; that read is exercised by driving the bin in
+//     step 4.)
 for (const required of [
   "clients/web/build/index.js",
   "clients/web/dist/index.html",
-  "clients/cli/package.json",
-  "clients/tui/package.json",
 ]) {
   if (!tarredPaths.includes(required)) {
     fail(
@@ -179,8 +178,6 @@ try {
     join(installedPkg, "clients", "web", "build", "index.js"),
     join(installedPkg, "clients", "web", "dist", "index.html"),
     join(installedPkg, "clients", "launcher", "build", "index.js"),
-    join(installedPkg, "clients", "cli", "package.json"),
-    join(installedPkg, "clients", "tui", "package.json"),
   ]) {
     if (!existsSync(required)) {
       fail(`expected installed file missing: ${required}`);

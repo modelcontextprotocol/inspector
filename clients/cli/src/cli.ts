@@ -1,5 +1,3 @@
-import { dirname, join } from "path";
-import { fileURLToPath, pathToFileURL } from "url";
 import { Command } from "commander";
 type McpResponse = Record<string, unknown>;
 import { awaitableLog } from "./utils/awaitable-log.js";
@@ -49,10 +47,14 @@ import {
   LoggingLevelSchema,
   type LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
+import { readInspectorVersion } from "@inspector/core/node/version.js";
 
 export const validLogLevels: LoggingLevel[] = Object.values(
   LoggingLevelSchema.enum,
 );
+
+/** Client identity name the CLI reports to servers. */
+const CLI_CLIENT_NAME = "inspector-cli";
 
 type MethodArgs = {
   method?: string;
@@ -74,19 +76,12 @@ async function callMethod(
   cliAuthOverrides: RunnerClientConfigOverrides,
   callbackUrlConfig: RunnerOAuthCallbackConfig,
 ): Promise<void> {
-  const __dirname = dirname(fileURLToPath(import.meta.url));
-  const packageJsonPath = join(__dirname, "../package.json");
-  const packageJsonData = await import(pathToFileURL(packageJsonPath).href, {
-    with: { type: "json" },
-  });
-  const packageJson = packageJsonData.default as {
-    name: string;
-    version: string;
+  // Version comes from the single source of truth — the root package.json —
+  // via the shared core reader, not the CLI's own manifest.
+  const clientIdentity = {
+    name: CLI_CLIENT_NAME,
+    version: readInspectorVersion(import.meta.url),
   };
-
-  const [, name = packageJson.name] = packageJson.name.split("/");
-  const version = packageJson.version;
-  const clientIdentity = { name, version };
 
   const environment: InspectorClientEnvironment = {
     transport: createTransportNode,

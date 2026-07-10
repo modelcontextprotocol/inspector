@@ -25,9 +25,7 @@
     "clients/web/build",
     "clients/web/dist",
     "clients/cli/build",
-    "clients/cli/package.json",
     "clients/tui/build",
-    "clients/tui/package.json",
     "scripts/install-clients.mjs"
   ],
   "scripts": {

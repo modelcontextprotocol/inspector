@@ -1,6 +1,5 @@
 {
   "name": "@modelcontextprotocol/inspector-cli",
-  "version": "2.0.0",
   "private": true,
   "description": "CLI for the Model Context Protocol inspector",
   "license": "MIT",

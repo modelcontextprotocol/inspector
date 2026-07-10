@@ -109,6 +109,7 @@ export default defineConfig(({ command }) => {
         path.join(repoRoot, 'core/auth/**/*.{ts,tsx}'),
         path.join(repoRoot, 'core/storage/**/*.{ts,tsx}'),
         path.join(repoRoot, 'core/logging/**/*.{ts,tsx}'),
+        path.join(repoRoot, 'core/node/**/*.{ts,tsx}'),
       ],
       exclude: [
         '**/*.stories.{ts,tsx}',
