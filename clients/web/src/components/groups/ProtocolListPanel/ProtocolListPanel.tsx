@@ -97,6 +97,11 @@ const SectionLinkButton = Button.withProps({
   size: "xs",
 });
 
+// The two in-panel sub-section labels. The un-pinned section deliberately keeps
+// the "History" wording (and the `"history"` discriminator below) even though
+// the tab/feature was renamed to "Protocol" — this is the settled boundary from
+// #1623: only the tab/feature renames; the section discriminator and its
+// Pinned / History labels stay.
 function formatPinnedTitle(count: number): string {
   return `Pinned Messages (${count})`;
 }
