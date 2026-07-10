@@ -444,7 +444,11 @@ export function useConnection({
     }
   };
 
-  const connect = async (_e?: unknown, retryCount: number = 0) => {
+  const connect = async (
+    _e?: unknown,
+    retryCount: number = 0,
+    serverUrlOverride?: string,
+  ) => {
     const clientCapabilities = {
       capabilities: {
         sampling: {},
@@ -496,7 +500,9 @@ export function useConnection({
       const headers: HeadersInit = {};
 
       // Create an auth provider with the current server URL
-      const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
+      const serverAuthProvider = new InspectorOAuthClientProvider(
+        serverUrlOverride ?? sseUrl,
+      );
 
       // Use custom headers (migration is handled in App.tsx)
       let finalHeaders: CustomHeaders = customHeaders || [];
@@ -694,7 +700,6 @@ export function useConnection({
               );
             }
             transportOptions = {
-              authProvider: serverAuthProvider,
               eventSourceInit: {
                 fetch: (
                   url: string | URL | globalThis.Request,
@@ -716,7 +721,6 @@ export function useConnection({
             mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
             mcpProxyServerUrl.searchParams.append("url", sseUrl);
             transportOptions = {
-              authProvider: serverAuthProvider,
               eventSourceInit: {
                 fetch: (
                   url: string | URL | globalThis.Request,
