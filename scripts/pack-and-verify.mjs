@@ -51,8 +51,21 @@ const testServer = join(repoRoot, "test-servers", "build", "test-server-stdio.js
 // literal because this plain .mjs script can't import the TS source.
 const TOKEN_GLOBAL = "__INSPECTOR_API_TOKEN__";
 
+// Set once the throwaway consumer dir exists. `fail()` is the single
+// failure-exit point (called from everywhere, including deep inside the run),
+// and it calls process.exit(), which skips any `finally` — so cleanup has to
+// happen here, not in a trailing `finally`. On failure we remove the heavy work
+// dir (a full node_modules from the real install) but leave the packed tarball
+// in place for post-mortem inspection.
+let workDir = null;
+
 function fail(message) {
   console.error(`\npack:verify FAILED — ${message}`);
+  if (workDir) {
+    rmSync(workDir, { recursive: true, force: true });
+    // `tarball` is initialized before `workDir` is ever set, so this is safe.
+    console.error(`pack:verify — tarball retained for inspection at ${tarball}`);
+  }
   process.exit(1);
 }
 
@@ -151,9 +164,7 @@ console.log(
 //    runs the package's postinstall).
 // ---------------------------------------------------------------------------
 const work = mkdtempSync(join(tmpdir(), "pack-verify-"));
-// Remove the packed tarball on success; retain it on failure so a packaging
-// problem can be inspected (unpack it, diff the file list).
-let cleanupTarball = true;
+workDir = work; // from now on, fail() cleans this up
 try {
   ensureTestServer();
   step(`installing the tarball into a clean consumer at ${work} (pulls runtime deps)...`);
@@ -250,18 +261,20 @@ try {
   //     it) and inject the auth token. Run non-blocking and poll `/`.
   await verifyWeb(bin, work);
 
+  // Success: clean up both the work dir and the tarball. (This is reached only
+  // on success — every failure path goes through fail() → process.exit(), which
+  // does its own cleanup above and never returns here.)
+  rmSync(work, { recursive: true, force: true });
+  rmSync(tarball, { force: true });
+
   console.log(
     "\npack:verify OK — published tarball installs clean and the real bin drives " +
       "web (prod / served dist), cli (stdio tools/list), and tui (help) end to end.",
   );
 } catch (err) {
-  // Keep the tarball around for post-mortem inspection of the packaging failure.
-  cleanupTarball = false;
-  console.error(`pack:verify — tarball retained for inspection at ${tarball}`);
+  // Unexpected throw (not via fail()) — route through fail() for consistent
+  // cleanup + exit.
   fail(err instanceof Error ? err.message : String(err));
-} finally {
-  rmSync(work, { recursive: true, force: true });
-  if (cleanupTarball) rmSync(tarball, { force: true });
 }
 
 /**
