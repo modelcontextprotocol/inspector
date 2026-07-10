@@ -58,9 +58,17 @@ const TOKEN_GLOBAL = "__INSPECTOR_API_TOKEN__";
 // dir (a full node_modules from the real install) but leave the packed tarball
 // in place for post-mortem inspection.
 let workDir = null;
+// The live `--web` child during verifyWeb(), if any. fail() kills it so a
+// failure in the web phase doesn't orphan the server — which would linger on
+// the port and could even serve a stale false-200 to a later run (verifyWeb's
+// own `finally { stop() }` is skipped when fail() calls process.exit()).
+let webChild = null;
 
 function fail(message) {
   console.error(`\npack:verify FAILED — ${message}`);
+  if (webChild && webChild.exitCode === null) {
+    webChild.kill("SIGTERM");
+  }
   if (workDir) {
     rmSync(workDir, { recursive: true, force: true });
     // `tarball` is initialized before `workDir` is ever set, so this is safe.
@@ -299,6 +307,9 @@ async function verifyWeb(bin, cwd) {
     stdio: ["ignore", "inherit", "inherit"],
     shell: process.platform === "win32",
   });
+  // Expose the child so fail() can kill it if a check below exits the process
+  // (process.exit skips the `finally { stop() }`).
+  webChild = child;
 
   let exited = false;
   let exitCode = null;
@@ -308,6 +319,7 @@ async function verifyWeb(bin, cwd) {
   });
   const stop = () => {
     if (!exited) child.kill("SIGTERM");
+    webChild = null;
   };
 
   try {
