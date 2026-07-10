@@ -10,7 +10,9 @@ export default defineConfig({
   format: ['esm'],
   outDir: 'build',
   clean: true,
-  sourcemap: true,
+  // No source maps in the published bundle — they roughly double the on-disk
+  // size and aren't needed at runtime (debug via `npm run dev` on the source).
+  sourcemap: false,
   target: 'node22',
   platform: 'node',
   noExternal: [/^@inspector\/core/],

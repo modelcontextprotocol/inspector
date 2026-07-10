@@ -25,7 +25,9 @@
     "clients/web/build",
     "clients/web/dist",
     "clients/cli/build",
+    "clients/cli/package.json",
     "clients/tui/build",
+    "clients/tui/package.json",
     "scripts/install-clients.mjs"
   ],
   "scripts": {
@@ -54,6 +56,7 @@
     "smoke:tui": "node scripts/smoke-tui.mjs",
     "smoke:web": "node scripts/smoke-web.mjs",
     "smoke:launcher": "node scripts/smoke-launcher.mjs",
+    "pack:verify": "node scripts/pack-and-verify.mjs",
     "prepack": "npm run build",
     "postinstall": "node scripts/install-clients.mjs"
   },

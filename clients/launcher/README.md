@@ -96,7 +96,19 @@ repo-root `validate:launcher` simply delegates here (`cd clients/launcher && npm
 
 ## Publishing
 
-The root `@modelcontextprotocol/inspector` package ships as one fat tarball: `npm run build` at the repo root builds all clients, then `prepack` runs before `npm publish`. Runtime dependencies are declared on the root `package.json`; client builds bundle `@inspector/core` and externalize npm packages resolved from the root install.
+The root `@modelcontextprotocol/inspector` package ships as one fat tarball with a **single version number** (no separate `-web` / `-cli` / `-tui` / `-core` packages): `npm run build` at the repo root builds all clients, then `prepack` runs before `npm publish`. Runtime dependencies are declared on the root `package.json`; client builds bundle `@inspector/core` and externalize npm packages resolved from the root install.
+
+### What ships, and the packaging invariants
+
+The root `package.json` `"files"` allowlist is the source of truth for the tarball. A few non-obvious entries exist because they are read **at runtime** or were silently dropped by the packlist — do not remove them without re-running `npm run pack:verify`:
+
+- **No source maps.** The client bundlers set `sourcemap: false` (`clients/cli/tsup.config.ts`, `clients/tui/tsup.config.ts`, `clients/web/tsup.runner.config.ts`); Vite and the launcher's `tsc` already emit none. Maps are ~half the unpacked size and aren't needed at runtime — debug via `npm run dev` on the source.
+- **`clients/web/build` is packed via `clients/web/.npmignore`.** `clients/web/.gitignore` lists `build/`, and npm's packlist honors that nested `.gitignore` over the root `"files"` allowlist — so the prod web-server runner was silently missing from the tarball while `clients/web/dist` slipped through (its `.gitignore` only lists `dist-ssr`). `clients/web/.npmignore` overrides the `.gitignore` for publishing so both `build/` (runner) and `dist/` (SPA) ship. The other clients don't need this — none ship a nested `.gitignore`.
+- **`clients/cli/package.json` and `clients/tui/package.json` ship** because those bundles read their own `package.json` at runtime for the client identity / TUI header (`name`, `description`, `version`) relative to the bundle location. Without them the installed CLI crashes on connect and the installed TUI crashes on launch — even though both work in-repo, where the files are present.
+
+### `npm run pack:verify` — publish smoke against the real tarball
+
+The `smoke:*` scripts run against the in-repo build tree, which is **not** the published package. `npm run pack:verify` (`scripts/pack-and-verify.mjs`) closes that gap: it builds, `npm pack`s the publishable tarball (asserting no source maps ship and that `clients/web/{build,dist}` + the two client `package.json`s are present), installs the tarball into a clean throwaway consumer (real `npm install <tgz>`, runs `postinstall`), and drives the installed `mcp-inspector` bin end to end — `--help` dispatch, a real `--cli` `tools/list` over stdio, and a prod `--web` boot that must serve `/` from the shipped `dist`. It catches "works in `--dev`, breaks under `npx @modelcontextprotocol/inspector`" path/packaging failures (exactly how the two `package.json` reads and the `web/build` omission above were found). It requires network access (the install pulls runtime deps), so it is a local / release check, not part of the fast `validate` loop.
 
 ## Architecture
 

@@ -1,0 +1,19 @@
+# npm's packlist uses THIS file instead of .gitignore when deciding what to
+# publish from clients/web. It exists to fix a packaging bug: .gitignore here
+# lists `build/` (a git artifact we never commit), and npm honored that
+# exclusion even though the root package.json "files" field explicitly lists
+# `clients/web/build`. The result was the prod web-server runner silently
+# missing from the published @modelcontextprotocol/inspector tarball while
+# `clients/web/dist` slipped through — so `mcp-inspector --web` had no server to
+# load. (The other clients don't hit this because none of them ship a nested
+# .gitignore.)
+#
+# Crucially this file does NOT list `build` or `dist`, so both the prod runner
+# (build/) and the SPA (dist/) are packed. The root "files" allowlist already
+# restricts publishing to those two directories, so everything else in
+# clients/web (src, configs, node_modules, coverage, storybook-static) stays out
+# regardless — the entries below are just belt-and-suspenders.
+node_modules
+coverage
+storybook-static
+dist-ssr
