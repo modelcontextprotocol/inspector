@@ -7,7 +7,7 @@ export interface PinColumnButtonProps {
 }
 
 /**
- * Toolbar button that pins the owning monitor screen (Logs / History / Network)
+ * Toolbar button that pins the owning monitor screen (Logs / Protocol / Network)
  * into the resizable column on the right of the InspectorView (#1616). Distinct
  * from `PinToggle` (which pins individual history entries) — this one opens a
  * side column, so it uses a right-sidebar glyph and an "as column" label. Styled

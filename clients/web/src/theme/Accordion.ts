@@ -9,7 +9,7 @@ export const ThemeAccordion = Accordion.extend({
   //     scrolls within its own (item-count-weighted) share of the space, so
   //     nothing scrolls until the panel is full.
   //   - `filter-toggle` on the control gives the section headers the same
-  //     outline-on-hover treatment as the FilterToggleButton and the History
+  //     outline-on-hover treatment as the FilterToggleButton and the Protocol
   //     section headers: a thin border on hover (rather than a background fill)
   //     and a filled background when the section is open (`aria-expanded`).
   // Pair it with `chevron={<RiArrowRightSLine />}` and per-item `flex` weights.

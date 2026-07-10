@@ -10,14 +10,14 @@ export function extractMethod(entry: MessageEntry): MessageMethod {
 }
 
 /**
- * Request methods the History Replay action can re-issue (client→server reads
+ * Request methods the Protocol Replay action can re-issue (client→server reads
  * and calls). Server→client requests (roots/list, sampling, elicitation) and
  * side-effectful methods (logging/setLevel, subscribe) are intentionally
- * excluded. Single source of truth: `HistoryEntry` hides the Replay button for
- * anything not listed here, and App's `replayHistoryRequest` gates dispatch on
+ * excluded. Single source of truth: `ProtocolEntry` hides the Replay button for
+ * anything not listed here, and App's `replayProtocolRequest` gates dispatch on
  * the same set.
  */
-export const REPLAYABLE_HISTORY_METHODS: ReadonlySet<string> = new Set([
+export const REPLAYABLE_PROTOCOL_METHODS: ReadonlySet<string> = new Set([
   "tools/call",
   "prompts/get",
   "resources/read",
@@ -29,6 +29,6 @@ export const REPLAYABLE_HISTORY_METHODS: ReadonlySet<string> = new Set([
   "ping",
 ]);
 
-export function isReplayableHistoryMethod(method: string): boolean {
-  return REPLAYABLE_HISTORY_METHODS.has(method);
+export function isReplayableProtocolMethod(method: string): boolean {
+  return REPLAYABLE_PROTOCOL_METHODS.has(method);
 }

@@ -33,7 +33,7 @@ export const Connected: Story = {
       "Prompts",
       "Tasks",
       "Logs",
-      "History",
+      "Protocol",
     ],
     onTabChange: fn(),
     onDisconnect: fn(),

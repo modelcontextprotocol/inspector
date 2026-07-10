@@ -6,7 +6,7 @@
 
 import {
   EMPTY_APPS_UI,
-  EMPTY_HISTORY_UI,
+  EMPTY_PROTOCOL_UI,
   EMPTY_LOGS_UI,
   EMPTY_NETWORK_UI,
   EMPTY_PROMPTS_UI,
@@ -15,7 +15,7 @@ import {
   EMPTY_TOOLS_UI,
 } from "../components/screens/screenUiState.js";
 import type { AppsUiState } from "../components/screens/AppsScreen/AppsScreen.js";
-import type { HistoryUiState } from "../components/screens/HistoryScreen/HistoryScreen.js";
+import type { ProtocolUiState } from "../components/screens/ProtocolScreen/ProtocolScreen.js";
 import type { LogsUiState } from "../components/screens/LoggingScreen/LoggingScreen.js";
 import type { NetworkUiState } from "../components/screens/NetworkScreen/NetworkScreen.js";
 import type { PromptsUiState } from "../components/screens/PromptsScreen/PromptsScreen.js";
@@ -65,7 +65,7 @@ export interface LiftedTabUiState {
   appsUi: AppsUiState;
   tasksUi: TasksUiState;
   logsUi: LogsUiState;
-  historyUi: HistoryUiState;
+  protocolUi: ProtocolUiState;
   networkUi: NetworkUiState;
 }
 
@@ -76,7 +76,7 @@ export interface TabUiSetters {
   setAppsUi: (next: AppsUiState) => void;
   setTasksUi: (next: TasksUiState) => void;
   setLogsUi: (next: LogsUiState) => void;
-  setHistoryUi: (next: HistoryUiState) => void;
+  setProtocolUi: (next: ProtocolUiState) => void;
   setNetworkUi: (next: NetworkUiState) => void;
 }
 
@@ -90,7 +90,7 @@ export function buildTabUiSnapshot(
     Resources: state.resourcesUi,
     Tasks: state.tasksUi,
     Logs: state.logsUi,
-    History: state.historyUi,
+    Protocol: state.protocolUi,
     Network: state.networkUi,
   };
 }
@@ -134,9 +134,9 @@ export function restoreTabUiFromSnapshot(
       case "Logs":
         setters.setLogsUi((value as LogsUiState | undefined) ?? EMPTY_LOGS_UI);
         break;
-      case "History":
-        setters.setHistoryUi(
-          (value as HistoryUiState | undefined) ?? EMPTY_HISTORY_UI,
+      case "Protocol":
+        setters.setProtocolUi(
+          (value as ProtocolUiState | undefined) ?? EMPTY_PROTOCOL_UI,
         );
         break;
       case "Network":

@@ -19,7 +19,7 @@ describe("inspectorTabs", () => {
       "Resources",
       "Tasks",
       "Logs",
-      "History",
+      "Protocol",
       "Network",
     ]);
   });

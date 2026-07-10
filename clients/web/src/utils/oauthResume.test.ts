@@ -20,7 +20,7 @@ import {
   EMPTY_APPS_UI,
   EMPTY_TASKS_UI,
   EMPTY_LOGS_UI,
-  EMPTY_HISTORY_UI,
+  EMPTY_PROTOCOL_UI,
   EMPTY_NETWORK_UI,
 } from "../components/screens/screenUiState.js";
 
@@ -106,7 +106,7 @@ describe("oauthResume", () => {
       appsUi: EMPTY_APPS_UI,
       tasksUi: EMPTY_TASKS_UI,
       logsUi: EMPTY_LOGS_UI,
-      historyUi: EMPTY_HISTORY_UI,
+      protocolUi: EMPTY_PROTOCOL_UI,
       networkUi: EMPTY_NETWORK_UI,
     });
     const setToolsUi = vi.fn();
@@ -117,7 +117,7 @@ describe("oauthResume", () => {
       setAppsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
-      setHistoryUi: vi.fn(),
+      setProtocolUi: vi.fn(),
       setNetworkUi: vi.fn(),
     });
     expect(setToolsUi).toHaveBeenCalledWith(toolsUi);
@@ -209,7 +209,7 @@ describe("oauthResume", () => {
       setAppsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
-      setHistoryUi: vi.fn(),
+      setProtocolUi: vi.fn(),
       setNetworkUi: vi.fn(),
       setActiveTab,
       clearToolCallState,
@@ -399,7 +399,7 @@ describe("oauthResume", () => {
       setAppsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
-      setHistoryUi: vi.fn(),
+      setProtocolUi: vi.fn(),
       setNetworkUi: vi.fn(),
     });
     expect(setToolsUi).not.toHaveBeenCalled();
@@ -413,7 +413,7 @@ describe("oauthResume", () => {
       setAppsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
-      setHistoryUi: vi.fn(),
+      setProtocolUi: vi.fn(),
       setNetworkUi: vi.fn(),
     };
     restoreTabUiFromSnapshot(
@@ -433,7 +433,7 @@ describe("oauthResume", () => {
       setAppsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
-      setHistoryUi: vi.fn(),
+      setProtocolUi: vi.fn(),
       setNetworkUi: vi.fn(),
     };
     restoreTabUiFromSnapshot(
@@ -444,7 +444,7 @@ describe("oauthResume", () => {
         Apps: EMPTY_APPS_UI,
         Tasks: EMPTY_TASKS_UI,
         Logs: EMPTY_LOGS_UI,
-        History: EMPTY_HISTORY_UI,
+        Protocol: EMPTY_PROTOCOL_UI,
         Network: EMPTY_NETWORK_UI,
       },
       setters,
@@ -455,7 +455,7 @@ describe("oauthResume", () => {
     expect(setters.setAppsUi).toHaveBeenCalledWith(EMPTY_APPS_UI);
     expect(setters.setTasksUi).toHaveBeenCalledWith(EMPTY_TASKS_UI);
     expect(setters.setLogsUi).toHaveBeenCalledWith(EMPTY_LOGS_UI);
-    expect(setters.setHistoryUi).toHaveBeenCalledWith(EMPTY_HISTORY_UI);
+    expect(setters.setProtocolUi).toHaveBeenCalledWith(EMPTY_PROTOCOL_UI);
     expect(setters.setNetworkUi).toHaveBeenCalledWith(EMPTY_NETWORK_UI);
   });
 
@@ -467,7 +467,7 @@ describe("oauthResume", () => {
       setAppsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
-      setHistoryUi: vi.fn(),
+      setProtocolUi: vi.fn(),
       setNetworkUi: vi.fn(),
     };
     restoreTabUiFromSnapshot(
@@ -478,7 +478,7 @@ describe("oauthResume", () => {
         Apps: undefined,
         Tasks: undefined,
         Logs: undefined,
-        History: undefined,
+        Protocol: undefined,
         Network: undefined,
       },
       setters,
@@ -489,7 +489,7 @@ describe("oauthResume", () => {
     expect(setters.setAppsUi).toHaveBeenCalledWith(EMPTY_APPS_UI);
     expect(setters.setTasksUi).toHaveBeenCalledWith(EMPTY_TASKS_UI);
     expect(setters.setLogsUi).toHaveBeenCalledWith(EMPTY_LOGS_UI);
-    expect(setters.setHistoryUi).toHaveBeenCalledWith(EMPTY_HISTORY_UI);
+    expect(setters.setProtocolUi).toHaveBeenCalledWith(EMPTY_PROTOCOL_UI);
     expect(setters.setNetworkUi).toHaveBeenCalledWith(EMPTY_NETWORK_UI);
   });
 });

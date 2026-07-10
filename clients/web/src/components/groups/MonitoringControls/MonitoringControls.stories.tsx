@@ -6,7 +6,7 @@ const meta: Meta<typeof MonitoringControls> = {
   title: "Groups/MonitoringControls",
   component: MonitoringControls,
   args: {
-    tabs: ["Logs", "History", "Network"],
+    tabs: ["Logs", "Protocol", "Network"],
     value: "Logs",
     onChange: fn(),
     searchValue: "",
@@ -29,7 +29,7 @@ export const AllTabs: Story = {
 };
 
 export const StdioServer: Story = {
-  args: { tabs: ["Logs", "History"], value: "History" },
+  args: { tabs: ["Logs", "Protocol"], value: "Protocol" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     expect(canvas.queryByRole("radio", { name: "Network" })).toBeNull();

@@ -57,3 +57,39 @@ export const WithEntries: Story = {
 export const Empty: Story = {
   args: { entries: [] },
 };
+
+const longUrlSample: FetchRequestEntry[] = [
+  {
+    id: "n-long-1",
+    timestamp: new Date("2026-03-17T10:00:00Z"),
+    method: "GET",
+    url: "https://example-server.modelcontextprotocol.io/.well-known/oauth-protected-resource/mcp",
+    requestHeaders: {},
+    responseStatus: 404,
+    duration: 84,
+    category: "auth",
+  },
+  {
+    id: "n-long-2",
+    timestamp: new Date("2026-03-17T10:00:05Z"),
+    method: "GET",
+    url: "https://example-server.modelcontextprotocol.io/.well-known/oauth-authorization-server",
+    requestHeaders: {},
+    responseStatus: 200,
+    duration: 79,
+    category: "auth",
+  },
+];
+
+// Reproduces the pinned-column overflow: a long URL must scroll horizontally
+// inside its own area rather than widening the card past the column (#1623).
+export const EmbeddedLongUrls: Story = {
+  args: { entries: longUrlSample, embedded: true },
+  decorators: [
+    (Story) => (
+      <div style={{ width: 380, height: 500, display: "flex" }}>
+        <Story />
+      </div>
+    ),
+  ],
+};

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { MessageEntry } from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { HistoryEntry } from "./HistoryEntry";
+import { ProtocolEntry } from "./ProtocolEntry";
 
 const successEntry: MessageEntry = {
   id: "req-1",
@@ -114,9 +114,9 @@ const baseProps = {
   onTogglePin: vi.fn(),
 };
 
-describe("HistoryEntry", () => {
+describe("ProtocolEntry", () => {
   it("renders the method, target name, status OK, and duration", () => {
-    renderWithMantine(<HistoryEntry {...baseProps} entry={successEntry} />);
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={successEntry} />);
     expect(screen.getByText("tools/call")).toBeInTheDocument();
     expect(screen.getByText("get_weather")).toBeInTheDocument();
     expect(screen.getByText("OK")).toBeInTheDocument();
@@ -125,25 +125,25 @@ describe("HistoryEntry", () => {
 
   it("renders the URI target for resources/read", () => {
     renderWithMantine(
-      <HistoryEntry {...baseProps} entry={resourceReadEntry} />,
+      <ProtocolEntry {...baseProps} entry={resourceReadEntry} />,
     );
     expect(screen.getByText("file:///config.json")).toBeInTheDocument();
     expect(screen.getByText("resources/read")).toBeInTheDocument();
   });
 
   it("renders Error status when response has error", () => {
-    renderWithMantine(<HistoryEntry {...baseProps} entry={errorEntry} />);
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={errorEntry} />);
     expect(screen.getByText("Error")).toBeInTheDocument();
   });
 
   it("renders Pending status when no response present", () => {
-    renderWithMantine(<HistoryEntry {...baseProps} entry={pendingEntry} />);
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={pendingEntry} />);
     expect(screen.getByText("Pending")).toBeInTheDocument();
   });
 
   it("renders no request-style status badge for a notification", () => {
     renderWithMantine(
-      <HistoryEntry {...baseProps} entry={notificationEntry} />,
+      <ProtocolEntry {...baseProps} entry={notificationEntry} />,
     );
     // The method badge still labels it; there is no Pending/OK/Error badge,
     // since a fire-and-forget notification has no request lifecycle.
@@ -154,25 +154,25 @@ describe("HistoryEntry", () => {
   });
 
   it("shows client → server for a client-originated entry", () => {
-    renderWithMantine(<HistoryEntry {...baseProps} entry={successEntry} />);
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={successEntry} />);
     expect(screen.getByText("client → server")).toBeInTheDocument();
   });
 
-  it("shows client ← server for a server-originated entry", () => {
+  it("shows server → client for a server-originated entry", () => {
     renderWithMantine(
-      <HistoryEntry {...baseProps} entry={notificationEntry} />,
+      <ProtocolEntry {...baseProps} entry={notificationEntry} />,
     );
-    expect(screen.getByText("client ← server")).toBeInTheDocument();
+    expect(screen.getByText("server → client")).toBeInTheDocument();
   });
 
   it("renders Pin label when not pinned", () => {
-    renderWithMantine(<HistoryEntry {...baseProps} entry={successEntry} />);
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={successEntry} />);
     expect(screen.getByRole("button", { name: "Pin" })).toBeInTheDocument();
   });
 
   it("renders Unpin label when pinned", () => {
     renderWithMantine(
-      <HistoryEntry {...baseProps} entry={successEntry} isPinned={true} />,
+      <ProtocolEntry {...baseProps} entry={successEntry} isPinned={true} />,
     );
     expect(screen.getByRole("button", { name: "Unpin" })).toBeInTheDocument();
   });
@@ -181,7 +181,7 @@ describe("HistoryEntry", () => {
     const user = userEvent.setup();
     const onReplay = vi.fn();
     renderWithMantine(
-      <HistoryEntry {...baseProps} entry={successEntry} onReplay={onReplay} />,
+      <ProtocolEntry {...baseProps} entry={successEntry} onReplay={onReplay} />,
     );
     await user.click(screen.getByRole("button", { name: "Replay" }));
     expect(onReplay).toHaveBeenCalledTimes(1);
@@ -190,7 +190,7 @@ describe("HistoryEntry", () => {
   it("hides the Replay button for a method that can't be replayed", () => {
     // A notification isn't a replayable client→server request.
     renderWithMantine(
-      <HistoryEntry {...baseProps} entry={notificationEntry} />,
+      <ProtocolEntry {...baseProps} entry={notificationEntry} />,
     );
     expect(
       screen.queryByRole("button", { name: "Replay" }),
@@ -200,7 +200,7 @@ describe("HistoryEntry", () => {
   });
 
   it("orders the actions Replay, then Pin, then the expand toggle on the right", () => {
-    renderWithMantine(<HistoryEntry {...baseProps} entry={successEntry} />);
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={successEntry} />);
     const names = screen
       .getAllByRole("button")
       .map((b) => b.getAttribute("aria-label") ?? b.textContent);
@@ -210,7 +210,7 @@ describe("HistoryEntry", () => {
 
   it("renders the compact two-line layout with Replay as an icon when embedded", () => {
     renderWithMantine(
-      <HistoryEntry {...baseProps} entry={successEntry} embedded />,
+      <ProtocolEntry {...baseProps} entry={successEntry} embedded />,
     );
     // Line 1 essentials plus the method are still shown. The timestamp is the
     // compact time-only form (not the full ISO) to fit the narrow line.
@@ -229,7 +229,7 @@ describe("HistoryEntry", () => {
 
   it("keeps action order Replay, Pin, Expand in the compact layout", () => {
     renderWithMantine(
-      <HistoryEntry {...baseProps} entry={successEntry} embedded />,
+      <ProtocolEntry {...baseProps} entry={successEntry} embedded />,
     );
     const names = screen
       .getAllByRole("button")
@@ -248,7 +248,7 @@ describe("HistoryEntry", () => {
       message: { jsonrpc: "2.0", id: 1, result: {} },
     };
     renderWithMantine(
-      <HistoryEntry {...baseProps} entry={responseEntry} embedded />,
+      <ProtocolEntry {...baseProps} entry={responseEntry} embedded />,
     );
     expect(
       screen.queryByRole("button", { name: "Replay" }),
@@ -260,7 +260,7 @@ describe("HistoryEntry", () => {
     const user = userEvent.setup();
     const onTogglePin = vi.fn();
     renderWithMantine(
-      <HistoryEntry
+      <ProtocolEntry
         {...baseProps}
         entry={successEntry}
         onTogglePin={onTogglePin}
@@ -272,7 +272,7 @@ describe("HistoryEntry", () => {
 
   it("toggles the local expand/collapse state when clicking Expand/Collapse", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<HistoryEntry {...baseProps} entry={successEntry} />);
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={successEntry} />);
     expect(screen.getByRole("button", { name: "Expand" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Expand" }));
     expect(
@@ -283,7 +283,7 @@ describe("HistoryEntry", () => {
   it("toggles the local expand/collapse state when clicking Expand/Collapse in the compact layout", async () => {
     const user = userEvent.setup();
     renderWithMantine(
-      <HistoryEntry {...baseProps} entry={successEntry} embedded />,
+      <ProtocolEntry {...baseProps} entry={successEntry} embedded />,
     );
     expect(screen.getByRole("button", { name: "Expand" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Expand" }));
@@ -294,7 +294,7 @@ describe("HistoryEntry", () => {
 
   it("starts expanded when isListExpanded is true and shows Parameters and Response", () => {
     renderWithMantine(
-      <HistoryEntry
+      <ProtocolEntry
         {...baseProps}
         entry={successEntry}
         isListExpanded={true}
@@ -309,11 +309,11 @@ describe("HistoryEntry", () => {
 
   it("syncs the local expanded state when isListExpanded prop changes", () => {
     const { rerender } = renderWithMantine(
-      <HistoryEntry {...baseProps} entry={successEntry} />,
+      <ProtocolEntry {...baseProps} entry={successEntry} />,
     );
     expect(screen.getByRole("button", { name: "Expand" })).toBeInTheDocument();
     rerender(
-      <HistoryEntry
+      <ProtocolEntry
         {...baseProps}
         entry={successEntry}
         isListExpanded={true}
@@ -326,7 +326,7 @@ describe("HistoryEntry", () => {
 
   it("does not render the Parameters section when message has no params", () => {
     renderWithMantine(
-      <HistoryEntry
+      <ProtocolEntry
         {...baseProps}
         entry={noParamsEntry}
         isListExpanded={true}
@@ -338,7 +338,7 @@ describe("HistoryEntry", () => {
 
   it("does not render the Response section when no response is present", () => {
     renderWithMantine(
-      <HistoryEntry
+      <ProtocolEntry
         {...baseProps}
         entry={pendingEntry}
         isListExpanded={true}
@@ -349,7 +349,7 @@ describe("HistoryEntry", () => {
   });
 
   it("does not render duration when duration is undefined", () => {
-    renderWithMantine(<HistoryEntry {...baseProps} entry={pendingEntry} />);
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={pendingEntry} />);
     expect(screen.queryByText(/ms$/)).not.toBeInTheDocument();
   });
 });

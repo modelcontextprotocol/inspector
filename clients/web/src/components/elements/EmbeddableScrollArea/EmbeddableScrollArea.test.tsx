@@ -31,4 +31,27 @@ describe("EmbeddableScrollArea", () => {
     );
     expect(ref.current).toBeInstanceOf(HTMLElement);
   });
+
+  it.each([false, true])(
+    "constrains the content width when asked (embedded=%s)",
+    (embedded) => {
+      const ref = createRef<HTMLDivElement>();
+      renderWithMantine(
+        <EmbeddableScrollArea
+          embedded={embedded}
+          viewportRef={ref}
+          constrainContentWidth
+        >
+          <div>constrained content</div>
+        </EmbeddableScrollArea>,
+      );
+      expect(screen.getByText("constrained content")).toBeInTheDocument();
+      // The Mantine ScrollArea `content` slot has its default
+      // `min-width: max-content` relaxed to 0 so a long non-wrapping row
+      // (e.g. a network URL) can't stretch the list past its viewport (#1623).
+      const content = document.querySelector(".mantine-ScrollArea-content");
+      expect(content).not.toBeNull();
+      expect((content as HTMLElement).style.minWidth).toBe("0");
+    },
+  );
 });

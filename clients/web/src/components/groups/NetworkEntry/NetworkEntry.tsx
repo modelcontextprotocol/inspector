@@ -58,7 +58,7 @@ const UrlScroll = Text.withProps({
   variant: "nowrap",
 });
 
-// Left / right clusters for a compact header line (mirrors HistoryEntry).
+// Left / right clusters for a compact header line (mirrors ProtocolEntry).
 const HeaderCluster = Group.withProps({
   gap: "sm",
   wrap: "nowrap",
@@ -240,7 +240,7 @@ export function NetworkEntry({
   // The list-level Expand/Collapse toggle is authoritative: each time the
   // parent changes `isListExpanded`, every entry snaps to that state and
   // any per-entry override is intentionally discarded. Mirrors
-  // HistoryEntry; do not change without aligning both. This re-runs on
+  // ProtocolEntry; do not change without aligning both. This re-runs on
   // re-render when `isListExpanded` keeps its reference, but the setter
   // is a no-op when the next value equals the current one.
   useEffect(() => {

@@ -140,7 +140,11 @@ export function NetworkStreamPanel({
       {!hasResults ? (
         <EmptyState>No network requests</EmptyState>
       ) : (
-        <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
+        <EmbeddableScrollArea
+          embedded={embedded}
+          viewportRef={viewportRef}
+          constrainContentWidth
+        >
           <Stack gap="md">
             {filteredEntries.map((entry) => (
               <NetworkEntry

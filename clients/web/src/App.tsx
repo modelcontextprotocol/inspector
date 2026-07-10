@@ -114,7 +114,7 @@ import {
   EMPTY_APPS_UI,
   EMPTY_TASKS_UI,
   EMPTY_LOGS_UI,
-  EMPTY_HISTORY_UI,
+  EMPTY_PROTOCOL_UI,
   EMPTY_NETWORK_UI,
   EMPTY_CONSOLE_UI,
 } from "./components/screens/screenUiState";
@@ -140,7 +140,7 @@ import { ConnectionInfoModal } from "./components/groups/ConnectionInfoModal/Con
 import { oauthDetailsFromConnectionState } from "./components/groups/ConnectionInfoContent/oauthDetailsFromConnectionState";
 import { OutputValidationModal } from "./components/groups/OutputValidationModal/OutputValidationModal";
 import { UrlElicitationErrorModal } from "./components/groups/UrlElicitationErrorModal/UrlElicitationErrorModal";
-import { isReplayableHistoryMethod } from "./components/groups/historyUtils.js";
+import { isReplayableProtocolMethod } from "./components/groups/protocolUtils.js";
 import type { OAuthDetails } from "./components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { ServerRemoveConfirmModal } from "./components/groups/ServerRemoveConfirmModal/ServerRemoveConfirmModal";
 import { StepUpAuthModal } from "./components/groups/StepUpAuthModal/StepUpAuthModal";
@@ -267,21 +267,21 @@ function messagesToLogEntries(messages: MessageEntry[]): LogEntryData[] {
   return out;
 }
 
-// Re-issue the original request behind a History entry. The call goes through
+// Re-issue the original request behind a Protocol entry. The call goes through
 // InspectorClient → tracked transport → message log, so the replayed
-// request+response surface as a fresh History entry (history-local) — it
+// request+response surface as a fresh Protocol entry (protocol-local) — it
 // intentionally does NOT touch the Tools/Prompts/Resources panels. Returns a
 // human-readable reason when the entry can't be replayed (unsupported method,
 // or a tool that's no longer present), or null on a dispatched replay.
-async function replayHistoryRequest(
+async function replayProtocolRequest(
   client: InspectorClient,
   method: string,
   params: Record<string, unknown> | undefined,
   tools: Tool[],
 ): Promise<string | null> {
-  // Gate on the shared replayable-method set (the same one HistoryEntry uses to
+  // Gate on the shared replayable-method set (the same one ProtocolEntry uses to
   // show/hide the Replay button) so the two can't drift.
-  if (!isReplayableHistoryMethod(method)) {
+  if (!isReplayableProtocolMethod(method)) {
     return `Replay isn't supported for "${method}".`;
   }
   // Pagination cursor carried by the */list requests; replaying the same page
@@ -755,11 +755,11 @@ function App() {
   const [appsUi, setAppsUi] = useState(EMPTY_APPS_UI);
   const [tasksUi, setTasksUi] = useState(EMPTY_TASKS_UI);
   const [logsUi, setLogsUi] = useState(EMPTY_LOGS_UI);
-  const [historyUi, setHistoryUi] = useState(EMPTY_HISTORY_UI);
-  // History entries the user pinned (by entry id). Session-scoped — the ids
+  const [protocolUi, setProtocolUi] = useState(EMPTY_PROTOCOL_UI);
+  // Protocol entries the user pinned (by entry id). Session-scoped — the ids
   // reference message-log entries, which clear on disconnect, so this resets
   // with the rest of the per-screen state.
-  const [pinnedHistoryIds, setPinnedHistoryIds] = useState<Set<string>>(
+  const [pinnedProtocolIds, setPinnedProtocolIds] = useState<Set<string>>(
     () => new Set(),
   );
   const [networkUi, setNetworkUi] = useState(EMPTY_NETWORK_UI);
@@ -1014,8 +1014,8 @@ function App() {
     setAppsUi(EMPTY_APPS_UI);
     setTasksUi(EMPTY_TASKS_UI);
     setLogsUi(EMPTY_LOGS_UI);
-    setHistoryUi(EMPTY_HISTORY_UI);
-    setPinnedHistoryIds(new Set());
+    setProtocolUi(EMPTY_PROTOCOL_UI);
+    setPinnedProtocolIds(new Set());
     setNetworkUi(EMPTY_NETWORK_UI);
     // Only the search filter resets here; the stderr entries themselves live in
     // StderrLogState, which deliberately survives connect/disconnect so a failed
@@ -1059,7 +1059,7 @@ function App() {
   // Surface incoming `notifications/progress` as toasts so the user can watch a
   // long-running tool's progress while staying on the tool view — the v2
   // replacement for v1's always-visible "Server Notifications" shelf (#1414).
-  // The full notification history still lives in the History tab; these toasts
+  // The full notification history still lives in the Protocol tab; these toasts
   // are the at-a-glance, in-context signal. Toasts are keyed by progress stream
   // (see `progressToastId`) and replaced per tick so a chatty server updates one
   // toast rather than stacking one per tick.
@@ -1171,7 +1171,7 @@ function App() {
   // with `requestorTaskUpdated` so we skip it to avoid double-firing. One toast per
   // taskId, replaced per tick, dismissed on terminal status (which also prunes the
   // task's progress entry) and on client teardown. The full status history still
-  // lives in the History view.
+  // lives in the Protocol view.
   useEffect(() => {
     if (!inspectorClient) return;
     const liveToastIds = taskToastIdsRef.current;
@@ -1560,7 +1560,7 @@ function App() {
           appsUi,
           tasksUi,
           logsUi,
-          historyUi,
+          protocolUi,
           networkUi,
         }),
         ...(remoteSessionId && { remoteSessionId }),
@@ -1578,7 +1578,7 @@ function App() {
       appsUi,
       tasksUi,
       logsUi,
-      historyUi,
+      protocolUi,
       networkUi,
       onBeforeOAuthRedirect,
     ],
@@ -2189,7 +2189,7 @@ function App() {
         setAppsUi,
         setTasksUi,
         setLogsUi,
-        setHistoryUi,
+        setProtocolUi,
         setNetworkUi,
         setActiveTab,
         clearToolCallState: () => setToolCallState(undefined),
@@ -2987,7 +2987,7 @@ function App() {
   const onClearLogs = useCallback(() => {
     if (!messageLogState) return;
     // Clear only the log notifications, not the entire request/response
-    // history (which the History screen renders from the same source).
+    // history (which the Protocol screen renders from the same source).
     messageLogState.clearMessages(
       (m) =>
         m.direction === "notification" &&
@@ -2999,10 +2999,10 @@ function App() {
   // Panel-level Clear clears the (unpinned) history and keeps pinned entries —
   // pinning is the way to protect an entry from Clear. This matches the button's
   // `disabled={unpinnedEntries.length === 0}` gating and the per-section model,
-  // and leaves pinnedHistoryIds valid (the pins it references still exist).
-  const onClearHistory = useCallback(() => {
-    messageLogState?.clearMessages((m) => !pinnedHistoryIds.has(m.id));
-  }, [messageLogState, pinnedHistoryIds]);
+  // and leaves pinnedProtocolIds valid (the pins it references still exist).
+  const onClearProtocol = useCallback(() => {
+    messageLogState?.clearMessages((m) => !pinnedProtocolIds.has(m.id));
+  }, [messageLogState, pinnedProtocolIds]);
 
   const onClearNetwork = useCallback(() => {
     fetchRequestLogState?.clearFetchRequests();
@@ -3016,50 +3016,50 @@ function App() {
     );
   }, [fetchRequests, activeServerId]);
 
-  const onExportHistory = useCallback(() => {
+  const onExportProtocol = useCallback(() => {
     if (messages.length === 0) return;
     downloadJsonFile(
-      buildExportFilename("history", activeServerId),
+      buildExportFilename("protocol", activeServerId),
       JSON.stringify(messages, null, 2),
     );
   }, [messages, activeServerId]);
 
   // Clear just one section: remove its entries from the log by pin membership.
   // Clearing the pinned section also drops the (now-stale) pinned id set.
-  const onClearHistorySection = useCallback(
+  const onClearProtocolSection = useCallback(
     (section: "pinned" | "history") => {
       const isPinned = section === "pinned";
       messageLogState?.clearMessages((m) =>
-        isPinned ? pinnedHistoryIds.has(m.id) : !pinnedHistoryIds.has(m.id),
+        isPinned ? pinnedProtocolIds.has(m.id) : !pinnedProtocolIds.has(m.id),
       );
-      if (isPinned) setPinnedHistoryIds(new Set());
+      if (isPinned) setPinnedProtocolIds(new Set());
     },
-    [messageLogState, pinnedHistoryIds],
+    [messageLogState, pinnedProtocolIds],
   );
 
   // Export just one section's entries (by pin membership) to a JSON file.
-  const onExportHistorySection = useCallback(
+  const onExportProtocolSection = useCallback(
     (section: "pinned" | "history") => {
       const isPinned = section === "pinned";
       const subset = messages.filter((m) =>
-        isPinned ? pinnedHistoryIds.has(m.id) : !pinnedHistoryIds.has(m.id),
+        isPinned ? pinnedProtocolIds.has(m.id) : !pinnedProtocolIds.has(m.id),
       );
       if (subset.length === 0) return;
       downloadJsonFile(
         buildExportFilename(
-          isPinned ? "history-pinned" : "history-unpinned",
+          isPinned ? "protocol-pinned" : "protocol-unpinned",
           activeServerId,
         ),
         JSON.stringify(subset, null, 2),
       );
     },
-    [messages, pinnedHistoryIds, activeServerId],
+    [messages, pinnedProtocolIds, activeServerId],
   );
 
-  // Pin/unpin a history entry by id. HistoryListPanel sorts pinned entries to
+  // Pin/unpin a Protocol entry by id. ProtocolListPanel sorts pinned entries to
   // the top; the set is session-scoped (see resetSessionScopedUiState).
-  const onTogglePinHistory = useCallback((id: string) => {
-    setPinnedHistoryIds((prev) => {
+  const onTogglePinProtocol = useCallback((id: string) => {
+    setPinnedProtocolIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
@@ -3070,12 +3070,12 @@ function App() {
     });
   }, []);
 
-  // Replay a history entry: re-issue its original request so the fresh
-  // request+response appear as a new History entry (history-local). A reason
+  // Replay a Protocol entry: re-issue its original request so the fresh
+  // request+response appear as a new Protocol entry (protocol-local). A reason
   // string (unsupported method / missing tool) surfaces as a toast; a genuine
   // call error already shows up as the replayed entry's Error status, so only a
   // pre-flight failure (nothing logged) needs the fallback toast.
-  const onReplayHistory = useCallback(
+  const onReplayProtocol = useCallback(
     (id: string) => {
       if (!inspectorClient) return;
       const entry = messages.find((m) => m.id === id);
@@ -3085,7 +3085,7 @@ function App() {
         "params" in entry.message
           ? (entry.message.params as Record<string, unknown> | undefined)
           : undefined;
-      void replayHistoryRequest(inspectorClient, method, params, tools)
+      void replayProtocolRequest(inspectorClient, method, params, tools)
         .then((reason) => {
           if (reason) {
             notifications.show({
@@ -3687,7 +3687,7 @@ function App() {
           logs={logs}
           tasks={tasks}
           progressByTaskId={progressByTaskId}
-          history={messages}
+          protocol={messages}
           network={fetchRequests}
           stderrLogs={stderrLogs}
           toolCallState={toolCallState}
@@ -3699,7 +3699,7 @@ function App() {
           appsUi={appsUi}
           tasksUi={tasksUi}
           logsUi={logsUi}
-          historyUi={historyUi}
+          protocolUi={protocolUi}
           networkUi={networkUi}
           consoleUi={consoleUi}
           activeTab={activeTab}
@@ -3792,14 +3792,14 @@ function App() {
           onLogsUiChange={setLogsUi}
           onClearLogs={onClearLogs}
           onExportLogs={onExportLogs}
-          onHistoryUiChange={setHistoryUi}
-          onClearHistory={onClearHistory}
-          onExportHistory={onExportHistory}
-          onClearHistorySection={onClearHistorySection}
-          onExportHistorySection={onExportHistorySection}
-          onReplayHistory={onReplayHistory}
-          onTogglePinHistory={onTogglePinHistory}
-          pinnedHistoryIds={pinnedHistoryIds}
+          onProtocolUiChange={setProtocolUi}
+          onClearProtocol={onClearProtocol}
+          onExportProtocol={onExportProtocol}
+          onClearProtocolSection={onClearProtocolSection}
+          onExportProtocolSection={onExportProtocolSection}
+          onReplayProtocol={onReplayProtocol}
+          onTogglePinProtocol={onTogglePinProtocol}
+          pinnedProtocolIds={pinnedProtocolIds}
           onNetworkUiChange={setNetworkUi}
           onClearNetwork={onClearNetwork}
           onExportNetwork={onExportNetwork}

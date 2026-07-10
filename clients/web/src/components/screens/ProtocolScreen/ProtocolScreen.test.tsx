@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { MessageEntry } from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { HistoryScreen } from "./HistoryScreen";
-import { EMPTY_HISTORY_UI } from "../screenUiState";
+import { ProtocolScreen } from "./ProtocolScreen";
+import { EMPTY_PROTOCOL_UI } from "../screenUiState";
 
 const sampleEntries: MessageEntry[] = [
   {
@@ -23,7 +23,7 @@ const sampleEntries: MessageEntry[] = [
 const baseProps = {
   entries: sampleEntries,
   pinnedIds: new Set<string>(),
-  ui: EMPTY_HISTORY_UI,
+  ui: EMPTY_PROTOCOL_UI,
   onUiChange: vi.fn(),
   onClearAll: vi.fn(),
   onExport: vi.fn(),
@@ -37,22 +37,24 @@ const baseProps = {
   onToggleCompact: vi.fn(),
 };
 
-describe("HistoryScreen", () => {
+describe("ProtocolScreen", () => {
   it("renders the controls and panel", () => {
-    renderWithMantine(<HistoryScreen {...baseProps} />);
-    expect(screen.getByText("History")).toBeInTheDocument();
+    renderWithMantine(<ProtocolScreen {...baseProps} />);
+    expect(screen.getByText("Protocol")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search...")).toBeInTheDocument();
   });
 
   it("renders empty state when there are no entries", () => {
-    renderWithMantine(<HistoryScreen {...baseProps} entries={[]} />);
-    expect(screen.getByText("History")).toBeInTheDocument();
+    renderWithMantine(<ProtocolScreen {...baseProps} entries={[]} />);
+    expect(screen.getByText("Protocol")).toBeInTheDocument();
   });
 
   it("invokes onClearAll when clear is triggered", async () => {
     const user = userEvent.setup();
     const onClearAll = vi.fn();
-    renderWithMantine(<HistoryScreen {...baseProps} onClearAll={onClearAll} />);
+    renderWithMantine(
+      <ProtocolScreen {...baseProps} onClearAll={onClearAll} />,
+    );
     const clearButton = screen.getByRole("button", { name: /Clear/ });
     await user.click(clearButton);
     expect(onClearAll).toHaveBeenCalled();
@@ -61,7 +63,9 @@ describe("HistoryScreen", () => {
   it("emits the search text through onUiChange", async () => {
     const user = userEvent.setup();
     const onUiChange = vi.fn();
-    renderWithMantine(<HistoryScreen {...baseProps} onUiChange={onUiChange} />);
+    renderWithMantine(
+      <ProtocolScreen {...baseProps} onUiChange={onUiChange} />,
+    );
     await user.type(screen.getByPlaceholderText("Search..."), "t");
     expect(onUiChange).toHaveBeenCalledWith(
       expect.objectContaining({ search: "t" }),
@@ -71,8 +75,10 @@ describe("HistoryScreen", () => {
   it("toggles a single message direction through onUiChange", async () => {
     const user = userEvent.setup();
     const onUiChange = vi.fn();
-    renderWithMantine(<HistoryScreen {...baseProps} onUiChange={onUiChange} />);
-    await user.click(screen.getByRole("button", { name: "client ← server" }));
+    renderWithMantine(
+      <ProtocolScreen {...baseProps} onUiChange={onUiChange} />,
+    );
+    await user.click(screen.getByRole("button", { name: "server → client" }));
     expect(onUiChange).toHaveBeenCalledWith(
       expect.objectContaining({
         visibleDirections: { client: true, server: false },
@@ -83,7 +89,9 @@ describe("HistoryScreen", () => {
   it("toggles all message directions off through onUiChange", async () => {
     const user = userEvent.setup();
     const onUiChange = vi.fn();
-    renderWithMantine(<HistoryScreen {...baseProps} onUiChange={onUiChange} />);
+    renderWithMantine(
+      <ProtocolScreen {...baseProps} onUiChange={onUiChange} />,
+    );
     await user.click(screen.getByRole("button", { name: "Deselect All" }));
     expect(onUiChange).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -96,9 +104,9 @@ describe("HistoryScreen", () => {
     const user = userEvent.setup();
     const onUiChange = vi.fn();
     const { container } = renderWithMantine(
-      <HistoryScreen
+      <ProtocolScreen
         {...baseProps}
-        ui={{ ...EMPTY_HISTORY_UI, methodFilter: "tools/list" }}
+        ui={{ ...EMPTY_PROTOCOL_UI, methodFilter: "tools/list" }}
         onUiChange={onUiChange}
       />,
     );
@@ -115,24 +123,24 @@ describe("HistoryScreen", () => {
   it("renders a pin-as-column button when onPin is provided and invokes it", async () => {
     const user = userEvent.setup();
     const onPin = vi.fn();
-    renderWithMantine(<HistoryScreen {...baseProps} onPin={onPin} />);
+    renderWithMantine(<ProtocolScreen {...baseProps} onPin={onPin} />);
     await user.click(screen.getByRole("button", { name: "Pin as column" }));
     expect(onPin).toHaveBeenCalledTimes(1);
   });
 
   it("drops the filter sidebar when embedded, keeping the request list", () => {
-    renderWithMantine(<HistoryScreen {...baseProps} embedded />);
-    expect(screen.getByText("Requests")).toBeInTheDocument();
-    // The sidebar (HistoryControls, with its Search box) is not rendered.
+    renderWithMantine(<ProtocolScreen {...baseProps} embedded />);
+    expect(screen.getByText("Messages")).toBeInTheDocument();
+    // The sidebar (ProtocolControls, with its Search box) is not rendered.
     expect(screen.queryByPlaceholderText("Search...")).toBeNull();
   });
 
   it("applies the search text but ignores the method filter when embedded", () => {
     renderWithMantine(
-      <HistoryScreen
+      <ProtocolScreen
         {...baseProps}
         ui={{
-          ...EMPTY_HISTORY_UI,
+          ...EMPTY_PROTOCOL_UI,
           // Method filter would exclude the tools/list entries on the full-size
           // screen...
           methodFilter: "resources/list",
@@ -147,9 +155,9 @@ describe("HistoryScreen", () => {
 
   it("hides entries not matching the column search when embedded", () => {
     renderWithMantine(
-      <HistoryScreen
+      <ProtocolScreen
         {...baseProps}
-        ui={{ ...EMPTY_HISTORY_UI, search: "zzz-no-match" }}
+        ui={{ ...EMPTY_PROTOCOL_UI, search: "zzz-no-match" }}
         embedded
       />,
     );

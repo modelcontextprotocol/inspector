@@ -7,7 +7,7 @@ export interface ReplayButtonProps {
 }
 
 /**
- * Icon form of the "Replay" action, used in the compact (column) HistoryEntry
+ * Icon form of the "Replay" action, used in the compact (column) ProtocolEntry
  * layout where the text button is replaced by a replay icon sitting next to the
  * pin toggle (#1616). Matches PinToggle's subtle gray icon-button styling.
  */

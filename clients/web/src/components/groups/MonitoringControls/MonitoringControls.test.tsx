@@ -6,7 +6,7 @@ import {
   type MonitoringControlsProps,
 } from "./MonitoringControls";
 
-const TABS = ["Logs", "History", "Network"];
+const TABS = ["Logs", "Protocol", "Network"];
 
 function renderControls(overrides: Partial<MonitoringControlsProps> = {}) {
   const props: MonitoringControlsProps = {
@@ -31,7 +31,7 @@ describe("MonitoringControls", () => {
   });
 
   it("renders only the tabs it is given", () => {
-    renderControls({ tabs: ["Logs", "History"] });
+    renderControls({ tabs: ["Logs", "Protocol"] });
     expect(screen.getAllByRole("radio")).toHaveLength(2);
     expect(screen.queryByRole("radio", { name: "Network" })).toBeNull();
   });
@@ -53,8 +53,8 @@ describe("MonitoringControls", () => {
   });
 
   it("marks the active tab as selected", () => {
-    renderControls({ value: "History" });
-    expect(screen.getByRole("radio", { name: "History" })).toBeChecked();
+    renderControls({ value: "Protocol" });
+    expect(screen.getByRole("radio", { name: "Protocol" })).toBeChecked();
   });
 
   it("calls onChange when a different tab is chosen", async () => {

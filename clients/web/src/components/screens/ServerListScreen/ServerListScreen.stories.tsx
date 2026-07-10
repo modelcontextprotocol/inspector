@@ -81,7 +81,7 @@ export const MultipleServers: Story = {
     servers: [connectedStdioServer, disconnectedStdioServer, failedHttpServer],
   },
   // The server grid scroll region reserves a scrollbar gutter and hides the
-  // bar when idle, matching the History/Network/Logging list panels (#1474).
+  // bar when idle, matching the Protocol/Network/Logging list panels (#1474).
   play: async ({ canvasElement }) => {
     expectScrollbarGutterIdleHidden(canvasElement);
   },

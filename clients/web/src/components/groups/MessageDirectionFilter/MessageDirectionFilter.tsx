@@ -9,14 +9,14 @@ const SubtleButton = Button.withProps({
 
 // The two message directions, in display order. Label + color mirror the
 // MessageDirectionBadge: outgoing (client → server) is green, incoming
-// (client ← server) is violet.
+// (server → client) is violet.
 const MESSAGE_DIRECTIONS: {
   origin: MessageOrigin;
   label: string;
   color: string;
 }[] = [
   { origin: "client", label: "client → server", color: "green" },
-  { origin: "server", label: "client ← server", color: "violet" },
+  { origin: "server", label: "server → client", color: "violet" },
 ];
 
 export interface MessageDirectionFilterProps {
@@ -27,8 +27,8 @@ export interface MessageDirectionFilterProps {
 
 /**
  * "Filter by Message Direction" section — a Select/Deselect All control plus a
- * FilterToggleButton per direction (client → server / client ← server). Used by
- * the History controls. (Kept as its own component so the section is testable in
+ * FilterToggleButton per direction (client → server / server → client). Used by
+ * the Protocol controls. (Kept as its own component so the section is testable in
  * isolation and reusable if another screen ever needs a direction filter.)
  */
 export function MessageDirectionFilter({

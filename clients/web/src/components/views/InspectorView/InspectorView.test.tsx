@@ -42,7 +42,7 @@ import {
   EMPTY_RESOURCES_UI,
   EMPTY_TASKS_UI,
   EMPTY_LOGS_UI,
-  EMPTY_HISTORY_UI,
+  EMPTY_PROTOCOL_UI,
   EMPTY_NETWORK_UI,
   EMPTY_CONSOLE_UI,
 } from "../../screens/screenUiState";
@@ -83,7 +83,7 @@ function makeProps(
     subscriptions: [],
     logs: [],
     tasks: [],
-    history: [],
+    protocol: [],
     network: [],
     stderrLogs: [],
     currentLogLevel: "info",
@@ -96,7 +96,7 @@ function makeProps(
     appsUi: EMPTY_APPS_UI,
     tasksUi: EMPTY_TASKS_UI,
     logsUi: EMPTY_LOGS_UI,
-    historyUi: EMPTY_HISTORY_UI,
+    protocolUi: EMPTY_PROTOCOL_UI,
     networkUi: EMPTY_NETWORK_UI,
     consoleUi: EMPTY_CONSOLE_UI,
     onToggleTheme: vi.fn(),
@@ -133,13 +133,13 @@ function makeProps(
     onLogsUiChange: vi.fn(),
     onClearLogs: vi.fn(),
     onExportLogs: vi.fn(),
-    onHistoryUiChange: vi.fn(),
-    onClearHistory: vi.fn(),
-    onExportHistory: vi.fn(),
-    onClearHistorySection: vi.fn(),
-    onExportHistorySection: vi.fn(),
-    onReplayHistory: vi.fn(),
-    onTogglePinHistory: vi.fn(),
+    onProtocolUiChange: vi.fn(),
+    onClearProtocol: vi.fn(),
+    onExportProtocol: vi.fn(),
+    onClearProtocolSection: vi.fn(),
+    onExportProtocolSection: vi.fn(),
+    onReplayProtocol: vi.fn(),
+    onTogglePinProtocol: vi.fn(),
     onNetworkUiChange: vi.fn(),
     onClearNetwork: vi.fn(),
     onExportNetwork: vi.fn(),
@@ -498,8 +498,8 @@ describe("InspectorView", () => {
     expect(radios.map((r) => r.getAttribute("value"))).toContain("Logs");
   });
 
-  it("keeps History available regardless of advertised server capabilities", async () => {
-    // History is a local client-side log — never gated on server capabilities.
+  it("keeps Protocol available regardless of advertised server capabilities", async () => {
+    // Protocol is a local client-side log — never gated on server capabilities.
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
@@ -514,7 +514,7 @@ describe("InspectorView", () => {
     const radios = await screen.findAllByRole("radio");
     const labels = radios.map((r) => r.getAttribute("value"));
     expect(labels).toContain("Servers");
-    expect(labels).toContain("History");
+    expect(labels).toContain("Protocol");
     expect(labels).not.toContain("Tools");
     expect(labels).not.toContain("Logs");
   });
@@ -925,7 +925,7 @@ describe("InspectorView", () => {
 
   it("falls back to newest-first when a corrupted sort value is stored", async () => {
     const user = userEvent.setup({ delay: null });
-    window.localStorage.setItem("inspector.sortDirection.history", "garbage");
+    window.localStorage.setItem("inspector.sortDirection.protocol", "garbage");
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
@@ -939,14 +939,14 @@ describe("InspectorView", () => {
     );
     const tabSelect = await screen.findByDisplayValue("Servers");
     await user.click(tabSelect);
-    await user.click(await screen.findByText("History"));
+    await user.click(await screen.findByText("Protocol"));
     const sortSelect = await screen.findByRole("textbox", {
       name: "History sort direction",
     });
     await waitFor(() => expect(sortSelect).toHaveValue("Newest First"));
   });
 
-  it("persists History list compact state to localStorage and restores it on remount", async () => {
+  it("persists Protocol list compact state to localStorage and restores it on remount", async () => {
     const user = userEvent.setup({ delay: null });
     const historyEntry = {
       id: "req-1",
@@ -966,20 +966,20 @@ describe("InspectorView", () => {
           connectionStatus: "connected",
           initializeResult: connectedInit,
           latencyMs: 50,
-          history: [historyEntry],
+          protocol: [historyEntry],
         })}
       />,
     );
     const tabSelect = await screen.findByDisplayValue("Servers");
     await user.click(tabSelect);
-    await user.click(await screen.findByText("History"));
+    await user.click(await screen.findByText("Protocol"));
     // Default is collapsed — ListToggle reads "Expand all".
     await user.click(await screen.findByRole("button", { name: "Expand all" }));
 
     await waitFor(() =>
-      expect(window.localStorage.getItem("inspector.listCompact.history")).toBe(
-        "false",
-      ),
+      expect(
+        window.localStorage.getItem("inspector.listCompact.protocol"),
+      ).toBe("false"),
     );
 
     unmount();
@@ -991,13 +991,13 @@ describe("InspectorView", () => {
           connectionStatus: "connected",
           initializeResult: connectedInit,
           latencyMs: 50,
-          history: [historyEntry],
+          protocol: [historyEntry],
         })}
       />,
     );
     const tabSelect2 = await screen.findByDisplayValue("Servers");
     await user.click(tabSelect2);
-    await user.click(await screen.findByText("History"));
+    await user.click(await screen.findByText("Protocol"));
     // After restore the list is expanded, so the ListToggle reads "Collapse all".
     expect(
       await screen.findByRole("button", { name: "Collapse all" }),
@@ -1006,7 +1006,7 @@ describe("InspectorView", () => {
 
   it("falls back to collapsed when a corrupted compact value is stored", async () => {
     const user = userEvent.setup({ delay: null });
-    window.localStorage.setItem("inspector.listCompact.history", "garbage");
+    window.localStorage.setItem("inspector.listCompact.protocol", "garbage");
     const historyEntry = {
       id: "req-1",
       timestamp: new Date("2026-03-17T10:00:00Z"),
@@ -1025,13 +1025,13 @@ describe("InspectorView", () => {
           connectionStatus: "connected",
           initializeResult: connectedInit,
           latencyMs: 50,
-          history: [historyEntry],
+          protocol: [historyEntry],
         })}
       />,
     );
     const tabSelect = await screen.findByDisplayValue("Servers");
     await user.click(tabSelect);
-    await user.click(await screen.findByText("History"));
+    await user.click(await screen.findByText("Protocol"));
     expect(
       await screen.findByRole("button", { name: "Expand all" }),
     ).toBeInTheDocument();
@@ -1437,12 +1437,12 @@ describe("InspectorView", () => {
       ).toBeInTheDocument();
 
       // The failure column leads with Network (the captured request) — the only
-      // diagnostic with content. History is content-gated and empty here (the
+      // diagnostic with content. Protocol is content-gated and empty here (the
       // message log clears on the error transition), so it isn't offered; nor is
       // Logs (no logging capability was negotiated) or Console (HTTP has no
       // child-process stderr).
       expect(screen.getByRole("radio", { name: "Network" })).toBeChecked();
-      expect(screen.queryByRole("radio", { name: "History" })).toBeNull();
+      expect(screen.queryByRole("radio", { name: "Protocol" })).toBeNull();
       expect(screen.queryByRole("radio", { name: "Logs" })).toBeNull();
       expect(screen.queryByRole("radio", { name: "Console" })).toBeNull();
     });
@@ -1480,21 +1480,21 @@ describe("InspectorView", () => {
       );
       // The captured stderr means it was a stdio launch: the column leads with
       // Console (the process's stderr) — that's where the spawn error is — with
-      // no Network (no HTTP traffic) and no History (content-gated, empty on a
+      // no Network (no HTTP traffic) and no Protocol (content-gated, empty on a
       // fresh failure). The stderr line renders.
       expect(
         await screen.findByRole("radio", { name: "Console" }),
       ).toBeChecked();
-      expect(screen.queryByRole("radio", { name: "History" })).toBeNull();
+      expect(screen.queryByRole("radio", { name: "Protocol" })).toBeNull();
       expect(screen.queryByRole("radio", { name: "Network" })).toBeNull();
       expect(screen.getByText("ModuleNotFoundError: boom")).toBeInTheDocument();
     });
 
-    it("leads with Console even when the stored tab was History, on a stdio failure (#1621)", async () => {
+    it("leads with Console even when the stored tab was Protocol, on a stdio failure (#1621)", async () => {
       // Regression for the review note: a returning user whose last-pinned tab
-      // was History must still land on the Console diagnostic, not the (empty)
-      // History — History is content-gated out of the failure column.
-      window.localStorage.setItem("inspector.monitor.tab", "History");
+      // was Protocol must still land on the Console diagnostic, not the (empty)
+      // Protocol — Protocol is content-gated out of the failure column.
+      window.localStorage.setItem("inspector.monitor.tab", "Protocol");
       monitorWide.value = true;
       const stdioErr: ServerEntry = {
         id: "beta",
@@ -1525,12 +1525,12 @@ describe("InspectorView", () => {
       expect(
         await screen.findByRole("radio", { name: "Console" }),
       ).toBeChecked();
-      expect(screen.queryByRole("radio", { name: "History" })).toBeNull();
+      expect(screen.queryByRole("radio", { name: "Protocol" })).toBeNull();
     });
 
     it("keeps the failure column closed until a diagnostic has content (#1621)", () => {
       // A connect failure with nothing captured yet (no stderr, no fetch, and
-      // History cleared on the error transition) opens onto nothing — so the
+      // Protocol cleared on the error transition) opens onto nothing — so the
       // column stays closed rather than showing an empty pane.
       monitorWide.value = true;
       const { rerender } = renderWithMantine(
@@ -1544,7 +1544,7 @@ describe("InspectorView", () => {
       );
       rerender(
         <StatefulInspectorViewHost
-          {...failedHttp({ network: [], history: [], stderrLogs: [] })}
+          {...failedHttp({ network: [], protocol: [], stderrLogs: [] })}
         />,
       );
       expect(
@@ -1552,8 +1552,8 @@ describe("InspectorView", () => {
       ).toBeNull();
     });
 
-    it("offers History in the failure column when it has captured content (#1621)", async () => {
-      // The failure History tab is content-gated, so when the message log *does*
+    it("offers Protocol in the failure column when it has captured content (#1621)", async () => {
+      // The failure Protocol tab is content-gated, so when the message log *does*
       // hold entries it's offered alongside the diagnostic (Network here).
       monitorWide.value = true;
       const { rerender } = renderWithMantine(
@@ -1579,7 +1579,7 @@ describe("InspectorView", () => {
                 category: "transport",
               },
             ],
-            history: [
+            protocol: [
               {
                 id: "h1",
                 timestamp: new Date(),
@@ -1594,7 +1594,7 @@ describe("InspectorView", () => {
         await screen.findByRole("radio", { name: "Network" }),
       ).toBeChecked();
       expect(
-        screen.getByRole("radio", { name: "History" }),
+        screen.getByRole("radio", { name: "Protocol" }),
       ).toBeInTheDocument();
     });
 
@@ -1664,13 +1664,13 @@ describe("InspectorView", () => {
           })}
         />,
       );
-      // Pinned column for a stdio server hosts Logs/History/Console — never
+      // Pinned column for a stdio server hosts Logs/Protocol/Console — never
       // Network (no HTTP traffic to show).
       expect(
         await screen.findByRole("radio", { name: "Console" }),
       ).toBeInTheDocument();
       expect(
-        screen.getByRole("radio", { name: "History" }),
+        screen.getByRole("radio", { name: "Protocol" }),
       ).toBeInTheDocument();
       expect(screen.queryByRole("radio", { name: "Network" })).toBeNull();
     });
@@ -1717,7 +1717,7 @@ describe("InspectorView", () => {
       const header = screen.getByRole("banner");
       expect(within(header).queryByRole("radio", { name: "Logs" })).toBeNull();
       expect(
-        within(header).queryByRole("radio", { name: "History" }),
+        within(header).queryByRole("radio", { name: "Protocol" }),
       ).toBeNull();
       expect(
         within(header).queryByRole("radio", { name: "Network" }),
@@ -1770,14 +1770,14 @@ describe("InspectorView", () => {
         within(header).getByRole("radio", { name: "Tools" }),
       ).toBeChecked();
 
-      // Switch the column to History, then close it.
-      await user.click(await screen.findByRole("radio", { name: "History" }));
+      // Switch the column to Protocol, then close it.
+      await user.click(await screen.findByRole("radio", { name: "Protocol" }));
       await user.click(
         await screen.findByRole("button", { name: "Close monitoring column" }),
       );
 
       // The primary stays on the header's current screen (Tools), not the
-      // column's History, and the monitor group returns to the header.
+      // column's Protocol, and the monitor group returns to the header.
       await waitFor(() =>
         expect(
           screen.queryByRole("button", { name: "Close monitoring column" }),
@@ -1787,7 +1787,7 @@ describe("InspectorView", () => {
         within(header).getByRole("radio", { name: "Tools" }),
       ).toBeChecked();
       expect(
-        within(header).getByRole("radio", { name: "History" }),
+        within(header).getByRole("radio", { name: "Protocol" }),
       ).toBeInTheDocument();
     });
 
@@ -1898,7 +1898,7 @@ describe("InspectorView", () => {
     });
 
     it("clamps the primary tab to Servers when the header has no other tab", () => {
-      // stdio + logging only ⇒ availableTabs = [Servers, Logs, History]; pinning
+      // stdio + logging only ⇒ availableTabs = [Servers, Logs, Protocol]; pinning
       // moves both monitor tabs out, leaving [Servers] as the only header tab.
       window.localStorage.setItem("inspector.monitor.pinned", "true");
       monitorWide.value = true;
@@ -1928,10 +1928,10 @@ describe("InspectorView", () => {
       monitorWide.value = true;
       const user = userEvent.setup();
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
-      await user.click(await screen.findByRole("radio", { name: "History" }));
+      await user.click(await screen.findByRole("radio", { name: "Protocol" }));
       await waitFor(() =>
         expect(window.localStorage.getItem("inspector.monitor.tab")).toBe(
-          "History",
+          "Protocol",
         ),
       );
     });
@@ -1949,7 +1949,7 @@ describe("InspectorView", () => {
                 params: { level: "info", data: "loghello" },
               },
             ],
-            history: [
+            protocol: [
               {
                 id: "h1",
                 timestamp: new Date(),
@@ -1968,8 +1968,8 @@ describe("InspectorView", () => {
       await user.type(searchBox, "zzz");
       expect(screen.queryByText("loghello")).toBeNull();
 
-      // ...and the same term carries over to History (still filtered → empty).
-      await user.click(screen.getByRole("radio", { name: "History" }));
+      // ...and the same term carries over to Protocol (still filtered → empty).
+      await user.click(screen.getByRole("radio", { name: "Protocol" }));
       expect(screen.getByText("No request history")).toBeInTheDocument();
       expect(screen.getByRole("textbox", { name: "Search" })).toHaveValue(
         "zzz",

@@ -72,9 +72,9 @@ import {
 } from "../../screens/TasksScreen/TasksScreen";
 import type { TaskProgress } from "../../groups/TaskCard/TaskCard";
 import {
-  HistoryScreen,
-  type HistoryUiState,
-} from "../../screens/HistoryScreen/HistoryScreen";
+  ProtocolScreen,
+  type ProtocolUiState,
+} from "../../screens/ProtocolScreen/ProtocolScreen";
 import {
   NetworkScreen,
   type NetworkUiState,
@@ -126,7 +126,7 @@ function serializeListCompact(value: boolean): string {
 // SPA only, no SSR — so the persisted value lands without a one-frame
 // flicker through the default. The `inspector.<kind>.<scope>` namespace
 // keeps related preferences grouped and easy to clear in bulk.
-function useSortDirection(scope: "logs" | "history" | "network" | "console") {
+function useSortDirection(scope: "logs" | "protocol" | "network" | "console") {
   return useLocalStorage<SortDirection>({
     key: `inspector.sortDirection.${scope}`,
     defaultValue: SORT_DEFAULT,
@@ -137,7 +137,7 @@ function useSortDirection(scope: "logs" | "history" | "network" | "console") {
 }
 
 function useListCompact(
-  scope: "history" | "network" | "servers" | "resources",
+  scope: "protocol" | "network" | "servers" | "resources",
   defaultValue: boolean,
 ) {
   return useLocalStorage<boolean>({
@@ -151,7 +151,7 @@ function useListCompact(
 
 const SERVERS_TAB = INSPECTOR_SERVERS_TAB;
 const LOGS_TAB = "Logs";
-const HISTORY_TAB = "History";
+const PROTOCOL_TAB = "Protocol";
 const NETWORK_TAB = "Network";
 const CONSOLE_TAB = "Console";
 
@@ -163,7 +163,7 @@ const ALL_TABS: string[] = [
   "Resources",
   "Tasks",
   LOGS_TAB,
-  HISTORY_TAB,
+  PROTOCOL_TAB,
   NETWORK_TAB,
   CONSOLE_TAB,
 ];
@@ -173,10 +173,10 @@ const ALL_TABS: string[] = [
 // the header and hosts them in the column instead. Console (#1621) is the
 // stdio server's stderr stream — mutually exclusive with Network (Console shows
 // for stdio, Network for HTTP), but both live in the monitor group.
-type MonitorTab = "Logs" | "History" | "Network" | "Console";
+type MonitorTab = "Logs" | "Protocol" | "Network" | "Console";
 const MONITOR_TABS: string[] = [
   LOGS_TAB,
-  HISTORY_TAB,
+  PROTOCOL_TAB,
   NETWORK_TAB,
   CONSOLE_TAB,
 ];
@@ -184,7 +184,7 @@ const MONITOR_TABS: string[] = [
 function isMonitorTab(tab: string): tab is MonitorTab {
   return (
     tab === LOGS_TAB ||
-    tab === HISTORY_TAB ||
+    tab === PROTOCOL_TAB ||
     tab === NETWORK_TAB ||
     tab === CONSOLE_TAB
   );
@@ -377,7 +377,7 @@ export interface InspectorViewProps {
   logs: LogEntryData[];
   tasks: Task[];
   progressByTaskId?: Record<string, TaskProgress>;
-  history: MessageEntry[];
+  protocol: MessageEntry[];
   network: FetchRequestEntry[];
   /** Captured stdio stderr (the Console screen). Empty for HTTP servers. (#1621) */
   stderrLogs: StderrLogEntry[];
@@ -398,7 +398,7 @@ export interface InspectorViewProps {
   appsUi: AppsUiState;
   tasksUi: TasksUiState;
   logsUi: LogsUiState;
-  historyUi: HistoryUiState;
+  protocolUi: ProtocolUiState;
   networkUi: NetworkUiState;
   consoleUi: ConsoleUiState;
 
@@ -418,9 +418,9 @@ export interface InspectorViewProps {
   bridgeFactory: BridgeFactory;
   appRendererRef: Ref<AppRendererHandle>;
 
-  // History pinning. Optional because pin state isn't persisted yet (#1244
+  // Protocol pinning. Optional because pin state isn't persisted yet (#1244
   // is single-PR; persistence is a separate concern).
-  pinnedHistoryIds?: Set<string>;
+  pinnedProtocolIds?: Set<string>;
 
   // Theme toggle (lives in the parent so the color scheme can also flow
   // into other top-level UI later).
@@ -505,13 +505,13 @@ export interface InspectorViewProps {
   onClearLogs: () => void;
   onExportLogs: () => void;
 
-  onHistoryUiChange: (next: HistoryUiState) => void;
-  onClearHistory: () => void;
-  onExportHistory: () => void;
-  onClearHistorySection: (section: "pinned" | "history") => void;
-  onExportHistorySection: (section: "pinned" | "history") => void;
-  onReplayHistory: (id: string) => void;
-  onTogglePinHistory: (id: string) => void;
+  onProtocolUiChange: (next: ProtocolUiState) => void;
+  onClearProtocol: () => void;
+  onExportProtocol: () => void;
+  onClearProtocolSection: (section: "pinned" | "history") => void;
+  onExportProtocolSection: (section: "pinned" | "history") => void;
+  onReplayProtocol: (id: string) => void;
+  onTogglePinProtocol: (id: string) => void;
 
   onNetworkUiChange: (next: NetworkUiState) => void;
   onClearNetwork: () => void;
@@ -548,7 +548,7 @@ export function InspectorView({
   logs,
   tasks,
   progressByTaskId,
-  history,
+  protocol,
   network,
   stderrLogs,
   toolCallState,
@@ -560,14 +560,14 @@ export function InspectorView({
   appsUi,
   tasksUi,
   logsUi,
-  historyUi,
+  protocolUi,
   networkUi,
   consoleUi,
   currentLogLevel,
   sandboxPath,
   bridgeFactory,
   appRendererRef,
-  pinnedHistoryIds,
+  pinnedProtocolIds,
   onToggleTheme,
   onOpenClientSettings,
   onToggleConnection,
@@ -611,13 +611,13 @@ export function InspectorView({
   onLogsUiChange,
   onClearLogs,
   onExportLogs,
-  onHistoryUiChange,
-  onClearHistory,
-  onExportHistory,
-  onClearHistorySection,
-  onExportHistorySection,
-  onReplayHistory,
-  onTogglePinHistory,
+  onProtocolUiChange,
+  onClearProtocol,
+  onExportProtocol,
+  onClearProtocolSection,
+  onExportProtocolSection,
+  onReplayProtocol,
+  onTogglePinProtocol,
   onNetworkUiChange,
   onClearNetwork,
   onExportNetwork,
@@ -638,16 +638,16 @@ export function InspectorView({
   // toggles (sort direction, list compact). Tab selection is lifted (#1417).
 
   const [logsSort, setLogsSort] = useSortDirection("logs");
-  const [historySort, setHistorySort] = useSortDirection("history");
+  const [protocolSort, setProtocolSort] = useSortDirection("protocol");
   const [networkSort, setNetworkSort] = useSortDirection("network");
   const [consoleSort, setConsoleSort] = useSortDirection("console");
 
   // Servers and Resources default to expanded (collapsed=false) so new
-  // users see content on first paint; History/Network default to
+  // users see content on first paint; Protocol/Network default to
   // collapsed (the lists are long enough that compact is the better
   // first-paint state).
-  const [historyCompact, setHistoryCompact] = useListCompact(
-    "history",
+  const [protocolCompact, setProtocolCompact] = useListCompact(
+    "protocol",
     LIST_COMPACT_DEFAULT,
   );
   const [networkCompact, setNetworkCompact] = useListCompact(
@@ -660,7 +660,7 @@ export function InspectorView({
     false,
   );
 
-  // Monitoring-column state (#1616): whether Logs/History/Network are pinned to
+  // Monitoring-column state (#1616): whether Logs/Protocol/Network are pinned to
   // the right column, which one is active there, and the column width. All
   // persisted (view-layout preferences), same shape as the sort/compact hooks.
   const [monitorPinned, setMonitorPinned] = useLocalStorage<boolean>({
@@ -761,7 +761,7 @@ export function InspectorView({
   //               its "unavailable" message remains reachable.
   //
   // Network is hidden for stdio servers (no HTTP traffic to surface).
-  // Servers and History are never capability-gated — History is a local
+  // Servers and Protocol are never capability-gated — Protocol is a local
   // client-side log, and any future client capabilities (sampling /
   // elicitation / roots) are inspector-offered, not server-advertised, so
   // they must not be gated here either. These memo dependencies make the tabs
@@ -824,7 +824,7 @@ export function InspectorView({
       //   • stdio → the process's stderr (Console): the spawn/startup error the
       //     child printed before dying.
       //   • HTTP  → the failed requests (Network).
-      //   • History only if it has entries — the message log is cleared on the
+      //   • Protocol only if it has entries — the message log is cleared on the
       //     error transition, so on a fresh connect failure it's empty; offering
       //     it anyway would let an empty tab lead over (and hide) the real
       //     diagnostic. Content-gating it keeps the actual diagnostic first.
@@ -835,11 +835,11 @@ export function InspectorView({
       const tabs: string[] = [];
       if (stderrLogs.length > 0) tabs.push(CONSOLE_TAB);
       if (network.length > 0) tabs.push(NETWORK_TAB);
-      if (history.length > 0) tabs.push(HISTORY_TAB);
+      if (protocol.length > 0) tabs.push(PROTOCOL_TAB);
       return tabs;
     }
     return [];
-  }, [connected, failed, availableTabs, stderrLogs, network, history]);
+  }, [connected, failed, availableTabs, stderrLogs, network, protocol]);
   const effectivePinned =
     monitorPinned &&
     !!isWide &&
@@ -907,7 +907,7 @@ export function InspectorView({
   }
 
   // A single search shared across the column's tabs (kept as you move between
-  // Logs/History/Network so it filters each one), distinct from the full-size
+  // Logs/Protocol/Network so it filters each one), distinct from the full-size
   // screens' own searches. The embedded panels apply only this text; their other
   // filters (levels / categories / directions / method) have no control in the
   // column and are bypassed there.
@@ -975,21 +975,21 @@ export function InspectorView({
     sortDirection: logsSort,
     onSortChange: setLogsSort,
   };
-  const historyScreenProps = {
-    entries: history,
-    pinnedIds: pinnedHistoryIds ?? new Set<string>(),
-    ui: historyUi,
-    onUiChange: onHistoryUiChange,
-    onClearAll: onClearHistory,
-    onExport: onExportHistory,
-    onClearSection: onClearHistorySection,
-    onExportSection: onExportHistorySection,
-    onReplay: onReplayHistory,
-    onTogglePin: onTogglePinHistory,
-    sortDirection: historySort,
-    onSortChange: setHistorySort,
-    compact: historyCompact,
-    onToggleCompact: () => setHistoryCompact((c) => !c),
+  const protocolScreenProps = {
+    entries: protocol,
+    pinnedIds: pinnedProtocolIds ?? new Set<string>(),
+    ui: protocolUi,
+    onUiChange: onProtocolUiChange,
+    onClearAll: onClearProtocol,
+    onExport: onExportProtocol,
+    onClearSection: onClearProtocolSection,
+    onExportSection: onExportProtocolSection,
+    onReplay: onReplayProtocol,
+    onTogglePin: onTogglePinProtocol,
+    sortDirection: protocolSort,
+    onSortChange: setProtocolSort,
+    compact: protocolCompact,
+    onToggleCompact: () => setProtocolCompact((c) => !c),
   };
   const networkScreenProps = {
     entries: network,
@@ -1024,10 +1024,10 @@ export function InspectorView({
         embedded
       />
     ),
-    [HISTORY_TAB]: (
-      <HistoryScreen
-        {...historyScreenProps}
-        ui={{ ...historyUi, search: monitorSearch }}
+    [PROTOCOL_TAB]: (
+      <ProtocolScreen
+        {...protocolScreenProps}
+        ui={{ ...protocolUi, search: monitorSearch }}
         embedded
       />
     ),
@@ -1185,10 +1185,10 @@ export function InspectorView({
                 onPin={canPin ? () => pinMonitor(LOGS_TAB) : undefined}
               />
             </ScreenStage>
-            <ScreenStage active={activeTab === HISTORY_TAB}>
-              <HistoryScreen
-                {...historyScreenProps}
-                onPin={canPin ? () => pinMonitor(HISTORY_TAB) : undefined}
+            <ScreenStage active={activeTab === PROTOCOL_TAB}>
+              <ProtocolScreen
+                {...protocolScreenProps}
+                onPin={canPin ? () => pinMonitor(PROTOCOL_TAB) : undefined}
               />
             </ScreenStage>
             <ScreenStage active={activeTab === NETWORK_TAB}>

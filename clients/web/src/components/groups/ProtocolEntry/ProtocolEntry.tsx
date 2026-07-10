@@ -15,9 +15,9 @@ import { MessageDirectionBadge } from "../../elements/MessageDirectionBadge/Mess
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { PinToggle } from "../../elements/PinToggle/PinToggle";
 import { ReplayButton } from "../../elements/ReplayButton/ReplayButton";
-import { extractMethod, isReplayableHistoryMethod } from "../historyUtils.js";
+import { extractMethod, isReplayableProtocolMethod } from "../protocolUtils.js";
 
-export interface HistoryEntryProps {
+export interface ProtocolEntryProps {
   entry: MessageEntry;
   isPinned: boolean;
   isListExpanded: boolean;
@@ -128,19 +128,19 @@ function serializeMessage(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export function HistoryEntry({
+export function ProtocolEntry({
   entry,
   isPinned,
   isListExpanded,
   onReplay,
   onTogglePin,
   embedded = false,
-}: HistoryEntryProps) {
+}: ProtocolEntryProps) {
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
   const method = extractMethod(entry);
   const target = extractTarget(entry);
   const status = extractStatus(entry);
-  const canReplay = isReplayableHistoryMethod(method);
+  const canReplay = isReplayableProtocolMethod(method);
 
   useEffect(() => {
     setIsExpanded(isListExpanded);

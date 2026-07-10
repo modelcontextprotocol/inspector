@@ -3,7 +3,7 @@ import { TbLayoutSidebarRightCollapse } from "react-icons/tb";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
 
 export interface MonitoringControlsProps {
-  /** The monitor screens currently available to pin (e.g. Logs/History/Network). */
+  /** The monitor screens currently available to pin (e.g. Logs/Protocol/Network). */
   tabs: string[];
   /** The active monitor tab shown in the column below. */
   value: string;
