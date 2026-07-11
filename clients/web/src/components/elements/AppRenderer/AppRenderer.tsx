@@ -42,11 +42,27 @@ export interface AppRendererHandle {
   teardown(): Promise<void>;
 }
 
+/**
+ * High-level lifecycle of a running app, surfaced so a host (or an automated
+ * driver polling a `data-app-status` attribute) can wait for the right moment:
+ * `loading` while the bridge is being built and the view's `ui/initialize`
+ * handshake is in flight; `ready` once the view has fired
+ * `notifications/initialized`; `error` when the bridge factory throws or
+ * rejects (no live view to wait on).
+ */
+export type AppRendererStatus = "loading" | "ready" | "error";
+
 export interface AppRendererProps {
   sandboxPath: string;
   tool: Tool;
   bridgeFactory: BridgeFactory;
   onError?: (err: Error) => void;
+  /**
+   * Reports the renderer's high-level lifecycle (see {@link AppRendererStatus}).
+   * Fires `loading` at the start of every (re)build, `ready` when the view
+   * signals `initialized`, and `error` on a factory throw/rejection.
+   */
+  onAppStatusChange?: (status: AppRendererStatus) => void;
   /**
    * Called when the running view reports a new rendered content size via
    * `ui/notifications/size-changed` (typically driven by its `ResizeObserver`).
@@ -141,6 +157,7 @@ export function AppRenderer({
   tool,
   bridgeFactory,
   onError,
+  onAppStatusChange,
   onSizeChange,
   displayMode,
   onRequestDisplayMode,
@@ -168,6 +185,7 @@ export function AppRenderer({
     tool: Tool;
   } | null>(null);
   const onErrorRef = useRef(onError);
+  const onAppStatusChangeRef = useRef(onAppStatusChange);
   const onSizeChangeRef = useRef(onSizeChange);
   const displayModeRef = useRef(displayMode);
   const onRequestDisplayModeRef = useRef(onRequestDisplayMode);
@@ -176,6 +194,7 @@ export function AppRenderer({
   const partialInputsRef = useRef(partialInputs);
   useEffect(() => {
     onErrorRef.current = onError;
+    onAppStatusChangeRef.current = onAppStatusChange;
     onSizeChangeRef.current = onSizeChange;
     displayModeRef.current = displayMode;
     onRequestDisplayModeRef.current = onRequestDisplayMode;
@@ -278,6 +297,7 @@ export function AppRenderer({
     const buildId = ++buildIdRef.current;
     teardownStartedRef.current = false;
     initializedRef.current = false;
+    onAppStatusChangeRef.current?.("loading");
     // Snapshot the staged partial-input fragments for THIS bridge build (read
     // via the ref so the prop is not a dep — adding/removing fragments must not
     // rebuild the iframe). The StrictMode reuse path above returned before
@@ -288,6 +308,7 @@ export function AppRenderer({
     try {
       pending = Promise.resolve(bridgeFactory(iframe, tool));
     } catch (err) {
+      onAppStatusChangeRef.current?.("error");
       onErrorRef.current?.(toError(err));
       return scheduleDispose;
     }
@@ -304,6 +325,7 @@ export function AppRenderer({
         // drives), so the view's `initialized` signal is never missed.
         bridge.addEventListener("initialized", () => {
           initializedRef.current = true;
+          onAppStatusChangeRef.current?.("ready");
           // The factory already seeded theme/styles/displayMode into the
           // handshake hostContext; the observers below cover any subsequent
           // changes. Only containerDimensions can plausibly differ between
@@ -350,7 +372,9 @@ export function AppRenderer({
         flushPending();
       })
       .catch((err) => {
-        if (buildIdRef.current === buildId) onErrorRef.current?.(toError(err));
+        if (buildIdRef.current !== buildId) return;
+        onAppStatusChangeRef.current?.("error");
+        onErrorRef.current?.(toError(err));
       });
 
     return scheduleDispose;

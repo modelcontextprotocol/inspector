@@ -939,6 +939,59 @@ describe("AppRenderer", () => {
     expect(bridge.close).toHaveBeenCalledTimes(1);
   });
 
+  it("transitions loading -> ready across the view's initialized signal", async () => {
+    const bridge = createMockBridge();
+    const onAppStatusChange = vi.fn();
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+        onAppStatusChange={onAppStatusChange}
+      />,
+    );
+    await flushAsync();
+    // The build starts with "loading" before the bridge resolves.
+    expect(onAppStatusChange).toHaveBeenCalledWith("loading");
+    expect(onAppStatusChange).not.toHaveBeenCalledWith("ready");
+    await act(async () => bridge.emit("initialized"));
+    expect(onAppStatusChange).toHaveBeenLastCalledWith("ready");
+  });
+
+  it("reports status 'error' when the bridge factory throws synchronously", async () => {
+    const onAppStatusChange = vi.fn();
+    const factory: BridgeFactory = () => {
+      throw new Error("sync boom");
+    };
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={factory}
+        onAppStatusChange={onAppStatusChange}
+      />,
+    );
+    await flushAsync();
+    expect(onAppStatusChange).toHaveBeenCalledWith("loading");
+    expect(onAppStatusChange).toHaveBeenLastCalledWith("error");
+  });
+
+  it("reports status 'error' when the bridge factory rejects", async () => {
+    const onAppStatusChange = vi.fn();
+    const factory: BridgeFactory = () =>
+      Promise.reject(new Error("async boom"));
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={factory}
+        onAppStatusChange={onAppStatusChange}
+      />,
+    );
+    await flushAsync();
+    expect(onAppStatusChange).toHaveBeenLastCalledWith("error");
+  });
+
   it("calls onError when the bridge factory throws", async () => {
     const onError = vi.fn();
     const factory: BridgeFactory = () => {

@@ -603,6 +603,82 @@ describe("AppsScreen", () => {
     expect(screen.getByText("Select an app to view details")).toBeVisible();
   });
 
+  describe("data-app-status / data-app-error", () => {
+    function getStatus(): string | null {
+      return screen.getByTestId("apps-form").getAttribute("data-app-status");
+    }
+
+    it("is idle when no app is running", () => {
+      renderWithMantine(
+        <ControlledAppsScreen
+          ui={{ ...EMPTY_APPS_UI, selectedAppName: "weather" }}
+        />,
+      );
+      expect(getStatus()).toBe("idle");
+    });
+
+    it("transitions idle → loading → ready around the view's initialized signal", async () => {
+      const user = userEvent.setup();
+      const { factory, emit } = createEventBridgeFactory();
+      renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+      expect(getStatus()).toBe("idle");
+      await user.click(screen.getByText("Ops Dashboard"));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(getStatus()).toBe("loading");
+      await act(async () => emit("initialized"));
+      expect(getStatus()).toBe("ready");
+    });
+
+    it("reports error status + surfaces the reason in an error panel and data-app-error when the bridge factory rejects", async () => {
+      const user = userEvent.setup();
+      const onError = vi.fn();
+      const failingFactory: BridgeFactory = () =>
+        Promise.reject(new Error("connect refused"));
+      renderWithMantine(
+        <ControlledAppsScreen
+          bridgeFactory={failingFactory}
+          onError={onError}
+        />,
+      );
+      await user.click(screen.getByText("Ops Dashboard"));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(getStatus()).toBe("error");
+      const form = screen.getByTestId("apps-form");
+      expect(form.getAttribute("data-app-error")).toBe("connect refused");
+      // The error panel replaces the silent blank frame with the reason.
+      expect(screen.getByTestId("apps-error")).toBeInTheDocument();
+      expect(screen.getByText("App failed to load")).toBeInTheDocument();
+      expect(screen.getByText("connect refused")).toBeInTheDocument();
+      // The error is also forwarded to the parent onError.
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "connect refused" }),
+      );
+    });
+
+    it("resets to idle and clears the error panel when the running app is closed", async () => {
+      const user = userEvent.setup();
+      const failingFactory: BridgeFactory = () =>
+        Promise.reject(new Error("connect refused"));
+      renderWithMantine(
+        <ControlledAppsScreen bridgeFactory={failingFactory} />,
+      );
+      await user.click(screen.getByText("Ops Dashboard"));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByTestId("apps-error")).toBeInTheDocument();
+      await user.click(screen.getByLabelText("Close"));
+      expect(screen.queryByTestId("apps-error")).not.toBeInTheDocument();
+    });
+  });
+
   it("stages partial-input snapshots from the form and clears them", async () => {
     const user = userEvent.setup();
     renderWithMantine(<ControlledAppsScreen />);
