@@ -219,6 +219,23 @@ const PanelHeaderRow = Group.withProps({
   gap: "sm",
 });
 
+const PartialStageControls = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
+  align: "center",
+  flex: "0 0 auto",
+});
+
+const StagePartialButton = Button.withProps({
+  variant: "default",
+  size: "compact-xs",
+});
+
+const PartialStageCount = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+});
+
 /** Render a log payload as a string for display. */
 function formatLogData(data: unknown): string {
   if (typeof data === "string") return data;
@@ -289,6 +306,13 @@ export function AppsScreen({
   // Expanded by default so a widget developer sees the entries without an extra
   // click. The user can still collapse it for the rest of the run.
   const [appLogsExpanded, setAppLogsExpanded] = useState(true);
+  // Snapshots of the input form captured via "Stage partial input". On Open
+  // App they're passed to AppRenderer as `partialInputs` and replayed via
+  // ui/notifications/tool-input-partial before the complete tool-input, so a
+  // widget's progressive-render path can be exercised. Cleared on switch/close.
+  const [partialStages, setPartialStages] = useState<Record<string, unknown>[]>(
+    [],
+  );
 
   const selectedTool = selectedAppName
     ? tools.find((t) => t.name === selectedAppName)
@@ -322,12 +346,19 @@ export function AppsScreen({
   }
 
   // Clear the message + log panels (and the reported height). Called when a run
-  // ends or the selected app changes so a new run starts clean.
-  function resetAppChannels() {
+  // ends or the selected app changes so a new run starts clean. `keepPartials`
+  // is set for `handleOpen`, where the staged fragments are about to be consumed
+  // by the renderer and must not be cleared first.
+  function resetAppChannels(opts?: { keepPartials?: boolean }) {
     setAppHeight(undefined);
     setMessages([]);
     setAppLogs([]);
     setAppLogsExpanded(true);
+    if (!opts?.keepPartials) setPartialStages([]);
+  }
+
+  function handleStagePartialInput() {
+    setPartialStages((prev) => [...prev, { ...formValues }]);
   }
 
   // The app's display mode is derived from the existing maximized toggle.
@@ -373,7 +404,7 @@ export function AppsScreen({
 
   function handleOpen() {
     if (!selectedTool) return;
-    resetAppChannels();
+    resetAppChannels({ keepPartials: true });
     setRunning(true);
     onOpenApp(selectedTool.name, formValues);
   }
@@ -502,6 +533,7 @@ export function AppsScreen({
                     onRequestDisplayMode={handleRequestDisplayMode}
                     onMessage={handleMessage}
                     onLog={handleLog}
+                    partialInputs={partialStages}
                     containerRef={rendererContainerRef}
                     ref={rendererRef}
                   />
@@ -515,15 +547,36 @@ export function AppsScreen({
               // standalone use (the `Opening` story) and for Phase 3
               // wiring, where a managed-state hook can hold the panel
               // in a pending state across an awaited `tools/call`.
-              <AppDetailPanel
-                tool={selectedTool}
-                formValues={formValues}
-                isOpening={false}
-                onFormChange={(values) =>
-                  onUiChange({ ...ui, formValues: values })
-                }
-                onOpenApp={handleOpen}
-              />
+              <>
+                {selectedHasFields && (
+                  <PartialStageControls>
+                    <StagePartialButton onClick={handleStagePartialInput}>
+                      Stage partial input
+                    </StagePartialButton>
+                    {partialStages.length > 0 && (
+                      <>
+                        <PartialStageCount>
+                          {partialStages.length} staged
+                        </PartialStageCount>
+                        <CompactSubtleButton
+                          onClick={() => setPartialStages([])}
+                        >
+                          Clear staged
+                        </CompactSubtleButton>
+                      </>
+                    )}
+                  </PartialStageControls>
+                )}
+                <AppDetailPanel
+                  tool={selectedTool}
+                  formValues={formValues}
+                  isOpening={false}
+                  onFormChange={(values) =>
+                    onUiChange({ ...ui, formValues: values })
+                  }
+                  onOpenApp={handleOpen}
+                />
+              </>
             )}
             {running && messages.length > 0 && (
               <PinnedPanel data-testid="apps-messages">

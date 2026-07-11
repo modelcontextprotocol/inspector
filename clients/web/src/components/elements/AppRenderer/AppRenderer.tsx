@@ -79,6 +79,14 @@ export interface AppRendererProps {
    */
   onLog?: (params: LoggingMessageNotification["params"]) => void;
   /**
+   * Ordered tool-input fragments to replay via
+   * `ui/notifications/tool-input-partial` BEFORE the complete `tool-input`,
+   * exercising widgets that render progressively. Captured at bridge-build
+   * time (see `pendingPartialsRef`) so prop churn never rebuilds the iframe.
+   * Nothing is sent when omitted/empty.
+   */
+  partialInputs?: Record<string, unknown>[];
+  /**
    * The host-controlled box the app renders within, used to derive
    * `hostContext.containerDimensions`. This MUST be an element whose size is
    * driven by the host's layout (window resize, sidebar toggle, maximize) and
@@ -138,12 +146,14 @@ export function AppRenderer({
   onRequestDisplayMode,
   onMessage,
   onLog,
+  partialInputs,
   containerRef,
   ref,
 }: AppRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const bridgeRef = useRef<AppBridge | null>(null);
   const initializedRef = useRef(false);
+  const pendingPartialsRef = useRef<Record<string, unknown>[]>([]);
   const pendingInputRef = useRef<Record<string, unknown> | null>(null);
   const pendingResultRef = useRef<CallToolResult | null>(null);
   const teardownStartedRef = useRef(false);
@@ -163,6 +173,7 @@ export function AppRenderer({
   const onRequestDisplayModeRef = useRef(onRequestDisplayMode);
   const onMessageRef = useRef(onMessage);
   const onLogRef = useRef(onLog);
+  const partialInputsRef = useRef(partialInputs);
   useEffect(() => {
     onErrorRef.current = onError;
     onSizeChangeRef.current = onSizeChange;
@@ -170,6 +181,7 @@ export function AppRenderer({
     onRequestDisplayModeRef.current = onRequestDisplayMode;
     onMessageRef.current = onMessage;
     onLogRef.current = onLog;
+    partialInputsRef.current = partialInputs;
   });
 
   // Flush buffered tool input/result to the view, but only once the bridge
@@ -181,6 +193,12 @@ export function AppRenderer({
   const flushPending = useCallback(() => {
     const bridge = bridgeRef.current;
     if (!bridge || !initializedRef.current) return;
+    // Partial-input fragments first, in staged order, BEFORE the complete
+    // tool-input — the spec requires partials to precede the final input.
+    for (const args of pendingPartialsRef.current) {
+      void bridge.sendToolInputPartial({ arguments: args });
+    }
+    pendingPartialsRef.current = [];
     if (pendingInputRef.current !== null) {
       const args = pendingInputRef.current;
       pendingInputRef.current = null;
@@ -212,6 +230,7 @@ export function AppRenderer({
       bridgeRef.current = null;
       initializedRef.current = false;
       lastDepsRef.current = null;
+      pendingPartialsRef.current = [];
       if (bridge) void disposeBridge(bridge);
     });
   }, []);
@@ -259,6 +278,11 @@ export function AppRenderer({
     const buildId = ++buildIdRef.current;
     teardownStartedRef.current = false;
     initializedRef.current = false;
+    // Snapshot the staged partial-input fragments for THIS bridge build (read
+    // via the ref so the prop is not a dep — adding/removing fragments must not
+    // rebuild the iframe). The StrictMode reuse path above returned before
+    // reaching here, so a reused bridge keeps the queue it was built with.
+    pendingPartialsRef.current = [...(partialInputsRef.current ?? [])];
 
     let pending: Promise<AppBridge>;
     try {

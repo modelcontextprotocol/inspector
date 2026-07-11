@@ -55,6 +55,7 @@ const cohortApp: Tool = {
 const okBridgeFactory: BridgeFactory = () =>
   ({
     sendToolInput: async () => {},
+    sendToolInputPartial: async () => {},
     sendToolResult: async () => {},
     sendToolCancelled: async () => {},
     sendHostContextChange: async () => {},
@@ -79,6 +80,7 @@ function createEventBridgeFactory(): {
   const factory: BridgeFactory = () => {
     const bridge = {
       sendToolInput: async () => {},
+      sendToolInputPartial: async () => {},
       sendToolResult: async () => {},
       sendToolCancelled: async () => {},
       sendHostContextChange: async () => {},
@@ -599,5 +601,77 @@ describe("AppsScreen", () => {
       ),
     ).not.toBeInTheDocument();
     expect(screen.getByText("Select an app to view details")).toBeVisible();
+  });
+
+  it("stages partial-input snapshots from the form and clears them", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledAppsScreen />);
+    // No-fields apps don't show the control.
+    await user.click(screen.getByText("Ops Dashboard"));
+    expect(
+      screen.queryByRole("button", { name: "Stage partial input" }),
+    ).not.toBeInTheDocument();
+    // Fielded apps do.
+    await user.click(screen.getByText("Weather Widget"));
+    const stage = screen.getByRole("button", { name: "Stage partial input" });
+    expect(stage).toBeInTheDocument();
+    expect(screen.queryByText(/staged/)).not.toBeInTheDocument();
+    await user.click(stage);
+    await user.click(stage);
+    expect(screen.getByText("2 staged")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Clear staged" }));
+    expect(screen.queryByText(/staged/)).not.toBeInTheDocument();
+  });
+
+  it("replays staged partial inputs before the final tool-input on Open App", async () => {
+    const user = userEvent.setup();
+    const partials: Record<string, unknown>[] = [];
+    let onInitialized: (() => void) | undefined;
+    let sawInput = false;
+    const factory: BridgeFactory = () => {
+      const listeners: Record<string, ((p: unknown) => void)[]> = {};
+      const bridge = {
+        sendToolInput: async () => {
+          sawInput = true;
+        },
+        sendToolInputPartial: async (params: {
+          arguments?: Record<string, unknown>;
+        }) => {
+          // Assert partials arrive before the final input.
+          expect(sawInput).toBe(false);
+          partials.push(params.arguments ?? {});
+        },
+        sendToolResult: async () => {},
+        sendToolCancelled: async () => {},
+        sendHostContextChange: async () => {},
+        teardownResource: async () => ({}),
+        close: async () => {},
+        addEventListener: (event: string, handler: () => void) => {
+          (listeners[event] ??= []).push(handler);
+          if (event === "initialized") onInitialized = handler;
+        },
+        removeEventListener: () => {},
+      } as unknown as AppBridge;
+      return bridge;
+    };
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Weather Widget"));
+    // Fill the required field so Open App is enabled, then stage two snapshots.
+    await user.type(screen.getByRole("textbox", { name: /city/i }), "NYC");
+    const stage = screen.getByRole("button", { name: "Stage partial input" });
+    await user.click(stage);
+    await user.click(stage);
+    await user.click(screen.getByRole("button", { name: /Open App/ }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      onInitialized?.();
+    });
+    // Both staged snapshots were replayed (staged partials survive Open). No
+    // final tool-input arrives because the parent's onOpenApp is a no-op here
+    // (App drives the renderer handle), so sawInput stays false — the partials
+    // are what this screen is responsible for.
+    expect(partials).toHaveLength(2);
+    expect(sawInput).toBe(false);
   });
 });
