@@ -1,0 +1,38 @@
+# Keep the build context small and force a clean, in-container install/build.
+# Host node_modules and build outputs are excluded so nothing stale or
+# wrong-architecture is copied in — the builder stage runs its own
+# `npm install && npm pack`.
+
+.git
+.github
+
+# Installed deps (root + every client) — reinstalled in the image
+node_modules
+clients/*/node_modules
+test-servers/node_modules
+
+# Build outputs — rebuilt in the image
+clients/*/build
+clients/web/dist
+test-servers/build
+storybook-static
+coverage
+
+# Docs/specs aren't referenced by the build — trim them from the context.
+# (test-servers/ stays: `tsc -b` typechecks the integration tests that import
+# the `@modelcontextprotocol/inspector-test-server` alias.)
+specification
+docs
+
+# Packed tarballs (the image makes its own)
+*.tgz
+
+# Local / editor / env
+.env
+.env.*
+.DS_Store
+.vscode
+.idea
+.claude
+.playwright-mcp
+*.log

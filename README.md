@@ -150,7 +150,10 @@ The `smoke:*` scripts run against the in-repo build tree, which is **not** the p
 
 ### Cutting a release
 
-Publishing is automated by the `publish` job in [`.github/workflows/main.yml`](.github/workflows/main.yml), gated on a **published GitHub release** (`github.event_name == 'release'`). On release it runs `npm run pack:verify` as the pre-publish gate, then `npm publish --access public --provenance` — a single `npm publish` (v2 is not an npm workspace, so there is no v1-style `publish-all`/`--workspaces`), with a signed provenance attestation via GitHub OIDC (`id-token: write`, `environment: release`, `NPM_TOKEN`).
+Publishing is automated by two release-gated jobs in [`.github/workflows/main.yml`](.github/workflows/main.yml) (`github.event_name == 'release'`, both `needs: build`):
+
+- **`publish`** — the npm package. Runs `npm run pack:verify` as the pre-publish gate, asserts the release tag matches the root `package.json` version, then `npm publish --access public --provenance` — a single `npm publish` (v2 is not an npm workspace, so there is no v1-style `publish-all`/`--workspaces`), with a signed provenance attestation via GitHub OIDC (`id-token: write`, `environment: release`, `NPM_TOKEN`).
+- **`publish-github-container-registry`** — the container image (see [Docker](#docker)).
 
 Because there is **one version number** (only the root `package.json` has one — the clients carry none, so there is nothing to keep in sync and no `check-version` step), the release flow is just:
 
@@ -162,7 +165,20 @@ git push --follow-tags
 
 The release's target commit selects which workflow runs, so this only publishes when a release is cut from a commit carrying this (v2) workflow.
 
-> **Docker / GHCR is not wired up yet.** v1 published a container image to GHCR, but v2 has no Dockerfile (its `client/server/cli` layout is gone). A v2 image + GHCR job is tracked separately in [#1646](https://github.com/modelcontextprotocol/inspector/issues/1646).
+### Docker
+
+A container image is published to GHCR (`ghcr.io/modelcontextprotocol/inspector`, `linux/amd64` + `linux/arm64`) by the release workflow. The [`Dockerfile`](Dockerfile) is a two-stage build: the first stage installs and `npm pack`s the publishable tarball; the second stage `npm install -g`s that tarball, so the image ships the exact same artifact as npm, with a clean `mcp-inspector` bin.
+
+```bash
+# run the web UI (reads the auth token from the container logs)
+docker run --rm -p 6274:6274 ghcr.io/modelcontextprotocol/inspector
+
+# or build the image locally
+docker build -t mcp-inspector .
+docker run --rm -p 6274:6274 mcp-inspector
+```
+
+The image defaults to `--web` bound to `0.0.0.0:6274` with browser auto-open disabled; override the args to run another mode (`docker run --rm ghcr.io/modelcontextprotocol/inspector --cli …`). Pass `-e MCP_INSPECTOR_API_TOKEN=…` to set a known token (otherwise one is generated and printed in the logs), or `-e DANGEROUSLY_OMIT_AUTH=true` to disable auth. The image runs as the non-root `node` user and has a `HEALTHCHECK` that probes the web UI — it assumes the default `--web` mode, so add `--no-healthcheck` when running `--cli`/`--tui` (which have no web server).
 
 ## Contributing — `AGENTS.md` and `CLAUDE.md`
 
