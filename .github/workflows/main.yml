@@ -1,6 +1,12 @@
 name: Run install, format, lint, build, and test on every push
 
-on: [push]
+on:
+  push:
+  # A published GitHub release triggers the `publish` job below. The release's
+  # target commit determines which workflow runs — so this only publishes when a
+  # release is cut from a commit that carries this (v2) workflow.
+  release:
+    types: [published]
 
 jobs:
   build:
@@ -69,3 +75,47 @@ jobs:
       - name: Run Storybook play-function tests
         working-directory: ./clients/web
         run: npm run test:storybook
+
+  # Publish the single `@modelcontextprotocol/inspector` package to npm on a
+  # published GitHub release. v2 is not an npm workspace, so there is no
+  # `publish-all` / `--workspaces` (v1) — just one `npm publish`, whose `prepack`
+  # (`npm run build`) builds every client bundle into the `files` allowlist.
+  # `pack:verify` runs first as the pre-publish gate: it builds, packs the real
+  # tarball, installs it into a clean throwaway consumer, and drives the
+  # installed `mcp-inspector` bin (web/cli/tui) end to end — so a broken package
+  # is caught before it reaches npm rather than after.
+  publish:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    environment: release
+    needs: build
+    permissions:
+      contents: read
+      # Required for npm provenance (`--provenance` mints a signed attestation
+      # via GitHub's OIDC token). The repo is public, so provenance is available.
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies (root + all clients)
+        run: npm install
+
+      - name: Verify the publishable tarball end to end
+        # Builds, `npm pack`s, installs the tarball into a clean consumer, and
+        # drives the installed bin. Needs registry access to pull the tarball's
+        # runtime deps — available here. `smoke:tui` inside it self-skips on CI.
+        run: npm run pack:verify
+
+      - name: Publish to npm (single package, with provenance)
+        # `prepack` (`npm run build`) rebuilds the client bundles into the tarball.
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
