@@ -82,7 +82,7 @@ npm run build:storybook  # static build
 npm run test:storybook   # run every story's play function in headless Chromium
 ```
 
-Storybook is first-class here because the components are presentational — each renders against fixture props. **Play functions double as interaction tests** and run headless in real Chromium via `@vitest/browser` + Playwright (the `storybook` Vitest project). They're part of `npm run ci` (which installs the Chromium binary first) but kept out of the fast `validate` loop since they need the browser.
+Storybook is first-class here because the components are presentational — each renders against fixture props. **Play functions double as interaction tests** and run headless in real Chromium via `@vitest/browser-playwright` + `@storybook/addon-vitest` (the `storybook` Vitest project). They're part of `npm run ci` (which installs the Chromium binary first) but kept out of the fast `validate` loop since they need the browser.
 
 ## Auth token
 
