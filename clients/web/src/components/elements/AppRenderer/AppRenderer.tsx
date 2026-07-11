@@ -294,6 +294,11 @@ export function AppRenderer({
       });
 
     return scheduleDispose;
+    // `containerRef` is listed for exhaustive-deps completeness, but a change to
+    // its identity does NOT force a rebuild: the `sameInputs` check above
+    // ignores it, so a new ref object hits the StrictMode reuse path (the
+    // `initialized` handler reads `containerRef?.current` lazily, so the live
+    // ref is always used regardless). The other deps are the real rebuild keys.
   }, [
     bridgeFactory,
     sandboxPath,
@@ -314,7 +319,12 @@ export function AppRenderer({
 
   // Theme + styles: Mantine writes the resolved scheme to
   // `<html data-mantine-color-scheme>`; observe that attribute and forward
-  // changes through the live bridge.
+  // changes through the live bridge. Gated on the view's `initialized` signal
+  // — like the container and displayMode pushes below — so a theme flip in the
+  // window between bridge construction and the handshake doesn't race
+  // `ui/initialize`. Nothing is lost by waiting: the factory seeds the
+  // construction-time theme/styles into the handshake hostContext, and the
+  // first post-init flip carries the current value.
   useEffect(() => {
     /* v8 ignore next 5 -- SSR/non-DOM guard: MutationObserver and document are
        always defined under happy-dom, so this early return is unreachable in
@@ -326,6 +336,7 @@ export function AppRenderer({
       return;
     }
     const observer = new MutationObserver(() => {
+      if (!initializedRef.current) return;
       const styles = currentStyles();
       void bridgeRef.current?.sendHostContextChange({
         theme: currentTheme(),

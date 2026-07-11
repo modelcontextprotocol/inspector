@@ -405,6 +405,9 @@ describe("AppRenderer", () => {
         />,
       );
       await flushAsync();
+      // The theme observer is gated on the view's `initialized` signal, so
+      // complete the handshake before flipping.
+      await act(async () => bridge.emit("initialized"));
       // Ignore any seeding from Mantine's own mount-time write — assert only the
       // flip we trigger below.
       bridge.sendHostContextChange.mockClear();
@@ -431,6 +434,30 @@ describe("AppRenderer", () => {
       getComputedStyleSpy.mockRestore();
       document.documentElement.removeAttribute("data-mantine-color-scheme");
     }
+  });
+
+  it("does not push a theme flip before the view is initialized", async () => {
+    const bridge = createMockBridge();
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+      />,
+    );
+    await flushAsync();
+    // No `initialized` emitted — the theme observer is gated, like the
+    // container and displayMode pushes, so a pre-handshake flip is dropped.
+    bridge.sendHostContextChange.mockClear();
+    await act(async () => {
+      document.documentElement.setAttribute(
+        "data-mantine-color-scheme",
+        "dark",
+      );
+      await Promise.resolve();
+    });
+    expect(bridge.sendHostContextChange).not.toHaveBeenCalled();
+    document.documentElement.removeAttribute("data-mantine-color-scheme");
   });
 
   it("stops observing theme changes after the renderer unmounts", async () => {
