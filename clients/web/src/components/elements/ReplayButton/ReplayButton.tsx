@@ -1,4 +1,4 @@
-import { ActionIcon } from "@mantine/core";
+import { ActionIcon, Tooltip } from "@mantine/core";
 import { MdReplay } from "react-icons/md";
 
 export interface ReplayButtonProps {
@@ -13,14 +13,16 @@ export interface ReplayButtonProps {
  */
 export function ReplayButton({ onReplay }: ReplayButtonProps) {
   return (
-    <ActionIcon
-      variant="subtle"
-      color="gray"
-      size="md"
-      aria-label="Replay"
-      onClick={onReplay}
-    >
-      <MdReplay size={18} />
-    </ActionIcon>
+    <Tooltip label="Replay">
+      <ActionIcon
+        variant="subtle"
+        color="gray"
+        size="md"
+        aria-label="Replay"
+        onClick={onReplay}
+      >
+        <MdReplay size={18} />
+      </ActionIcon>
+    </Tooltip>
   );
 }

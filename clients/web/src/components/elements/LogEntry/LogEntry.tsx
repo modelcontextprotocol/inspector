@@ -13,7 +13,7 @@ export interface LogEntryData {
 export interface LogEntryProps {
   entry: LogEntryData;
   /**
-   * Compact two-line layout for the narrow monitoring column (#1661): the
+   * Compact two-line layout for the narrow monitoring sidebar (#1661): the
    * timestamp, level, and logger sit on the first line and the message wraps
    * onto the line below, so a long message isn't clipped by the column width.
    * The default (false) is the single-line row used on the full Logs screen.
@@ -64,7 +64,7 @@ const MessageText = Text.withProps({
   ff: "monospace",
 });
 
-// Compact message (monitoring column): wraps over-long lines within the narrow
+// Compact message (monitoring sidebar): wraps over-long lines within the narrow
 // column via the `consoleLine` variant instead of overflowing its width.
 const CompactMessageText = Text.withProps({
   size: "sm",

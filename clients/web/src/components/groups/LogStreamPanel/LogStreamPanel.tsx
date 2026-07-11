@@ -19,7 +19,7 @@ export interface LogStreamPanelProps {
   sortDirection: SortDirection;
   onSortChange: (next: SortDirection) => void;
   /**
-   * True when this panel is rendered inside the monitoring column. Switches the
+   * True when this panel is rendered inside the monitoring sidebar. Switches the
    * scroll region from the viewport-height calc to filling its flex parent, so
    * it fits below the column's controls row without viewport math.
    */
@@ -115,7 +115,7 @@ export function LogStreamPanel({
         <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
           <Stack gap="xs">
             {filteredEntries.map((entry, index) => (
-              // Compact (two-line) layout inside the narrow monitoring column;
+              // Compact (two-line) layout inside the narrow monitoring sidebar;
               // the full single-line row on the standalone Logs screen. (#1661)
               <LogEntry key={index} entry={entry} compact={embedded} />
             ))}

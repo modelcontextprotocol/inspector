@@ -1,5 +1,5 @@
 /**
- * Duration (ms) of the monitoring column's open/close slide (#1616). Shared so
+ * Duration (ms) of the monitoring sidebar's open/close slide (#1616). Shared so
  * dependent timings can't silently drift from the animation:
  *   - `InspectorView` drives the column's Mantine `Transition` with it.
  *   - `ServerCard` waits just past it before scrolling a newly-failed card into

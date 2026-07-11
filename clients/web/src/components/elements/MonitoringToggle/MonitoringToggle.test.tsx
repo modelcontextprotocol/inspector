@@ -7,20 +7,20 @@ describe("MonitoringToggle", () => {
   it("renders an open-column button when closed", () => {
     renderWithMantine(<MonitoringToggle open={false} onToggle={vi.fn()} />);
     expect(
-      screen.getByRole("button", { name: "Open monitoring column" }),
+      screen.getByRole("button", { name: "Open monitoring sidebar" }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Close monitoring column" }),
+      screen.queryByRole("button", { name: "Close monitoring sidebar" }),
     ).toBeNull();
   });
 
   it("renders a close-column button when open", () => {
     renderWithMantine(<MonitoringToggle open onToggle={vi.fn()} />);
     expect(
-      screen.getByRole("button", { name: "Close monitoring column" }),
+      screen.getByRole("button", { name: "Close monitoring sidebar" }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Open monitoring column" }),
+      screen.queryByRole("button", { name: "Open monitoring sidebar" }),
     ).toBeNull();
   });
 
@@ -29,7 +29,7 @@ describe("MonitoringToggle", () => {
     const onToggle = vi.fn();
     renderWithMantine(<MonitoringToggle open={false} onToggle={onToggle} />);
     await user.click(
-      screen.getByRole("button", { name: "Open monitoring column" }),
+      screen.getByRole("button", { name: "Open monitoring sidebar" }),
     );
     expect(onToggle).toHaveBeenCalledTimes(1);
   });

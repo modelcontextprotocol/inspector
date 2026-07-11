@@ -17,7 +17,7 @@ export interface LoggingScreenProps {
   sortDirection: SortDirection;
   onSortChange: (next: SortDirection) => void;
   /**
-   * True when rendered inside the monitoring column: the screen fills its
+   * True when rendered inside the monitoring sidebar: the screen fills its
    * parent's height (instead of the viewport calc) and drops the filter
    * sidebar so the narrow column is stream-only.
    */

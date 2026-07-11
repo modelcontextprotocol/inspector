@@ -168,7 +168,7 @@ const ALL_TABS: string[] = [
   CONSOLE_TAB,
 ];
 
-// The screens that can be pinned into the monitoring column (#1616). Pinning is
+// The screens that can be pinned into the monitoring sidebar (#1616). Pinning is
 // a group action: opening the column removes all *available* monitor tabs from
 // the header and hosts them in the column instead. Console (#1621) is the
 // stdio server's stderr stream — mutually exclusive with Network (Console shows
@@ -195,7 +195,7 @@ function isMonitorTab(tab: string): tab is MonitorTab {
 // has room for at least one full-width card beside the column.
 const MONITOR_WIDE_QUERY = "(min-width: 1040px)";
 
-// Monitoring column width bounds (px). MIN keeps the stream readable; MAX stops
+// Monitoring sidebar width bounds (px). MIN keeps the stream readable; MAX stops
 // the column from crowding out the primary area.
 const MONITOR_WIDTH_MIN = 320;
 const MONITOR_WIDTH_MAX = 720;
@@ -267,7 +267,7 @@ const SplitRow = Flex.withProps({
   w: "100%",
 });
 
-// The pinned monitoring column. Fixed-basis (its width is driven live via the
+// The pinned monitoring sidebar. Fixed-basis (its width is driven live via the
 // `w` style prop at the call site); `miw: 0` so its inner ScrollArea can bound.
 const MonitoringColumn = Stack.withProps({
   flex: "0 0 auto",
@@ -663,7 +663,7 @@ export function InspectorView({
     getInitialValueInEffect: false,
   });
 
-  // Open the monitoring column when a connection is established (#1616) OR when a
+  // Open the monitoring sidebar when a connection is established (#1616) OR when a
   // connect *attempt* fails (#1621). Gated on the *transition into* the target
   // status (via the ref) rather than the status itself, so it fires once on an
   // actual connect/failure — not on every render, and not on a mount that starts
@@ -765,7 +765,7 @@ export function InspectorView({
     appTools,
   ]);
 
-  // Monitoring column, derived (#1616, #1621). The monitor group is pinned into
+  // Monitoring sidebar, derived (#1616, #1621). The monitor group is pinned into
   // the right column only when: the user asked for it, the viewport is wide
   // enough, the session is connected OR a connect attempt failed, and at least
   // one monitor tab is actually available (capability/stdio aware). Narrowing,
@@ -1194,7 +1194,7 @@ export function InspectorView({
                   step={MONITOR_WIDTH_STEP}
                   onChange={setDragWidth}
                   onCommit={commitMonitorWidth}
-                  aria-label="Resize monitoring column"
+                  aria-label="Resize monitoring sidebar"
                 />
                 <MonitoringColumn w={columnWidth}>
                   <MonitoringScreen

@@ -12,7 +12,7 @@ export interface MonitoringControlsProps {
   onSearchChange: (next: string) => void;
 }
 
-// The controls row at the top of the pinned monitoring column: a segmented tab
+// The controls row at the top of the pinned monitoring sidebar: a segmented tab
 // switcher on the left and a search box filling the rest. The column is closed
 // from the single header MonitoringToggle (#1661), so there is no close button
 // here.
@@ -33,7 +33,7 @@ const SearchInput = TextInput.withProps({
 });
 
 /**
- * Tab row + search for the pinned monitoring column (#1616). Renders only the
+ * Tab row + search for the pinned monitoring sidebar (#1616). Renders only the
  * currently-available monitor tabs (the caller filters by capability), so it
  * never shows an empty switcher. Selecting a tab swaps the screen below; the
  * search box filters the shown screen (wired by the caller to that screen's own

@@ -10,6 +10,7 @@ import {
   Select,
   Text,
   Title,
+  Tooltip,
   Transition,
   useComputedColorScheme,
 } from "@mantine/core";
@@ -402,12 +403,22 @@ export function ViewHeader(props: ViewHeaderProps) {
             )
           }
         </Transition>
-        <ClientSettingsToggle onClick={props.onOpenClientSettings}>
-          <MdSettings size={20} />
-        </ClientSettingsToggle>
-        <ThemeToggle onClick={props.onToggleTheme}>
-          <ThemeIcon size={20} />
-        </ThemeToggle>
+        <Tooltip label="Client settings">
+          <ClientSettingsToggle onClick={props.onOpenClientSettings}>
+            <MdSettings size={20} />
+          </ClientSettingsToggle>
+        </Tooltip>
+        <Tooltip
+          label={
+            colorScheme === "dark"
+              ? "Switch to light theme"
+              : "Switch to dark theme"
+          }
+        >
+          <ThemeToggle onClick={props.onToggleTheme}>
+            <ThemeIcon size={20} />
+          </ThemeToggle>
+        </Tooltip>
         {props.monitorToggle ? (
           <MonitoringToggle
             open={props.monitorToggle.open}

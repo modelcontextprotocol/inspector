@@ -37,7 +37,7 @@ const ScreenSlot = Stack.withProps({
 });
 
 /**
- * The pinned monitoring column's content (#1616): a `MonitoringControls` tab row
+ * The pinned monitoring sidebar's content (#1616): a `MonitoringControls` tab row
  * over the selected monitor screen. Layout-only — it wraps each supplied screen
  * node in a `ScreenStage`, so switching tabs cross-fades (only the active tab's
  * screen is mounted) the same way the primary pane does.

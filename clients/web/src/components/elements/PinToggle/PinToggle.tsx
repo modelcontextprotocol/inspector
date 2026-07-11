@@ -1,4 +1,4 @@
-import { ActionIcon } from "@mantine/core";
+import { ActionIcon, Tooltip } from "@mantine/core";
 import { TiPin, TiPinOutline } from "react-icons/ti";
 
 export interface PinToggleProps {
@@ -16,14 +16,16 @@ export function PinToggle({ pinned, onToggle }: PinToggleProps) {
   const Icon = pinned ? TiPin : TiPinOutline;
   const label = pinned ? "Unpin" : "Pin";
   return (
-    <ActionIcon
-      variant="subtle"
-      color="gray"
-      size="md"
-      aria-label={label}
-      onClick={onToggle}
-    >
-      <Icon size={18} />
-    </ActionIcon>
+    <Tooltip label={label}>
+      <ActionIcon
+        variant="subtle"
+        color="gray"
+        size="md"
+        aria-label={label}
+        onClick={onToggle}
+      >
+        <Icon size={18} />
+      </ActionIcon>
+    </Tooltip>
   );
 }

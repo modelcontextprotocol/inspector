@@ -16,7 +16,7 @@ export const Closed: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     expect(
-      canvas.getByRole("button", { name: "Open monitoring column" }),
+      canvas.getByRole("button", { name: "Open monitoring sidebar" }),
     ).toBeInTheDocument();
   },
 };
@@ -26,7 +26,7 @@ export const Open: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     expect(
-      canvas.getByRole("button", { name: "Close monitoring column" }),
+      canvas.getByRole("button", { name: "Close monitoring sidebar" }),
     ).toBeInTheDocument();
   },
 };

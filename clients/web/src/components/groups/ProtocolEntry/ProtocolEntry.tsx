@@ -24,7 +24,7 @@ export interface ProtocolEntryProps {
   onReplay: () => void;
   onTogglePin: () => void;
   /**
-   * Compact two-line header for the narrow monitoring column (#1616): line 1 is
+   * Compact two-line header for the narrow monitoring sidebar (#1616): line 1 is
    * time + direction + duration + status; line 2 is the method (and target) with
    * the controls — Replay as an icon — on the right.
    */

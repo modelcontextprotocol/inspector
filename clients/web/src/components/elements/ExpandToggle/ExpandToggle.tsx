@@ -1,4 +1,4 @@
-import { ActionIcon } from "@mantine/core";
+import { ActionIcon, Tooltip } from "@mantine/core";
 import { RiCollapseVerticalLine, RiExpandVerticalLine } from "react-icons/ri";
 
 export interface ExpandToggleProps {
@@ -18,14 +18,16 @@ export function ExpandToggle({ expanded, onToggle }: ExpandToggleProps) {
   const Icon = expanded ? RiCollapseVerticalLine : RiExpandVerticalLine;
   const label = expanded ? "Collapse" : "Expand";
   return (
-    <ActionIcon
-      variant="subtle"
-      color="gray"
-      size="md"
-      aria-label={label}
-      onClick={onToggle}
-    >
-      <Icon size={16} />
-    </ActionIcon>
+    <Tooltip label={label}>
+      <ActionIcon
+        variant="subtle"
+        color="gray"
+        size="md"
+        aria-label={label}
+        onClick={onToggle}
+      >
+        <Icon size={16} />
+      </ActionIcon>
+    </Tooltip>
   );
 }

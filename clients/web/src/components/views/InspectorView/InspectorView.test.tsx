@@ -20,7 +20,7 @@ import {
 } from "../../../test/renderWithMantine";
 import { InspectorView, type InspectorViewProps } from "./InspectorView";
 
-// The monitoring column (#1616) is gated on a 1040px viewport media query.
+// The monitoring sidebar (#1616) is gated on a 1040px viewport media query.
 // happy-dom's viewport is 1024px, so that query is really false; make just that
 // gate controllable per test. ViewHeader's own 992/768 queries stay "wide" (as
 // they are in the real 1024px happy-dom viewport), so header rendering — and
@@ -1298,7 +1298,7 @@ describe("InspectorView", () => {
     });
   });
 
-  describe("pinned monitoring column (#1616)", () => {
+  describe("pinned monitoring sidebar (#1616)", () => {
     const httpServer: ServerEntry = {
       id: "beta",
       name: "Beta",
@@ -1336,14 +1336,14 @@ describe("InspectorView", () => {
         <StatefulInspectorViewHost {...connectedHttp()} />,
       );
       expect(
-        screen.queryByRole("button", { name: "Open monitoring column" }),
+        screen.queryByRole("button", { name: "Open monitoring sidebar" }),
       ).not.toBeInTheDocument();
       unmount();
 
       monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       expect(
-        await screen.findByRole("button", { name: "Open monitoring column" }),
+        await screen.findByRole("button", { name: "Open monitoring sidebar" }),
       ).toBeInTheDocument();
     });
 
@@ -1360,14 +1360,14 @@ describe("InspectorView", () => {
         />,
       );
       expect(
-        screen.queryByRole("button", { name: "Open monitoring column" }),
+        screen.queryByRole("button", { name: "Open monitoring sidebar" }),
       ).toBeNull();
       expect(
-        screen.queryByRole("button", { name: "Close monitoring column" }),
+        screen.queryByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeNull();
     });
 
-    it("opens the monitoring column when a connection is established", async () => {
+    it("opens the monitoring sidebar when a connection is established", async () => {
       monitorWide.value = true;
       const { rerender } = renderWithMantine(
         <StatefulInspectorViewHost
@@ -1380,13 +1380,13 @@ describe("InspectorView", () => {
       );
       // Disconnected: the column is closed.
       expect(
-        screen.queryByRole("button", { name: "Close monitoring column" }),
+        screen.queryByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeNull();
 
       // Connecting opens it (the disconnected → connected transition).
       rerender(<StatefulInspectorViewHost {...connectedHttp()} />);
       expect(
-        await screen.findByRole("button", { name: "Close monitoring column" }),
+        await screen.findByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeInTheDocument();
     });
 
@@ -1396,7 +1396,7 @@ describe("InspectorView", () => {
       monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       expect(
-        screen.queryByRole("button", { name: "Close monitoring column" }),
+        screen.queryByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeNull();
     });
 
@@ -1415,7 +1415,7 @@ describe("InspectorView", () => {
       });
     }
 
-    it("opens the monitoring column on a failed connection attempt (#1621)", async () => {
+    it("opens the monitoring sidebar on a failed connection attempt (#1621)", async () => {
       monitorWide.value = true;
       const { rerender } = renderWithMantine(
         <StatefulInspectorViewHost
@@ -1428,7 +1428,7 @@ describe("InspectorView", () => {
       );
       // Disconnected: the column is closed.
       expect(
-        screen.queryByRole("button", { name: "Close monitoring column" }),
+        screen.queryByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeNull();
 
       // A connection failure (→ error) opens it to surface the diagnostics. The
@@ -1451,7 +1451,7 @@ describe("InspectorView", () => {
         />,
       );
       expect(
-        await screen.findByRole("button", { name: "Close monitoring column" }),
+        await screen.findByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeInTheDocument();
 
       // The failure column leads with Network (the captured request) — the only
@@ -1566,7 +1566,7 @@ describe("InspectorView", () => {
         />,
       );
       expect(
-        screen.queryByRole("button", { name: "Close monitoring column" }),
+        screen.queryByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeNull();
     });
 
@@ -1622,7 +1622,7 @@ describe("InspectorView", () => {
       monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...failedHttp()} />);
       expect(
-        screen.queryByRole("button", { name: "Close monitoring column" }),
+        screen.queryByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeNull();
     });
 
@@ -1639,7 +1639,7 @@ describe("InspectorView", () => {
       );
       // Connected + pinned: the column is open with the live monitor tabs.
       expect(
-        await screen.findByRole("button", { name: "Close monitoring column" }),
+        await screen.findByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeInTheDocument();
 
       // Crash: connected → error, activeServer cleared, NO erroredServerId.
@@ -1656,7 +1656,7 @@ describe("InspectorView", () => {
       // failure tabs.
       await waitFor(() =>
         expect(
-          screen.queryByRole("button", { name: "Close monitoring column" }),
+          screen.queryByRole("button", { name: "Close monitoring sidebar" }),
         ).toBeNull(),
       );
     });
@@ -1723,12 +1723,12 @@ describe("InspectorView", () => {
       const user = userEvent.setup();
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       await user.click(
-        await screen.findByRole("button", { name: "Open monitoring column" }),
+        await screen.findByRole("button", { name: "Open monitoring sidebar" }),
       );
 
       // Column is open (its close control is present).
       expect(
-        await screen.findByRole("button", { name: "Close monitoring column" }),
+        await screen.findByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeInTheDocument();
 
       // The monitor group is gone from the header tab bar...
@@ -1757,16 +1757,16 @@ describe("InspectorView", () => {
       const user = userEvent.setup();
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       await user.click(
-        await screen.findByRole("button", { name: "Open monitoring column" }),
+        await screen.findByRole("button", { name: "Open monitoring sidebar" }),
       );
       await user.click(
-        await screen.findByRole("button", { name: "Close monitoring column" }),
+        await screen.findByRole("button", { name: "Close monitoring sidebar" }),
       );
 
       // The column plays its slide-out animation before unmounting.
       await waitFor(() =>
         expect(
-          screen.queryByRole("button", { name: "Close monitoring column" }),
+          screen.queryByRole("button", { name: "Close monitoring sidebar" }),
         ).toBeNull(),
       );
       const header = screen.getByRole("banner");
@@ -1783,7 +1783,7 @@ describe("InspectorView", () => {
       // clamps to the first non-Servers header tab (Tools).
       const user = await gotoTab("Logs");
       await user.click(
-        await screen.findByRole("button", { name: "Open monitoring column" }),
+        await screen.findByRole("button", { name: "Open monitoring sidebar" }),
       );
       // Pinning moved the primary to the first non-Servers header tab (Tools).
       const header = screen.getByRole("banner");
@@ -1794,14 +1794,14 @@ describe("InspectorView", () => {
       // Switch the column to Protocol, then close it.
       await user.click(await screen.findByRole("radio", { name: "Protocol" }));
       await user.click(
-        await screen.findByRole("button", { name: "Close monitoring column" }),
+        await screen.findByRole("button", { name: "Close monitoring sidebar" }),
       );
 
       // The primary stays on the header's current screen (Tools), not the
       // column's Protocol, and the monitor group returns to the header.
       await waitFor(() =>
         expect(
-          screen.queryByRole("button", { name: "Close monitoring column" }),
+          screen.queryByRole("button", { name: "Close monitoring sidebar" }),
         ).toBeNull(),
       );
       expect(
@@ -1822,7 +1822,7 @@ describe("InspectorView", () => {
         <StatefulInspectorViewHost {...connectedHttp()} />,
       );
       expect(
-        screen.queryByRole("button", { name: "Close monitoring column" }),
+        screen.queryByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeNull();
       expect(
         within(screen.getByRole("banner")).getByRole("radio", { name: "Logs" }),
@@ -1833,7 +1833,7 @@ describe("InspectorView", () => {
       monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       expect(
-        screen.getByRole("button", { name: "Close monitoring column" }),
+        screen.getByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeInTheDocument();
     });
 
@@ -1842,7 +1842,7 @@ describe("InspectorView", () => {
       monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       expect(
-        screen.queryByRole("button", { name: "Close monitoring column" }),
+        screen.queryByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeNull();
     });
 
@@ -1853,7 +1853,7 @@ describe("InspectorView", () => {
         <StatefulInspectorViewHost {...connectedHttp()} />,
       );
       expect(
-        screen.getByRole("button", { name: "Close monitoring column" }),
+        screen.getByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeInTheDocument();
 
       rerender(
@@ -1868,7 +1868,7 @@ describe("InspectorView", () => {
       // The column plays its slide-out animation before unmounting.
       await waitFor(() =>
         expect(
-          screen.queryByRole("button", { name: "Close monitoring column" }),
+          screen.queryByRole("button", { name: "Close monitoring sidebar" }),
         ).toBeNull(),
       );
       // Preference is untouched — only the column's close button clears it.
@@ -1892,7 +1892,7 @@ describe("InspectorView", () => {
       );
       // Column open, but Network is unavailable over stdio.
       expect(
-        screen.getByRole("button", { name: "Close monitoring column" }),
+        screen.getByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeInTheDocument();
       expect(screen.getByRole("radio", { name: "Logs" })).toBeInTheDocument();
       expect(screen.queryByRole("radio", { name: "Network" })).toBeNull();
@@ -1940,7 +1940,7 @@ describe("InspectorView", () => {
           .map((r) => r.getAttribute("value")),
       ).toEqual(["Servers"]);
       expect(
-        screen.getByRole("button", { name: "Close monitoring column" }),
+        screen.getByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeInTheDocument();
     });
 
@@ -2003,7 +2003,7 @@ describe("InspectorView", () => {
       monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       const handle = await screen.findByRole("separator", {
-        name: "Resize monitoring column",
+        name: "Resize monitoring sidebar",
       });
       // ArrowLeft widens by the 16px step (panel is on the right).
       fireEvent.keyDown(handle, { key: "ArrowLeft" });

@@ -109,10 +109,10 @@ describe("ViewHeader", () => {
         />,
       );
       expect(
-        screen.queryByRole("button", { name: "Open monitoring column" }),
+        screen.queryByRole("button", { name: "Open monitoring sidebar" }),
       ).toBeNull();
       expect(
-        screen.queryByRole("button", { name: "Close monitoring column" }),
+        screen.queryByRole("button", { name: "Close monitoring sidebar" }),
       ).toBeNull();
     });
 
@@ -128,7 +128,7 @@ describe("ViewHeader", () => {
         />,
       );
       await user.click(
-        screen.getByRole("button", { name: "Open monitoring column" }),
+        screen.getByRole("button", { name: "Open monitoring sidebar" }),
       );
       expect(onToggle).toHaveBeenCalledTimes(1);
     });
@@ -165,10 +165,10 @@ describe("ViewHeader", () => {
         />,
       );
       expect(
-        screen.queryByRole("button", { name: "Open monitoring column" }),
+        screen.queryByRole("button", { name: "Open monitoring sidebar" }),
       ).toBeNull();
       await user.click(
-        screen.getByRole("button", { name: "Close monitoring column" }),
+        screen.getByRole("button", { name: "Close monitoring sidebar" }),
       );
       expect(onToggle).toHaveBeenCalledTimes(1);
     });
