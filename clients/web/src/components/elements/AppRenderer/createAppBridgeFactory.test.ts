@@ -702,5 +702,21 @@ describe("createAppBridgeFactory", () => {
       const prompt = confirm.mock.calls[0][0] as string;
       expect(prompt).toContain("↗ https://example.com/a.pdf");
     });
+
+    it("skips an embedded resource with neither text nor blob (no 'undefined' file)", async () => {
+      stubConfirm(true);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const createUrl = vi.spyOn(URL, "createObjectURL");
+      const bridge = await buildBridge();
+      // Untrusted payload: a resource object carrying neither field. It must be
+      // skipped, not written as a file containing the literal text "undefined".
+      await expect(
+        bridge.ondownloadfile!({
+          contents: [{ type: "resource", resource: { uri: "file:///x" } }],
+        }),
+      ).resolves.toEqual({ isError: true });
+      expect(createUrl).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
   });
 });

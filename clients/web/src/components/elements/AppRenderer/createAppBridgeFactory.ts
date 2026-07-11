@@ -159,6 +159,10 @@ function downloadResourceItem(item: EmbeddedResource | ResourceLink): boolean {
     return true;
   }
   const resource = item.resource;
+  // The types forbid it, but the payload is untrusted: a resource with neither
+  // `blob` nor a string `text` has nothing to save. Skip it (like a rejected
+  // link) rather than writing a file containing the literal text "undefined".
+  if (!("blob" in resource) && typeof resource.text !== "string") return false;
   const blob =
     "blob" in resource
       ? new Blob([base64ToBytes(resource.blob)], {
