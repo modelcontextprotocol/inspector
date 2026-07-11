@@ -850,6 +850,10 @@ export function InspectorView({
   // column. Gated by `canPin` so the pin affordance only appears when a click
   // would actually take effect (wide + connected).
   const canPin = !!isWide && connected;
+  // Offer an "open monitoring column" affordance on the server list when a
+  // connected server has monitor screens to show but the column isn't open yet.
+  const canOpenMonitor =
+    canPin && monitorAvailable.length > 0 && !effectivePinned;
   function pinMonitor(tab: MonitorTab) {
     setMonitorTab(tab);
     setMonitorPinned(true);
@@ -1068,6 +1072,11 @@ export function InspectorView({
                 onClearHighlight={onClearHighlight}
                 compact={serversCompact}
                 onToggleCompact={() => setServersCompact((c) => !c)}
+                onOpenMonitor={
+                  canOpenMonitor
+                    ? () => pinMonitor(effectiveMonitorTab)
+                    : undefined
+                }
               />
             </ScreenStage>
             <ScreenStage active={activeTab === "Tools"}>

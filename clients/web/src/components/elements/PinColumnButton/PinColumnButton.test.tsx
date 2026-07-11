@@ -18,4 +18,14 @@ describe("PinColumnButton", () => {
     await user.click(screen.getByRole("button", { name: "Pin as column" }));
     expect(onPin).toHaveBeenCalledTimes(1);
   });
+
+  it("uses a custom accessible label when provided", () => {
+    renderWithMantine(
+      <PinColumnButton onPin={vi.fn()} label="Open monitoring column" />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Open monitoring column" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pin as column" })).toBeNull();
+  });
 });

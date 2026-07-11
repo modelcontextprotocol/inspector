@@ -67,6 +67,12 @@ export interface ServerListScreenProps {
   onClearHighlight?: (id: string) => void;
   compact: boolean;
   onToggleCompact: () => void;
+  /**
+   * Open the monitoring column. Provided only when a server is connected, the
+   * column can open, and it isn't already shown; forwarded to the controls to
+   * reveal an open-sidebar button beside the list toggle.
+   */
+  onOpenMonitor?: () => void;
 }
 
 const PageContainer = Stack.withProps({
@@ -99,6 +105,7 @@ export function ServerListScreen({
   onClearHighlight,
   compact,
   onToggleCompact,
+  onOpenMonitor,
 }: ServerListScreenProps) {
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -196,6 +203,7 @@ export function ServerListScreen({
         onImportConfig={onImportConfig}
         onImportServerJson={onImportServerJson}
         onExport={onExport}
+        onOpenMonitor={onOpenMonitor}
       />
 
       <ScrollArea.Autosize
