@@ -17,7 +17,10 @@ import {
   MdFullscreenExit,
 } from "react-icons/md";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps/app-bridge";
+import type {
+  AppBridgeEventMap,
+  McpUiDisplayMode,
+} from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   AppRenderer,
   type AppRendererHandle,
@@ -131,11 +134,20 @@ const HeaderActions = Group.withProps({
 
 // The host-controlled box the running app sits within. Its size is driven by
 // the host's layout (window resize, sidebar toggle, maximize) and NOT by the
-// view's reported content height — that drives the inner box — so the
+// view's reported content height — that drives the inner RendererFrame — so the
 // renderer's containerDimensions observer can measure this element without
 // coupling host→view container size to view→host size-changed.
 const RendererContainer = Stack.withProps({
   flex: 1,
+  miw: 0,
+  mih: 0,
+  gap: 0,
+});
+
+// The inner box that actually holds the iframe. Sized by the view-reported
+// content height (see `contentHeight`) and capped at the outer container.
+// Distinct from RendererContainer above so the two roles read clearly in JSX.
+const RendererFrame = Stack.withProps({
   miw: 0,
   mih: 0,
   gap: 0,
@@ -180,9 +192,12 @@ export function AppsScreen({
   // nor surrounded by dead space. Width is left at the host-controlled
   // container width. The value is clamped to the available space by the
   // renderer frame's `mah` below, and ignored while maximized (the app fills
-  // the screen instead).
-  function handleSizeChange(size: { width?: number; height?: number }) {
-    if (size.height != null) setAppHeight(size.height);
+  // the screen instead). A non-positive height is ignored — a view's
+  // ResizeObserver can transiently fire 0 before layout settles or during
+  // teardown, which would otherwise collapse the frame (mirrors AppRenderer's
+  // own 0×0 skip on the container side).
+  function handleSizeChange(size: AppBridgeEventMap["sizechange"]) {
+    if (size.height != null && size.height > 0) setAppHeight(size.height);
   }
 
   // The app's display mode is derived from the existing maximized toggle.
@@ -264,6 +279,11 @@ export function AppsScreen({
 
   // While maximized the app fills the screen, so the view-reported height is
   // ignored; otherwise we honor it (clamped to the card by the frame's `mah`).
+  // `appHeight` is intentionally NOT cleared when toggling maximize: carrying
+  // the last inline height across a maximize→restore means the frame restores
+  // at its prior size immediately, rather than flashing to full-card height
+  // (flex:1) for the frame or two until the view sends a fresh size-changed
+  // after the `inline` host-context-changed.
   const contentHeight = maximized ? undefined : appHeight;
 
   return (
@@ -335,10 +355,10 @@ export function AppsScreen({
             </HeaderRow>
             {running ? (
               // RendererContainer is the host-controlled box (its size only
-              // changes with host layout); the inner Stack is sized by the
-              // view's reported content height, capped at the container.
+              // changes with host layout); the inner RendererFrame is sized by
+              // the view's reported content height, capped at the container.
               <RendererContainer ref={rendererContainerRef}>
-                <RendererContainer
+                <RendererFrame
                   flex={contentHeight != null ? "0 0 auto" : 1}
                   h={contentHeight}
                   mah="100%"
@@ -358,7 +378,7 @@ export function AppsScreen({
                     containerRef={rendererContainerRef}
                     ref={rendererRef}
                   />
-                </RendererContainer>
+                </RendererFrame>
               </RendererContainer>
             ) : (
               // `isOpening` is always false here because `handleOpen`
