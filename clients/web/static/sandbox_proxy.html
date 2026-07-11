@@ -164,11 +164,20 @@
               // that would let the untrusted app reach this proxy's DOM and
               // bypass its own CSP via window.parent. Sandbox tokens are
               // ASCII case-insensitive, so compare lowercased.
-              const safeSandbox = sandbox
+              const safeTokens = sandbox
                 .split(/\s+/)
-                .filter((t) => t && t.toLowerCase() !== "allow-same-origin")
-                .join(" ");
-              inner.setAttribute("sandbox", safeSandbox);
+                .filter((t) => t && t.toLowerCase() !== "allow-same-origin");
+              // Fail-closed but noisy: a server-supplied sandbox that omits
+              // allow-scripts leaves the inner frame unable to run the app.
+              // That's safe, but silently bricks the widget — log it so a
+              // developer can see why their app never started.
+              if (!safeTokens.some((t) => t.toLowerCase() === "allow-scripts")) {
+                console.warn(
+                  "[Sandbox] server-supplied sandbox has no allow-scripts; the app will not execute:",
+                  safeTokens.join(" "),
+                );
+              }
+              inner.setAttribute("sandbox", safeTokens.join(" "));
             }
             // Set Permission Policy allow attribute if permissions are requested
             const allowAttribute = buildAllowAttribute(permissions);

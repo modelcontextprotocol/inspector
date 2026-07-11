@@ -26,7 +26,10 @@ import type {
   LoggingMessageNotification,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps/app-bridge";
+import type {
+  AppBridgeEventMap,
+  McpUiDisplayMode,
+} from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   AppRenderer,
   type AppRendererHandle,
@@ -142,11 +145,20 @@ const HeaderActions = Group.withProps({
 
 // The host-controlled box the running app sits within. Its size is driven by
 // the host's layout (window resize, sidebar toggle, maximize) and NOT by the
-// view's reported content height — that drives the inner box — so the
+// view's reported content height — that drives the inner RendererFrame — so the
 // renderer's containerDimensions observer can measure this element without
 // coupling host→view container size to view→host size-changed.
 const RendererContainer = Stack.withProps({
   flex: 1,
+  miw: 0,
+  mih: 0,
+  gap: 0,
+});
+
+// The inner box that actually holds the iframe. Sized by the view-reported
+// content height (see `contentHeight`) and capped at the outer container.
+// Distinct from RendererContainer above so the two roles read clearly in JSX.
+const RendererFrame = Stack.withProps({
   miw: 0,
   mih: 0,
   gap: 0,
@@ -240,7 +252,10 @@ const PartialStageCount = Text.withProps({
 function formatLogData(data: unknown): string {
   if (typeof data === "string") return data;
   try {
-    return JSON.stringify(data);
+    // JSON.stringify(undefined) returns the value `undefined`, not a string, so
+    // coalesce to "" to keep the `: string` return type honest for a data-less
+    // log (spec-required, so this is only defensive against a malformed view).
+    return JSON.stringify(data) ?? "";
   } catch {
     /* v8 ignore next -- JSON.stringify only throws on a BigInt or a circular
        structure; a log payload delivered over postMessage is already
@@ -249,10 +264,28 @@ function formatLogData(data: unknown): string {
   }
 }
 
+/**
+ * Soft cap on retained message / log entries per run. Chatty widgets can emit
+ * logs in a loop; keep only the most recent so the panels (and their DOM rows)
+ * don't grow without bound between Clear/close. Oldest entries are dropped.
+ */
+const MAX_APP_CHANNEL_ENTRIES = 500;
+
+/** Append to a capped list, dropping the oldest entries past the cap. */
+function appendCapped<T>(prev: T[], next: T): T[] {
+  const grown = [...prev, next];
+  return grown.length > MAX_APP_CHANNEL_ENTRIES
+    ? grown.slice(grown.length - MAX_APP_CHANNEL_ENTRIES)
+    : grown;
+}
+
 // A user-role message submitted by the running view through ui/message. The
 // inspector has no conversation to append to, so it just records the content
-// blocks for display. Shape matches McpUiMessageRequest["params"].
+// blocks for display. `role`/`content` mirror McpUiMessageRequest["params"];
+// `id` is a stable React key (like AppLogEntry) so the appendCapped front-drop
+// can't renumber keys the way an array index would.
 interface AppMessage {
+  id: number;
   role: "user";
   content: ContentBlock[];
 }
@@ -288,6 +321,7 @@ export function AppsScreen({
   const [maximized, setMaximized] = useState(false);
   const rendererContainerRef = useRef<HTMLDivElement | null>(null);
   const nextLogIdRef = useRef(0);
+  const nextMessageIdRef = useRef(0);
   // Height (px) the running view last reported via ui/notifications/size-changed.
   // Undefined until the view reports (or after it's torn down), in which case
   // the iframe fills the available card space as before. Local to the screen
@@ -324,25 +358,29 @@ export function AppsScreen({
   // nor surrounded by dead space. Width is left at the host-controlled
   // container width. The value is clamped to the available space by the
   // renderer frame's `mah` below, and ignored while maximized (the app fills
-  // the screen instead).
-  function handleSizeChange(size: { width?: number; height?: number }) {
-    if (size.height != null) setAppHeight(size.height);
+  // the screen instead). A non-positive height is ignored — a view's
+  // ResizeObserver can transiently fire 0 before layout settles or during
+  // teardown, which would otherwise collapse the frame (mirrors AppRenderer's
+  // own 0×0 skip on the container side).
+  function handleSizeChange(size: AppBridgeEventMap["sizechange"]) {
+    if (size.height != null && size.height > 0) setAppHeight(size.height);
   }
 
-  function handleMessage(params: AppMessage) {
-    setMessages((prev) => [...prev, params]);
+  function handleMessage(params: Omit<AppMessage, "id">) {
+    setMessages((prev) =>
+      appendCapped(prev, { id: nextMessageIdRef.current++, ...params }),
+    );
   }
 
   function handleLog(params: LoggingMessageNotification["params"]) {
-    setAppLogs((prev) => [
-      ...prev,
-      {
+    setAppLogs((prev) =>
+      appendCapped(prev, {
         id: nextLogIdRef.current++,
         level: params.level,
         logger: params.logger,
         text: formatLogData(params.data),
-      },
-    ]);
+      }),
+    );
   }
 
   // Clear the message + log panels (and the reported height). Called when a run
@@ -440,6 +478,11 @@ export function AppsScreen({
 
   // While maximized the app fills the screen, so the view-reported height is
   // ignored; otherwise we honor it (clamped to the card by the frame's `mah`).
+  // `appHeight` is intentionally NOT cleared when toggling maximize: carrying
+  // the last inline height across a maximize→restore means the frame restores
+  // at its prior size immediately, rather than flashing to full-card height
+  // (flex:1) for the frame or two until the view sends a fresh size-changed
+  // after the `inline` host-context-changed.
   const contentHeight = maximized ? undefined : appHeight;
 
   return (
@@ -511,10 +554,10 @@ export function AppsScreen({
             </HeaderRow>
             {running ? (
               // RendererContainer is the host-controlled box (its size only
-              // changes with host layout); the inner Stack is sized by the
-              // view's reported content height, capped at the container.
+              // changes with host layout); the inner RendererFrame is sized by
+              // the view's reported content height, capped at the container.
               <RendererContainer ref={rendererContainerRef}>
-                <RendererContainer
+                <RendererFrame
                   flex={contentHeight != null ? "0 0 auto" : 1}
                   h={contentHeight}
                   mah="100%"
@@ -537,7 +580,7 @@ export function AppsScreen({
                     containerRef={rendererContainerRef}
                     ref={rendererRef}
                   />
-                </RendererContainer>
+                </RendererFrame>
               </RendererContainer>
             ) : (
               // `isOpening` is always false here because `handleOpen`
@@ -584,7 +627,7 @@ export function AppsScreen({
                 <LogScroll>
                   <MessageLogStack>
                     {messages.map((message, index) => (
-                      <MessageItem key={index}>
+                      <MessageItem key={message.id}>
                         <MessageItemStack>
                           <MonoCaption>
                             [{index}] role: {message.role}
@@ -609,6 +652,7 @@ export function AppsScreen({
                   <CompactSubtleButton
                     onClick={() => setAppLogsExpanded((e) => !e)}
                     aria-expanded={appLogsExpanded}
+                    aria-controls="apps-logs-region"
                   >
                     App logs ({appLogs.length})
                   </CompactSubtleButton>
@@ -616,7 +660,7 @@ export function AppsScreen({
                     Clear
                   </CompactSubtleButton>
                 </PanelHeaderRow>
-                <Collapse in={appLogsExpanded}>
+                <Collapse in={appLogsExpanded} id="apps-logs-region">
                   <LogScroll>
                     <AppLogList>
                       {appLogs.map((entry) => (
