@@ -22,6 +22,7 @@
   ],
   "scripts": {
     "build": "tsc && shx cp -R static build",
+    "test": "npm run build && node --test test/*.test.mjs",
     "start": "node build/index.js",
     "dev": "tsx watch --clear-screen=false src/index.ts",
     "dev:windows": "tsx watch --clear-screen=false src/index.ts < NUL"

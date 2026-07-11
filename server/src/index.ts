@@ -222,6 +222,12 @@ const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); /
 const serverTransports: Map<string, Transport> = new Map<string, Transport>(); // Server Transports by web app sessionId
 const sessionHeaderHolders: Map<string, ProxyHeaderHolder> = new Map(); // For dynamic header updates
 
+const cleanupTransportSession = (sessionId: string) => {
+  webAppTransports.delete(sessionId);
+  serverTransports.delete(sessionId);
+  sessionHeaderHolders.delete(sessionId);
+};
+
 // Use provided token from environment or generate a new one
 const sessionToken =
   process.env.MCP_PROXY_AUTH_TOKEN || randomBytes(32).toString("hex");
@@ -660,34 +666,40 @@ app.get(
       const endpoint = `${prefix}/message`;
 
       const webAppTransport = new SSEServerTransport(endpoint, res);
-      webAppTransports.set(webAppTransport.sessionId, webAppTransport);
+      const sessionId = webAppTransport.sessionId;
+      webAppTransports.set(sessionId, webAppTransport);
       console.log("Created client transport");
 
-      serverTransports.set(webAppTransport.sessionId, serverTransport);
+      serverTransports.set(sessionId, serverTransport);
       console.log("Created server transport");
 
       await webAppTransport.start();
 
-      (serverTransport as StdioClientTransport).stderr!.on("data", (chunk) => {
+      const stderr = (serverTransport as StdioClientTransport).stderr!;
+      const handleStderr = (chunk: Buffer) => {
         if (chunk.toString().includes("MODULE_NOT_FOUND")) {
           // Server command not found, remove transports
           const message = "Command not found, transports removed";
-          webAppTransport.send({
-            jsonrpc: "2.0",
-            method: "notifications/message",
-            params: {
-              level: "emergency",
-              logger: "proxy",
-              data: {
-                message,
+          void webAppTransport
+            .send({
+              jsonrpc: "2.0",
+              method: "notifications/message",
+              params: {
+                level: "emergency",
+                logger: "proxy",
+                data: {
+                  message,
+                },
               },
-            },
-          });
-          webAppTransport.close();
-          serverTransport.close();
-          webAppTransports.delete(webAppTransport.sessionId);
-          serverTransports.delete(webAppTransport.sessionId);
-          sessionHeaderHolders.delete(webAppTransport.sessionId);
+            })
+            .catch((error) => {
+              console.error("Error sending command failure to client:", error);
+            });
+          void Promise.allSettled([
+            webAppTransport.close(),
+            serverTransport.close(),
+          ]);
+          cleanupTransportSession(sessionId);
           console.error(message);
         } else {
           // Inspect message and attempt to assign a RFC 5424 Syslog Protocol level
@@ -722,23 +734,35 @@ app.get(
           } else {
             level = "info";
           }
-          webAppTransport.send({
-            jsonrpc: "2.0",
-            method: "notifications/message",
-            params: {
-              level,
-              logger: "stdio",
-              data: {
-                message,
+          void webAppTransport
+            .send({
+              jsonrpc: "2.0",
+              method: "notifications/message",
+              params: {
+                level,
+                logger: "stdio",
+                data: {
+                  message,
+                },
               },
-            },
-          });
+            })
+            .catch((error) => {
+              if (webAppTransports.has(sessionId)) {
+                console.error("Error forwarding STDERR to client:", error);
+              }
+            });
         }
-      });
+      };
+      stderr.on("data", handleStderr);
 
       mcpProxy({
         transportToClient: webAppTransport,
         transportToServer: serverTransport,
+        onCleanup: () => {
+          stderr.off("data", handleStderr);
+          cleanupTransportSession(sessionId);
+          console.log(`Transports removed for sessionId ${sessionId}`);
+        },
       });
     } catch (error) {
       if (is401Error(error)) {
@@ -773,12 +797,13 @@ app.get(
       const endpoint = `${prefix}/message`;
 
       const webAppTransport = new SSEServerTransport(endpoint, res);
-      webAppTransports.set(webAppTransport.sessionId, webAppTransport);
+      const sessionId = webAppTransport.sessionId;
+      webAppTransports.set(sessionId, webAppTransport);
       console.log("Created client transport");
 
-      serverTransports.set(webAppTransport.sessionId, serverTransport!); // eslint-disable-line @typescript-eslint/no-non-null-assertion
+      serverTransports.set(sessionId, serverTransport!); // eslint-disable-line @typescript-eslint/no-non-null-assertion
       if (headerHolder) {
-        sessionHeaderHolders.set(webAppTransport.sessionId, headerHolder);
+        sessionHeaderHolders.set(sessionId, headerHolder);
       }
       console.log("Created server transport");
 
@@ -788,6 +813,10 @@ app.get(
         transportToClient: webAppTransport,
         transportToServer: serverTransport,
         headerHolder,
+        onCleanup: () => {
+          cleanupTransportSession(sessionId);
+          console.log(`Transports removed for sessionId ${sessionId}`);
+        },
       });
     } catch (error) {
       if (is401Error(error)) {
