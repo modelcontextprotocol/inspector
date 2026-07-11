@@ -61,7 +61,10 @@ vi.mock("@modelcontextprotocol/ext-apps/app-bridge", () => {
   };
 });
 
-import { createAppBridgeFactory } from "./createAppBridgeFactory";
+import {
+  createAppBridgeFactory,
+  HOST_CAPABILITIES,
+} from "./createAppBridgeFactory";
 
 const tool: Tool = {
   name: "weather_app",
@@ -193,6 +196,26 @@ describe("createAppBridgeFactory", () => {
       permissions: { geolocation: {} },
       csp: { connectDomains: ["https://api.example.com"] },
     });
+  });
+
+  it("does not mutate the shared HOST_CAPABILITIES when echoing the approved sandbox", async () => {
+    // The factory builds a per-app copy ({ ...HOST_CAPABILITIES }) so the
+    // sandbox echo never leaks across apps/renders. Lock that in: after a
+    // sandboxready run that sets hostCapabilities.sandbox, the shared constant
+    // must stay untouched.
+    const readResource = vi.fn().mockResolvedValue(
+      uiResource("<h1>x</h1>", {
+        csp: { connectDomains: ["https://api.example.com"] },
+      }),
+    );
+    const factory = createAppBridgeFactory({
+      getClient: () => fakeClient,
+      readResource,
+    });
+    await factory(makeIframe(), tool);
+    bridgeInstances[0].emit("sandboxready");
+    await flush();
+    expect(HOST_CAPABILITIES.sandbox).toBeUndefined();
   });
 
   it("drops an unsafe app-supplied CSP source before wrapping", async () => {
