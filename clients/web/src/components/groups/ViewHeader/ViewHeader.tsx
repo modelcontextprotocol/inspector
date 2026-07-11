@@ -13,6 +13,7 @@ import {
   Tooltip,
   Transition,
   useComputedColorScheme,
+  type MantineTransition,
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
@@ -205,8 +206,45 @@ const ThemeToggle = ActionIcon.withProps({
   "aria-label": "Toggle color scheme",
 });
 
+// Enter/exit animation for the monitoring-sidebar toggle (#1661). It occupies a
+// slot to the right of the theme icon; when it appears it slides in and grows
+// its width from 0 → the 36px icon, which — because RightSection is a flex-end
+// row — pushes the theme + client-settings buttons one slot to the left. On exit
+// it reverses and those buttons slide back over. The negative `marginLeft` in
+// `out` cancels RightSection's `sm` gap while collapsed so the theme icon stays
+// flush to the right edge (no dead gap). `overflow: hidden` clips the icon as
+// the slot narrows so it reads as a slide-in reveal. The 36 matches the icon.
+const TOGGLE_ANIM_MS = 200;
+const toggleSlide: MantineTransition = {
+  in: { opacity: 1, width: 36, marginLeft: 0, transform: "translateX(0)" },
+  out: {
+    opacity: 0,
+    width: 0,
+    marginLeft: "calc(var(--mantine-spacing-sm) * -1)",
+    transform: "translateX(-8px)",
+  },
+  common: { overflow: "hidden", flexShrink: 0 },
+  transitionProperty: "opacity, width, margin-left, transform",
+};
+
 export function ViewHeader(props: ViewHeaderProps) {
   const colorScheme = useComputedColorScheme();
+  // Retain the latest toggle props so the control keeps rendering its final
+  // state while it slides out after `monitorToggle` clears (the Transition below
+  // keeps it mounted for the exit). Adjust-state-during-render, gated on the
+  // `open` primitive — the parent hands us a fresh object/callback each render,
+  // so comparing by identity would loop; `open` is the only bit that changes the
+  // rendered control, and the exiting toggle isn't interactive anyway.
+  const [lastMonitorToggle, setLastMonitorToggle] = useState(
+    props.monitorToggle,
+  );
+  if (
+    props.monitorToggle &&
+    props.monitorToggle.open !== lastMonitorToggle?.open
+  ) {
+    setLastMonitorToggle(props.monitorToggle);
+  }
+  const monitorToggleForRender = props.monitorToggle ?? lastMonitorToggle;
   const ThemeIcon = colorScheme === "dark" ? MdLightMode : MdDarkMode;
   const showSegmented = useMediaQuery("(min-width: 992px)");
   const showDisconnectLabel = useMediaQuery("(min-width: 768px)");
@@ -418,12 +456,31 @@ export function ViewHeader(props: ViewHeaderProps) {
             <ThemeIcon size={20} />
           </ThemeToggle>
         </Tooltip>
-        {props.monitorToggle ? (
-          <MonitoringToggle
-            open={props.monitorToggle.open}
-            onToggle={props.monitorToggle.onToggle}
-          />
-        ) : null}
+        <Transition
+          mounted={!!props.monitorToggle}
+          transition={toggleSlide}
+          duration={TOGGLE_ANIM_MS}
+          exitDuration={TOGGLE_ANIM_MS}
+          timingFunction="ease"
+        >
+          {(styles) =>
+            monitorToggleForRender ? (
+              // `style={styles}` is Mantine's runtime Transition interpolation
+              // (width/margin/opacity/transform), not static styling — same
+              // pattern as the column slide in InspectorView.
+              <Box style={styles}>
+                <MonitoringToggle
+                  open={monitorToggleForRender.open}
+                  onToggle={monitorToggleForRender.onToggle}
+                />
+              </Box>
+            ) : (
+              /* v8 ignore next -- unreachable: the Transition only mounts once a
+                 toggle has existed, so the snapshot is always set when rendered */
+              <></>
+            )
+          }
+        </Transition>
       </RightSection>
     </HeaderBar>
   );
