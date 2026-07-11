@@ -57,6 +57,32 @@ Object.defineProperty(globalThis, "fetch", {
     ),
 });
 
+// happy-dom doesn't implement `matchMedia`, so Mantine's `useReducedMotion`
+// resolves to "motion allowed" and every `Transition` (ScreenStage, Modal, …)
+// schedules real enter/exit `setTimeout`s. A timer that outlives its test fires
+// after the environment is torn down and throws `window is not defined` from
+// deep in react-dom — an unhandled error that fails the run even though every
+// test passed. Report `prefers-reduced-motion: reduce` so Mantine transitions
+// render instantly (no timers); all other queries stay `false`, matching the
+// prior (absent-matchMedia) behavior so `useMediaQuery`-driven layout is
+// unchanged. Tests that need specific media results still mock `@mantine/hooks`
+// or stub `matchMedia` themselves.
+Object.defineProperty(window, "matchMedia", {
+  configurable: true,
+  writable: true,
+  value: (query: string): MediaQueryList =>
+    ({
+      matches: /prefers-reduced-motion/.test(query),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }) as unknown as MediaQueryList,
+});
+
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
