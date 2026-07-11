@@ -31,14 +31,18 @@ ENV HOST=0.0.0.0 \
     MCP_AUTO_OPEN_ENABLED=false
 EXPOSE 6274
 
-# Run as the non-root `node` user the base image ships. Its home (/home/node) is
-# where the inspector writes runtime state (the default catalog, OAuth token
-# storage), so use it as the working directory.
+# Run as the non-root `node` user the base image ships. The inspector resolves
+# its runtime-state dir (default catalog, OAuth token storage) from `HOME`
+# (core/storage/store-io.ts), so set it explicitly to the node user's writable
+# home and work from there.
+ENV HOME=/home/node
 USER node
 WORKDIR /home/node
 
 # Report readiness by probing the served SPA (`/` needs no auth). Uses Node's
-# global fetch — no curl/wget in the slim image.
+# global fetch — no curl/wget in the slim image. Assumes the default `--web`
+# mode; running `--cli`/`--tui` has no web server, so add `--no-healthcheck` to
+# `docker run` for those.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD node -e "fetch('http://127.0.0.1:'+(process.env.CLIENT_PORT||6274)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
