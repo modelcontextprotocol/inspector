@@ -123,49 +123,61 @@ All work should be driven by items on the project board.
   - Run format, lint, typecheck, build, and test — ensure all checks pass
   - Open a PR against the matching base branch (`main` for v1, `v2/main` for v2) and set the item's Status to **In review**
   - **Link the PR to its issue.** The PR body's **first line must be `Closes #<ISSUE_NUMBER>`**. ⚠️ Note: closing keywords only auto-link/auto-close for PRs targeting the repo's **default branch** (`main`). Because v2 PRs target `v2/main` (a non-default branch), `Closes #N` there is only a cross-reference — it will **not** create a hard link or close the issue on merge. (There is no `gh` flag for manual linking — `gh pr edit` has no `--add-issue`; closing keywords are the only mechanism GitHub exposes, and they're gated to the default branch.)
-  - **On merge of a v2 PR, manually close its issue and move the board item to Done** (option id `1bbc5632`), since auto-close won't fire on `v2/main`. Keep the `Closes #N` line anyway so the issues close automatically if/when `v2/main` is eventually merged to `main`.
+  - **On merge of a v2 PR, manually close its issue and move the board item to Done** (option id `248a3910`), since auto-close won't fire on `v2/main`. Keep the `Closes #N` line anyway so the issues close automatically if/when `v2/main` is eventually merged to `main`.
 - If new tasks are discovered or requested during development, create issues and add them to the board.
 
 #### V2 board (#28) `gh` recipes
 
-The board is an **org project**, so all commands use `--owner modelcontextprotocol` and the numeric project `28`. The IDs below are stable; if a command rejects one, re-fetch with `gh project field-list 28 --owner modelcontextprotocol --format json`.
+The board is an **org project**, so all commands use `--owner modelcontextprotocol` and the numeric project `28`. The project node id and Status field id are stable. **The Status *option* ids are NOT stable — they are regenerated whenever the Status field's option list is edited** (see the ⚠️ hazard below). If any option id here is rejected, re-fetch the current set with:
+
+```sh
+gh project field-list 28 --owner modelcontextprotocol --format json \
+  | jq '.fields[] | select(.name=="Status") | .options'
+```
 
 | Thing | ID |
 | --- | --- |
 | Project node ID | `PVT_kwDOCt2Azc4BJVxt` |
 | Status field ID | `PVTSSF_lADOCt2Azc4BJVxtzg5iI8c` |
 
-Status option IDs (`--single-select-option-id`):
+Status option IDs (`--single-select-option-id`) — **last verified 2026-07-09**:
 
 | Status | Option ID |
 | --- | --- |
-| Backlog | `6080ca99` |
-| Building CLI / TUI / CORE | `fe170c62` |
-| Building Web | `4faeae7a` |
-| MCP Apps Extension | `588c6a63` |
-| In progress | `d43284fe` |
-| In review | `fb2103f2` |
-| Done | `1bbc5632` |
+| Todo | `fbdaf21e` |
+| Building CLI / TUI / CORE | `4ac261ee` |
+| Building Web | `c28da89f` |
+| MCP Apps Extension | `73d0b807` |
+| SDK V2 + New Spec | `1bbb6f57` |
+| In Progress | `195df262` |
+| In Review | `159c8a02` |
+| Done | `248a3910` |
 
-Use **In progress** for general work, one of the **Building** statuses (or **MCP Apps Extension**) while actively coding that surface, **In review** once a PR is open, and **Done** on merge.
+Use **Todo** for approved-but-not-started work, **In Progress** for general active work, one of the **Building** statuses (or **MCP Apps Extension** / **SDK V2 + New Spec**) while actively coding that surface, **In Review** once a PR is open, and **Done** on merge.
+
+> ⚠️ **Never add, rename, or remove a board column (Status option) with the `updateProjectV2Field` GraphQL mutation unless you pass every existing option's `id`.** That mutation does a **full replace** of the option list: if you resend options by name/color/description but omit their `id`s, GitHub **deletes all existing options and mints new ones**, which **orphans the Status of every card on the board** (all items go blank) *and* invalidates every option id in the table above. This has happened once (required reconstructing ~197 items' statuses by inference). Safe alternatives, in order of preference:
+> 1. **Add/rename/remove a column in the GitHub web UI** (Project #28 → Status field settings). This preserves ids of untouched options and never orphans cards.
+> 2. If you must script it, first `gh api graphql` the current options **with their `id`s**, then call `updateProjectV2Field` echoing back every existing option **including its `id`**, appending only the new one. Verify afterward that no card lost its Status.
+>
+> `gh project item-add` and `gh project item-edit` are always safe — they set a card's value and never touch the field schema. When option ids change for any reason, **re-verify and update the table above** (and the `248a3910` / `195df262` references in the recipes below and the merge step above).
 
 ```sh
 # 1. Add an issue to the board — prints the item id (PVTI_…); capture it.
 gh project item-add 28 --owner modelcontextprotocol --url <issue-url> --format json
 
-# 2. Set its Status (here: In progress). Use the option id from the table above.
+# 2. Set its Status (here: In Progress). Use the option id from the table above.
 gh project item-edit \
   --project-id PVT_kwDOCt2Azc4BJVxt \
   --id <item-id-from-step-1> \
   --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c \
-  --single-select-option-id d43284fe
+  --single-select-option-id 195df262
 ```
 
 The one-liner that does both, capturing the item id (use the option id for the status you want):
 
 ```sh
 ITEM_ID=$(gh project item-add 28 --owner modelcontextprotocol --url <issue-url> --format json --jq '.id')
-gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id d43284fe
+gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id 195df262
 ```
 
 ### Always test new or modified code
