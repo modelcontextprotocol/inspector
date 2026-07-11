@@ -8,7 +8,7 @@ const FULLSIZE_MAH =
 
 export interface EmbeddableScrollAreaProps {
   /**
-   * True when rendered inside the pinned monitoring column (#1616): the scroll
+   * True when rendered inside the pinned monitoring sidebar (#1616): the scroll
    * region fills its flex parent instead of using the viewport calc. A
    * `flex:1 / mih:0` wrapper caps the inner `ScrollArea` at the space remaining
    * below the column's controls (via `mah:100%`), so no viewport math is needed
@@ -36,7 +36,7 @@ const CONSTRAIN_CONTENT_STYLES = { content: { minWidth: 0 } } as const;
 
 /**
  * The scroll region shared by the Logs / Protocol / Network stream panels, which
- * render both full-size (their own tab) and embedded (the monitoring column).
+ * render both full-size (their own tab) and embedded (the monitoring sidebar).
  * Centralizes the one layout difference between those two hosts.
  */
 export function EmbeddableScrollArea({

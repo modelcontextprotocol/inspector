@@ -100,15 +100,6 @@ describe("ConsoleScreen", () => {
     expect(onExport).toHaveBeenCalledOnce();
   });
 
-  it("shows a pin button only when onPin is provided", () => {
-    const { rerender } = renderWithMantine(<ConsoleScreen {...makeProps()} />);
-    expect(screen.queryByRole("button", { name: "Pin as column" })).toBeNull();
-    rerender(<ConsoleScreen {...makeProps({ onPin: vi.fn() })} />);
-    expect(
-      screen.getByRole("button", { name: "Pin as column" }),
-    ).toBeInTheDocument();
-  });
-
   it("drops the search sidebar when embedded", () => {
     renderWithMantine(<ConsoleScreen {...makeProps({ embedded: true })} />);
     // The embedded column has no in-screen search box (the column supplies it).

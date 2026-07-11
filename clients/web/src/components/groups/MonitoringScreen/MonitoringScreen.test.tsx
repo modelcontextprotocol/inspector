@@ -23,7 +23,6 @@ function renderScreen(overrides: Partial<MonitoringScreenProps> = {}) {
     onChange: vi.fn(),
     searchValue: "",
     onSearchChange: vi.fn(),
-    onClose: vi.fn(),
     screens: screens(),
     ...overrides,
   };
@@ -42,22 +41,14 @@ describe("MonitoringScreen", () => {
   it("renders the controls tab row", () => {
     renderScreen();
     expect(screen.getByRole("radio", { name: "Logs" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Close monitoring column" }),
-    ).toBeInTheDocument();
   });
 
-  it("forwards tab changes and close from the controls", async () => {
+  it("forwards tab changes from the controls", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const onClose = vi.fn();
-    renderScreen({ onChange, onClose });
+    renderScreen({ onChange });
     await user.click(screen.getByRole("radio", { name: "Network" }));
     expect(onChange).toHaveBeenCalledWith("Network");
-    await user.click(
-      screen.getByRole("button", { name: "Close monitoring column" }),
-    );
-    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("forwards the search value and changes from the controls", async () => {

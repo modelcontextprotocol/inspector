@@ -25,8 +25,6 @@ export interface ProtocolScreenProps {
   onSortChange: (next: SortDirection) => void;
   compact: boolean;
   onToggleCompact: () => void;
-  /** See LoggingScreen: shows a "pin as column" button when set (#1616). */
-  onPin?: () => void;
   /** See LoggingScreen: fills the parent height and drops the filter sidebar. */
   embedded?: boolean;
 }
@@ -73,7 +71,6 @@ export function ProtocolScreen({
   onSortChange,
   compact,
   onToggleCompact,
-  onPin,
   embedded = false,
 }: ProtocolScreenProps) {
   const { search, methodFilter, visibleDirections } = ui;
@@ -142,7 +139,6 @@ export function ProtocolScreen({
         onSortChange={onSortChange}
         compact={compact}
         onToggleCompact={onToggleCompact}
-        onPin={onPin}
         embedded={embedded}
       />
     </ScreenLayout>

@@ -158,7 +158,7 @@ export function ServerCard({
   }, [highlighted, scrollOnHighlight]);
 
   // Scroll the failed card into view on the disconnected→errored transition
-  // (#1621), deferred past the monitoring column's open (`FAILED_CARD_SCROLL_
+  // (#1621), deferred past the monitoring sidebar's open (`FAILED_CARD_SCROLL_
   // DELAY_MS`, derived from the column's slide duration) so the grid reflow
   // settles before `scrollIntoView` measures the card. Guarded by a ref so a
   // re-render while still errored doesn't re-scroll and fight the user if they've

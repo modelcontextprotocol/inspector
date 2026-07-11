@@ -20,7 +20,6 @@ import {
   SortToggle,
   type SortDirection,
 } from "../../elements/SortToggle/SortToggle";
-import { PinColumnButton } from "../../elements/PinColumnButton/PinColumnButton";
 import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
 import { extractMethod } from "../protocolUtils.js";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
@@ -44,8 +43,6 @@ export interface ProtocolListPanelProps {
   onSortChange: (next: SortDirection) => void;
   compact: boolean;
   onToggleCompact: () => void;
-  /** See LogStreamPanel: shows a "pin as column" button when set (#1616). */
-  onPin?: () => void;
   /** See LogStreamPanel: fills the flex parent instead of the viewport calc. */
   embedded?: boolean;
 }
@@ -221,7 +218,6 @@ export function ProtocolListPanel({
   onSortChange,
   compact,
   onToggleCompact,
-  onPin,
   embedded = false,
 }: ProtocolListPanelProps) {
   const viewportRef = useScrollMemory("protocol-list");
@@ -293,7 +289,6 @@ export function ProtocolListPanel({
           {hasResults && (
             <ListToggle compact={compact} onToggle={onToggleCompact} />
           )}
-          {onPin ? <PinColumnButton onPin={onPin} /> : null}
         </Group>
       </Group>
 

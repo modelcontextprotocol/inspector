@@ -99,6 +99,39 @@ describe("ViewHeader", () => {
       );
       expect(onToggleTheme).toHaveBeenCalledTimes(1);
     });
+
+    it("omits the monitoring toggle when no monitorToggle is provided", () => {
+      renderWithMantine(
+        <ViewHeader
+          connected={false}
+          onToggleTheme={vi.fn()}
+          onOpenClientSettings={vi.fn()}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: "Open monitoring sidebar" }),
+      ).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring sidebar" }),
+      ).toBeNull();
+    });
+
+    it("renders and wires the monitoring toggle for a failed connect attempt", async () => {
+      const user = userEvent.setup();
+      const onToggle = vi.fn();
+      renderWithMantine(
+        <ViewHeader
+          connected={false}
+          onToggleTheme={vi.fn()}
+          onOpenClientSettings={vi.fn()}
+          monitorToggle={{ open: false, onToggle }}
+        />,
+      );
+      await user.click(
+        screen.getByRole("button", { name: "Open monitoring sidebar" }),
+      );
+      expect(onToggle).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("when connected", () => {
@@ -120,6 +153,24 @@ describe("ViewHeader", () => {
         screen.getByRole("button", { name: "Toggle color scheme" }),
       );
       expect(onToggleTheme).toHaveBeenCalledTimes(1);
+    });
+
+    it("renders the monitoring toggle in its open state and toggles it closed", async () => {
+      const user = userEvent.setup();
+      const onToggle = vi.fn();
+      renderWithMantine(
+        <ViewHeader
+          {...connectedProps}
+          monitorToggle={{ open: true, onToggle }}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: "Open monitoring sidebar" }),
+      ).toBeNull();
+      await user.click(
+        screen.getByRole("button", { name: "Close monitoring sidebar" }),
+      );
+      expect(onToggle).toHaveBeenCalledTimes(1);
     });
 
     it("invokes onDisconnect when the disconnect control is clicked", async () => {

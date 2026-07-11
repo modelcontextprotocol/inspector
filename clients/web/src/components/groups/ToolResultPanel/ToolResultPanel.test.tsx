@@ -69,11 +69,11 @@ describe("ToolResultPanel", () => {
     );
   });
 
-  it("invokes onClear when Clear is clicked", async () => {
+  it("invokes onClear when the close button is clicked", async () => {
     const user = userEvent.setup();
     const onClear = vi.fn();
     renderWithMantine(<ToolResultPanel result={okResult} onClear={onClear} />);
-    await user.click(screen.getByRole("button", { name: "Clear" }));
+    await user.click(screen.getByRole("button", { name: "Close results" }));
     expect(onClear).toHaveBeenCalledTimes(1);
   });
 });

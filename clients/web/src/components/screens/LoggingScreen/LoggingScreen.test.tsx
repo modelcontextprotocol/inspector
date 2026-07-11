@@ -132,14 +132,6 @@ describe("LoggingScreen", () => {
     expect(onSetLevel).toHaveBeenCalledWith("info");
   });
 
-  it("renders a pin-as-column button when onPin is provided and invokes it", async () => {
-    const user = userEvent.setup();
-    const onPin = vi.fn();
-    renderWithMantine(<LoggingScreen {...baseProps} onPin={onPin} />);
-    await user.click(screen.getByRole("button", { name: "Pin as column" }));
-    expect(onPin).toHaveBeenCalledTimes(1);
-  });
-
   it("drops the filter sidebar when embedded, keeping the stream", () => {
     renderWithMantine(<LoggingScreen {...baseProps} embedded />);
     expect(screen.getByText("Log Stream")).toBeInTheDocument();

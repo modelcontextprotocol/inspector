@@ -17,12 +17,7 @@ export interface LoggingScreenProps {
   sortDirection: SortDirection;
   onSortChange: (next: SortDirection) => void;
   /**
-   * When set, the stream panel shows a "pin as column" button (#1616). Omitted
-   * when already embedded, or when pinning isn't currently available.
-   */
-  onPin?: () => void;
-  /**
-   * True when rendered inside the monitoring column: the screen fills its
+   * True when rendered inside the monitoring sidebar: the screen fills its
    * parent's height (instead of the viewport calc) and drops the filter
    * sidebar so the narrow column is stream-only.
    */
@@ -63,7 +58,6 @@ export function LoggingScreen({
   onExport,
   sortDirection,
   onSortChange,
-  onPin,
   embedded = false,
 }: LoggingScreenProps) {
   const { filterText, visibleLevels } = ui;
@@ -110,7 +104,6 @@ export function LoggingScreen({
         onExport={onExport}
         sortDirection={sortDirection}
         onSortChange={onSortChange}
-        onPin={onPin}
         embedded={embedded}
       />
     </ScreenLayout>

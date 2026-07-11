@@ -66,7 +66,9 @@ describe("ToolsScreen", () => {
     expect(
       screen.getByText("Select a tool to view details"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Results will appear here")).toBeInTheDocument();
+    // There is no separate results placeholder pane anymore (#1661) — results
+    // replace the input form in the single content pane when they exist.
+    expect(screen.queryByText("Results will appear here")).toBeNull();
   });
 
   it("shows the detail panel when a tool is selected", async () => {
@@ -100,10 +102,10 @@ describe("ToolsScreen", () => {
     expect(onCallTool).toHaveBeenCalledWith("gamma", { mode: "slow" }, false);
   });
 
-  it("renders selection and result from props (persisted across navigation)", () => {
+  it("shows the result in place of the form when a selected tool has a result", () => {
     // App owns selection + result, so a remount after a tab switch re-renders
-    // with both still set — the detail and result panels show without any
-    // local re-selection.
+    // with both still set. The result replaces the input form in the single
+    // content pane (#1661): the Execute button is gone while the result shows.
     renderWithMantine(
       <ToolsScreen
         {...baseProps}
@@ -118,6 +120,47 @@ describe("ToolsScreen", () => {
       screen.queryByText("Select a tool to view details"),
     ).not.toBeInTheDocument();
     expect(screen.getByText("Results")).toBeInTheDocument();
+    // The input form is hidden while the result is shown.
+    expect(screen.queryByRole("button", { name: /Execute/ })).toBeNull();
+  });
+
+  it("returns to the input form when the result is dismissed", async () => {
+    // App owns both `ui` and `callState`; this host mirrors that so dismissing
+    // the result (onClearResult → callState cleared) flips the single content
+    // pane back to the input form, with the selection (and thus the form)
+    // preserved for a re-run (#1661).
+    function Host() {
+      const [ui, setUi] = useState<ToolsUiState>({
+        ...EMPTY_TOOLS_UI,
+        selectedToolName: "alpha",
+      });
+      const [callState, setCallState] = useState<ToolsScreenProps["callState"]>(
+        {
+          status: "ok",
+          result: { content: [{ type: "text", text: "ok" }] },
+        },
+      );
+      return (
+        <ToolsScreen
+          {...baseProps}
+          ui={ui}
+          onUiChange={setUi}
+          callState={callState}
+          onClearResult={() => setCallState(undefined)}
+        />
+      );
+    }
+    const user = userEvent.setup();
+    renderWithMantine(<Host />);
+    // A result is present, so the result pane shows and the form is hidden.
+    expect(screen.getByText("Results")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Execute/ })).toBeNull();
+    // Dismissing the result flips back to the input form (Execute reappears).
+    await user.click(screen.getByRole("button", { name: "Close results" }));
+    expect(
+      await screen.findByRole("button", { name: /Execute/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Results")).toBeNull();
   });
 
   it("renders the result panel when callState has a result", () => {
@@ -152,7 +195,7 @@ describe("ToolsScreen", () => {
     expect(onCallTool).toHaveBeenCalledWith("gamma", { mode: "fast" }, false);
   });
 
-  it("invokes onClearResult when Clear is clicked on the result panel", async () => {
+  it("invokes onClearResult when the result close button is clicked", async () => {
     const user = userEvent.setup();
     const onClearResult = vi.fn();
     renderWithMantine(
@@ -165,7 +208,7 @@ describe("ToolsScreen", () => {
         }}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Clear" }));
+    await user.click(screen.getByRole("button", { name: "Close results" }));
     expect(onClearResult).toHaveBeenCalledTimes(1);
   });
 
@@ -243,7 +286,7 @@ describe("ToolsScreen", () => {
         }}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Clear" }));
+    await user.click(screen.getByRole("button", { name: "Close results" }));
     expect(screen.getByText("Results")).toBeInTheDocument();
   });
 });

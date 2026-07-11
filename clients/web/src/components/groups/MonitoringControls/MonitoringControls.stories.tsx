@@ -11,7 +11,6 @@ const meta: Meta<typeof MonitoringControls> = {
     onChange: fn(),
     searchValue: "",
     onSearchChange: fn(),
-    onClose: fn(),
   },
 };
 
@@ -22,9 +21,6 @@ export const AllTabs: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     expect(canvas.getByRole("radio", { name: "Logs" })).toBeChecked();
-    expect(
-      canvas.getByRole("button", { name: "Close monitoring column" }),
-    ).toBeInTheDocument();
   },
 };
 

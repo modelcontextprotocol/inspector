@@ -15,7 +15,6 @@ function renderControls(overrides: Partial<MonitoringControlsProps> = {}) {
     onChange: vi.fn(),
     searchValue: "",
     onSearchChange: vi.fn(),
-    onClose: vi.fn(),
     ...overrides,
   };
   renderWithMantine(<MonitoringControls {...props} />);
@@ -44,7 +43,6 @@ describe("MonitoringControls", () => {
         onChange={vi.fn()}
         searchValue=""
         onSearchChange={vi.fn()}
-        onClose={vi.fn()}
       />,
     );
     expect(
@@ -89,15 +87,5 @@ describe("MonitoringControls", () => {
   it("shows no clear button when the search is empty", () => {
     renderControls({ searchValue: "" });
     expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
-  });
-
-  it("calls onClose when the close button is clicked", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    renderControls({ onClose });
-    await user.click(
-      screen.getByRole("button", { name: "Close monitoring column" }),
-    );
-    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,6 +1,6 @@
 import {
   Alert,
-  Button,
+  CloseButton,
   Group,
   ScrollArea,
   Stack,
@@ -16,6 +16,11 @@ import { ResourceLink } from "../ResourceLink/ResourceLink";
 
 export interface ToolResultPanelProps {
   result: CallToolResult;
+  /**
+   * Dismiss the result and return to the input form (#1661). Mirrors the
+   * Prompts screen: the result replaces the form while present, and the
+   * top-left X flips back to the form so the tool can be re-run.
+   */
   onClear: () => void;
   /**
    * Read-on-demand handler so `resource_link` blocks in the result can fetch
@@ -23,11 +28,6 @@ export interface ToolResultPanelProps {
    */
   onReadResource?: (uri: string) => Promise<ReadResourceResult>;
 }
-
-const ClearButton = Button.withProps({
-  variant: "subtle",
-  size: "sm",
-});
 
 // Outer column: the header pins (`flex: 0 0 auto`) and the scroll region
 // absorbs overflow when the enclosing card hits its `mah`. `mih: 0` lets the
@@ -41,6 +41,13 @@ const PanelStack = Stack.withProps({
 const HeaderRow = Group.withProps({
   justify: "space-between",
   flex: "0 0 auto",
+});
+
+// Close button + title, mirroring PromptMessagesDisplay so the two result
+// panels dismiss the same way.
+const HeaderLeft = Group.withProps({
+  gap: "xs",
+  wrap: "nowrap",
 });
 
 // `0 1 auto` + `mih: 0` lets the scroll region shrink (never grow) so a short
@@ -66,8 +73,10 @@ export function ToolResultPanel({
   return (
     <PanelStack>
       <HeaderRow>
-        <Title order={4}>Results</Title>
-        <ClearButton onClick={onClear}>Clear</ClearButton>
+        <HeaderLeft>
+          <CloseButton aria-label="Close results" onClick={onClear} />
+          <Title order={4}>Results</Title>
+        </HeaderLeft>
       </HeaderRow>
       <ResultScroll>
         <ResultStack>

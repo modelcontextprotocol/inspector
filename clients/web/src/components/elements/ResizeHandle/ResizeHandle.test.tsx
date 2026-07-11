@@ -39,9 +39,9 @@ describe("ResizeHandle", () => {
   });
 
   it("accepts a custom aria-label", () => {
-    setup({ "aria-label": "Resize monitoring column" });
+    setup({ "aria-label": "Resize monitoring sidebar" });
     expect(
-      screen.getByRole("separator", { name: "Resize monitoring column" }),
+      screen.getByRole("separator", { name: "Resize monitoring sidebar" }),
     ).toBeInTheDocument();
   });
 

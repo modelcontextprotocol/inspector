@@ -36,4 +36,21 @@ describe("LogEntry", () => {
     );
     expect(container.textContent).toContain("info");
   });
+
+  it("renders the compact two-line layout with time, level, logger, and message", () => {
+    renderWithMantine(
+      <LogEntry
+        entry={baseEntry({
+          data: "compact message",
+          level: "warning",
+          logger: "transport",
+        })}
+        compact
+      />,
+    );
+    // All four pieces still render in the compact variant.
+    expect(screen.getByText("warning")).toBeInTheDocument();
+    expect(screen.getByText("[transport]")).toBeInTheDocument();
+    expect(screen.getByText("compact message")).toBeInTheDocument();
+  });
 });

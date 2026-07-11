@@ -37,7 +37,6 @@ const meta: Meta<typeof MonitoringScreen> = {
     onChange: fn(),
     searchValue: "",
     onSearchChange: fn(),
-    onClose: fn(),
     screens: demoScreens,
   },
 };

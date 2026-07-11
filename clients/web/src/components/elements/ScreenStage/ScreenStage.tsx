@@ -12,7 +12,7 @@ export interface ScreenStageProps {
   /**
    * Stretch the stage to fill its relative-positioned parent (adds `bottom: 0`).
    * Needed where the screen relies on the parent for height (e.g. an inner
-   * ScrollArea in the monitoring column). Off by default so callers whose
+   * ScrollArea in the monitoring sidebar). Off by default so callers whose
    * screens size themselves keep the top/left/right anchoring.
    */
   fill?: boolean;
@@ -25,7 +25,7 @@ export interface ScreenStageProps {
  * (`keepMounted={false}`) the outgoing screen unmounts after its exit animation,
  * resetting any local screen state (search filters, scroll, expanded sections).
  *
- * Shared by the primary InspectorView pane and the pinned monitoring column so
+ * Shared by the primary InspectorView pane and the pinned monitoring sidebar so
  * both use identical enter/exit motion (#1639-follow-up). Must be rendered
  * inside a `position: relative` container.
  */

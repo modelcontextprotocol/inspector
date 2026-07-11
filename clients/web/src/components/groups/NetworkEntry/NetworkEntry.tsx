@@ -21,7 +21,7 @@ export interface NetworkEntryProps {
   entry: FetchRequestEntry;
   isListExpanded: boolean;
   /**
-   * Compact two-line header for the narrow monitoring column (#1616): line 1 is
+   * Compact two-line header for the narrow monitoring sidebar (#1616): line 1 is
    * time + method + category + duration + status; line 2 is the URL in a
    * horizontal scroll area with the expand toggle on the right.
    */

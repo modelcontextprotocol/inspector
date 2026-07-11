@@ -16,7 +16,6 @@ import {
   SortToggle,
   type SortDirection,
 } from "../../elements/SortToggle/SortToggle";
-import { PinColumnButton } from "../../elements/PinColumnButton/PinColumnButton";
 import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
@@ -28,8 +27,6 @@ export interface ConsoleScreenProps {
   onExport: () => void;
   sortDirection: SortDirection;
   onSortChange: (next: SortDirection) => void;
-  /** See LoggingScreen: shows a "pin as column" button when set (#1616). */
-  onPin?: () => void;
   /** See LoggingScreen: fills the parent height and drops the filter sidebar. */
   embedded?: boolean;
 }
@@ -112,7 +109,6 @@ export function ConsoleScreen({
   onExport,
   sortDirection,
   onSortChange,
-  onPin,
   embedded = false,
 }: ConsoleScreenProps) {
   const { filterText } = ui;
@@ -176,7 +172,6 @@ export function ConsoleScreen({
             >
               Export
             </Button>
-            {onPin ? <PinColumnButton onPin={onPin} /> : null}
           </Group>
         </Group>
         {filteredEntries.length > 0 ? (
