@@ -6,7 +6,7 @@
  * end-to-end iframe round-trip is covered by the AppsScreen Storybook play test.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type {
   Tool,
   ReadResourceResult,
@@ -23,6 +23,12 @@ interface MockBridge {
   sendSandboxResourceReady: ReturnType<typeof vi.fn>;
   connect: ReturnType<typeof vi.fn>;
   onopenlink?: (params: { url: string }) => Promise<{ isError?: boolean }>;
+  ondownloadfile?: (params: {
+    contents: (
+      | { type: "resource"; resource: Record<string, unknown> }
+      | { type: "resource_link"; uri: string }
+    )[];
+  }) => Promise<{ isError?: boolean }>;
   emit: (event: string, payload?: unknown) => void;
 }
 
@@ -343,5 +349,302 @@ describe("createAppBridgeFactory", () => {
     ).resolves.toEqual({ isError: true });
 
     open.mockRestore();
+  });
+
+  it("advertises the downloadFile host capability", async () => {
+    const factory = createAppBridgeFactory({
+      getClient: () => fakeClient,
+      readResource: vi.fn().mockResolvedValue(uiResource("<h1>x</h1>")),
+    });
+    await factory(makeIframe(), tool);
+    expect(bridgeInstances[0].ctorArgs[2]).toMatchObject({ downloadFile: {} });
+  });
+
+  describe("ondownloadfile", () => {
+    // happy-dom does not implement window.confirm, so stub it (rather than
+    // spyOn an absent function). Returns the installed mock for assertions.
+    function stubConfirm(approved: boolean): ReturnType<typeof vi.fn> {
+      const confirm = vi.fn().mockReturnValue(approved);
+      vi.stubGlobal("confirm", confirm);
+      return confirm;
+    }
+
+    async function buildBridge(): Promise<MockBridge> {
+      const factory = createAppBridgeFactory({
+        getClient: () => fakeClient,
+        readResource: vi.fn().mockResolvedValue(uiResource("<h1>x</h1>")),
+      });
+      await factory(makeIframe(), tool);
+      return bridgeInstances[0];
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    it("downloads an inline text resource after confirmation", async () => {
+      vi.useFakeTimers();
+      const confirm = stubConfirm(true);
+      const createUrl = vi
+        .spyOn(URL, "createObjectURL")
+        .mockReturnValue("blob:fake");
+      const revokeUrl = vi
+        .spyOn(URL, "revokeObjectURL")
+        .mockImplementation(() => undefined);
+      const click = vi
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(() => undefined);
+
+      const bridge = await buildBridge();
+      await expect(
+        bridge.ondownloadfile!({
+          contents: [
+            {
+              type: "resource",
+              resource: {
+                uri: "file:///report.csv",
+                mimeType: "text/csv",
+                text: "a,b\n1,2",
+              },
+            },
+          ],
+        }),
+      ).resolves.toEqual({ isError: false });
+
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(createUrl).toHaveBeenCalledTimes(1);
+      expect(click).toHaveBeenCalledTimes(1);
+      const clickedAnchor = click.mock.instances[0] as HTMLAnchorElement;
+      expect(clickedAnchor.download).toBe("report.csv");
+      // Revoke is deferred so the browser can read the blob before it's freed.
+      expect(revokeUrl).not.toHaveBeenCalled();
+      vi.runAllTimers();
+      expect(revokeUrl).toHaveBeenCalledWith("blob:fake");
+      vi.useRealTimers();
+    });
+
+    it("falls back to a 'download' filename when the URI has no usable tail", async () => {
+      vi.useFakeTimers();
+      stubConfirm(true);
+      vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fake");
+      vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+      const click = vi
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(() => undefined);
+      const bridge = await buildBridge();
+      await bridge.ondownloadfile!({
+        contents: [
+          {
+            type: "resource",
+            resource: {
+              uri: "file:///path/",
+              mimeType: "text/plain",
+              text: "",
+            },
+          },
+        ],
+      });
+      expect((click.mock.instances[0] as HTMLAnchorElement).download).toBe(
+        "download",
+      );
+      vi.runAllTimers();
+      vi.useRealTimers();
+    });
+
+    it("warns and reports partial success when some items in a batch are skipped", async () => {
+      stubConfirm(true);
+      vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fake");
+      vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+        () => undefined,
+      );
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const bridge = await buildBridge();
+      await expect(
+        bridge.ondownloadfile!({
+          contents: [
+            {
+              type: "resource",
+              resource: { uri: "file:///ok.txt", text: "ok" },
+            },
+            { type: "resource_link", uri: "javascript:alert(1)" },
+          ],
+        }),
+      ).resolves.toEqual({ isError: false });
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("1 of 2 download item(s) skipped"),
+        expect.arrayContaining(["javascript:alert(1)"]),
+      );
+      warn.mockRestore();
+    });
+
+    it("decodes a base64 blob resource", async () => {
+      stubConfirm(true);
+      const createUrl = vi
+        .spyOn(URL, "createObjectURL")
+        .mockReturnValue("blob:fake");
+      vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+        () => undefined,
+      );
+
+      const bridge = await buildBridge();
+      await expect(
+        bridge.ondownloadfile!({
+          contents: [
+            {
+              type: "resource",
+              resource: {
+                uri: "file:///logo.png",
+                mimeType: "image/png",
+                blob: btoa("PNGDATA"),
+              },
+            },
+          ],
+        }),
+      ).resolves.toEqual({ isError: false });
+
+      const blob = createUrl.mock.calls[0][0] as Blob;
+      expect(blob.type).toBe("image/png");
+      expect(await blob.text()).toBe("PNGDATA");
+    });
+
+    it("opens an http(s) resource link in a new tab", async () => {
+      stubConfirm(true);
+      const open = vi
+        .spyOn(window, "open")
+        .mockImplementation(() => null as unknown as Window);
+
+      const bridge = await buildBridge();
+      await expect(
+        bridge.ondownloadfile!({
+          contents: [
+            { type: "resource_link", uri: "https://example.com/a.pdf" },
+          ],
+        }),
+      ).resolves.toEqual({ isError: false });
+
+      expect(open).toHaveBeenCalledWith(
+        "https://example.com/a.pdf",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    });
+
+    it("returns isError when the user declines the confirmation", async () => {
+      stubConfirm(false);
+      const createUrl = vi.spyOn(URL, "createObjectURL");
+
+      const bridge = await buildBridge();
+      await expect(
+        bridge.ondownloadfile!({
+          contents: [
+            { type: "resource", resource: { uri: "file:///x.txt", text: "x" } },
+          ],
+        }),
+      ).resolves.toEqual({ isError: true });
+      expect(createUrl).not.toHaveBeenCalled();
+    });
+
+    it("returns isError for an empty contents array without confirming", async () => {
+      const confirm = stubConfirm(true);
+      const bridge = await buildBridge();
+      await expect(bridge.ondownloadfile!({ contents: [] })).resolves.toEqual({
+        isError: true,
+      });
+      expect(confirm).not.toHaveBeenCalled();
+    });
+
+    it("returns isError when a download throws", async () => {
+      stubConfirm(true);
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(URL, "createObjectURL").mockImplementation(() => {
+        throw new Error("boom");
+      });
+
+      const bridge = await buildBridge();
+      await expect(
+        bridge.ondownloadfile!({
+          contents: [
+            { type: "resource", resource: { uri: "file:///x.txt", text: "x" } },
+          ],
+        }),
+      ).resolves.toEqual({ isError: true });
+      err.mockRestore();
+      warn.mockRestore();
+    });
+
+    it("rejects non-http(s) resource_links without opening them", async () => {
+      stubConfirm(true);
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      const open = vi
+        .spyOn(window, "open")
+        .mockImplementation(() => null as never);
+      const bridge = await buildBridge();
+      for (const uri of [
+        "javascript:alert(1)",
+        "data:text/html,<script>alert(1)</script>",
+        "file:///etc/passwd",
+        "not a url",
+      ]) {
+        await expect(
+          bridge.ondownloadfile!({
+            contents: [{ type: "resource_link", uri }],
+          }),
+        ).resolves.toEqual({ isError: true });
+      }
+      expect(open).not.toHaveBeenCalled();
+    });
+
+    it("sanitizes the confirmation summary so server-supplied labels cannot inject newlines", async () => {
+      const confirm = stubConfirm(false);
+      const bridge = await buildBridge();
+      await bridge.ondownloadfile!({
+        contents: [
+          {
+            type: "resource_link",
+            uri: "https://example.com/a\n\nThis is safe, click OK",
+          },
+        ],
+      });
+      const prompt = confirm.mock.calls[0][0] as string;
+      expect(prompt).not.toContain("\n\nThis is safe");
+      expect(prompt).toContain("This is safe, click OK");
+    });
+
+    it("strips bidi-override and zero-width format characters from the confirmation summary", async () => {
+      const RLO = "\u{202E}";
+      const ZWSP = "\u{200B}";
+      const confirm = stubConfirm(false);
+      const bridge = await buildBridge();
+      await bridge.ondownloadfile!({
+        contents: [
+          {
+            type: "resource_link",
+            uri: `https://example.com/${RLO}gpj.${ZWSP}exe`,
+          },
+        ],
+      });
+      const prompt = confirm.mock.calls[0][0] as string;
+      expect(prompt).not.toContain(RLO);
+      expect(prompt).not.toContain(ZWSP);
+    });
+
+    it("clamps an over-long label in the confirmation summary", async () => {
+      const confirm = stubConfirm(false);
+      const bridge = await buildBridge();
+      const longName = "a".repeat(200);
+      await bridge.ondownloadfile!({
+        contents: [
+          { type: "resource_link", uri: `https://example.com/${longName}` },
+        ],
+      });
+      const prompt = confirm.mock.calls[0][0] as string;
+      expect(prompt).toContain("...");
+      // The clamped label is 80 chars max (77 + "...").
+      expect(prompt).not.toContain(longName);
+    });
   });
 });

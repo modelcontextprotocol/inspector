@@ -10,14 +10,21 @@ import type {
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type {
+  EmbeddedResource,
   Implementation,
   ReadResourceResult,
+  ResourceLink,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   approveCspSources,
   buildSandboxCspPolicy,
   wrapSandboxedHtml,
 } from "../../../lib/sandbox-csp";
+import {
+  downloadBlob,
+  fileNameFromUri,
+  isHttpUrl,
+} from "../../../lib/downloadFile";
 import { snapshotHostContext } from "./hostContext";
 import type { BridgeFactory } from "./AppRenderer";
 
@@ -34,11 +41,12 @@ export const HOST_INFO: Implementation = {
  * Capabilities the inspector host offers a running MCP App. Constructed WITH an
  * MCP client (see {@link createAppBridgeFactory}), so the bridge auto-forwards
  * tools/resources/prompts to the view; we only declare the host-side features
- * we actually back: external links (handled below), tool/resource list-change
- * forwarding, and logging passthrough.
+ * we actually back: external links and file downloads (both handled below),
+ * tool/resource list-change forwarding, and logging passthrough.
  */
 export const HOST_CAPABILITIES: McpUiHostCapabilities = {
   openLinks: {},
+  downloadFile: {},
   serverTools: { listChanged: true },
   serverResources: { listChanged: true },
   logging: {},
@@ -86,6 +94,64 @@ function extractHtmlAndMeta(result: ReadResourceResult): {
 }
 
 /**
+ * Decode a base64-encoded blob resource into bytes for download. Allocates the
+ * backing store explicitly so the return type is `Uint8Array<ArrayBuffer>`
+ * (Blob accepts `ArrayBufferView<ArrayBuffer>`, not the wider
+ * `ArrayBufferLike`).
+ */
+function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+/**
+ * Strip control characters and clamp length so a server-supplied filename or
+ * URI cannot forge additional lines in the confirmation prompt or push the
+ * real summary off-screen.
+ */
+function sanitizeDownloadLabel(label: string): string {
+  // Cc = control chars (newlines, escape, etc.); Cf = format chars (bidi
+  // overrides, zero-width joiners, BOM) — both can spoof or reflow the prompt.
+  const cleaned = label.replace(/[\p{Cc}\p{Cf}]+/gu, " ").trim();
+  return cleaned.length > 80 ? cleaned.slice(0, 77) + "..." : cleaned;
+}
+
+/** Human-readable label for a download item, shown in the confirmation prompt. */
+function describeDownloadItem(item: EmbeddedResource | ResourceLink): string {
+  if (item.type === "resource_link") return item.uri;
+  return fileNameFromUri(item.resource.uri);
+}
+
+/**
+ * Trigger a browser download for a single MCP resource item. Inline
+ * {@link EmbeddedResource}s (text or base64 blob) are written via
+ * {@link downloadBlob}. A {@link ResourceLink} is *opened* in a new tab —
+ * the inspector does not fetch the URL to disk itself, since the link may
+ * require auth or content negotiation the browser can supply but we cannot.
+ * Returns false when the item carries nothing downloadable or its URI is
+ * rejected by the http(s)-only allowlist.
+ */
+function downloadResourceItem(item: EmbeddedResource | ResourceLink): boolean {
+  if (item.type === "resource_link") {
+    const parsed = isHttpUrl(item.uri);
+    if (!parsed) return false;
+    window.open(parsed.href, "_blank", "noopener,noreferrer");
+    return true;
+  }
+  const resource = item.resource;
+  const blob =
+    "blob" in resource
+      ? new Blob([base64ToBytes(resource.blob)], {
+          type: resource.mimeType ?? "application/octet-stream",
+        })
+      : new Blob([resource.text], { type: resource.mimeType ?? "text/plain" });
+  downloadBlob(fileNameFromUri(resource.uri), blob);
+  return true;
+}
+
+/**
  * Builds the {@link BridgeFactory} the AppRenderer uses to bring a sandbox
  * iframe to life. For each mounted iframe + tool it:
  *
@@ -95,7 +161,10 @@ function extractHtmlAndMeta(result: ReadResourceResult): {
  *     resource and pushes its HTML + sandbox/permissions/CSP into the inner
  *     iframe, echoing the applied sandbox config back via hostCapabilities,
  *  3. handles `openLinks` by opening http(s) URLs in a new tab,
- *  4. connects a {@link PostMessageTransport} to the iframe and returns the
+ *  4. handles `downloadFile` by confirming with the user, then writing each
+ *     embedded resource to disk via an object-URL anchor (resource links are
+ *     opened in a new tab),
+ *  5. connects a {@link PostMessageTransport} to the iframe and returns the
  *     live bridge.
  *
  * Host-initiated tool input/result are pushed separately through the renderer's
@@ -175,6 +244,44 @@ export function createAppBridgeFactory(
         return { isError: false };
       }
       return { isError: true };
+    };
+
+    // The view asks the host to save MCP resource contents to disk (sandboxed
+    // iframes can't download directly). Confirm with the user first — the spec
+    // requires a host-mediated confirmation — then write each item out. A
+    // declined prompt, an empty payload, or a thrown error all return isError.
+    bridge.ondownloadfile = async ({ contents }) => {
+      if (!Array.isArray(contents) || contents.length === 0) {
+        return { isError: true };
+      }
+      const summary = contents
+        .map((item) => sanitizeDownloadLabel(describeDownloadItem(item)))
+        .join("\n");
+      const approved = window.confirm(
+        `This MCP App wants to download ${contents.length} file(s):\n\n${summary}`,
+      );
+      if (!approved) return { isError: true };
+      let succeeded = 0;
+      const skipped: string[] = [];
+      for (const item of contents) {
+        try {
+          if (downloadResourceItem(item)) {
+            succeeded++;
+          } else {
+            skipped.push(describeDownloadItem(item));
+          }
+        } catch (err) {
+          skipped.push(describeDownloadItem(item));
+          console.error("[mcp-app] download item failed:", err);
+        }
+      }
+      if (skipped.length > 0) {
+        console.warn(
+          `[mcp-app] ${skipped.length} of ${contents.length} download item(s) skipped:`,
+          skipped,
+        );
+      }
+      return { isError: succeeded === 0 };
     };
 
     const transport = new PostMessageTransport(targetWindow, targetWindow);
