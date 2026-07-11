@@ -69,9 +69,13 @@ const Sidebar = Stack.withProps({
   flex: "0 0 auto",
 });
 
+// `sidebar` variant makes the card a full-height flex column capped at the
+// screen height, so PromptControls' list fills the card and scrolls internally
+// once it overflows (matching the Resources sidebar).
 const SidebarCard = Card.withProps({
   withBorder: true,
   padding: "lg",
+  variant: "sidebar",
 });
 
 const DetailCard = Card.withProps({

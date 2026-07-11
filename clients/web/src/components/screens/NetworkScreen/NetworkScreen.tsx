@@ -84,7 +84,10 @@ export function NetworkScreen({
   }
 
   return (
-    <ScreenLayout h={embedded ? "100%" : undefined}>
+    // See LoggingScreen: only override `h` when embedded, so the standalone
+    // screen keeps ScreenLayout's default full-screen height (a `h={undefined}`
+    // would clobber it and collapse an empty screen to its controls' height).
+    <ScreenLayout {...(embedded ? { h: "100%" } : {})}>
       {embedded ? null : (
         <Sidebar>
           <SidebarCard>

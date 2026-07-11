@@ -17,9 +17,6 @@ export interface PromptControlsProps {
   onSelectPrompt: (name: string) => void;
 }
 
-const LIST_MAX_HEIGHT =
-  "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2 - 160px)";
-
 export function PromptControls({
   prompts,
   selectedName,
@@ -39,7 +36,10 @@ export function PromptControls({
   );
 
   return (
-    <Stack gap="sm">
+    // Fill the full-height `sidebar` Card (a flex column) so the list runs to the
+    // bottom of the card before it scrolls, instead of being capped short by a
+    // fixed max-height. `mih: 0` lets the scroll child shrink and scroll.
+    <Stack gap="sm" flex={1} mih={0}>
       <Group justify="space-between">
         <Title order={4}>Prompts</Title>
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
@@ -53,7 +53,7 @@ export function PromptControls({
           searchText ? <ClearButton onClick={() => onSearchChange("")} /> : null
         }
       />
-      <ScrollArea.Autosize viewportRef={viewportRef} mah={LIST_MAX_HEIGHT}>
+      <ScrollArea viewportRef={viewportRef} flex={1} mih={0} type="auto">
         <Stack gap="xs">
           {filteredPrompts.map((prompt) => (
             <PromptListItem
@@ -66,7 +66,7 @@ export function PromptControls({
             />
           ))}
         </Stack>
-      </ScrollArea.Autosize>
+      </ScrollArea>
     </Stack>
   );
 }

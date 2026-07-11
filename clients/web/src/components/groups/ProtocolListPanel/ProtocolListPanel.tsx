@@ -54,10 +54,17 @@ const PanelContainer = Paper.withProps({
   variant: "panel",
 });
 
+// Centered in the full-height panel so the empty message sits mid-panel rather
+// than clinging to the top of an otherwise-empty box (matches LogStreamPanel).
+const EmptyCenter = Stack.withProps({
+  flex: 1,
+  align: "center",
+  justify: "center",
+});
+
 const EmptyState = Text.withProps({
   c: "dimmed",
   ta: "center",
-  py: "xl",
 });
 
 // The section header is a single "pleat" bar (rounded, with the filter-button
@@ -293,7 +300,9 @@ export function ProtocolListPanel({
       </Group>
 
       {!hasResults ? (
-        <EmptyState>No request history</EmptyState>
+        <EmptyCenter>
+          <EmptyState>No request history</EmptyState>
+        </EmptyCenter>
       ) : (
         <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
           <Stack gap="md">

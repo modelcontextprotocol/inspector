@@ -78,7 +78,11 @@ export function LoggingScreen({
   }
 
   return (
-    <ScreenLayout h={embedded ? "100%" : undefined}>
+    // Embedded fills the monitoring sidebar column (100%); standalone keeps the
+    // ScreenLayout's default full-screen height. Passing `h={undefined}` here
+    // would clobber that default (withProps plain-spreads), collapsing an empty
+    // screen to its controls' height — so only override `h` when embedded.
+    <ScreenLayout {...(embedded ? { h: "100%" } : {})}>
       {embedded ? null : (
         <Sidebar>
           <SidebarCard>
