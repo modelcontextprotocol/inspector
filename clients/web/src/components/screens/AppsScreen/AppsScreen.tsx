@@ -3,11 +3,16 @@ import {
   ActionIcon,
   Button,
   Card,
+  Code,
+  Collapse,
   Flex,
   Group,
   Image,
+  Paper,
+  ScrollArea,
   Stack,
   Text,
+  Title,
   Tooltip,
 } from "@mantine/core";
 import {
@@ -16,7 +21,11 @@ import {
   MdFullscreen,
   MdFullscreenExit,
 } from "react-icons/md";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  ContentBlock,
+  LoggingMessageNotification,
+  Tool,
+} from "@modelcontextprotocol/sdk/types.js";
 import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   AppRenderer,
@@ -26,6 +35,8 @@ import {
 import { HOST_AVAILABLE_DISPLAY_MODES } from "../../elements/AppRenderer/createAppBridgeFactory";
 import { AppDetailPanel } from "../../groups/AppDetailPanel/AppDetailPanel";
 import { AppControls } from "../../groups/AppControls/AppControls";
+import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { LogLevelBadge } from "../../elements/LogLevelBadge/LogLevelBadge";
 import { hasInputFields, resolveDisplayLabel } from "../../../utils/toolUtils";
 import { collectSchemaDefaults } from "../../../utils/jsonUtils";
 
@@ -146,6 +157,101 @@ const ContentStack = Stack.withProps({
   h: "100%",
 });
 
+// Pinned panel below the running app (used by both the message log and the
+// app-log panel). `0 0 auto` keeps it at its content height (capped by the
+// inner scroll's `mah`) so it never squeezes out the iframe above it.
+const PinnedPanel = Stack.withProps({
+  gap: "xs",
+  flex: "0 0 auto",
+  mih: 0,
+});
+
+const LogScroll = ScrollArea.withProps({
+  mah: 200,
+  type: "auto",
+  scrollbars: "y",
+  offsetScrollbars: true,
+});
+
+const MessageLogStack = Stack.withProps({
+  gap: "sm",
+});
+
+const MessageItem = Paper.withProps({
+  p: "md",
+  radius: "md",
+  withBorder: true,
+});
+
+const MessageItemStack = Stack.withProps({
+  gap: "xs",
+});
+
+const MonoCaption = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+  ff: "monospace",
+});
+
+const AppLogList = Stack.withProps({
+  gap: "xs",
+});
+
+const AppLogRow = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
+  align: "flex-start",
+});
+
+const AppLogData = Code.withProps({
+  block: true,
+  fz: "xs",
+});
+
+const CompactSubtleButton = Button.withProps({
+  variant: "subtle",
+  size: "compact-xs",
+});
+
+const PanelHeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+  gap: "sm",
+});
+
+/** Render a log payload as a string for display. */
+function formatLogData(data: unknown): string {
+  if (typeof data === "string") return data;
+  try {
+    return JSON.stringify(data);
+  } catch {
+    /* v8 ignore next -- JSON.stringify only throws on a BigInt or a circular
+       structure; a log payload delivered over postMessage is already
+       structured-clone-safe, so this fallback is unreachable in practice. */
+    return String(data);
+  }
+}
+
+// A user-role message submitted by the running view through ui/message. The
+// inspector has no conversation to append to, so it just records the content
+// blocks for display. Shape matches McpUiMessageRequest["params"].
+interface AppMessage {
+  role: "user";
+  content: ContentBlock[];
+}
+
+/**
+ * One MCP `notifications/message` log entry from the running app, with the
+ * payload stringified once at capture time so the render path can use it
+ * directly. `id` is a stable React key.
+ */
+interface AppLogEntry {
+  id: number;
+  level: LoggingMessageNotification["params"]["level"];
+  logger?: string;
+  text: string;
+}
+
 export function AppsScreen({
   tools,
   listChanged,
@@ -164,11 +270,25 @@ export function AppsScreen({
   const [running, setRunning] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const rendererContainerRef = useRef<HTMLDivElement | null>(null);
+  const nextLogIdRef = useRef(0);
   // Height (px) the running view last reported via ui/notifications/size-changed.
   // Undefined until the view reports (or after it's torn down), in which case
   // the iframe fills the available card space as before. Local to the screen
   // like `running`/`maximized`: it's tied to the live iframe, not persisted.
   const [appHeight, setAppHeight] = useState<number | undefined>(undefined);
+  // Messages the running view has pushed via ui/message. The inspector has no
+  // chat loop, so they're collected here and shown in a log below the app
+  // rather than continuing a conversation. Local to the screen like `running`:
+  // tied to the live bridge, cleared when the open ends or the app changes.
+  const [messages, setMessages] = useState<AppMessage[]>([]);
+  // Standard MCP log notifications (notifications/message) the running app
+  // emits. The host advertises the `logging` capability; without surfacing
+  // these here they'd be silently dropped by the bridge. Same lifecycle as
+  // `messages`: tied to the live bridge, cleared on open/close/switch.
+  const [appLogs, setAppLogs] = useState<AppLogEntry[]>([]);
+  // Expanded by default so a widget developer sees the entries without an extra
+  // click. The user can still collapse it for the rest of the run.
+  const [appLogsExpanded, setAppLogsExpanded] = useState(true);
 
   const selectedTool = selectedAppName
     ? tools.find((t) => t.name === selectedAppName)
@@ -183,6 +303,31 @@ export function AppsScreen({
   // the screen instead).
   function handleSizeChange(size: { width?: number; height?: number }) {
     if (size.height != null) setAppHeight(size.height);
+  }
+
+  function handleMessage(params: AppMessage) {
+    setMessages((prev) => [...prev, params]);
+  }
+
+  function handleLog(params: LoggingMessageNotification["params"]) {
+    setAppLogs((prev) => [
+      ...prev,
+      {
+        id: nextLogIdRef.current++,
+        level: params.level,
+        logger: params.logger,
+        text: formatLogData(params.data),
+      },
+    ]);
+  }
+
+  // Clear the message + log panels (and the reported height). Called when a run
+  // ends or the selected app changes so a new run starts clean.
+  function resetAppChannels() {
+    setAppHeight(undefined);
+    setMessages([]);
+    setAppLogs([]);
+    setAppLogsExpanded(true);
   }
 
   // The app's display mode is derived from the existing maximized toggle.
@@ -214,7 +359,7 @@ export function AppsScreen({
       formValues: collectSchemaDefaults(next.inputSchema),
     });
     setMaximized(false);
-    setAppHeight(undefined);
+    resetAppChannels();
     onSelectApp(name);
     // No-input apps auto-launch on selection so the user lands directly in
     // the running view; apps with fields wait for the explicit Open App click.
@@ -228,7 +373,7 @@ export function AppsScreen({
 
   function handleOpen() {
     if (!selectedTool) return;
-    setAppHeight(undefined);
+    resetAppChannels();
     setRunning(true);
     onOpenApp(selectedTool.name, formValues);
   }
@@ -237,14 +382,14 @@ export function AppsScreen({
     setRunning(false);
     onUiChange({ ...ui, selectedAppName: undefined, formValues: {} });
     setMaximized(false);
-    setAppHeight(undefined);
+    resetAppChannels();
     onCloseApp();
   }
 
   function handleBackToInput() {
     setRunning(false);
     setMaximized(false);
-    setAppHeight(undefined);
+    resetAppChannels();
   }
 
   // No sandbox proxy URL means the host can't embed the trusted outer iframe
@@ -355,6 +500,8 @@ export function AppsScreen({
                     onSizeChange={handleSizeChange}
                     displayMode={displayMode}
                     onRequestDisplayMode={handleRequestDisplayMode}
+                    onMessage={handleMessage}
+                    onLog={handleLog}
                     containerRef={rendererContainerRef}
                     ref={rendererRef}
                   />
@@ -377,6 +524,61 @@ export function AppsScreen({
                 }
                 onOpenApp={handleOpen}
               />
+            )}
+            {running && messages.length > 0 && (
+              <PinnedPanel data-testid="apps-messages">
+                <Title order={5}>Messages from app ({messages.length})</Title>
+                <LogScroll>
+                  <MessageLogStack>
+                    {messages.map((message, index) => (
+                      <MessageItem key={index}>
+                        <MessageItemStack>
+                          <MonoCaption>
+                            [{index}] role: {message.role}
+                          </MonoCaption>
+                          {message.content.map((block, blockIndex) => (
+                            <ContentViewer
+                              key={blockIndex}
+                              block={block}
+                              copyable
+                            />
+                          ))}
+                        </MessageItemStack>
+                      </MessageItem>
+                    ))}
+                  </MessageLogStack>
+                </LogScroll>
+              </PinnedPanel>
+            )}
+            {running && appLogs.length > 0 && (
+              <PinnedPanel data-testid="apps-logs">
+                <PanelHeaderRow>
+                  <CompactSubtleButton
+                    onClick={() => setAppLogsExpanded((e) => !e)}
+                    aria-expanded={appLogsExpanded}
+                  >
+                    App logs ({appLogs.length})
+                  </CompactSubtleButton>
+                  <CompactSubtleButton onClick={() => setAppLogs([])}>
+                    Clear
+                  </CompactSubtleButton>
+                </PanelHeaderRow>
+                <Collapse in={appLogsExpanded}>
+                  <LogScroll>
+                    <AppLogList>
+                      {appLogs.map((entry) => (
+                        <AppLogRow key={entry.id}>
+                          <LogLevelBadge level={entry.level} />
+                          {entry.logger && (
+                            <MonoCaption>{entry.logger}</MonoCaption>
+                          )}
+                          <AppLogData>{entry.text}</AppLogData>
+                        </AppLogRow>
+                      ))}
+                    </AppLogList>
+                  </LogScroll>
+                </Collapse>
+              </PinnedPanel>
             )}
           </ContentStack>
         ) : (

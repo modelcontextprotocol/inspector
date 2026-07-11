@@ -3,7 +3,7 @@ import { act } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   renderWithMantine,
@@ -115,6 +115,26 @@ async function requestDisplayMode(
   let result: { mode: McpUiDisplayMode } = { mode };
   await act(async () => {
     result = await handler({ mode });
+  });
+  return result;
+}
+
+// Invoke the onmessage handler the screen attached to the latest bridge,
+// mimicking a ui/message request from the running view.
+async function sendUiMessage(
+  bridges: AppBridge[],
+  content: ContentBlock[],
+): Promise<Record<string, unknown>> {
+  const onmessage = bridges.at(-1)?.onmessage as unknown as
+    | ((params: {
+        role: "user";
+        content: ContentBlock[];
+      }) => Promise<Record<string, unknown>>)
+    | undefined;
+  if (!onmessage) throw new Error("no onmessage handler attached");
+  let result: Record<string, unknown> = {};
+  await act(async () => {
+    result = await onmessage({ role: "user", content });
   });
   return result;
 }
@@ -395,6 +415,85 @@ describe("AppsScreen", () => {
     const result = await requestDisplayMode(bridges, "inline");
     expect(result).toEqual({ mode: "inline" });
     expect(screen.getByText("MCP Apps (3)")).toBeInTheDocument();
+  });
+
+  it("surfaces ui/message content from the view in the message log", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await vi.waitFor(() =>
+      expect(bridges.at(-1)?.onmessage).toBeTypeOf("function"),
+    );
+    await sendUiMessage(bridges, [
+      { type: "text", text: "hello from the app" },
+    ]);
+    expect(screen.getByText(/Messages from app \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/hello from the app/)).toBeInTheDocument();
+    expect(screen.getByTestId("apps-messages")).toBeInTheDocument();
+  });
+
+  it("returns an empty ui/message result (no conversation content leak)", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await vi.waitFor(() =>
+      expect(bridges.at(-1)?.onmessage).toBeTypeOf("function"),
+    );
+    const result = await sendUiMessage(bridges, [
+      { type: "text", text: "secret" },
+    ]);
+    expect(result).toEqual({});
+  });
+
+  it("clears the message log when the app is closed", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await vi.waitFor(() =>
+      expect(bridges.at(-1)?.onmessage).toBeTypeOf("function"),
+    );
+    await sendUiMessage(bridges, [
+      { type: "text", text: "hello from the app" },
+    ]);
+    expect(screen.getByText(/Messages from app/)).toBeInTheDocument();
+    await user.click(screen.getByLabelText("Close"));
+    expect(screen.queryByText(/Messages from app/)).not.toBeInTheDocument();
+  });
+
+  it("surfaces app log notifications in a default-expanded collapsible panel with a working Clear", async () => {
+    const user = userEvent.setup();
+    const { factory, emit } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.queryByText(/App logs/)).not.toBeInTheDocument();
+    await act(async () => {
+      emit("loggingmessage", { level: "warning", data: "disk almost full" });
+      emit("loggingmessage", {
+        level: "error",
+        logger: "render",
+        data: { code: 500 },
+      });
+    });
+    const toggle = screen.getByRole("button", { name: /App logs \(2\)/ });
+    expect(toggle).toBeInTheDocument();
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    // Default-expanded: entries are visible without clicking the toggle.
+    expect(screen.getByText("disk almost full")).toBeInTheDocument();
+    expect(screen.getByText("render")).toBeInTheDocument();
+    expect(screen.getByText('{"code":500}')).toBeInTheDocument();
+    expect(screen.getByTestId("apps-logs")).toBeInTheDocument();
+    // Collapsing still works, and Clear empties the panel.
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(screen.queryByText(/App logs/)).not.toBeInTheDocument();
   });
 
   it("calls onCloseApp and clears selection on Close", async () => {

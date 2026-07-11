@@ -11,8 +11,13 @@ import type {
   AppBridge,
   AppBridgeEventMap,
   McpUiDisplayMode,
+  McpUiMessageRequest,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  CallToolResult,
+  LoggingMessageNotification,
+  Tool,
+} from "@modelcontextprotocol/sdk/types.js";
 import {
   currentStyles,
   currentTheme,
@@ -62,6 +67,17 @@ export interface AppRendererProps {
    * by returning its current one.
    */
   onRequestDisplayMode?: (requested: McpUiDisplayMode) => McpUiDisplayMode;
+  /**
+   * Called when the running view submits a user-role message via
+   * `ui/message`. The renderer returns the spec-required empty result on
+   * the host's behalf, so the callback is fire-and-forget.
+   */
+  onMessage?: (params: McpUiMessageRequest["params"]) => void;
+  /**
+   * Called for each MCP log notification (`notifications/message`) the
+   * running view emits. Backs the advertised `logging` host capability.
+   */
+  onLog?: (params: LoggingMessageNotification["params"]) => void;
   /**
    * The host-controlled box the app renders within, used to derive
    * `hostContext.containerDimensions`. This MUST be an element whose size is
@@ -120,6 +136,8 @@ export function AppRenderer({
   onSizeChange,
   displayMode,
   onRequestDisplayMode,
+  onMessage,
+  onLog,
   containerRef,
   ref,
 }: AppRendererProps) {
@@ -143,11 +161,15 @@ export function AppRenderer({
   const onSizeChangeRef = useRef(onSizeChange);
   const displayModeRef = useRef(displayMode);
   const onRequestDisplayModeRef = useRef(onRequestDisplayMode);
+  const onMessageRef = useRef(onMessage);
+  const onLogRef = useRef(onLog);
   useEffect(() => {
     onErrorRef.current = onError;
     onSizeChangeRef.current = onSizeChange;
     displayModeRef.current = displayMode;
     onRequestDisplayModeRef.current = onRequestDisplayMode;
+    onMessageRef.current = onMessage;
+    onLogRef.current = onLog;
   });
 
   // Flush buffered tool input/result to the view, but only once the bridge
@@ -277,6 +299,11 @@ export function AppRenderer({
         bridge.addEventListener("sizechange", (size) => {
           onSizeChangeRef.current?.(size);
         });
+        // Forward the view's MCP log notifications so the host can honor the
+        // advertised `logging` capability instead of dropping them.
+        bridge.addEventListener("loggingmessage", (params) => {
+          onLogRef.current?.(params);
+        });
         // Handle ui/request-display-mode: let the host (AppsScreen) decide what
         // mode to actually apply and return that. With no handler the request is
         // declined by returning the current host-side mode.
@@ -286,6 +313,15 @@ export function AppRenderer({
             ? handler(mode)
             : (displayModeRef.current ?? "inline");
           return { mode: applied };
+        };
+        // Handle ui/message: surface the submitted content and return the
+        // spec-required empty result. With no handler the submission is
+        // declined by returning isError.
+        bridge.onmessage = async (params) => {
+          const handler = onMessageRef.current;
+          if (!handler) return { isError: true };
+          handler(params);
+          return {};
         };
         flushPending();
       })

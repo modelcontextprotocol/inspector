@@ -28,6 +28,10 @@ interface MockBridge {
   onrequestdisplaymode?: (params: {
     mode: "inline" | "fullscreen" | "pip";
   }) => Promise<{ mode: "inline" | "fullscreen" | "pip" }>;
+  onmessage?: (params: {
+    role: "user";
+    content: unknown[];
+  }) => Promise<Record<string, unknown>>;
   /** Test helper: dispatch a bridge event (e.g. "initialized") to listeners. */
   emit: (event: string, payload?: unknown) => void;
 }
@@ -319,6 +323,75 @@ describe("AppRenderer", () => {
     await expect(
       bridge.onrequestdisplaymode?.({ mode: "pip" }),
     ).resolves.toEqual({ mode: "inline" });
+  });
+
+  it("forwards MCP log notifications to onLog", async () => {
+    const bridge = createMockBridge();
+    const onLog = vi.fn();
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+        onLog={onLog}
+      />,
+    );
+    await flushAsync();
+    await act(async () => {
+      bridge.emit("loggingmessage", { level: "warning", data: "disk full" });
+    });
+    expect(onLog).toHaveBeenCalledWith({ level: "warning", data: "disk full" });
+  });
+
+  it("does not throw on a log notification when no onLog is provided", async () => {
+    const bridge = createMockBridge();
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+      />,
+    );
+    await flushAsync();
+    await act(async () => {
+      bridge.emit("loggingmessage", { level: "info", data: "hi" });
+    });
+    expect(screen.getByTitle("Cohort App")).toBeInTheDocument();
+  });
+
+  it("routes ui/message to onMessage and returns the spec-required empty result", async () => {
+    const bridge = createMockBridge();
+    const onMessage = vi.fn();
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+        onMessage={onMessage}
+      />,
+    );
+    await flushAsync();
+    const params = {
+      role: "user" as const,
+      content: [{ type: "text", text: "hello host" }],
+    };
+    await expect(bridge.onmessage?.(params)).resolves.toEqual({});
+    expect(onMessage).toHaveBeenCalledWith(params);
+  });
+
+  it("declines ui/message with isError when no onMessage handler is provided", async () => {
+    const bridge = createMockBridge();
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+      />,
+    );
+    await flushAsync();
+    await expect(
+      bridge.onmessage?.({ role: "user", content: [] }),
+    ).resolves.toEqual({ isError: true });
   });
 
   it("pushes a displayMode change to the running view via host-context-changed", async () => {
