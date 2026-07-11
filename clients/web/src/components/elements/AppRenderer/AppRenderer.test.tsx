@@ -1,6 +1,6 @@
 import { createRef, StrictMode } from "react";
 import { act } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
@@ -20,6 +20,7 @@ interface MockBridge {
   sendToolInput: ReturnType<typeof vi.fn>;
   sendToolResult: ReturnType<typeof vi.fn>;
   sendToolCancelled: ReturnType<typeof vi.fn>;
+  sendHostContextChange: ReturnType<typeof vi.fn>;
   teardownResource: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
   addEventListener: ReturnType<typeof vi.fn>;
@@ -34,6 +35,7 @@ function createMockBridge(): MockBridge {
     sendToolInput: vi.fn().mockResolvedValue(undefined),
     sendToolResult: vi.fn().mockResolvedValue(undefined),
     sendToolCancelled: vi.fn().mockResolvedValue(undefined),
+    sendHostContextChange: vi.fn().mockResolvedValue(undefined),
     teardownResource: vi.fn().mockResolvedValue({}),
     close: vi.fn().mockResolvedValue(undefined),
     addEventListener: vi.fn((event: string, handler: (p: unknown) => void) => {
@@ -227,6 +229,329 @@ describe("AppRenderer", () => {
     });
     expect(bridge.sendToolCancelled).toHaveBeenCalledWith({
       reason: "user-aborted",
+    });
+  });
+
+  it("pushes a displayMode change to the running view via host-context-changed", async () => {
+    const bridge = createMockBridge();
+    // Stable factory identity so the rerender reuses the live bridge instead of
+    // rebuilding (which would reset `initialized` and gate the push).
+    const factory: BridgeFactory = () => asBridge(bridge);
+    const { rerender } = renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={factory}
+        displayMode="inline"
+      />,
+    );
+    await flushAsync();
+    await act(async () => bridge.emit("initialized"));
+    bridge.sendHostContextChange.mockClear();
+    rerender(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={factory}
+        displayMode="fullscreen"
+      />,
+    );
+    await flushAsync();
+    expect(bridge.sendHostContextChange).toHaveBeenCalledWith({
+      displayMode: "fullscreen",
+    });
+  });
+
+  it("does not push a displayMode change before the view is initialized", async () => {
+    const bridge = createMockBridge();
+    const factory: BridgeFactory = () => asBridge(bridge);
+    const { rerender } = renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={factory}
+        displayMode="inline"
+      />,
+    );
+    await flushAsync();
+    bridge.sendHostContextChange.mockClear();
+    // No `initialized` emitted yet — the push must be gated.
+    rerender(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={factory}
+        displayMode="fullscreen"
+      />,
+    );
+    await flushAsync();
+    expect(bridge.sendHostContextChange).not.toHaveBeenCalledWith({
+      displayMode: "fullscreen",
+    });
+  });
+
+  it("pushes a live theme flip (with resolved styles) to the running bridge via host-context-changed", async () => {
+    const bridge = createMockBridge();
+    // Stub the computed design tokens so currentStyles() resolves a non-empty
+    // McpUiHostStyles — exercises the theme observer's styles-included path.
+    const realGetComputedStyle = window.getComputedStyle;
+    const getComputedStyleSpy = vi
+      .spyOn(window, "getComputedStyle")
+      .mockImplementation((el: Element, pseudo?: string | null) => {
+        const decl = realGetComputedStyle.call(window, el, pseudo ?? undefined);
+        return {
+          ...decl,
+          getPropertyValue: (prop: string) =>
+            prop === "--mantine-color-body"
+              ? "#101113"
+              : decl.getPropertyValue(prop),
+        } as CSSStyleDeclaration;
+      });
+    try {
+      renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={() => asBridge(bridge)}
+        />,
+      );
+      await flushAsync();
+      // Ignore any seeding from Mantine's own mount-time write — assert only the
+      // flip we trigger below.
+      bridge.sendHostContextChange.mockClear();
+
+      await act(async () => {
+        document.documentElement.setAttribute(
+          "data-mantine-color-scheme",
+          "dark",
+        );
+        // MutationObserver callbacks are delivered on a microtask.
+        await Promise.resolve();
+      });
+      expect(bridge.sendHostContextChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          theme: "dark",
+          styles: expect.objectContaining({
+            variables: expect.objectContaining({
+              "--color-background-primary": "#101113",
+            }),
+          }),
+        }),
+      );
+    } finally {
+      getComputedStyleSpy.mockRestore();
+      document.documentElement.removeAttribute("data-mantine-color-scheme");
+    }
+  });
+
+  it("stops observing theme changes after the renderer unmounts", async () => {
+    const bridge = createMockBridge();
+    const { unmount } = renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+      />,
+    );
+    await flushAsync();
+    await act(async () => {
+      unmount();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    bridge.sendHostContextChange.mockClear();
+
+    await act(async () => {
+      document.documentElement.setAttribute(
+        "data-mantine-color-scheme",
+        "dark",
+      );
+      await Promise.resolve();
+    });
+    expect(bridge.sendHostContextChange).not.toHaveBeenCalled();
+    document.documentElement.removeAttribute("data-mantine-color-scheme");
+  });
+
+  describe("containerDimensions", () => {
+    // Stub ResizeObserver so tests can drive the callback directly: capture the
+    // callback + the observed element so its getBoundingClientRect can be
+    // patched before each fire.
+    let resizeCallback: (() => void) | undefined;
+    let observedEl: HTMLElement | undefined;
+    let originalResizeObserver: typeof ResizeObserver | undefined;
+
+    beforeEach(() => {
+      resizeCallback = undefined;
+      observedEl = undefined;
+      originalResizeObserver = globalThis.ResizeObserver;
+      globalThis.ResizeObserver = class {
+        constructor(cb: () => void) {
+          resizeCallback = cb;
+        }
+        observe(el: Element) {
+          observedEl = el as HTMLElement;
+        }
+        unobserve() {}
+        disconnect() {
+          resizeCallback = undefined;
+        }
+      } as unknown as typeof ResizeObserver;
+    });
+    afterEach(() => {
+      if (originalResizeObserver) {
+        globalThis.ResizeObserver = originalResizeObserver;
+      } else {
+        delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+      }
+    });
+
+    function stubSize(el: HTMLElement, width: number, height: number) {
+      vi.spyOn(el, "getBoundingClientRect").mockReturnValue({
+        width,
+        height,
+        top: 0,
+        left: 0,
+        right: width,
+        bottom: height,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect);
+    }
+
+    it("pushes containerDimensions on initialize when the container has a layout box", async () => {
+      const bridge = createMockBridge();
+      const container = document.createElement("div");
+      stubSize(container, 320, 200);
+      renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={() => asBridge(bridge)}
+          containerRef={{ current: container }}
+        />,
+      );
+      await flushAsync();
+      await act(async () => bridge.emit("initialized"));
+      expect(bridge.sendHostContextChange).toHaveBeenCalledWith({
+        containerDimensions: { width: 320, height: 200 },
+      });
+    });
+
+    it("does not push containerDimensions on initialize when the container has no layout box", async () => {
+      const bridge = createMockBridge();
+      const container = document.createElement("div");
+      stubSize(container, 0, 0);
+      renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={() => asBridge(bridge)}
+          containerRef={{ current: container }}
+        />,
+      );
+      await flushAsync();
+      // A mount-time theme write may have already pushed a {theme} change;
+      // clear so we assert only about the initialize-time containerDimensions.
+      bridge.sendHostContextChange.mockClear();
+      await act(async () => bridge.emit("initialized"));
+      expect(bridge.sendHostContextChange).not.toHaveBeenCalled();
+    });
+
+    it("does not push containerDimensions on resize before the view is initialized", async () => {
+      const bridge = createMockBridge();
+      const container = document.createElement("div");
+      renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={() => asBridge(bridge)}
+          containerRef={{ current: container }}
+        />,
+      );
+      await flushAsync();
+      bridge.sendHostContextChange.mockClear();
+      stubSize(container, 640, 480);
+      await act(async () => resizeCallback?.());
+      expect(bridge.sendHostContextChange).not.toHaveBeenCalled();
+    });
+
+    it("pushes containerDimensions on resize once initialized; skips a 0×0 box and a value-equal repeat", async () => {
+      const bridge = createMockBridge();
+      const container = document.createElement("div");
+      renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={() => asBridge(bridge)}
+          containerRef={{ current: container }}
+        />,
+      );
+      await flushAsync();
+      await act(async () => bridge.emit("initialized"));
+      bridge.sendHostContextChange.mockClear();
+
+      stubSize(container, 640, 480);
+      await act(async () => resizeCallback?.());
+      expect(bridge.sendHostContextChange).toHaveBeenCalledWith({
+        containerDimensions: { width: 640, height: 480 },
+      });
+
+      bridge.sendHostContextChange.mockClear();
+      stubSize(container, 640, 480);
+      await act(async () => resizeCallback?.());
+      expect(bridge.sendHostContextChange).not.toHaveBeenCalled();
+
+      stubSize(container, 0, 0);
+      await act(async () => resizeCallback?.());
+      expect(bridge.sendHostContextChange).not.toHaveBeenCalled();
+    });
+
+    it("observes the host-supplied containerRef element instead of the iframe when provided", async () => {
+      const bridge = createMockBridge();
+      const container = document.createElement("div");
+      renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={() => asBridge(bridge)}
+          containerRef={{ current: container }}
+        />,
+      );
+      await flushAsync();
+      expect(observedEl).toBe(container);
+    });
+
+    it("falls back to observing the iframe when no containerRef is provided", async () => {
+      const bridge = createMockBridge();
+      renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={() => asBridge(bridge)}
+        />,
+      );
+      await flushAsync();
+      expect(observedEl).toBeInstanceOf(HTMLIFrameElement);
+    });
+
+    it("disconnects the ResizeObserver on unmount", async () => {
+      const bridge = createMockBridge();
+      const { unmount } = renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          tool={tool}
+          bridgeFactory={() => asBridge(bridge)}
+        />,
+      );
+      await flushAsync();
+      await act(async () => bridge.emit("initialized"));
+      await act(async () => {
+        unmount();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(resizeCallback).toBeUndefined();
     });
   });
 

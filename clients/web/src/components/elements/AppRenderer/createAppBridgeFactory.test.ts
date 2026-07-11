@@ -134,7 +134,16 @@ describe("createAppBridgeFactory", () => {
       expect(bridge.ctorArgs[0]).toBe(fakeClient);
       expect(bridge.ctorArgs[1]).toMatchObject({ name: "MCP Inspector" });
       expect(bridge.ctorArgs[2]).toMatchObject({ serverTools: {} });
-      expect(bridge.ctorArgs[3]).toEqual({ hostContext: { theme: "dark" } });
+      // hostContext is the full snapshot: theme (from the DOM attribute),
+      // the inline display mode, and the host's available display modes.
+      // styles/containerDimensions are omitted for the bare test iframe.
+      expect(bridge.ctorArgs[3]).toMatchObject({
+        hostContext: {
+          theme: "dark",
+          displayMode: "inline",
+          availableDisplayModes: ["inline", "fullscreen"],
+        },
+      });
       expect(bridge.connect).toHaveBeenCalledTimes(1);
     } finally {
       document.documentElement.removeAttribute("data-mantine-color-scheme");

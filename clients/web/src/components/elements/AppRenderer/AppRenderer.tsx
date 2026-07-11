@@ -5,9 +5,18 @@ import {
   useImperativeHandle,
   useRef,
   type Ref,
+  type RefObject,
 } from "react";
-import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
+import type {
+  AppBridge,
+  McpUiDisplayMode,
+} from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import {
+  currentStyles,
+  currentTheme,
+  measureContainerDimensions,
+} from "./hostContext";
 
 /**
  * Constructs the `AppBridge` for a freshly mounted sandbox iframe. Wrap with
@@ -32,6 +41,20 @@ export interface AppRendererProps {
   tool: Tool;
   bridgeFactory: BridgeFactory;
   onError?: (err: Error) => void;
+  /**
+   * Current host display mode for the app frame. Pushed to the running view
+   * via `host-context-changed` whenever it changes (e.g. Maximize/Restore), so
+   * an app can adapt its layout to inline vs fullscreen.
+   */
+  displayMode?: McpUiDisplayMode;
+  /**
+   * The host-controlled box the app renders within, used to derive
+   * `hostContext.containerDimensions`. This MUST be an element whose size is
+   * driven by the host's layout (window resize, sidebar toggle, maximize) and
+   * NOT by the view's own `size-changed` reports — otherwise the two signals
+   * couple into a feedback loop. Falls back to the iframe element when omitted.
+   */
+  containerRef?: RefObject<HTMLElement | null>;
   ref?: Ref<AppRendererHandle>;
 }
 
@@ -79,6 +102,8 @@ export function AppRenderer({
   tool,
   bridgeFactory,
   onError,
+  displayMode,
+  containerRef,
   ref,
 }: AppRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -210,6 +235,18 @@ export function AppRenderer({
         // drives), so the view's `initialized` signal is never missed.
         bridge.addEventListener("initialized", () => {
           initializedRef.current = true;
+          // The factory already seeded theme/styles/displayMode into the
+          // handshake hostContext; the observers below cover any subsequent
+          // changes. Only containerDimensions can plausibly differ between
+          // bridge construction and initialization (layout settles), so push
+          // that one field now via the SDK's partial-change notification.
+          const container = containerRef?.current ?? iframeRef.current;
+          const containerDimensions = container
+            ? measureContainerDimensions(container)
+            : undefined;
+          if (containerDimensions) {
+            void bridge.sendHostContextChange({ containerDimensions });
+          }
           flushPending();
         });
         flushPending();
@@ -219,7 +256,87 @@ export function AppRenderer({
       });
 
     return scheduleDispose;
-  }, [bridgeFactory, sandboxPath, tool, flushPending, scheduleDispose]);
+  }, [
+    bridgeFactory,
+    sandboxPath,
+    tool,
+    containerRef,
+    flushPending,
+    scheduleDispose,
+  ]);
+
+  // Push live host-context changes to the running view as discrete partial
+  // updates via AppBridge.sendHostContextChange (the SDK's
+  // ui/notifications/host-context-changed sender). Each effect observes one
+  // host signal and sends only the field(s) it owns, so the view receives the
+  // spec's "only changed fields" partials without any host-side snapshot
+  // bookkeeping. Reading `bridgeRef.current` at callback time (not capturing a
+  // bridge) means the observers always target the live bridge, even though it
+  // resolves asynchronously after these effects run.
+
+  // Theme + styles: Mantine writes the resolved scheme to
+  // `<html data-mantine-color-scheme>`; observe that attribute and forward
+  // changes through the live bridge.
+  useEffect(() => {
+    /* v8 ignore next 5 -- SSR/non-DOM guard: MutationObserver and document are
+       always defined under happy-dom, so this early return is unreachable in
+       the test environment. */
+    if (
+      typeof MutationObserver === "undefined" ||
+      typeof document === "undefined"
+    ) {
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      const styles = currentStyles();
+      void bridgeRef.current?.sendHostContextChange({
+        theme: currentTheme(),
+        ...(styles ? { styles } : {}),
+      });
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-mantine-color-scheme"],
+    });
+    return () => observer.disconnect();
+  }, []);
+
+  // Container size: observes the host-controlled container (or the iframe as a
+  // fallback) — NOT an element whose height is driven by the view's own
+  // size-changed reports, which would couple the two signals into a feedback
+  // loop. Gated on the view's `initialized` signal so the notification only
+  // fires once the handshake is complete; a 0×0 (not-yet-laid-out) measurement
+  // and a value-equal repeat are both skipped.
+  useEffect(() => {
+    const target = containerRef?.current ?? iframeRef.current;
+    /* v8 ignore next -- SSR/non-DOM guard: ResizeObserver is stubbed/defined
+       and the iframe (or containerRef) target is always present after mount in
+       tests, so neither disjunct is reachable here. */
+    if (typeof ResizeObserver === "undefined" || !target) return;
+    let last: { width: number; height: number } | undefined;
+    const observer = new ResizeObserver(() => {
+      if (!initializedRef.current) return;
+      const next = measureContainerDimensions(target);
+      if (!next) return;
+      if (last && last.width === next.width && last.height === next.height) {
+        return;
+      }
+      last = next;
+      void bridgeRef.current?.sendHostContextChange({
+        containerDimensions: next,
+      });
+    });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [containerRef]);
+
+  // Display mode: pushes whenever the prop changes (Maximize/Restore). Gated on
+  // `initialized` for the same reason as the other host-context pushes.
+  useEffect(() => {
+    if (displayMode === undefined) return;
+    if (!initializedRef.current) return;
+    void bridgeRef.current?.sendHostContextChange({ displayMode });
+  }, [displayMode]);
 
   useImperativeHandle(
     ref,

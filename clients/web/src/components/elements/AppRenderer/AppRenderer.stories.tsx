@@ -20,6 +20,9 @@ function createMockBridge(): AppBridge {
     sendToolInput: async () => {},
     sendToolResult: async () => {},
     sendToolCancelled: async () => {},
+    sendHostContextChange: async () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
     teardownResource: async () => ({}),
     close: async () => {},
   } as unknown as AppBridge;
