@@ -27,9 +27,6 @@ export function ServerListControls({
 }: ServerListControlsProps) {
   return (
     <Group justify="flex-end">
-      {serverCount > 0 && (
-        <ListToggle compact={compact} onToggle={onToggleList} />
-      )}
       <Button variant="default" onClick={onExport} disabled={serverCount === 0}>
         Export
       </Button>
@@ -39,6 +36,9 @@ export function ServerListControls({
           onImportConfig={onImportConfig}
           onImportServerJson={onImportServerJson}
         />
+      )}
+      {serverCount > 0 && (
+        <ListToggle compact={compact} onToggle={onToggleList} />
       )}
     </Group>
   );

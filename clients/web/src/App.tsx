@@ -102,6 +102,7 @@ import { useInspectorVersion } from "@inspector/core/react/useInspectorVersion.j
 import { usePendingClientRequests } from "@inspector/core/react/usePendingClientRequests.js";
 import { InspectorView } from "./components/views/InspectorView/InspectorView";
 import { VersionBadge } from "./components/elements/VersionBadge/VersionBadge";
+import { CopyrightBadge } from "./components/elements/CopyrightBadge/CopyrightBadge";
 import type {
   ToolCallState,
   ToolsUiState,
@@ -3824,6 +3825,7 @@ function App() {
           onRefreshApps={onRefreshTools}
         />
       </Box>
+      <CopyrightBadge />
       <VersionBadge version={inspectorVersion} />
       <ServerConfigModal
         opened={configModal !== null}

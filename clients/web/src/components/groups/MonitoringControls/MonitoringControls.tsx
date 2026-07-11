@@ -1,4 +1,4 @@
-import { ActionIcon, Group, SegmentedControl, TextInput } from "@mantine/core";
+import { Button, Group, SegmentedControl, TextInput } from "@mantine/core";
 import { TbLayoutSidebarRightCollapse } from "react-icons/tb";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
 
@@ -69,15 +69,14 @@ export function MonitoringControls({
           ) : null
         }
       />
-      <ActionIcon
+      <Button
+        size="sm"
         variant="subtle"
-        color="gray"
-        size="lg"
         aria-label="Close monitoring column"
         onClick={onClose}
       >
         <TbLayoutSidebarRightCollapse size={20} />
-      </ActionIcon>
+      </Button>
     </ControlsBar>
   );
 }

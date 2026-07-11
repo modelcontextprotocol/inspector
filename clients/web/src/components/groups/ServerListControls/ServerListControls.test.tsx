@@ -39,8 +39,9 @@ describe("ServerListControls", () => {
         onToggleList={onToggleList}
       />,
     );
-    const buttons = screen.getAllByRole("button");
-    await user.click(buttons[0]);
+    await user.click(
+      screen.getByRole("button", { name: /Expand all|Collapse all/ }),
+    );
     expect(onToggleList).toHaveBeenCalledTimes(1);
   });
 
