@@ -264,8 +264,11 @@ function appendCapped<T>(prev: T[], next: T): T[] {
 
 // A user-role message submitted by the running view through ui/message. The
 // inspector has no conversation to append to, so it just records the content
-// blocks for display. Shape matches McpUiMessageRequest["params"].
+// blocks for display. `role`/`content` mirror McpUiMessageRequest["params"];
+// `id` is a stable React key (like AppLogEntry) so the appendCapped front-drop
+// can't renumber keys the way an array index would.
 interface AppMessage {
+  id: number;
   role: "user";
   content: ContentBlock[];
 }
@@ -301,6 +304,7 @@ export function AppsScreen({
   const [maximized, setMaximized] = useState(false);
   const rendererContainerRef = useRef<HTMLDivElement | null>(null);
   const nextLogIdRef = useRef(0);
+  const nextMessageIdRef = useRef(0);
   // Height (px) the running view last reported via ui/notifications/size-changed.
   // Undefined until the view reports (or after it's torn down), in which case
   // the iframe fills the available card space as before. Local to the screen
@@ -338,8 +342,10 @@ export function AppsScreen({
     if (size.height != null && size.height > 0) setAppHeight(size.height);
   }
 
-  function handleMessage(params: AppMessage) {
-    setMessages((prev) => appendCapped(prev, params));
+  function handleMessage(params: Omit<AppMessage, "id">) {
+    setMessages((prev) =>
+      appendCapped(prev, { id: nextMessageIdRef.current++, ...params }),
+    );
   }
 
   function handleLog(params: LoggingMessageNotification["params"]) {
@@ -568,7 +574,7 @@ export function AppsScreen({
                 <LogScroll>
                   <MessageLogStack>
                     {messages.map((message, index) => (
-                      <MessageItem key={index}>
+                      <MessageItem key={message.id}>
                         <MessageItemStack>
                           <MonoCaption>
                             [{index}] role: {message.role}
