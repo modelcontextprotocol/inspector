@@ -235,13 +235,31 @@ const PanelHeaderRow = Group.withProps({
 function formatLogData(data: unknown): string {
   if (typeof data === "string") return data;
   try {
-    return JSON.stringify(data);
+    // JSON.stringify(undefined) returns the value `undefined`, not a string, so
+    // coalesce to "" to keep the `: string` return type honest for a data-less
+    // log (spec-required, so this is only defensive against a malformed view).
+    return JSON.stringify(data) ?? "";
   } catch {
     /* v8 ignore next -- JSON.stringify only throws on a BigInt or a circular
        structure; a log payload delivered over postMessage is already
        structured-clone-safe, so this fallback is unreachable in practice. */
     return String(data);
   }
+}
+
+/**
+ * Soft cap on retained message / log entries per run. Chatty widgets can emit
+ * logs in a loop; keep only the most recent so the panels (and their DOM rows)
+ * don't grow without bound between Clear/close. Oldest entries are dropped.
+ */
+const MAX_APP_CHANNEL_ENTRIES = 500;
+
+/** Append to a capped list, dropping the oldest entries past the cap. */
+function appendCapped<T>(prev: T[], next: T): T[] {
+  const grown = [...prev, next];
+  return grown.length > MAX_APP_CHANNEL_ENTRIES
+    ? grown.slice(grown.length - MAX_APP_CHANNEL_ENTRIES)
+    : grown;
 }
 
 // A user-role message submitted by the running view through ui/message. The
@@ -321,19 +339,18 @@ export function AppsScreen({
   }
 
   function handleMessage(params: AppMessage) {
-    setMessages((prev) => [...prev, params]);
+    setMessages((prev) => appendCapped(prev, params));
   }
 
   function handleLog(params: LoggingMessageNotification["params"]) {
-    setAppLogs((prev) => [
-      ...prev,
-      {
+    setAppLogs((prev) =>
+      appendCapped(prev, {
         id: nextLogIdRef.current++,
         level: params.level,
         logger: params.logger,
         text: formatLogData(params.data),
-      },
-    ]);
+      }),
+    );
   }
 
   // Clear the message + log panels (and the reported height). Called when a run
@@ -576,6 +593,7 @@ export function AppsScreen({
                   <CompactSubtleButton
                     onClick={() => setAppLogsExpanded((e) => !e)}
                     aria-expanded={appLogsExpanded}
+                    aria-controls="apps-logs-region"
                   >
                     App logs ({appLogs.length})
                   </CompactSubtleButton>
@@ -583,7 +601,7 @@ export function AppsScreen({
                     Clear
                   </CompactSubtleButton>
                 </PanelHeaderRow>
-                <Collapse in={appLogsExpanded}>
+                <Collapse in={appLogsExpanded} id="apps-logs-region">
                   <LogScroll>
                     <AppLogList>
                       {appLogs.map((entry) => (

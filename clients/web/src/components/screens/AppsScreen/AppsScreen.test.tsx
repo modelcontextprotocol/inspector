@@ -511,8 +511,47 @@ describe("AppsScreen", () => {
     // Collapsing still works, and Clear empties the panel.
     await user.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    // The toggle points at the collapse region for assistive tech.
+    expect(toggle.getAttribute("aria-controls")).toBe("apps-logs-region");
     await user.click(screen.getByRole("button", { name: "Clear" }));
     expect(screen.queryByText(/App logs/)).not.toBeInTheDocument();
+  });
+
+  it("renders a log notification that carries no data without crashing", async () => {
+    const user = userEvent.setup();
+    const { factory, emit } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      // No `data` field — formatLogData must coalesce to "" (not "undefined").
+      emit("loggingmessage", { level: "info" });
+    });
+    expect(
+      screen.getByRole("button", { name: /App logs \(1\)/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("caps retained app logs at the soft limit, dropping the oldest", async () => {
+    const user = userEvent.setup();
+    const { factory, emit } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      // 501 entries exceeds the 500 cap → oldest dropped, count clamps at 500.
+      for (let i = 0; i < 501; i++) {
+        emit("loggingmessage", { level: "info", data: `log-${i}` });
+      }
+    });
+    expect(
+      screen.getByRole("button", { name: /App logs \(500\)/ }),
+    ).toBeInTheDocument();
+    // The very first entry was dropped; the most recent is retained.
+    expect(screen.queryByText("log-0")).not.toBeInTheDocument();
+    expect(screen.getByText("log-500")).toBeInTheDocument();
   });
 
   it("calls onCloseApp and clears selection on Close", async () => {
