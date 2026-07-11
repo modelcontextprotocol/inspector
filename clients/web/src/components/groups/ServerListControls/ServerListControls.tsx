@@ -34,7 +34,9 @@ export function ServerListControls({
   onOpenMonitor,
 }: ServerListControlsProps) {
   return (
-    <Group justify="flex-end">
+    // `gap="sm"` matches the header's control spacing (its RightSection group),
+    // so these buttons sit the same distance apart as the header icons.
+    <Group justify="flex-end" gap="sm">
       <Button variant="default" onClick={onExport} disabled={serverCount === 0}>
         Export
       </Button>

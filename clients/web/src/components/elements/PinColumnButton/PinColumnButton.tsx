@@ -1,4 +1,4 @@
-import { Button } from "@mantine/core";
+import { ActionIcon } from "@mantine/core";
 import { TbLayoutSidebarRightExpand } from "react-icons/tb";
 
 export interface PinColumnButtonProps {
@@ -14,15 +14,16 @@ export interface PinColumnButtonProps {
  * that screen in as a column; on the server list it just opens the column (a
  * different `label`). Distinct from `PinToggle` (which pins individual history
  * entries) — this one opens a side column, so it uses a right-sidebar glyph.
- * Styled to match the panel's expand/collapse `ListToggle` (subtle icon button).
+ * `size={36}` matches the header's theme / client-settings ActionIcons and the
+ * toolbar's `ListToggle`, so all these icon buttons share one width.
  */
 export function PinColumnButton({
   onPin,
   label = "Pin as column",
 }: PinColumnButtonProps) {
   return (
-    <Button size="sm" variant="subtle" aria-label={label} onClick={onPin}>
+    <ActionIcon variant="subtle" size={36} aria-label={label} onClick={onPin}>
       <TbLayoutSidebarRightExpand size={20} />
-    </Button>
+    </ActionIcon>
   );
 }
