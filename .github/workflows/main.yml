@@ -116,10 +116,13 @@ jobs:
         # pack:verify) if they disagree — e.g. a release drafted without running
         # `npm version`, or cut from the wrong commit — since publishing is
         # irreversible. Tolerates the conventional leading `v` (npm version tags
-        # as `vX.Y.Z`).
+        # as `vX.Y.Z`). The tag arrives via `env:` (not spliced into the script)
+        # to avoid the script-injection surface of interpolating `${{ }}` into a
+        # `run:` block.
+        env:
+          TAG: ${{ github.event.release.tag_name }}
         run: |
           PKG="$(node -p "require('./package.json').version")"
-          TAG="${{ github.event.release.tag_name }}"
           if [ "${TAG#v}" != "$PKG" ]; then
             echo "Release tag '$TAG' does not match package.json version '$PKG'"
             exit 1
