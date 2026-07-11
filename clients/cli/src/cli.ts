@@ -187,6 +187,11 @@ async function callMethod(
       if (args.appInfo) {
         // NDJSON: one app-info line per tool, all on a single connection. A
         // caller that wants only the App tools can `| jq -c 'select(.hasApp)'`.
+        // collectAppInfo never throws — a tool with a malformed `_meta.ui`
+        // surfaces as `{hasApp:false, resourceError}` — so one bad tool can't
+        // abort the whole listing. Emitted verbatim as NDJSON regardless of
+        // --format (the list-probe shape is fixed; --format json only reshapes
+        // the single-result paths).
         for (const tool of tools) {
           const info = await collectAppInfo(
             inspectorClient,
@@ -409,17 +414,31 @@ export async function emitResult(
 /**
  * Build the CLI's app-info for a tool: extract the tool-side `_meta.ui` and,
  * when the tool advertises a UI resource, follow it with a `resources/read` so
- * the resource-side csp/permissions/domain are included. A read failure is
- * tolerated — the tool-side info is still returned with `resourceError` set,
- * since "tool says it has an app but the resource is unreadable" is itself a
- * useful probe result.
+ * the resource-side csp/permissions/domain are included.
+ *
+ * Never throws — the two failure modes both fold into a `{hasApp:false,
+ * resourceError}` result rather than propagating:
+ *  - a malformed `_meta.ui.resourceUri` (extractAppInfo throws), so the
+ *    `tools/list --app-info` NDJSON loop stays per-tool tolerant (one bad tool
+ *    can't abort the whole listing);
+ *  - a `resources/read` failure, since "tool says it has an app but the
+ *    resource is unreadable" is itself a useful probe result.
  */
 export async function collectAppInfo(
   client: Pick<InspectorClient, "readResource">,
   tool: Parameters<typeof extractAppInfo>[0],
   metadata: Record<string, string> | undefined,
 ): Promise<CliAppInfo> {
-  const base = extractAppInfo(tool);
+  let base: AppInfo;
+  try {
+    base = extractAppInfo(tool);
+  } catch (e) {
+    return {
+      hasApp: false,
+      toolName: tool.name,
+      resourceError: e instanceof Error ? e.message : String(e),
+    };
+  }
   if (!base.hasApp || base.resourceUri === undefined) return base;
   try {
     const read = await client.readResource(base.resourceUri, metadata);

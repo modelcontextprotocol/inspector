@@ -107,4 +107,26 @@ describe("collectAppInfo", () => {
     const info = await collectAppInfo(client, tool, undefined);
     expect(info.resourceError).toBe("string failure");
   });
+
+  it("folds a malformed _meta.ui.resourceUri into {hasApp:false, resourceError} instead of throwing", async () => {
+    // extractAppInfo throws when the advertised UI URI is not a `ui://` string;
+    // collectAppInfo must tolerate that so the tools/list --app-info NDJSON loop
+    // stays per-tool robust. readResource must never be reached here.
+    const readResource = vi.fn();
+    const client = { readResource } as unknown as Pick<
+      InspectorClient,
+      "readResource"
+    >;
+    const tool = {
+      name: "bad-app",
+      inputSchema: { type: "object" as const },
+      _meta: { ui: { resourceUri: "http://not-a-ui-uri" } },
+    };
+    const info = await collectAppInfo(client, tool, undefined);
+    expect(info.hasApp).toBe(false);
+    expect(info.toolName).toBe("bad-app");
+    expect(typeof info.resourceError).toBe("string");
+    expect(info.resourceError!.length).toBeGreaterThan(0);
+    expect(readResource.mock.calls.length).toBe(0);
+  });
 });

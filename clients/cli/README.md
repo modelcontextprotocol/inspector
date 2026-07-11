@@ -125,7 +125,7 @@ mcp-inspector --cli <server> --method tools/call --tool-name my_tool --app-info
 mcp-inspector --cli <server> --method tools/list --app-info | jq -c 'select(.hasApp)'
 ```
 
-Exit semantics: a tool that **has** an app exits `0`; one with **no** app exits `2` (`no_app`); a **missing** tool exits `5` (`tool_not_found`) — distinct so a typo isn't mistaken for "no app". A resource-read failure during the probe is tolerated and reported in a `resourceError` field rather than aborting.
+Exit semantics: a tool that **has** an app exits `0`; one with **no** app exits `2` (`no_app`); a **missing** tool exits `5` (`tool_not_found`) — distinct so a typo isn't mistaken for "no app". A probe failure (an unreadable UI resource, or a malformed `_meta.ui.resourceUri`) is tolerated and reported in a `resourceError` field rather than aborting — so in `tools/list --app-info` one bad tool never kills the rest of the listing.
 
 `--format json` wraps any method's output in a single stdout envelope with no banners, so App tools and plain tools both pipe cleanly into `jq`:
 
@@ -133,6 +133,8 @@ Exit semantics: a tool that **has** an app exits `0`; one with **no** app exits 
 mcp-inspector --cli <server> --method tools/call --tool-name my_app_tool --format json
 # → {"result":{…tool result…},"appInfo":{"hasApp":true,"resourceUri":"ui://…",…}}
 ```
+
+> `tools/list --app-info` always emits NDJSON (one raw app-info object per line) **regardless of `--format`** — the per-tool list shape is fixed. `--format json` only reshapes the single-result paths (`tools/call`, `tools/list` without `--app-info`, etc.) into the `{result[, appInfo]}` envelope.
 
 A `tools/call` that returns `isError:true` still prints its payload but exits `5` (`tool_is_error`) so `&&` chains don't proceed on a failed call.
 
