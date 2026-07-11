@@ -442,6 +442,11 @@ export function AppsScreen({
 
   function handleOpen() {
     if (!selectedTool) return;
+    // `keepPartials` preserves the staged fragments: AppRenderer snapshots them
+    // into its own pendingPartialsRef at bridge-build time and replays them.
+    // The `partialStages` state is intentionally NOT cleared here — the staging
+    // UI only renders while not running, so the surviving state is invisible
+    // until the next select/close/back reset drains it.
     resetAppChannels({ keepPartials: true });
     setRunning(true);
     onOpenApp(selectedTool.name, formValues);
