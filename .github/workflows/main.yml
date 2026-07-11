@@ -1,6 +1,12 @@
 name: Run install, format, lint, build, and test on every push
 
-on: [push]
+on:
+  push:
+  # A published GitHub release triggers the `publish` job below. The release's
+  # target commit determines which workflow runs — so this only publishes when a
+  # release is cut from a commit that carries this (v2) workflow.
+  release:
+    types: [published]
 
 jobs:
   build:
@@ -69,3 +75,74 @@ jobs:
       - name: Run Storybook play-function tests
         working-directory: ./clients/web
         run: npm run test:storybook
+
+  # Publish the single `@modelcontextprotocol/inspector` package to npm on a
+  # published GitHub release. v2 is not an npm workspace, so there is no
+  # `publish-all` / `--workspaces` (v1) — just one `npm publish`, whose `prepack`
+  # (`npm run build`) builds every client bundle into the `files` allowlist.
+  # `pack:verify` runs first as the pre-publish gate: it builds, packs the real
+  # tarball, installs it into a clean throwaway consumer, and drives the
+  # installed `mcp-inspector` bin (web/cli/tui) end to end — so a broken package
+  # is caught before it reaches npm rather than after.
+  publish:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    environment: release
+    needs: build
+    # Serialize publishes so two releases cut in quick succession can't run
+    # overlapping `npm publish`es. Never cancel an in-flight publish.
+    concurrency:
+      group: publish-npm
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      # Required for npm provenance (`--provenance` mints a signed attestation
+      # via GitHub's OIDC token). The repo is public, so provenance is available.
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Assert release tag matches package version
+        # `npm publish` ships whatever `version` is in the root package.json,
+        # regardless of the release's tag. Fail fast (before the heavy install /
+        # pack:verify) if they disagree — e.g. a release drafted without running
+        # `npm version`, or cut from the wrong commit — since publishing is
+        # irreversible. Tolerates the conventional leading `v` (npm version tags
+        # as `vX.Y.Z`). The tag arrives via `env:` (not spliced into the script)
+        # to avoid the script-injection surface of interpolating `${{ }}` into a
+        # `run:` block.
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "${TAG#v}" != "$PKG" ]; then
+            echo "Release tag '$TAG' does not match package.json version '$PKG'"
+            exit 1
+          fi
+
+      - name: Install dependencies (root + all clients)
+        run: npm install
+
+      - name: Verify the publishable tarball end to end
+        # Builds, `npm pack`s, installs the tarball into a clean consumer, and
+        # drives the installed bin. Needs registry access to pull the tarball's
+        # runtime deps — available here. `smoke:tui` inside it self-skips on CI.
+        run: npm run pack:verify
+
+      - name: Publish to npm (single package, with provenance)
+        # `prepack` (`npm run build`) rebuilds the client bundles into the tarball.
+        # The build runs three times on this path (build job → pack:verify →
+        # prepack); the redundancy is intentional — each is a clean-tree rebuild
+        # and the `prepack` one is what actually populates the published tarball,
+        # so don't "optimize" it away.
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -148,6 +148,22 @@ The root `package.json` `"files"` allowlist is the source of truth for the tarba
 
 The `smoke:*` scripts run against the in-repo build tree, which is **not** the published package. `npm run pack:verify` (`scripts/pack-and-verify.mjs`) closes that gap: it builds, `npm pack`s the publishable tarball (asserting no source maps ship and that the runtime-required files are present), installs the tarball into a **clean throwaway consumer** — a fresh temp directory where it runs a real `npm install <tgz>` (pulls runtime deps, runs `postinstall`), exactly as `npx @modelcontextprotocol/inspector` would — and drives the installed `mcp-inspector` bin end to end: `--help` dispatch, a real `--cli tools/list` over stdio, and a prod `--web` boot that must serve `/` from the shipped `dist`. It catches "works in `--dev`, breaks under `npx …`" path/packaging failures. It requires network access (the install pulls deps), so it is a local / release check, **not** part of the fast `validate`/`ci` loop.
 
+### Cutting a release
+
+Publishing is automated by the `publish` job in [`.github/workflows/main.yml`](.github/workflows/main.yml), gated on a **published GitHub release** (`github.event_name == 'release'`). On release it runs `npm run pack:verify` as the pre-publish gate, then `npm publish --access public --provenance` — a single `npm publish` (v2 is not an npm workspace, so there is no v1-style `publish-all`/`--workspaces`), with a signed provenance attestation via GitHub OIDC (`id-token: write`, `environment: release`, `NPM_TOKEN`).
+
+Because there is **one version number** (only the root `package.json` has one — the clients carry none, so there is nothing to keep in sync and no `check-version` step), the release flow is just:
+
+```bash
+npm version <major|minor|patch>   # bumps the root package.json + tags
+git push --follow-tags
+# then draft & publish a GitHub Release for that tag → triggers `publish`
+```
+
+The release's target commit selects which workflow runs, so this only publishes when a release is cut from a commit carrying this (v2) workflow.
+
+> **Docker / GHCR is not wired up yet.** v1 published a container image to GHCR, but v2 has no Dockerfile (its `client/server/cli` layout is gone). A v2 image + GHCR job is tracked separately in [#1646](https://github.com/modelcontextprotocol/inspector/issues/1646).
+
 ## Contributing — `AGENTS.md` and `CLAUDE.md`
 
 **[`AGENTS.md`](./AGENTS.md) is the contract for changing this codebase, and it applies to humans and AI agents alike.** It is not agent-only boilerplate — it holds the project's real conventions: the issue-and-board workflow, branch/label rules, the TypeScript and Mantine/React standards, the testing and coverage requirements, and the mandatory pre-push gate. Read it before making changes, and keep it up to date when you change structure, tooling, or rules.
