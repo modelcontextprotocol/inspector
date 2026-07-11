@@ -25,6 +25,9 @@ interface MockBridge {
   close: ReturnType<typeof vi.fn>;
   addEventListener: ReturnType<typeof vi.fn>;
   removeEventListener: ReturnType<typeof vi.fn>;
+  onrequestdisplaymode?: (params: {
+    mode: "inline" | "fullscreen" | "pip";
+  }) => Promise<{ mode: "inline" | "fullscreen" | "pip" }>;
   /** Test helper: dispatch a bridge event (e.g. "initialized") to listeners. */
   emit: (event: string, payload?: unknown) => void;
 }
@@ -230,6 +233,92 @@ describe("AppRenderer", () => {
     expect(bridge.sendToolCancelled).toHaveBeenCalledWith({
       reason: "user-aborted",
     });
+  });
+
+  it("forwards view size-changed notifications to onSizeChange", async () => {
+    const bridge = createMockBridge();
+    const onSizeChange = vi.fn();
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+        onSizeChange={onSizeChange}
+      />,
+    );
+    await flushAsync();
+    await act(async () => {
+      bridge.emit("sizechange", { width: 480, height: 600 });
+    });
+    expect(onSizeChange).toHaveBeenCalledWith({ width: 480, height: 600 });
+  });
+
+  it("does not throw on size-changed when no onSizeChange is provided", async () => {
+    const bridge = createMockBridge();
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+      />,
+    );
+    await flushAsync();
+    await act(async () => {
+      bridge.emit("sizechange", { height: 320 });
+    });
+    expect(screen.getByTitle("Cohort App")).toBeInTheDocument();
+  });
+
+  it("routes ui/request-display-mode to onRequestDisplayMode and returns the applied mode", async () => {
+    const bridge = createMockBridge();
+    const onRequestDisplayMode = vi
+      .fn<(m: "inline" | "fullscreen" | "pip") => "inline" | "fullscreen">()
+      .mockReturnValue("fullscreen");
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+        displayMode="inline"
+        onRequestDisplayMode={onRequestDisplayMode}
+      />,
+    );
+    await flushAsync();
+    await expect(
+      bridge.onrequestdisplaymode?.({ mode: "fullscreen" }),
+    ).resolves.toEqual({ mode: "fullscreen" });
+    expect(onRequestDisplayMode).toHaveBeenCalledWith("fullscreen");
+  });
+
+  it("declines ui/request-display-mode by returning the current displayMode when no handler is provided", async () => {
+    const bridge = createMockBridge();
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+        displayMode="fullscreen"
+      />,
+    );
+    await flushAsync();
+    await expect(
+      bridge.onrequestdisplaymode?.({ mode: "pip" }),
+    ).resolves.toEqual({ mode: "fullscreen" });
+  });
+
+  it("declines ui/request-display-mode with inline when neither a handler nor displayMode is set", async () => {
+    const bridge = createMockBridge();
+    renderWithMantine(
+      <AppRenderer
+        sandboxPath="/sandbox.html"
+        tool={tool}
+        bridgeFactory={() => asBridge(bridge)}
+      />,
+    );
+    await flushAsync();
+    await expect(
+      bridge.onrequestdisplaymode?.({ mode: "pip" }),
+    ).resolves.toEqual({ mode: "inline" });
   });
 
   it("pushes a displayMode change to the running view via host-context-changed", async () => {

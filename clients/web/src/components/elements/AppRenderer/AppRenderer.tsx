@@ -9,6 +9,7 @@ import {
 } from "react";
 import type {
   AppBridge,
+  AppBridgeEventMap,
   McpUiDisplayMode,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -42,11 +43,25 @@ export interface AppRendererProps {
   bridgeFactory: BridgeFactory;
   onError?: (err: Error) => void;
   /**
+   * Called when the running view reports a new rendered content size via
+   * `ui/notifications/size-changed` (typically driven by its `ResizeObserver`).
+   * Width and height (px) are both optional. The host uses this to resize the
+   * iframe's container so the widget is neither clipped nor padded with dead
+   * space.
+   */
+  onSizeChange?: (size: AppBridgeEventMap["sizechange"]) => void;
+  /**
    * Current host display mode for the app frame. Pushed to the running view
    * via `host-context-changed` whenever it changes (e.g. Maximize/Restore), so
    * an app can adapt its layout to inline vs fullscreen.
    */
   displayMode?: McpUiDisplayMode;
+  /**
+   * Handles a view-originated `ui/request-display-mode`. Return the mode the
+   * host actually applied — the spec lets the host decline an unsupported mode
+   * by returning its current one.
+   */
+  onRequestDisplayMode?: (requested: McpUiDisplayMode) => McpUiDisplayMode;
   /**
    * The host-controlled box the app renders within, used to derive
    * `hostContext.containerDimensions`. This MUST be an element whose size is
@@ -102,7 +117,9 @@ export function AppRenderer({
   tool,
   bridgeFactory,
   onError,
+  onSizeChange,
   displayMode,
+  onRequestDisplayMode,
   containerRef,
   ref,
 }: AppRendererProps) {
@@ -123,8 +140,14 @@ export function AppRenderer({
     tool: Tool;
   } | null>(null);
   const onErrorRef = useRef(onError);
+  const onSizeChangeRef = useRef(onSizeChange);
+  const displayModeRef = useRef(displayMode);
+  const onRequestDisplayModeRef = useRef(onRequestDisplayMode);
   useEffect(() => {
     onErrorRef.current = onError;
+    onSizeChangeRef.current = onSizeChange;
+    displayModeRef.current = displayMode;
+    onRequestDisplayModeRef.current = onRequestDisplayMode;
   });
 
   // Flush buffered tool input/result to the view, but only once the bridge
@@ -249,6 +272,21 @@ export function AppRenderer({
           }
           flushPending();
         });
+        // Forward the view's content-size reports (ui/notifications/size-changed)
+        // so the host can resize the iframe container to fit the rendered widget.
+        bridge.addEventListener("sizechange", (size) => {
+          onSizeChangeRef.current?.(size);
+        });
+        // Handle ui/request-display-mode: let the host (AppsScreen) decide what
+        // mode to actually apply and return that. With no handler the request is
+        // declined by returning the current host-side mode.
+        bridge.onrequestdisplaymode = async ({ mode }) => {
+          const handler = onRequestDisplayModeRef.current;
+          const applied = handler
+            ? handler(mode)
+            : (displayModeRef.current ?? "inline");
+          return { mode: applied };
+        };
         flushPending();
       })
       .catch((err) => {

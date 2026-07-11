@@ -1,6 +1,8 @@
 import { createRef, useState } from "react";
+import { act } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
+import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
@@ -55,9 +57,67 @@ const okBridgeFactory: BridgeFactory = () =>
     sendToolInput: async () => {},
     sendToolResult: async () => {},
     sendToolCancelled: async () => {},
+    sendHostContextChange: async () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
     teardownResource: async () => ({}),
     close: async () => {},
   }) as unknown as AppBridge;
+
+// A bridge factory whose bridge supports the addEventListener/emit surface the
+// AppRenderer wires up, so a test can drive a bridge event (sizechange) through
+// to the screen's handling. `emit` dispatches to the captured listeners;
+// `bridges` exposes each built bridge so tests can also drive the per-bridge
+// handlers (onrequestdisplaymode).
+function createEventBridgeFactory(): {
+  factory: BridgeFactory;
+  bridges: AppBridge[];
+  emit: (event: string, payload?: unknown) => void;
+} {
+  const listeners: Record<string, ((payload: unknown) => void)[]> = {};
+  const bridges: AppBridge[] = [];
+  const factory: BridgeFactory = () => {
+    const bridge = {
+      sendToolInput: async () => {},
+      sendToolResult: async () => {},
+      sendToolCancelled: async () => {},
+      sendHostContextChange: async () => {},
+      teardownResource: async () => ({}),
+      close: async () => {},
+      addEventListener: (event: string, handler: (p: unknown) => void) => {
+        (listeners[event] ??= []).push(handler);
+      },
+      removeEventListener: () => {},
+    } as unknown as AppBridge;
+    bridges.push(bridge);
+    return bridge;
+  };
+  return {
+    factory,
+    bridges,
+    emit: (event, payload) =>
+      (listeners[event] ?? []).forEach((h) => h(payload)),
+  };
+}
+
+// Invoke the onrequestdisplaymode handler the screen attached to the latest
+// bridge, mimicking a ui/request-display-mode request from the running view.
+async function requestDisplayMode(
+  bridges: AppBridge[],
+  mode: McpUiDisplayMode,
+): Promise<{ mode: McpUiDisplayMode }> {
+  const handler = bridges.at(-1)?.onrequestdisplaymode as unknown as
+    | ((params: { mode: McpUiDisplayMode }) => Promise<{
+        mode: McpUiDisplayMode;
+      }>)
+    | undefined;
+  if (!handler) throw new Error("no onrequestdisplaymode handler attached");
+  let result: { mode: McpUiDisplayMode } = { mode };
+  await act(async () => {
+    result = await handler({ mode });
+  });
+  return result;
+}
 
 function buildProps(overrides: Partial<AppsScreenProps> = {}): AppsScreenProps {
   return {
@@ -246,6 +306,94 @@ describe("AppsScreen", () => {
     await user.click(screen.getByLabelText("Maximize"));
     expect(screen.queryByText("MCP Apps (3)")).not.toBeInTheDocument();
     await user.click(screen.getByLabelText("Restore"));
+    expect(screen.getByText("MCP Apps (3)")).toBeInTheDocument();
+  });
+
+  it("sizes the renderer frame to the view-reported height", async () => {
+    const user = userEvent.setup();
+    const { factory, emit } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    // Auto-launches the no-fields app, mounting the renderer and registering
+    // its sizechange listener once the bridge resolves.
+    await user.click(screen.getByText("Ops Dashboard"));
+    const iframe = screen.getByTitle("Ops Dashboard");
+    const frame = iframe.parentElement as HTMLElement;
+    // Until the view reports a size, the frame flex-grows to fill the card.
+    expect(frame.style.flexGrow).toBe("1");
+
+    await act(async () => {
+      // Let the synchronous bridge factory's promise chain settle so the
+      // sizechange listener is registered before we emit.
+      await Promise.resolve();
+      await Promise.resolve();
+      emit("sizechange", { height: 600 });
+    });
+    // A reported height switches the frame to its content size: it stops
+    // flex-growing and takes the explicit `h`.
+    expect(frame.style.flexGrow).toBe("0");
+  });
+
+  it("ignores a size-changed report that carries no height", async () => {
+    const user = userEvent.setup();
+    const { factory, emit } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    const frame = screen.getByTitle("Ops Dashboard")
+      .parentElement as HTMLElement;
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      emit("sizechange", { width: 400 });
+    });
+    // No height in the report — the frame keeps flex-growing.
+    expect(frame.style.flexGrow).toBe("1");
+  });
+
+  it("maximizes the frame when the view requests fullscreen via request-display-mode", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    expect(screen.getByText("MCP Apps (3)")).toBeInTheDocument();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const result = await requestDisplayMode(bridges, "fullscreen");
+    expect(result).toEqual({ mode: "fullscreen" });
+    // Fullscreen hides the sidebar (same effect as the Maximize button).
+    expect(screen.queryByText("MCP Apps (3)")).not.toBeInTheDocument();
+  });
+
+  it("declines an unsupported display mode, returning the current mode", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // "pip" is not in HOST_AVAILABLE_DISPLAY_MODES — declined, current mode
+    // ("inline") returned, and the sidebar stays visible.
+    const result = await requestDisplayMode(bridges, "pip");
+    expect(result).toEqual({ mode: "inline" });
+    expect(screen.getByText("MCP Apps (3)")).toBeInTheDocument();
+  });
+
+  it("restores inline via request-display-mode after maximizing", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await requestDisplayMode(bridges, "fullscreen");
+    expect(screen.queryByText("MCP Apps (3)")).not.toBeInTheDocument();
+    const result = await requestDisplayMode(bridges, "inline");
+    expect(result).toEqual({ mode: "inline" });
     expect(screen.getByText("MCP Apps (3)")).toBeInTheDocument();
   });
 

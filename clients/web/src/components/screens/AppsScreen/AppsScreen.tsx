@@ -1,4 +1,4 @@
-import { useState, type Ref } from "react";
+import { useRef, useState, type Ref } from "react";
 import {
   ActionIcon,
   Button,
@@ -17,11 +17,13 @@ import {
   MdFullscreenExit,
 } from "react-icons/md";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   AppRenderer,
   type AppRendererHandle,
   type BridgeFactory,
 } from "../../elements/AppRenderer/AppRenderer";
+import { HOST_AVAILABLE_DISPLAY_MODES } from "../../elements/AppRenderer/createAppBridgeFactory";
 import { AppDetailPanel } from "../../groups/AppDetailPanel/AppDetailPanel";
 import { AppControls } from "../../groups/AppControls/AppControls";
 import { hasInputFields, resolveDisplayLabel } from "../../../utils/toolUtils";
@@ -127,7 +129,12 @@ const HeaderActions = Group.withProps({
   wrap: "nowrap",
 });
 
-const RendererFrame = Stack.withProps({
+// The host-controlled box the running app sits within. Its size is driven by
+// the host's layout (window resize, sidebar toggle, maximize) and NOT by the
+// view's reported content height — that drives the inner box — so the
+// renderer's containerDimensions observer can measure this element without
+// coupling host→view container size to view→host size-changed.
+const RendererContainer = Stack.withProps({
   flex: 1,
   miw: 0,
   mih: 0,
@@ -156,11 +163,44 @@ export function AppsScreen({
   const { selectedAppName, formValues, search } = ui;
   const [running, setRunning] = useState(false);
   const [maximized, setMaximized] = useState(false);
+  const rendererContainerRef = useRef<HTMLDivElement | null>(null);
+  // Height (px) the running view last reported via ui/notifications/size-changed.
+  // Undefined until the view reports (or after it's torn down), in which case
+  // the iframe fills the available card space as before. Local to the screen
+  // like `running`/`maximized`: it's tied to the live iframe, not persisted.
+  const [appHeight, setAppHeight] = useState<number | undefined>(undefined);
 
   const selectedTool = selectedAppName
     ? tools.find((t) => t.name === selectedAppName)
     : undefined;
   const selectedHasFields = selectedTool ? hasInputFields(selectedTool) : false;
+
+  // The running view reports its rendered content height via
+  // ui/notifications/size-changed; honor it so the iframe is neither clipped
+  // nor surrounded by dead space. Width is left at the host-controlled
+  // container width. The value is clamped to the available space by the
+  // renderer frame's `mah` below, and ignored while maximized (the app fills
+  // the screen instead).
+  function handleSizeChange(size: { width?: number; height?: number }) {
+    if (size.height != null) setAppHeight(size.height);
+  }
+
+  // The app's display mode is derived from the existing maximized toggle.
+  // Passed to AppRenderer so the running view receives it via
+  // host-context-changed; the Maximize/Restore button below keeps toggling
+  // `maximized`, which now flows out as a protocol event.
+  const displayMode: McpUiDisplayMode = maximized ? "fullscreen" : "inline";
+
+  // Handle a view-originated ui/request-display-mode. Only modes the inspector
+  // advertises in `availableDisplayModes` are honored — an unsupported request
+  // (e.g. "pip") is declined by returning the current mode, per spec.
+  function handleRequestDisplayMode(
+    requested: McpUiDisplayMode,
+  ): McpUiDisplayMode {
+    if (!HOST_AVAILABLE_DISPLAY_MODES.includes(requested)) return displayMode;
+    setMaximized(requested === "fullscreen");
+    return requested;
+  }
 
   function handleSelect(name: string) {
     if (name === selectedAppName) return;
@@ -174,6 +214,7 @@ export function AppsScreen({
       formValues: collectSchemaDefaults(next.inputSchema),
     });
     setMaximized(false);
+    setAppHeight(undefined);
     onSelectApp(name);
     // No-input apps auto-launch on selection so the user lands directly in
     // the running view; apps with fields wait for the explicit Open App click.
@@ -187,6 +228,7 @@ export function AppsScreen({
 
   function handleOpen() {
     if (!selectedTool) return;
+    setAppHeight(undefined);
     setRunning(true);
     onOpenApp(selectedTool.name, formValues);
   }
@@ -195,12 +237,14 @@ export function AppsScreen({
     setRunning(false);
     onUiChange({ ...ui, selectedAppName: undefined, formValues: {} });
     setMaximized(false);
+    setAppHeight(undefined);
     onCloseApp();
   }
 
   function handleBackToInput() {
     setRunning(false);
     setMaximized(false);
+    setAppHeight(undefined);
   }
 
   // No sandbox proxy URL means the host can't embed the trusted outer iframe
@@ -217,6 +261,10 @@ export function AppsScreen({
       </ScreenLayout>
     );
   }
+
+  // While maximized the app fills the screen, so the view-reported height is
+  // ignored; otherwise we honor it (clamped to the card by the frame's `mah`).
+  const contentHeight = maximized ? undefined : appHeight;
 
   return (
     <ScreenLayout>
@@ -286,19 +334,32 @@ export function AppsScreen({
               </HeaderActions>
             </HeaderRow>
             {running ? (
-              <RendererFrame>
-                {/* Keying by name forces the renderer to remount when the
-                    selected app changes, ensuring a fresh bridge and iframe
-                    rather than reusing the previous app's transport. */}
-                <AppRenderer
-                  key={selectedTool.name}
-                  sandboxPath={sandboxPath}
-                  tool={selectedTool}
-                  bridgeFactory={bridgeFactory}
-                  onError={onError}
-                  ref={rendererRef}
-                />
-              </RendererFrame>
+              // RendererContainer is the host-controlled box (its size only
+              // changes with host layout); the inner Stack is sized by the
+              // view's reported content height, capped at the container.
+              <RendererContainer ref={rendererContainerRef}>
+                <RendererContainer
+                  flex={contentHeight != null ? "0 0 auto" : 1}
+                  h={contentHeight}
+                  mah="100%"
+                >
+                  {/* Keying by name forces the renderer to remount when the
+                      selected app changes, ensuring a fresh bridge and iframe
+                      rather than reusing the previous app's transport. */}
+                  <AppRenderer
+                    key={selectedTool.name}
+                    sandboxPath={sandboxPath}
+                    tool={selectedTool}
+                    bridgeFactory={bridgeFactory}
+                    onError={onError}
+                    onSizeChange={handleSizeChange}
+                    displayMode={displayMode}
+                    onRequestDisplayMode={handleRequestDisplayMode}
+                    containerRef={rendererContainerRef}
+                    ref={rendererRef}
+                  />
+                </RendererContainer>
+              </RendererContainer>
             ) : (
               // `isOpening` is always false here because `handleOpen`
               // synchronously flips `running` to true, swapping in the
