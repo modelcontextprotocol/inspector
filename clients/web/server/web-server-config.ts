@@ -14,13 +14,15 @@ import {
   LEGACY_AUTH_TOKEN_ENV,
 } from "../../../core/mcp/remote/constants.ts";
 import type { InitialConfigPayload } from "../../../core/mcp/remote/node/server.ts";
-import { readInspectorVersion } from "../../../core/node/version.ts";
+import { readInspectorVersionSafe } from "../../../core/node/version.ts";
 import { resolveSandboxPort } from "./sandbox-controller.js";
 
 // The single-source Inspector version (root package.json), read once at load.
 // The browser can't read the filesystem the way the CLI/TUI do, so the backend
-// reads it here and hands it to the client via GET /api/config.
-const inspectorVersion = readInspectorVersion(import.meta.url);
+// reads it here and hands it to the client via GET /api/config. Uses the
+// non-throwing read: the version is cosmetic, so a resolution failure hides the
+// badge (version omitted from the payload) rather than crashing the backend.
+const inspectorVersion = readInspectorVersionSafe(import.meta.url);
 
 export interface WebServerConfig {
   port: number;
