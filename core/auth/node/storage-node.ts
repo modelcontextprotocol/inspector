@@ -15,9 +15,16 @@ const DEFAULT_STATE_PATH = getStoreFilePath(getDefaultStorageDir(), "oauth");
  *  2. `MCP_INSPECTOR_OAUTH_STATE_PATH` — the per-file override (so tests and
  *     scripted runs can point at an isolated fixture without touching
  *     `~/.mcp-inspector`)
- *  3. `<MCP_STORAGE_DIR>/oauth.json` — the storage-directory override honoured
- *     across the app, so setting it once points every persist backend at the
- *     same directory
+ *  3. `<MCP_STORAGE_DIR>/oauth.json` — the storage-directory override for the
+ *     OAuth state file specifically, so the CLI's stored-auth flows and the web
+ *     backend agree on where `oauth.json` lives when the env var is set. Note
+ *     this branch scopes `MCP_STORAGE_DIR` to the OAuth backend only; it does
+ *     NOT relocate `client.json` / `mcp.json` (those still resolve from
+ *     `getDefaultStorageDir()`, which reads `HOME`/`USERPROFILE`). Resolving it
+ *     here (rather than in `getDefaultStorageDir()`) is deliberate: the default
+ *     path constant above is evaluated at module load, so a runtime-set
+ *     `MCP_STORAGE_DIR` — how the CLI stored-auth tests and the `--wait-for-auth`
+ *     flow set it — is only honoured by reading the env var at call time.
  *  4. the default `~/.mcp-inspector/storage/oauth.json`
  */
 export function getStateFilePath(customPath?: string): string {
