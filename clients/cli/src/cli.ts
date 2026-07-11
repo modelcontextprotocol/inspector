@@ -555,6 +555,11 @@ function buildHandoff(serverUrl: string, statePath: string): McpResponse {
   // Treat an empty MCP_INSPECTOR_API_TOKEN the same as unset — an empty token
   // can't satisfy the deep-link autoConnect gate.
   const apiToken = process.env.MCP_INSPECTOR_API_TOKEN || undefined;
+  // TODO(#1576): interim deep-link shape. `transport: "http"` is hardcoded even
+  // for SSE servers, and `autoConnect=<token>` is NOT one of the three token
+  // sources the web app reads (window.__INSPECTOR_API_TOKEN__ /
+  // ?MCP_INSPECTOR_API_TOKEN / sessionStorage — see CLAUDE.md). Reconcile both
+  // with #1576's canonical handoff/deep-link format once it lands.
   const params = new URLSearchParams({ serverUrl, transport: "http" });
   if (apiToken) params.set("autoConnect", apiToken);
   return {
@@ -930,8 +935,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     // Read the OAuth state file directly so the lookup is normalised the same
     // way the web inspector wrote it (`new URL().href`), and so `--wait-for-
     // auth` sees fresh on-disk state on each poll. Header injection is the
-    // prototype path — the token is passed blindly, so a stale token surfaces
-    // as HTTP 401 → exit 3 (auth_required).
+    // prototype path — only the access token is injected, blindly; a stale one
+    // surfaces as HTTP 401 → exit 3 (auth_required). Follow-up: when the stored
+    // `tokens.refresh_token` is present and the access token is expired, mint a
+    // fresh one instead of injecting the stale token.
     let token: string;
     if (options.waitForAuth !== undefined) {
       token = await waitForStoredToken(

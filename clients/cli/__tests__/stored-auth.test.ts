@@ -109,6 +109,17 @@ describe("--use-stored-auth", () => {
     expect(result.stderr).toContain("--use-stored-auth requires --server-url");
   });
 
+  it("errors clearly when --wait-for-auth is set without --server-url", async () => {
+    // Exercises the `--wait-for-auth` arm of the shared missing-server-url
+    // guard's message ternary (the --use-stored-auth arm is covered above).
+    const result = await runCli(
+      ["--wait-for-auth", "5", "--method", "tools/list"],
+      { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: fixturePath } },
+    );
+    expectCliFailure(result);
+    expect(result.stderr).toContain("--wait-for-auth requires --server-url");
+  });
+
   it("errors with exit 3 (AUTH_REQUIRED) and lists stored keys when no token matches", async () => {
     const other = writeOAuthFixture({
       "https://other.example/mcp": {

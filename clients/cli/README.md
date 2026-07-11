@@ -200,7 +200,9 @@ For the common case where OAuth was already completed in the **web inspector on 
 
 **State-file resolution** follows `MCP_INSPECTOR_OAUTH_STATE_PATH` → `<MCP_STORAGE_DIR>/oauth.json` → `~/.mcp-inspector/storage/oauth.json` — the same precedence the rest of the Inspector uses, so the CLI and web backend agree on the file. Server keys are canonicalised with `new URL().href` (the scheme the web store writes), so a trailing-slash or case mismatch between the URL a human opened and the one the agent passed still resolves.
 
-**Blind injection.** The token is injected as-is; the CLI does not validate or refresh it. A stale/expired token surfaces as an HTTP `401` on the first request → exit `3` (`auth_required`). Re-complete the flow in the web inspector (or use `--wait-for-auth`) and retry.
+**Blind injection.** The token is injected as-is; the CLI does not validate or refresh it (a stored `refresh_token` is not yet used — a natural follow-up). A stale/expired access token surfaces as an HTTP `401` on the first request → exit `3` (`auth_required`). Re-complete the flow in the web inspector (or use `--wait-for-auth`) and retry.
+
+**Short-circuit modes.** `--list-stored-auth` and `--print-handoff` each print their output and exit without connecting to a server; they ignore the method/target flags. They are mutually exclusive — if both are passed, `--list-stored-auth` takes precedence.
 
 > The `deepLink` shape emitted by `--print-handoff` is interim, pending the web deep-link auto-connect work ([#1576](https://github.com/modelcontextprotocol/inspector/issues/1576)); it will be reconciled with that issue's canonical handoff format once it lands.
 
