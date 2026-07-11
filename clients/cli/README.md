@@ -109,6 +109,32 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--metadata <key=value>`      | General metadata (key=value); applied to all methods.                                     |
 | `--tool-metadata <key=value>` | Tool-specific metadata for `tools/call`.                                                  |
 | `--connect-timeout <ms>`      | Connection timeout in ms. Defaults to `15000` for ad-hoc `--server-url`/target runs (so a black-holed host fails fast) and to the file-level timeout for `--catalog`/`--config` runs. `0` disables the timeout. |
+| `--app-info`                  | Probe a tool's MCP App UI metadata without invoking it. With `--method tools/call --tool-name <name>`: prints one JSON line (`hasApp`, `resourceUri`, `csp`, `permissions`, `domain`, …) and exits `0` if the tool has an app or `2` (`no_app`) if not. With `--method tools/list`: emits NDJSON — one app-info line per tool over a single connection. |
+| `--format <text\|json>`       | Output format. `text` (default) pretty-prints the result. `json` emits a single JSON object on stdout (`{ "result": … }`, plus `{ "appInfo": … }` as a sibling key for App tools) with no banners, so the whole output pipes cleanly into `jq`. |
+
+#### App probing (`--app-info`) and machine-readable output (`--format json`)
+
+`--app-info` inspects a tool's [MCP App](https://modelcontextprotocol.io) UI posture **without calling the tool**, so a pipeline can decide whether to open a browser before touching one:
+
+```bash
+# Probe one tool. Exits 0 (has app) or 2 (no_app). One JSON line on stdout.
+mcp-inspector --cli <server> --method tools/call --tool-name my_tool --app-info
+# → {"hasApp":true,"toolName":"my_tool","resourceUri":"ui://…","csp":{…},"permissions":{…},"prefersBorder":true,"resourceMimeType":"text/html"}
+
+# Probe every tool at once — NDJSON, one line per tool, single connection.
+mcp-inspector --cli <server> --method tools/list --app-info | jq -c 'select(.hasApp)'
+```
+
+Exit semantics: a tool that **has** an app exits `0`; one with **no** app exits `2` (`no_app`); a **missing** tool exits `5` (`tool_not_found`) — distinct so a typo isn't mistaken for "no app". A resource-read failure during the probe is tolerated and reported in a `resourceError` field rather than aborting.
+
+`--format json` wraps any method's output in a single stdout envelope with no banners, so App tools and plain tools both pipe cleanly into `jq`:
+
+```bash
+mcp-inspector --cli <server> --method tools/call --tool-name my_app_tool --format json
+# → {"result":{…tool result…},"appInfo":{"hasApp":true,"resourceUri":"ui://…",…}}
+```
+
+A `tools/call` that returns `isError:true` still prints its payload but exits `5` (`tool_is_error`) so `&&` chains don't proceed on a failed call.
 
 ### CLI-specific (OAuth for HTTP servers)
 

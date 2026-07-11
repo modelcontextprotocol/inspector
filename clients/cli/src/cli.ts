@@ -25,6 +25,9 @@ import {
   parseHeaderPair,
 } from "@inspector/core/mcp/node/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
+import { extractAppInfo } from "@inspector/core/mcp/apps.js";
+import type { AppInfo } from "@inspector/core/mcp/apps.js";
+import { CliExitCodeError, EXIT_CODES } from "./error-handler.js";
 import {
   ConsoleNavigation,
   MutableRedirectUrlProvider,
@@ -68,6 +71,8 @@ const CLI_CLIENT_NAME = "inspector-cli";
  */
 export const DEFAULT_CONNECT_TIMEOUT_MS = 15000;
 
+type OutputFormat = "text" | "json";
+
 type MethodArgs = {
   method?: string;
   promptName?: string;
@@ -78,7 +83,26 @@ type MethodArgs = {
   toolArg?: Record<string, JsonValue>;
   toolMeta?: Record<string, string>;
   metadata?: Record<string, string>;
+  appInfo?: boolean;
+  format?: OutputFormat;
 };
+
+/**
+ * {@link AppInfo} plus a CLI-only `resourceError` so a `resources/read` failure
+ * during the probe is reported instead of being silently swallowed (which would
+ * make "no CSP declared" indistinguishable from "resource unreadable").
+ */
+export type CliAppInfo = AppInfo & { resourceError?: string };
+
+/**
+ * Discriminated outcome from {@link callMethod}'s per-method runner. Most
+ * methods return a `result` (with optional collected `appInfo`) for
+ * {@link emitResult} to format; the `tools/list --app-info` NDJSON path writes
+ * its lines itself and reports `emitted` so the caller skips a second write.
+ */
+type MethodOutcome =
+  | { kind: "result"; result: McpResponse; appInfo?: CliAppInfo }
+  | { kind: "emitted" };
 
 async function callMethod(
   serverConfig: MCPServerConfig,
@@ -132,8 +156,9 @@ async function callMethod(
     null;
   let managedPromptsState: ManagedPromptsState | null = null;
 
-  const runMethod = async (): Promise<McpResponse> => {
+  const runMethod = async (): Promise<MethodOutcome> => {
     let result: McpResponse;
+    let appInfo: CliAppInfo | undefined;
 
     if (args.method === "tools/list" || args.method === "tools/call") {
       managedToolsState = new ManagedToolsState(inspectorClient);
@@ -158,7 +183,21 @@ async function callMethod(
     }
 
     if (args.method === "tools/list") {
-      result = { tools: managedToolsState!.getTools() };
+      const tools = managedToolsState!.getTools();
+      if (args.appInfo) {
+        // NDJSON: one app-info line per tool, all on a single connection. A
+        // caller that wants only the App tools can `| jq -c 'select(.hasApp)'`.
+        for (const tool of tools) {
+          const info = await collectAppInfo(
+            inspectorClient,
+            tool,
+            args.metadata,
+          );
+          await awaitableLog(JSON.stringify(info) + "\n");
+        }
+        return { kind: "emitted" };
+      }
+      result = { tools };
     } else if (args.method === "tools/call") {
       if (!args.toolName) {
         throw new Error(
@@ -170,15 +209,28 @@ async function callMethod(
         .getTools()
         .find((t) => t.name === args.toolName);
       if (!tool) {
-        result = {
-          content: [
-            {
-              type: "text" as const,
-              text: `Tool '${args.toolName}' not found.`,
-            },
-          ],
-          isError: true,
-        };
+        // Distinct from `isError:true` and (for --app-info) from "tool has no
+        // app": the named tool does not exist on the server. Exit TOOL_ERROR
+        // with `code: "tool_not_found"` so a caller can tell a typo/rename
+        // apart from a real tool failure or a no-app probe result.
+        throw new CliExitCodeError(
+          EXIT_CODES.TOOL_ERROR,
+          `Tool '${args.toolName}' not found on server.`,
+          { code: "tool_not_found" },
+        );
+      }
+
+      // Only collect app-info when the caller asked for it (`--app-info` or
+      // `--format json`); a plain text-mode `tools/call` shouldn't fail just
+      // because the tool's `_meta.ui.resourceUri` is malformed or its resource
+      // is unreadable.
+      if (args.appInfo || args.format === "json") {
+        appInfo = await collectAppInfo(inspectorClient, tool, args.metadata);
+      }
+      if (args.appInfo) {
+        // --app-info: probe-only — emit the app metadata and skip the tool
+        // call entirely. The no-app exit code is handled in emitResult.
+        result = { ...appInfo };
       } else {
         const invocation = await inspectorClient.callTool(
           tool,
@@ -266,7 +318,7 @@ async function callMethod(
       );
     }
 
-    return result;
+    return { kind: "result", result, appInfo };
   };
 
   try {
@@ -278,7 +330,7 @@ async function callMethod(
       serverSettings,
     );
 
-    const result = await withCliAuthRecoveryRetry(
+    const outcome = await withCliAuthRecoveryRetry(
       inspectorClient,
       redirectUrlProvider,
       callbackUrlConfig,
@@ -286,13 +338,97 @@ async function callMethod(
       runMethod,
     );
 
-    await awaitableLog(JSON.stringify(result, null, 2));
+    // The NDJSON `tools/list --app-info` path already wrote its lines; every
+    // other method hands its result to emitResult for format/exit handling.
+    if (outcome.kind === "result") {
+      await emitResult(outcome.result, outcome.appInfo, args);
+    }
   } finally {
     managedToolsState?.destroy();
     managedResourcesState?.destroy();
     managedResourceTemplatesState?.destroy();
     managedPromptsState?.destroy();
     await inspectorClient.disconnect();
+  }
+}
+
+/**
+ * Write the method result (and any app-info) to stdout, honouring `--format`
+ * and `--app-info`, then map `isError`/no-app outcomes onto the exit-code map.
+ * Extracted from `callMethod` so the format/exit handling is in one place.
+ */
+export async function emitResult(
+  result: McpResponse,
+  appInfo: CliAppInfo | undefined,
+  args: MethodArgs,
+): Promise<void> {
+  const json = args.format === "json";
+
+  if (args.appInfo) {
+    const info: CliAppInfo = appInfo ?? {
+      hasApp: false,
+      toolName: args.toolName ?? "",
+    };
+    // Single-line JSON either way; --format json wraps it under an `appInfo`
+    // key so the envelope shape is uniform with the non-probe path.
+    await awaitableLog(JSON.stringify(json ? { appInfo: info } : info) + "\n");
+    if (!info.hasApp) {
+      throw new CliExitCodeError(
+        EXIT_CODES.NO_APP,
+        `Tool '${args.toolName}' has no MCP App UI resource (_meta.ui.resourceUri).`,
+      );
+    }
+    return;
+  }
+
+  if (json) {
+    // One JSON object on stdout — `result` plus, when present, `appInfo` as a
+    // sibling key. No `--- MCP App Info ---` banner, so `| jq` works for App
+    // tools as well as plain ones.
+    const envelope: Record<string, unknown> = { result };
+    if (appInfo?.hasApp) envelope.appInfo = appInfo;
+    await awaitableLog(JSON.stringify(envelope) + "\n");
+  } else {
+    // Text mode emits the result only; app-info is not collected on this path
+    // (use `--format json` or `--app-info` to get it).
+    await awaitableLog(JSON.stringify(result, null, 2) + "\n");
+  }
+
+  // A tool that returned `isError:true` (or whose call failed) is still printed
+  // above so the caller sees the payload, but the process exits TOOL_ERROR so
+  // `&&` chains don't proceed on a failed call.
+  if ((result as { isError?: unknown }).isError === true) {
+    throw new CliExitCodeError(
+      EXIT_CODES.TOOL_ERROR,
+      `Tool '${args.toolName}' returned isError:true.`,
+      { code: "tool_is_error" },
+    );
+  }
+}
+
+/**
+ * Build the CLI's app-info for a tool: extract the tool-side `_meta.ui` and,
+ * when the tool advertises a UI resource, follow it with a `resources/read` so
+ * the resource-side csp/permissions/domain are included. A read failure is
+ * tolerated — the tool-side info is still returned with `resourceError` set,
+ * since "tool says it has an app but the resource is unreadable" is itself a
+ * useful probe result.
+ */
+export async function collectAppInfo(
+  client: Pick<InspectorClient, "readResource">,
+  tool: Parameters<typeof extractAppInfo>[0],
+  metadata: Record<string, string> | undefined,
+): Promise<CliAppInfo> {
+  const base = extractAppInfo(tool);
+  if (!base.hasApp || base.resourceUri === undefined) return base;
+  try {
+    const read = await client.readResource(base.resourceUri, metadata);
+    return extractAppInfo(tool, read.result);
+  } catch (e) {
+    return {
+      ...base,
+      resourceError: e instanceof Error ? e.message : String(e),
+    };
   }
 }
 
@@ -481,6 +617,10 @@ async function parseArgs(argv?: string[]): Promise<{
       {},
     )
     .option(
+      "--app-info",
+      "Probe the tool's MCP App UI metadata (resourceUri, csp, permissions, domain) and emit it as one JSON line; exit 2 when the tool has no app. Use with --method tools/call --tool-name <name> (the tool itself is not invoked) or --method tools/list (one NDJSON line per tool).",
+    )
+    .option(
       "--connect-timeout <ms>",
       `Connection timeout in ms (default ${DEFAULT_CONNECT_TIMEOUT_MS} for ad-hoc --server-url / target invocations; 0 = no timeout).`,
       (v: string) => {
@@ -489,6 +629,16 @@ async function parseArgs(argv?: string[]): Promise<{
           throw new Error(`--connect-timeout must be a non-negative number.`);
         }
         return n;
+      },
+    )
+    .option(
+      "--format <format>",
+      "Output format: text (default; pretty-printed) or json (one JSON object on stdout, no banners).",
+      (v: string): OutputFormat => {
+        if (v !== "text" && v !== "json") {
+          throw new Error(`--format must be 'text' or 'json'.`);
+        }
+        return v;
       },
     )
     .option(
@@ -536,7 +686,9 @@ async function parseArgs(argv?: string[]): Promise<{
     transport?: "sse" | "http" | "stdio";
     serverUrl?: string;
     header?: Record<string, string>;
+    appInfo?: boolean;
     connectTimeout?: number;
+    format?: OutputFormat;
     toolArgsJson?: string;
     clientConfig?: string;
     clientId?: string;
@@ -586,6 +738,16 @@ async function parseArgs(argv?: string[]): Promise<{
   if (!options.method) {
     throw new Error(
       "Method is required. Use --method to specify the method to invoke.",
+    );
+  }
+
+  if (
+    options.appInfo &&
+    options.method !== "tools/call" &&
+    options.method !== "tools/list"
+  ) {
+    throw new Error(
+      "--app-info requires --method tools/call (with --tool-name) or --method tools/list.",
     );
   }
 
@@ -640,6 +802,8 @@ async function parseArgs(argv?: string[]): Promise<{
           ]),
         )
       : undefined,
+    appInfo: options.appInfo === true,
+    format: options.format,
   };
 
   return {
