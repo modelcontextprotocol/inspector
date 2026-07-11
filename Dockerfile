@@ -31,6 +31,17 @@ ENV HOST=0.0.0.0 \
     MCP_AUTO_OPEN_ENABLED=false
 EXPOSE 6274
 
+# Run as the non-root `node` user the base image ships. Its home (/home/node) is
+# where the inspector writes runtime state (the default catalog, OAuth token
+# storage), so use it as the working directory.
+USER node
+WORKDIR /home/node
+
+# Report readiness by probing the served SPA (`/` needs no auth). Uses Node's
+# global fetch — no curl/wget in the slim image.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD node -e "fetch('http://127.0.0.1:'+(process.env.CLIENT_PORT||6274)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
 # Default to the web UI; override the args to run --cli / --tui.
 ENTRYPOINT ["mcp-inspector"]
 CMD ["--web"]

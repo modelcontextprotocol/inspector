@@ -18,6 +18,12 @@ test-servers/build
 storybook-static
 coverage
 
+# Docs/specs aren't referenced by the build — trim them from the context.
+# (test-servers/ stays: `tsc -b` typechecks the integration tests that import
+# the `@modelcontextprotocol/inspector-test-server` alias.)
+specification
+docs
+
 # Packed tarballs (the image makes its own)
 *.tgz
 
