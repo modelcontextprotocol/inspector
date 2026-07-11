@@ -79,9 +79,13 @@ const Sidebar = Stack.withProps({
   flex: "0 0 auto",
 });
 
+// `sidebar` variant makes the card a full-height flex column capped at the
+// screen height, so ToolControls' list fills the card and scrolls internally
+// once it overflows (matching the Resources sidebar). (#1417)
 const SidebarCard = Card.withProps({
   withBorder: true,
   padding: "lg",
+  variant: "sidebar",
 });
 
 // Column wrapper: stretches to the screen's available height (capped by the
@@ -100,6 +104,15 @@ const ContentCard = Card.withProps({
   withBorder: true,
   padding: "lg",
   variant: "preview",
+});
+
+// Full-height card for the empty placeholder (used with `flex={1}`) so it fills
+// the screen height like the Prompts/Resources placeholders, rather than
+// shrinking to its text. The result/detail states keep the content-sized
+// `ContentCard` (their inner ScrollArea handles overflow).
+const DetailCard = Card.withProps({
+  withBorder: true,
+  padding: "lg",
 });
 
 const EmptyState = Text.withProps({
@@ -160,21 +173,25 @@ export function ToolsScreen({
         </SidebarCard>
       </Sidebar>
 
-      <ContentPane mah={SCROLL_MAX_HEIGHT}>
-        <ContentCard>
-          {callState?.result ? (
-            // Results replace the input form while present, and the panel's
-            // top-left X dismisses them back to the form (#1661) — the Prompts
-            // screen pattern. `formValues` live in the lifted UI state, so the
-            // form is restored intact for a re-run. A call in flight sets a
-            // `pending` state with no `result` (App.tsx), so the executing form
-            // (progress + cancel) shows until the result lands.
+      {callState?.result ? (
+        // Results replace the input form while present, and the panel's top-left
+        // X dismisses them back to the form (#1661) — the Prompts screen pattern.
+        // `formValues` live in the lifted UI state, so the form is restored
+        // intact for a re-run. A call in flight sets a `pending` state with no
+        // `result` (App.tsx), so the executing form (progress + cancel) shows
+        // until the result lands.
+        <ContentPane mah={SCROLL_MAX_HEIGHT}>
+          <ContentCard>
             <ToolResultPanel
               result={callState.result}
               onClear={() => onClearResult?.()}
               onReadResource={onReadResource}
             />
-          ) : selectedTool ? (
+          </ContentCard>
+        </ContentPane>
+      ) : selectedTool ? (
+        <ContentPane mah={SCROLL_MAX_HEIGHT}>
+          <ContentCard>
             <ToolDetailPanel
               tool={selectedTool}
               formValues={formValues}
@@ -193,11 +210,15 @@ export function ToolsScreen({
               }
               onCancel={() => onCancelCall?.()}
             />
-          ) : (
-            <EmptyState>Select a tool to view details</EmptyState>
-          )}
-        </ContentCard>
-      </ContentPane>
+          </ContentCard>
+        </ContentPane>
+      ) : (
+        // Empty placeholder fills the full screen height (like Prompts/Resources)
+        // rather than shrinking to its text.
+        <DetailCard flex={1}>
+          <EmptyState>Select a tool to view details</EmptyState>
+        </DetailCard>
+      )}
     </ScreenLayout>
   );
 }
