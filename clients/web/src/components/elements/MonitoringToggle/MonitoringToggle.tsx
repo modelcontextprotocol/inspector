@@ -7,17 +7,17 @@ import {
 export interface MonitoringToggleProps {
   /** Whether the monitoring sidebar is currently open. */
   open: boolean;
-  /** Open the column when closed, close it when open. */
+  /** Open the sidebar when closed, close it when open. */
   onToggle: () => void;
 }
 
 /**
  * The single header affordance for the monitoring sidebar (#1661). It replaces
- * the per-screen "pin as column" buttons, the server-list open-sidebar button,
- * and the column's own close button — one toggle, placed in the header to the
- * right of the theme icon, that opens or closes the column on demand. The glyph
- * and label reflect the current state (expand when closed, collapse when open).
- * The caller only mounts it when the column is available (connected, or a failed
+ * the per-screen pin buttons, the server-list open-sidebar button, and the
+ * sidebar's own close button — one toggle, placed in the header to the right of
+ * the theme icon, that opens or closes the sidebar on demand. The glyph and
+ * label reflect the current state (expand when closed, collapse when open). The
+ * caller only mounts it when the sidebar is available (connected, or a failed
  * connect attempt, on a wide viewport), so it never appears with nothing to
  * toggle. `size={36}` matches the header's theme / client-settings ActionIcons.
  */
