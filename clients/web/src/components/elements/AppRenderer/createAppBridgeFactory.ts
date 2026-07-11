@@ -107,6 +107,12 @@ function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
 }
 
 /**
+ * Upper bound on items honored from a single `ui/download-file` request. One
+ * user approval must not fan out into an unbounded number of saves / new tabs.
+ */
+const MAX_DOWNLOAD_ITEMS = 20;
+
+/**
  * Strip control characters and clamp length so a server-supplied filename or
  * URI cannot forge additional lines in the confirmation prompt or push the
  * real summary off-screen.
@@ -115,12 +121,24 @@ function sanitizeDownloadLabel(label: string): string {
   // Cc = control chars (newlines, escape, etc.); Cf = format chars (bidi
   // overrides, zero-width joiners, BOM) — both can spoof or reflow the prompt.
   const cleaned = label.replace(/[\p{Cc}\p{Cf}]+/gu, " ").trim();
+  // Keep the START of an over-long label: for a link that preserves the
+  // scheme+host, which is what the user needs to make a trust decision.
   return cleaned.length > 80 ? cleaned.slice(0, 77) + "..." : cleaned;
 }
 
-/** Human-readable label for a download item, shown in the confirmation prompt. */
-function describeDownloadItem(item: EmbeddedResource | ResourceLink): string {
-  if (item.type === "resource_link") return item.uri;
+/**
+ * Human-readable label for a download item, shown in the confirmation prompt.
+ * `forPrompt` marks a resource_link with a leading "↗" so the user can tell a
+ * link that will *open in a tab* apart from an embedded file that will *save to
+ * disk* — the two item kinds share this "download" confirmation.
+ */
+function describeDownloadItem(
+  item: EmbeddedResource | ResourceLink,
+  forPrompt = false,
+): string {
+  if (item.type === "resource_link") {
+    return forPrompt ? `↗ ${item.uri}` : item.uri;
+  }
   return fileNameFromUri(item.resource.uri);
 }
 
@@ -259,16 +277,26 @@ export function createAppBridgeFactory(
     // The view asks the host to save MCP resource contents to disk (sandboxed
     // iframes can't download directly). Confirm with the user first — the spec
     // requires a host-mediated confirmation — then write each item out. A
-    // declined prompt, an empty payload, or a thrown error all return isError.
+    // declined prompt, an empty/oversized payload, or a thrown error all
+    // return isError.
     bridge.ondownloadfile = async ({ contents }) => {
       if (!Array.isArray(contents) || contents.length === 0) {
         return { isError: true };
       }
+      // Sanity cap: one approval must not fan out into an unbounded number of
+      // downloads / new tabs. A buggy or hostile app requesting hundreds of
+      // items is rejected outright rather than acted on.
+      if (contents.length > MAX_DOWNLOAD_ITEMS) {
+        console.warn(
+          `[mcp-app] refusing download batch of ${contents.length} items (max ${MAX_DOWNLOAD_ITEMS})`,
+        );
+        return { isError: true };
+      }
       const summary = contents
-        .map((item) => sanitizeDownloadLabel(describeDownloadItem(item)))
+        .map((item) => sanitizeDownloadLabel(describeDownloadItem(item, true)))
         .join("\n");
       const approved = window.confirm(
-        `This MCP App wants to download ${contents.length} file(s):\n\n${summary}`,
+        `This MCP App wants to download or open ${contents.length} item(s):\n\n${summary}`,
       );
       if (!approved) return { isError: true };
       let succeeded = 0;

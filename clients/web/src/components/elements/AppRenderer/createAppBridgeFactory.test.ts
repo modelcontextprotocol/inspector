@@ -669,5 +669,38 @@ describe("createAppBridgeFactory", () => {
       // The clamped label is 80 chars max (77 + "...").
       expect(prompt).not.toContain(longName);
     });
+
+    it("rejects an oversized batch without confirming or acting", async () => {
+      const confirm = stubConfirm(true);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const open = vi
+        .spyOn(window, "open")
+        .mockImplementation(() => null as never);
+      const bridge = await buildBridge();
+      // 21 items exceeds the 20-item cap → rejected before the prompt.
+      const contents = Array.from({ length: 21 }, (_, i) => ({
+        type: "resource_link" as const,
+        uri: `https://example.com/${i}.pdf`,
+      }));
+      await expect(bridge.ondownloadfile!({ contents })).resolves.toEqual({
+        isError: true,
+      });
+      expect(confirm).not.toHaveBeenCalled();
+      expect(open).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("refusing download batch of 21 items"),
+      );
+      warn.mockRestore();
+    });
+
+    it("marks resource links with a ↗ prefix in the confirmation summary", async () => {
+      const confirm = stubConfirm(false);
+      const bridge = await buildBridge();
+      await bridge.ondownloadfile!({
+        contents: [{ type: "resource_link", uri: "https://example.com/a.pdf" }],
+      });
+      const prompt = confirm.mock.calls[0][0] as string;
+      expect(prompt).toContain("↗ https://example.com/a.pdf");
+    });
   });
 });
