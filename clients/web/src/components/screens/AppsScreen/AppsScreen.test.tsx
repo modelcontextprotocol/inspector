@@ -349,6 +349,25 @@ describe("AppsScreen", () => {
     expect(frame.style.flexGrow).toBe("1");
   });
 
+  it("ignores a size-changed report with a non-positive height", async () => {
+    const user = userEvent.setup();
+    const { factory, emit } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    const frame = screen.getByTitle("Ops Dashboard")
+      .parentElement as HTMLElement;
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      // A transient 0 (pre-layout / teardown) must not collapse the frame.
+      emit("sizechange", { height: 0 });
+    });
+    expect(frame.style.flexGrow).toBe("1");
+    // A subsequent positive report is honored.
+    await act(async () => emit("sizechange", { height: 480 }));
+    expect(frame.style.flexGrow).toBe("0");
+  });
+
   it("maximizes the frame when the view requests fullscreen via request-display-mode", async () => {
     const user = userEvent.setup();
     const { factory, bridges } = createEventBridgeFactory();
