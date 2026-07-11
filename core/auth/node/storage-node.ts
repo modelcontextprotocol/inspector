@@ -10,17 +10,25 @@ import {
 const DEFAULT_STATE_PATH = getStoreFilePath(getDefaultStorageDir(), "oauth");
 
 /**
- * Get path to OAuth state file. Resolution order: explicit `customPath`, then
- * the `MCP_INSPECTOR_OAUTH_STATE_PATH` environment variable (so tests and
- * scripted runs can point at an isolated fixture without touching
- * `~/.mcp-inspector`), then the default `~/.mcp-inspector/storage/oauth.json`.
+ * Get path to OAuth state file. Resolution order:
+ *  1. explicit `customPath`
+ *  2. `MCP_INSPECTOR_OAUTH_STATE_PATH` — the per-file override (so tests and
+ *     scripted runs can point at an isolated fixture without touching
+ *     `~/.mcp-inspector`)
+ *  3. `<MCP_STORAGE_DIR>/oauth.json` — the storage-directory override honoured
+ *     across the app, so setting it once points every persist backend at the
+ *     same directory
+ *  4. the default `~/.mcp-inspector/storage/oauth.json`
  */
 export function getStateFilePath(customPath?: string): string {
-  return (
-    customPath ??
-    process.env.MCP_INSPECTOR_OAUTH_STATE_PATH ??
-    DEFAULT_STATE_PATH
-  );
+  if (customPath) return customPath;
+  if (process.env.MCP_INSPECTOR_OAUTH_STATE_PATH) {
+    return process.env.MCP_INSPECTOR_OAUTH_STATE_PATH;
+  }
+  if (process.env.MCP_STORAGE_DIR) {
+    return getStoreFilePath(process.env.MCP_STORAGE_DIR, "oauth");
+  }
+  return DEFAULT_STATE_PATH;
 }
 
 const memoryCache = new Map<string, OAuthMemoryStore>();

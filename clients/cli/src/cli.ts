@@ -6,6 +6,10 @@ import type {
   MCPServerConfig,
   InspectorClientEnvironment,
 } from "@inspector/core/mcp/types.js";
+import {
+  DEFAULT_MAX_FETCH_REQUESTS,
+  DEFAULT_TASK_TTL_MS,
+} from "@inspector/core/mcp/types.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import {
   ManagedToolsState,
@@ -55,6 +59,14 @@ export const validLogLevels: LoggingLevel[] = Object.values(
 
 /** Client identity name the CLI reports to servers. */
 const CLI_CLIENT_NAME = "inspector-cli";
+
+/**
+ * Default connect timeout (ms) for ad-hoc server invocations. Without this an
+ * unreachable server (e.g. a partner edge that drops the SYN) hangs the CLI
+ * indefinitely; the value is generous enough for cold-start OAuth discovery
+ * round-trips while still failing fast on a black-holed host.
+ */
+export const DEFAULT_CONNECT_TIMEOUT_MS = 15000;
 
 type MethodArgs = {
   method?: string;
@@ -229,6 +241,16 @@ async function callMethod(
         args.metadata,
       );
       result = invocation.result;
+    } else if (args.method === "initialize") {
+      // Connect-only probe: emit the cached InitializeResult fields so a
+      // caller can read serverInfo / protocolVersion / capabilities /
+      // instructions without picking a list method.
+      result = {
+        serverInfo: inspectorClient.getServerInfo(),
+        protocolVersion: inspectorClient.getProtocolVersion(),
+        capabilities: inspectorClient.getCapabilities(),
+        instructions: inspectorClient.getInstructions(),
+      };
     } else if (args.method === "logging/setLevel") {
       if (!args.logLevel) {
         throw new Error(
@@ -240,7 +262,7 @@ async function callMethod(
       result = {};
     } else {
       throw new Error(
-        `Unsupported method: ${args.method}. Supported methods include: tools/list, tools/call, resources/list, resources/read, resources/templates/list, prompts/list, prompts/get, logging/setLevel`,
+        `Unsupported method: ${args.method}. Supported methods include: initialize, tools/list, tools/call, resources/list, resources/read, resources/templates/list, prompts/list, prompts/get, logging/setLevel`,
       );
     }
 
@@ -272,6 +294,32 @@ async function callMethod(
     managedPromptsState?.destroy();
     await inspectorClient.disconnect();
   }
+}
+
+/**
+ * Apply a connection timeout to a resolved server's settings, building a
+ * minimal {@link InspectorServerSettings} when none came from the file. Ad-hoc
+ * invocations get {@link DEFAULT_CONNECT_TIMEOUT_MS} so a black-holed host
+ * fails fast; catalog/config invocations keep their file-level timeout unless
+ * `--connect-timeout` is passed explicitly.
+ */
+export function withConnectTimeout(
+  settings: InspectorServerSettings | undefined,
+  connectionTimeout: number | undefined,
+): InspectorServerSettings | undefined {
+  if (connectionTimeout === undefined) return settings;
+  if (settings) return { ...settings, connectionTimeout };
+  return {
+    headers: [],
+    metadata: [],
+    env: [],
+    connectionTimeout,
+    requestTimeout: 0,
+    taskTtl: DEFAULT_TASK_TTL_MS,
+    maxFetchRequests: DEFAULT_MAX_FETCH_REQUESTS,
+    autoRefreshOnListChanged: false,
+    roots: [],
+  };
 }
 
 function parseKeyValuePair(
@@ -433,6 +481,21 @@ async function parseArgs(argv?: string[]): Promise<{
       {},
     )
     .option(
+      "--connect-timeout <ms>",
+      `Connection timeout in ms (default ${DEFAULT_CONNECT_TIMEOUT_MS} for ad-hoc --server-url / target invocations; 0 = no timeout).`,
+      (v: string) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0) {
+          throw new Error(`--connect-timeout must be a non-negative number.`);
+        }
+        return n;
+      },
+    )
+    .option(
+      "--tool-args-json <json>",
+      'Tool arguments as a single JSON object (e.g. \'{"zip":"10001"}\'). Values are passed verbatim — no key=value coercion. Mutually exclusive with --tool-arg.',
+    )
+    .option(
       "--client-config <path>",
       "Install-level client config (default: ~/.mcp-inspector/storage/client.json, or MCP_CLIENT_CONFIG_PATH)",
     )
@@ -473,6 +536,8 @@ async function parseArgs(argv?: string[]): Promise<{
     transport?: "sse" | "http" | "stdio";
     serverUrl?: string;
     header?: Record<string, string>;
+    connectTimeout?: number;
+    toolArgsJson?: string;
     clientConfig?: string;
     clientId?: string;
     clientSecret?: string;
@@ -480,10 +545,19 @@ async function parseArgs(argv?: string[]): Promise<{
     callbackUrl?: string;
   };
 
+  // Honour MCP_CATALOG_PATH only when no ad-hoc target is given. Applying it
+  // unconditionally meant a homespace that exports the env var could never run
+  // `--server-url …` (serverSourceConflict rejects catalog + ad-hoc).
+  const adHoc =
+    targetArgs.length > 0 ||
+    Boolean(options.transport) ||
+    Boolean(options.serverUrl?.trim());
+  const envCatalog = adHoc ? undefined : process.env.MCP_CATALOG_PATH;
+
   const serverOptions = {
     // `?.trim() ||` (not `??`) so an explicit empty `--catalog ""` still falls
     // back to MCP_CATALOG_PATH — keeps CLI and TUI flag resolution identical.
-    catalogPath: options.catalog?.trim() || process.env.MCP_CATALOG_PATH,
+    catalogPath: options.catalog?.trim() || envCatalog,
     configPath: options.config?.trim() || undefined,
     target: targetArgs.length > 0 ? targetArgs : undefined,
     transport: options.transport,
@@ -499,9 +573,14 @@ async function parseArgs(argv?: string[]): Promise<{
   // enforces the conflict matrix, and lifts disk headers/timeouts/OAuth into
   // per-server settings. `--server` selects one when the file has several.
   const entries = await loadServerEntries(serverOptions);
-  const { config: serverConfig, settings: serverSettings } = selectServerEntry(
-    entries,
-    options.server,
+  const selected = selectServerEntry(entries, options.server);
+  const serverConfig = selected.config;
+  // Ad-hoc invocations get a default connect timeout so a black-holed host
+  // fails fast; catalog/config runs keep their file-level timeout unless
+  // `--connect-timeout` is passed explicitly.
+  const serverSettings = withConnectTimeout(
+    selected.settings,
+    options.connectTimeout ?? (adHoc ? DEFAULT_CONNECT_TIMEOUT_MS : undefined),
   );
 
   if (!options.method) {
@@ -510,10 +589,37 @@ async function parseArgs(argv?: string[]): Promise<{
     );
   }
 
+  // --tool-args-json passes arguments verbatim with no key=value coercion (so
+  // `"012"` stays a string and nested objects work without shell escaping).
+  let toolArg = options.toolArg;
+  if (options.toolArgsJson !== undefined) {
+    if (toolArg && Object.keys(toolArg).length > 0) {
+      throw new Error(
+        "--tool-args-json cannot be combined with --tool-arg; pick one.",
+      );
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(options.toolArgsJson);
+    } catch (e) {
+      throw new Error(
+        `--tool-args-json is not valid JSON: ${(e as Error).message}`,
+      );
+    }
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      throw new Error("--tool-args-json must be a JSON object.");
+    }
+    toolArg = parsed as Record<string, JsonValue>;
+  }
+
   const methodArgs: MethodArgs & { method: string } = {
     method: options.method,
     toolName: options.toolName,
-    toolArg: options.toolArg,
+    toolArg,
     uri: options.uri,
     promptName: options.promptName,
     promptArgs: options.promptArgs,

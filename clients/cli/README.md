@@ -80,6 +80,8 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --tr
 
 When a server is loaded from a `--catalog`/`--config` file, its per-server settings (headers, connection/request timeouts, and OAuth) are applied to the connection — the same resolution the TUI uses. A `--header` flag overrides the file's headers for that run while leaving the file's timeouts and OAuth in place.
 
+**Environment-variable semantics.** `MCP_CATALOG_PATH` is honored only when no ad-hoc target is given (positional command, `--server-url`, or `--transport`) — so a shell that exports it can still run one-off ad-hoc invocations without hitting the catalog/ad-hoc conflict. `MCP_STORAGE_DIR` sets the storage directory used by the OAuth persist backend (`<MCP_STORAGE_DIR>/oauth.json`); the per-file `MCP_INSPECTOR_OAUTH_STATE_PATH` override still takes precedence over it.
+
 ### HTTP proxy support
 
 Connections to remote HTTP/SSE servers honor the conventional proxy environment variables: `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms) select the proxy, and `NO_PROXY` exempts hosts. This applies to the Node transport shared by the CLI and the web backend — no inspector-specific flag is needed. When a proxy variable is set, outbound requests are routed through undici's `EnvHttpProxyAgent`.
@@ -96,15 +98,17 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 
 | Option                        | Description                                                                               |
 | ----------------------------- | ----------------------------------------------------------------------------------------- |
-| `--method <method>`           | MCP method to invoke (e.g. `tools/list`, `tools/call`, `resources/list`, `prompts/list`). |
+| `--method <method>`           | MCP method to invoke. Supports `initialize` (connect-only probe → `{serverInfo, protocolVersion, capabilities, instructions}`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`. |
 | `--tool-name <name>`          | Tool name (for `tools/call`).                                                             |
-| `--tool-arg <key=value>`      | Tool argument; repeat for multiple. Use `key='{"json":true}'` for JSON.                   |
+| `--tool-arg <key=value>`      | Tool argument; repeat for multiple. Use `key='{"json":true}'` for JSON. Values are coerced (JSON-parsed, so `count=1` becomes a number). |
+| `--tool-args-json <json>`     | Tool arguments as a single JSON object (e.g. `'{"zip":"10001"}'`). Passed verbatim — no `key=value` coercion, so `"012"` stays a string. Mutually exclusive with `--tool-arg`. |
 | `--uri <uri>`                 | Resource URI (for `resources/read`).                                                      |
 | `--prompt-name <name>`        | Prompt name (for `prompts/get`).                                                          |
 | `--prompt-args <key=value>`   | Prompt arguments; repeat for multiple.                                                    |
 | `--log-level <level>`         | Logging level for `logging/setLevel` (e.g. `debug`, `info`).                              |
 | `--metadata <key=value>`      | General metadata (key=value); applied to all methods.                                     |
 | `--tool-metadata <key=value>` | Tool-specific metadata for `tools/call`.                                                  |
+| `--connect-timeout <ms>`      | Connection timeout in ms. Defaults to `15000` for ad-hoc `--server-url`/target runs (so a black-holed host fails fast) and to the file-level timeout for `--catalog`/`--config` runs. `0` disables the timeout. |
 
 ### CLI-specific (OAuth for HTTP servers)
 
