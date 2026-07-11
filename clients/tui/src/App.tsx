@@ -6,9 +6,6 @@ import React, {
   useRef,
 } from "react";
 import { Box, Text, useInput, useApp, type Key } from "ink";
-import { readFileSync } from "fs";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
 import type {
   MessageEntry,
   FetchRequestEntry,
@@ -56,6 +53,7 @@ import {
   isOAuthCapableServerConfig,
 } from "@inspector/core/client/runner.js";
 import { formatRunnerOAuthRedirectUrl } from "@inspector/core/auth/node/runner-oauth-callback.js";
+import { readInspectorVersion } from "@inspector/core/node/version.js";
 import {
   createOAuthCallbackServer,
   type OAuthCallbackServer,
@@ -85,33 +83,17 @@ import { PromptTestModal } from "./components/PromptTestModal.js";
 import { DetailsModal } from "./components/DetailsModal.js";
 import type { TuiServer } from "./tui-servers.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// Header branding. The version is the single source of truth — the root
+// package.json — read via the shared core reader; the name/description are the
+// TUI's own display strings (they live in code, not the npm manifest, which no
+// longer carries them per-client).
+const APP_NAME = "MCP Inspector TUI";
+const APP_DESCRIPTION =
+  "Terminal User Interface for the Model Context Protocol Inspector";
+const APP_VERSION = readInspectorVersion(import.meta.url);
 
-// Read package.json to get project info
-// Strategy: Try multiple paths to handle both local dev and global install
-// - Local dev (tsx): __dirname = src/, package.json is one level up
-// - Global install: __dirname = dist/src/, package.json is two levels up
-let packagePath: string;
-let packageJson: { name: string; description: string; version: string };
-
-try {
-  // Try two levels up first (global install case)
-  packagePath = join(__dirname, "..", "..", "package.json");
-  packageJson = JSON.parse(readFileSync(packagePath, "utf-8")) as {
-    name: string;
-    description: string;
-    version: string;
-  };
-} catch {
-  // Fall back to one level up (local dev case)
-  packagePath = join(__dirname, "..", "package.json");
-  packageJson = JSON.parse(readFileSync(packagePath, "utf-8")) as {
-    name: string;
-    description: string;
-    version: string;
-  };
-}
+/** Client identity name the TUI reports to servers. */
+const TUI_CLIENT_NAME = "inspector-tui";
 
 // Focus management types
 type FocusArea =
@@ -310,6 +292,7 @@ function App({
         );
         const opts: InspectorClientOptions = {
           environment,
+          clientIdentity: { name: TUI_CLIENT_NAME, version: APP_VERSION },
           pipeStderr: true,
           ...(savedSettings &&
             savedSettings.requestTimeout > 0 && {
@@ -1498,11 +1481,11 @@ function App({
       >
         <Box>
           <Text bold color="cyan">
-            {packageJson.name}
+            {APP_NAME}
           </Text>
-          <Text dimColor> - {packageJson.description}</Text>
+          <Text dimColor> - {APP_DESCRIPTION}</Text>
         </Box>
-        <Text dimColor>v{packageJson.version}</Text>
+        <Text dimColor>v{APP_VERSION}</Text>
       </Box>
 
       {/* Main content area */}

@@ -1,7 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector-web",
   "private": true,
-  "version": "2.0.0",
   "type": "module",
   "main": "build/index.js",
   "bin": {

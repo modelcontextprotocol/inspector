@@ -1,6 +1,5 @@
 {
   "name": "@modelcontextprotocol/inspector-launcher",
-  "version": "2.0.0",
   "private": true,
   "description": "Launcher for MCP Inspector (web, CLI, TUI)",
   "license": "MIT",

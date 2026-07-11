@@ -1,6 +1,5 @@
 {
   "name": "@modelcontextprotocol/inspector-tui",
-  "version": "2.0.0",
   "private": true,
   "description": "Terminal User Interface (TUI) for the Model Context Protocol inspector",
   "license": "MIT",

@@ -96,7 +96,7 @@ repo-root `validate:launcher` simply delegates here (`cd clients/launcher && npm
 
 ## Publishing
 
-The root `@modelcontextprotocol/inspector` package ships as one fat tarball: `npm run build` at the repo root builds all clients, then `prepack` runs before `npm publish`. Runtime dependencies are declared on the root `package.json`; client builds bundle `@inspector/core` and externalize npm packages resolved from the root install.
+The launcher provides the `mcp-inspector` bin for the single `@modelcontextprotocol/inspector` tarball. Packaging is a whole-repo concern — how the one-package/single-version tarball is assembled, the `"files"` allowlist invariants (no source maps, why `clients/web/build` needs `.npmignore`, why the cli/tui `package.json`s ship), and the `npm run pack:verify` publish smoke — is documented in the [root README](../../README.md#publishing).
 
 ## Architecture
 

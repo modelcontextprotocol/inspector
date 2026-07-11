@@ -54,6 +54,7 @@
     "smoke:tui": "node scripts/smoke-tui.mjs",
     "smoke:web": "node scripts/smoke-web.mjs",
     "smoke:launcher": "node scripts/smoke-launcher.mjs",
+    "pack:verify": "node scripts/pack-and-verify.mjs",
     "prepack": "npm run build",
     "postinstall": "node scripts/install-clients.mjs"
   },

@@ -26,11 +26,16 @@ export type {
   AppRendererClient,
 } from "./types.js";
 import { getServerType as getServerTypeFromConfig } from "./config.js";
-// v2 doesn't have a core/package.json (the package isn't published independently),
-// so we hardcode the client identity that v1.5 read from corePackageJson.
+// Fallback client identity, used ONLY when a caller doesn't pass
+// `clientIdentity`. Real clients supply their own: the Node clients (CLI, TUI)
+// read the single-source version from the root package.json via
+// `readInspectorVersion()`, and the web browser — which can't read the
+// filesystem — will pass a version sourced from `GET /api/config` (see #1639).
+// This stays a neutral placeholder rather than a hardcoded release number that
+// would silently drift out of sync with the root package.json version.
 const corePackageJson = {
-  name: "@modelcontextprotocol/inspector-core",
-  version: "0.20.0",
+  name: "mcp-inspector",
+  version: "0.0.0",
 } as const;
 import type {
   CreateTransport,
