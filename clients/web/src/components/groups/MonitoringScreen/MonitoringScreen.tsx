@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Divider, Stack } from "@mantine/core";
 import { MonitoringControls } from "../MonitoringControls/MonitoringControls";
+import { ScreenStage } from "../../elements/ScreenStage/ScreenStage";
 
 export interface MonitoringScreenProps {
   /** Available monitor tabs (Logs/Protocol/Network, filtered by capability). */
@@ -26,7 +27,10 @@ const ColumnLayout = Stack.withProps({
   gap: 0,
 });
 
+// Relative-positioned host so each tab's `ScreenStage` (absolutely positioned)
+// can cross-fade over it. `mih: 0` lets the inner ScrollArea bound its height.
 const ScreenSlot = Stack.withProps({
+  pos: "relative",
   flex: 1,
   mih: 0,
   gap: 0,
@@ -57,7 +61,13 @@ export function MonitoringScreen({
         onClose={onClose}
       />
       <Divider />
-      <ScreenSlot>{screens[value]}</ScreenSlot>
+      <ScreenSlot>
+        {tabs.map((tab) => (
+          <ScreenStage key={tab} active={tab === value} fill>
+            {screens[tab]}
+          </ScreenStage>
+        ))}
+      </ScreenSlot>
     </ColumnLayout>
   );
 }

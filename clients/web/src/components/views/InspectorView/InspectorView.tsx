@@ -8,7 +8,6 @@ import {
 } from "react";
 import {
   AppShell,
-  Box,
   Flex,
   Group,
   Stack,
@@ -84,6 +83,7 @@ import {
   type ConsoleUiState,
 } from "../../screens/ConsoleScreen/ConsoleScreen";
 import type { SortDirection } from "../../elements/SortToggle/SortToggle";
+import { ScreenStage } from "../../elements/ScreenStage/ScreenStage";
 import { MonitoringScreen } from "../../groups/MonitoringScreen/MonitoringScreen";
 import { ResizeHandle } from "../../elements/ResizeHandle/ResizeHandle";
 import { getServerType } from "@inspector/core/mcp/config.js";
@@ -241,9 +241,6 @@ function serializeMonitorWidth(value: number): string {
   return String(value);
 }
 
-const SCREEN_ENTER_MS = 350;
-const SCREEN_EXIT_MS = 250;
-
 // Relative-positioned wrapper for the absolutely-positioned `ScreenStage`
 // children. `mih: "100%"` requires `AppShell.Main` to provide a definite
 // height for the stack itself to fill — the absolute children render
@@ -305,36 +302,6 @@ const MonitorColumnGroup = Group.withProps({
   h: "100%",
   flex: "0 0 auto",
 });
-
-// Wraps each screen in a Mantine Transition. With Transition's default
-// (`keepMounted={false}`), the outgoing screen unmounts after its exit
-// animation — any local screen state (search filters, scroll position,
-// expanded sections) is reset on tab switch.
-function ScreenStage({
-  active,
-  children,
-}: {
-  active: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <Transition
-      mounted={active}
-      transition="fade-up"
-      duration={SCREEN_ENTER_MS}
-      exitDuration={SCREEN_EXIT_MS}
-      timingFunction="ease"
-    >
-      {(styles) => (
-        // `style={styles}` is the runtime transition state from Mantine's
-        // Transition API — these are interpolated values, not static styling.
-        <Box style={styles} pos="absolute" top={0} left={0} right={0}>
-          {children}
-        </Box>
-      )}
-    </Transition>
-  );
-}
 
 export interface InspectorViewProps {
   // Server list (static config; runtime connection state comes from the
