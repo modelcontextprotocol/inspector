@@ -91,6 +91,12 @@ export interface InitialConfigPayload {
    * shows catalog CRUD affordances.
    */
   writable?: boolean;
+  /**
+   * The Inspector version (from the root `package.json`), so the browser — which
+   * can't read the filesystem the way the CLI/TUI do — can display it. Absent on
+   * a legacy backend that predates the field; the UI just shows nothing then.
+   */
+  version?: string;
 }
 
 export interface RemoteServerOptions {

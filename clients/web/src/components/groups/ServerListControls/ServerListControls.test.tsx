@@ -24,6 +24,31 @@ describe("ServerListControls", () => {
     ).toBeInTheDocument();
   });
 
+  it("hides the open-monitor button unless onOpenMonitor is provided", () => {
+    renderWithMantine(<ServerListControls {...baseProps} serverCount={2} />);
+    expect(
+      screen.queryByRole("button", { name: "Open monitoring column" }),
+    ).toBeNull();
+  });
+
+  it("shows and wires the open-monitor button when onOpenMonitor is provided", async () => {
+    const user = userEvent.setup();
+    const onOpenMonitor = vi.fn();
+    renderWithMantine(
+      <ServerListControls
+        {...baseProps}
+        serverCount={2}
+        onOpenMonitor={onOpenMonitor}
+      />,
+    );
+    const openBtn = screen.getByRole("button", {
+      name: "Open monitoring column",
+    });
+    expect(openBtn).toBeInTheDocument();
+    await user.click(openBtn);
+    expect(onOpenMonitor).toHaveBeenCalledTimes(1);
+  });
+
   it("shows the list toggle alongside Export + Add Servers when servers exist", () => {
     renderWithMantine(<ServerListControls {...baseProps} serverCount={2} />);
     expect(screen.getAllByRole("button")).toHaveLength(3);
@@ -39,8 +64,9 @@ describe("ServerListControls", () => {
         onToggleList={onToggleList}
       />,
     );
-    const buttons = screen.getAllByRole("button");
-    await user.click(buttons[0]);
+    await user.click(
+      screen.getByRole("button", { name: /Expand all|Collapse all/ }),
+    );
     expect(onToggleList).toHaveBeenCalledTimes(1);
   });
 

@@ -64,3 +64,23 @@ export function readInspectorVersion(callerUrl: string): string {
     `Could not locate the ${ROOT_PACKAGE_NAME} root package.json above ${startDir}`,
   );
 }
+
+/**
+ * Non-throwing variant of {@link readInspectorVersion}: returns `undefined`
+ * instead of throwing when the root manifest can't be resolved. For callers
+ * where the version is cosmetic (e.g. the web backend surfacing it to the
+ * browser) — a resolution failure should hide the version, not take the caller
+ * down at startup.
+ *
+ * @param callerUrl the calling module's `import.meta.url`
+ * @returns the root version, or `undefined` if it can't be resolved
+ */
+export function readInspectorVersionSafe(
+  callerUrl: string,
+): string | undefined {
+  try {
+    return readInspectorVersion(callerUrl);
+  } catch {
+    return undefined;
+  }
+}

@@ -71,8 +71,7 @@ export function MonitoringControls({
       />
       <ActionIcon
         variant="subtle"
-        color="gray"
-        size="lg"
+        size={36}
         aria-label="Close monitoring column"
         onClick={onClose}
       >

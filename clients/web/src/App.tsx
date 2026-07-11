@@ -98,8 +98,11 @@ import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js"
 import { useStderrLog } from "@inspector/core/react/useStderrLog.js";
 import { useSandboxUrl } from "@inspector/core/react/useSandboxUrl.js";
 import { useServerListWritable } from "@inspector/core/react/useServerListWritable.js";
+import { useInspectorVersion } from "@inspector/core/react/useInspectorVersion.js";
 import { usePendingClientRequests } from "@inspector/core/react/usePendingClientRequests.js";
 import { InspectorView } from "./components/views/InspectorView/InspectorView";
+import { VersionBadge } from "./components/elements/VersionBadge/VersionBadge";
+import { CopyrightBadge } from "./components/elements/CopyrightBadge/CopyrightBadge";
 import type {
   ToolCallState,
   ToolsUiState,
@@ -666,6 +669,12 @@ function App() {
   // Read-only sessions (launched with `--config` or an ad-hoc server) hide
   // catalog CRUD; the default catalog and `--catalog` stay writable.
   const { writable: serverListWritable } = useServerListWritable({
+    baseUrl: configBaseUrl,
+    authToken: getAuthToken(),
+  });
+  // The Inspector version (root package.json), shown in the lower-right corner.
+  // The browser can't read it off disk, so the backend sends it via /api/config.
+  const { version: inspectorVersion } = useInspectorVersion({
     baseUrl: configBaseUrl,
     authToken: getAuthToken(),
   });
@@ -3816,6 +3825,8 @@ function App() {
           onRefreshApps={onRefreshTools}
         />
       </Box>
+      <CopyrightBadge />
+      <VersionBadge version={inspectorVersion} />
       <ServerConfigModal
         opened={configModal !== null}
         mode={configModal?.mode ?? "add"}

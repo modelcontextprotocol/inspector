@@ -169,13 +169,12 @@ describe("TaskListPanel", () => {
       screen.getAllByRole("button", { name: "Collapse" }).length,
     ).toBeGreaterThan(0);
 
-    const buttons = screen.getAllByRole("button");
-    const toggle = buttons.find(
-      (b) =>
-        b.textContent === "" && b.classList.contains("mantine-Button-root"),
-    );
-    expect(toggle).toBeDefined();
-    await user.click(toggle!);
+    // The ListToggle is labelled "Collapse all" / "Expand all" — distinct from
+    // the per-entry "Collapse" / "Expand" buttons.
+    const toggle = screen.getByRole("button", {
+      name: /Collapse all|Expand all/,
+    });
+    await user.click(toggle);
 
     // After toggle, entries collapsed — they show Expand
     expect(

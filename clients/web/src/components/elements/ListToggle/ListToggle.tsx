@@ -1,4 +1,4 @@
-import { ActionIcon, Button } from "@mantine/core";
+import { ActionIcon } from "@mantine/core";
 import { RiExpandVerticalLine, RiCollapseVerticalLine } from "react-icons/ri";
 
 export interface ListToggleProps {
@@ -29,9 +29,16 @@ export function ListToggle({
     );
   }
 
+  // `size={36}` matches the header's theme / client-settings ActionIcons so the
+  // toolbar's toggle reads as the same size icon button.
   return (
-    <Button size="sm" variant="subtle" aria-label={label} onClick={onToggle}>
+    <ActionIcon
+      variant="subtle"
+      size={36}
+      aria-label={label}
+      onClick={onToggle}
+    >
       <Icon size={20} />
-    </Button>
+    </ActionIcon>
   );
 }

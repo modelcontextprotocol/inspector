@@ -11,6 +11,7 @@ import { join, dirname } from "path";
 import { pathToFileURL, fileURLToPath } from "url";
 import {
   readInspectorVersion,
+  readInspectorVersionSafe,
   ROOT_PACKAGE_NAME,
 } from "@inspector/core/node/version.js";
 
@@ -65,5 +66,21 @@ describe("readInspectorVersion", () => {
     } finally {
       rmSync(work, { recursive: true, force: true });
     }
+  });
+});
+
+describe("readInspectorVersionSafe", () => {
+  it("returns the version when the root manifest resolves", () => {
+    expect(readInspectorVersionSafe(import.meta.url)).toBe(readRootVersion());
+  });
+
+  it("returns undefined instead of throwing when the root can't be resolved", () => {
+    // A caller rooted in the OS temp dir (outside the repo) has no inspector
+    // root manifest above it — readInspectorVersion would throw, but the safe
+    // variant swallows it so a cosmetic version read never crashes the caller.
+    const callerUrl = pathToFileURL(
+      join(tmpdir(), "nowhere", "caller.js"),
+    ).href;
+    expect(readInspectorVersionSafe(callerUrl)).toBeUndefined();
   });
 });

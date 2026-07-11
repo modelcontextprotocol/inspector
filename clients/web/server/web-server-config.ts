@@ -14,7 +14,15 @@ import {
   LEGACY_AUTH_TOKEN_ENV,
 } from "../../../core/mcp/remote/constants.ts";
 import type { InitialConfigPayload } from "../../../core/mcp/remote/node/server.ts";
+import { readInspectorVersionSafe } from "../../../core/node/version.ts";
 import { resolveSandboxPort } from "./sandbox-controller.js";
+
+// The single-source Inspector version (root package.json), read once at load.
+// The browser can't read the filesystem the way the CLI/TUI do, so the backend
+// reads it here and hands it to the client via GET /api/config. Uses the
+// non-throwing read: the version is cosmetic, so a resolution failure hides the
+// badge (version omitted from the payload) rather than crashing the backend.
+const inspectorVersion = readInspectorVersionSafe(import.meta.url);
 
 export interface WebServerConfig {
   port: number;
@@ -92,11 +100,18 @@ function defaultEnvironmentFromProcess(
 }
 
 /**
- * Convert WebServerConfig.initialMcpConfig to the shape expected by GET /api/config.
+ * Convert WebServerConfig.initialMcpConfig to the shape expected by GET
+ * /api/config, tagging on the single-source Inspector `version` so the browser
+ * can display it.
  */
 export function webServerConfigToInitialPayload(
   config: WebServerConfig,
 ): InitialConfigPayload {
+  return { ...transportDefaults(config), version: inspectorVersion };
+}
+
+/** The transport-specific defaults half of the `/api/config` payload. */
+function transportDefaults(config: WebServerConfig): InitialConfigPayload {
   const mc = config.initialMcpConfig;
   const defaultEnvironment = defaultEnvironmentFromProcess(
     mc && "env" in mc && mc.env ? mc.env : undefined,

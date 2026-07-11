@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
 import { Divider, Stack } from "@mantine/core";
 import { MonitoringControls } from "../MonitoringControls/MonitoringControls";
+import { ScreenStage } from "../../elements/ScreenStage/ScreenStage";
 
 export interface MonitoringScreenProps {
   /** Available monitor tabs (Logs/Protocol/Network, filtered by capability). */
   tabs: string[];
-  /** Active monitor tab; keys into `screens` to pick what renders below. */
+  /** Active monitor tab; the matching screen is the mounted one below (the rest
+   *  are cross-faded out via `ScreenStage`). */
   value: string;
   onChange: (tab: string) => void;
   /** Search text for the active screen; wired by the caller to its filter state. */
@@ -26,7 +28,10 @@ const ColumnLayout = Stack.withProps({
   gap: 0,
 });
 
+// Relative-positioned host so each tab's `ScreenStage` (absolutely positioned)
+// can cross-fade over it. `mih: 0` lets the inner ScrollArea bound its height.
 const ScreenSlot = Stack.withProps({
+  pos: "relative",
   flex: 1,
   mih: 0,
   gap: 0,
@@ -34,8 +39,9 @@ const ScreenSlot = Stack.withProps({
 
 /**
  * The pinned monitoring column's content (#1616): a `MonitoringControls` tab row
- * over the currently-selected monitor screen. Layout-only — it renders whichever
- * embedded screen node the caller supplies for the active tab.
+ * over the selected monitor screen. Layout-only — it wraps each supplied screen
+ * node in a `ScreenStage`, so switching tabs cross-fades (only the active tab's
+ * screen is mounted) the same way the primary pane does.
  */
 export function MonitoringScreen({
   tabs,
@@ -57,7 +63,13 @@ export function MonitoringScreen({
         onClose={onClose}
       />
       <Divider />
-      <ScreenSlot>{screens[value]}</ScreenSlot>
+      <ScreenSlot>
+        {tabs.map((tab) => (
+          <ScreenStage key={tab} active={tab === value} fill>
+            {screens[tab]}
+          </ScreenStage>
+        ))}
+      </ScreenSlot>
     </ColumnLayout>
   );
 }
