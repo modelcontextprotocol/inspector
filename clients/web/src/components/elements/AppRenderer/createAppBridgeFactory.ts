@@ -12,6 +12,11 @@ import type {
   Implementation,
   ReadResourceResult,
 } from "@modelcontextprotocol/sdk/types.js";
+import {
+  approveCspSources,
+  buildSandboxCspPolicy,
+  wrapSandboxedHtml,
+} from "../../../lib/sandbox-csp";
 import type { BridgeFactory } from "./AppRenderer";
 
 /**
@@ -42,6 +47,12 @@ export interface AppBridgeFactoryDeps {
   getClient: () => Client | null;
   /** Reads a UI resource (resources/read) and returns the SDK result. */
   readResource: (uri: string) => Promise<ReadResourceResult>;
+  /**
+   * Called when reading or posting the UI resource fails after the sandbox
+   * proxy is ready. Without this the user is left staring at a blank-but-live
+   * frame; the error is also always console.error'd.
+   */
+  onResourceError?: (err: Error) => void;
 }
 
 /**
@@ -99,7 +110,8 @@ function extractHtmlAndMeta(result: ReadResourceResult): {
  *  1. constructs a host-side {@link AppBridge} over the SDK client (so the view
  *     can call tools/resources/prompts directly),
  *  2. on the sandbox proxy's `sandboxready` signal, reads the tool's UI
- *     resource and pushes its HTML + sandbox/permissions into the inner iframe,
+ *     resource and pushes its HTML + sandbox/permissions/CSP into the inner
+ *     iframe, echoing the applied sandbox config back via hostCapabilities,
  *  3. handles `openLinks` by opening http(s) URLs in a new tab,
  *  4. connects a {@link PostMessageTransport} to the iframe and returns the
  *     live bridge.
@@ -123,15 +135,21 @@ export function createAppBridgeFactory(
       throw new Error("Cannot render MCP App: sandbox iframe has no window.");
     }
 
-    const bridge = new AppBridge(client, HOST_INFO, HOST_CAPABILITIES, {
+    // Per-app copy so the approved-sandbox echo (set on sandboxready below)
+    // never mutates the shared HOST_CAPABILITIES constant — each app may
+    // declare its own csp/permissions.
+    const hostCapabilities: McpUiHostCapabilities = { ...HOST_CAPABILITIES };
+    const bridge = new AppBridge(client, HOST_INFO, hostCapabilities, {
       hostContext: { theme: currentTheme() },
     });
 
     // The double-iframe proxy posts `sandboxready` once it can receive content.
     // Read the tool's UI resource and hand its HTML (plus any sandbox/permission
-    // hints from the resource _meta) to the inner sandboxed iframe. Swallow
-    // failures: a read error leaves an empty (but live) app frame rather than
-    // tearing down the bridge mid-handshake.
+    // hints from the resource _meta) to the inner sandboxed iframe. A failure
+    // here is the case a developer most needs surfaced (their app's resource is
+    // erroring or malformed) — log it and report it via deps.onResourceError so
+    // the host can show something better than a blank frame. The bridge stays
+    // live so a retry path remains possible.
     bridge.addEventListener("sandboxready", () => {
       void (async () => {
         try {
@@ -139,13 +157,32 @@ export function createAppBridgeFactory(
           if (!uri) return;
           const result = await deps.readResource(uri);
           const { html, meta } = extractHtmlAndMeta(result);
-          await bridge.sendSandboxResourceReady({
-            html,
+          // Build the per-app CSP host-side: filter the requested sources to
+          // ones the host accepts, render the policy string, and wrap the
+          // app's HTML in a fixed shell whose first <head> child is the CSP
+          // <meta>. The proxy assigns that document to srcdoc verbatim — it
+          // never parses the untrusted bytes — so the policy is guaranteed to
+          // apply before any app content loads. The approved (post-filter) csp
+          // is what we echo back via hostCapabilities.sandbox so the view sees
+          // what was granted, not what it asked for. Set before
+          // sendSandboxResourceReady: the view only sends ui/initialize once it
+          // has the HTML, so the bridge reflects this in the initialize result.
+          const approvedCsp = approveCspSources(meta?.csp);
+          hostCapabilities.sandbox = {
             permissions: meta?.permissions,
-            csp: meta?.csp,
+            csp: approvedCsp,
+          };
+          await bridge.sendSandboxResourceReady({
+            html: wrapSandboxedHtml(html, buildSandboxCspPolicy(approvedCsp)),
+            permissions: meta?.permissions,
           });
-        } catch {
-          /* read/post failed (or bridge closed) — leave the frame empty */
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          console.error(
+            "[mcp-app] failed to load UI resource into sandbox:",
+            error,
+          );
+          deps.onResourceError?.(error);
         }
       })();
     });
