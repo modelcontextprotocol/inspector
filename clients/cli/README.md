@@ -185,6 +185,32 @@ npx @modelcontextprotocol/inspector --cli --catalog mcp.json --server my-http-se
 
 See [EMA / enterprise-managed auth](../../specification/v2_auth_ema.md) and [OAuth smoke testing](../../specification/v2_auth_smoke_testing.md) (§3 Stytch/CIMD; [§5 mid-session manual validation](../../specification/v2_auth_smoke_testing.md#5-mid-session-auth--step-up--manual-validation) — CLI **C1–C2**).
 
+#### Stored-auth (web → CLI handoff)
+
+For the common case where OAuth was already completed in the **web inspector on the same machine**, the CLI can reuse the resulting token instead of running its own interactive flow. It reads the shared OAuth state file (the `oauth.json` the web backend writes) directly from disk and injects `Authorization: Bearer <token>` for `--server-url`.
+
+| Option                  | Description                                                                                                                                                                                    |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--use-stored-auth`     | Read the stored access token for `--server-url` and inject it as `Authorization: Bearer`. Exits `3` (`no_stored_token`) — listing the stored keys — when no token matches. Requires `--server-url`. |
+| `--wait-for-auth <sec>` | Poll the OAuth state file (500 ms interval) until a token for `--server-url` appears, then proceed as if `--use-stored-auth` were set. Times out at `<sec>` with exit `3` (`auth_wait_timeout`). Use after handing off to a human to complete OAuth in a browser. |
+| `--list-stored-auth`    | Print `{ oauthStatePath, storedServerUrls }` (the server keys that currently have a token) and exit. No server connection is made.                                                              |
+| `--print-handoff`       | Print a JSON handoff block (`deepLink`, `portForwardCmd`, `oauthStatePath`, `apiToken`) for `--server-url` and exit — everything a script/remote VM needs to drive the browser-side OAuth dance. Requires `--server-url`. |
+
+**State-file resolution** follows `MCP_INSPECTOR_OAUTH_STATE_PATH` → `<MCP_STORAGE_DIR>/oauth.json` → `~/.mcp-inspector/storage/oauth.json` — the same precedence the rest of the Inspector uses, so the CLI and web backend agree on the file. Server keys are canonicalised with `new URL().href` (the scheme the web store writes), so a trailing-slash or case mismatch between the URL a human opened and the one the agent passed still resolves.
+
+**Blind injection.** The token is injected as-is; the CLI does not validate or refresh it. A stale/expired token surfaces as an HTTP `401` on the first request → exit `3` (`auth_required`). Re-complete the flow in the web inspector (or use `--wait-for-auth`) and retry.
+
+> The `deepLink` shape emitted by `--print-handoff` is interim, pending the web deep-link auto-connect work ([#1576](https://github.com/modelcontextprotocol/inspector/issues/1576)); it will be reconciled with that issue's canonical handoff format once it lands.
+
+```bash
+# On a remote VM: print what a human needs to complete OAuth in their browser.
+mcp-inspector --cli --server-url https://api.example/mcp --print-handoff
+
+# Then block until the token lands and run the call with it.
+mcp-inspector --cli --transport http --server-url https://api.example/mcp \
+  --wait-for-auth 120 --method tools/list
+```
+
 ## Exit codes & error envelopes
 
 Every non-zero exit maps to a stable failure class, so a programmatic caller

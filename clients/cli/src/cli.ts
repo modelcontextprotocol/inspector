@@ -27,6 +27,8 @@ import {
 import type { JsonValue } from "@inspector/core/mcp/index.js";
 import { extractAppInfo } from "@inspector/core/mcp/apps.js";
 import type { AppInfo } from "@inspector/core/mcp/apps.js";
+import { getStateFilePath } from "@inspector/core/auth/node/storage-node.js";
+import { parseOAuthPersistBlob } from "@inspector/core/auth/oauth-persist.js";
 import { CliExitCodeError, EXIT_CODES } from "./error-handler.js";
 import {
   ConsoleNavigation,
@@ -433,6 +435,123 @@ export async function collectAppInfo(
 }
 
 /**
+ * Canonicalise a server URL the same way the web inspector does before storing
+ * OAuth state (`new URL().href` lowercases the host, normalises the scheme, and
+ * adds a trailing `/` for bare-origin URLs). The CLI must look up by the same
+ * key the web side wrote, so a trailing-slash or case mismatch doesn't miss a
+ * token that's sitting one key over. Falls back to the raw string when the URL
+ * can't be parsed (e.g. an ad-hoc non-URL target).
+ */
+export function normalizeServerUrl(serverUrl: string): string {
+  try {
+    return new URL(serverUrl).href;
+  } catch {
+    return serverUrl;
+  }
+}
+
+/** The stored-server map shape the CLI reads out of the OAuth state file. */
+type StoredServers = Record<string, { tokens?: { access_token?: string } }>;
+
+/**
+ * Read the OAuth state file directly (bypassing the Zustand store cache) so
+ * each call sees the current on-disk state — required for `--wait-for-auth`
+ * polling. Returns the `servers` map, or an empty object when the file is
+ * absent or unreadable. Uses the shared {@link parseOAuthPersistBlob} so both
+ * the plain `{servers,idpSessions}` and legacy `{state,version}` layouts are
+ * accepted, matching whatever the web backend wrote.
+ */
+async function readOAuthServers(statePath: string): Promise<StoredServers> {
+  const { readFile } = await import("node:fs/promises");
+  try {
+    const text = await readFile(statePath, "utf8");
+    const snapshot = parseOAuthPersistBlob(text);
+    return (snapshot?.servers as StoredServers | undefined) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Look up a stored access token for `serverUrl`, trying the URL-normalised key
+ * first (how the web store writes it) and the raw string second.
+ */
+function findStoredToken(
+  servers: StoredServers,
+  serverUrl: string,
+): string | undefined {
+  const key = normalizeServerUrl(serverUrl);
+  return (
+    servers[key]?.tokens?.access_token ??
+    servers[serverUrl]?.tokens?.access_token
+  );
+}
+
+/**
+ * Poll the OAuth state file until a token for `serverUrl` appears (or the
+ * timeout elapses). Used by `--wait-for-auth` so an automated caller can hand
+ * off to a human for the OAuth dance and resume once the token lands. The
+ * lookup is normalised, so a trailing-slash mismatch between the URL the human
+ * opened and the one the agent passed still resolves.
+ */
+async function waitForStoredToken(
+  serverUrl: string,
+  statePath: string,
+  timeoutSec: number,
+): Promise<string> {
+  const key = normalizeServerUrl(serverUrl);
+  const deadline = Date.now() + timeoutSec * 1000;
+  for (;;) {
+    const servers = await readOAuthServers(statePath);
+    const token = findStoredToken(servers, serverUrl);
+    if (token) return token;
+    if (Date.now() >= deadline) {
+      const stored = Object.keys(servers);
+      throw new CliExitCodeError(
+        EXIT_CODES.AUTH_REQUIRED,
+        `--wait-for-auth timed out after ${timeoutSec}s; no stored OAuth token for ${key} in ${statePath}.` +
+          (stored.length > 0
+            ? ` Stored keys: ${stored.join(", ")}.`
+            : " No tokens stored yet."),
+        { code: "auth_wait_timeout", url: serverUrl },
+      );
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+/**
+ * Build the JSON `--print-handoff` emits: everything an automated caller needs
+ * to relay to a human so they can complete OAuth in a browser and have the
+ * token land where the CLI will find it.
+ *
+ * NOTE: the `deepLink` query shape (serverUrl/transport/autoConnect) is the
+ * interim format pending the web deep-link auto-connect work (#1576); reconcile
+ * with that issue's canonical handoff format once it lands.
+ */
+function buildHandoff(serverUrl: string, statePath: string): McpResponse {
+  const host = process.env.HOST || "127.0.0.1";
+  const clientPort = process.env.CLIENT_PORT || "6274";
+  const sandboxPort = process.env.MCP_SANDBOX_PORT || "6275";
+  // Treat an empty MCP_INSPECTOR_API_TOKEN the same as unset — an empty token
+  // can't satisfy the deep-link autoConnect gate.
+  const apiToken = process.env.MCP_INSPECTOR_API_TOKEN || undefined;
+  const params = new URLSearchParams({ serverUrl, transport: "http" });
+  if (apiToken) params.set("autoConnect", apiToken);
+  return {
+    serverUrl: normalizeServerUrl(serverUrl),
+    deepLink: `http://${host}:${clientPort}/?${params.toString()}`,
+    portForwardCmd: `coder port-forward <workspace> --tcp ${clientPort}:${clientPort} --tcp ${sandboxPort}:${sandboxPort}`,
+    oauthStatePath: statePath,
+    apiToken: apiToken ?? null,
+    note:
+      apiToken === undefined
+        ? "MCP_INSPECTOR_API_TOKEN is not set; the deep-link autoConnect gate will reject — launch the web inspector with a known token first."
+        : undefined,
+  };
+}
+
+/**
  * Apply a connection timeout to a resolved server's settings, building a
  * minimal {@link InspectorServerSettings} when none came from the file. Ad-hoc
  * invocations get {@link DEFAULT_CONNECT_TIMEOUT_MS} so a black-holed host
@@ -482,16 +601,23 @@ function parseKeyValuePair(
   return { ...previous, [key as string]: parsedValue };
 }
 
-async function parseArgs(argv?: string[]): Promise<{
-  serverConfig: MCPServerConfig;
-  serverSettings: InspectorServerSettings | undefined;
-  methodArgs: MethodArgs & { method: string };
-  clientConfigPath?: string;
-  clientId?: string;
-  clientSecret?: string;
-  clientMetadataUrl?: string;
-  callbackUrl?: string;
-}> {
+type ParseResult =
+  | {
+      shortCircuit?: undefined;
+      serverConfig: MCPServerConfig;
+      serverSettings: InspectorServerSettings | undefined;
+      methodArgs: MethodArgs & { method: string };
+      clientConfigPath?: string;
+      clientId?: string;
+      clientSecret?: string;
+      clientMetadataUrl?: string;
+      callbackUrl?: string;
+    }
+  // Short-circuit modes (`--list-stored-auth`, `--print-handoff`) do their own
+  // output and need no server connection; runCli returns immediately.
+  | { shortCircuit: true };
+
+async function parseArgs(argv?: string[]): Promise<ParseResult> {
   const program = new Command();
   // On a parse/usage ERROR (exitCode !== 0), throw the CommanderError instead
   // of letting commander call process.exit(). The binary entry (index.ts) still
@@ -664,6 +790,31 @@ async function parseArgs(argv?: string[]): Promise<{
     .option(
       "--callback-url <url>",
       `OAuth redirect/callback listener URL (default: ${DEFAULT_RUNNER_OAUTH_CALLBACK_URL}, or MCP_OAUTH_CALLBACK_URL)`,
+    )
+    .option(
+      "--use-stored-auth",
+      "Read the OAuth access token for --server-url from the OAuth state file (written by the web inspector) and inject it as Authorization: Bearer.",
+    )
+    .option(
+      "--wait-for-auth <sec>",
+      "Poll the OAuth state file until a token for --server-url appears (or the timeout elapses), then proceed as if --use-stored-auth were set. Use after handing off to a human to complete OAuth in a browser.",
+      (v: string) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error(
+            `--wait-for-auth must be a positive number of seconds.`,
+          );
+        }
+        return n;
+      },
+    )
+    .option(
+      "--list-stored-auth",
+      "Print the server URLs that have a stored OAuth token (one JSON object on stdout) and exit. No server connection is made.",
+    )
+    .option(
+      "--print-handoff",
+      "Print a JSON handoff block (deepLink, portForwardCmd, oauthStatePath, apiToken) for --server-url and exit. No server connection is made.",
     );
 
   program.parse(preArgs);
@@ -695,7 +846,37 @@ async function parseArgs(argv?: string[]): Promise<{
     clientSecret?: string;
     clientMetadataUrl?: string;
     callbackUrl?: string;
+    useStoredAuth?: boolean;
+    waitForAuth?: number;
+    listStoredAuth?: boolean;
+    printHandoff?: boolean;
   };
+
+  // State-path precedence (getStateFilePath): MCP_INSPECTOR_OAUTH_STATE_PATH →
+  // <MCP_STORAGE_DIR>/oauth.json → ~/.mcp-inspector/storage/oauth.json — the
+  // same file the web backend writes, so tokens are shared across surfaces.
+  const oauthStatePath = getStateFilePath();
+
+  // Short-circuit modes that need no server connection.
+  if (options.listStoredAuth) {
+    const servers = await readOAuthServers(oauthStatePath);
+    const withToken = Object.entries(servers)
+      .filter(([, v]) => Boolean(v.tokens?.access_token))
+      .map(([k]) => k);
+    await awaitableLog(
+      JSON.stringify({ oauthStatePath, storedServerUrls: withToken }) + "\n",
+    );
+    return { shortCircuit: true };
+  }
+  if (options.printHandoff) {
+    if (!options.serverUrl) {
+      throw new Error("--print-handoff requires --server-url");
+    }
+    await awaitableLog(
+      JSON.stringify(buildHandoff(options.serverUrl, oauthStatePath)) + "\n",
+    );
+    return { shortCircuit: true };
+  }
 
   // Honour MCP_CATALOG_PATH only when no ad-hoc target is given. Applying it
   // unconditionally meant a homespace that exports the env var could never run
@@ -718,8 +899,47 @@ async function parseArgs(argv?: string[]): Promise<{
     env: options.e,
     // `--header` is merged into the resolved server's settings (overriding any
     // file-level headers); file timeouts/OAuth are preserved. See #1482.
-    headers: options.header,
+    headers: options.header as Record<string, string> | undefined,
   };
+
+  if (options.waitForAuth !== undefined || options.useStoredAuth) {
+    if (!options.serverUrl) {
+      throw new Error(
+        `${options.waitForAuth !== undefined ? "--wait-for-auth" : "--use-stored-auth"} requires --server-url`,
+      );
+    }
+    // Read the OAuth state file directly so the lookup is normalised the same
+    // way the web inspector wrote it (`new URL().href`), and so `--wait-for-
+    // auth` sees fresh on-disk state on each poll. Header injection is the
+    // prototype path — the token is passed blindly, so a stale token surfaces
+    // as HTTP 401 → exit 3 (auth_required).
+    let token: string;
+    if (options.waitForAuth !== undefined) {
+      token = await waitForStoredToken(
+        options.serverUrl,
+        oauthStatePath,
+        options.waitForAuth,
+      );
+    } else {
+      const servers = await readOAuthServers(oauthStatePath);
+      const found = findStoredToken(servers, options.serverUrl);
+      if (!found) {
+        const key = normalizeServerUrl(options.serverUrl);
+        const stored = Object.keys(servers);
+        throw new CliExitCodeError(
+          EXIT_CODES.AUTH_REQUIRED,
+          `No stored OAuth token for ${key} in ${oauthStatePath}. Complete the OAuth flow in the web inspector first.` +
+            (stored.length > 0 ? ` Stored keys: ${stored.join(", ")}.` : ""),
+          { code: "no_stored_token", url: options.serverUrl },
+        );
+      }
+      token = found;
+    }
+    serverOptions.headers = {
+      ...(serverOptions.headers ?? {}),
+      Authorization: `Bearer ${token}`,
+    };
+  }
 
   // Shared with the TUI: resolves the catalog/config source (or ad-hoc target),
   // enforces the conflict matrix, and lifts disk headers/timeouts/OAuth into
@@ -819,6 +1039,9 @@ async function parseArgs(argv?: string[]): Promise<{
 }
 
 export async function runCli(argv?: string[]): Promise<void> {
+  const parsed = await parseArgs(argv ?? process.argv);
+  // `--list-stored-auth` / `--print-handoff` already wrote their output.
+  if (parsed.shortCircuit) return;
   const {
     serverConfig,
     serverSettings,
@@ -828,7 +1051,7 @@ export async function runCli(argv?: string[]): Promise<void> {
     clientSecret,
     clientMetadataUrl,
     callbackUrl,
-  } = await parseArgs(argv ?? process.argv);
+  } = parsed;
   const clientConfig = await loadRunnerClientConfig({ clientConfigPath });
   const callbackUrlConfig = parseRunnerOAuthCallbackUrl(callbackUrl);
   await callMethod(
