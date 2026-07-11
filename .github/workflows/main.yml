@@ -89,6 +89,11 @@ jobs:
     if: github.event_name == 'release'
     environment: release
     needs: build
+    # Serialize publishes so two releases cut in quick succession can't run
+    # overlapping `npm publish`es. Never cancel an in-flight publish.
+    concurrency:
+      group: publish-npm
+      cancel-in-progress: false
     permissions:
       contents: read
       # Required for npm provenance (`--provenance` mints a signed attestation
@@ -105,6 +110,21 @@ jobs:
           cache: 'npm'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Assert release tag matches package version
+        # `npm publish` ships whatever `version` is in the root package.json,
+        # regardless of the release's tag. Fail fast (before the heavy install /
+        # pack:verify) if they disagree — e.g. a release drafted without running
+        # `npm version`, or cut from the wrong commit — since publishing is
+        # irreversible. Tolerates the conventional leading `v` (npm version tags
+        # as `vX.Y.Z`).
+        run: |
+          PKG="$(node -p "require('./package.json').version")"
+          TAG="${{ github.event.release.tag_name }}"
+          if [ "${TAG#v}" != "$PKG" ]; then
+            echo "Release tag '$TAG' does not match package.json version '$PKG'"
+            exit 1
+          fi
+
       - name: Install dependencies (root + all clients)
         run: npm install
 
@@ -116,6 +136,10 @@ jobs:
 
       - name: Publish to npm (single package, with provenance)
         # `prepack` (`npm run build`) rebuilds the client bundles into the tarball.
+        # The build runs three times on this path (build job → pack:verify →
+        # prepack); the redundancy is intentional — each is a clean-tree rebuild
+        # and the `prepack` one is what actually populates the published tarball,
+        # so don't "optimize" it away.
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
