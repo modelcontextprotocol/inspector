@@ -1330,23 +1330,41 @@ describe("InspectorView", () => {
       return user;
     }
 
-    it("shows the Pin as column button on a monitor screen only when wide", async () => {
+    it("shows the header monitoring toggle only when wide", async () => {
       monitorWide.value = false;
       const { unmount } = renderWithMantine(
         <StatefulInspectorViewHost {...connectedHttp()} />,
       );
-      await gotoTab("Logs");
       expect(
-        screen.queryByRole("button", { name: "Pin as column" }),
+        screen.queryByRole("button", { name: "Open monitoring column" }),
       ).not.toBeInTheDocument();
       unmount();
 
       monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
-      await gotoTab("Logs");
       expect(
-        await screen.findByRole("button", { name: "Pin as column" }),
+        await screen.findByRole("button", { name: "Open monitoring column" }),
       ).toBeInTheDocument();
+    });
+
+    it("hides the header monitoring toggle when there is no connected or failed server", () => {
+      // Disconnected, wide viewport: nothing to monitor, so no toggle appears.
+      monitorWide.value = true;
+      renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            servers: [httpServer],
+            activeServer: undefined,
+            connectionStatus: "disconnected",
+          })}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: "Open monitoring column" }),
+      ).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring column" }),
+      ).toBeNull();
     });
 
     it("opens the monitoring column when a connection is established", async () => {
@@ -1702,10 +1720,10 @@ describe("InspectorView", () => {
 
     it("pins the monitor group into the column and removes it from the header", async () => {
       monitorWide.value = true;
+      const user = userEvent.setup();
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
-      const user = await gotoTab("Logs");
       await user.click(
-        await screen.findByRole("button", { name: "Pin as column" }),
+        await screen.findByRole("button", { name: "Open monitoring column" }),
       );
 
       // Column is open (its close control is present).
@@ -1736,10 +1754,10 @@ describe("InspectorView", () => {
 
     it("returns the monitor group to the header when the column is closed", async () => {
       monitorWide.value = true;
+      const user = userEvent.setup();
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
-      const user = await gotoTab("Logs");
       await user.click(
-        await screen.findByRole("button", { name: "Pin as column" }),
+        await screen.findByRole("button", { name: "Open monitoring column" }),
       );
       await user.click(
         await screen.findByRole("button", { name: "Close monitoring column" }),
@@ -1760,9 +1778,12 @@ describe("InspectorView", () => {
     it("keeps the current header screen (not the column's) when closed", async () => {
       monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
+      // Navigate the primary onto a monitor tab (Logs) first, then open the
+      // column — which moves the monitor group out of the header, so the primary
+      // clamps to the first non-Servers header tab (Tools).
       const user = await gotoTab("Logs");
       await user.click(
-        await screen.findByRole("button", { name: "Pin as column" }),
+        await screen.findByRole("button", { name: "Open monitoring column" }),
       );
       // Pinning moved the primary to the first non-Servers header tab (Tools).
       const header = screen.getByRole("banner");

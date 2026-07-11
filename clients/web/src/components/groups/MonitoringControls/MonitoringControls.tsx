@@ -1,5 +1,4 @@
-import { ActionIcon, Group, SegmentedControl, TextInput } from "@mantine/core";
-import { TbLayoutSidebarRightCollapse } from "react-icons/tb";
+import { Group, SegmentedControl, TextInput } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
 
 export interface MonitoringControlsProps {
@@ -11,13 +10,12 @@ export interface MonitoringControlsProps {
   /** Search text for the active screen (shares the screen's own filter state). */
   searchValue: string;
   onSearchChange: (next: string) => void;
-  /** Close the monitoring column, returning its screens to the header menu. */
-  onClose: () => void;
 }
 
 // The controls row at the top of the pinned monitoring column: a segmented tab
-// switcher on the left, a search box filling the middle, and a close button on
-// the right that unpins the whole column.
+// switcher on the left and a search box filling the rest. The column is closed
+// from the single header MonitoringToggle (#1661), so there is no close button
+// here.
 const ControlsBar = Group.withProps({
   wrap: "nowrap",
   gap: "sm",
@@ -25,7 +23,7 @@ const ControlsBar = Group.withProps({
 });
 
 // Search box, styled to match the `*Controls` search fields; `flex:1`/`miw:0`
-// so it fills the space between the tabs and the close button.
+// so it fills the space between the tabs and the row's edge.
 const SearchInput = TextInput.withProps({
   placeholder: "Search...",
   size: "sm",
@@ -35,12 +33,12 @@ const SearchInput = TextInput.withProps({
 });
 
 /**
- * Tab row + search + close control for the pinned monitoring column (#1616).
- * Renders only the currently-available monitor tabs (the caller filters by
- * capability), so it never shows an empty switcher. Selecting a tab swaps the
- * screen below; the search box filters the shown screen (wired by the caller to
- * that screen's own filter state); the close button unpins the column so its
- * screens rejoin the header tab menu.
+ * Tab row + search for the pinned monitoring column (#1616). Renders only the
+ * currently-available monitor tabs (the caller filters by capability), so it
+ * never shows an empty switcher. Selecting a tab swaps the screen below; the
+ * search box filters the shown screen (wired by the caller to that screen's own
+ * filter state). Opening/closing the column is handled by the single header
+ * MonitoringToggle (#1661).
  */
 export function MonitoringControls({
   tabs,
@@ -48,7 +46,6 @@ export function MonitoringControls({
   onChange,
   searchValue,
   onSearchChange,
-  onClose,
 }: MonitoringControlsProps) {
   return (
     <ControlsBar>
@@ -69,14 +66,6 @@ export function MonitoringControls({
           ) : null
         }
       />
-      <ActionIcon
-        variant="subtle"
-        size={36}
-        aria-label="Close monitoring column"
-        onClick={onClose}
-      >
-        <TbLayoutSidebarRightCollapse size={20} />
-      </ActionIcon>
     </ControlsBar>
   );
 }

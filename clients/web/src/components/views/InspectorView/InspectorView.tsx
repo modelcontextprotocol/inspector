@@ -807,11 +807,14 @@ export function InspectorView({
     }
     return [];
   }, [connected, failed, availableTabs, stderrLogs, network, protocol]);
-  const effectivePinned =
-    monitorPinned &&
-    !!isWide &&
-    (connected || failed) &&
-    monitorAvailable.length > 0;
+  // The column can exist when: the viewport is wide enough, the session is
+  // connected OR a connect attempt failed, and at least one monitor tab is
+  // actually available. This is the same rule the server list used to gate its
+  // open-sidebar button on, and it now also gates the header MonitoringToggle
+  // (#1661) — the toggle is hidden entirely when the column can't exist.
+  const monitorColumnAvailable =
+    !!isWide && (connected || failed) && monitorAvailable.length > 0;
+  const effectivePinned = monitorPinned && monitorColumnAvailable;
 
   // The header loses the monitor group while the column is open (its screens
   // live in the column instead); otherwise it shows every available tab.
@@ -846,14 +849,7 @@ export function InspectorView({
       ? monitorTab
       : (monitorAvailable.find(isMonitorTab) ?? LOGS_TAB);
 
-  // Pinning is a group action: remember which tab was clicked and open the
-  // column. Gated by `canPin` so the pin affordance only appears when a click
-  // would actually take effect (wide + connected).
-  const canPin = !!isWide && connected;
-  // Offer an "open monitoring column" affordance on the server list when a
-  // connected server has monitor screens to show but the column isn't open yet.
-  const canOpenMonitor =
-    canPin && monitorAvailable.length > 0 && !effectivePinned;
+  // Pinning is a group action: remember which tab to show and open the column.
   function pinMonitor(tab: MonitorTab) {
     setMonitorTab(tab);
     setMonitorPinned(true);
@@ -872,6 +868,20 @@ export function InspectorView({
     onActiveTabChange(activeTab);
     setMonitorPinned(false);
   }
+  // The single header toggle (#1661): open the column onto the last-used monitor
+  // tab (clamped to what's available) when closed, close it when open.
+  function toggleMonitorColumn() {
+    if (effectivePinned) {
+      closeMonitorColumn();
+    } else {
+      pinMonitor(effectiveMonitorTab);
+    }
+  }
+  // Only offer the toggle while the column can actually exist; otherwise the
+  // header shows nothing to toggle.
+  const monitorToggle = monitorColumnAvailable
+    ? { open: effectivePinned, onToggle: toggleMonitorColumn }
+    : undefined;
   function commitMonitorWidth(next: number) {
     setMonitorWidth(next);
     setDragWidth(null);
@@ -934,7 +944,8 @@ export function InspectorView({
 
   // Shared props for each monitor screen, spread into both its primary
   // (header-tab) instance and its embedded (column) instance so the two can't
-  // drift. The primary adds `onPin`; the embedded adds `embedded`. (#1616)
+  // drift. The embedded instance adds `embedded`; the column is opened/closed
+  // from the single header MonitoringToggle (#1661), not per-screen. (#1616)
   const loggingScreenProps = {
     entries: logs,
     currentLevel: currentLogLevel,
@@ -1039,12 +1050,14 @@ export function InspectorView({
             onDisconnect={onDisconnect}
             onToggleTheme={onToggleTheme}
             onOpenClientSettings={onOpenClientSettings}
+            monitorToggle={monitorToggle}
           />
         ) : (
           <ViewHeader
             connected={false}
             onToggleTheme={onToggleTheme}
             onOpenClientSettings={onOpenClientSettings}
+            monitorToggle={monitorToggle}
           />
         )}
       </AppShell.Header>
@@ -1072,11 +1085,6 @@ export function InspectorView({
                 onClearHighlight={onClearHighlight}
                 compact={serversCompact}
                 onToggleCompact={() => setServersCompact((c) => !c)}
-                onOpenMonitor={
-                  canOpenMonitor
-                    ? () => pinMonitor(effectiveMonitorTab)
-                    : undefined
-                }
               />
             </ScreenStage>
             <ScreenStage active={activeTab === "Tools"}>
@@ -1156,28 +1164,16 @@ export function InspectorView({
               />
             </ScreenStage>
             <ScreenStage active={activeTab === LOGS_TAB}>
-              <LoggingScreen
-                {...loggingScreenProps}
-                onPin={canPin ? () => pinMonitor(LOGS_TAB) : undefined}
-              />
+              <LoggingScreen {...loggingScreenProps} />
             </ScreenStage>
             <ScreenStage active={activeTab === PROTOCOL_TAB}>
-              <ProtocolScreen
-                {...protocolScreenProps}
-                onPin={canPin ? () => pinMonitor(PROTOCOL_TAB) : undefined}
-              />
+              <ProtocolScreen {...protocolScreenProps} />
             </ScreenStage>
             <ScreenStage active={activeTab === NETWORK_TAB}>
-              <NetworkScreen
-                {...networkScreenProps}
-                onPin={canPin ? () => pinMonitor(NETWORK_TAB) : undefined}
-              />
+              <NetworkScreen {...networkScreenProps} />
             </ScreenStage>
             <ScreenStage active={activeTab === CONSOLE_TAB}>
-              <ConsoleScreen
-                {...consoleScreenProps}
-                onPin={canPin ? () => pinMonitor(CONSOLE_TAB) : undefined}
-              />
+              <ConsoleScreen {...consoleScreenProps} />
             </ScreenStage>
           </ScreenStageContainer>
           <Transition
@@ -1207,7 +1203,6 @@ export function InspectorView({
                     onChange={handleMonitorTabChange}
                     searchValue={monitorSearch}
                     onSearchChange={setMonitorSearch}
-                    onClose={closeMonitorColumn}
                     screens={monitorScreens}
                   />
                 </MonitoringColumn>

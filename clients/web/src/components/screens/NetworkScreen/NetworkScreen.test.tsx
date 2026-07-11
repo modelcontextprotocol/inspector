@@ -164,14 +164,6 @@ describe("NetworkScreen", () => {
     expect(screen.getByRole("button", { name: "Export" })).toBeDisabled();
   });
 
-  it("renders a pin-as-column button when onPin is provided and invokes it", async () => {
-    const user = userEvent.setup();
-    const onPin = vi.fn();
-    renderWithMantine(<NetworkScreen {...baseProps} onPin={onPin} />);
-    await user.click(screen.getByRole("button", { name: "Pin as column" }));
-    expect(onPin).toHaveBeenCalledTimes(1);
-  });
-
   it("drops the filter sidebar when embedded, keeping the request list", () => {
     renderWithMantine(<NetworkScreen {...baseProps} embedded />);
     // The sidebar (NetworkControls, with its Search box) is not rendered.

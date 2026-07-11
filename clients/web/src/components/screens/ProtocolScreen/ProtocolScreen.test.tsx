@@ -120,14 +120,6 @@ describe("ProtocolScreen", () => {
     );
   });
 
-  it("renders a pin-as-column button when onPin is provided and invokes it", async () => {
-    const user = userEvent.setup();
-    const onPin = vi.fn();
-    renderWithMantine(<ProtocolScreen {...baseProps} onPin={onPin} />);
-    await user.click(screen.getByRole("button", { name: "Pin as column" }));
-    expect(onPin).toHaveBeenCalledTimes(1);
-  });
-
   it("drops the filter sidebar when embedded, keeping the request list", () => {
     renderWithMantine(<ProtocolScreen {...baseProps} embedded />);
     expect(screen.getByText("Messages")).toBeInTheDocument();

@@ -21,8 +21,6 @@ export interface NetworkScreenProps {
   onSortChange: (next: SortDirection) => void;
   compact: boolean;
   onToggleCompact: () => void;
-  /** See LoggingScreen: shows a "pin as column" button when set (#1616). */
-  onPin?: () => void;
   /** See LoggingScreen: fills the parent height and drops the filter sidebar. */
   embedded?: boolean;
 }
@@ -61,7 +59,6 @@ export function NetworkScreen({
   onSortChange,
   compact,
   onToggleCompact,
-  onPin,
   embedded = false,
 }: NetworkScreenProps) {
   const { filterText, visibleCategories } = ui;
@@ -113,7 +110,6 @@ export function NetworkScreen({
         onSortChange={onSortChange}
         compact={compact}
         onToggleCompact={onToggleCompact}
-        onPin={onPin}
         embedded={embedded}
       />
     </ScreenLayout>

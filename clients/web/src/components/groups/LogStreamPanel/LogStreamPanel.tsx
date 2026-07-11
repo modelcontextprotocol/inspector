@@ -7,7 +7,6 @@ import {
   SortToggle,
   type SortDirection,
 } from "../../elements/SortToggle/SortToggle";
-import { PinColumnButton } from "../../elements/PinColumnButton/PinColumnButton";
 import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
@@ -19,12 +18,6 @@ export interface LogStreamPanelProps {
   onExport: () => void;
   sortDirection: SortDirection;
   onSortChange: (next: SortDirection) => void;
-  /**
-   * When set, renders a "pin as column" button in the toolbar that opens this
-   * screen in the monitoring column (#1616). Omitted when the panel is already
-   * embedded in that column (or when pinning isn't available).
-   */
-  onPin?: () => void;
   /**
    * True when this panel is rendered inside the monitoring column. Switches the
    * scroll region from the viewport-height calc to filling its flex parent, so
@@ -78,7 +71,6 @@ export function LogStreamPanel({
   onExport,
   sortDirection,
   onSortChange,
-  onPin,
   embedded = false,
 }: LogStreamPanelProps) {
   const viewportRef = useScrollMemory("logs-stream");
@@ -117,14 +109,15 @@ export function LogStreamPanel({
           >
             Export
           </Button>
-          {onPin ? <PinColumnButton onPin={onPin} /> : null}
         </Group>
       </Group>
       {filteredEntries.length > 0 ? (
         <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
           <Stack gap="xs">
             {filteredEntries.map((entry, index) => (
-              <LogEntry key={index} entry={entry} />
+              // Compact (two-line) layout inside the narrow monitoring column;
+              // the full single-line row on the standalone Logs screen. (#1661)
+              <LogEntry key={index} entry={entry} compact={embedded} />
             ))}
           </Stack>
         </EmbeddableScrollArea>

@@ -18,8 +18,17 @@ import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
 import { MdLightMode, MdDarkMode, MdLinkOff, MdSettings } from "react-icons/md";
 import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
 import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/ServerStatusIndicator";
+import { MonitoringToggle } from "../../elements/MonitoringToggle/MonitoringToggle";
 import mcpLogo from "../../../theme/assets/MCP.svg";
 import mcpLogoDark from "../../../theme/assets/MCP-dark.svg";
+
+// The single monitoring-column affordance (#1661): its open state and toggle
+// callback. Present only when the column is available (connected, or a failed
+// connect attempt, on a wide viewport); undefined otherwise so no toggle shows.
+export interface MonitorToggleProps {
+  open: boolean;
+  onToggle: () => void;
+}
 
 interface ConnectedProps {
   connected: true;
@@ -32,12 +41,16 @@ interface ConnectedProps {
   onDisconnect: () => void;
   onToggleTheme: () => void;
   onOpenClientSettings: () => void;
+  /** Monitoring-column toggle, shown to the right of the theme icon. */
+  monitorToggle?: MonitorToggleProps;
 }
 
 interface UnconnectedProps {
   connected: false;
   onToggleTheme: () => void;
   onOpenClientSettings: () => void;
+  /** Monitoring-column toggle, shown to the right of the theme icon. */
+  monitorToggle?: MonitorToggleProps;
 }
 
 export type ViewHeaderProps = ConnectedProps | UnconnectedProps;
@@ -395,6 +408,12 @@ export function ViewHeader(props: ViewHeaderProps) {
         <ThemeToggle onClick={props.onToggleTheme}>
           <ThemeIcon size={20} />
         </ThemeToggle>
+        {props.monitorToggle ? (
+          <MonitoringToggle
+            open={props.monitorToggle.open}
+            onToggle={props.monitorToggle.onToggle}
+          />
+        ) : null}
       </RightSection>
     </HeaderBar>
   );

@@ -162,7 +162,19 @@ export function ToolsScreen({
 
       <ContentPane mah={SCROLL_MAX_HEIGHT}>
         <ContentCard>
-          {selectedTool ? (
+          {callState?.result ? (
+            // Results replace the input form while present, and the panel's
+            // top-left X dismisses them back to the form (#1661) — the Prompts
+            // screen pattern. `formValues` live in the lifted UI state, so the
+            // form is restored intact for a re-run. A call in flight sets a
+            // `pending` state with no `result` (App.tsx), so the executing form
+            // (progress + cancel) shows until the result lands.
+            <ToolResultPanel
+              result={callState.result}
+              onClear={() => onClearResult?.()}
+              onReadResource={onReadResource}
+            />
+          ) : selectedTool ? (
             <ToolDetailPanel
               tool={selectedTool}
               formValues={formValues}
@@ -183,20 +195,6 @@ export function ToolsScreen({
             />
           ) : (
             <EmptyState>Select a tool to view details</EmptyState>
-          )}
-        </ContentCard>
-      </ContentPane>
-
-      <ContentPane mah={SCROLL_MAX_HEIGHT}>
-        <ContentCard>
-          {callState?.result ? (
-            <ToolResultPanel
-              result={callState.result}
-              onClear={() => onClearResult?.()}
-              onReadResource={onReadResource}
-            />
-          ) : (
-            <EmptyState>Results will appear here</EmptyState>
           )}
         </ContentCard>
       </ContentPane>

@@ -265,10 +265,10 @@ export function PromptsScreen({
         // the resource preview layout (see ResourcesScreen).
         <PreviewPane mah={SCROLL_MAX_HEIGHT}>{renderPreview()}</PreviewPane>
       ) : selectedPrompt && hasArguments(selectedPrompt) ? (
-        // Argument-form branch — capped at 40% width so the form doesn't
-        // stretch across the viewport on wide displays. Disappears once
-        // the user clicks Get Prompt and previewActive flips on.
-        <PreviewPane mah={SCROLL_MAX_HEIGHT} maw="40%">
+        // Argument-form branch — fills the content pane's width (like the Tools
+        // input form), replaced by the result once the user clicks Get Prompt
+        // and previewActive flips on.
+        <PreviewPane mah={SCROLL_MAX_HEIGHT}>
           <PreviewCard>
             <PromptArgumentsForm
               prompt={selectedPrompt}
