@@ -709,7 +709,8 @@ describe("AppsScreen", () => {
       expect(getStatus()).toBe("error");
       const form = screen.getByTestId("apps-form");
       expect(form.getAttribute("data-app-error")).toBe("connect refused");
-      // The error panel replaces the silent blank frame with the reason.
+      // The error panel is shown below the frame with the reason, so the
+      // failure isn't a silent blank frame.
       expect(screen.getByTestId("apps-error")).toBeInTheDocument();
       expect(screen.getByText("App failed to load")).toBeInTheDocument();
       expect(screen.getByText("connect refused")).toBeInTheDocument();

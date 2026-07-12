@@ -63,7 +63,7 @@ The Apps screen exposes a small, stable set of `data-testid` / `data-*` attribut
 | `data-testid="apps-form"` | Apps content card | The container that carries the status/error attributes below. |
 | `data-app-status` | on `apps-form` | Renderer lifecycle: `idle` (nothing running) → `loading` (bridge building / `ui/initialize` in flight) → `ready` (view fired `notifications/initialized`) → `error` (bridge factory threw/rejected). Poll for `ready`. |
 | `data-app-error` | on `apps-form` | The failure reason string when `data-app-status="error"` (e.g. no connected client); absent otherwise. |
-| `data-testid="apps-error"` | error panel | Rendered in place of the blank frame when the app fails to load; shows the reason. |
+| `data-testid="apps-error"` | error panel | Rendered below the frame when the app fails to load (factory throw/reject); shows the reason so the failure isn't a silent blank frame. |
 | `data-testid="open-app"` | Open App button | Launches the selected app. |
 | `data-testid="apps-stage"` | Stage-partial button | Snapshots the current form values for progressive-render testing. |
 | `data-testid="apps-messages"` | messages panel | `ui/message` submissions from the running view. |

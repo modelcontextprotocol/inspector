@@ -553,7 +553,7 @@ export function AppsScreen({
         h="100%"
         data-testid="apps-form"
         data-app-status={running ? appStatus : "idle"}
-        data-app-error={appError?.message}
+        data-app-error={running ? appError?.message : undefined}
       >
         {selectedTool ? (
           <ContentStack>
@@ -633,6 +633,10 @@ export function AppsScreen({
                     ref={rendererRef}
                   />
                 </RendererFrame>
+                {/* Shown BELOW the frame on a factory throw/reject so the reason
+                    is visible alongside the (blank) iframe rather than leaving a
+                    silent blank frame. The renderer stays mounted so an in-place
+                    retry path remains possible. */}
                 {appError && (
                   <AppErrorPanel data-testid="apps-error">
                     <AppErrorTitle>App failed to load</AppErrorTitle>
