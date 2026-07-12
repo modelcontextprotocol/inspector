@@ -198,9 +198,8 @@ without a proxy pay no cost. See
 
 ## Local fixture
 
-The bundled test server includes an `mcp_app_demo` tool (preset `mcp_app_demo`
-
-- resource preset `mcp_app_demo_widget`) whose widget reports `size-changed`,
-  sends one `ui/message`, emits one log notification, and renders its received
-  `hostContext` — useful for verifying the host side of the UI protocol
-  end-to-end without a remote server.
+The bundled test server includes an `mcp_app_demo` tool (presets `mcp_app_demo`
+and `mcp_app_demo_widget`) whose widget reports `size-changed`, sends one
+`ui/message`, emits one log notification, and renders its received `hostContext`
+— useful for verifying the host side of the UI protocol end-to-end without a
+remote server.
