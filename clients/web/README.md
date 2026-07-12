@@ -54,6 +54,23 @@ Components live under `src/components/` in four layers, smallest to largest:
 
 Every screen and element has a `*.stories.tsx` (see [Storybook](#storybook)). Styling follows the Mantine-first rules in [`AGENTS.md`](../../AGENTS.md) — theme variants and component props over CSS, `--inspector-*` tokens over raw colors.
 
+## MCP Apps screen automation contract
+
+The Apps screen exposes a small, stable set of `data-testid` / `data-*` attributes so an automated driver (deep-link auto-open, CI review harness) can `waitForSelector` on a deterministic signal instead of sleeping. Treat these as a public contract — drivers depend on them staying stable:
+
+| Attribute | Where | Meaning |
+| --- | --- | --- |
+| `data-testid="apps-form"` | Apps content card | The container that carries the status/error attributes below. |
+| `data-app-status` | on `apps-form` | Renderer lifecycle: `idle` (nothing running) → `loading` (bridge building / `ui/initialize` in flight) → `ready` (view fired `notifications/initialized`) → `error` (bridge factory threw/rejected). Poll for `ready`. |
+| `data-app-error` | on `apps-form` | The failure reason string when `data-app-status="error"` (e.g. no connected client); absent otherwise. |
+| `data-testid="apps-error"` | error panel | Rendered below the frame when the app fails to load (factory throw/reject); shows the reason so the failure isn't a silent blank frame. |
+| `data-testid="open-app"` | Open App button | Launches the selected app. |
+| `data-testid="apps-stage"` | Stage-partial button | Snapshots the current form values for progressive-render testing. |
+| `data-testid="apps-messages"` | messages panel | `ui/message` submissions from the running view. |
+| `data-testid="apps-logs"` | app-logs panel | `notifications/message` log entries (default-expanded). |
+
+The renderer lifecycle itself is `AppRendererStatus` (`loading` | `ready` | `error`) reported via `AppRenderer`'s `onAppStatusChange`; the screen maps it to `data-app-status`. Resource-read failures (malformed/404 UI resource) are surfaced as a toast via the bridge factory's `onResourceError`; because the app never reaches `ready` in that case, a driver times out on `data-app-status` and reads the toast.
+
 ## Theme (`src/theme/`)
 
 Each customized Mantine component has a `Theme<Name>.ts` file (`Button.ts`, `Text.ts`, …, ~21 total) exporting a `Theme<Name>` constant; the barrel `index.ts` re-exports them and `theme.ts` assembles the `MantineProvider` theme. Theme files hold app-wide defaults and **variants** (flat CSS-in-JS); only pseudo-selectors, nested child selectors, keyframes, and native-HTML styling belong in `App.css`. Element components import from `@mantine/core` (never from `theme/`) — the theme layer is applied transparently by the provider.

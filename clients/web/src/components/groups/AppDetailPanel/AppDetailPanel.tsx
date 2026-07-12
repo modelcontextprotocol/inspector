@@ -71,6 +71,7 @@ export function AppDetailPanel({
           onClick={onOpenApp}
           disabled={disabled}
           loading={isOpening}
+          data-testid="open-app"
         >
           Open App
         </Button>

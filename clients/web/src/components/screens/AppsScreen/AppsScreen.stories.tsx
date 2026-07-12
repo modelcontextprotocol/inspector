@@ -34,6 +34,7 @@ function createMockBridge(): AppBridge {
     sendToolInput: async () => {},
     sendToolResult: async () => {},
     sendToolCancelled: async () => {},
+    sendHostContextChange: async () => {},
     teardownResource: async () => ({}),
     close: async () => {},
     addEventListener: () => {},
@@ -220,6 +221,7 @@ export const EchoRunning: Story = {
           setEcho(first?.type === "text" ? first.text : "");
         },
         sendToolCancelled: async () => {},
+        sendHostContextChange: async () => {},
         teardownResource: async () => ({}),
         close: async () => {},
       };

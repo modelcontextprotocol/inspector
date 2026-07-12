@@ -158,7 +158,7 @@ describe("wrapSandboxedHtml", () => {
   });
 
   it("does not introduce a host-authored <iframe>, so the widget's window.parent remains the sandbox proxy", () => {
-    // The proxy writes the wrap output into the inner iframe via document.write.
+    // The proxy assigns the wrap output to the inner iframe's srcdoc.
     // If the wrap inserted its own <iframe>, the widget's window.parent would
     // point at the wrap's intermediate frame instead of the proxy, breaking the
     // postMessage relay (and the proxy's event.source === inner.contentWindow

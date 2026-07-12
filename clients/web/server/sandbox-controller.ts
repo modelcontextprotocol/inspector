@@ -47,6 +47,18 @@ export function createSandboxController(
   let server: Server | null = null;
   let sandboxUrl: string | null = null;
 
+  // Defense-in-depth for the proxy page itself. Only `frame-ancestors` is set
+  // here — fetch directives (`default-src`, `connect-src`, etc.) are
+  // deliberately omitted because a `srcdoc` iframe clones its embedder's CSP
+  // policy container: any fetch directive on this header would be inherited by
+  // the inner app document and, since multiple CSPs intersect, would override
+  // the per-app `connect-src`/`img-src` allowlists the host bakes into the
+  // wrapped HTML (see src/lib/sandbox-csp.ts). The opaque-origin sandbox on
+  // the inner frame is the structural boundary; `frame-ancestors` ensures the
+  // proxy can only be embedded by the local inspector itself.
+  const SANDBOX_PROXY_CSP =
+    "frame-ancestors http://127.0.0.1:* http://localhost:*";
+
   let sandboxHtml: string;
   try {
     const sandboxHtmlPath = join(__dirname, "../static/sandbox_proxy.html");
@@ -91,6 +103,7 @@ export function createSandboxController(
             "Content-Type": "text/html; charset=utf-8",
             "Cache-Control": "no-store, no-cache, must-revalidate",
             Pragma: "no-cache",
+            "Content-Security-Policy": SANDBOX_PROXY_CSP,
           });
           res.end(sandboxHtml);
         });

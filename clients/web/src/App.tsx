@@ -708,6 +708,19 @@ function App() {
           const invocation = await inspectorClient.readResource(uri);
           return invocation.result;
         },
+        // The bridge's sandboxready handler reads + posts the UI resource
+        // inside a detached async block; without this hook a 404 / malformed
+        // resource is console.error-only and the user stares at a blank
+        // frame. Surface it as a toast. The renderer separately drives
+        // `data-app-status` so an automated driver can time out on
+        // never-reaching-"ready" and read the toast.
+        onResourceError: (err) => {
+          notifications.show({
+            title: "App resource failed to load",
+            message: err.message,
+            color: "red",
+          });
+        },
       }),
     [inspectorClient],
   );

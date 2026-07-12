@@ -1,7 +1,9 @@
 import { createRef, useState } from "react";
+import { act } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps/app-bridge";
+import type { ContentBlock, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   renderWithMantine,
@@ -53,11 +55,91 @@ const cohortApp: Tool = {
 const okBridgeFactory: BridgeFactory = () =>
   ({
     sendToolInput: async () => {},
+    sendToolInputPartial: async () => {},
     sendToolResult: async () => {},
     sendToolCancelled: async () => {},
+    sendHostContextChange: async () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
     teardownResource: async () => ({}),
     close: async () => {},
   }) as unknown as AppBridge;
+
+// A bridge factory whose bridge supports the addEventListener/emit surface the
+// AppRenderer wires up, so a test can drive a bridge event (sizechange) through
+// to the screen's handling. `emit` dispatches to the captured listeners;
+// `bridges` exposes each built bridge so tests can also drive the per-bridge
+// handlers (onrequestdisplaymode).
+function createEventBridgeFactory(): {
+  factory: BridgeFactory;
+  bridges: AppBridge[];
+  emit: (event: string, payload?: unknown) => void;
+} {
+  const listeners: Record<string, ((payload: unknown) => void)[]> = {};
+  const bridges: AppBridge[] = [];
+  const factory: BridgeFactory = () => {
+    const bridge = {
+      sendToolInput: async () => {},
+      sendToolInputPartial: async () => {},
+      sendToolResult: async () => {},
+      sendToolCancelled: async () => {},
+      sendHostContextChange: async () => {},
+      teardownResource: async () => ({}),
+      close: async () => {},
+      addEventListener: (event: string, handler: (p: unknown) => void) => {
+        (listeners[event] ??= []).push(handler);
+      },
+      removeEventListener: () => {},
+    } as unknown as AppBridge;
+    bridges.push(bridge);
+    return bridge;
+  };
+  return {
+    factory,
+    bridges,
+    emit: (event, payload) =>
+      (listeners[event] ?? []).forEach((h) => h(payload)),
+  };
+}
+
+// Invoke the onrequestdisplaymode handler the screen attached to the latest
+// bridge, mimicking a ui/request-display-mode request from the running view.
+async function requestDisplayMode(
+  bridges: AppBridge[],
+  mode: McpUiDisplayMode,
+): Promise<{ mode: McpUiDisplayMode }> {
+  const handler = bridges.at(-1)?.onrequestdisplaymode as unknown as
+    | ((params: { mode: McpUiDisplayMode }) => Promise<{
+        mode: McpUiDisplayMode;
+      }>)
+    | undefined;
+  if (!handler) throw new Error("no onrequestdisplaymode handler attached");
+  let result: { mode: McpUiDisplayMode } = { mode };
+  await act(async () => {
+    result = await handler({ mode });
+  });
+  return result;
+}
+
+// Invoke the onmessage handler the screen attached to the latest bridge,
+// mimicking a ui/message request from the running view.
+async function sendUiMessage(
+  bridges: AppBridge[],
+  content: ContentBlock[],
+): Promise<Record<string, unknown>> {
+  const onmessage = bridges.at(-1)?.onmessage as unknown as
+    | ((params: {
+        role: "user";
+        content: ContentBlock[];
+      }) => Promise<Record<string, unknown>>)
+    | undefined;
+  if (!onmessage) throw new Error("no onmessage handler attached");
+  let result: Record<string, unknown> = {};
+  await act(async () => {
+    result = await onmessage({ role: "user", content });
+  });
+  return result;
+}
 
 function buildProps(overrides: Partial<AppsScreenProps> = {}): AppsScreenProps {
   return {
@@ -249,6 +331,231 @@ describe("AppsScreen", () => {
     expect(screen.getByText("MCP Apps (3)")).toBeInTheDocument();
   });
 
+  it("sizes the renderer frame to the view-reported height", async () => {
+    const user = userEvent.setup();
+    const { factory, emit } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    // Auto-launches the no-fields app, mounting the renderer and registering
+    // its sizechange listener once the bridge resolves.
+    await user.click(screen.getByText("Ops Dashboard"));
+    const iframe = screen.getByTitle("Ops Dashboard");
+    const frame = iframe.parentElement as HTMLElement;
+    // Until the view reports a size, the frame flex-grows to fill the card.
+    expect(frame.style.flexGrow).toBe("1");
+
+    await act(async () => {
+      // Let the synchronous bridge factory's promise chain settle so the
+      // sizechange listener is registered before we emit.
+      await Promise.resolve();
+      await Promise.resolve();
+      emit("sizechange", { height: 600 });
+    });
+    // A reported height switches the frame to its content size: it stops
+    // flex-growing and takes the explicit `h`.
+    expect(frame.style.flexGrow).toBe("0");
+  });
+
+  it("ignores a size-changed report that carries no height", async () => {
+    const user = userEvent.setup();
+    const { factory, emit } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    const frame = screen.getByTitle("Ops Dashboard")
+      .parentElement as HTMLElement;
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      emit("sizechange", { width: 400 });
+    });
+    // No height in the report — the frame keeps flex-growing.
+    expect(frame.style.flexGrow).toBe("1");
+  });
+
+  it("ignores a size-changed report with a non-positive height", async () => {
+    const user = userEvent.setup();
+    const { factory, emit } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    const frame = screen.getByTitle("Ops Dashboard")
+      .parentElement as HTMLElement;
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      // A transient 0 (pre-layout / teardown) must not collapse the frame.
+      emit("sizechange", { height: 0 });
+    });
+    expect(frame.style.flexGrow).toBe("1");
+    // A subsequent positive report is honored.
+    await act(async () => emit("sizechange", { height: 480 }));
+    expect(frame.style.flexGrow).toBe("0");
+  });
+
+  it("maximizes the frame when the view requests fullscreen via request-display-mode", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    expect(screen.getByText("MCP Apps (3)")).toBeInTheDocument();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const result = await requestDisplayMode(bridges, "fullscreen");
+    expect(result).toEqual({ mode: "fullscreen" });
+    // Fullscreen hides the sidebar (same effect as the Maximize button).
+    expect(screen.queryByText("MCP Apps (3)")).not.toBeInTheDocument();
+  });
+
+  it("declines an unsupported display mode, returning the current mode", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // "pip" is not in HOST_AVAILABLE_DISPLAY_MODES — declined, current mode
+    // ("inline") returned, and the sidebar stays visible.
+    const result = await requestDisplayMode(bridges, "pip");
+    expect(result).toEqual({ mode: "inline" });
+    expect(screen.getByText("MCP Apps (3)")).toBeInTheDocument();
+  });
+
+  it("restores inline via request-display-mode after maximizing", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await requestDisplayMode(bridges, "fullscreen");
+    expect(screen.queryByText("MCP Apps (3)")).not.toBeInTheDocument();
+    const result = await requestDisplayMode(bridges, "inline");
+    expect(result).toEqual({ mode: "inline" });
+    expect(screen.getByText("MCP Apps (3)")).toBeInTheDocument();
+  });
+
+  it("surfaces ui/message content from the view in the message log", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await vi.waitFor(() =>
+      expect(bridges.at(-1)?.onmessage).toBeTypeOf("function"),
+    );
+    await sendUiMessage(bridges, [
+      { type: "text", text: "hello from the app" },
+    ]);
+    expect(screen.getByText(/Messages from app \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/hello from the app/)).toBeInTheDocument();
+    expect(screen.getByTestId("apps-messages")).toBeInTheDocument();
+  });
+
+  it("returns an empty ui/message result (no conversation content leak)", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await vi.waitFor(() =>
+      expect(bridges.at(-1)?.onmessage).toBeTypeOf("function"),
+    );
+    const result = await sendUiMessage(bridges, [
+      { type: "text", text: "secret" },
+    ]);
+    expect(result).toEqual({});
+  });
+
+  it("clears the message log when the app is closed", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await vi.waitFor(() =>
+      expect(bridges.at(-1)?.onmessage).toBeTypeOf("function"),
+    );
+    await sendUiMessage(bridges, [
+      { type: "text", text: "hello from the app" },
+    ]);
+    expect(screen.getByText(/Messages from app/)).toBeInTheDocument();
+    await user.click(screen.getByLabelText("Close"));
+    expect(screen.queryByText(/Messages from app/)).not.toBeInTheDocument();
+  });
+
+  it("surfaces app log notifications in a default-expanded collapsible panel with a working Clear", async () => {
+    const user = userEvent.setup();
+    const { factory, emit } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.queryByText(/App logs/)).not.toBeInTheDocument();
+    await act(async () => {
+      emit("loggingmessage", { level: "warning", data: "disk almost full" });
+      emit("loggingmessage", {
+        level: "error",
+        logger: "render",
+        data: { code: 500 },
+      });
+    });
+    const toggle = screen.getByRole("button", { name: /App logs \(2\)/ });
+    expect(toggle).toBeInTheDocument();
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    // Default-expanded: entries are visible without clicking the toggle.
+    expect(screen.getByText("disk almost full")).toBeInTheDocument();
+    expect(screen.getByText("render")).toBeInTheDocument();
+    expect(screen.getByText('{"code":500}')).toBeInTheDocument();
+    expect(screen.getByTestId("apps-logs")).toBeInTheDocument();
+    // Collapsing still works, and Clear empties the panel.
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    // The toggle points at the collapse region for assistive tech.
+    expect(toggle.getAttribute("aria-controls")).toBe("apps-logs-region");
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(screen.queryByText(/App logs/)).not.toBeInTheDocument();
+  });
+
+  it("renders a log notification that carries no data without crashing", async () => {
+    const user = userEvent.setup();
+    const { factory, emit } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      // No `data` field — formatLogData must coalesce to "" (not "undefined").
+      emit("loggingmessage", { level: "info" });
+    });
+    expect(
+      screen.getByRole("button", { name: /App logs \(1\)/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("caps retained app logs at the soft limit, dropping the oldest", async () => {
+    const user = userEvent.setup();
+    const { factory, emit } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      // 501 entries exceeds the 500 cap → oldest dropped, count clamps at 500.
+      for (let i = 0; i < 501; i++) {
+        emit("loggingmessage", { level: "info", data: `log-${i}` });
+      }
+    });
+    expect(
+      screen.getByRole("button", { name: /App logs \(500\)/ }),
+    ).toBeInTheDocument();
+    // The very first entry was dropped; the most recent is retained.
+    expect(screen.queryByText("log-0")).not.toBeInTheDocument();
+    expect(screen.getByText("log-500")).toBeInTheDocument();
+  });
+
   it("calls onCloseApp and clears selection on Close", async () => {
     const user = userEvent.setup();
     const onCloseApp = vi.fn();
@@ -352,5 +659,154 @@ describe("AppsScreen", () => {
       ),
     ).not.toBeInTheDocument();
     expect(screen.getByText("Select an app to view details")).toBeVisible();
+  });
+
+  describe("data-app-status / data-app-error", () => {
+    function getStatus(): string | null {
+      return screen.getByTestId("apps-form").getAttribute("data-app-status");
+    }
+
+    it("is idle when no app is running", () => {
+      renderWithMantine(
+        <ControlledAppsScreen
+          ui={{ ...EMPTY_APPS_UI, selectedAppName: "weather" }}
+        />,
+      );
+      expect(getStatus()).toBe("idle");
+    });
+
+    it("transitions idle → loading → ready around the view's initialized signal", async () => {
+      const user = userEvent.setup();
+      const { factory, emit } = createEventBridgeFactory();
+      renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+      expect(getStatus()).toBe("idle");
+      await user.click(screen.getByText("Ops Dashboard"));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(getStatus()).toBe("loading");
+      await act(async () => emit("initialized"));
+      expect(getStatus()).toBe("ready");
+    });
+
+    it("reports error status + surfaces the reason in an error panel and data-app-error when the bridge factory rejects", async () => {
+      const user = userEvent.setup();
+      const onError = vi.fn();
+      const failingFactory: BridgeFactory = () =>
+        Promise.reject(new Error("connect refused"));
+      renderWithMantine(
+        <ControlledAppsScreen
+          bridgeFactory={failingFactory}
+          onError={onError}
+        />,
+      );
+      await user.click(screen.getByText("Ops Dashboard"));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(getStatus()).toBe("error");
+      const form = screen.getByTestId("apps-form");
+      expect(form.getAttribute("data-app-error")).toBe("connect refused");
+      // The error panel is shown below the frame with the reason, so the
+      // failure isn't a silent blank frame.
+      expect(screen.getByTestId("apps-error")).toBeInTheDocument();
+      expect(screen.getByText("App failed to load")).toBeInTheDocument();
+      expect(screen.getByText("connect refused")).toBeInTheDocument();
+      // The error is also forwarded to the parent onError.
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "connect refused" }),
+      );
+    });
+
+    it("resets to idle and clears the error panel when the running app is closed", async () => {
+      const user = userEvent.setup();
+      const failingFactory: BridgeFactory = () =>
+        Promise.reject(new Error("connect refused"));
+      renderWithMantine(
+        <ControlledAppsScreen bridgeFactory={failingFactory} />,
+      );
+      await user.click(screen.getByText("Ops Dashboard"));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByTestId("apps-error")).toBeInTheDocument();
+      await user.click(screen.getByLabelText("Close"));
+      expect(screen.queryByTestId("apps-error")).not.toBeInTheDocument();
+    });
+  });
+
+  it("stages partial-input snapshots from the form and clears them", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledAppsScreen />);
+    // No-fields apps don't show the control.
+    await user.click(screen.getByText("Ops Dashboard"));
+    expect(
+      screen.queryByRole("button", { name: "Stage partial input" }),
+    ).not.toBeInTheDocument();
+    // Fielded apps do.
+    await user.click(screen.getByText("Weather Widget"));
+    const stage = screen.getByRole("button", { name: "Stage partial input" });
+    expect(stage).toBeInTheDocument();
+    expect(screen.queryByText(/staged/)).not.toBeInTheDocument();
+    await user.click(stage);
+    await user.click(stage);
+    expect(screen.getByText("2 staged")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Clear staged" }));
+    expect(screen.queryByText(/staged/)).not.toBeInTheDocument();
+  });
+
+  it("replays staged partial inputs before the final tool-input on Open App", async () => {
+    const user = userEvent.setup();
+    const partials: Record<string, unknown>[] = [];
+    let onInitialized: (() => void) | undefined;
+    let sawInput = false;
+    const factory: BridgeFactory = () => {
+      const listeners: Record<string, ((p: unknown) => void)[]> = {};
+      const bridge = {
+        sendToolInput: async () => {
+          sawInput = true;
+        },
+        sendToolInputPartial: async (params: {
+          arguments?: Record<string, unknown>;
+        }) => {
+          // Assert partials arrive before the final input.
+          expect(sawInput).toBe(false);
+          partials.push(params.arguments ?? {});
+        },
+        sendToolResult: async () => {},
+        sendToolCancelled: async () => {},
+        sendHostContextChange: async () => {},
+        teardownResource: async () => ({}),
+        close: async () => {},
+        addEventListener: (event: string, handler: () => void) => {
+          (listeners[event] ??= []).push(handler);
+          if (event === "initialized") onInitialized = handler;
+        },
+        removeEventListener: () => {},
+      } as unknown as AppBridge;
+      return bridge;
+    };
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Weather Widget"));
+    // Fill the required field so Open App is enabled, then stage two snapshots.
+    await user.type(screen.getByRole("textbox", { name: /city/i }), "NYC");
+    const stage = screen.getByRole("button", { name: "Stage partial input" });
+    await user.click(stage);
+    await user.click(stage);
+    await user.click(screen.getByRole("button", { name: /Open App/ }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      onInitialized?.();
+    });
+    // Both staged snapshots were replayed (staged partials survive Open). No
+    // final tool-input arrives because the parent's onOpenApp is a no-op here
+    // (App drives the renderer handle), so sawInput stays false — the partials
+    // are what this screen is responsible for.
+    expect(partials).toHaveLength(2);
+    expect(sawInput).toBe(false);
   });
 });
