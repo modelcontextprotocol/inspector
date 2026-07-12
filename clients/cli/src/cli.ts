@@ -541,7 +541,8 @@ async function waitForStoredToken(
 
 /**
  * Derive the web deep-link `transport` value (`http` | `sse`) for a handoff.
- * Mirrors {@link resolveServerConfig}'s URL-path auto-detection (`/sse` → sse,
+ * Mirrors `resolveServerConfigs` (core/mcp/node/config.ts) URL-path
+ * auto-detection (`/sse` → sse,
  * everything else → http) but, unlike that resolver, defaults to `http` instead
  * of throwing on an ambiguous path — the handoff is best-effort, and the web
  * {@link parseDeepLink} likewise defaults an unknown/missing transport to http.
@@ -583,18 +584,19 @@ function buildHandoff(
   // Treat an empty MCP_INSPECTOR_API_TOKEN the same as unset — an empty token
   // can't satisfy the deep-link autoConnect gate.
   const apiToken = process.env.MCP_INSPECTOR_API_TOKEN || undefined;
+  const normalizedUrl = normalizeServerUrl(serverUrl);
   // Canonical #1576 deep-link shape: the normalized serverUrl (matching the
   // OAuth-store key form the web app reuses) plus the resolved transport, gated
   // by `autoConnect=<token>` — the same per-launch token the web parser
   // requires. Omitted when no token is set; the `note` below flags that the
   // link will be rejected until the web inspector is launched with a token.
   const params = new URLSearchParams({
-    serverUrl: normalizeServerUrl(serverUrl),
+    serverUrl: normalizedUrl,
     transport: deepLinkTransport(serverUrl, transport),
   });
   if (apiToken) params.set("autoConnect", apiToken);
   return {
-    serverUrl: normalizeServerUrl(serverUrl),
+    serverUrl: normalizedUrl,
     deepLink: `http://${host}:${clientPort}/?${params.toString()}`,
     portForwardCmd: `coder port-forward <workspace> --tcp ${clientPort}:${clientPort} --tcp ${sandboxPort}:${sandboxPort}`,
     oauthStatePath: statePath,
