@@ -71,6 +71,31 @@ The Apps screen exposes a small, stable set of `data-testid` / `data-*` attribut
 
 The renderer lifecycle itself is `AppRendererStatus` (`loading` | `ready` | `error`) reported via `AppRenderer`'s `onAppStatusChange`; the screen maps it to `data-app-status`. Resource-read failures (malformed/404 UI resource) are surfaced as a toast via the bridge factory's `onResourceError`; because the app never reaches `ready` in that case, a driver times out on `data-app-status` and reads the toast.
 
+## Deep-link auto-connect
+
+A driver (launcher, CLI `--print-handoff`, CI review harness) can reach a **connected** inspector with a single navigate by encoding the target in the URL query string. Parsing + security gating live in `src/utils/deepLink.ts` (`parseDeepLink`), and a returned `DeepLink` is proof the link passed validation.
+
+```
+http://127.0.0.1:6274/?serverUrl=<url>&transport=http|sse&autoConnect=<token>
+```
+
+| Param | Meaning |
+| --- | --- |
+| `serverUrl` | The MCP server URL. Restricted to `http:` / `https:` (a crafted `javascript:` / `data:` / `file:` value is rejected). Canonicalized via `URL.href` so it matches the OAuth store's key form. |
+| `transport` | `http` (streamable-HTTP, the default) or `sse`. Unknown values fall back to `http`. |
+| `autoConnect` | **CSRF gate.** Must equal the per-launch `MCP_INSPECTOR_API_TOKEN`. The token is random per launch and only known to whatever started the server, so a third-party-minted link cannot satisfy it — this is the same exposure surface as the existing `?MCP_INSPECTOR_API_TOKEN=` param. Without a match the link is ignored. |
+
+The deep link upserts a stable `deep-link` catalog row (so a reload reconnects to the same row instead of accumulating duplicates) and connects. Connection-level outcomes are surfaced on the `AppShell.Header` as a machine-readable contract, so a driver can `waitForSelector` and read the failure reason without scraping a transient toast:
+
+| Attribute | Where | Meaning |
+| --- | --- | --- |
+| `data-testid="connection-status"` | header | The element carrying the attributes below. |
+| `data-status` | on `connection-status` | The live `ConnectionStatus` (`disconnected` → `connecting` → `connected` / `error`). Poll for `connected`. |
+| `data-error-message` | on `connection-status` | Why the last connect failed (handshake error, OAuth-start failure, deep-link automation failure); absent when there is no error. |
+| `data-deeplink` | on `connection-status` | `parsed` (a valid deep link drove this load), `rejected` (deep-link params present but the token/serverUrl gate failed), or `none`. Lets a driver distinguish "no deep link" from "rejected" — both otherwise leave `data-status` idle. |
+
+The `openApp` / `appArgs` / `autoOpen` params extend this to land on a rendered MCP App; see the [MCP Apps screen automation contract](#mcp-apps-screen-automation-contract) above for the app-side `data-*` signals.
+
 ## Theme (`src/theme/`)
 
 Each customized Mantine component has a `Theme<Name>.ts` file (`Button.ts`, `Text.ts`, …, ~21 total) exporting a `Theme<Name>` constant; the barrel `index.ts` re-exports them and `theme.ts` assembles the `MantineProvider` theme. Theme files hold app-wide defaults and **variants** (flat CSS-in-JS); only pseudo-selectors, nested child selectors, keyframes, and native-HTML styling belong in `App.css`. Element components import from `@mantine/core` (never from `theme/`) — the theme layer is applied transparently by the provider.

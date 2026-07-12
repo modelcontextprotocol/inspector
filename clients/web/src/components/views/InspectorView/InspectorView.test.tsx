@@ -259,6 +259,42 @@ describe("InspectorView", () => {
     expect(onToggleConnection).toHaveBeenCalledWith("alpha");
   });
 
+  it("exposes the machine-readable connection-status header attributes for drivers", () => {
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          servers: [sampleServer],
+          connectionStatus: "error",
+          connectErrorMessage: "handshake failed: 500",
+          deepLinkStatus: "rejected",
+        })}
+      />,
+    );
+    const header = screen.getByTestId("connection-status");
+    expect(header).toHaveAttribute("data-status", "error");
+    expect(header).toHaveAttribute(
+      "data-error-message",
+      "handshake failed: 500",
+    );
+    expect(header).toHaveAttribute("data-deeplink", "rejected");
+  });
+
+  it("omits the error-message attribute when no connect error is recorded", () => {
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          servers: [sampleServer],
+          connectionStatus: "disconnected",
+          deepLinkStatus: "none",
+        })}
+      />,
+    );
+    const header = screen.getByTestId("connection-status");
+    expect(header).toHaveAttribute("data-status", "disconnected");
+    expect(header).not.toHaveAttribute("data-error-message");
+    expect(header).toHaveAttribute("data-deeplink", "none");
+  });
+
   it("renders the connected header when connectionStatus + initializeResult are set", () => {
     renderWithMantine(
       <StatefulInspectorViewHost

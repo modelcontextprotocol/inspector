@@ -155,6 +155,12 @@ import {
 import { buildExportFilename, downloadJsonFile } from "./lib/downloadFile";
 import { INSPECTOR_SERVERS_TAB } from "./utils/inspectorTabs";
 import {
+  parseDeepLink,
+  deepLinkConfigEquals,
+  deepLinkParseStatus,
+} from "./utils/deepLink";
+import type { DeepLink, DeepLinkParseStatus } from "./utils/deepLink";
+import {
   applyOAuthResumeUi,
   buildTabUiSnapshot,
   clearOAuthResumeSnapshot,
@@ -1347,6 +1353,36 @@ function App() {
     serversRef.current = servers;
   }, [activeServer, activeServerId, servers]);
 
+  // Last connection-level error message, surfaced as `data-error-message` on
+  // the InspectorView header so an automated driver can read *why* a connect
+  // failed without scraping a transient toast. Cleared on the next connect
+  // attempt and on successful connection.
+  const [connectErrorMessage, setConnectErrorMessage] = useState<
+    string | undefined
+  >(undefined);
+  // Named writer so a single call site can be extended later (e.g. telemetry)
+  // and the intent (record a connection-level failure) stays explicit.
+  const recordConnectError = useCallback((message: string) => {
+    setConnectErrorMessage(message);
+  }, []);
+
+  // Deep-link parameters parsed once from the initial URL. Security gating
+  // (auth-token match, http(s)-only serverUrl) happens inside `parseDeepLink`,
+  // so a `DeepLink` value here is already validated. The parse status is
+  // surfaced as `data-deeplink` so an automated driver can tell "no deep link"
+  // from "deep link present but rejected" — both leave `data-status` idle.
+  const [deepLink, deepLinkStatus] = useMemo<
+    [DeepLink | undefined, DeepLinkParseStatus]
+  >(() => {
+    /* v8 ignore next -- SSR guard: happy-dom always defines window in tests */
+    if (typeof window === "undefined") return [undefined, "none"];
+    const search = window.location.search;
+    const parsed = parseDeepLink(search, getAuthToken());
+    return [parsed, deepLinkParseStatus(search, parsed)];
+  }, []);
+  const deepLinkEnsureRef = useRef(false);
+  const deepLinkConnectRef = useRef(false);
+
   const showReAuthBanner = useCallback(
     (
       serverId: string,
@@ -2338,7 +2374,11 @@ function App() {
         return;
       }
 
-      const target = servers.find((s) => s.id === id);
+      // Read from the ref so a caller that already awaited an
+      // addServer/updateServer in the same async tick (e.g. the deep-link
+      // auto-connect IIFE) sees the freshly-mutated list, not the stale array
+      // captured by this callback's closure.
+      const target = serversRef.current.find((s) => s.id === id);
       if (!target) return;
 
       // Always rebuild the InspectorClient on a (re)connect so the latest
@@ -2354,6 +2394,9 @@ function App() {
       // the red border on the last-failed card is removed (#1621). If this
       // attempt also fails, the catch below re-sets it for this server.
       setFailedServerId(undefined);
+      // Clear the machine-readable connect error for the same reason; a fresh
+      // attempt starts from a clean `data-error-message`.
+      setConnectErrorMessage(undefined);
 
       connectStartRef.current = Date.now();
       try {
@@ -2432,6 +2475,7 @@ function App() {
             }
             const message =
               authErr instanceof Error ? authErr.message : String(authErr);
+            setConnectErrorMessage(message);
             notifications.show({
               title: `OAuth authorization failed for "${target.name}"`,
               message,
@@ -2446,6 +2490,7 @@ function App() {
         // "disconnected", and flag the card with a red border (#1621).
         setFailedServerId(id);
         const message = err instanceof Error ? err.message : String(err);
+        setConnectErrorMessage(message);
         notifications.show({
           title: `Failed to connect to "${target.name}"`,
           message,
@@ -2457,7 +2502,6 @@ function App() {
       activeServerId,
       connectionStatus,
       inspectorClient,
-      servers,
       setupClientForServer,
       prepareOAuthRedirect,
       finalizeExplicitDisconnect,
@@ -2472,6 +2516,61 @@ function App() {
       finalizeExplicitDisconnect();
     }
   }, [inspectorClient, finalizeExplicitDisconnect]);
+
+  // Deep-link auto-connect (the URL-driven case of #1183). `useServers`
+  // hydrates asynchronously (initial `servers` is `[]`), so this effect runs
+  // in two phases: first render attempts a one-shot `addServer` (a 409 means
+  // the row already exists on disk and hydration will surface it); a later
+  // render where `servers` actually contains the deep-link row then updates the
+  // URL if it has changed and connects. Connecting in the same closure as
+  // `addServer` would resolve against a stale (empty) `servers` and silently
+  // no-op. The OAuth callback path takes precedence; a deep link on
+  // `/oauth/callback` would be a misconfiguration, and the callback handler
+  // clears the URL.
+  useEffect(() => {
+    if (!deepLink) return;
+    if (window.location.pathname === OAUTH_CALLBACK_PATH) return;
+
+    const existing = servers.find((s) => s.id === deepLink.serverId);
+    if (!existing) {
+      if (deepLinkEnsureRef.current) return;
+      deepLinkEnsureRef.current = true;
+      void addServer(deepLink.serverId, deepLink.serverConfig).catch(() => {
+        // 409 = already on disk; hydration will surface it on a later render.
+      });
+      return;
+    }
+
+    if (deepLinkConnectRef.current) return;
+    deepLinkConnectRef.current = true;
+    void (async () => {
+      if (!deepLinkConfigEquals(existing.config, deepLink.serverConfig)) {
+        await updateServer(
+          deepLink.serverId,
+          deepLink.serverId,
+          deepLink.serverConfig,
+        );
+      }
+      if (activeServerId !== deepLink.serverId) {
+        await onToggleConnection(deepLink.serverId);
+      }
+    })().catch((err) => {
+      // Surface deep-link automation failures (updateServer 5xx, connect throw)
+      // on the machine-readable error attribute instead of dropping them. The
+      // toast still fires from inside `onToggleConnection` for the common
+      // cases; this catch covers the rest.
+      const message = err instanceof Error ? err.message : String(err);
+      recordConnectError(message);
+    });
+  }, [
+    deepLink,
+    servers,
+    activeServerId,
+    addServer,
+    updateServer,
+    onToggleConnection,
+    recordConnectError,
+  ]);
 
   const onReauthenticateFromBanner = useCallback(() => {
     if (!reAuthBanner) return;
@@ -3691,11 +3790,14 @@ function App() {
           </Box>
         ) : null}
         <InspectorView
+          deepLink={deepLink}
+          deepLinkStatus={deepLinkStatus}
           servers={servers}
           serverListWritable={serverListWritable}
           activeServer={activeServerId}
           erroredServerId={failedServerId}
           connectionStatus={connectionStatus}
+          connectErrorMessage={connectErrorMessage}
           initializeResult={initializeResult}
           latencyMs={latencyMs}
           tools={tools}

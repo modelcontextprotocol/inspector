@@ -6,6 +6,7 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
+import type { DeepLink, DeepLinkParseStatus } from "../../../utils/deepLink";
 import {
   AppShell,
   Flex,
@@ -304,6 +305,21 @@ const MonitorColumnGroup = Group.withProps({
 });
 
 export interface InspectorViewProps {
+  /**
+   * Validated deep-link parameters from the page URL. When present and
+   * `openApp` is set, the parent switches to the Apps tab and pre-selects that
+   * app (with `appArgs` as the form values) once the connection is up and the
+   * app list contains it. The connect itself is driven by the parent.
+   */
+  deepLink?: DeepLink;
+  /**
+   * Outcome of parsing the initial-URL deep link, surfaced as `data-deeplink`
+   * on the `connection-status` testid. Distinguishes "no deep link" from
+   * "rejected" (token mismatch / bad serverUrl) — both leave `data-status`
+   * idle, so an automated driver otherwise cannot tell them apart.
+   */
+  deepLinkStatus?: DeepLinkParseStatus;
+
   // Server list (static config; runtime connection state comes from the
   // separate fields below and is merged into each card by this component).
   servers: ServerEntry[];
@@ -324,6 +340,13 @@ export interface InspectorViewProps {
    */
   erroredServerId?: string;
   connectionStatus: ConnectionStatus;
+  /**
+   * Last connection-level error message (handshake failure, OAuth start
+   * failure, deep-link automation failure). Surfaced as `data-error-message`
+   * on the header's `connection-status` testid so an automated driver can read
+   * *why* a connect failed without scraping a transient toast.
+   */
+  connectErrorMessage?: string;
   initializeResult?: InitializeResult;
   latencyMs?: number;
 
@@ -497,11 +520,13 @@ export interface InspectorViewProps {
 }
 
 export function InspectorView({
+  deepLinkStatus,
   servers: serversInput,
   serverListWritable = true,
   activeServer,
   erroredServerId,
   connectionStatus,
+  connectErrorMessage,
   initializeResult,
   latencyMs,
   tools,
@@ -1037,7 +1062,12 @@ export function InspectorView({
     // Main-slot height clamp + overflow:hidden keep that scroll on the inner
     // ScrollArea regions only.
     <AppShell header={{ height: 60 }} padding={0}>
-      <AppShell.Header>
+      <AppShell.Header
+        data-testid="connection-status"
+        data-status={connectionStatus}
+        data-error-message={connectErrorMessage}
+        data-deeplink={deepLinkStatus}
+      >
         {connectionStatus === "connected" && initializeResult ? (
           <ViewHeader
             connected
