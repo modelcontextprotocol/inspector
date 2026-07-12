@@ -28,7 +28,22 @@ import type { JsonValue } from "@inspector/core/mcp/index.js";
 import { extractAppInfo } from "@inspector/core/mcp/apps.js";
 import type { AppInfo } from "@inspector/core/mcp/apps.js";
 import { getStateFilePath } from "@inspector/core/auth/node/storage-node.js";
-import { parseOAuthPersistBlob } from "@inspector/core/auth/oauth-persist.js";
+import {
+  parseOAuthPersistBlob,
+  serializeOAuthPersistBlob,
+  type OAuthPersistSnapshot,
+} from "@inspector/core/auth/oauth-persist.js";
+import { getAuthorizationServerUrl } from "@inspector/core/auth/discovery.js";
+import { writeStoreFile } from "@inspector/core/storage/store-io.js";
+import {
+  refreshAuthorization,
+  discoverAuthorizationServerMetadata,
+} from "@modelcontextprotocol/sdk/client/auth.js";
+import type {
+  OAuthClientInformation,
+  OAuthMetadata,
+  OAuthTokens,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
 import { CliExitCodeError, EXIT_CODES } from "./error-handler.js";
 import {
   ConsoleNavigation,
@@ -469,26 +484,59 @@ export function normalizeServerUrl(serverUrl: string): string {
   }
 }
 
+/** The subset of a stored server's OAuth state the CLI reads/refreshes. */
+type StoredServerState = {
+  tokens?: OAuthTokens;
+  clientInformation?: OAuthClientInformation;
+  serverMetadata?: OAuthMetadata;
+};
 /** The stored-server map shape the CLI reads out of the OAuth state file. */
-type StoredServers = Record<string, { tokens?: { access_token?: string } }>;
+type StoredServers = Record<string, StoredServerState>;
 
 /**
  * Read the OAuth state file directly (bypassing the Zustand store cache) so
  * each call sees the current on-disk state — required for `--wait-for-auth`
- * polling. Returns the `servers` map, or an empty object when the file is
- * absent or unreadable. Uses the shared {@link parseOAuthPersistBlob} so both
- * the plain `{servers,idpSessions}` and legacy `{state,version}` layouts are
+ * polling. Returns the full snapshot, or an empty one when the file is absent
+ * or unreadable. Uses the shared {@link parseOAuthPersistBlob} so both the
+ * plain `{servers,idpSessions}` and legacy `{state,version}` layouts are
  * accepted, matching whatever the web backend wrote.
  */
-async function readOAuthServers(statePath: string): Promise<StoredServers> {
+async function readOAuthSnapshot(
+  statePath: string,
+): Promise<OAuthPersistSnapshot> {
   const { readFile } = await import("node:fs/promises");
   try {
     const text = await readFile(statePath, "utf8");
     const snapshot = parseOAuthPersistBlob(text);
-    return (snapshot?.servers as StoredServers | undefined) ?? {};
+    if (snapshot) return snapshot;
   } catch {
-    return {};
+    // Absent/unreadable/malformed → fall through to the empty snapshot below.
   }
+  return { servers: {}, idpSessions: {} };
+}
+
+/**
+ * Read just the `servers` map. Thin wrapper over {@link readOAuthSnapshot} for
+ * the read-only lookups (`findStoredToken`, `--wait-for-auth`, key listing).
+ */
+async function readOAuthServers(statePath: string): Promise<StoredServers> {
+  return (await readOAuthSnapshot(statePath)).servers as StoredServers;
+}
+
+/**
+ * Look up a stored server's OAuth state, trying the URL-normalised key first
+ * (how the web store writes it) and the raw string second. Returns the matched
+ * key so a write-back updates the same entry.
+ */
+function findStoredServerState(
+  servers: StoredServers,
+  serverUrl: string,
+): { key: string; state: StoredServerState } | undefined {
+  const normalized = normalizeServerUrl(serverUrl);
+  if (servers[normalized])
+    return { key: normalized, state: servers[normalized] };
+  if (servers[serverUrl]) return { key: serverUrl, state: servers[serverUrl] };
+  return undefined;
 }
 
 /**
@@ -499,11 +547,91 @@ function findStoredToken(
   servers: StoredServers,
   serverUrl: string,
 ): string | undefined {
-  const key = normalizeServerUrl(serverUrl);
-  return (
-    servers[key]?.tokens?.access_token ??
-    servers[serverUrl]?.tokens?.access_token
-  );
+  return findStoredServerState(servers, serverUrl)?.state.tokens?.access_token;
+}
+
+/**
+ * Injectable dependencies for {@link refreshStoredAuthToken}, so the refresh
+ * grant + auth-server discovery can be faked in unit tests without standing up
+ * a real OAuth token endpoint. Both default to the SDK implementations.
+ */
+export interface RefreshStoredAuthDeps {
+  refresh?: typeof refreshAuthorization;
+  discover?: typeof discoverAuthorizationServerMetadata;
+}
+
+/**
+ * Run the OAuth `refresh_token` grant for a stored server and persist the
+ * rotated tokens back to `statePath` (same `{servers,idpSessions}` shape the
+ * web backend writes), returning the fresh access token.
+ *
+ * Reuses the SDK's {@link refreshAuthorization} (not a hand-rolled token
+ * request) with the stored `clientInformation` + `serverMetadata`; when the
+ * metadata wasn't persisted it is discovered from the resolved authorization
+ * server. A missing refresh token or client information, or a failed grant,
+ * throws {@link CliExitCodeError} with {@link EXIT_CODES.AUTH_REQUIRED} so the
+ * caller exits with the documented code and a clear message.
+ */
+export async function refreshStoredAuthToken(
+  serverUrl: string,
+  statePath: string,
+  deps: RefreshStoredAuthDeps = {},
+): Promise<string> {
+  const refresh = deps.refresh ?? refreshAuthorization;
+  const discover = deps.discover ?? discoverAuthorizationServerMetadata;
+
+  const snapshot = await readOAuthSnapshot(statePath);
+  const servers = snapshot.servers as StoredServers;
+  const found = findStoredServerState(servers, serverUrl);
+  const refreshToken = found?.state.tokens?.refresh_token;
+  const clientInformation = found?.state.clientInformation;
+  if (!found || !refreshToken) {
+    throw new CliExitCodeError(
+      EXIT_CODES.AUTH_REQUIRED,
+      `No stored refresh token for ${normalizeServerUrl(serverUrl)} in ${statePath}. Complete the OAuth flow in the web inspector first.`,
+      { code: "no_stored_token", url: serverUrl },
+    );
+  }
+  if (!clientInformation) {
+    throw new CliExitCodeError(
+      EXIT_CODES.AUTH_REQUIRED,
+      `Stored auth for ${normalizeServerUrl(serverUrl)} has a refresh token but no client information; cannot refresh. Re-authorize in the web inspector.`,
+      { code: "no_client_information", url: serverUrl },
+    );
+  }
+
+  const authServerUrl = found.state.serverMetadata?.issuer
+    ? new URL(found.state.serverMetadata.issuer)
+    : getAuthorizationServerUrl(serverUrl);
+  const metadata =
+    found.state.serverMetadata ?? (await discover(authServerUrl)) ?? undefined;
+
+  let tokens: OAuthTokens;
+  try {
+    tokens = await refresh(authServerUrl, {
+      metadata,
+      clientInformation,
+      refreshToken,
+      resource: new URL(serverUrl),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new CliExitCodeError(
+      EXIT_CODES.AUTH_REQUIRED,
+      `Failed to refresh the stored OAuth token for ${normalizeServerUrl(serverUrl)}: ${message}. Re-authorize in the web inspector.`,
+      { code: "refresh_failed", url: serverUrl },
+    );
+  }
+
+  // Persist the rotated tokens back under the same key, preserving every other
+  // server entry and the idpSessions block, so web and CLI stay consistent.
+  // Route through the shared `writeStoreFile` (not a raw `writeFile`) so the
+  // secrets file keeps its owner-only `0o600` mode + `mkdir -p`, identical to
+  // how the web backend's OAuth persist backend writes it.
+  servers[found.key] = { ...found.state, tokens };
+  await writeStoreFile(statePath, serializeOAuthPersistBlob(snapshot));
+
+  return tokens.access_token;
 }
 
 /**
@@ -540,30 +668,63 @@ async function waitForStoredToken(
 }
 
 /**
+ * Derive the web deep-link `transport` value (`http` | `sse`) for a handoff.
+ * Mirrors `resolveServerConfigs` (core/mcp/node/config.ts) URL-path
+ * auto-detection (`/sse` → sse,
+ * everything else → http) but, unlike that resolver, defaults to `http` instead
+ * of throwing on an ambiguous path — the handoff is best-effort, and the web
+ * {@link parseDeepLink} likewise defaults an unknown/missing transport to http.
+ */
+export function deepLinkTransport(
+  serverUrl: string,
+  transport: "sse" | "http" | "stdio" | undefined,
+): "http" | "sse" {
+  if (transport === "sse") return "sse";
+  if (transport === "http") return "http";
+  try {
+    if (new URL(serverUrl).pathname.endsWith("/sse")) return "sse";
+  } catch {
+    // Unparseable URL: fall through to the http default. The web parser rejects
+    // a non-http(s) serverUrl anyway, so guessing a transport for it is moot.
+  }
+  return "http";
+}
+
+/**
  * Build the JSON `--print-handoff` emits: everything an automated caller needs
  * to relay to a human so they can complete OAuth in a browser and have the
  * token land where the CLI will find it.
  *
- * NOTE: the `deepLink` query shape (serverUrl/transport/autoConnect) is the
- * interim format pending the web deep-link auto-connect work (#1576); reconcile
- * with that issue's canonical handoff format once it lands.
+ * The `deepLink` is the canonical web format owned by
+ * `clients/web/src/utils/deepLink.ts` (#1576): `?serverUrl&transport&autoConnect`,
+ * where `autoConnect` is the CSRF gate (must equal `MCP_INSPECTOR_API_TOKEN`).
+ * `transport` is derived from the resolved server via {@link deepLinkTransport}
+ * rather than hardcoded, so an SSE server hands off a `transport=sse` link.
  */
-function buildHandoff(serverUrl: string, statePath: string): McpResponse {
+function buildHandoff(
+  serverUrl: string,
+  statePath: string,
+  transport: "sse" | "http" | "stdio" | undefined,
+): McpResponse {
   const host = process.env.HOST || "127.0.0.1";
   const clientPort = process.env.CLIENT_PORT || "6274";
   const sandboxPort = process.env.MCP_SANDBOX_PORT || "6275";
   // Treat an empty MCP_INSPECTOR_API_TOKEN the same as unset — an empty token
   // can't satisfy the deep-link autoConnect gate.
   const apiToken = process.env.MCP_INSPECTOR_API_TOKEN || undefined;
-  // TODO(#1576): interim deep-link shape. `transport: "http"` is hardcoded even
-  // for SSE servers, and `autoConnect=<token>` is NOT one of the three token
-  // sources the web app reads (window.__INSPECTOR_API_TOKEN__ /
-  // ?MCP_INSPECTOR_API_TOKEN / sessionStorage — see CLAUDE.md). Reconcile both
-  // with #1576's canonical handoff/deep-link format once it lands.
-  const params = new URLSearchParams({ serverUrl, transport: "http" });
+  const normalizedUrl = normalizeServerUrl(serverUrl);
+  // Canonical #1576 deep-link shape: the normalized serverUrl (matching the
+  // OAuth-store key form the web app reuses) plus the resolved transport, gated
+  // by `autoConnect=<token>` — the same per-launch token the web parser
+  // requires. Omitted when no token is set; the `note` below flags that the
+  // link will be rejected until the web inspector is launched with a token.
+  const params = new URLSearchParams({
+    serverUrl: normalizedUrl,
+    transport: deepLinkTransport(serverUrl, transport),
+  });
   if (apiToken) params.set("autoConnect", apiToken);
   return {
-    serverUrl: normalizeServerUrl(serverUrl),
+    serverUrl: normalizedUrl,
     deepLink: `http://${host}:${clientPort}/?${params.toString()}`,
     portForwardCmd: `coder port-forward <workspace> --tcp ${clientPort}:${clientPort} --tcp ${sandboxPort}:${sandboxPort}`,
     oauthStatePath: statePath,
@@ -897,7 +1058,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       throw new Error("--print-handoff requires --server-url");
     }
     await awaitableLog(
-      JSON.stringify(buildHandoff(options.serverUrl, oauthStatePath)) + "\n",
+      JSON.stringify(
+        buildHandoff(options.serverUrl, oauthStatePath, options.transport),
+      ) + "\n",
     );
     return { shortCircuit: true };
   }
@@ -934,11 +1097,13 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     }
     // Read the OAuth state file directly so the lookup is normalised the same
     // way the web inspector wrote it (`new URL().href`), and so `--wait-for-
-    // auth` sees fresh on-disk state on each poll. Header injection is the
-    // prototype path — only the access token is injected, blindly; a stale one
-    // surfaces as HTTP 401 → exit 3 (auth_required). Follow-up: when the stored
-    // `tokens.refresh_token` is present and the access token is expired, mint a
-    // fresh one instead of injecting the stale token.
+    // auth` sees fresh on-disk state on each poll. When a `refresh_token` is
+    // stored, the CLI runs the SDK refresh grant and injects the fresh access
+    // token (persisting the rotation) rather than blindly injecting a possibly-
+    // stale stored access token (#1665) — the stored blob carries no expiry, so
+    // the refresh token is the durable credential. Without a refresh token it
+    // falls back to injecting the stored access token; a stale one surfaces as
+    // HTTP 401 → exit 3 (auth_required).
     let token: string;
     if (options.waitForAuth !== undefined) {
       token = await waitForStoredToken(
@@ -948,18 +1113,40 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       );
     } else {
       const servers = await readOAuthServers(oauthStatePath);
-      const found = findStoredToken(servers, options.serverUrl);
-      if (!found) {
-        const key = normalizeServerUrl(options.serverUrl);
-        const stored = Object.keys(servers);
-        throw new CliExitCodeError(
-          EXIT_CODES.AUTH_REQUIRED,
-          `No stored OAuth token for ${key} in ${oauthStatePath}. Complete the OAuth flow in the web inspector first.` +
-            (stored.length > 0 ? ` Stored keys: ${stored.join(", ")}.` : ""),
-          { code: "no_stored_token", url: options.serverUrl },
-        );
+      const stored = findStoredServerState(servers, options.serverUrl);
+      if (stored?.state.tokens?.refresh_token) {
+        const storedAccess = stored.state.tokens.access_token;
+        try {
+          token = await refreshStoredAuthToken(
+            options.serverUrl,
+            oauthStatePath,
+          );
+        } catch (err) {
+          // A failed refresh (transient auth-server hiccup, missing client
+          // info) shouldn't turn a previously-working invocation into a hard
+          // failure when a still-usable access token is also on disk — fall
+          // back to injecting it (a genuinely stale one surfaces as HTTP 401 →
+          // exit 3, the same as without a refresh token). With no stored access
+          // token to fall back on, the refresh error stands.
+          if (!storedAccess) throw err;
+          token = storedAccess;
+        }
+      } else {
+        const found = findStoredToken(servers, options.serverUrl);
+        if (!found) {
+          const key = normalizeServerUrl(options.serverUrl);
+          const storedKeys = Object.keys(servers);
+          throw new CliExitCodeError(
+            EXIT_CODES.AUTH_REQUIRED,
+            `No stored OAuth token for ${key} in ${oauthStatePath}. Complete the OAuth flow in the web inspector first.` +
+              (storedKeys.length > 0
+                ? ` Stored keys: ${storedKeys.join(", ")}.`
+                : ""),
+            { code: "no_stored_token", url: options.serverUrl },
+          );
+        }
+        token = found;
       }
-      token = found;
     }
     serverOptions.headers = {
       ...(serverOptions.headers ?? {}),

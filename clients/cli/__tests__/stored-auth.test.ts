@@ -1,10 +1,15 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:http";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { runCli } from "./helpers/cli-runner.js";
 import { expectCliFailure, expectCliSuccess } from "./helpers/assertions.js";
-import { normalizeServerUrl } from "../src/cli.js";
+import {
+  normalizeServerUrl,
+  deepLinkTransport,
+  refreshStoredAuthToken,
+} from "../src/cli.js";
 import {
   createTestServerHttp,
   createEchoTool,
@@ -33,6 +38,198 @@ describe("normalizeServerUrl", () => {
 
   it("returns the raw string when the value is not a parseable URL", () => {
     expect(normalizeServerUrl("not a url")).toBe("not a url");
+  });
+});
+
+describe("deepLinkTransport", () => {
+  it("honors an explicit sse/http transport over the URL path", () => {
+    expect(deepLinkTransport("https://x.example/mcp", "sse")).toBe("sse");
+    expect(deepLinkTransport("https://x.example/sse", "http")).toBe("http");
+  });
+
+  it("auto-detects sse from a /sse path when no transport is given", () => {
+    expect(deepLinkTransport("https://x.example/sse", undefined)).toBe("sse");
+  });
+
+  it("defaults to http for a /mcp path, an ambiguous path, or stdio", () => {
+    expect(deepLinkTransport("https://x.example/mcp", undefined)).toBe("http");
+    expect(deepLinkTransport("https://x.example/", undefined)).toBe("http");
+    expect(deepLinkTransport("https://x.example/mcp", "stdio")).toBe("http");
+  });
+
+  it("defaults to http for an unparseable URL without throwing", () => {
+    expect(deepLinkTransport("not a url", undefined)).toBe("http");
+  });
+});
+
+describe("refreshStoredAuthToken", () => {
+  const SERVER = "https://api.example/mcp";
+  const freshTokens = {
+    access_token: "refreshed-access-token",
+    token_type: "Bearer",
+    refresh_token: "rotated-refresh-token",
+    expires_in: 3600,
+  };
+
+  it("runs the refresh grant, injects the fresh token, and persists the rotation", async () => {
+    const path = writeOAuthFixture({
+      [SERVER]: {
+        tokens: { refresh_token: "old-refresh", token_type: "Bearer" },
+        clientInformation: { client_id: "cid", client_secret: "sec" },
+        serverMetadata: {
+          issuer: "https://auth.example",
+          token_endpoint: "https://auth.example/token",
+        },
+      },
+    });
+    try {
+      const refresh = vi.fn().mockResolvedValue(freshTokens);
+      const discover = vi.fn();
+      const token = await refreshStoredAuthToken(SERVER, path, {
+        refresh,
+        discover,
+      });
+      expect(token).toBe("refreshed-access-token");
+      // Stored metadata present → no discovery needed.
+      expect(discover).not.toHaveBeenCalled();
+      // Refresh called with the stored refresh token + client information.
+      expect(refresh).toHaveBeenCalledTimes(1);
+      const [, opts] = refresh.mock.calls[0]!;
+      expect(opts.refreshToken).toBe("old-refresh");
+      expect(opts.clientInformation).toEqual({
+        client_id: "cid",
+        client_secret: "sec",
+      });
+      // Rotation persisted back under the same key.
+      const persisted = JSON.parse(readFileSync(path, "utf8")) as {
+        servers: Record<string, { tokens?: { refresh_token?: string } }>;
+      };
+      expect(persisted.servers[SERVER]?.tokens?.refresh_token).toBe(
+        "rotated-refresh-token",
+      );
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("discovers the auth-server metadata when it was not persisted", async () => {
+    const path = writeOAuthFixture({
+      [SERVER]: {
+        tokens: { refresh_token: "old-refresh", token_type: "Bearer" },
+        clientInformation: { client_id: "cid" },
+      },
+    });
+    try {
+      const refresh = vi.fn().mockResolvedValue(freshTokens);
+      const discover = vi.fn().mockResolvedValue({
+        issuer: "https://api.example",
+        token_endpoint: "https://api.example/token",
+      });
+      const token = await refreshStoredAuthToken(SERVER, path, {
+        refresh,
+        discover,
+      });
+      expect(token).toBe("refreshed-access-token");
+      expect(discover).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("passes metadata=undefined to the refresh grant when discovery returns nothing", async () => {
+    const path = writeOAuthFixture({
+      [SERVER]: {
+        tokens: { refresh_token: "old-refresh", token_type: "Bearer" },
+        clientInformation: { client_id: "cid" },
+      },
+    });
+    try {
+      const refresh = vi.fn().mockResolvedValue(freshTokens);
+      const discover = vi.fn().mockResolvedValue(undefined);
+      const token = await refreshStoredAuthToken(SERVER, path, {
+        refresh,
+        discover,
+      });
+      expect(token).toBe("refreshed-access-token");
+      const [, opts] = refresh.mock.calls[0]!;
+      expect(opts.metadata).toBeUndefined();
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("uses the distinct no_client_information code when client info is missing", async () => {
+    const path = writeOAuthFixture({
+      [SERVER]: {
+        tokens: { refresh_token: "old-refresh", token_type: "Bearer" },
+      },
+    });
+    try {
+      await expect(
+        refreshStoredAuthToken(SERVER, path, { refresh: vi.fn() }),
+      ).rejects.toMatchObject({
+        exitCode: 3,
+        envelope: { code: "no_client_information" },
+      });
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("throws AUTH_REQUIRED when no refresh token is stored", async () => {
+    const path = writeOAuthFixture({
+      [SERVER]: {
+        tokens: { access_token: "only-access", token_type: "Bearer" },
+      },
+    });
+    try {
+      await expect(
+        refreshStoredAuthToken(SERVER, path, { refresh: vi.fn() }),
+      ).rejects.toMatchObject({ exitCode: 3 });
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("throws AUTH_REQUIRED when a refresh token is present but client information is missing", async () => {
+    const path = writeOAuthFixture({
+      [SERVER]: {
+        tokens: { refresh_token: "old-refresh", token_type: "Bearer" },
+      },
+    });
+    try {
+      await expect(
+        refreshStoredAuthToken(SERVER, path, { refresh: vi.fn() }),
+      ).rejects.toMatchObject({ exitCode: 3 });
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("surfaces a refresh-grant failure as AUTH_REQUIRED (refresh_failed)", async () => {
+    const path = writeOAuthFixture({
+      [SERVER]: {
+        tokens: { refresh_token: "old-refresh", token_type: "Bearer" },
+        clientInformation: { client_id: "cid" },
+        serverMetadata: {
+          issuer: "https://auth.example",
+          token_endpoint: "https://auth.example/token",
+        },
+      },
+    });
+    try {
+      const refresh = vi
+        .fn()
+        .mockRejectedValue(new Error("invalid_grant: token revoked"));
+      await expect(
+        refreshStoredAuthToken(SERVER, path, { refresh }),
+      ).rejects.toMatchObject({
+        exitCode: 3,
+        envelope: { code: "refresh_failed" },
+      });
+    } finally {
+      rmSync(path, { force: true });
+    }
   });
 });
 
@@ -197,6 +394,121 @@ describe("--use-stored-auth", () => {
     const last = server.getRecordedRequests().at(-1)!;
     expect(last.headers?.authorization).toBe(`Bearer ${TOKEN}`);
   });
+
+  it("refreshes a stored refresh_token end-to-end and injects the fresh access token (#1665)", async () => {
+    // Minimal OAuth token endpoint: honors the refresh_token grant with a
+    // rotated token pair, so the CLI's real SDK refresh path has something to
+    // talk to (the MCP test server accepts any bearer, so a successful connect
+    // proves the refreshed token was injected).
+    let tokenRequests = 0;
+    const tokenServer: Server = createServer((req, res) => {
+      tokenRequests += 1;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          access_token: "refreshed-access-token",
+          token_type: "Bearer",
+          refresh_token: "rotated-refresh-token",
+          expires_in: 3600,
+        }),
+      );
+    });
+    await new Promise<void>((resolve) => tokenServer.listen(0, resolve));
+    const addr = tokenServer.address();
+    const tokenBase =
+      typeof addr === "object" && addr ? `http://127.0.0.1:${addr.port}` : "";
+    const fixture = writeOAuthFixture({
+      [serverUrl]: {
+        tokens: { refresh_token: "old-refresh", token_type: "Bearer" },
+        clientInformation: { client_id: "cid", client_secret: "sec" },
+        serverMetadata: {
+          issuer: tokenBase,
+          token_endpoint: `${tokenBase}/token`,
+          response_types_supported: ["code"],
+          grant_types_supported: ["authorization_code", "refresh_token"],
+          token_endpoint_auth_methods_supported: ["client_secret_post"],
+        },
+      },
+    });
+    try {
+      const result = await runCli(
+        [
+          "--transport",
+          "http",
+          "--server-url",
+          serverUrl,
+          "--use-stored-auth",
+          "--method",
+          "tools/list",
+        ],
+        { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: fixture } },
+      );
+      expectCliSuccess(result);
+      expect(tokenRequests).toBeGreaterThan(0);
+      const last = server.getRecordedRequests().at(-1)!;
+      expect(last.headers?.authorization).toBe("Bearer refreshed-access-token");
+      // Rotation persisted so a subsequent run reuses the new refresh token.
+      const persisted = JSON.parse(readFileSync(fixture, "utf8")) as {
+        servers: Record<string, { tokens?: { refresh_token?: string } }>;
+      };
+      expect(persisted.servers[serverUrl]?.tokens?.refresh_token).toBe(
+        "rotated-refresh-token",
+      );
+    } finally {
+      rmSync(fixture, { force: true });
+      await new Promise<void>((resolve) => tokenServer.close(() => resolve()));
+    }
+  });
+
+  it("falls back to the stored access token when the refresh grant fails (#1665 review #1)", async () => {
+    // Token endpoint that rejects the refresh grant, so the CLI must fall back
+    // to the still-present stored access token instead of hard-failing.
+    const tokenServer: Server = createServer((_req, res) => {
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "invalid_grant" }));
+    });
+    await new Promise<void>((resolve) => tokenServer.listen(0, resolve));
+    const addr = tokenServer.address();
+    const tokenBase =
+      typeof addr === "object" && addr ? `http://127.0.0.1:${addr.port}` : "";
+    const fixture = writeOAuthFixture({
+      [serverUrl]: {
+        tokens: {
+          access_token: "still-usable-access",
+          refresh_token: "old-refresh",
+          token_type: "Bearer",
+        },
+        clientInformation: { client_id: "cid", client_secret: "sec" },
+        serverMetadata: {
+          issuer: tokenBase,
+          token_endpoint: `${tokenBase}/token`,
+          response_types_supported: ["code"],
+          grant_types_supported: ["authorization_code", "refresh_token"],
+          token_endpoint_auth_methods_supported: ["client_secret_post"],
+        },
+      },
+    });
+    try {
+      const result = await runCli(
+        [
+          "--transport",
+          "http",
+          "--server-url",
+          serverUrl,
+          "--use-stored-auth",
+          "--method",
+          "tools/list",
+        ],
+        { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: fixture } },
+      );
+      expectCliSuccess(result);
+      const last = server.getRecordedRequests().at(-1)!;
+      expect(last.headers?.authorization).toBe("Bearer still-usable-access");
+    } finally {
+      rmSync(fixture, { force: true });
+      await new Promise<void>((resolve) => tokenServer.close(() => resolve()));
+    }
+  });
 });
 
 describe("--list-stored-auth", () => {
@@ -258,12 +570,41 @@ describe("--print-handoff", () => {
     expect(out.serverUrl).toBe("https://x.example/mcp");
     expect(out.deepLink).toContain("autoConnect=tok123");
     expect(out.deepLink).toContain("serverUrl=https%3A%2F%2Fx.example%2Fmcp");
+    // Canonical #1576 deep-link: a `/mcp` server hands off `transport=http`.
+    expect(out.deepLink).toContain("transport=http");
     expect(out.portForwardCmd).toContain("--tcp 16274:16274");
     expect(out.portForwardCmd).toContain("--tcp 16275:16275");
     expect(out.oauthStatePath).toBe(
       join("/tmp/inspector-storage", "oauth.json"),
     );
     expect(out.apiToken).toBe("tok123");
+  });
+
+  it("derives transport=sse for an SSE server (auto-detected from the /sse path)", async () => {
+    const result = await runCli(
+      ["--print-handoff", "--server-url", "https://x.example/sse"],
+      { env: { MCP_INSPECTOR_API_TOKEN: "tok123" } },
+    );
+    expectCliSuccess(result);
+    const out = JSON.parse(result.stdout) as { deepLink: string };
+    expect(out.deepLink).toContain("transport=sse");
+    expect(out.deepLink).not.toContain("transport=http");
+  });
+
+  it("honors an explicit --transport sse over the URL path", async () => {
+    const result = await runCli(
+      [
+        "--print-handoff",
+        "--server-url",
+        "https://x.example/mcp",
+        "--transport",
+        "sse",
+      ],
+      { env: { MCP_INSPECTOR_API_TOKEN: "tok123" } },
+    );
+    expectCliSuccess(result);
+    const out = JSON.parse(result.stdout) as { deepLink: string };
+    expect(out.deepLink).toContain("transport=sse");
   });
 
   it("includes a note when MCP_INSPECTOR_API_TOKEN is unset", async () => {

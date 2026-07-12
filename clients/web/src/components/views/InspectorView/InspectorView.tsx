@@ -6,6 +6,7 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
+import type { DeepLink, DeepLinkParseStatus } from "../../../utils/deepLink";
 import {
   AppShell,
   Flex,
@@ -88,6 +89,7 @@ import { MonitoringScreen } from "../../groups/MonitoringScreen/MonitoringScreen
 import { ResizeHandle } from "../../elements/ResizeHandle/ResizeHandle";
 import { getServerType } from "@inspector/core/mcp/config.js";
 import { INSPECTOR_SERVERS_TAB } from "../../../utils/inspectorTabs";
+import { collectSchemaDefaults } from "../../../utils/jsonUtils";
 import { MONITOR_COLUMN_ANIM_MS } from "./monitorColumnAnimation";
 
 const SORT_DEFAULT: SortDirection = "newest-first";
@@ -304,6 +306,21 @@ const MonitorColumnGroup = Group.withProps({
 });
 
 export interface InspectorViewProps {
+  /**
+   * Validated deep-link parameters from the page URL. When present and
+   * `openApp` is set, the parent switches to the Apps tab and pre-selects that
+   * app (with `appArgs` as the form values) once the connection is up and the
+   * app list contains it. The connect itself is driven by the parent.
+   */
+  deepLink?: DeepLink;
+  /**
+   * Outcome of parsing the initial-URL deep link, surfaced as `data-deeplink`
+   * on the `connection-status` testid. Distinguishes "no deep link" from
+   * "rejected" (token mismatch / bad serverUrl) — both leave `data-status`
+   * idle, so an automated driver otherwise cannot tell them apart.
+   */
+  deepLinkStatus?: DeepLinkParseStatus;
+
   // Server list (static config; runtime connection state comes from the
   // separate fields below and is merged into each card by this component).
   servers: ServerEntry[];
@@ -324,6 +341,13 @@ export interface InspectorViewProps {
    */
   erroredServerId?: string;
   connectionStatus: ConnectionStatus;
+  /**
+   * Last connection-level error message (handshake failure, OAuth start
+   * failure, deep-link automation failure). Surfaced as `data-error-message`
+   * on the header's `connection-status` testid so an automated driver can read
+   * *why* a connect failed without scraping a transient toast.
+   */
+  connectErrorMessage?: string;
   initializeResult?: InitializeResult;
   latencyMs?: number;
 
@@ -497,11 +521,14 @@ export interface InspectorViewProps {
 }
 
 export function InspectorView({
+  deepLink,
+  deepLinkStatus,
   servers: serversInput,
   serverListWritable = true,
   activeServer,
   erroredServerId,
   connectionStatus,
+  connectErrorMessage,
   initializeResult,
   latencyMs,
   tools,
@@ -841,6 +868,55 @@ export function InspectorView({
       ? firstNonServersTab
       : SERVERS_TAB;
 
+  // Deep-link auto-open (#1577): once connected and the requested app appears in
+  // the app-tools list, switch to the Apps tab and pre-select it with the
+  // supplied form values. The `autoOpen` flag is forwarded to AppsScreen (which
+  // owns the running/iframe state) to fire the actual "Open App" — see its
+  // `autoOpen` prop. Guarded by a ref so it fires exactly once even though the
+  // effect re-runs as `appTools`/`availableTabs` settle.
+  const deepLinkOpenAppRef = useRef(false);
+  useEffect(() => {
+    if (!deepLink?.openApp) return;
+    if (deepLinkOpenAppRef.current) return;
+    if (connectionStatus !== "connected") return;
+    if (!availableTabs.includes("Apps")) return;
+    const target = appTools.find((t) => t.name === deepLink.openApp);
+    if (!target) return;
+    deepLinkOpenAppRef.current = true;
+    // Seed the schema's defaults THEN overlay the deep-link's appArgs. Without
+    // the defaults, a required field the form would display with its default
+    // value is absent from `formValues`, the schema-form's validity check
+    // fails, and Open App is silently disabled — an automated driver's click
+    // then no-ops and the iframe-wait spins forever.
+    const formValues = {
+      ...collectSchemaDefaults(target.inputSchema),
+      ...deepLink.appArgs,
+    };
+    // Seed the selection directly rather than routing through
+    // AppsScreen.handleSelect. This deliberately bypasses handleSelect's
+    // no-input-app auto-launch: a deep link must never invoke a tool against
+    // the target server unless the token-gated `autoOpen` is set — even a
+    // no-input app waits for that explicit signal (or a manual "Open App"
+    // click), matching the security stance that a crafted URL alone can't fire
+    // a tool call.
+    onActiveTabChange("Apps");
+    onAppsUiChange({
+      ...appsUi,
+      selectedAppName: target.name,
+      formValues,
+    });
+    onSelectApp(target.name);
+  }, [
+    deepLink,
+    connectionStatus,
+    availableTabs,
+    appTools,
+    appsUi,
+    onActiveTabChange,
+    onAppsUiChange,
+    onSelectApp,
+  ]);
+
   // The monitor tab shown in the column, clamped to what's available (e.g. a
   // switch to a stdio server drops Network). `?? LOGS_TAB` is a types-only
   // fallback: the column only renders while `monitorAvailable.length > 0`.
@@ -1037,7 +1113,12 @@ export function InspectorView({
     // Main-slot height clamp + overflow:hidden keep that scroll on the inner
     // ScrollArea regions only.
     <AppShell header={{ height: 60 }} padding={0}>
-      <AppShell.Header>
+      <AppShell.Header
+        data-testid="connection-status"
+        data-status={connectionStatus}
+        data-error-message={connectErrorMessage}
+        data-deeplink={deepLinkStatus}
+      >
         {connectionStatus === "connected" && initializeResult ? (
           <ViewHeader
             connected
@@ -1116,6 +1197,7 @@ export function InspectorView({
                 onOpenApp={onOpenApp}
                 onCloseApp={onCloseApp}
                 onError={onAppError}
+                autoOpen={Boolean(deepLink?.openApp && deepLink.autoOpen)}
               />
             </ScreenStage>
             <ScreenStage active={activeTab === "Prompts"}>

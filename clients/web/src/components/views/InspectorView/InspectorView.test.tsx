@@ -259,6 +259,42 @@ describe("InspectorView", () => {
     expect(onToggleConnection).toHaveBeenCalledWith("alpha");
   });
 
+  it("exposes the machine-readable connection-status header attributes for drivers", () => {
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          servers: [sampleServer],
+          connectionStatus: "error",
+          connectErrorMessage: "handshake failed: 500",
+          deepLinkStatus: "rejected",
+        })}
+      />,
+    );
+    const header = screen.getByTestId("connection-status");
+    expect(header).toHaveAttribute("data-status", "error");
+    expect(header).toHaveAttribute(
+      "data-error-message",
+      "handshake failed: 500",
+    );
+    expect(header).toHaveAttribute("data-deeplink", "rejected");
+  });
+
+  it("omits the error-message attribute when no connect error is recorded", () => {
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          servers: [sampleServer],
+          connectionStatus: "disconnected",
+          deepLinkStatus: "none",
+        })}
+      />,
+    );
+    const header = screen.getByTestId("connection-status");
+    expect(header).toHaveAttribute("data-status", "disconnected");
+    expect(header).not.toHaveAttribute("data-error-message");
+    expect(header).toHaveAttribute("data-deeplink", "none");
+  });
+
   it("renders the connected header when connectionStatus + initializeResult are set", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
@@ -651,6 +687,104 @@ describe("InspectorView", () => {
       radios = await screen.findAllByRole("radio");
       expect(radios.map((r) => r.getAttribute("value"))).toContain("Apps");
     });
+  });
+
+  it("deep-link openApp auto-switches to the Apps tab and pre-selects the app once connected", async () => {
+    const onSelectApp = vi.fn();
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tools: [sampleAppTool],
+          onSelectApp,
+          deepLink: {
+            serverId: "deep-link",
+            serverConfig: {
+              type: "streamable-http",
+              url: "https://example.com/mcp",
+            },
+            openApp: "ops",
+            appArgs: {},
+            autoOpen: false,
+          },
+        })}
+      />,
+    );
+    // No click: the effect flips the lifted tab to Apps and seeds the selection.
+    expect(await screen.findByText("MCP Apps (1)")).toBeInTheDocument();
+    await waitFor(() => expect(onSelectApp).toHaveBeenCalledWith("ops"));
+  });
+
+  it("deep-link appArgs are merged over the schema defaults into the pre-filled form", async () => {
+    const fieldedAppTool: Tool = {
+      name: "cohorts",
+      title: "Cohort Data",
+      inputSchema: {
+        type: "object",
+        properties: {
+          metric: { type: "string", default: "retention" },
+          zip: { type: "string" },
+        },
+      },
+      _meta: { ui: { resourceUri: "ui://apps/cohorts" } },
+    };
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tools: [fieldedAppTool],
+          deepLink: {
+            serverId: "deep-link",
+            serverConfig: {
+              type: "streamable-http",
+              url: "https://example.com/mcp",
+            },
+            openApp: "cohorts",
+            // Overrides no default (zip), leaving `metric`'s schema default intact.
+            appArgs: { zip: "10001" },
+            autoOpen: false,
+          },
+        })}
+      />,
+    );
+    // The form is pre-filled: `zip` from appArgs, `metric` from the schema default.
+    expect(await screen.findByDisplayValue("10001")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("retention")).toBeInTheDocument();
+  });
+
+  it("ignores a deep-link openApp whose tool is not an app (no tab switch)", async () => {
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: connectedInit,
+          tools: [sampleAppTool],
+          deepLink: {
+            serverId: "deep-link",
+            serverConfig: {
+              type: "streamable-http",
+              url: "https://example.com/mcp",
+            },
+            openApp: "does-not-exist",
+            appArgs: {},
+            autoOpen: false,
+          },
+        })}
+      />,
+    );
+    // The target app never appears, so the effect never switches tabs: the
+    // Apps screen is never activated even though the Apps tab is available.
+    const radios = await screen.findAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("value"))).toContain("Apps");
+    expect(screen.queryByText("MCP Apps (1)")).not.toBeInTheDocument();
   });
 
   it("snaps activeTab back to Servers when the Apps tab disappears after a refresh", async () => {
