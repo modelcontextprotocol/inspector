@@ -89,6 +89,7 @@ import { MonitoringScreen } from "../../groups/MonitoringScreen/MonitoringScreen
 import { ResizeHandle } from "../../elements/ResizeHandle/ResizeHandle";
 import { getServerType } from "@inspector/core/mcp/config.js";
 import { INSPECTOR_SERVERS_TAB } from "../../../utils/inspectorTabs";
+import { collectSchemaDefaults } from "../../../utils/jsonUtils";
 import { MONITOR_COLUMN_ANIM_MS } from "./monitorColumnAnimation";
 
 const SORT_DEFAULT: SortDirection = "newest-first";
@@ -520,6 +521,7 @@ export interface InspectorViewProps {
 }
 
 export function InspectorView({
+  deepLink,
   deepLinkStatus,
   servers: serversInput,
   serverListWritable = true,
@@ -866,6 +868,48 @@ export function InspectorView({
       ? firstNonServersTab
       : SERVERS_TAB;
 
+  // Deep-link auto-open (#1577): once connected and the requested app appears in
+  // the app-tools list, switch to the Apps tab and pre-select it with the
+  // supplied form values. The `autoOpen` flag is forwarded to AppsScreen (which
+  // owns the running/iframe state) to fire the actual "Open App" — see its
+  // `autoOpen` prop. Guarded by a ref so it fires exactly once even though the
+  // effect re-runs as `appTools`/`availableTabs` settle.
+  const deepLinkOpenAppRef = useRef(false);
+  useEffect(() => {
+    if (!deepLink?.openApp) return;
+    if (deepLinkOpenAppRef.current) return;
+    if (connectionStatus !== "connected") return;
+    if (!availableTabs.includes("Apps")) return;
+    const target = appTools.find((t) => t.name === deepLink.openApp);
+    if (!target) return;
+    deepLinkOpenAppRef.current = true;
+    // Seed the schema's defaults THEN overlay the deep-link's appArgs. Without
+    // the defaults, a required field the form would display with its default
+    // value is absent from `formValues`, the schema-form's validity check
+    // fails, and Open App is silently disabled — an automated driver's click
+    // then no-ops and the iframe-wait spins forever.
+    const formValues = {
+      ...collectSchemaDefaults(target.inputSchema),
+      ...deepLink.appArgs,
+    };
+    onActiveTabChange("Apps");
+    onAppsUiChange({
+      ...appsUi,
+      selectedAppName: target.name,
+      formValues,
+    });
+    onSelectApp(target.name);
+  }, [
+    deepLink,
+    connectionStatus,
+    availableTabs,
+    appTools,
+    appsUi,
+    onActiveTabChange,
+    onAppsUiChange,
+    onSelectApp,
+  ]);
+
   // The monitor tab shown in the column, clamped to what's available (e.g. a
   // switch to a stdio server drops Network). `?? LOGS_TAB` is a types-only
   // fallback: the column only renders while `monitorAvailable.length > 0`.
@@ -1146,6 +1190,7 @@ export function InspectorView({
                 onOpenApp={onOpenApp}
                 onCloseApp={onCloseApp}
                 onError={onAppError}
+                autoOpen={Boolean(deepLink?.openApp && deepLink.autoOpen)}
               />
             </ScreenStage>
             <ScreenStage active={activeTab === "Prompts"}>

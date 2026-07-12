@@ -1,4 +1,4 @@
-import { useRef, useState, type Ref } from "react";
+import { useCallback, useEffect, useRef, useState, type Ref } from "react";
 import {
   ActionIcon,
   Button,
@@ -64,6 +64,14 @@ export interface AppsScreenProps {
   onCloseApp: () => void;
   /** Surfaces bridge/runtime failures from the renderer (e.g. no client). */
   onError?: (err: Error) => void;
+  /**
+   * Deep-link auto-open (#1577): when true and an app is already pre-selected
+   * (the parent seeds `ui.selectedAppName` + `ui.formValues` from the URL),
+   * the screen fires "Open App" automatically — no explicit click. Token-gated
+   * upstream in `parseDeepLink` (the URL value must equal the session token),
+   * so a third-party link cannot auto-invoke a tool. Fires exactly once.
+   */
+  autoOpen?: boolean;
 }
 
 // Selected app, its form values, and the sidebar search — controlled by the
@@ -333,6 +341,7 @@ export function AppsScreen({
   onOpenApp,
   onCloseApp,
   onError,
+  autoOpen = false,
 }: AppsScreenProps) {
   const { selectedAppName, formValues, search } = ui;
   const [running, setRunning] = useState(false);
@@ -415,8 +424,9 @@ export function AppsScreen({
   // Clear the message + log panels (and the reported height). Called when a run
   // ends or the selected app changes so a new run starts clean. `keepPartials`
   // is set for `handleOpen`, where the staged fragments are about to be consumed
-  // by the renderer and must not be cleared first.
-  function resetAppChannels(opts?: { keepPartials?: boolean }) {
+  // by the renderer and must not be cleared first. Memoized (stable setState
+  // calls only) so the deep-link auto-open effect's deps don't churn.
+  const resetAppChannels = useCallback((opts?: { keepPartials?: boolean }) => {
     setAppHeight(undefined);
     setMessages([]);
     setAppLogs([]);
@@ -424,7 +434,7 @@ export function AppsScreen({
     setAppStatus("idle");
     setAppError(undefined);
     if (!opts?.keepPartials) setPartialStages([]);
-  }
+  }, []);
 
   // Capture the error locally (so it can be shown in the card and surfaced as
   // `data-app-error`) and forward it to the parent's onError. The renderer
@@ -499,6 +509,36 @@ export function AppsScreen({
     resetAppChannels();
     onCloseApp();
   }
+
+  // Deep-link auto-open (#1577): the parent seeds `ui.selectedAppName` +
+  // `ui.formValues` from the URL and sets `autoOpen`; fire "Open App" here so
+  // the driver lands on a rendered widget with zero clicks. Ref-guarded to fire
+  // exactly once — a later manual close leaves `running` false without
+  // re-triggering. The open (running + channel resets + `onOpenApp`) is
+  // deferred one microtask past the synchronous effect body: it calls setState,
+  // which the set-state-in-effect lint rightly flags in general, but this is a
+  // ref-guarded run-once effect so the cascading-render concern doesn't apply
+  // (same pattern as App.tsx's deep-link connect effect). `resetAppChannels`
+  // changes identity each render, so the effect re-runs, but the ref guard
+  // makes every run after the first a no-op.
+  const autoOpenFiredRef = useRef(false);
+  useEffect(() => {
+    if (!autoOpen || autoOpenFiredRef.current) return;
+    if (!selectedTool || running) return;
+    autoOpenFiredRef.current = true;
+    void Promise.resolve().then(() => {
+      resetAppChannels({ keepPartials: true });
+      setRunning(true);
+      onOpenApp(selectedTool.name, formValues);
+    });
+  }, [
+    autoOpen,
+    selectedTool,
+    running,
+    formValues,
+    onOpenApp,
+    resetAppChannels,
+  ]);
 
   function handleBackToInput() {
     setRunning(false);
