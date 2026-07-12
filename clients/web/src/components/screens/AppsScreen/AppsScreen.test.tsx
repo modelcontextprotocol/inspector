@@ -274,6 +274,40 @@ describe("AppsScreen", () => {
     expect(screen.getByTitle("Ops Dashboard")).toBeInTheDocument();
   });
 
+  it("auto-opens the pre-selected app with its seeded form values when autoOpen is set (deep-link)", async () => {
+    const onOpenApp = vi.fn();
+    renderWithMantine(
+      <ControlledAppsScreen
+        autoOpen
+        ui={{
+          selectedAppName: "weather",
+          formValues: { city: "Reykjavik" },
+          search: "",
+        }}
+        onOpenApp={onOpenApp}
+      />,
+    );
+    // No click: the fire-once effect opens the seeded app with its form values.
+    await vi.waitFor(() =>
+      expect(onOpenApp).toHaveBeenCalledWith("weather", { city: "Reykjavik" }),
+    );
+    expect(onOpenApp).toHaveBeenCalledTimes(1);
+    // Renderer mounted; the Open App button is gone.
+    expect(
+      screen.queryByRole("button", { name: /Open App/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTitle("Weather Widget")).toBeInTheDocument();
+  });
+
+  it("does not auto-open when autoOpen is set but no app is pre-selected", async () => {
+    const onOpenApp = vi.fn();
+    renderWithMantine(<ControlledAppsScreen autoOpen onOpenApp={onOpenApp} />);
+    // Give the effect a chance to run; with no selection it must stay idle.
+    await Promise.resolve();
+    expect(onOpenApp).not.toHaveBeenCalled();
+    expect(screen.getByText("Select an app to view details")).toBeVisible();
+  });
+
   it("invokes onOpenApp with form values when Open App is clicked", async () => {
     const user = userEvent.setup();
     const onOpenApp = vi.fn();

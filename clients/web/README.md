@@ -94,7 +94,21 @@ The deep link upserts a stable `deep-link` catalog row (so a reload reconnects t
 | `data-error-message` | on `connection-status` | Why the last connect failed (handshake error, OAuth-start failure, deep-link automation failure); absent when there is no error. |
 | `data-deeplink` | on `connection-status` | `parsed` (a valid deep link drove this load), `rejected` (deep-link params present but the token/serverUrl gate failed), or `none`. Lets a driver distinguish "no deep link" from "rejected" — both otherwise leave `data-status` idle. |
 
-The `openApp` / `appArgs` / `autoOpen` params extend this to land on a rendered MCP App; see the [MCP Apps screen automation contract](#mcp-apps-screen-automation-contract) above for the app-side `data-*` signals.
+### Landing on a rendered app
+
+Three further params extend the deep link to pre-select — and optionally auto-open — an MCP App, so a driver reaches a rendered widget with zero clicks:
+
+```
+…&openApp=<toolName>&appArgs=<base64url(JSON)>&autoOpen=<token>
+```
+
+| Param | Meaning |
+| --- | --- |
+| `openApp` | The app-tool name. Once the connection is up and the tool appears in the app list, the inspector switches to the Apps tab and pre-selects it. |
+| `appArgs` | `base64url(JSON)` object of form values. Merged **over** the tool's schema defaults (`collectSchemaDefaults`) so a required-with-default field isn't left blank — which would otherwise disable "Open App". Malformed / non-object values fall back to `{}`. |
+| `autoOpen` | **Same CSRF gate as `autoConnect`** — must equal the session token. When set, "Open App" fires automatically (a tool call from a URL), so the token gate is mandatory. Without a match the app is pre-selected but not opened. |
+
+The app-side render lifecycle is observable through the [MCP Apps screen automation contract](#mcp-apps-screen-automation-contract) above (`data-app-status="ready"`), so a driver can `waitForSelector` the whole `connect → open → ready` chain deterministically.
 
 ## Theme (`src/theme/`)
 
