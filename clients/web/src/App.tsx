@@ -1381,6 +1381,7 @@ function App() {
     return [parsed, deepLinkParseStatus(search, parsed)];
   }, []);
   const deepLinkEnsureRef = useRef(false);
+  const deepLinkUpdateRef = useRef(false);
   const deepLinkConnectRef = useRef(false);
 
   const showReAuthBanner = useCallback(
@@ -2518,15 +2519,20 @@ function App() {
   }, [inspectorClient, finalizeExplicitDisconnect]);
 
   // Deep-link auto-connect (the URL-driven case of #1183). `useServers`
-  // hydrates asynchronously (initial `servers` is `[]`), so this effect runs
-  // in two phases: first render attempts a one-shot `addServer` (a 409 means
-  // the row already exists on disk and hydration will surface it); a later
-  // render where `servers` actually contains the deep-link row then updates the
-  // URL if it has changed and connects. Connecting in the same closure as
-  // `addServer` would resolve against a stale (empty) `servers` and silently
-  // no-op. The OAuth callback path takes precedence; a deep link on
-  // `/oauth/callback` would be a misconfiguration, and the callback handler
-  // clears the URL.
+  // hydrates asynchronously (initial `servers` is `[]`), so this effect runs in
+  // discrete phases keyed on what `servers` currently reflects, one per render:
+  //   1. ensure — no row yet: one-shot `addServer`.
+  //   2. update — row present but its persisted config differs from the deep
+  //      link (a stale transport/url from an earlier load under the stable
+  //      `deep-link` id): `updateServer`, then return so the effect re-runs.
+  //   3. connect — row present AND its config already matches: connect.
+  // Splitting update and connect across renders (rather than awaiting both in
+  // one closure) is what makes the connect correct: `onToggleConnection` reads
+  // the target from `serversRef`, which an earlier passive effect syncs from
+  // `servers` — so connecting only once `servers` reflects the updated config
+  // guarantees the client is built from the fresh transport, not the stale one.
+  // The OAuth callback path takes precedence; a deep link on `/oauth/callback`
+  // would be a misconfiguration, and the callback handler clears the URL.
   useEffect(() => {
     if (!deepLink) return;
     if (window.location.pathname === OAUTH_CALLBACK_PATH) return;
@@ -2535,33 +2541,42 @@ function App() {
     if (!existing) {
       if (deepLinkEnsureRef.current) return;
       deepLinkEnsureRef.current = true;
-      void addServer(deepLink.serverId, deepLink.serverConfig).catch(() => {
-        // 409 = already on disk; hydration will surface it on a later render.
+      void addServer(deepLink.serverId, deepLink.serverConfig).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        // A 409 ("already exists") means the row is on disk and hydration will
+        // surface it on a later render, so the connect phase still proceeds —
+        // swallow it. Any other failure (read-only catalog, backend 5xx) would
+        // otherwise leave the deep link permanently stuck at this guard with no
+        // signal, so record it on the machine-readable error surface.
+        if (!message.includes("already exists")) recordConnectError(message);
+      });
+      return;
+    }
+
+    if (!deepLinkConfigEquals(existing.config, deepLink.serverConfig)) {
+      if (deepLinkUpdateRef.current) return;
+      deepLinkUpdateRef.current = true;
+      void updateServer(
+        deepLink.serverId,
+        deepLink.serverId,
+        deepLink.serverConfig,
+      ).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        recordConnectError(message);
       });
       return;
     }
 
     if (deepLinkConnectRef.current) return;
     deepLinkConnectRef.current = true;
-    void (async () => {
-      if (!deepLinkConfigEquals(existing.config, deepLink.serverConfig)) {
-        await updateServer(
-          deepLink.serverId,
-          deepLink.serverId,
-          deepLink.serverConfig,
-        );
-      }
-      if (activeServerId !== deepLink.serverId) {
-        await onToggleConnection(deepLink.serverId);
-      }
-    })().catch((err) => {
-      // Surface deep-link automation failures (updateServer 5xx, connect throw)
-      // on the machine-readable error attribute instead of dropping them. The
-      // toast still fires from inside `onToggleConnection` for the common
-      // cases; this catch covers the rest.
-      const message = err instanceof Error ? err.message : String(err);
-      recordConnectError(message);
-    });
+    if (activeServerId !== deepLink.serverId) {
+      void onToggleConnection(deepLink.serverId).catch((err) => {
+        // The toast fires from inside `onToggleConnection` for the common
+        // cases; this catch covers the rest (surfaced on `data-error-message`).
+        const message = err instanceof Error ? err.message : String(err);
+        recordConnectError(message);
+      });
+    }
   }, [
     deepLink,
     servers,
