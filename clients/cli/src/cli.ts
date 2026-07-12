@@ -6,6 +6,10 @@ import type {
   MCPServerConfig,
   InspectorClientEnvironment,
 } from "@inspector/core/mcp/types.js";
+import {
+  DEFAULT_MAX_FETCH_REQUESTS,
+  DEFAULT_TASK_TTL_MS,
+} from "@inspector/core/mcp/types.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import {
   ManagedToolsState,
@@ -21,6 +25,11 @@ import {
   parseHeaderPair,
 } from "@inspector/core/mcp/node/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
+import { extractAppInfo } from "@inspector/core/mcp/apps.js";
+import type { AppInfo } from "@inspector/core/mcp/apps.js";
+import { getStateFilePath } from "@inspector/core/auth/node/storage-node.js";
+import { parseOAuthPersistBlob } from "@inspector/core/auth/oauth-persist.js";
+import { CliExitCodeError, EXIT_CODES } from "./error-handler.js";
 import {
   ConsoleNavigation,
   MutableRedirectUrlProvider,
@@ -56,6 +65,16 @@ export const validLogLevels: LoggingLevel[] = Object.values(
 /** Client identity name the CLI reports to servers. */
 const CLI_CLIENT_NAME = "inspector-cli";
 
+/**
+ * Default connect timeout (ms) for ad-hoc server invocations. Without this an
+ * unreachable server (e.g. a partner edge that drops the SYN) hangs the CLI
+ * indefinitely; the value is generous enough for cold-start OAuth discovery
+ * round-trips while still failing fast on a black-holed host.
+ */
+export const DEFAULT_CONNECT_TIMEOUT_MS = 15000;
+
+type OutputFormat = "text" | "json";
+
 type MethodArgs = {
   method?: string;
   promptName?: string;
@@ -66,7 +85,26 @@ type MethodArgs = {
   toolArg?: Record<string, JsonValue>;
   toolMeta?: Record<string, string>;
   metadata?: Record<string, string>;
+  appInfo?: boolean;
+  format?: OutputFormat;
 };
+
+/**
+ * {@link AppInfo} plus a CLI-only `resourceError` so a `resources/read` failure
+ * during the probe is reported instead of being silently swallowed (which would
+ * make "no CSP declared" indistinguishable from "resource unreadable").
+ */
+export type CliAppInfo = AppInfo & { resourceError?: string };
+
+/**
+ * Discriminated outcome from {@link callMethod}'s per-method runner. Most
+ * methods return a `result` (with optional collected `appInfo`) for
+ * {@link emitResult} to format; the `tools/list --app-info` NDJSON path writes
+ * its lines itself and reports `emitted` so the caller skips a second write.
+ */
+type MethodOutcome =
+  | { kind: "result"; result: McpResponse; appInfo?: CliAppInfo }
+  | { kind: "emitted" };
 
 async function callMethod(
   serverConfig: MCPServerConfig,
@@ -120,8 +158,9 @@ async function callMethod(
     null;
   let managedPromptsState: ManagedPromptsState | null = null;
 
-  const runMethod = async (): Promise<McpResponse> => {
+  const runMethod = async (): Promise<MethodOutcome> => {
     let result: McpResponse;
+    let appInfo: CliAppInfo | undefined;
 
     if (args.method === "tools/list" || args.method === "tools/call") {
       managedToolsState = new ManagedToolsState(inspectorClient);
@@ -146,7 +185,26 @@ async function callMethod(
     }
 
     if (args.method === "tools/list") {
-      result = { tools: managedToolsState!.getTools() };
+      const tools = managedToolsState!.getTools();
+      if (args.appInfo) {
+        // NDJSON: one app-info line per tool, all on a single connection. A
+        // caller that wants only the App tools can `| jq -c 'select(.hasApp)'`.
+        // collectAppInfo never throws — a tool with a malformed `_meta.ui`
+        // surfaces as `{hasApp:false, resourceError}` — so one bad tool can't
+        // abort the whole listing. Emitted verbatim as NDJSON regardless of
+        // --format (the list-probe shape is fixed; --format json only reshapes
+        // the single-result paths).
+        for (const tool of tools) {
+          const info = await collectAppInfo(
+            inspectorClient,
+            tool,
+            args.metadata,
+          );
+          await awaitableLog(JSON.stringify(info) + "\n");
+        }
+        return { kind: "emitted" };
+      }
+      result = { tools };
     } else if (args.method === "tools/call") {
       if (!args.toolName) {
         throw new Error(
@@ -158,15 +216,28 @@ async function callMethod(
         .getTools()
         .find((t) => t.name === args.toolName);
       if (!tool) {
-        result = {
-          content: [
-            {
-              type: "text" as const,
-              text: `Tool '${args.toolName}' not found.`,
-            },
-          ],
-          isError: true,
-        };
+        // Distinct from `isError:true` and (for --app-info) from "tool has no
+        // app": the named tool does not exist on the server. Exit TOOL_ERROR
+        // with `code: "tool_not_found"` so a caller can tell a typo/rename
+        // apart from a real tool failure or a no-app probe result.
+        throw new CliExitCodeError(
+          EXIT_CODES.TOOL_ERROR,
+          `Tool '${args.toolName}' not found on server.`,
+          { code: "tool_not_found" },
+        );
+      }
+
+      // Only collect app-info when the caller asked for it (`--app-info` or
+      // `--format json`); a plain text-mode `tools/call` shouldn't fail just
+      // because the tool's `_meta.ui.resourceUri` is malformed or its resource
+      // is unreadable.
+      if (args.appInfo || args.format === "json") {
+        appInfo = await collectAppInfo(inspectorClient, tool, args.metadata);
+      }
+      if (args.appInfo) {
+        // --app-info: probe-only — emit the app metadata and skip the tool
+        // call entirely. The no-app exit code is handled in emitResult.
+        result = { ...appInfo };
       } else {
         const invocation = await inspectorClient.callTool(
           tool,
@@ -229,6 +300,16 @@ async function callMethod(
         args.metadata,
       );
       result = invocation.result;
+    } else if (args.method === "initialize") {
+      // Connect-only probe: emit the cached InitializeResult fields so a
+      // caller can read serverInfo / protocolVersion / capabilities /
+      // instructions without picking a list method.
+      result = {
+        serverInfo: inspectorClient.getServerInfo(),
+        protocolVersion: inspectorClient.getProtocolVersion(),
+        capabilities: inspectorClient.getCapabilities(),
+        instructions: inspectorClient.getInstructions(),
+      };
     } else if (args.method === "logging/setLevel") {
       if (!args.logLevel) {
         throw new Error(
@@ -240,11 +321,11 @@ async function callMethod(
       result = {};
     } else {
       throw new Error(
-        `Unsupported method: ${args.method}. Supported methods include: tools/list, tools/call, resources/list, resources/read, resources/templates/list, prompts/list, prompts/get, logging/setLevel`,
+        `Unsupported method: ${args.method}. Supported methods include: initialize, tools/list, tools/call, resources/list, resources/read, resources/templates/list, prompts/list, prompts/get, logging/setLevel`,
       );
     }
 
-    return result;
+    return { kind: "result", result, appInfo };
   };
 
   try {
@@ -256,7 +337,7 @@ async function callMethod(
       serverSettings,
     );
 
-    const result = await withCliAuthRecoveryRetry(
+    const outcome = await withCliAuthRecoveryRetry(
       inspectorClient,
       redirectUrlProvider,
       callbackUrlConfig,
@@ -264,7 +345,11 @@ async function callMethod(
       runMethod,
     );
 
-    await awaitableLog(JSON.stringify(result, null, 2));
+    // The NDJSON `tools/list --app-info` path already wrote its lines; every
+    // other method hands its result to emitResult for format/exit handling.
+    if (outcome.kind === "result") {
+      await emitResult(outcome.result, outcome.appInfo, args);
+    }
   } finally {
     managedToolsState?.destroy();
     managedResourcesState?.destroy();
@@ -272,6 +357,248 @@ async function callMethod(
     managedPromptsState?.destroy();
     await inspectorClient.disconnect();
   }
+}
+
+/**
+ * Write the method result (and any app-info) to stdout, honouring `--format`
+ * and `--app-info`, then map `isError`/no-app outcomes onto the exit-code map.
+ * Extracted from `callMethod` so the format/exit handling is in one place.
+ */
+export async function emitResult(
+  result: McpResponse,
+  appInfo: CliAppInfo | undefined,
+  args: MethodArgs,
+): Promise<void> {
+  const json = args.format === "json";
+
+  if (args.appInfo) {
+    const info: CliAppInfo = appInfo ?? {
+      hasApp: false,
+      toolName: args.toolName ?? "",
+    };
+    // Single-line JSON either way; --format json wraps it under an `appInfo`
+    // key so the envelope shape is uniform with the non-probe path.
+    await awaitableLog(JSON.stringify(json ? { appInfo: info } : info) + "\n");
+    if (!info.hasApp) {
+      throw new CliExitCodeError(
+        EXIT_CODES.NO_APP,
+        `Tool '${args.toolName}' has no MCP App UI resource (_meta.ui.resourceUri).`,
+      );
+    }
+    return;
+  }
+
+  if (json) {
+    // One JSON object on stdout — `result` plus, when present, `appInfo` as a
+    // sibling key. No `--- MCP App Info ---` banner, so `| jq` works for App
+    // tools as well as plain ones.
+    const envelope: Record<string, unknown> = { result };
+    if (appInfo?.hasApp) envelope.appInfo = appInfo;
+    await awaitableLog(JSON.stringify(envelope) + "\n");
+  } else {
+    // Text mode emits the result only; app-info is not collected on this path
+    // (use `--format json` or `--app-info` to get it).
+    await awaitableLog(JSON.stringify(result, null, 2) + "\n");
+  }
+
+  // A tool that returned `isError:true` (or whose call failed) is still printed
+  // above so the caller sees the payload, but the process exits TOOL_ERROR so
+  // `&&` chains don't proceed on a failed call.
+  if ((result as { isError?: unknown }).isError === true) {
+    throw new CliExitCodeError(
+      EXIT_CODES.TOOL_ERROR,
+      `Tool '${args.toolName}' returned isError:true.`,
+      { code: "tool_is_error" },
+    );
+  }
+}
+
+/**
+ * Build the CLI's app-info for a tool: extract the tool-side `_meta.ui` and,
+ * when the tool advertises a UI resource, follow it with a `resources/read` so
+ * the resource-side csp/permissions/domain are included.
+ *
+ * Never throws — the two failure modes both fold into a `{hasApp:false,
+ * resourceError}` result rather than propagating:
+ *  - a malformed `_meta.ui.resourceUri` (extractAppInfo throws), so the
+ *    `tools/list --app-info` NDJSON loop stays per-tool tolerant (one bad tool
+ *    can't abort the whole listing);
+ *  - a `resources/read` failure, since "tool says it has an app but the
+ *    resource is unreadable" is itself a useful probe result.
+ */
+export async function collectAppInfo(
+  client: Pick<InspectorClient, "readResource">,
+  tool: Parameters<typeof extractAppInfo>[0],
+  metadata: Record<string, string> | undefined,
+): Promise<CliAppInfo> {
+  let base: AppInfo;
+  try {
+    base = extractAppInfo(tool);
+  } catch (e) {
+    return {
+      hasApp: false,
+      toolName: tool.name,
+      resourceError: e instanceof Error ? e.message : String(e),
+    };
+  }
+  if (!base.hasApp || base.resourceUri === undefined) return base;
+  try {
+    const read = await client.readResource(base.resourceUri, metadata);
+    return extractAppInfo(tool, read.result);
+  } catch (e) {
+    return {
+      ...base,
+      resourceError: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+/**
+ * Canonicalise a server URL the same way the web inspector does before storing
+ * OAuth state (`new URL().href` lowercases the host, normalises the scheme, and
+ * adds a trailing `/` for bare-origin URLs). The CLI must look up by the same
+ * key the web side wrote, so a trailing-slash or case mismatch doesn't miss a
+ * token that's sitting one key over. Falls back to the raw string when the URL
+ * can't be parsed (e.g. an ad-hoc non-URL target).
+ */
+export function normalizeServerUrl(serverUrl: string): string {
+  try {
+    return new URL(serverUrl).href;
+  } catch {
+    return serverUrl;
+  }
+}
+
+/** The stored-server map shape the CLI reads out of the OAuth state file. */
+type StoredServers = Record<string, { tokens?: { access_token?: string } }>;
+
+/**
+ * Read the OAuth state file directly (bypassing the Zustand store cache) so
+ * each call sees the current on-disk state — required for `--wait-for-auth`
+ * polling. Returns the `servers` map, or an empty object when the file is
+ * absent or unreadable. Uses the shared {@link parseOAuthPersistBlob} so both
+ * the plain `{servers,idpSessions}` and legacy `{state,version}` layouts are
+ * accepted, matching whatever the web backend wrote.
+ */
+async function readOAuthServers(statePath: string): Promise<StoredServers> {
+  const { readFile } = await import("node:fs/promises");
+  try {
+    const text = await readFile(statePath, "utf8");
+    const snapshot = parseOAuthPersistBlob(text);
+    return (snapshot?.servers as StoredServers | undefined) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Look up a stored access token for `serverUrl`, trying the URL-normalised key
+ * first (how the web store writes it) and the raw string second.
+ */
+function findStoredToken(
+  servers: StoredServers,
+  serverUrl: string,
+): string | undefined {
+  const key = normalizeServerUrl(serverUrl);
+  return (
+    servers[key]?.tokens?.access_token ??
+    servers[serverUrl]?.tokens?.access_token
+  );
+}
+
+/**
+ * Poll the OAuth state file until a token for `serverUrl` appears (or the
+ * timeout elapses). Used by `--wait-for-auth` so an automated caller can hand
+ * off to a human for the OAuth dance and resume once the token lands. The
+ * lookup is normalised, so a trailing-slash mismatch between the URL the human
+ * opened and the one the agent passed still resolves.
+ */
+async function waitForStoredToken(
+  serverUrl: string,
+  statePath: string,
+  timeoutSec: number,
+): Promise<string> {
+  const key = normalizeServerUrl(serverUrl);
+  const deadline = Date.now() + timeoutSec * 1000;
+  for (;;) {
+    const servers = await readOAuthServers(statePath);
+    const token = findStoredToken(servers, serverUrl);
+    if (token) return token;
+    if (Date.now() >= deadline) {
+      const stored = Object.keys(servers);
+      throw new CliExitCodeError(
+        EXIT_CODES.AUTH_REQUIRED,
+        `--wait-for-auth timed out after ${timeoutSec}s; no stored OAuth token for ${key} in ${statePath}.` +
+          (stored.length > 0
+            ? ` Stored keys: ${stored.join(", ")}.`
+            : " No tokens stored yet."),
+        { code: "auth_wait_timeout", url: serverUrl },
+      );
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+/**
+ * Build the JSON `--print-handoff` emits: everything an automated caller needs
+ * to relay to a human so they can complete OAuth in a browser and have the
+ * token land where the CLI will find it.
+ *
+ * NOTE: the `deepLink` query shape (serverUrl/transport/autoConnect) is the
+ * interim format pending the web deep-link auto-connect work (#1576); reconcile
+ * with that issue's canonical handoff format once it lands.
+ */
+function buildHandoff(serverUrl: string, statePath: string): McpResponse {
+  const host = process.env.HOST || "127.0.0.1";
+  const clientPort = process.env.CLIENT_PORT || "6274";
+  const sandboxPort = process.env.MCP_SANDBOX_PORT || "6275";
+  // Treat an empty MCP_INSPECTOR_API_TOKEN the same as unset — an empty token
+  // can't satisfy the deep-link autoConnect gate.
+  const apiToken = process.env.MCP_INSPECTOR_API_TOKEN || undefined;
+  // TODO(#1576): interim deep-link shape. `transport: "http"` is hardcoded even
+  // for SSE servers, and `autoConnect=<token>` is NOT one of the three token
+  // sources the web app reads (window.__INSPECTOR_API_TOKEN__ /
+  // ?MCP_INSPECTOR_API_TOKEN / sessionStorage — see CLAUDE.md). Reconcile both
+  // with #1576's canonical handoff/deep-link format once it lands.
+  const params = new URLSearchParams({ serverUrl, transport: "http" });
+  if (apiToken) params.set("autoConnect", apiToken);
+  return {
+    serverUrl: normalizeServerUrl(serverUrl),
+    deepLink: `http://${host}:${clientPort}/?${params.toString()}`,
+    portForwardCmd: `coder port-forward <workspace> --tcp ${clientPort}:${clientPort} --tcp ${sandboxPort}:${sandboxPort}`,
+    oauthStatePath: statePath,
+    apiToken: apiToken ?? null,
+    note:
+      apiToken === undefined
+        ? "MCP_INSPECTOR_API_TOKEN is not set; the deep-link autoConnect gate will reject — launch the web inspector with a known token first."
+        : undefined,
+  };
+}
+
+/**
+ * Apply a connection timeout to a resolved server's settings, building a
+ * minimal {@link InspectorServerSettings} when none came from the file. Ad-hoc
+ * invocations get {@link DEFAULT_CONNECT_TIMEOUT_MS} so a black-holed host
+ * fails fast; catalog/config invocations keep their file-level timeout unless
+ * `--connect-timeout` is passed explicitly.
+ */
+export function withConnectTimeout(
+  settings: InspectorServerSettings | undefined,
+  connectionTimeout: number | undefined,
+): InspectorServerSettings | undefined {
+  if (connectionTimeout === undefined) return settings;
+  if (settings) return { ...settings, connectionTimeout };
+  return {
+    headers: [],
+    metadata: [],
+    env: [],
+    connectionTimeout,
+    requestTimeout: 0,
+    taskTtl: DEFAULT_TASK_TTL_MS,
+    maxFetchRequests: DEFAULT_MAX_FETCH_REQUESTS,
+    autoRefreshOnListChanged: false,
+    roots: [],
+  };
 }
 
 function parseKeyValuePair(
@@ -298,16 +625,23 @@ function parseKeyValuePair(
   return { ...previous, [key as string]: parsedValue };
 }
 
-async function parseArgs(argv?: string[]): Promise<{
-  serverConfig: MCPServerConfig;
-  serverSettings: InspectorServerSettings | undefined;
-  methodArgs: MethodArgs & { method: string };
-  clientConfigPath?: string;
-  clientId?: string;
-  clientSecret?: string;
-  clientMetadataUrl?: string;
-  callbackUrl?: string;
-}> {
+type ParseResult =
+  | {
+      shortCircuit?: undefined;
+      serverConfig: MCPServerConfig;
+      serverSettings: InspectorServerSettings | undefined;
+      methodArgs: MethodArgs & { method: string };
+      clientConfigPath?: string;
+      clientId?: string;
+      clientSecret?: string;
+      clientMetadataUrl?: string;
+      callbackUrl?: string;
+    }
+  // Short-circuit modes (`--list-stored-auth`, `--print-handoff`) do their own
+  // output and need no server connection; runCli returns immediately.
+  | { shortCircuit: true };
+
+async function parseArgs(argv?: string[]): Promise<ParseResult> {
   const program = new Command();
   // On a parse/usage ERROR (exitCode !== 0), throw the CommanderError instead
   // of letting commander call process.exit(). The binary entry (index.ts) still
@@ -433,6 +767,35 @@ async function parseArgs(argv?: string[]): Promise<{
       {},
     )
     .option(
+      "--app-info",
+      "Probe the tool's MCP App UI metadata (resourceUri, csp, permissions, domain) and emit it as one JSON line; exit 2 when the tool has no app. Use with --method tools/call --tool-name <name> (the tool itself is not invoked) or --method tools/list (one NDJSON line per tool).",
+    )
+    .option(
+      "--connect-timeout <ms>",
+      `Connection timeout in ms (default ${DEFAULT_CONNECT_TIMEOUT_MS} for ad-hoc --server-url / target invocations; 0 = no timeout).`,
+      (v: string) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0) {
+          throw new Error(`--connect-timeout must be a non-negative number.`);
+        }
+        return n;
+      },
+    )
+    .option(
+      "--format <format>",
+      "Output format: text (default; pretty-printed) or json (one JSON object on stdout, no banners).",
+      (v: string): OutputFormat => {
+        if (v !== "text" && v !== "json") {
+          throw new Error(`--format must be 'text' or 'json'.`);
+        }
+        return v;
+      },
+    )
+    .option(
+      "--tool-args-json <json>",
+      'Tool arguments as a single JSON object (e.g. \'{"zip":"10001"}\'). Values are passed verbatim — no key=value coercion. Mutually exclusive with --tool-arg.',
+    )
+    .option(
       "--client-config <path>",
       "Install-level client config (default: ~/.mcp-inspector/storage/client.json, or MCP_CLIENT_CONFIG_PATH)",
     )
@@ -451,6 +814,31 @@ async function parseArgs(argv?: string[]): Promise<{
     .option(
       "--callback-url <url>",
       `OAuth redirect/callback listener URL (default: ${DEFAULT_RUNNER_OAUTH_CALLBACK_URL}, or MCP_OAUTH_CALLBACK_URL)`,
+    )
+    .option(
+      "--use-stored-auth",
+      "Read the OAuth access token for --server-url from the OAuth state file (written by the web inspector) and inject it as Authorization: Bearer.",
+    )
+    .option(
+      "--wait-for-auth <sec>",
+      "Poll the OAuth state file until a token for --server-url appears (or the timeout elapses), then proceed as if --use-stored-auth were set. Use after handing off to a human to complete OAuth in a browser.",
+      (v: string) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error(
+            `--wait-for-auth must be a positive number of seconds.`,
+          );
+        }
+        return n;
+      },
+    )
+    .option(
+      "--list-stored-auth",
+      "Print the server URLs that have a stored OAuth token (one JSON object on stdout) and exit. No server connection is made.",
+    )
+    .option(
+      "--print-handoff",
+      "Print a JSON handoff block (deepLink, portForwardCmd, oauthStatePath, apiToken) for --server-url and exit. No server connection is made.",
     );
 
   program.parse(preArgs);
@@ -473,17 +861,60 @@ async function parseArgs(argv?: string[]): Promise<{
     transport?: "sse" | "http" | "stdio";
     serverUrl?: string;
     header?: Record<string, string>;
+    appInfo?: boolean;
+    connectTimeout?: number;
+    format?: OutputFormat;
+    toolArgsJson?: string;
     clientConfig?: string;
     clientId?: string;
     clientSecret?: string;
     clientMetadataUrl?: string;
     callbackUrl?: string;
+    useStoredAuth?: boolean;
+    waitForAuth?: number;
+    listStoredAuth?: boolean;
+    printHandoff?: boolean;
   };
+
+  // State-path precedence (getStateFilePath): MCP_INSPECTOR_OAUTH_STATE_PATH →
+  // <MCP_STORAGE_DIR>/oauth.json → ~/.mcp-inspector/storage/oauth.json — the
+  // same file the web backend writes, so tokens are shared across surfaces.
+  const oauthStatePath = getStateFilePath();
+
+  // Short-circuit modes that need no server connection.
+  if (options.listStoredAuth) {
+    const servers = await readOAuthServers(oauthStatePath);
+    const withToken = Object.entries(servers)
+      .filter(([, v]) => Boolean(v.tokens?.access_token))
+      .map(([k]) => k);
+    await awaitableLog(
+      JSON.stringify({ oauthStatePath, storedServerUrls: withToken }) + "\n",
+    );
+    return { shortCircuit: true };
+  }
+  if (options.printHandoff) {
+    if (!options.serverUrl) {
+      throw new Error("--print-handoff requires --server-url");
+    }
+    await awaitableLog(
+      JSON.stringify(buildHandoff(options.serverUrl, oauthStatePath)) + "\n",
+    );
+    return { shortCircuit: true };
+  }
+
+  // Honour MCP_CATALOG_PATH only when no ad-hoc target is given. Applying it
+  // unconditionally meant a homespace that exports the env var could never run
+  // `--server-url …` (serverSourceConflict rejects catalog + ad-hoc).
+  const adHoc =
+    targetArgs.length > 0 ||
+    Boolean(options.transport) ||
+    Boolean(options.serverUrl?.trim());
+  const envCatalog = adHoc ? undefined : process.env.MCP_CATALOG_PATH;
 
   const serverOptions = {
     // `?.trim() ||` (not `??`) so an explicit empty `--catalog ""` still falls
     // back to MCP_CATALOG_PATH — keeps CLI and TUI flag resolution identical.
-    catalogPath: options.catalog?.trim() || process.env.MCP_CATALOG_PATH,
+    catalogPath: options.catalog?.trim() || envCatalog,
     configPath: options.config?.trim() || undefined,
     target: targetArgs.length > 0 ? targetArgs : undefined,
     transport: options.transport,
@@ -492,16 +923,62 @@ async function parseArgs(argv?: string[]): Promise<{
     env: options.e,
     // `--header` is merged into the resolved server's settings (overriding any
     // file-level headers); file timeouts/OAuth are preserved. See #1482.
-    headers: options.header,
+    headers: options.header as Record<string, string> | undefined,
   };
+
+  if (options.waitForAuth !== undefined || options.useStoredAuth) {
+    if (!options.serverUrl) {
+      throw new Error(
+        `${options.waitForAuth !== undefined ? "--wait-for-auth" : "--use-stored-auth"} requires --server-url`,
+      );
+    }
+    // Read the OAuth state file directly so the lookup is normalised the same
+    // way the web inspector wrote it (`new URL().href`), and so `--wait-for-
+    // auth` sees fresh on-disk state on each poll. Header injection is the
+    // prototype path — only the access token is injected, blindly; a stale one
+    // surfaces as HTTP 401 → exit 3 (auth_required). Follow-up: when the stored
+    // `tokens.refresh_token` is present and the access token is expired, mint a
+    // fresh one instead of injecting the stale token.
+    let token: string;
+    if (options.waitForAuth !== undefined) {
+      token = await waitForStoredToken(
+        options.serverUrl,
+        oauthStatePath,
+        options.waitForAuth,
+      );
+    } else {
+      const servers = await readOAuthServers(oauthStatePath);
+      const found = findStoredToken(servers, options.serverUrl);
+      if (!found) {
+        const key = normalizeServerUrl(options.serverUrl);
+        const stored = Object.keys(servers);
+        throw new CliExitCodeError(
+          EXIT_CODES.AUTH_REQUIRED,
+          `No stored OAuth token for ${key} in ${oauthStatePath}. Complete the OAuth flow in the web inspector first.` +
+            (stored.length > 0 ? ` Stored keys: ${stored.join(", ")}.` : ""),
+          { code: "no_stored_token", url: options.serverUrl },
+        );
+      }
+      token = found;
+    }
+    serverOptions.headers = {
+      ...(serverOptions.headers ?? {}),
+      Authorization: `Bearer ${token}`,
+    };
+  }
 
   // Shared with the TUI: resolves the catalog/config source (or ad-hoc target),
   // enforces the conflict matrix, and lifts disk headers/timeouts/OAuth into
   // per-server settings. `--server` selects one when the file has several.
   const entries = await loadServerEntries(serverOptions);
-  const { config: serverConfig, settings: serverSettings } = selectServerEntry(
-    entries,
-    options.server,
+  const selected = selectServerEntry(entries, options.server);
+  const serverConfig = selected.config;
+  // Ad-hoc invocations get a default connect timeout so a black-holed host
+  // fails fast; catalog/config runs keep their file-level timeout unless
+  // `--connect-timeout` is passed explicitly.
+  const serverSettings = withConnectTimeout(
+    selected.settings,
+    options.connectTimeout ?? (adHoc ? DEFAULT_CONNECT_TIMEOUT_MS : undefined),
   );
 
   if (!options.method) {
@@ -510,10 +987,47 @@ async function parseArgs(argv?: string[]): Promise<{
     );
   }
 
+  if (
+    options.appInfo &&
+    options.method !== "tools/call" &&
+    options.method !== "tools/list"
+  ) {
+    throw new Error(
+      "--app-info requires --method tools/call (with --tool-name) or --method tools/list.",
+    );
+  }
+
+  // --tool-args-json passes arguments verbatim with no key=value coercion (so
+  // `"012"` stays a string and nested objects work without shell escaping).
+  let toolArg = options.toolArg;
+  if (options.toolArgsJson !== undefined) {
+    if (toolArg && Object.keys(toolArg).length > 0) {
+      throw new Error(
+        "--tool-args-json cannot be combined with --tool-arg; pick one.",
+      );
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(options.toolArgsJson);
+    } catch (e) {
+      throw new Error(
+        `--tool-args-json is not valid JSON: ${(e as Error).message}`,
+      );
+    }
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      throw new Error("--tool-args-json must be a JSON object.");
+    }
+    toolArg = parsed as Record<string, JsonValue>;
+  }
+
   const methodArgs: MethodArgs & { method: string } = {
     method: options.method,
     toolName: options.toolName,
-    toolArg: options.toolArg,
+    toolArg,
     uri: options.uri,
     promptName: options.promptName,
     promptArgs: options.promptArgs,
@@ -534,6 +1048,8 @@ async function parseArgs(argv?: string[]): Promise<{
           ]),
         )
       : undefined,
+    appInfo: options.appInfo === true,
+    format: options.format,
   };
 
   return {
@@ -549,6 +1065,9 @@ async function parseArgs(argv?: string[]): Promise<{
 }
 
 export async function runCli(argv?: string[]): Promise<void> {
+  const parsed = await parseArgs(argv ?? process.argv);
+  // `--list-stored-auth` / `--print-handoff` already wrote their output.
+  if (parsed.shortCircuit) return;
   const {
     serverConfig,
     serverSettings,
@@ -558,7 +1077,7 @@ export async function runCli(argv?: string[]): Promise<void> {
     clientSecret,
     clientMetadataUrl,
     callbackUrl,
-  } = await parseArgs(argv ?? process.argv);
+  } = parsed;
   const clientConfig = await loadRunnerClientConfig({ clientConfigPath });
   const callbackUrlConfig = parseRunnerOAuthCallbackUrl(callbackUrl);
   await callMethod(

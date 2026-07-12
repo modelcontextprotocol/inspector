@@ -80,6 +80,8 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --tr
 
 When a server is loaded from a `--catalog`/`--config` file, its per-server settings (headers, connection/request timeouts, and OAuth) are applied to the connection — the same resolution the TUI uses. A `--header` flag overrides the file's headers for that run while leaving the file's timeouts and OAuth in place.
 
+**Environment-variable semantics.** `MCP_CATALOG_PATH` is honored only when no ad-hoc target is given (positional command, `--server-url`, or `--transport`) — so a shell that exports it can still run one-off ad-hoc invocations without hitting the catalog/ad-hoc conflict. `MCP_STORAGE_DIR` sets the storage directory used by the OAuth persist backend (`<MCP_STORAGE_DIR>/oauth.json`); the per-file `MCP_INSPECTOR_OAUTH_STATE_PATH` override still takes precedence over it.
+
 ### HTTP proxy support
 
 Connections to remote HTTP/SSE servers honor the conventional proxy environment variables: `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms) select the proxy, and `NO_PROXY` exempts hosts. This applies to the Node transport shared by the CLI and the web backend — no inspector-specific flag is needed. When a proxy variable is set, outbound requests are routed through undici's `EnvHttpProxyAgent`.
@@ -96,15 +98,45 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 
 | Option                        | Description                                                                               |
 | ----------------------------- | ----------------------------------------------------------------------------------------- |
-| `--method <method>`           | MCP method to invoke (e.g. `tools/list`, `tools/call`, `resources/list`, `prompts/list`). |
+| `--method <method>`           | MCP method to invoke. Supports `initialize` (connect-only probe → `{serverInfo, protocolVersion, capabilities, instructions}`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`. |
 | `--tool-name <name>`          | Tool name (for `tools/call`).                                                             |
-| `--tool-arg <key=value>`      | Tool argument; repeat for multiple. Use `key='{"json":true}'` for JSON.                   |
+| `--tool-arg <key=value>`      | Tool argument; repeat for multiple. Use `key='{"json":true}'` for JSON. Values are coerced (JSON-parsed, so `count=1` becomes a number). |
+| `--tool-args-json <json>`     | Tool arguments as a single JSON object (e.g. `'{"zip":"10001"}'`). Passed verbatim — no `key=value` coercion, so `"012"` stays a string. Mutually exclusive with `--tool-arg`. |
 | `--uri <uri>`                 | Resource URI (for `resources/read`).                                                      |
 | `--prompt-name <name>`        | Prompt name (for `prompts/get`).                                                          |
 | `--prompt-args <key=value>`   | Prompt arguments; repeat for multiple.                                                    |
 | `--log-level <level>`         | Logging level for `logging/setLevel` (e.g. `debug`, `info`).                              |
 | `--metadata <key=value>`      | General metadata (key=value); applied to all methods.                                     |
 | `--tool-metadata <key=value>` | Tool-specific metadata for `tools/call`.                                                  |
+| `--connect-timeout <ms>`      | Connection timeout in ms. Defaults to `15000` for ad-hoc `--server-url`/target runs (so a black-holed host fails fast) and to the file-level timeout for `--catalog`/`--config` runs. `0` disables the timeout. |
+| `--app-info`                  | Probe a tool's MCP App UI metadata without invoking it. With `--method tools/call --tool-name <name>`: prints one JSON line (`hasApp`, `resourceUri`, `csp`, `permissions`, `domain`, …) and exits `0` if the tool has an app or `2` (`no_app`) if not. With `--method tools/list`: emits NDJSON — one app-info line per tool over a single connection. |
+| `--format <text\|json>`       | Output format. `text` (default) pretty-prints the result. `json` emits a single JSON object on stdout (`{ "result": … }`, plus `{ "appInfo": … }` as a sibling key for App tools) with no banners, so the whole output pipes cleanly into `jq`. |
+
+#### App probing (`--app-info`) and machine-readable output (`--format json`)
+
+`--app-info` inspects a tool's [MCP App](https://modelcontextprotocol.io) UI posture **without calling the tool**, so a pipeline can decide whether to open a browser before touching one:
+
+```bash
+# Probe one tool. Exits 0 (has app) or 2 (no_app). One JSON line on stdout.
+mcp-inspector --cli <server> --method tools/call --tool-name my_tool --app-info
+# → {"hasApp":true,"toolName":"my_tool","resourceUri":"ui://…","csp":{…},"permissions":{…},"prefersBorder":true,"resourceMimeType":"text/html"}
+
+# Probe every tool at once — NDJSON, one line per tool, single connection.
+mcp-inspector --cli <server> --method tools/list --app-info | jq -c 'select(.hasApp)'
+```
+
+Exit semantics: a tool that **has** an app exits `0`; one with **no** app exits `2` (`no_app`); a **missing** tool exits `5` (`tool_not_found`) — distinct so a typo isn't mistaken for "no app". A probe failure (an unreadable UI resource, or a malformed `_meta.ui.resourceUri`) is tolerated and reported in a `resourceError` field rather than aborting — so in `tools/list --app-info` one bad tool never kills the rest of the listing.
+
+`--format json` wraps any method's output in a single stdout envelope with no banners, so App tools and plain tools both pipe cleanly into `jq`:
+
+```bash
+mcp-inspector --cli <server> --method tools/call --tool-name my_app_tool --format json
+# → {"result":{…tool result…},"appInfo":{"hasApp":true,"resourceUri":"ui://…",…}}
+```
+
+> `tools/list --app-info` always emits NDJSON (one raw app-info object per line) **regardless of `--format`** — the per-tool list shape is fixed. `--format json` only reshapes the single-result paths (`tools/call`, `tools/list` without `--app-info`, etc.) into the `{result[, appInfo]}` envelope.
+
+A `tools/call` that returns `isError:true` still prints its payload but exits `5` (`tool_is_error`) so `&&` chains don't proceed on a failed call.
 
 ### CLI-specific (OAuth for HTTP servers)
 
@@ -154,6 +186,34 @@ npx @modelcontextprotocol/inspector --cli --catalog mcp.json --server my-http-se
 ```
 
 See [EMA / enterprise-managed auth](../../specification/v2_auth_ema.md) and [OAuth smoke testing](../../specification/v2_auth_smoke_testing.md) (§3 Stytch/CIMD; [§5 mid-session manual validation](../../specification/v2_auth_smoke_testing.md#5-mid-session-auth--step-up--manual-validation) — CLI **C1–C2**).
+
+#### Stored-auth (web → CLI handoff)
+
+For the common case where OAuth was already completed in the **web inspector on the same machine**, the CLI can reuse the resulting token instead of running its own interactive flow. It reads the shared OAuth state file (the `oauth.json` the web backend writes) directly from disk and injects `Authorization: Bearer <token>` for `--server-url`.
+
+| Option                  | Description                                                                                                                                                                                    |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--use-stored-auth`     | Read the stored access token for `--server-url` and inject it as `Authorization: Bearer`. Exits `3` (`no_stored_token`) — listing the stored keys — when no token matches. Requires `--server-url`. |
+| `--wait-for-auth <sec>` | Poll the OAuth state file (500 ms interval) until a token for `--server-url` appears, then proceed as if `--use-stored-auth` were set. Times out at `<sec>` with exit `3` (`auth_wait_timeout`). Use after handing off to a human to complete OAuth in a browser. |
+| `--list-stored-auth`    | Print `{ oauthStatePath, storedServerUrls }` (the server keys that currently have a token) and exit. No server connection is made.                                                              |
+| `--print-handoff`       | Print a JSON handoff block (`deepLink`, `portForwardCmd`, `oauthStatePath`, `apiToken`) for `--server-url` and exit — everything a script/remote VM needs to drive the browser-side OAuth dance. Requires `--server-url`. |
+
+**State-file resolution** follows `MCP_INSPECTOR_OAUTH_STATE_PATH` → `<MCP_STORAGE_DIR>/oauth.json` → `~/.mcp-inspector/storage/oauth.json` — the same precedence the rest of the Inspector uses, so the CLI and web backend agree on the file. Server keys are canonicalised with `new URL().href` (the scheme the web store writes), so a trailing-slash or case mismatch between the URL a human opened and the one the agent passed still resolves.
+
+**Blind injection.** The token is injected as-is; the CLI does not validate or refresh it (a stored `refresh_token` is not yet used — a natural follow-up). A stale/expired access token surfaces as an HTTP `401` on the first request → exit `3` (`auth_required`). Re-complete the flow in the web inspector (or use `--wait-for-auth`) and retry.
+
+**Short-circuit modes.** `--list-stored-auth` and `--print-handoff` each print their output and exit without connecting to a server; they ignore the method/target flags. They are mutually exclusive — if both are passed, `--list-stored-auth` takes precedence.
+
+> The `deepLink` shape emitted by `--print-handoff` is interim, pending the web deep-link auto-connect work ([#1576](https://github.com/modelcontextprotocol/inspector/issues/1576)); it will be reconciled with that issue's canonical handoff format once it lands.
+
+```bash
+# On a remote VM: print what a human needs to complete OAuth in their browser.
+mcp-inspector --cli --server-url https://api.example/mcp --print-handoff
+
+# Then block until the token lands and run the call with it.
+mcp-inspector --cli --transport http --server-url https://api.example/mcp \
+  --wait-for-auth 120 --method tools/list
+```
 
 ## Exit codes & error envelopes
 

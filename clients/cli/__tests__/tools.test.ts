@@ -4,7 +4,6 @@ import {
   expectCliSuccess,
   expectCliFailure,
   expectValidJson,
-  expectJsonError,
 } from "./helpers/assertions.js";
 import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
 
@@ -378,8 +377,15 @@ describe("Tool Tests", () => {
         "message=test",
       ]);
 
-      // CLI returns exit code 0 but includes isError: true in JSON (server returns error)
-      expectJsonError(result);
+      // A tool that does not exist on the server exits TOOL_ERROR (5) with a
+      // stable `tool_not_found` code, distinct from a tool that ran and
+      // returned isError:true. The error envelope is on stderr; stdout is empty.
+      expect(result.exitCode).toBe(5);
+      expect(result.stdout).toBe("");
+      const envelope = JSON.parse(result.stderr.trim()) as {
+        error: { code: string };
+      };
+      expect(envelope.error.code).toBe("tool_not_found");
     });
 
     it("should fail when tool name is missing", async () => {

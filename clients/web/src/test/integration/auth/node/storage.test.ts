@@ -630,3 +630,46 @@ describe("NodeOAuthStorage with custom storagePath", () => {
     }
   });
 });
+
+describe("getStateFilePath resolution", () => {
+  let savedStatePath: string | undefined;
+  let savedStorageDir: string | undefined;
+
+  beforeEach(() => {
+    savedStatePath = process.env.MCP_INSPECTOR_OAUTH_STATE_PATH;
+    savedStorageDir = process.env.MCP_STORAGE_DIR;
+    delete process.env.MCP_INSPECTOR_OAUTH_STATE_PATH;
+    delete process.env.MCP_STORAGE_DIR;
+  });
+
+  afterEach(() => {
+    if (savedStatePath === undefined)
+      delete process.env.MCP_INSPECTOR_OAUTH_STATE_PATH;
+    else process.env.MCP_INSPECTOR_OAUTH_STATE_PATH = savedStatePath;
+    if (savedStorageDir === undefined) delete process.env.MCP_STORAGE_DIR;
+    else process.env.MCP_STORAGE_DIR = savedStorageDir;
+  });
+
+  it("prefers an explicit customPath over every env var", () => {
+    process.env.MCP_INSPECTOR_OAUTH_STATE_PATH = "/env/oauth.json";
+    process.env.MCP_STORAGE_DIR = "/env/dir";
+    expect(getStateFilePath("/explicit/path.json")).toBe("/explicit/path.json");
+  });
+
+  it("uses MCP_INSPECTOR_OAUTH_STATE_PATH over MCP_STORAGE_DIR", () => {
+    process.env.MCP_INSPECTOR_OAUTH_STATE_PATH = "/env/oauth.json";
+    process.env.MCP_STORAGE_DIR = "/env/dir";
+    expect(getStateFilePath()).toBe("/env/oauth.json");
+  });
+
+  it("uses <MCP_STORAGE_DIR>/oauth.json when only the storage dir is set", () => {
+    process.env.MCP_STORAGE_DIR = path.join("/env", "storage");
+    expect(getStateFilePath()).toBe(path.join("/env", "storage", "oauth.json"));
+  });
+
+  it("falls back to the default path when no override is set", () => {
+    expect(getStateFilePath()).toContain(
+      path.join(".mcp-inspector", "storage", "oauth.json"),
+    );
+  });
+});
