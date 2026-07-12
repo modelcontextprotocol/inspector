@@ -892,6 +892,13 @@ export function InspectorView({
       ...collectSchemaDefaults(target.inputSchema),
       ...deepLink.appArgs,
     };
+    // Seed the selection directly rather than routing through
+    // AppsScreen.handleSelect. This deliberately bypasses handleSelect's
+    // no-input-app auto-launch: a deep link must never invoke a tool against
+    // the target server unless the token-gated `autoOpen` is set — even a
+    // no-input app waits for that explicit signal (or a manual "Open App"
+    // click), matching the security stance that a crafted URL alone can't fire
+    // a tool call.
     onActiveTabChange("Apps");
     onAppsUiChange({
       ...appsUi,

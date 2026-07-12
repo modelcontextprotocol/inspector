@@ -2569,7 +2569,16 @@ function App() {
 
     if (deepLinkConnectRef.current) return;
     deepLinkConnectRef.current = true;
-    if (activeServerId !== deepLink.serverId) {
+    // Connect unless we're already *connected* to the deep-link server. Gating
+    // on `activeServerId` identity alone would skip the connect when a prior
+    // session restored `activeServerId` to the `deep-link` id while the socket
+    // is disconnected — a reload of the same deep-link URL would then silently
+    // never connect. `onToggleConnection` only disconnects when the id is the
+    // active one AND the status is connected, so this condition also avoids
+    // toggling a live connection off.
+    const alreadyConnected =
+      activeServerId === deepLink.serverId && connectionStatus === "connected";
+    if (!alreadyConnected) {
       void onToggleConnection(deepLink.serverId).catch((err) => {
         // The toast fires from inside `onToggleConnection` for the common
         // cases; this catch covers the rest (surfaced on `data-error-message`).
@@ -2581,6 +2590,7 @@ function App() {
     deepLink,
     servers,
     activeServerId,
+    connectionStatus,
     addServer,
     updateServer,
     onToggleConnection,
