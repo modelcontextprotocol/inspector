@@ -1190,9 +1190,7 @@ export function InspectorView({
                 onOpenApp={onOpenApp}
                 onCloseApp={onCloseApp}
                 onError={onAppError}
-                autoOpen={
-                  Boolean(deepLink?.openApp) && (deepLink?.autoOpen ?? false)
-                }
+                autoOpen={Boolean(deepLink?.openApp && deepLink.autoOpen)}
               />
             </ScreenStage>
             <ScreenStage active={activeTab === "Prompts"}>
