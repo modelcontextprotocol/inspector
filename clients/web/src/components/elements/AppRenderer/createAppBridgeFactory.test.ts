@@ -67,7 +67,10 @@ vi.mock("@modelcontextprotocol/ext-apps/app-bridge", () => {
   };
 });
 
-import { createAppBridgeFactory } from "./createAppBridgeFactory";
+import {
+  createAppBridgeFactory,
+  HOST_CAPABILITIES,
+} from "./createAppBridgeFactory";
 
 const tool: Tool = {
   name: "weather_app",
@@ -199,6 +202,26 @@ describe("createAppBridgeFactory", () => {
       permissions: { geolocation: {} },
       csp: { connectDomains: ["https://api.example.com"] },
     });
+  });
+
+  it("does not mutate the shared HOST_CAPABILITIES when echoing the approved sandbox", async () => {
+    // The factory builds a per-app copy ({ ...HOST_CAPABILITIES }) so the
+    // sandbox echo never leaks across apps/renders. Lock that in: after a
+    // sandboxready run that sets hostCapabilities.sandbox, the shared constant
+    // must stay untouched.
+    const readResource = vi.fn().mockResolvedValue(
+      uiResource("<h1>x</h1>", {
+        csp: { connectDomains: ["https://api.example.com"] },
+      }),
+    );
+    const factory = createAppBridgeFactory({
+      getClient: () => fakeClient,
+      readResource,
+    });
+    await factory(makeIframe(), tool);
+    bridgeInstances[0].emit("sandboxready");
+    await flush();
+    expect(HOST_CAPABILITIES.sandbox).toBeUndefined();
   });
 
   it("drops an unsafe app-supplied CSP source before wrapping", async () => {
@@ -645,6 +668,55 @@ describe("createAppBridgeFactory", () => {
       expect(prompt).toContain("...");
       // The clamped label is 80 chars max (77 + "...").
       expect(prompt).not.toContain(longName);
+    });
+
+    it("rejects an oversized batch without confirming or acting", async () => {
+      const confirm = stubConfirm(true);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const open = vi
+        .spyOn(window, "open")
+        .mockImplementation(() => null as never);
+      const bridge = await buildBridge();
+      // 21 items exceeds the 20-item cap → rejected before the prompt.
+      const contents = Array.from({ length: 21 }, (_, i) => ({
+        type: "resource_link" as const,
+        uri: `https://example.com/${i}.pdf`,
+      }));
+      await expect(bridge.ondownloadfile!({ contents })).resolves.toEqual({
+        isError: true,
+      });
+      expect(confirm).not.toHaveBeenCalled();
+      expect(open).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("refusing download batch of 21 items"),
+      );
+      warn.mockRestore();
+    });
+
+    it("marks resource links with a ↗ prefix in the confirmation summary", async () => {
+      const confirm = stubConfirm(false);
+      const bridge = await buildBridge();
+      await bridge.ondownloadfile!({
+        contents: [{ type: "resource_link", uri: "https://example.com/a.pdf" }],
+      });
+      const prompt = confirm.mock.calls[0][0] as string;
+      expect(prompt).toContain("↗ https://example.com/a.pdf");
+    });
+
+    it("skips an embedded resource with neither text nor blob (no 'undefined' file)", async () => {
+      stubConfirm(true);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const createUrl = vi.spyOn(URL, "createObjectURL");
+      const bridge = await buildBridge();
+      // Untrusted payload: a resource object carrying neither field. It must be
+      // skipped, not written as a file containing the literal text "undefined".
+      await expect(
+        bridge.ondownloadfile!({
+          contents: [{ type: "resource", resource: { uri: "file:///x" } }],
+        }),
+      ).resolves.toEqual({ isError: true });
+      expect(createUrl).not.toHaveBeenCalled();
+      warn.mockRestore();
     });
   });
 });

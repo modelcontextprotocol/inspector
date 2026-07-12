@@ -148,6 +148,11 @@ export function snapshotHostContext(
     : undefined;
   return {
     theme: currentTheme(),
+    // Seed assumes the app opens inline. AppsScreen always mounts the renderer
+    // inline (maximize is a later user action), so this holds today; the live
+    // displayMode push (AppRenderer's displayMode effect, wired by #1568)
+    // carries any subsequent inline↔fullscreen transition. If a caller ever
+    // mounts already-maximized, thread the actual mode in here instead.
     displayMode: "inline",
     availableDisplayModes: [...availableDisplayModes],
     ...(styles ? { styles } : {}),
