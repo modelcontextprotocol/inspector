@@ -540,30 +540,63 @@ async function waitForStoredToken(
 }
 
 /**
+ * Derive the web deep-link `transport` value (`http` | `sse`) for a handoff.
+ * Mirrors `resolveServerConfigs` (core/mcp/node/config.ts) URL-path
+ * auto-detection (`/sse` → sse,
+ * everything else → http) but, unlike that resolver, defaults to `http` instead
+ * of throwing on an ambiguous path — the handoff is best-effort, and the web
+ * {@link parseDeepLink} likewise defaults an unknown/missing transport to http.
+ */
+export function deepLinkTransport(
+  serverUrl: string,
+  transport: "sse" | "http" | "stdio" | undefined,
+): "http" | "sse" {
+  if (transport === "sse") return "sse";
+  if (transport === "http") return "http";
+  try {
+    if (new URL(serverUrl).pathname.endsWith("/sse")) return "sse";
+  } catch {
+    // Unparseable URL: fall through to the http default. The web parser rejects
+    // a non-http(s) serverUrl anyway, so guessing a transport for it is moot.
+  }
+  return "http";
+}
+
+/**
  * Build the JSON `--print-handoff` emits: everything an automated caller needs
  * to relay to a human so they can complete OAuth in a browser and have the
  * token land where the CLI will find it.
  *
- * NOTE: the `deepLink` query shape (serverUrl/transport/autoConnect) is the
- * interim format pending the web deep-link auto-connect work (#1576); reconcile
- * with that issue's canonical handoff format once it lands.
+ * The `deepLink` is the canonical web format owned by
+ * `clients/web/src/utils/deepLink.ts` (#1576): `?serverUrl&transport&autoConnect`,
+ * where `autoConnect` is the CSRF gate (must equal `MCP_INSPECTOR_API_TOKEN`).
+ * `transport` is derived from the resolved server via {@link deepLinkTransport}
+ * rather than hardcoded, so an SSE server hands off a `transport=sse` link.
  */
-function buildHandoff(serverUrl: string, statePath: string): McpResponse {
+function buildHandoff(
+  serverUrl: string,
+  statePath: string,
+  transport: "sse" | "http" | "stdio" | undefined,
+): McpResponse {
   const host = process.env.HOST || "127.0.0.1";
   const clientPort = process.env.CLIENT_PORT || "6274";
   const sandboxPort = process.env.MCP_SANDBOX_PORT || "6275";
   // Treat an empty MCP_INSPECTOR_API_TOKEN the same as unset — an empty token
   // can't satisfy the deep-link autoConnect gate.
   const apiToken = process.env.MCP_INSPECTOR_API_TOKEN || undefined;
-  // TODO(#1576): interim deep-link shape. `transport: "http"` is hardcoded even
-  // for SSE servers, and `autoConnect=<token>` is NOT one of the three token
-  // sources the web app reads (window.__INSPECTOR_API_TOKEN__ /
-  // ?MCP_INSPECTOR_API_TOKEN / sessionStorage — see CLAUDE.md). Reconcile both
-  // with #1576's canonical handoff/deep-link format once it lands.
-  const params = new URLSearchParams({ serverUrl, transport: "http" });
+  const normalizedUrl = normalizeServerUrl(serverUrl);
+  // Canonical #1576 deep-link shape: the normalized serverUrl (matching the
+  // OAuth-store key form the web app reuses) plus the resolved transport, gated
+  // by `autoConnect=<token>` — the same per-launch token the web parser
+  // requires. Omitted when no token is set; the `note` below flags that the
+  // link will be rejected until the web inspector is launched with a token.
+  const params = new URLSearchParams({
+    serverUrl: normalizedUrl,
+    transport: deepLinkTransport(serverUrl, transport),
+  });
   if (apiToken) params.set("autoConnect", apiToken);
   return {
-    serverUrl: normalizeServerUrl(serverUrl),
+    serverUrl: normalizedUrl,
     deepLink: `http://${host}:${clientPort}/?${params.toString()}`,
     portForwardCmd: `coder port-forward <workspace> --tcp ${clientPort}:${clientPort} --tcp ${sandboxPort}:${sandboxPort}`,
     oauthStatePath: statePath,
@@ -897,7 +930,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       throw new Error("--print-handoff requires --server-url");
     }
     await awaitableLog(
-      JSON.stringify(buildHandoff(options.serverUrl, oauthStatePath)) + "\n",
+      JSON.stringify(
+        buildHandoff(options.serverUrl, oauthStatePath, options.transport),
+      ) + "\n",
     );
     return { shortCircuit: true };
   }

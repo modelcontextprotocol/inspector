@@ -204,7 +204,7 @@ For the common case where OAuth was already completed in the **web inspector on 
 
 **Short-circuit modes.** `--list-stored-auth` and `--print-handoff` each print their output and exit without connecting to a server; they ignore the method/target flags. They are mutually exclusive — if both are passed, `--list-stored-auth` takes precedence.
 
-> The `deepLink` shape emitted by `--print-handoff` is interim, pending the web deep-link auto-connect work ([#1576](https://github.com/modelcontextprotocol/inspector/issues/1576)); it will be reconciled with that issue's canonical handoff format once it lands.
+The `deepLink` is the canonical web deep-link ([#1576](https://github.com/modelcontextprotocol/inspector/issues/1576)) — `http://<host>:<port>/?serverUrl=<url>&transport=<http|sse>&autoConnect=<token>` — so navigating it in a browser reaches a connected inspector in one shot. `transport` is derived from the resolved server (`--transport`, else auto-detected from the URL path: `/sse` → `sse`, else `http`), not hardcoded. `autoConnect` is set to `MCP_INSPECTOR_API_TOKEN`; when that env var is unset the link is still emitted but a `note` field flags that the web app's `autoConnect` gate will reject it until the inspector is launched with a known token.
 
 ```bash
 # On a remote VM: print what a human needs to complete OAuth in their browser.

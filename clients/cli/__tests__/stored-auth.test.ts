@@ -4,7 +4,7 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { runCli } from "./helpers/cli-runner.js";
 import { expectCliFailure, expectCliSuccess } from "./helpers/assertions.js";
-import { normalizeServerUrl } from "../src/cli.js";
+import { normalizeServerUrl, deepLinkTransport } from "../src/cli.js";
 import {
   createTestServerHttp,
   createEchoTool,
@@ -33,6 +33,27 @@ describe("normalizeServerUrl", () => {
 
   it("returns the raw string when the value is not a parseable URL", () => {
     expect(normalizeServerUrl("not a url")).toBe("not a url");
+  });
+});
+
+describe("deepLinkTransport", () => {
+  it("honors an explicit sse/http transport over the URL path", () => {
+    expect(deepLinkTransport("https://x.example/mcp", "sse")).toBe("sse");
+    expect(deepLinkTransport("https://x.example/sse", "http")).toBe("http");
+  });
+
+  it("auto-detects sse from a /sse path when no transport is given", () => {
+    expect(deepLinkTransport("https://x.example/sse", undefined)).toBe("sse");
+  });
+
+  it("defaults to http for a /mcp path, an ambiguous path, or stdio", () => {
+    expect(deepLinkTransport("https://x.example/mcp", undefined)).toBe("http");
+    expect(deepLinkTransport("https://x.example/", undefined)).toBe("http");
+    expect(deepLinkTransport("https://x.example/mcp", "stdio")).toBe("http");
+  });
+
+  it("defaults to http for an unparseable URL without throwing", () => {
+    expect(deepLinkTransport("not a url", undefined)).toBe("http");
   });
 });
 
@@ -258,12 +279,41 @@ describe("--print-handoff", () => {
     expect(out.serverUrl).toBe("https://x.example/mcp");
     expect(out.deepLink).toContain("autoConnect=tok123");
     expect(out.deepLink).toContain("serverUrl=https%3A%2F%2Fx.example%2Fmcp");
+    // Canonical #1576 deep-link: a `/mcp` server hands off `transport=http`.
+    expect(out.deepLink).toContain("transport=http");
     expect(out.portForwardCmd).toContain("--tcp 16274:16274");
     expect(out.portForwardCmd).toContain("--tcp 16275:16275");
     expect(out.oauthStatePath).toBe(
       join("/tmp/inspector-storage", "oauth.json"),
     );
     expect(out.apiToken).toBe("tok123");
+  });
+
+  it("derives transport=sse for an SSE server (auto-detected from the /sse path)", async () => {
+    const result = await runCli(
+      ["--print-handoff", "--server-url", "https://x.example/sse"],
+      { env: { MCP_INSPECTOR_API_TOKEN: "tok123" } },
+    );
+    expectCliSuccess(result);
+    const out = JSON.parse(result.stdout) as { deepLink: string };
+    expect(out.deepLink).toContain("transport=sse");
+    expect(out.deepLink).not.toContain("transport=http");
+  });
+
+  it("honors an explicit --transport sse over the URL path", async () => {
+    const result = await runCli(
+      [
+        "--print-handoff",
+        "--server-url",
+        "https://x.example/mcp",
+        "--transport",
+        "sse",
+      ],
+      { env: { MCP_INSPECTOR_API_TOKEN: "tok123" } },
+    );
+    expectCliSuccess(result);
+    const out = JSON.parse(result.stdout) as { deepLink: string };
+    expect(out.deepLink).toContain("transport=sse");
   });
 
   it("includes a note when MCP_INSPECTOR_API_TOKEN is unset", async () => {
