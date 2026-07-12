@@ -34,6 +34,7 @@ import {
   type OAuthPersistSnapshot,
 } from "@inspector/core/auth/oauth-persist.js";
 import { getAuthorizationServerUrl } from "@inspector/core/auth/discovery.js";
+import { writeStoreFile } from "@inspector/core/storage/store-io.js";
 import {
   refreshAuthorization,
   discoverAuthorizationServerMetadata,
@@ -595,7 +596,7 @@ export async function refreshStoredAuthToken(
     throw new CliExitCodeError(
       EXIT_CODES.AUTH_REQUIRED,
       `Stored auth for ${normalizeServerUrl(serverUrl)} has a refresh token but no client information; cannot refresh. Re-authorize in the web inspector.`,
-      { code: "no_stored_token", url: serverUrl },
+      { code: "no_client_information", url: serverUrl },
     );
   }
 
@@ -624,9 +625,11 @@ export async function refreshStoredAuthToken(
 
   // Persist the rotated tokens back under the same key, preserving every other
   // server entry and the idpSessions block, so web and CLI stay consistent.
+  // Route through the shared `writeStoreFile` (not a raw `writeFile`) so the
+  // secrets file keeps its owner-only `0o600` mode + `mkdir -p`, identical to
+  // how the web backend's OAuth persist backend writes it.
   servers[found.key] = { ...found.state, tokens };
-  const { writeFile } = await import("node:fs/promises");
-  await writeFile(statePath, serializeOAuthPersistBlob(snapshot), "utf8");
+  await writeStoreFile(statePath, serializeOAuthPersistBlob(snapshot));
 
   return tokens.access_token;
 }
@@ -1077,7 +1080,22 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       const servers = await readOAuthServers(oauthStatePath);
       const stored = findStoredServerState(servers, options.serverUrl);
       if (stored?.state.tokens?.refresh_token) {
-        token = await refreshStoredAuthToken(options.serverUrl, oauthStatePath);
+        const storedAccess = stored.state.tokens.access_token;
+        try {
+          token = await refreshStoredAuthToken(
+            options.serverUrl,
+            oauthStatePath,
+          );
+        } catch (err) {
+          // A failed refresh (transient auth-server hiccup, missing client
+          // info) shouldn't turn a previously-working invocation into a hard
+          // failure when a still-usable access token is also on disk — fall
+          // back to injecting it (a genuinely stale one surfaces as HTTP 401 →
+          // exit 3, the same as without a refresh token). With no stored access
+          // token to fall back on, the refresh error stands.
+          if (!storedAccess) throw err;
+          token = storedAccess;
+        }
       } else {
         const found = findStoredToken(servers, options.serverUrl);
         if (!found) {

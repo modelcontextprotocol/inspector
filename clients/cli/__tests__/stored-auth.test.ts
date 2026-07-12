@@ -111,6 +111,46 @@ describe("refreshStoredAuthToken", () => {
     }
   });
 
+  it("passes metadata=undefined to the refresh grant when discovery returns nothing", async () => {
+    const path = writeOAuthFixture({
+      [SERVER]: {
+        tokens: { refresh_token: "old-refresh", token_type: "Bearer" },
+        clientInformation: { client_id: "cid" },
+      },
+    });
+    try {
+      const refresh = vi.fn().mockResolvedValue(freshTokens);
+      const discover = vi.fn().mockResolvedValue(undefined);
+      const token = await refreshStoredAuthToken(SERVER, path, {
+        refresh,
+        discover,
+      });
+      expect(token).toBe("refreshed-access-token");
+      const [, opts] = refresh.mock.calls[0]!;
+      expect(opts.metadata).toBeUndefined();
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("uses the distinct no_client_information code when client info is missing", async () => {
+    const path = writeOAuthFixture({
+      [SERVER]: {
+        tokens: { refresh_token: "old-refresh", token_type: "Bearer" },
+      },
+    });
+    try {
+      await expect(
+        refreshStoredAuthToken(SERVER, path, { refresh: vi.fn() }),
+      ).rejects.toMatchObject({
+        exitCode: 3,
+        envelope: { code: "no_client_information" },
+      });
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
   it("throws AUTH_REQUIRED when no refresh token is stored", async () => {
     const path = writeOAuthFixture({
       [SERVER]: {
@@ -389,6 +429,56 @@ describe("--use-stored-auth", () => {
       expect(persisted.servers[serverUrl]?.tokens?.refresh_token).toBe(
         "rotated-refresh-token",
       );
+    } finally {
+      rmSync(fixture, { force: true });
+      await new Promise<void>((resolve) => tokenServer.close(() => resolve()));
+    }
+  });
+
+  it("falls back to the stored access token when the refresh grant fails (#1665 review #1)", async () => {
+    // Token endpoint that rejects the refresh grant, so the CLI must fall back
+    // to the still-present stored access token instead of hard-failing.
+    const tokenServer: Server = createServer((_req, res) => {
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "invalid_grant" }));
+    });
+    await new Promise<void>((resolve) => tokenServer.listen(0, resolve));
+    const addr = tokenServer.address();
+    const tokenBase =
+      typeof addr === "object" && addr ? `http://127.0.0.1:${addr.port}` : "";
+    const fixture = writeOAuthFixture({
+      [serverUrl]: {
+        tokens: {
+          access_token: "still-usable-access",
+          refresh_token: "old-refresh",
+          token_type: "Bearer",
+        },
+        clientInformation: { client_id: "cid", client_secret: "sec" },
+        serverMetadata: {
+          issuer: tokenBase,
+          token_endpoint: `${tokenBase}/token`,
+          response_types_supported: ["code"],
+          grant_types_supported: ["authorization_code", "refresh_token"],
+          token_endpoint_auth_methods_supported: ["client_secret_post"],
+        },
+      },
+    });
+    try {
+      const result = await runCli(
+        [
+          "--transport",
+          "http",
+          "--server-url",
+          serverUrl,
+          "--use-stored-auth",
+          "--method",
+          "tools/list",
+        ],
+        { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: fixture } },
+      );
+      expectCliSuccess(result);
+      const last = server.getRecordedRequests().at(-1)!;
+      expect(last.headers?.authorization).toBe("Bearer still-usable-access");
     } finally {
       rmSync(fixture, { force: true });
       await new Promise<void>((resolve) => tokenServer.close(() => resolve()));
