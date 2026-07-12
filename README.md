@@ -44,6 +44,8 @@ inspector/
 Each client has its own README with client-specific detail:
 [web](./clients/web/README.md) · [cli](./clients/cli/README.md) · [tui](./clients/tui/README.md) · [launcher](./clients/launcher/README.md).
 
+Task-oriented guides live under [`docs/`](./docs): [MCP server configuration](./docs/mcp-server-configuration.md) (the shared catalog/config/ad-hoc flags) and [Reviewing an MCP App](./docs/mcp-app-review.md) (the CLI-first → one-shot-web recipe for automated App-tool review: `--app-info` probe → deep-link navigate → rendered widget, plus OAuth handoff and proxy support).
+
 ## Setup
 
 Requires Node `>=22.19.0`.
@@ -120,13 +122,13 @@ Individual clients: `build:web`, `build:cli`, `build:tui`, `build:launcher`. The
 
 Each client self-validates from its own folder; the root scripts chain them. There is **no** aggregate root `test` script — use `validate` (fast) or `coverage` (the gate).
 
-| Script | What it does |
-| --- | --- |
-| `npm run validate` | `format:check` + `lint` + `build` + fast unit tests, per client. The quick inner-loop check. |
-| `npm run coverage` | The **per-file ≥90% gate** (lines/statements/functions/branches) under v8 instrumentation, per client. CI-enforced. For web this also runs the integration project. |
-| `npm run smoke` | End-to-end smokes through the built launcher (`--help` dispatch + prod cli/tui/web). |
-| `npm run ci` | **Mandatory pre-push command.** `validate` → `coverage` → `smoke` → Storybook. A true superset of GitHub CI. |
-| `npm run pack:verify` | Publish smoke — see [Publishing](#publishing). |
+| Script                | What it does                                                                                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run validate`    | `format:check` + `lint` + `build` + fast unit tests, per client. The quick inner-loop check.                                                                        |
+| `npm run coverage`    | The **per-file ≥90% gate** (lines/statements/functions/branches) under v8 instrumentation, per client. CI-enforced. For web this also runs the integration project. |
+| `npm run smoke`       | End-to-end smokes through the built launcher (`--help` dispatch + prod cli/tui/web).                                                                                |
+| `npm run ci`          | **Mandatory pre-push command.** `validate` → `coverage` → `smoke` → Storybook. A true superset of GitHub CI.                                                        |
+| `npm run pack:verify` | Publish smoke — see [Publishing](#publishing).                                                                                                                      |
 
 Per-client scripts exist too (`validate:web`, `coverage:cli`, `smoke:tui`, …). Run `npm run format` (per client) before committing — `validate` runs the non-fixing `format:check` and fails CI on any unformatted file.
 
