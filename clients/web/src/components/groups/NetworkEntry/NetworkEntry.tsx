@@ -15,6 +15,7 @@ import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
 import { isLongLivedStreamResponse } from "@inspector/core/mcp/fetchTracking.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
+import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
 import { maskSecretsInBody } from "../../../utils/maskSecrets";
 
 export interface NetworkEntryProps {
@@ -274,7 +275,7 @@ export function NetworkEntry({
                 <TimestampText>
                   {formatTimestampCompact(entry.timestamp)}
                 </TimestampText>
-                <Badge color="dark">{entry.method}</Badge>
+                <MethodBadge method={entry.method} />
                 <Badge color={categoryColor(entry.category)} variant="light">
                   {entry.category}
                 </Badge>
@@ -295,7 +296,7 @@ export function NetworkEntry({
                 <TimestampText>
                   {formatTimestamp(entry.timestamp)}
                 </TimestampText>
-                <Badge color="dark">{entry.method}</Badge>
+                <MethodBadge method={entry.method} />
                 <Badge color={categoryColor(entry.category)} variant="light">
                   {entry.category}
                 </Badge>

@@ -12,6 +12,7 @@ import {
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { MessageDirectionBadge } from "../../elements/MessageDirectionBadge/MessageDirectionBadge";
+import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { PinToggle } from "../../elements/PinToggle/PinToggle";
 import { ReplayButton } from "../../elements/ReplayButton/ReplayButton";
@@ -178,7 +179,7 @@ export function ProtocolEntry({
             </HeaderRow>
             <HeaderRow>
               <HeaderCluster flex={1}>
-                <Badge color="dark">{method}</Badge>
+                <MethodBadge method={method} />
                 {target && (
                   <TargetText truncate="end" miw={0}>
                     {target}
@@ -203,7 +204,7 @@ export function ProtocolEntry({
                   {formatTimestamp(entry.timestamp)}
                 </TimestampText>
                 {directionBadge}
-                <Badge color="dark">{method}</Badge>
+                <MethodBadge method={method} />
                 {target && <TargetText>{target}</TargetText>}
               </Group>
               <Group gap="sm">

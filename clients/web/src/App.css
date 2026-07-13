@@ -22,8 +22,8 @@
   --inspector-text-inverse: var(--mantine-color-white);
 
   /* ── Surfaces ──────────────────────────────────────────── */
-  --inspector-surface-body: var(--mantine-color-dark-9);
-  --inspector-surface-card: var(--mantine-color-gray-0);
+  --inspector-surface-body: var(--mantine-color-gray-0);
+  --inspector-surface-card: var(--mantine-color-white);
   --inspector-surface-code: var(--mantine-color-white);
   /* Subtle inset surface for modal call-outs / summary panels. Mantine's
      `default-hover` already adapts to color scheme, so no dark override. */
@@ -77,15 +77,54 @@
   /* ── History ───────────────────────────────────────────── */
   --inspector-history-success: var(--mantine-color-green-6);
   --inspector-history-error: var(--mantine-color-red-6);
+
+  /* ── Protocol / Network badges ─────────────────────────── */
+  /* Direction (client→server / server→client) and method chips. Light mode
+     keeps the tinted "light variant" look via Mantine's *-light tokens. */
+  --inspector-badge-outgoing-bg: var(--mantine-color-green-light);
+  --inspector-badge-outgoing-fg: var(--mantine-color-green-light-color);
+  --inspector-badge-incoming-bg: var(--mantine-color-violet-light);
+  --inspector-badge-incoming-fg: var(--mantine-color-violet-light-color);
+  --inspector-badge-method-bg: var(--mantine-color-dark-6);
+  --inspector-badge-method-fg: var(--mantine-color-gray-0);
 }
 
 /* Dark mode overrides — tokens that need adjustment in dark scheme */
 [data-mantine-color-scheme="dark"] {
+  /* Cards sit a step above the charcoal body for clear separation. */
   --inspector-surface-card: var(--mantine-color-gray-9);
   --inspector-surface-code: var(--mantine-color-dark-9);
   --inspector-border-subtle: var(--mantine-color-gray-4);
   --inspector-input-background: var(--mantine-color-dark-9);
   --inspector-scrollbar-thumb: rgba(255, 255, 255, 0.4);
+
+  /* The semantic status/log/task colors use the same `*-6` shade in both
+     schemes, which sits too dark on charcoal — lift them one to two steps so
+     they stay legible in dark mode. Light-mode `:root` keeps the `*-6` values. */
+
+  /* Status */
+  --inspector-status-connected: var(--mantine-color-green-4);
+  --inspector-status-connecting: var(--mantine-color-yellow-4);
+  --inspector-status-error: var(--mantine-color-red-4);
+
+  /* Log levels (RFC 5424) */
+  --inspector-log-info: var(--mantine-color-blue-4);
+  --inspector-log-notice: var(--mantine-color-teal-4);
+  --inspector-log-warning: var(--mantine-color-yellow-4);
+  --inspector-log-error: var(--mantine-color-red-4);
+  --inspector-log-critical: var(--mantine-color-red-5);
+  --inspector-log-alert: var(--mantine-color-red-6);
+  --inspector-log-emergency: var(--mantine-color-red-7);
+
+  /* Task status */
+  --inspector-task-running: var(--mantine-color-blue-4);
+  --inspector-task-completed: var(--mantine-color-green-4);
+  --inspector-task-failed: var(--mantine-color-red-4);
+  --inspector-task-cancelled: var(--mantine-color-yellow-4);
+
+  /* History */
+  --inspector-history-success: var(--mantine-color-green-4);
+  --inspector-history-error: var(--mantine-color-red-4);
 }
 
 /* ── Animations ──────────────────────────────────────────── */
