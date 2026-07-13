@@ -224,6 +224,13 @@ export function PendingClientRequestModal({
       closeOnClickOutside={false}
       closeOnEscape={false}
       size="lg"
+      // Make the body a bounded flex column so a request panel (e.g.
+      // ElicitationFormPanel) can fill it and scroll only its own fields while
+      // pinning its action buttons. Natural-height panels (sampling / URL) are
+      // unaffected — they size to content and the body still scrolls them.
+      styles={{
+        body: { display: "flex", flexDirection: "column", minHeight: 0 },
+      }}
       title={
         request && (
           <TitleRow>

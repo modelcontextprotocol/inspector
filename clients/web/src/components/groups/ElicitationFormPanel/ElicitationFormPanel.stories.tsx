@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { Flex } from "@mantine/core";
 import type { ElicitRequestFormParams } from "@modelcontextprotocol/sdk/types.js";
 import { fn } from "storybook/test";
 import { ElicitationFormPanel } from "./ElicitationFormPanel";
@@ -14,6 +15,16 @@ const meta: Meta<typeof ElicitationFormPanel> = {
     serverName: "postgres-server",
     values: {},
   },
+  // The panel fills a bounded flex column (its host `PendingClientRequestModal`
+  // makes the modal body one). Mirror that here so the pinned-actions layout —
+  // fields scroll, buttons stay put — renders as it does in the modal.
+  decorators: [
+    (Story) => (
+      <Flex h="80vh" maw={560} direction="column">
+        <Story />
+      </Flex>
+    ),
+  ],
 };
 
 export default meta;
@@ -60,8 +71,38 @@ const deployRequest = {
   },
 } satisfies ElicitRequestFormParams;
 
+// A form with more fields than fit the modal, to exercise the pinned-actions
+// layout: the fields scroll while the message and Cancel/Decline/Submit stay
+// in view.
+const manyFieldsRequest = {
+  message: "Please provide the full server configuration.",
+  requestedSchema: {
+    type: "object" as const,
+    properties: Object.fromEntries(
+      [
+        "host",
+        "port",
+        "database",
+        "username",
+        "password",
+        "schema",
+        "poolSize",
+        "connectTimeout",
+        "idleTimeout",
+        "applicationName",
+        "sslCert",
+        "sslKey",
+      ].map((name) => [name, { type: "string" as const, title: name }]),
+    ),
+  },
+} satisfies ElicitRequestFormParams;
+
 export const SimpleForm: Story = {
   args: { request: dbRequest },
+};
+
+export const ManyFields: Story = {
+  args: { request: manyFieldsRequest },
 };
 
 export const WithEnums: Story = {

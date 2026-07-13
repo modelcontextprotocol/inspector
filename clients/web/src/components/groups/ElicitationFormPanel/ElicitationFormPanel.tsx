@@ -36,23 +36,29 @@ const QuotedMessage = Text.withProps({
   fs: "italic",
 });
 
-// Cap the whole panel below the modal's max height (≈90dvh, minus its header
-// and padding) and lay it out as a flex column: the message and the
-// warning + action buttons are pinned (`flex: 0 0 auto`) and only the fields
-// (`FieldScroll`, `flex: 1`) shrink and scroll to absorb the overflow. This
-// keeps the buttons in view no matter how tall the form is — the modal has no
-// other close affordance, so the actions must never scroll off-screen.
+// Fill the (bounded) modal body and lay out as a flex column: the message and
+// the warning + action buttons are pinned (`flex: 0 0 auto`) and only the
+// fields scroll, so the buttons stay in view no matter how tall the form is —
+// the modal has no other close affordance. `PendingClientRequestModal` makes
+// its body a bounded flex column so `flex: 1` here has a definite height to
+// fill (and to size to content when the form is short).
 const PanelStack = Stack.withProps({
   gap: "md",
-  mah: "calc(85dvh - 8rem)",
+  flex: 1,
   mih: 0,
 });
 
 const PinnedSection = Stack.withProps({ gap: "md", flex: "0 0 auto" });
 
+// The fields are the only scrolling region. `flex: "0 1 auto"` (basis auto) sizes
+// it to its content when the form is short — so the modal stays compact and
+// nothing scrolls — but lets it shrink and scroll once the panel is capped at
+// the modal's max height, keeping the pinned sections in view. (Same pattern as
+// ToolDetailPanel's body scroller.)
 const FieldScroll = ScrollArea.withProps({
-  flex: 1,
+  flex: "0 1 auto",
   mih: 0,
+  scrollbars: "y",
   offsetScrollbars: true,
 });
 
