@@ -183,6 +183,8 @@ const RightConnectedGroup = Group.withProps({
 
 const DisconnectButton = Button.withProps({
   variant: "subtle",
+  // `color` drives the subtle hover/active tint; `c` overrides just the label
+  // to the AA-compliant danger red (red.6 text alone fell under contrast).
   color: "red.6",
   size: "sm",
   c: "var(--inspector-danger-text)",

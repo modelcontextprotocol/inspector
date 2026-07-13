@@ -77,7 +77,10 @@ const preview: Preview = {
       },
     },
     a11y: {
-      test: 'todo',
+      // `'error'` fails the Storybook play-function tests (part of `npm run ci`)
+      // on any axe violation, so the zero-violation state this PR reached is
+      // enforced going forward rather than being a point-in-time result.
+      test: 'error',
       // Stories render presentational components (and whole screens) in
       // isolation, outside the app's `AppShell` — which is what provides the
       // page landmarks (`<main>`, nav) in the real app. The `region` rule
