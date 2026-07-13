@@ -36,13 +36,23 @@ const QuotedMessage = Text.withProps({
   fs: "italic",
 });
 
-// Only the form fields scroll — capping them here keeps the quoted message
-// above and the warning + action buttons below always in view, so the modal
-// (which has no other close affordance) can always be dismissed without
-// scrolling to the bottom. The cap reserves ~15rem for that pinned chrome so
-// the whole panel stays within the modal's height.
-const FieldScroll = ScrollArea.Autosize.withProps({
-  mah: "calc(85dvh - 15rem)",
+// Cap the whole panel below the modal's max height (≈90dvh, minus its header
+// and padding) and lay it out as a flex column: the message and the
+// warning + action buttons are pinned (`flex: 0 0 auto`) and only the fields
+// (`FieldScroll`, `flex: 1`) shrink and scroll to absorb the overflow. This
+// keeps the buttons in view no matter how tall the form is — the modal has no
+// other close affordance, so the actions must never scroll off-screen.
+const PanelStack = Stack.withProps({
+  gap: "md",
+  mah: "calc(85dvh - 8rem)",
+  mih: 0,
+});
+
+const PinnedSection = Stack.withProps({ gap: "md", flex: "0 0 auto" });
+
+const FieldScroll = ScrollArea.withProps({
+  flex: 1,
+  mih: 0,
   offsetScrollbars: true,
 });
 
@@ -68,9 +78,11 @@ export function ElicitationFormPanel({
   const submitDisabled =
     busy || hasMissingRequiredFields(requestedSchema, values);
   return (
-    <Stack gap="md">
-      <QuotedMessage>{formatQuoted(request.message)}</QuotedMessage>
-      <Divider />
+    <PanelStack>
+      <PinnedSection>
+        <QuotedMessage>{formatQuoted(request.message)}</QuotedMessage>
+        <Divider />
+      </PinnedSection>
       <FieldScroll>
         <SchemaForm
           schema={requestedSchema}
@@ -79,20 +91,27 @@ export function ElicitationFormPanel({
           disabled={busy}
         />
       </FieldScroll>
-      <Alert variant="warning" title="Warning">
-        {formatWarning(serverName)}
-      </Alert>
-      <Group justify="flex-end">
-        <Button variant="light" onClick={onCancel} disabled={busy}>
-          Cancel
-        </Button>
-        <Button variant="light" color="red" onClick={onDecline} disabled={busy}>
-          Decline
-        </Button>
-        <Button onClick={onSubmit} disabled={submitDisabled}>
-          Submit
-        </Button>
-      </Group>
-    </Stack>
+      <PinnedSection>
+        <Alert variant="warning" title="Warning">
+          {formatWarning(serverName)}
+        </Alert>
+        <Group justify="flex-end">
+          <Button variant="light" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            variant="light"
+            color="red"
+            onClick={onDecline}
+            disabled={busy}
+          >
+            Decline
+          </Button>
+          <Button onClick={onSubmit} disabled={submitDisabled}>
+            Submit
+          </Button>
+        </Group>
+      </PinnedSection>
+    </PanelStack>
   );
 }
