@@ -39,7 +39,11 @@ export function MessageDirectionFilter({
   return (
     <>
       <Group justify="space-between">
-        <Title order={6}>Filter by Message Direction</Title>
+        {/* h5 (not h6) to sit one level below the screen's h4 heading (avoids an
+            axe `heading-order` skip); `size="h6"` preserves the visual size. */}
+        <Title order={5} size="h6">
+          Filter by Message Direction
+        </Title>
         <SubtleButton onClick={onToggleAllDirections}>
           {Object.values(visibleDirections).every(Boolean)
             ? "Deselect All"

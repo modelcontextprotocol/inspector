@@ -45,6 +45,11 @@ function serializeJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+// Section headings. `order: 3` (not 5) keeps them one level below the host
+// modal's `h2` title so the outline doesn't skip a level (axe `heading-order`);
+// `size: "h5"` preserves the original small visual size.
+const SectionTitle = Title.withProps({ order: 3, size: "h5" });
+
 const HintText = Text.withProps({
   size: "sm",
   c: "dimmed",
@@ -85,7 +90,7 @@ export function SamplingRequestPanel({
     <Stack gap="md">
       <HintText>The server is requesting an LLM completion.</HintText>
 
-      <Title order={5}>Messages:</Title>
+      <SectionTitle>Messages:</SectionTitle>
       {messages.map((message, index) => (
         <MessageBubble key={index} index={index} message={message} />
       ))}
@@ -93,7 +98,7 @@ export function SamplingRequestPanel({
       {modelPreferences && (
         <PreferencesContainer>
           <Stack gap="xs">
-            <Title order={5}>Model Preferences:</Title>
+            <SectionTitle>Model Preferences:</SectionTitle>
             {hints.length > 0 && (
               <Group gap="xs">
                 <Text size="sm">Hints:</Text>
@@ -122,7 +127,7 @@ export function SamplingRequestPanel({
         </PreferencesContainer>
       )}
 
-      <Title order={5}>Parameters:</Title>
+      <SectionTitle>Parameters:</SectionTitle>
       <Text size="sm">
         Max Tokens: {formatOptional(maxTokens, "not specified")}
       </Text>
@@ -143,8 +148,9 @@ export function SamplingRequestPanel({
 
       <Divider />
 
-      <Title order={5}>Response:</Title>
+      <SectionTitle>Response:</SectionTitle>
       <Textarea
+        aria-label="Response"
         value={
           draftResult.content.type === "text" ? draftResult.content.text : ""
         }

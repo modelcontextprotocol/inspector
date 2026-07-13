@@ -14,6 +14,7 @@ import type {
   Resource,
   TextResourceContents,
 } from "@modelcontextprotocol/sdk/types.js";
+import { accessibleTextColor } from "../../elements/accessibleTextColor";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { getMimeKind } from "../../elements/ContentViewer/contentViewerUtils";
@@ -77,7 +78,10 @@ const UriGroup = Group.withProps({
 
 const UriText = Text.withProps({
   size: "sm",
-  c: "blue",
+  // Scheme-aware readable blue: `c="blue"` renders blue-4 in dark mode, which
+  // falls just under WCAG AA (4.38:1) on the card. `-light-color` clears it in
+  // both schemes (see `accessibleTextColor`).
+  c: accessibleTextColor("blue"),
   truncate: "end",
 });
 

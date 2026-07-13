@@ -100,6 +100,7 @@ const RemoveButton = Button.withProps({
   variant: "subtle",
   size: "xs",
   color: "red.6",
+  c: "var(--inspector-danger-text)",
 });
 
 function getTransport(config: MCPServerConfig): ServerType {
@@ -212,6 +213,7 @@ export function ServerCard({
               status={connection.status}
               disabled={isDimmed}
               onToggle={() => onToggleConnection(id)}
+              aria-label={`Connect or disconnect "${name}"`}
             />
           </HeaderRight>
         </Group>

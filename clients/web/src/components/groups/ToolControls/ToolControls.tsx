@@ -56,7 +56,7 @@ export function ToolControls({
           searchText ? <ClearButton onClick={() => onSearchChange("")} /> : null
         }
       />
-      <ScrollArea viewportRef={viewportRef} flex={1} mih={0} type="auto">
+      <ScrollArea viewportRef={viewportRef} flex={1} mih={0}>
         <Stack gap="xs">
           {filteredTools.map((tool) => (
             <ToolListItem

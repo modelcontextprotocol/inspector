@@ -47,7 +47,11 @@ export function TaskControls({
         }
       />
 
-      <Title order={6}>Filter by Status</Title>
+      {/* h5 (not h6) to sit one level below the screen's h4 heading (avoids an
+          axe `heading-order` skip); `size="h6"` preserves the visual size. */}
+      <Title order={5} size="h6">
+        Filter by Status
+      </Title>
       <Select
         placeholder="All statuses"
         data={STATUS_OPTIONS}

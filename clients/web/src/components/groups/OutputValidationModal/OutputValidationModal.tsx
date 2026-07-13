@@ -5,7 +5,6 @@ import {
   Stack,
   Text,
   Textarea,
-  Title,
 } from "@mantine/core";
 
 export interface OutputValidationModalProps {
@@ -40,9 +39,8 @@ export function OutputValidationModal({
     >
       <Stack gap="md">
         <Group justify="space-between" wrap="nowrap">
-          <Title order={4} flex={1}>
-            Output schema validation
-          </Title>
+          {/* `Modal.Title` names the dialog (wires `aria-labelledby`). */}
+          <Modal.Title flex={1}>Output schema validation</Modal.Title>
           <CloseButton aria-label="Close" onClick={onClose} />
         </Group>
         <Text size="sm" c="dimmed">

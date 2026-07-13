@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CloseButton, Group, Modal, Stack, Title } from "@mantine/core";
+import { CloseButton, Group, Modal, Stack } from "@mantine/core";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import {
   ClientSettingsForm,
@@ -75,10 +75,11 @@ export function ClientSettingsModal({
             variant="subtle"
             onToggle={handleToggleAll}
           />
-          <Title order={4} ta="center" flex={1}>
+          {/* `Modal.Title` names the dialog (wires `aria-labelledby`). */}
+          <Modal.Title ta="center" flex={1}>
             Client Settings
-          </Title>
-          <CloseButton onClick={handleClose} />
+          </Modal.Title>
+          <CloseButton aria-label="Close" onClick={handleClose} />
         </Group>
         <ClientSettingsForm
           settings={settings}

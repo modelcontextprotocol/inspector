@@ -183,8 +183,9 @@ const RightConnectedGroup = Group.withProps({
 
 const DisconnectButton = Button.withProps({
   variant: "subtle",
-  c: "red",
+  color: "red.6",
   size: "sm",
+  c: "var(--inspector-danger-text)",
 });
 
 const DisconnectIcon = ActionIcon.withProps({

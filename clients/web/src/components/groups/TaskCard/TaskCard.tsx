@@ -32,6 +32,7 @@ export interface TaskCardProps {
 const TaskContainer = Card.withProps({
   withBorder: true,
   padding: "md",
+  variant: "inset",
 });
 
 const HeaderRow = Group.withProps({

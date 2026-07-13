@@ -55,6 +55,7 @@ export function EmbeddableScrollArea({
           type="scroll"
           offsetScrollbars
           styles={styles}
+          viewportProps={{ tabIndex: 0 }}
         >
           {children}
         </ScrollArea.Autosize>
@@ -68,6 +69,7 @@ export function EmbeddableScrollArea({
       type="scroll"
       offsetScrollbars
       styles={styles}
+      viewportProps={{ tabIndex: 0 }}
     >
       {children}
     </ScrollArea.Autosize>

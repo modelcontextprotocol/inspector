@@ -1,5 +1,6 @@
-import { Badge, useComputedColorScheme } from "@mantine/core";
+import { Badge } from "@mantine/core";
 import type { Role } from "@modelcontextprotocol/sdk/types.js";
+import { filledBadgeColor } from "../filledBadgeColor";
 
 export type AnnotationFacet =
   | "audience"
@@ -52,11 +53,14 @@ function formatLabel(
 }
 
 export function AnnotationBadge({ facet, value }: AnnotationBadgeProps) {
-  const colorScheme = useComputedColorScheme();
-  const color = colorMap[facet];
-  const textColor = colorScheme === "dark" ? "black" : "white";
+  const color = filledBadgeColor(colorMap[facet]);
+  // `autoContrast` picks black or white text per the fill's luminance in each
+  // scheme, so the label stays legible (WCAG AA) on both the lighter light-mode
+  // fills and the darker dark-mode `-filled` shades — unlike a fixed
+  // scheme→black/white mapping, which inverted the contrast in dark mode.
+  // Amber fills are pinned to shade 5 first (see `filledBadgeColor`).
   return (
-    <Badge color={color} variant="filled" fw={500} c={textColor}>
+    <Badge color={color} variant="filled" fw={500} autoContrast>
       {formatLabel(facet, value)}
     </Badge>
   );

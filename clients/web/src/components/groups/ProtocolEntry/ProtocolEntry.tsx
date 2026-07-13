@@ -35,6 +35,7 @@ export interface ProtocolEntryProps {
 const EntryContainer = Card.withProps({
   withBorder: true,
   padding: "md",
+  variant: "inset",
 });
 
 const HeaderRow = Group.withProps({
@@ -153,7 +154,9 @@ export function ProtocolEntry({
     />
   );
   const statusBadge = status !== "none" && (
-    <Badge color={statusColor(status)}>{statusLabel(status)}</Badge>
+    <Badge color={statusColor(status)} variant="status">
+      {statusLabel(status)}
+    </Badge>
   );
   const durationText = entry.duration != null && (
     <DurationText>{formatDuration(entry.duration)}</DurationText>

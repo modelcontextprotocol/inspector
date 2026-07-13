@@ -309,6 +309,7 @@ export function ExperimentalFeaturesPanel({
             )}
           </Group>
           <Textarea
+            aria-label="Response"
             ff="monospace"
             value={formatResponse(response)}
             readOnly

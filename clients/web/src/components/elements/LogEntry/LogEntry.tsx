@@ -4,6 +4,7 @@ import type {
   LoggingMessageNotification,
 } from "@modelcontextprotocol/sdk/types.js";
 import { LogLevelBadge } from "../LogLevelBadge/LogLevelBadge";
+import { accessibleTextColor } from "../accessibleTextColor";
 
 export interface LogEntryData {
   receivedAt: Date;
@@ -95,7 +96,9 @@ export function LogEntry({ entry, compact = false }: LogEntryProps) {
           <LogLevelBadge level={params.level} />
           {logger}
         </MetaRow>
-        <CompactMessageText c={levelMessageColor[params.level]}>
+        <CompactMessageText
+          c={accessibleTextColor(levelMessageColor[params.level])}
+        >
           {message}
         </CompactMessageText>
       </Stack>
@@ -107,7 +110,9 @@ export function LogEntry({ entry, compact = false }: LogEntryProps) {
       <TimestampText>{formatTimestamp(receivedAt)}</TimestampText>
       <LogLevelBadge level={params.level} />
       {logger}
-      <MessageText c={levelMessageColor[params.level]}>{message}</MessageText>
+      <MessageText c={accessibleTextColor(levelMessageColor[params.level])}>
+        {message}
+      </MessageText>
     </Group>
   );
 }

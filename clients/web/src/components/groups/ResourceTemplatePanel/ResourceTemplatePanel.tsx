@@ -8,6 +8,7 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
+import { accessibleTextColor } from "../../elements/accessibleTextColor";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { ResourceTemplate } from "@modelcontextprotocol/sdk/types.js";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
@@ -77,7 +78,9 @@ const UriGroup = Group.withProps({
 
 const UriText = Text.withProps({
   size: "sm",
-  c: "blue",
+  // Scheme-aware readable blue (`c="blue"` is blue-4 in dark, 4.38:1 on the
+  // card — just under WCAG AA); see `accessibleTextColor`.
+  c: accessibleTextColor("blue"),
   truncate: "end",
 });
 

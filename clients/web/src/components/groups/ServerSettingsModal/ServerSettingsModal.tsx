@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CloseButton, Group, Modal, Stack, Title } from "@mantine/core";
+import { CloseButton, Group, Modal, Stack } from "@mantine/core";
 import type {
   InspectorServerSettings,
   OAuthSettings,
@@ -199,10 +199,11 @@ export function ServerSettingsModal({
             variant="subtle"
             onToggle={handleToggleAll}
           />
-          <Title order={4} ta="center" flex={1}>
+          {/* `Modal.Title` names the dialog (wires `aria-labelledby`). */}
+          <Modal.Title ta="center" flex={1}>
             Server Settings
-          </Title>
-          <CloseButton onClick={onClose} />
+          </Modal.Title>
+          <CloseButton aria-label="Close" onClick={onClose} />
         </Group>
         <ServerSettingsForm
           settings={settings}

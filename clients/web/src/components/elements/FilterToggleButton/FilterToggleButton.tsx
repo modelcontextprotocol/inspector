@@ -1,4 +1,5 @@
 import { Text, UnstyledButton } from "@mantine/core";
+import { accessibleTextColor } from "../accessibleTextColor";
 
 export interface FilterToggleButtonProps {
   /** Visible label and accessible name for the toggle. */
@@ -38,7 +39,7 @@ export function FilterToggleButton({
       aria-pressed={active}
       onClick={() => onToggle(!active)}
     >
-      <ToggleLabel c={color}>{label}</ToggleLabel>
+      <ToggleLabel c={accessibleTextColor(color)}>{label}</ToggleLabel>
     </UnstyledButton>
   );
 }

@@ -20,11 +20,30 @@
   --inspector-text-primary: var(--mantine-color-text);
   --inspector-text-secondary: var(--mantine-color-dimmed);
   --inspector-text-inverse: var(--mantine-color-white);
+  /* Danger action text (Remove / Disconnect subtle buttons). A deep red on
+     light surfaces; a lighter red on the dark card/header (see dark override) —
+     `red-6` fell just under WCAG AA on both. */
+  --inspector-danger-text: var(--mantine-color-red-7);
 
   /* ── Surfaces ──────────────────────────────────────────── */
-  --inspector-surface-body: var(--mantine-color-gray-0);
+  /* Light-grey app background so the white cards read as raised. Drives
+     Mantine's `--mantine-color-body` (the actual page background), which
+     otherwise defaults to pure white. */
+  --inspector-surface-body: var(--mantine-color-gray-1);
   --inspector-surface-card: var(--mantine-color-white);
-  --inspector-surface-code: var(--mantine-color-white);
+  /* Recessed list-item surface (Protocol/Network message cards): light-grey in
+     light mode so the entries read as sunk into their white panel; keeps the
+     standard card tone in dark (overridden below). */
+  --inspector-surface-inset: var(--mantine-color-gray-1);
+  /* Code/content surfaces match the light-grey body so they stay distinct
+     against the white cards (the Code block has no border of its own). Dark
+     mode keeps the darker `dark-9` inset below. */
+  --inspector-surface-code: var(--inspector-surface-body);
+  /* Raised content surface used for content views that sit ON a grey inset
+     message card (Protocol/Network): white in light mode so they read as
+     raised above the grey card — the inverse of the grey-on-white insets
+     elsewhere. Applied via the Card `inset` variant (see theme/Card.ts). */
+  --inspector-surface-code-oncard: var(--mantine-color-white);
   /* Subtle inset surface for modal call-outs / summary panels. Mantine's
      `default-hover` already adapts to color scheme, so no dark override. */
   --inspector-surface-subtle: var(--mantine-color-default-hover);
@@ -85,14 +104,32 @@
   --inspector-badge-outgoing-fg: var(--mantine-color-green-light-color);
   --inspector-badge-incoming-bg: var(--mantine-color-violet-light);
   --inspector-badge-incoming-fg: var(--mantine-color-violet-light-color);
-  --inspector-badge-method-bg: var(--mantine-color-dark-6);
-  --inspector-badge-method-fg: var(--mantine-color-gray-0);
+  /* Method: a neutral gray chip that adapts to the scheme — light-gray with
+     dark text in light mode, dark-gray with light text in dark mode (see the
+     dark override below). Matches the surrounding surface family. */
+  --inspector-badge-method-bg: var(--mantine-color-gray-2);
+  --inspector-badge-method-fg: var(--mantine-color-gray-7);
+  /* Network request category chips — `transport` (blue) / `auth` (violet). Same
+     treatment as the direction badges: a tinted light-variant fill here, a deep
+     saturated fill with light text in dark mode (below). */
+  --inspector-badge-transport-bg: var(--mantine-color-blue-light);
+  --inspector-badge-transport-fg: var(--mantine-color-blue-light-color);
+  --inspector-badge-auth-bg: var(--mantine-color-violet-light);
+  --inspector-badge-auth-fg: var(--mantine-color-violet-light-color);
 }
 
 /* Dark mode overrides — tokens that need adjustment in dark scheme */
 [data-mantine-color-scheme="dark"] {
-  /* Cards sit a step above the charcoal body for clear separation. */
+  /* Near-black charcoal body; cards sit a step above it for clear separation. */
+  --inspector-surface-body: var(--mantine-color-dark-9);
   --inspector-surface-card: var(--mantine-color-gray-9);
+  /* Dark keeps the message cards at the standard card tone (they already
+     contrast against the darker panel/body), so only light mode goes grey. */
+  --inspector-surface-inset: var(--mantine-color-gray-9);
+  /* On a dark message card, content views stay the darker `dark-9` inset (they
+     already contrast against the `gray-9` card) — only light mode inverts to
+     white. */
+  --inspector-surface-code-oncard: var(--mantine-color-dark-9);
   --inspector-surface-code: var(--mantine-color-dark-9);
   --inspector-border-subtle: var(--mantine-color-gray-4);
   --inspector-input-background: var(--mantine-color-dark-9);
@@ -125,6 +162,65 @@
   /* History */
   --inspector-history-success: var(--mantine-color-green-4);
   --inspector-history-error: var(--mantine-color-red-4);
+
+  /* Protocol/Network badges — solid fills with light text on charcoal (the
+     `*-light` tints from `:root` render washed-out here). Direction: a deep
+     green (distinct from the brighter green-6 "OK" status chip) and a saturated
+     violet; method: a dark-slate chip a step above the card. */
+  --inspector-badge-outgoing-bg: var(--mantine-color-green-8);
+  --inspector-badge-outgoing-fg: var(--mantine-color-green-0);
+  --inspector-badge-incoming-bg: var(--mantine-color-violet-6);
+  --inspector-badge-incoming-fg: var(--mantine-color-violet-0);
+  --inspector-badge-method-bg: var(--mantine-color-dark-5);
+  --inspector-badge-method-fg: var(--mantine-color-gray-2);
+  /* Category chips: deep blue (transport) / violet (auth) fills with light
+     text, matching the server→client direction badge. */
+  --inspector-badge-transport-bg: var(--mantine-color-blue-6);
+  --inspector-badge-transport-fg: var(--mantine-color-blue-0);
+  --inspector-badge-auth-bg: var(--mantine-color-violet-6);
+  --inspector-badge-auth-fg: var(--mantine-color-violet-0);
+
+  /* ── A11y contrast (dark) ──────────────────────────────── */
+  /* Mantine's dark `dimmed` (dark-2) drops below AA on the lighter dark
+     surfaces (selected/hover rows); lift it one step. `!important` because
+     Mantine injects this var at runtime at this same specificity and would
+     otherwise win the cascade tie (see the light-scheme block below). */
+  --mantine-color-dimmed: var(--mantine-color-dark-1) !important;
+  /* Lighter danger red for the dark card/header (deep red would fail AA). */
+  --inspector-danger-text: var(--mantine-color-red-4);
+}
+
+/* A11y contrast (light): Mantine sets these per-scheme on a selector more
+   specific than `:root`, so override them at matching specificity (App.css
+   loads after Mantine, so it wins). Darkens the `dimmed` secondary text and the
+   `*-light` variant text so both clear WCAG AA (4.5:1) on light surfaces —
+   fixes ~600 of the axe color-contrast hits (dimmed text + tinted
+   badges/buttons/alerts). Dark mode keeps Mantine's lighter light-variant text.
+*/
+:root[data-mantine-color-scheme="light"] {
+  /* `!important`: Mantine injects the `*-light-color` variables at runtime at
+     the same specificity as this rule, so it wins the cascade tie without this.
+     A justified override of a third-party variable to meet WCAG AA — not a lint
+     workaround. `dimmed` already wins on specificity but is flagged for parity. */
+  --mantine-color-dimmed: var(--mantine-color-gray-7) !important;
+  --mantine-color-inspector-light-color: var(
+    --mantine-color-inspector-8
+  ) !important;
+  --mantine-color-blue-light-color: var(--mantine-color-blue-8) !important;
+  --mantine-color-green-light-color: var(--mantine-color-green-8) !important;
+  --mantine-color-teal-light-color: var(--mantine-color-teal-8) !important;
+  --mantine-color-red-light-color: var(--mantine-color-red-8) !important;
+  --mantine-color-violet-light-color: var(--mantine-color-violet-8) !important;
+  --mantine-color-orange-light-color: var(--mantine-color-orange-8) !important;
+  --mantine-color-yellow-light-color: var(--mantine-color-yellow-9) !important;
+}
+
+/* The app background. Mantine paints `body` with `--mantine-color-body` (pure
+   white in light mode); override it here — App.css loads after Mantine's
+   styles, so this wins — so the light-grey `--inspector-surface-body` shows and
+   the white cards read as raised. Scheme-aware via the token's dark override. */
+body {
+  background-color: var(--inspector-surface-body);
 }
 
 /* ── Animations ──────────────────────────────────────────── */

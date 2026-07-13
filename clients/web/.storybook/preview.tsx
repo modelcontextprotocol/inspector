@@ -78,6 +78,17 @@ const preview: Preview = {
     },
     a11y: {
       test: 'todo',
+      // Stories render presentational components (and whole screens) in
+      // isolation, outside the app's `AppShell` — which is what provides the
+      // page landmarks (`<main>`, nav) in the real app. The `region` rule
+      // ("all content must live inside a landmark") is therefore a page-level
+      // concern that can't be satisfied in Storybook isolation and would fire on
+      // essentially every story; it's covered by the app shell at runtime, not
+      // by the components under test. Disable it here so the a11y panel surfaces
+      // only rules the components can actually own.
+      config: {
+        rules: [{ id: 'region', enabled: false }],
+      },
     },
     layout: 'centered',
   },

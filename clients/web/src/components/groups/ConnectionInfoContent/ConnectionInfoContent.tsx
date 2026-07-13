@@ -48,9 +48,20 @@ const ValueText = Text.withProps({
 });
 
 const SectionHeading = Title.withProps({
-  order: 5,
+  // `order: 3` (not 5) keeps the heading level one below the modal's `h2`
+  // `Modal.Title`, so the outline doesn't skip a level (axe `heading-order`);
+  // `size: "h5"` preserves the original small visual size.
+  order: 3,
+  size: "h5",
   variant: "section",
 });
+
+// Long OAuth values (client id, auth URL). The `wrapping` variant wraps the
+// value onto multiple lines instead of leaving it in a horizontally-scrolling
+// `Code` block — that keeps the whole value visible and removes a scroll region
+// that would otherwise need its own keyboard access (axe
+// `scrollable-region-focusable`).
+const ValueCode = Code.withProps({ variant: "wrapping" });
 
 function formatScopes(scopes: string[]): string {
   return scopes.join(", ");
@@ -208,7 +219,7 @@ export function ConnectionInfoContent({
             {oauth.clientId && (
               <SimpleGrid cols={2}>
                 <Text size="sm">Client ID</Text>
-                <Code>{oauth.clientId}</Code>
+                <ValueCode>{oauth.clientId}</ValueCode>
               </SimpleGrid>
             )}
             {oauth.clientRegistrationKind && (
@@ -228,7 +239,7 @@ export function ConnectionInfoContent({
             {oauth.authUrl && (
               <SimpleGrid cols={2}>
                 <Text size="sm">Auth URL</Text>
-                <Code>{oauth.authUrl}</Code>
+                <ValueCode>{oauth.authUrl}</ValueCode>
               </SimpleGrid>
             )}
             {oauth.scopes && oauth.scopes.length > 0 && (

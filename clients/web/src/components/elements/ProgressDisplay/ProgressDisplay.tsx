@@ -39,7 +39,11 @@ export function ProgressDisplay({ params, elapsed }: ProgressDisplayProps) {
         {params.message && <ProgressLabel>{params.message}</ProgressLabel>}
         <ProgressLabel>{formatPercent(percent)}</ProgressLabel>
       </Group>
-      <Progress value={percent} size="sm" />
+      <Progress
+        value={percent}
+        size="sm"
+        aria-label={params.message ? `${params.message} progress` : "Progress"}
+      />
       {elapsed && <ElapsedText>{elapsed}</ElapsedText>}
     </Stack>
   );

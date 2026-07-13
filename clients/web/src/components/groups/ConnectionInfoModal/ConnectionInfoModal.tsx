@@ -1,4 +1,4 @@
-import { CloseButton, Group, Modal, Stack, Title } from "@mantine/core";
+import { CloseButton, Group, Modal, Stack } from "@mantine/core";
 import type {
   ClientCapabilities,
   InitializeResult,
@@ -38,9 +38,9 @@ export function ConnectionInfoModal({
     >
       <Stack gap="md">
         <Group justify="space-between" wrap="nowrap">
-          <Title order={4} flex={1}>
-            Connection Info
-          </Title>
+          {/* `Modal.Title` (not a bare `Title`) registers the modal's
+              accessible name — it wires the dialog's `aria-labelledby`. */}
+          <Modal.Title flex={1}>Connection Info</Modal.Title>
           <CloseButton aria-label="Close" onClick={onClose} />
         </Group>
         <ConnectionInfoContent
