@@ -120,8 +120,10 @@
 
 /* Dark mode overrides — tokens that need adjustment in dark scheme */
 [data-mantine-color-scheme="dark"] {
-  /* Near-black charcoal body; cards sit a step above it for clear separation. */
-  --inspector-surface-body: var(--mantine-color-dark-9);
+  /* Charcoal body matched to the header's segmented tab control (`dark-8`, the
+     Mantine SegmentedControl fill) — mirrors light mode, where the body and the
+     tab bar share `gray-1`. Cards (`gray-9`) still sit a step above it. */
+  --inspector-surface-body: var(--mantine-color-dark-8);
   --inspector-surface-card: var(--mantine-color-gray-9);
   /* Dark keeps the message cards at the standard card tone (they already
      contrast against the darker panel/body), so only light mode goes grey. */
