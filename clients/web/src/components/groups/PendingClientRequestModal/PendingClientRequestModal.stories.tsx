@@ -23,6 +23,28 @@ const samplingRequest: CreateMessageRequestParams = {
   maxTokens: 1024,
 };
 
+// A long sampling request (many messages + preferences), to exercise the
+// pinned-actions layout: the content scrolls, the Reject / Send Response
+// buttons stay in view.
+const tallSamplingRequest: CreateMessageRequestParams = {
+  messages: Array.from({ length: 8 }, (_, i) => ({
+    role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+    content: {
+      type: "text" as const,
+      text: `Message ${i + 1}: a representative turn in the conversation the server wants the model to continue from.`,
+    },
+  })),
+  modelPreferences: {
+    hints: [{ name: "claude-3-5-sonnet" }],
+    costPriority: 0.3,
+    speedPriority: 0.6,
+    intelligencePriority: 0.9,
+  },
+  maxTokens: 2048,
+  temperature: 0.7,
+  includeContext: "thisServer",
+};
+
 const formRequest: ElicitRequestFormParams = {
   message: "Please provide your database connection details.",
   requestedSchema: {
@@ -100,6 +122,16 @@ export const Sampling: Story = {
     ).toBeInTheDocument();
     await userEvent.click(body.getByRole("button", { name: "Send Response" }));
     expect(args.onSamplingRespond).toHaveBeenCalled();
+  },
+};
+
+export const SamplingTall: Story = {
+  args: {
+    request: {
+      kind: "sampling",
+      id: "sampling-tall",
+      request: tallSamplingRequest,
+    },
   },
 };
 
