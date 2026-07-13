@@ -89,8 +89,10 @@ const DescriptionText = Text.withProps({
   c: "dimmed",
 });
 
+// Left-aligned so the action sits closest to the sidebar controls / the form
+// fields above; annotation badges trail it.
 const FooterRow = Group.withProps({
-  justify: "space-between",
+  justify: "flex-start",
 });
 
 const AnnotationGroup = Group.withProps({
@@ -286,6 +288,9 @@ export function ResourceTemplatePanel({
         })}
       </Stack>
       <FooterRow>
+        <Button size="sm" disabled={!canSubmit} onClick={handleSubmit}>
+          Read Resource
+        </Button>
         <AnnotationGroup>
           {annotations?.audience && (
             <AnnotationBadge facet="audience" value={annotations.audience} />
@@ -294,9 +299,6 @@ export function ResourceTemplatePanel({
             <AnnotationBadge facet="priority" value={annotations.priority} />
           )}
         </AnnotationGroup>
-        <Button size="sm" disabled={!canSubmit} onClick={handleSubmit}>
-          Read Resource
-        </Button>
       </FooterRow>
     </Stack>
   );
