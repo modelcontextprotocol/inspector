@@ -56,9 +56,17 @@ function isActiveStatus(status: TaskStatus): boolean {
 function matchesFilters(
   task: Task,
   searchText: string,
-  statusFilter?: TaskStatus,
+  statusFilter: TaskStatus | undefined,
+  // The embedded column exposes only the shared search box (its status filter
+  // lives in the full-size sidebar, which the embedded view drops), so it
+  // applies the text filter but skips the status filter — mirrors
+  // LogStreamPanel's `ignoreLevels` etc. so a stale status filter can't
+  // silently hide tasks with no visible control to clear it (#1616).
+  ignoreStatus: boolean,
 ): boolean {
-  if (statusFilter && task.status !== statusFilter) return false;
+  if (!ignoreStatus && statusFilter && task.status !== statusFilter) {
+    return false;
+  }
   if (searchText) {
     const term = searchText.toLowerCase();
     const searchable =
@@ -81,8 +89,11 @@ export function TaskListPanel({
   const [compact, setCompact] = useState(false);
 
   const filteredTasks = useMemo(
-    () => tasks.filter((t) => matchesFilters(t, searchText, statusFilter)),
-    [tasks, searchText, statusFilter],
+    () =>
+      tasks.filter((t) =>
+        matchesFilters(t, searchText, statusFilter, embedded),
+      ),
+    [tasks, searchText, statusFilter, embedded],
   );
 
   const activeTasks = useMemo(

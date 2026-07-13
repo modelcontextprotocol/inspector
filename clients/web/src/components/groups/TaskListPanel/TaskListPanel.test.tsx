@@ -80,6 +80,36 @@ describe("TaskListPanel", () => {
     expect(screen.queryByText(/^Completed/)).not.toBeInTheDocument();
   });
 
+  it("ignores the status filter when embedded (only the search box is exposed there)", () => {
+    // A stale status filter from the full-size screen must not silently hide
+    // tasks in the embedded column, which has no control to see or clear it.
+    renderWithMantine(
+      <TaskListPanel
+        {...baseProps}
+        tasks={sampleTasks}
+        statusFilter="working"
+        embedded
+      />,
+    );
+    expect(screen.getByText("Active (2)")).toBeInTheDocument();
+    expect(screen.getByText("Completed (2)")).toBeInTheDocument();
+  });
+
+  it("still applies the search text when embedded", () => {
+    renderWithMantine(
+      <TaskListPanel
+        {...baseProps}
+        tasks={sampleTasks}
+        statusFilter="working"
+        searchText="Connection"
+        embedded
+      />,
+    );
+    // Status filter ignored, but the text filter narrows to the failed task.
+    expect(screen.getByText("Completed (1)")).toBeInTheDocument();
+    expect(screen.queryByText(/^Active/)).not.toBeInTheDocument();
+  });
+
   it("filters tasks by search text matching statusMessage", () => {
     renderWithMantine(
       <TaskListPanel

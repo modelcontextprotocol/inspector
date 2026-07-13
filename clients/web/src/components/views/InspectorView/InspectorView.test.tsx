@@ -1874,6 +1874,9 @@ describe("InspectorView", () => {
       expect(
         within(header).queryByRole("radio", { name: "Network" }),
       ).toBeNull();
+      // Tasks (#1680) joins the monitor group, so it also leaves the header
+      // (the server advertises the `tasks` capability via allCapabilities).
+      expect(within(header).queryByRole("radio", { name: "Tasks" })).toBeNull();
       // ...and a non-monitor tab still sits in the header.
       expect(
         within(header).getByRole("radio", { name: "Tools" }),
@@ -1884,6 +1887,8 @@ describe("InspectorView", () => {
       expect(
         screen.getByRole("radio", { name: "Network" }),
       ).toBeInTheDocument();
+      // Tasks is available as a column panel.
+      expect(screen.getByRole("radio", { name: "Tasks" })).toBeInTheDocument();
     });
 
     it("returns the monitor group to the header when the column is closed", async () => {
