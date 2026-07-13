@@ -70,6 +70,19 @@ describe("ViewHeader", () => {
       ).toBeInTheDocument();
     });
 
+    it("shows an 'MCP Documentation' tooltip on the logo link (#1682)", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ViewHeader
+          connected={false}
+          onToggleTheme={vi.fn()}
+          onOpenClientSettings={vi.fn()}
+        />,
+      );
+      await user.hover(screen.getByRole("link"));
+      expect(await screen.findByText("MCP Documentation")).toBeInTheDocument();
+    });
+
     it("invokes onOpenClientSettings when the client settings button is clicked", async () => {
       const user = userEvent.setup();
       const onOpenClientSettings = vi.fn();

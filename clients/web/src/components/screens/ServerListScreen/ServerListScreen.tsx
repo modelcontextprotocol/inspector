@@ -44,6 +44,12 @@ export interface ServerListScreenProps {
    * draws a red border until another server is connected or attempted.
    */
   erroredServerId?: string;
+  /**
+   * Id of the server that just connected successfully (#1682). Its card draws
+   * the green highlight border and scrolls into view — the success mirror of
+   * `erroredServerId`.
+   */
+  connectedServerId?: string;
   onAddManually: () => void;
   onImportConfig: () => void;
   onImportServerJson: () => void;
@@ -84,6 +90,7 @@ export function ServerListScreen({
   writable = true,
   activeServer,
   erroredServerId,
+  connectedServerId,
   onAddManually,
   onImportConfig,
   onImportServerJson,
@@ -145,6 +152,7 @@ export function ServerListScreen({
     onRemove,
     highlighted: highlightedServerIds?.includes(server.id) ?? false,
     errored: server.id === erroredServerId,
+    justConnected: server.id === connectedServerId,
     scrollOnHighlight: server.id === firstHighlightedId,
     onClearHighlight: onClearHighlight
       ? () => onClearHighlight(server.id)
@@ -199,7 +207,7 @@ export function ServerListScreen({
       />
 
       <ScrollArea.Autosize
-        mah="calc(100dvh - var(--app-shell-header-height, 60px) - var(--mantine-spacing-xl) * 2 - 60px)"
+        mah="calc(100dvh - var(--app-shell-header-height, 60px) - var(--app-shell-footer-height, 0px) - var(--mantine-spacing-xl) * 2 - 60px)"
         // Same scrollbar treatment as the Protocol/Network/Logging list panels
         // (#1474): reserve a gutter so the bar never overlays the right edge of
         // the server cards (occluding their action icons / status badges), and

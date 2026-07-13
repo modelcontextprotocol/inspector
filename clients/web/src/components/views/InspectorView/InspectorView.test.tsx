@@ -247,6 +247,16 @@ describe("InspectorView", () => {
     expect(screen.getByText("Alpha")).toBeInTheDocument();
   });
 
+  it("renders the footer row with the version and copyright (#1682)", () => {
+    renderWithMantine(
+      <StatefulInspectorViewHost {...makeProps({ version: "9.9.9" })} />,
+    );
+    expect(screen.getByText("v9.9.9")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Model Context Protocol.*Series of LF Projects, LLC\./),
+    ).toBeInTheDocument();
+  });
+
   it("dispatches onToggleConnection with the server id when the card toggle is clicked", async () => {
     const onToggleConnection = vi.fn();
     const user = userEvent.setup({ delay: null });

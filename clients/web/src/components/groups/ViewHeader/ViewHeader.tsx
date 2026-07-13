@@ -318,9 +318,11 @@ export function ViewHeader(props: ViewHeaderProps) {
   return (
     <HeaderBar>
       <LeftSection>
-        <LogoLink>
-          <LogoImage src={logoSrc} />
-        </LogoLink>
+        <Tooltip label="MCP Documentation">
+          <LogoLink>
+            <LogoImage src={logoSrc} />
+          </LogoLink>
+        </Tooltip>
         <Transition
           mounted={props.connected}
           transition="fade"

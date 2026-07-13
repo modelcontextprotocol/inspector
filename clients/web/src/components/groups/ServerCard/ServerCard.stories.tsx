@@ -102,6 +102,20 @@ export const ErroredBorder: Story = {
   },
 };
 
+// The green border flagging the server that just connected (#1682) — the
+// success mirror of ErroredBorder. It persists while connected and clears on
+// disconnect or a new connection attempt.
+export const JustConnected: Story = {
+  args: {
+    id: "3d2c1b0a-9f8e-4d6c-8b7a-1a2b3c4d5e6f",
+    name: "My MCP Server",
+    config: stdioConfig,
+    info: { name: "My MCP Server", version: "1.2.0" },
+    connection: connected,
+    justConnected: true,
+  },
+};
+
 export const LongServerName: Story = {
   args: {
     id: "a1b2c3d4-e5f6-4789-9abc-def012345678",

@@ -61,7 +61,7 @@ export interface ToolsScreenProps {
 // viewport minus the app-shell header and the screen's top+bottom xl padding,
 // leaving the bottom margin the overflow used to eat.
 const SCROLL_MAX_HEIGHT =
-  "calc(100dvh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2)";
+  "calc(100dvh - var(--app-shell-header-height, 0px) - var(--app-shell-footer-height, 0px) - var(--mantine-spacing-xl) * 2)";
 
 // No `align` override: children stretch to the row's full height, giving each
 // column pane a definite height. That definite height is what lets a column's
@@ -69,7 +69,7 @@ const SCROLL_MAX_HEIGHT =
 // see the Prompts/Resources preview panes this mirrors).
 const ScreenLayout = Flex.withProps({
   variant: "screen",
-  h: "calc(100dvh - var(--app-shell-header-height, 0px))",
+  h: "calc(100dvh - var(--app-shell-header-height, 0px) - var(--app-shell-footer-height, 0px))",
   gap: "md",
   p: "xl",
 });

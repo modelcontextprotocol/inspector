@@ -40,7 +40,7 @@ export interface ConsoleUiState {
 
 const ScreenLayout = Flex.withProps({
   variant: "screen",
-  h: "calc(100dvh - var(--app-shell-header-height, 0px))",
+  h: "calc(100dvh - var(--app-shell-header-height, 0px) - var(--app-shell-footer-height, 0px))",
   gap: "md",
   p: "xl",
 });

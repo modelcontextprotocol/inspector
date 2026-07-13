@@ -157,6 +157,32 @@ describe("ServerListScreen", () => {
     });
   });
 
+  describe("just-connected highlight (#1682)", () => {
+    it("draws the green highlight border on the just-connected server's card", () => {
+      const { container } = renderWithMantine(
+        <ServerListScreen
+          {...baseProps}
+          activeServer="beta"
+          connectedServerId="beta"
+        />,
+      );
+      const highlighted = container.querySelectorAll(
+        '[data-variant="highlighted"]',
+      );
+      expect(highlighted).toHaveLength(1);
+      expect(highlighted[0]).toHaveTextContent("Beta");
+    });
+
+    it("draws no highlight border when connectedServerId is unset", () => {
+      const { container } = renderWithMantine(
+        <ServerListScreen {...baseProps} activeServer="beta" />,
+      );
+      expect(
+        container.querySelectorAll('[data-variant="highlighted"]'),
+      ).toHaveLength(0);
+    });
+  });
+
   describe("freshly-added highlight", () => {
     it("draws a green highlight border on every highlighted server", () => {
       const { container } = renderWithMantine(

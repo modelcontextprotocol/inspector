@@ -37,6 +37,8 @@ import type {
 import { isTerminalStatus } from "@inspector/core/mcp/types.js";
 import { isAppTool } from "@inspector/core/mcp/apps.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
+import { VersionBadge } from "../../elements/VersionBadge/VersionBadge";
+import { CopyrightBadge } from "../../elements/CopyrightBadge/CopyrightBadge";
 import { ServerListScreen } from "../../screens/ServerListScreen/ServerListScreen";
 import {
   ToolsScreen,
@@ -273,6 +275,22 @@ const SplitRow = Flex.withProps({
   w: "100%",
 });
 
+// Footer row (#1682): a full-width AppShell.Footer band, styled like the header
+// (Mantine gives AppShell.Footer the same `--mantine-color-body` background and
+// a matching top border by default). Because it's a real AppShell region it
+// reserves its own height (`--app-shell-footer-height`), so the primary screen
+// and the monitoring sidebar both stop above it instead of the old fixed badges
+// overlapping the sidebar. `32` keeps it the same height as the previous badge
+// band (`spacing.xl`). The version sits at the left, the copyright at the right.
+const FOOTER_HEIGHT = 32;
+const FooterRow = Group.withProps({
+  h: "100%",
+  px: "xl",
+  justify: "space-between",
+  align: "center",
+  wrap: "nowrap",
+});
+
 // The pinned monitoring sidebar. Fixed-basis (its width is driven live via the
 // `w` style prop at the call site); `miw: 0` so its inner ScrollArea can bound.
 const MonitoringColumn = Stack.withProps({
@@ -344,6 +362,18 @@ export interface InspectorViewProps {
    * parent clears on the failure's `disconnect` event.
    */
   erroredServerId?: string;
+  /**
+   * Id of the server that just connected successfully (#1682). Its card draws
+   * the green highlight border and scrolls into view once the monitoring
+   * sidebar has opened — the success mirror of `erroredServerId`.
+   */
+  connectedServerId?: string;
+  /**
+   * The Inspector build version (root `package.json`), shown at the left of the
+   * footer row (#1682). Absent on a legacy backend that omits it — the version
+   * label then renders nothing.
+   */
+  version?: string;
   connectionStatus: ConnectionStatus;
   /**
    * Last connection-level error message (handshake failure, OAuth start
@@ -531,6 +561,8 @@ export function InspectorView({
   serverListWritable = true,
   activeServer,
   erroredServerId,
+  connectedServerId,
+  version,
   connectionStatus,
   connectErrorMessage,
   initializeResult,
@@ -1132,7 +1164,11 @@ export function InspectorView({
     // past the viewport and made the whole InspectorView scroll — the theme's
     // Main-slot height clamp + overflow:hidden keep that scroll on the inner
     // ScrollArea regions only.
-    <AppShell header={{ height: 60 }} padding={0}>
+    <AppShell
+      header={{ height: 60 }}
+      footer={{ height: FOOTER_HEIGHT }}
+      padding={0}
+    >
       <AppShell.Header
         data-testid="connection-status"
         data-status={connectionStatus}
@@ -1171,6 +1207,7 @@ export function InspectorView({
                 writable={serverListWritable}
                 activeServer={dimCardsAgainst}
                 erroredServerId={erroredServerId}
+                connectedServerId={connectedServerId}
                 onAddManually={onServerAdd}
                 onImportConfig={onServerImportConfig}
                 onImportServerJson={onServerImportJson}
@@ -1305,6 +1342,12 @@ export function InspectorView({
           </Transition>
         </SplitRow>
       </AppShell.Main>
+      <AppShell.Footer>
+        <FooterRow>
+          <VersionBadge version={version} />
+          <CopyrightBadge />
+        </FooterRow>
+      </AppShell.Footer>
     </AppShell>
   );
 }

@@ -6,6 +6,13 @@ export interface ServerStatusIndicatorProps {
   status: ConnectionStatus;
   latencyMs?: number;
   retryCount?: number;
+  /**
+   * True when the server's last connection attempt failed (#1682). The
+   * indicator then shows a red dot + "Failed" instead of the settled
+   * grey "Disconnected", so a failed connect reads distinctly from a
+   * deliberate disconnect. Overrides `status` for the label and color.
+   */
+  failed?: boolean;
   // Override for the default viewport-based label visibility. Useful when
   // the indicator renders inside a constrained container (sidebar, card)
   // where the global media query doesn't reflect available space.
@@ -46,16 +53,25 @@ export function ServerStatusIndicator({
   status,
   latencyMs,
   retryCount,
+  failed = false,
   showLabel: showLabelProp,
 }: ServerStatusIndicatorProps) {
   const wideViewport = useMediaQuery("(min-width: 1200px)");
   const showLabel = showLabelProp ?? wideViewport;
-  const label = getLabel(status, latencyMs, retryCount);
+  // A failed connection settles the status back to "disconnected"; the `failed`
+  // flag distinguishes it as a failure (red + "Failed") from a deliberate
+  // disconnect (grey), overriding the status-derived label and color.
+  const label = failed ? "Failed" : getLabel(status, latencyMs, retryCount);
+  const color = failed
+    ? "var(--inspector-status-error)"
+    : statusColorVar[status];
   return (
     <Group gap="xs">
       <Dot
-        bg={statusColorVar[status]}
-        className={status === "connecting" ? "inspector-pulse" : undefined}
+        bg={color}
+        className={
+          !failed && status === "connecting" ? "inspector-pulse" : undefined
+        }
         title={showLabel ? undefined : label}
       />
       {showLabel && <Text size="sm">{label}</Text>}
