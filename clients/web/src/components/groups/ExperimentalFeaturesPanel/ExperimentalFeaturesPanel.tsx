@@ -177,7 +177,7 @@ export function ExperimentalFeaturesPanel({
 
   return (
     <Stack gap="md">
-      <Alert color="yellow">
+      <Alert variant="warning">
         These features are non-standard and may change or be removed.
       </Alert>
 

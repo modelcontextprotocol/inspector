@@ -1,4 +1,12 @@
-import { Alert, Button, Divider, Group, Stack, Text } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  Divider,
+  Group,
+  ScrollArea,
+  Stack,
+  Text,
+} from "@mantine/core";
 import type { ElicitRequestFormParams } from "@modelcontextprotocol/sdk/types.js";
 import {
   hasMissingRequiredFields,
@@ -28,6 +36,16 @@ const QuotedMessage = Text.withProps({
   fs: "italic",
 });
 
+// Only the form fields scroll — capping them here keeps the quoted message
+// above and the warning + action buttons below always in view, so the modal
+// (which has no other close affordance) can always be dismissed without
+// scrolling to the bottom. The cap reserves ~15rem for that pinned chrome so
+// the whole panel stays within the modal's height.
+const FieldScroll = ScrollArea.Autosize.withProps({
+  mah: "calc(85dvh - 15rem)",
+  offsetScrollbars: true,
+});
+
 function formatQuoted(text: string): string {
   return `\u201C${text}\u201D`;
 }
@@ -53,13 +71,15 @@ export function ElicitationFormPanel({
     <Stack gap="md">
       <QuotedMessage>{formatQuoted(request.message)}</QuotedMessage>
       <Divider />
-      <SchemaForm
-        schema={requestedSchema}
-        values={values}
-        onChange={onChange}
-        disabled={busy}
-      />
-      <Alert color="yellow" title="Warning">
+      <FieldScroll>
+        <SchemaForm
+          schema={requestedSchema}
+          values={values}
+          onChange={onChange}
+          disabled={busy}
+        />
+      </FieldScroll>
+      <Alert variant="warning" title="Warning">
         {formatWarning(serverName)}
       </Alert>
       <Group justify="flex-end">
