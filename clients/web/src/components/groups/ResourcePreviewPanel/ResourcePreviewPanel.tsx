@@ -14,6 +14,7 @@ import type {
   Resource,
   TextResourceContents,
 } from "@modelcontextprotocol/sdk/types.js";
+import { accessibleTextColor } from "../../elements/accessibleTextColor";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { getMimeKind } from "../../elements/ContentViewer/contentViewerUtils";
@@ -77,7 +78,10 @@ const UriGroup = Group.withProps({
 
 const UriText = Text.withProps({
   size: "sm",
-  c: "blue",
+  // Scheme-aware readable blue: `c="blue"` renders blue-4 in dark mode, which
+  // falls just under WCAG AA (4.38:1) on the card. `-light-color` clears it in
+  // both schemes (see `accessibleTextColor`).
+  c: accessibleTextColor("blue"),
   truncate: "end",
 });
 
@@ -97,8 +101,11 @@ const MimeText = Text.withProps({
   c: "dimmed",
 });
 
+// Actions sit at the left (`flex-start`) so the pointer travels the shortest
+// distance from the sidebar controls / the form fields above; annotation badges
+// trail them.
 const FooterRow = Group.withProps({
-  justify: "space-between",
+  justify: "flex-start",
   flex: "0 0 auto",
 });
 
@@ -261,15 +268,14 @@ export function ResourcePreviewPanel({
         {contents.length <= 1 && <MimeText>{mimeType}</MimeText>}
       </MetaRow>
       <FooterRow>
-        <AnnotationGroup>
-          {annotations?.audience && (
-            <AnnotationBadge facet="audience" value={annotations.audience} />
-          )}
-          {annotations?.priority !== undefined && (
-            <AnnotationBadge facet="priority" value={annotations.priority} />
-          )}
-        </AnnotationGroup>
         <ActionGroup>
+          {subscriptionsSupported && (
+            <SubscribeButton
+              subscribed={isSubscribed}
+              onToggle={isSubscribed ? onUnsubscribe : onSubscribe}
+            />
+          )}
+          <FooterButton onClick={onRefresh}>Refresh</FooterButton>
           {sourceToggleable && (
             <FooterButton
               aria-pressed={showSource}
@@ -278,14 +284,15 @@ export function ResourcePreviewPanel({
               {showSource ? "View Rendered" : "View Source"}
             </FooterButton>
           )}
-          <FooterButton onClick={onRefresh}>Refresh</FooterButton>
-          {subscriptionsSupported && (
-            <SubscribeButton
-              subscribed={isSubscribed}
-              onToggle={isSubscribed ? onUnsubscribe : onSubscribe}
-            />
-          )}
         </ActionGroup>
+        <AnnotationGroup>
+          {annotations?.audience && (
+            <AnnotationBadge facet="audience" value={annotations.audience} />
+          )}
+          {annotations?.priority !== undefined && (
+            <AnnotationBadge facet="priority" value={annotations.priority} />
+          )}
+        </AnnotationGroup>
       </FooterRow>
     </PanelStack>
   );

@@ -44,7 +44,12 @@ export function ToolControls({
     // and scroll rather than overflow the card.
     <Stack gap="sm" flex={1} mih={0}>
       <Group justify="space-between">
-        <Title order={4}>Tools</Title>
+        {/* h3 (not h4), size h4: the sampling/elicitation request modals open
+            over this screen with an `h2` `Modal.Title`, so an `h4` section would
+            skip a level (axe `heading-order`); `size="h4"` keeps the look. */}
+        <Title order={3} size="h4">
+          Tools
+        </Title>
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
       </Group>
       <TextInput
@@ -56,7 +61,7 @@ export function ToolControls({
           searchText ? <ClearButton onClick={() => onSearchChange("")} /> : null
         }
       />
-      <ScrollArea viewportRef={viewportRef} flex={1} mih={0} type="auto">
+      <ScrollArea viewportRef={viewportRef} flex={1} mih={0}>
         <Stack gap="xs">
           {filteredTools.map((tool) => (
             <ToolListItem

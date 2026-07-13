@@ -12,6 +12,7 @@ import {
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { MessageDirectionBadge } from "../../elements/MessageDirectionBadge/MessageDirectionBadge";
+import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { PinToggle } from "../../elements/PinToggle/PinToggle";
 import { ReplayButton } from "../../elements/ReplayButton/ReplayButton";
@@ -34,6 +35,7 @@ export interface ProtocolEntryProps {
 const EntryContainer = Card.withProps({
   withBorder: true,
   padding: "md",
+  variant: "inset",
 });
 
 const HeaderRow = Group.withProps({
@@ -152,7 +154,9 @@ export function ProtocolEntry({
     />
   );
   const statusBadge = status !== "none" && (
-    <Badge color={statusColor(status)}>{statusLabel(status)}</Badge>
+    <Badge color={statusColor(status)} variant="status">
+      {statusLabel(status)}
+    </Badge>
   );
   const durationText = entry.duration != null && (
     <DurationText>{formatDuration(entry.duration)}</DurationText>
@@ -178,7 +182,7 @@ export function ProtocolEntry({
             </HeaderRow>
             <HeaderRow>
               <HeaderCluster flex={1}>
-                <Badge color="dark">{method}</Badge>
+                <MethodBadge method={method} />
                 {target && (
                   <TargetText truncate="end" miw={0}>
                     {target}
@@ -203,7 +207,7 @@ export function ProtocolEntry({
                   {formatTimestamp(entry.timestamp)}
                 </TimestampText>
                 {directionBadge}
-                <Badge color="dark">{method}</Badge>
+                <MethodBadge method={method} />
                 {target && <TargetText>{target}</TargetText>}
               </Group>
               <Group gap="sm">

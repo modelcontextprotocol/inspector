@@ -89,7 +89,7 @@ export function ElicitationUrlPanel({
         </Group>
       )}
       <MetaText>{formatRequestId(requestId)}</MetaText>
-      <Alert color="yellow" title="Warning">
+      <Alert variant="warning" title="Warning">
         This will open an external URL. Verify the domain before proceeding.
       </Alert>
       <Group justify="flex-end">

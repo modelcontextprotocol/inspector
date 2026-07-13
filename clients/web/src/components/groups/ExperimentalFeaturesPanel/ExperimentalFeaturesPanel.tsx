@@ -177,7 +177,7 @@ export function ExperimentalFeaturesPanel({
 
   return (
     <Stack gap="md">
-      <Alert color="yellow">
+      <Alert variant="warning">
         These features are non-standard and may change or be removed.
       </Alert>
 
@@ -309,6 +309,7 @@ export function ExperimentalFeaturesPanel({
             )}
           </Group>
           <Textarea
+            aria-label="Response"
             ff="monospace"
             value={formatResponse(response)}
             readOnly

@@ -99,7 +99,10 @@ const SubtleButton = Button.withProps({
 const RemoveButton = Button.withProps({
   variant: "subtle",
   size: "xs",
+  // `color` drives the subtle hover/active tint; `c` overrides just the label
+  // to the AA-compliant danger red (red.6 text alone fell under contrast).
   color: "red.6",
+  c: "var(--inspector-danger-text)",
 });
 
 function getTransport(config: MCPServerConfig): ServerType {
@@ -212,6 +215,7 @@ export function ServerCard({
               status={connection.status}
               disabled={isDimmed}
               onToggle={() => onToggleConnection(id)}
+              aria-label={`Connect or disconnect "${name}"`}
             />
           </HeaderRight>
         </Group>

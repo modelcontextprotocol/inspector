@@ -60,8 +60,38 @@ const deployRequest = {
   },
 } satisfies ElicitRequestFormParams;
 
+// A form with more fields than fit the modal, to exercise the pinned-actions
+// layout: the fields scroll while the message and Cancel/Decline/Submit stay
+// in view.
+const manyFieldsRequest = {
+  message: "Please provide the full server configuration.",
+  requestedSchema: {
+    type: "object" as const,
+    properties: Object.fromEntries(
+      [
+        "host",
+        "port",
+        "database",
+        "username",
+        "password",
+        "schema",
+        "poolSize",
+        "connectTimeout",
+        "idleTimeout",
+        "applicationName",
+        "sslCert",
+        "sslKey",
+      ].map((name) => [name, { type: "string" as const, title: name }]),
+    ),
+  },
+} satisfies ElicitRequestFormParams;
+
 export const SimpleForm: Story = {
   args: { request: dbRequest },
+};
+
+export const ManyFields: Story = {
+  args: { request: manyFieldsRequest },
 };
 
 export const WithEnums: Story = {

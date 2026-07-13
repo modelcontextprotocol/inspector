@@ -145,6 +145,7 @@ export function ImportServerJsonPanel({
           </Accordion.Control>
           <Accordion.Panel>
             <Textarea
+              aria-label="File Contents"
               value={draft.rawText}
               onChange={(e) => onJsonChange(e.currentTarget.value)}
               ff="monospace"

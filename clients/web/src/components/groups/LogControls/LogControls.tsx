@@ -66,6 +66,7 @@ export function LogControls({
       <Title order={5}>Set Active Level</Title>
       <Group wrap="nowrap">
         <Select
+          aria-label="Set Active Level"
           flex={1}
           data={LOG_LEVELS.map((level) => ({ value: level, label: level }))}
           value={currentLevel}

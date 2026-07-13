@@ -76,6 +76,21 @@ export const ThemeCard = Card.extend({
         },
       };
     }
+    if (props.variant === "inset") {
+      // Monitor-list entry (Protocol / Network message cards): a recessed
+      // surface so each card reads as sunk into its panel — light-grey against
+      // the white surround in light mode, the standard card tone in dark. Uses
+      // `--inspector-surface-inset` (see App.css). Also raises any content-view
+      // Code blocks inside it to a white (light-mode) surface via the cascade
+      // variable the Code theme reads, so they read as raised on the grey card
+      // rather than blending into it.
+      return {
+        root: {
+          backgroundColor: "var(--inspector-surface-inset)",
+          "--inspector-code-surface": "var(--inspector-surface-code-oncard)",
+        } as Record<string, string>,
+      };
+    }
     return {
       root: { backgroundColor: "var(--inspector-surface-card)" },
     };

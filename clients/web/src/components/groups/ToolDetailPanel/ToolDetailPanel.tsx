@@ -72,8 +72,10 @@ const BodyStack = Stack.withProps({
   gap: "md",
 });
 
+// Left-aligned (Execute first, Cancel after) so the primary action sits closest
+// to the sidebar controls / the form fields above — shortest pointer travel.
 const FooterRow = Group.withProps({
-  justify: "flex-end",
+  justify: "flex-start",
   flex: "0 0 auto",
 });
 
@@ -259,7 +261,6 @@ export function ToolDetailPanel({
       )}
 
       <FooterRow>
-        {isExecuting && <CancelButton onClick={onCancel}>Cancel</CancelButton>}
         <Button
           size="md"
           onClick={() => onExecute(effectiveRunAsTask)}
@@ -268,6 +269,7 @@ export function ToolDetailPanel({
         >
           Execute Tool
         </Button>
+        {isExecuting && <CancelButton onClick={onCancel}>Cancel</CancelButton>}
       </FooterRow>
     </PanelStack>
   );

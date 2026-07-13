@@ -15,6 +15,8 @@ import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
 import { isLongLivedStreamResponse } from "@inspector/core/mcp/fetchTracking.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
+import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
+import { CategoryBadge } from "../../elements/CategoryBadge/CategoryBadge";
 import { maskSecretsInBody } from "../../../utils/maskSecrets";
 
 export interface NetworkEntryProps {
@@ -31,6 +33,7 @@ export interface NetworkEntryProps {
 const EntryContainer = Card.withProps({
   withBorder: true,
   padding: "md",
+  variant: "inset",
 });
 
 const HeaderRow = Group.withProps({
@@ -112,10 +115,6 @@ function statusLabel(entry: FetchRequestEntry): string {
   return entry.responseStatusText
     ? `${entry.responseStatus} ${entry.responseStatusText}`
     : `${entry.responseStatus}`;
-}
-
-function categoryColor(category: FetchRequestEntry["category"]): string {
-  return category === "auth" ? "violet" : "blue";
 }
 
 function isLongLivedStream(entry: FetchRequestEntry): boolean {
@@ -253,7 +252,9 @@ export function NetworkEntry({
         <DurationText>{formatDuration(entry.duration)}</DurationText>
       )}
       {isLongLivedStream(entry) && <Badge color="orange">SSE</Badge>}
-      <Badge color={statusColor(entry)}>{statusLabel(entry)}</Badge>
+      <Badge color={statusColor(entry)} variant="status">
+        {statusLabel(entry)}
+      </Badge>
     </>
   );
   const expandToggle = (
@@ -274,15 +275,21 @@ export function NetworkEntry({
                 <TimestampText>
                   {formatTimestampCompact(entry.timestamp)}
                 </TimestampText>
-                <Badge color="dark">{entry.method}</Badge>
-                <Badge color={categoryColor(entry.category)} variant="light">
-                  {entry.category}
-                </Badge>
+                <MethodBadge method={entry.method} />
+                <CategoryBadge category={entry.category} />
               </HeaderCluster>
               <ControlsCluster>{metaBadges}</ControlsCluster>
             </HeaderRow>
             <Group gap="xs" wrap="nowrap" justify="space-between">
-              <ScrollArea type="hover" scrollbarSize={6} flex={1} miw={0}>
+              <ScrollArea
+                scrollbarSize={6}
+                flex={1}
+                miw={0}
+                // The URL scrolls horizontally but has no focusable child, so
+                // make the viewport itself keyboard-scrollable (WCAG SC 2.1.1).
+                // Scrollbar auto-hides via the `type="scroll"` theme default.
+                viewportProps={{ tabIndex: 0 }}
+              >
                 <UrlScroll>{entry.url}</UrlScroll>
               </ScrollArea>
               {expandToggle}
@@ -295,10 +302,8 @@ export function NetworkEntry({
                 <TimestampText>
                   {formatTimestamp(entry.timestamp)}
                 </TimestampText>
-                <Badge color="dark">{entry.method}</Badge>
-                <Badge color={categoryColor(entry.category)} variant="light">
-                  {entry.category}
-                </Badge>
+                <MethodBadge method={entry.method} />
+                <CategoryBadge category={entry.category} />
                 <UrlText>{entry.url}</UrlText>
               </Group>
               <Group gap="sm" wrap="nowrap">

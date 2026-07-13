@@ -1,5 +1,6 @@
-import { Badge, useComputedColorScheme } from "@mantine/core";
+import { Badge } from "@mantine/core";
 import type { TaskStatus } from "@modelcontextprotocol/sdk/types.js";
+import { filledBadgeColor } from "../filledBadgeColor";
 
 export interface TaskStatusBadgeProps {
   status: TaskStatus;
@@ -22,11 +23,14 @@ const statusLabel: Record<TaskStatus, string> = {
 };
 
 export function TaskStatusBadge({ status }: TaskStatusBadgeProps) {
-  const colorScheme = useComputedColorScheme();
-  const textColor = colorScheme === "dark" ? "black" : "white";
-
+  // `autoContrast` keeps the label legible (WCAG AA) on both the light-mode
+  // fills and the darker dark-mode `-filled` shades — see AnnotationBadge.
   return (
-    <Badge color={statusColor[status]} variant="filled" c={textColor}>
+    <Badge
+      color={filledBadgeColor(statusColor[status])}
+      variant="filled"
+      autoContrast
+    >
       {statusLabel[status]}
     </Badge>
   );

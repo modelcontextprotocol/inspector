@@ -234,7 +234,9 @@ export function PromptArgumentsForm({
           </Stack>
         </>
       )}
-      <Group justify="flex-end">
+      {/* Left-aligned so the action sits closest to the sidebar controls / the
+          form fields above — shortest pointer travel. */}
+      <Group justify="flex-start">
         <Button size="sm" disabled={!canSubmit} onClick={onGetPrompt}>
           Get Prompt
         </Button>

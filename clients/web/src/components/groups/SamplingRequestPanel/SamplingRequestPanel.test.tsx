@@ -162,7 +162,7 @@ describe("SamplingRequestPanel", () => {
       />,
     );
     const textarea = screen.getByRole("textbox", {
-      name: "",
+      name: "Response",
     }) as HTMLTextAreaElement;
     expect(textarea.value).toBe("");
   });

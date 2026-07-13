@@ -171,6 +171,9 @@ function PlainTextContent({
       <Code
         block
         p={36}
+        // A `block` Code has `overflow: auto`, so make it keyboard-scrollable
+        // (WCAG SC 2.1.1) — it holds only text, with no focusable child.
+        tabIndex={0}
         variant={wrap ? "wrapping" : "nowrap"}
         // When not wrapping, the value may be clipped with an ellipsis; expose
         // the full text on hover so it's readable without copying.

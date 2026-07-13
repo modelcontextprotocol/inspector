@@ -123,7 +123,7 @@ export function ServerImportConfigModal({
             {vm.error}
           </Alert>
         ) : null}
-        {vm.notice ? <Alert color="yellow">{vm.notice}</Alert> : null}
+        {vm.notice ? <Alert variant="warning">{vm.notice}</Alert> : null}
 
         {vm.phase === "select" ? (
           <SectionStack>

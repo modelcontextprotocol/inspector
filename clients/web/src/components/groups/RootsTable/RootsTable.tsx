@@ -127,7 +127,7 @@ export function RootsTable({
         <Button onClick={onAddRoot}>Add</Button>
       </Group>
 
-      <Alert color="yellow" title="Warning">
+      <Alert variant="warning" title="Warning">
         Roots give the server access to these directories. Only add directories
         you trust the server to access.
       </Alert>

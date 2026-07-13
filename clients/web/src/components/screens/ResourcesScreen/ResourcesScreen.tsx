@@ -308,10 +308,10 @@ export function ResourcesScreen({
         // Template form only — once the user clicks Read Resource,
         // handleReadResource clears the template selection so the
         // resource branch takes over and the preview is shown alone.
-        // maw=40% keeps the form from stretching across the whole
-        // main area; an unconstrained text input + Read button at
-        // viewport width looks weird, especially on wide displays.
-        <PreviewPane mah={SCROLL_MAX_HEIGHT} maw="40%">
+        // Fills the main area width (like the preview pane) rather than
+        // being capped, so the URI preview and variable inputs get the
+        // full width on wide displays.
+        <PreviewPane mah={SCROLL_MAX_HEIGHT}>
           <PreviewCard>
             <ResourceTemplatePanel
               template={selectedTemplate}

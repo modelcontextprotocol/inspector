@@ -75,7 +75,12 @@ export function ToolResultPanel({
       <HeaderRow>
         <HeaderLeft>
           <CloseButton aria-label="Close results" onClick={onClear} />
-          <Title order={4}>Results</Title>
+          {/* h3 (not h4), size h4: request modals open over the Tools screen
+              with an `h2` `Modal.Title`, so an `h4` here would skip a level
+              (axe `heading-order`); `size="h4"` preserves the visual size. */}
+          <Title order={3} size="h4">
+            Results
+          </Title>
         </HeaderLeft>
       </HeaderRow>
       <ResultScroll>
