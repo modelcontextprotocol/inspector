@@ -152,6 +152,7 @@ function useListCompact(
 }
 
 const SERVERS_TAB = INSPECTOR_SERVERS_TAB;
+const TASKS_TAB = "Tasks";
 const LOGS_TAB = "Logs";
 const PROTOCOL_TAB = "Protocol";
 const NETWORK_TAB = "Network";
@@ -163,7 +164,7 @@ const ALL_TABS: string[] = [
   "Tools",
   "Prompts",
   "Resources",
-  "Tasks",
+  TASKS_TAB,
   LOGS_TAB,
   PROTOCOL_TAB,
   NETWORK_TAB,
@@ -174,9 +175,11 @@ const ALL_TABS: string[] = [
 // a group action: opening the column removes all *available* monitor tabs from
 // the header and hosts them in the column instead. Console (#1621) is the
 // stdio server's stderr stream — mutually exclusive with Network (Console shows
-// for stdio, Network for HTTP), but both live in the monitor group.
-type MonitorTab = "Logs" | "Protocol" | "Network" | "Console";
+// for stdio, Network for HTTP), but both live in the monitor group. Tasks
+// (#1680) joins the group so a live task list can be watched beside any screen.
+type MonitorTab = "Tasks" | "Logs" | "Protocol" | "Network" | "Console";
 const MONITOR_TABS: string[] = [
+  TASKS_TAB,
   LOGS_TAB,
   PROTOCOL_TAB,
   NETWORK_TAB,
@@ -185,6 +188,7 @@ const MONITOR_TABS: string[] = [
 
 function isMonitorTab(tab: string): tab is MonitorTab {
   return (
+    tab === TASKS_TAB ||
     tab === LOGS_TAB ||
     tab === PROTOCOL_TAB ||
     tab === NETWORK_TAB ||
@@ -1069,12 +1073,28 @@ export function InspectorView({
     sortDirection: consoleSort,
     onSortChange: setConsoleSort,
   };
+  const tasksScreenProps = {
+    tasks,
+    progressByTaskId,
+    ui: tasksUi,
+    onUiChange: onTasksUiChange,
+    onRefresh: onRefreshTasks,
+    onClearCompleted: onClearCompletedTasks,
+    onCancel: onCancelTask,
+  };
 
   // Embedded instances for the pinned column, keyed by tab. MonitoringScreen
   // renders only the active one; the rest are unmounted element values. Each
   // screen's search field is overridden with the shared column search so it
   // filters whichever tab is showing, and carries over as tabs change.
   const monitorScreens: Record<string, ReactNode> = {
+    [TASKS_TAB]: (
+      <TasksScreen
+        {...tasksScreenProps}
+        ui={{ ...tasksUi, search: monitorSearch }}
+        embedded
+      />
+    ),
     [LOGS_TAB]: (
       <LoggingScreen
         {...loggingScreenProps}
@@ -1234,16 +1254,8 @@ export function InspectorView({
                 onCompactChange={setResourcesCompact}
               />
             </ScreenStage>
-            <ScreenStage active={activeTab === "Tasks"}>
-              <TasksScreen
-                tasks={tasks}
-                progressByTaskId={progressByTaskId}
-                ui={tasksUi}
-                onUiChange={onTasksUiChange}
-                onRefresh={onRefreshTasks}
-                onClearCompleted={onClearCompletedTasks}
-                onCancel={onCancelTask}
-              />
+            <ScreenStage active={activeTab === TASKS_TAB}>
+              <TasksScreen {...tasksScreenProps} />
             </ScreenStage>
             <ScreenStage active={activeTab === LOGS_TAB}>
               <LoggingScreen {...loggingScreenProps} />

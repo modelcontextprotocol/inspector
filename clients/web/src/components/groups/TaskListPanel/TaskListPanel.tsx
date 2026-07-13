@@ -1,16 +1,9 @@
 import { useMemo, useState } from "react";
-import {
-  Button,
-  Group,
-  Paper,
-  ScrollArea,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import type { Task, TaskStatus } from "@modelcontextprotocol/sdk/types.js";
 import { TaskCard } from "../TaskCard/TaskCard";
 import type { TaskProgress } from "../TaskCard/TaskCard";
+import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
@@ -21,6 +14,13 @@ export interface TaskListPanelProps {
   statusFilter?: TaskStatus;
   onCancel: (taskId: string) => void;
   onClearCompleted: () => void;
+  /**
+   * True when rendered inside the monitoring sidebar. Switches the scroll region
+   * from the viewport-height calc to filling its flex parent (via
+   * `EmbeddableScrollArea`), so it fits below the column's controls without
+   * viewport math (#1616).
+   */
+  embedded?: boolean;
 }
 
 const PanelContainer = Paper.withProps({
@@ -56,9 +56,17 @@ function isActiveStatus(status: TaskStatus): boolean {
 function matchesFilters(
   task: Task,
   searchText: string,
-  statusFilter?: TaskStatus,
+  statusFilter: TaskStatus | undefined,
+  // The embedded column exposes only the shared search box (its status filter
+  // lives in the full-size sidebar, which the embedded view drops), so it
+  // applies the text filter but skips the status filter — mirrors
+  // LogStreamPanel's `ignoreLevels` etc. so a stale status filter can't
+  // silently hide tasks with no visible control to clear it (#1616).
+  ignoreStatus: boolean,
 ): boolean {
-  if (statusFilter && task.status !== statusFilter) return false;
+  if (!ignoreStatus && statusFilter && task.status !== statusFilter) {
+    return false;
+  }
   if (searchText) {
     const term = searchText.toLowerCase();
     const searchable =
@@ -75,13 +83,17 @@ export function TaskListPanel({
   statusFilter,
   onCancel,
   onClearCompleted,
+  embedded = false,
 }: TaskListPanelProps) {
   const viewportRef = useScrollMemory("tasks-list");
   const [compact, setCompact] = useState(false);
 
   const filteredTasks = useMemo(
-    () => tasks.filter((t) => matchesFilters(t, searchText, statusFilter)),
-    [tasks, searchText, statusFilter],
+    () =>
+      tasks.filter((t) =>
+        matchesFilters(t, searchText, statusFilter, embedded),
+      ),
+    [tasks, searchText, statusFilter, embedded],
   );
 
   const activeTasks = useMemo(
@@ -111,10 +123,7 @@ export function TaskListPanel({
       {!hasResults ? (
         <EmptyState>No tasks</EmptyState>
       ) : (
-        <ScrollArea.Autosize
-          viewportRef={viewportRef}
-          mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)"
-        >
+        <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
           <Stack gap="md">
             {activeTasks.length > 0 && (
               <>
@@ -153,7 +162,7 @@ export function TaskListPanel({
               </>
             )}
           </Stack>
-        </ScrollArea.Autosize>
+        </EmbeddableScrollArea>
       )}
     </PanelContainer>
   );

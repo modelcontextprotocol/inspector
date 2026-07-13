@@ -54,6 +54,15 @@ describe("TasksScreen", () => {
     );
   });
 
+  it("drops the controls sidebar when embedded, keeping the list", () => {
+    renderWithMantine(<TasksScreen {...baseProps} embedded />);
+    // The list panel still renders (its "Tasks" heading is present)...
+    expect(screen.getAllByText("Tasks").length).toBeGreaterThan(0);
+    // ...but the controls sidebar (Refresh + Search) is not rendered.
+    expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+    expect(screen.queryByPlaceholderText("Search...")).toBeNull();
+  });
+
   it("emits the cleared status filter through onUiChange", async () => {
     const user = userEvent.setup();
     const onUiChange = vi.fn();
