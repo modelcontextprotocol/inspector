@@ -1,16 +1,9 @@
 import { useMemo, useState } from "react";
-import {
-  Button,
-  Group,
-  Paper,
-  ScrollArea,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import type { Task, TaskStatus } from "@modelcontextprotocol/sdk/types.js";
 import { TaskCard } from "../TaskCard/TaskCard";
 import type { TaskProgress } from "../TaskCard/TaskCard";
+import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
@@ -21,6 +14,13 @@ export interface TaskListPanelProps {
   statusFilter?: TaskStatus;
   onCancel: (taskId: string) => void;
   onClearCompleted: () => void;
+  /**
+   * True when rendered inside the monitoring sidebar. Switches the scroll region
+   * from the viewport-height calc to filling its flex parent (via
+   * `EmbeddableScrollArea`), so it fits below the column's controls without
+   * viewport math (#1616).
+   */
+  embedded?: boolean;
 }
 
 const PanelContainer = Paper.withProps({
@@ -75,6 +75,7 @@ export function TaskListPanel({
   statusFilter,
   onCancel,
   onClearCompleted,
+  embedded = false,
 }: TaskListPanelProps) {
   const viewportRef = useScrollMemory("tasks-list");
   const [compact, setCompact] = useState(false);
@@ -111,10 +112,7 @@ export function TaskListPanel({
       {!hasResults ? (
         <EmptyState>No tasks</EmptyState>
       ) : (
-        <ScrollArea.Autosize
-          viewportRef={viewportRef}
-          mah="calc(100vh - var(--app-shell-header-height, 0px) - 150px)"
-        >
+        <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
           <Stack gap="md">
             {activeTasks.length > 0 && (
               <>
@@ -153,7 +151,7 @@ export function TaskListPanel({
               </>
             )}
           </Stack>
-        </ScrollArea.Autosize>
+        </EmbeddableScrollArea>
       )}
     </PanelContainer>
   );
