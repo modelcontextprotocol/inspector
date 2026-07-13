@@ -3,11 +3,25 @@ import { TabsContent } from "@/components/ui/tabs";
 import { JsonSchemaType } from "@/utils/jsonUtils";
 import ElicitationRequest from "./ElicitationRequest";
 
-export interface ElicitationRequestData {
+interface ElicitationRequestBase {
   id: number;
   message: string;
+}
+
+export interface ElicitationFormRequestData extends ElicitationRequestBase {
+  mode?: "form";
   requestedSchema: JsonSchemaType;
 }
+
+export interface ElicitationUrlRequestData extends ElicitationRequestBase {
+  mode: "url";
+  url: string;
+  elicitationId: string;
+}
+
+export type ElicitationRequestData =
+  | ElicitationFormRequestData
+  | ElicitationUrlRequestData;
 
 export interface ElicitationResponse {
   action: "accept" | "decline" | "cancel";

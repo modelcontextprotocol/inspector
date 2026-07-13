@@ -151,6 +151,9 @@ const App = () => {
   const [resourceContentMap, setResourceContentMap] = useState<
     Record<string, string>
   >({});
+  const [resourceErrorMap, setResourceErrorMap] = useState<
+    Record<string, string>
+  >({});
   const [fetchingResources, setFetchingResources] = useState<Set<string>>(
     new Set(),
   );
@@ -439,15 +442,27 @@ const App = () => {
     onElicitationRequest: (request, resolve) => {
       const currentTab = lastToolCallOriginTabRef.current;
 
+      const requestId = nextRequestId.current++;
+      const requestData =
+        request.params.mode === "url"
+          ? {
+              id: requestId,
+              mode: "url" as const,
+              message: request.params.message,
+              url: request.params.url,
+              elicitationId: request.params.elicitationId,
+            }
+          : {
+              id: requestId,
+              message: request.params.message,
+              requestedSchema: request.params.requestedSchema,
+            };
+
       setPendingElicitationRequests((prev) => [
         ...prev,
         {
-          id: nextRequestId.current++,
-          request: {
-            id: nextRequestId.current,
-            message: request.params.message,
-            requestedSchema: request.params.requestedSchema,
-          },
+          id: requestId,
+          request: requestData,
           originatingTab: currentTab,
           resolve,
           decline: (error: Error) => {
@@ -902,13 +917,34 @@ const App = () => {
     setPromptContent(JSON.stringify(response, null, 2));
   };
 
-  const readResource = async (uri: string) => {
-    if (fetchingResources.has(uri) || resourceContentMap[uri]) {
+  const readResource = async (
+    uri: string,
+    { bypassCache = false }: { bypassCache?: boolean } = {},
+  ) => {
+    if (fetchingResources.has(uri)) {
+      return;
+    }
+
+    const hasOwn = Object.prototype.hasOwnProperty;
+    if (
+      !bypassCache &&
+      hasOwn.call(resourceContentMap, uri) &&
+      !hasOwn.call(resourceErrorMap, uri)
+    ) {
+      if (currentTabRef.current === "resources") {
+        setResourceContent(resourceContentMap[uri]);
+      }
       return;
     }
 
     console.log("[App] Reading resource:", uri);
     setFetchingResources((prev) => new Set(prev).add(uri));
+    setResourceErrorMap((prev) => {
+      if (!hasOwn.call(prev, uri)) return prev;
+      const next = { ...prev };
+      delete next[uri];
+      return next;
+    });
     lastToolCallOriginTabRef.current = currentTabRef.current;
 
     try {
@@ -933,10 +969,10 @@ const App = () => {
       }));
     } catch (error) {
       console.error(`[App] Failed to read resource ${uri}:`, error);
-      const errorString = (error as Error).message ?? String(error);
-      setResourceContentMap((prev) => ({
+      const errorString = (error as Error).message || String(error);
+      setResourceErrorMap((prev) => ({
         ...prev,
-        [uri]: JSON.stringify({ error: errorString }),
+        [uri]: errorString,
       }));
     } finally {
       setFetchingResources((prev) => {
@@ -1157,21 +1193,50 @@ const App = () => {
                   ? ((response as { _meta?: Record<string, unknown> })._meta ??
                     {})
                   : undefined;
-              latestToolResult = {
-                content: [
-                  {
-                    type: "text",
-                    text: `Task status: ${taskStatus.status}${taskStatus.statusMessage ? ` - ${taskStatus.statusMessage}` : ""}. Polling...`,
+
+              if (taskStatus.status === "input_required") {
+                // Per MCP spec: when input_required, call tasks/result to give
+                // the server a chance to deliver queued elicitation/sampling
+                // requests. After elicitation is handled, the task transitions
+                // back to "working" — do NOT set taskCompleted here.
+                latestToolResult = {
+                  content: [
+                    {
+                      type: "text",
+                      text: `Task status: input_required${taskStatus.statusMessage ? ` - ${taskStatus.statusMessage}` : ""}. Awaiting input...`,
+                    },
+                  ],
+                  _meta: {
+                    ...(pollingResponseMeta || {}),
+                    "io.modelcontextprotocol/related-task": { taskId },
                   },
-                ],
-                _meta: {
-                  ...(pollingResponseMeta || {}),
-                  "io.modelcontextprotocol/related-task": { taskId },
-                },
-              };
-              setToolResult(latestToolResult);
-              // Refresh tasks list to show progress
-              void listTasks();
+                };
+                setToolResult(latestToolResult);
+                await sendMCPRequest(
+                  {
+                    method: "tasks/result",
+                    params: { taskId },
+                  },
+                  CompatibilityCallToolResultSchema,
+                );
+                void listTasks();
+              } else {
+                latestToolResult = {
+                  content: [
+                    {
+                      type: "text",
+                      text: `Task status: ${taskStatus.status}${taskStatus.statusMessage ? ` - ${taskStatus.statusMessage}` : ""}. Polling...`,
+                    },
+                  ],
+                  _meta: {
+                    ...(pollingResponseMeta || {}),
+                    "io.modelcontextprotocol/related-task": { taskId },
+                  },
+                };
+                setToolResult(latestToolResult);
+                // Refresh tasks list to show progress
+                void listTasks();
+              }
             }
           } catch (pollingError) {
             console.error("Error polling task status:", pollingError);
@@ -1482,9 +1547,9 @@ const App = () => {
                         setResourceTemplates([]);
                         setNextResourceTemplateCursor(undefined);
                       }}
-                      readResource={(uri) => {
+                      readResource={(uri, options) => {
                         clearError("resources");
-                        readResource(uri);
+                        readResource(uri, options);
                       }}
                       selectedResource={selectedResource}
                       setSelectedResource={(resource) => {
@@ -1590,6 +1655,7 @@ const App = () => {
                       nextCursor={nextToolCursor}
                       error={errors.tools}
                       resourceContent={resourceContentMap}
+                      resourceError={resourceErrorMap}
                       onReadResource={(uri: string) => {
                         clearError("resources");
                         readResource(uri);
