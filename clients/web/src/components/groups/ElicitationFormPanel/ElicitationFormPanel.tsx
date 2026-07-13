@@ -36,28 +36,16 @@ const QuotedMessage = Text.withProps({
   fs: "italic",
 });
 
-// Fill the (bounded) modal body and lay out as a flex column: the message and
-// the warning + action buttons are pinned (`flex: 0 0 auto`) and only the
-// fields scroll, so the buttons stay in view no matter how tall the form is —
-// the modal has no other close affordance. `PendingClientRequestModal` makes
-// its body a bounded flex column so `flex: 1` here has a definite height to
-// fill (and to size to content when the form is short).
-const PanelStack = Stack.withProps({
-  gap: "md",
-  flex: 1,
-  mih: 0,
-});
-
-const PinnedSection = Stack.withProps({ gap: "md", flex: "0 0 auto" });
-
-// The fields are the only scrolling region. `flex: "0 1 auto"` (basis auto) sizes
-// it to its content when the form is short — so the modal stays compact and
-// nothing scrolls — but lets it shrink and scroll once the panel is capped at
-// the modal's max height, keeping the pinned sections in view. (Same pattern as
-// ToolDetailPanel's body scroller.)
-const FieldScroll = ScrollArea.withProps({
-  flex: "0 1 auto",
-  mih: 0,
+// Only the form fields scroll; the message stays above and the warning + action
+// buttons stay below (in normal flow), always in view — the modal has no other
+// close affordance, so the actions must never scroll out of reach. Capping the
+// fields at the modal's max height (≈90dvh) minus the ~22rem of non-field chrome
+// (modal header/padding + message + warning + buttons + gaps) keeps the whole
+// modal within the viewport. `ScrollArea.Autosize` sizes to content when the
+// form is short (nothing scrolls, modal stays compact) and scrolls once the
+// fields hit the cap.
+const FieldScroll = ScrollArea.Autosize.withProps({
+  mah: "calc(90dvh - 22rem)",
   scrollbars: "y",
   offsetScrollbars: true,
 });
@@ -84,11 +72,9 @@ export function ElicitationFormPanel({
   const submitDisabled =
     busy || hasMissingRequiredFields(requestedSchema, values);
   return (
-    <PanelStack>
-      <PinnedSection>
-        <QuotedMessage>{formatQuoted(request.message)}</QuotedMessage>
-        <Divider />
-      </PinnedSection>
+    <Stack gap="md">
+      <QuotedMessage>{formatQuoted(request.message)}</QuotedMessage>
+      <Divider />
       <FieldScroll>
         <SchemaForm
           schema={requestedSchema}
@@ -97,27 +83,20 @@ export function ElicitationFormPanel({
           disabled={busy}
         />
       </FieldScroll>
-      <PinnedSection>
-        <Alert variant="warning" title="Warning">
-          {formatWarning(serverName)}
-        </Alert>
-        <Group justify="flex-end">
-          <Button variant="light" onClick={onCancel} disabled={busy}>
-            Cancel
-          </Button>
-          <Button
-            variant="light"
-            color="red"
-            onClick={onDecline}
-            disabled={busy}
-          >
-            Decline
-          </Button>
-          <Button onClick={onSubmit} disabled={submitDisabled}>
-            Submit
-          </Button>
-        </Group>
-      </PinnedSection>
-    </PanelStack>
+      <Alert variant="warning" title="Warning">
+        {formatWarning(serverName)}
+      </Alert>
+      <Group justify="flex-end">
+        <Button variant="light" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+        <Button variant="light" color="red" onClick={onDecline} disabled={busy}>
+          Decline
+        </Button>
+        <Button onClick={onSubmit} disabled={submitDisabled}>
+          Submit
+        </Button>
+      </Group>
+    </Stack>
   );
 }

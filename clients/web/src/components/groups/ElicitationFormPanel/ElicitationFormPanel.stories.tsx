@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Flex } from "@mantine/core";
 import type { ElicitRequestFormParams } from "@modelcontextprotocol/sdk/types.js";
 import { fn } from "storybook/test";
 import { ElicitationFormPanel } from "./ElicitationFormPanel";
@@ -15,16 +14,6 @@ const meta: Meta<typeof ElicitationFormPanel> = {
     serverName: "postgres-server",
     values: {},
   },
-  // The panel fills a bounded flex column (its host `PendingClientRequestModal`
-  // makes the modal body one). Mirror that here so the pinned-actions layout —
-  // fields scroll, buttons stay put — renders as it does in the modal.
-  decorators: [
-    (Story) => (
-      <Flex h="80vh" maw={560} direction="column">
-        <Story />
-      </Flex>
-    ),
-  ],
 };
 
 export default meta;

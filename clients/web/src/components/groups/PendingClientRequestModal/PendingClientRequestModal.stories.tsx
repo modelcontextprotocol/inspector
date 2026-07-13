@@ -34,6 +34,33 @@ const formRequest: ElicitRequestFormParams = {
   },
 };
 
+// More fields than fit the modal, to exercise the pinned-actions layout:
+// only the fields scroll; the message, warning, and buttons stay in view.
+const tallFormRequest: ElicitRequestFormParams = {
+  message: "Please provide the full database configuration.",
+  requestedSchema: {
+    type: "object",
+    properties: Object.fromEntries(
+      [
+        "host",
+        "port",
+        "database",
+        "username",
+        "password",
+        "schema",
+        "poolSize",
+        "connectTimeout",
+        "idleTimeout",
+        "applicationName",
+        "sslMode",
+        "sslCert",
+        "sslKey",
+        "sslRootCert",
+      ].map((name) => [name, { type: "string", title: name }]),
+    ),
+  },
+};
+
 function InteractiveRender(args: PendingClientRequestModalProps) {
   return (
     <AppShell>
@@ -95,6 +122,16 @@ export const ElicitationForm: Story = {
       action: "accept",
       content: {},
     });
+  },
+};
+
+export const ElicitationFormTall: Story = {
+  args: {
+    request: {
+      kind: "elicitation-form",
+      id: "elicitation-tall",
+      request: tallFormRequest,
+    },
   },
 };
 
