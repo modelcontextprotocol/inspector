@@ -131,6 +131,16 @@ const EmptyState = Text.withProps({
   ta: "center",
 });
 
+// Override the card-surface var for the whole grid so every server card (in any
+// state — the theme's default/highlighted/errored/disabled Card variants all
+// read `--inspector-surface-card`) picks up the faintly-grey server tone,
+// without touching the shared token or the variant logic.
+const GRID_SURFACE_STYLES = {
+  root: {
+    "--inspector-surface-card": "var(--inspector-surface-card-server)",
+  },
+} as const;
+
 export function ServerListScreen({
   servers,
   writable = true,
@@ -221,15 +231,7 @@ export function ServerListScreen({
       cols={{ base: 1, "1040px": 2, "1560px": 3 }}
       spacing="lg"
       className="grid-align-start"
-      // Override the card-surface var for the whole grid so every server card
-      // (in any state — the theme's default/highlighted/errored/disabled Card
-      // variants all read `--inspector-surface-card`) picks up the faintly-grey
-      // server tone, without touching the shared token or the variant logic.
-      styles={{
-        root: {
-          "--inspector-surface-card": "var(--inspector-surface-card-server)",
-        },
-      }}
+      styles={GRID_SURFACE_STYLES}
     >
       {servers.map((server) =>
         reorderable ? (
@@ -254,7 +256,8 @@ export function ServerListScreen({
         <PanelHeader>
           {/* Semantic h3 (visually h4) so it doesn't skip a level under the
               disconnected header's h2 "MCP Inspector" (heading-order a11y). The
-              connected panels can use h4 since their header shows no heading. */}
+              other panels render h4 directly because they only show while
+              connected, when the header carries no heading to skip under. */}
           <Title order={3} size="h4">
             Servers
           </Title>
