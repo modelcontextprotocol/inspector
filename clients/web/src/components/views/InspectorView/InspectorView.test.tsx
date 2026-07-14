@@ -23,7 +23,7 @@ import { InspectorView, type InspectorViewProps } from "./InspectorView";
 // The monitoring sidebar (#1616) is gated on a 1040px viewport media query.
 // happy-dom's viewport is 1024px, so that query is really false; make just that
 // gate controllable per test. Every other query — ViewHeader's 992px
-// SegmentedControl gate and the 1281px Disconnect/status-label gate — is forced
+// SegmentedControl gate and the 1500px connection-status-text gate — is forced
 // "wide" by the mock, so the connected header renders its full form and every
 // existing test below is unaffected.
 const monitorWide = vi.hoisted(() => ({ value: false }));
@@ -1475,17 +1475,7 @@ describe("InspectorView", () => {
       return user;
     }
 
-    it("shows the header monitoring toggle only when wide", async () => {
-      monitorWide.value = false;
-      const { unmount } = renderWithMantine(
-        <StatefulInspectorViewHost {...connectedHttp()} />,
-      );
-      expect(
-        screen.queryByRole("button", { name: "Open monitoring sidebar" }),
-      ).not.toBeInTheDocument();
-      unmount();
-
-      monitorWide.value = true;
+    it("shows the header monitoring toggle when connected with monitor tabs", async () => {
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       expect(
         await screen.findByRole("button", { name: "Open monitoring sidebar" }),
@@ -1962,25 +1952,9 @@ describe("InspectorView", () => {
       ).toBeInTheDocument();
     });
 
-    it("persists the pin preference and reopens the column when wide", () => {
-      // Stored preference from a prior wide session.
+    it("reopens the column from the stored pin preference", () => {
+      // A stored preference from a prior session reopens the column on load.
       window.localStorage.setItem("inspector.monitor.pinned", "true");
-
-      // Narrow: the column stays closed and the group is in the header.
-      monitorWide.value = false;
-      const { unmount } = renderWithMantine(
-        <StatefulInspectorViewHost {...connectedHttp()} />,
-      );
-      expect(
-        screen.queryByRole("button", { name: "Close monitoring sidebar" }),
-      ).toBeNull();
-      expect(
-        within(screen.getByRole("banner")).getByRole("radio", { name: "Logs" }),
-      ).toBeInTheDocument();
-      unmount();
-
-      // Wide: the preserved preference reopens the column without re-pinning.
-      monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       expect(
         screen.getByRole("button", { name: "Close monitoring sidebar" }),

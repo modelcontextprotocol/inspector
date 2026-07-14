@@ -234,14 +234,19 @@ body {
   background-color: var(--inspector-surface-body);
 }
 
-/* Floor the app at 1280px so the header (tabs + status + Disconnect) and the
-   split panes never reflow into a broken layout; below this the page scrolls
-   horizontally instead. The header collapses its Disconnect + status controls
-   to icons at this same floor (see ViewHeader / ServerStatusIndicator). Scoped
-   to the app mount (#root) rather than `body` so it doesn't leak into Storybook,
-   which shares App.css but renders stories into its own root. */
+/* Floor the app at 1280px so the header, split panes, and footer never reflow
+   into a broken layout; below this the whole app scrolls horizontally instead.
+   Scoped to the app mount (#root) rather than `body` so it doesn't leak into
+   Storybook, which shares App.css but renders stories into its own root.
+
+   The `transform` makes #root the containing block for the AppShell's
+   position:fixed header + footer, so they honor the 1280px floor too — spanning
+   the full 1280 and scrolling horizontally with the content — instead of staying
+   pinned to a narrower viewport. Body-portalled overlays (modals, tooltips,
+   dropdowns) render outside #root, so they stay viewport-fixed as intended. */
 #root {
   min-width: 1280px;
+  transform: translateZ(0);
 }
 
 /* ── Animations ──────────────────────────────────────────── */

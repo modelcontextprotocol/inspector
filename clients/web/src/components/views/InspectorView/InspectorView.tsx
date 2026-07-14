@@ -15,7 +15,7 @@ import {
   Transition,
   type MantineTransition,
 } from "@mantine/core";
-import { useLocalStorage, useMediaQuery } from "@mantine/hooks";
+import { useLocalStorage } from "@mantine/hooks";
 import type {
   InitializeResult,
   LoggingLevel,
@@ -197,11 +197,6 @@ function isMonitorTab(tab: string): tab is MonitorTab {
     tab === CONSOLE_TAB
   );
 }
-
-// The viewport width below which the split collapses to a single column: matches
-// the point where ServerListScreen drops to one card, so the primary area always
-// has room for at least one full-width card beside the column.
-const MONITOR_WIDE_QUERY = "(min-width: 1040px)";
 
 // Monitoring sidebar width bounds (px). MIN keeps the stream readable; MAX stops
 // the column from crowding out the primary area.
@@ -719,13 +714,6 @@ export function InspectorView({
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const columnWidth = dragWidth ?? monitorWidth;
 
-  // The split only exists with enough horizontal room. `true` initial value so
-  // the first synchronous paint assumes wide (the common desktop case) rather
-  // than flashing the collapsed layout.
-  const isWide = useMediaQuery(MONITOR_WIDE_QUERY, true, {
-    getInitialValueInEffect: false,
-  });
-
   // Open the monitoring sidebar when a connection is established (#1616) OR when a
   // connect *attempt* fails (#1621). Gated on the *transition into* the target
   // status (via the ref) rather than the status itself, so it fires once on an
@@ -870,13 +858,13 @@ export function InspectorView({
     }
     return [];
   }, [connected, failed, availableTabs, stderrLogs, network, protocol]);
-  // The column can exist when: the viewport is wide enough, the session is
-  // connected OR a connect attempt failed, and at least one monitor tab is
-  // actually available. This is the same rule the server list used to gate its
-  // open-sidebar button on, and it now also gates the header MonitoringToggle
-  // (#1661) — the toggle is hidden entirely when the column can't exist.
+  // The column can exist when the session is connected OR a connect attempt
+  // failed, and at least one monitor tab is actually available. (The app floors
+  // at a 1280px min-width, so there's always room for the split — no viewport
+  // gate.) This also gates the header MonitoringToggle (#1661) — the toggle is
+  // hidden entirely when the column can't exist.
   const monitorColumnAvailable =
-    !!isWide && (connected || failed) && monitorAvailable.length > 0;
+    (connected || failed) && monitorAvailable.length > 0;
   const effectivePinned = monitorPinned && monitorColumnAvailable;
 
   // The header loses the monitor group while the column is open (its screens
