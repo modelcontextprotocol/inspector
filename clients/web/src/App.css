@@ -234,6 +234,16 @@ body {
   background-color: var(--inspector-surface-body);
 }
 
+/* Floor the app at 1280px so the header (tabs + status + Disconnect) and the
+   split panes never reflow into a broken layout; below this the page scrolls
+   horizontally instead. The header collapses its Disconnect + status controls
+   to icons at this same floor (see ViewHeader / ServerStatusIndicator). Scoped
+   to the app mount (#root) rather than `body` so it doesn't leak into Storybook,
+   which shares App.css but renders stories into its own root. */
+#root {
+  min-width: 1280px;
+}
+
 /* ── Animations ──────────────────────────────────────────── */
 
 @keyframes inspector-pulse {

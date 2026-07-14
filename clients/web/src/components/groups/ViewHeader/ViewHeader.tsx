@@ -17,7 +17,8 @@ import {
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
-import { MdLightMode, MdDarkMode, MdLinkOff, MdSettings } from "react-icons/md";
+import { MdLightMode, MdDarkMode, MdSettings } from "react-icons/md";
+import { VscDebugDisconnect } from "react-icons/vsc";
 import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
 import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/ServerStatusIndicator";
 import {
@@ -250,7 +251,11 @@ export function ViewHeader(props: ViewHeaderProps) {
   const monitorToggleForRender = props.monitorToggle ?? lastMonitorToggle;
   const ThemeIcon = colorScheme === "dark" ? MdLightMode : MdDarkMode;
   const showSegmented = useMediaQuery("(min-width: 992px)");
-  const showDisconnectLabel = useMediaQuery("(min-width: 768px)");
+  // Below the 1280px app min-width the header runs out of room (with every tab
+  // shown, the connection text wraps and the Disconnect label clips), so collapse
+  // the Disconnect control to its icon at that floor. Matches the connection
+  // status indicator, which drops its text at the same breakpoint.
+  const showDisconnectLabel = useMediaQuery("(min-width: 1281px)");
 
   // Retain the latest connected display data so each region can keep rendering
   // it while animating out after disconnect (#1450). Uses React's "adjust state
@@ -433,7 +438,7 @@ export function ViewHeader(props: ViewHeaderProps) {
                   </DisconnectButton>
                 ) : (
                   <DisconnectIcon onClick={handleDisconnect} title="Disconnect">
-                    <MdLinkOff size={20} />
+                    <VscDebugDisconnect size={20} />
                   </DisconnectIcon>
                 )}
               </RightConnectedGroup>

@@ -22,9 +22,10 @@ import { InspectorView, type InspectorViewProps } from "./InspectorView";
 
 // The monitoring sidebar (#1616) is gated on a 1040px viewport media query.
 // happy-dom's viewport is 1024px, so that query is really false; make just that
-// gate controllable per test. ViewHeader's own 992/768 queries stay "wide" (as
-// they are in the real 1024px happy-dom viewport), so header rendering — and
-// every existing test below — is unaffected.
+// gate controllable per test. Every other query — ViewHeader's 992px
+// SegmentedControl gate and the 1281px Disconnect/status-label gate — is forced
+// "wide" by the mock, so the connected header renders its full form and every
+// existing test below is unaffected.
 const monitorWide = vi.hoisted(() => ({ value: false }));
 vi.mock("@mantine/hooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@mantine/hooks")>();

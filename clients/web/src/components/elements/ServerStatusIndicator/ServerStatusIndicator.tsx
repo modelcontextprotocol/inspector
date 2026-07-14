@@ -56,7 +56,10 @@ export function ServerStatusIndicator({
   failed = false,
   showLabel: showLabelProp,
 }: ServerStatusIndicatorProps) {
-  const wideViewport = useMediaQuery("(min-width: 1200px)");
+  // Show the text label only above the 1280px app min-width; at/below that floor
+  // the header is tight (see ViewHeader's Disconnect collapse), so the indicator
+  // drops to a dot-only status with the label moved to its `title` tooltip.
+  const wideViewport = useMediaQuery("(min-width: 1281px)");
   const showLabel = showLabelProp ?? wideViewport;
   // A failed connection settles the status back to "disconnected"; the `failed`
   // flag distinguishes it as a failure (red + "Failed") from a deliberate
