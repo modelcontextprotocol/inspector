@@ -1,10 +1,14 @@
 import {
   Alert,
   Code,
+  Flex,
+  Group,
+  Paper,
   ScrollArea,
   SimpleGrid,
   Stack,
   Text,
+  Title,
 } from "@mantine/core";
 import {
   DndContext,
@@ -75,14 +79,53 @@ export interface ServerListScreenProps {
   onToggleCompact: () => void;
 }
 
-const PageContainer = Stack.withProps({
+// Full-height screen wrapper (matches the Protocol/Logs screens): fills the
+// viewport minus the header and footer, clips overflow, and lays the optional
+// read-only banner above the box in a column.
+const ScreenLayout = Flex.withProps({
+  variant: "screen",
+  direction: "column",
+  h: "calc(100dvh - var(--app-shell-header-height, 0px) - var(--app-shell-footer-height, 0px))",
+  gap: "md",
   p: "xl",
+});
+
+// The bordered box that fills the container (#1682 follow-up), styled like the
+// "Messages" panel: a `panel`-variant Paper (display:flex column) holding the
+// title + controls header and the scrolling card grid.
+const PanelContainer = Paper.withProps({
+  withBorder: true,
+  p: "lg",
+  flex: 1,
+  variant: "panel",
+});
+
+// Header row inside the box: "Servers" title on the left, the Export / Add /
+// collapse controls on the right.
+const PanelHeader = Group.withProps({
+  justify: "space-between",
+  mb: "sm",
+});
+
+// Wraps the scroll region so it fills the box below the header (`flex:1/mih:0`)
+// and the inner ScrollArea can bound against it with `mah:100%`.
+const CardScrollWrap = Stack.withProps({
+  flex: 1,
+  mih: 0,
+  gap: 0,
+});
+
+// Centered in the full-height box so the empty message sits mid-panel rather
+// than clinging to the top (matches the Messages panel's empty state).
+const EmptyCenter = Stack.withProps({
+  flex: 1,
+  align: "center",
+  justify: "center",
 });
 
 const EmptyState = Text.withProps({
   c: "dimmed",
   ta: "center",
-  py: "xl",
 });
 
 export function ServerListScreen({
@@ -187,7 +230,7 @@ export function ServerListScreen({
   );
 
   return (
-    <PageContainer>
+    <ScreenLayout>
       {!writable && (
         <Alert color="gray" variant="light" title="Read-only session">
           This server list was launched with <Code>--config</Code> or an ad-hoc
@@ -195,45 +238,62 @@ export function ServerListScreen({
           <Code>--catalog</Code> (or no flag) to manage a writable catalog.
         </Alert>
       )}
-      <ServerListControls
-        serverCount={servers.length}
-        compact={compact}
-        writable={writable}
-        onToggleList={onToggleCompact}
-        onAddManually={onAddManually}
-        onImportConfig={onImportConfig}
-        onImportServerJson={onImportServerJson}
-        onExport={onExport}
-      />
+      <PanelContainer>
+        <PanelHeader>
+          {/* Semantic h3 (visually h4) so it doesn't skip a level under the
+              disconnected header's h2 "MCP Inspector" (heading-order a11y). The
+              connected panels can use h4 since their header shows no heading. */}
+          <Title order={3} size="h4">
+            Servers
+          </Title>
+          <ServerListControls
+            serverCount={servers.length}
+            compact={compact}
+            writable={writable}
+            onToggleList={onToggleCompact}
+            onAddManually={onAddManually}
+            onImportConfig={onImportConfig}
+            onImportServerJson={onImportServerJson}
+            onExport={onExport}
+          />
+        </PanelHeader>
 
-      <ScrollArea.Autosize
-        mah="calc(100dvh - var(--app-shell-header-height, 60px) - var(--app-shell-footer-height, 0px) - var(--mantine-spacing-xl) * 2 - 60px)"
-        // Same scrollbar treatment as the Protocol/Network/Logging list panels
-        // (#1474): reserve a gutter so the bar never overlays the right edge of
-        // the server cards (occluding their action icons / status badges), and
-        // only show it while actively scrolling rather than popping in on hover.
-        type="scroll"
-        offsetScrollbars
-      >
         {servers.length === 0 ? (
-          <EmptyState>
-            No servers configured. Add a server to get started.
-          </EmptyState>
-        ) : reorderable ? (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-            accessibility={{ announcements }}
-          >
-            <SortableContext items={ids} strategy={rectSortingStrategy}>
-              {grid}
-            </SortableContext>
-          </DndContext>
+          <EmptyCenter>
+            <EmptyState>
+              No servers configured. Add a server to get started.
+            </EmptyState>
+          </EmptyCenter>
         ) : (
-          grid
+          <CardScrollWrap>
+            <ScrollArea.Autosize
+              mah="100%"
+              // Same scrollbar treatment as the Protocol/Network/Logging list
+              // panels (#1474): reserve a gutter so the bar never overlays the
+              // right edge of the server cards (occluding their action icons /
+              // status badges), and only show it while actively scrolling
+              // rather than popping in on hover.
+              type="scroll"
+              offsetScrollbars
+            >
+              {reorderable ? (
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                  accessibility={{ announcements }}
+                >
+                  <SortableContext items={ids} strategy={rectSortingStrategy}>
+                    {grid}
+                  </SortableContext>
+                </DndContext>
+              ) : (
+                grid
+              )}
+            </ScrollArea.Autosize>
+          </CardScrollWrap>
         )}
-      </ScrollArea.Autosize>
-    </PageContainer>
+      </PanelContainer>
+    </ScreenLayout>
   );
 }

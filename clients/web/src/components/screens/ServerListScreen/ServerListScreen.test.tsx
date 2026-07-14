@@ -43,6 +43,13 @@ describe("ServerListScreen", () => {
     expect(screen.getByText("Beta")).toBeInTheDocument();
   });
 
+  it("renders the 'Servers' box heading", () => {
+    renderWithMantine(<ServerListScreen {...baseProps} />);
+    expect(
+      screen.getByRole("heading", { name: "Servers" }),
+    ).toBeInTheDocument();
+  });
+
   it("renders the empty state with no servers", () => {
     renderWithMantine(<ServerListScreen {...baseProps} servers={[]} />);
     expect(
