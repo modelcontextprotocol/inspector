@@ -18,8 +18,6 @@ export interface ResourceLinkProps {
   uri: string;
   /** Optional human-friendly name shown beneath the URI. */
   name?: string;
-  /** Optional description shown beneath the name. */
-  description?: string;
   /** Optional MIME type shown as a badge. */
   mimeType?: string;
   /**
@@ -78,7 +76,6 @@ const LoadingText = Text.withProps({
 export function ResourceLink({
   uri,
   name,
-  description,
   mimeType,
   onReadResource,
 }: ResourceLinkProps) {
@@ -125,7 +122,6 @@ export function ResourceLink({
     <ResourceLinkInfo
       uri={uri}
       name={name}
-      description={description}
       mimeType={mimeType}
       action={action}
     />

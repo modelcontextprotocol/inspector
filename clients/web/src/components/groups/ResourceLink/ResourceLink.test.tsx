@@ -15,18 +15,12 @@ const readResult = (text: string): ReadResourceResult => ({
 });
 
 describe("ResourceLink", () => {
-  it("renders uri, name, description, and mimeType", () => {
+  it("renders uri, name, and mimeType", () => {
     renderWithMantine(
-      <ResourceLink
-        uri={URI}
-        name="Readme"
-        description="The project readme"
-        mimeType="text/markdown"
-      />,
+      <ResourceLink uri={URI} name="Readme" mimeType="text/markdown" />,
     );
     expect(screen.getByText(URI)).toBeInTheDocument();
     expect(screen.getByText("Readme")).toBeInTheDocument();
-    expect(screen.getByText("The project readme")).toBeInTheDocument();
     expect(screen.getByText("text/markdown")).toBeInTheDocument();
   });
 

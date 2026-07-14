@@ -171,7 +171,6 @@ export function ToolResultPanel({
                             key={index}
                             uri={block.uri}
                             name={block.name}
-                            description={block.description}
                             mimeType={block.mimeType}
                             onReadResource={onReadResource}
                           />

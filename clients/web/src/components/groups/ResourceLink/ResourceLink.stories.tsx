@@ -41,7 +41,6 @@ export const Static: Story = {
   args: {
     uri: URI,
     name: "Readme",
-    description: "Project documentation",
     mimeType: "text/markdown",
   },
   play: async ({ canvasElement }) => {
@@ -55,7 +54,6 @@ export const Expandable: Story = {
   args: {
     uri: URI,
     name: "Readme",
-    description: "Click to read on demand",
     mimeType: "text/markdown",
     onReadResource: readMarkdown,
   },
@@ -77,7 +75,6 @@ export const LargeResult: Story = {
   args: {
     uri: BLOB_URI,
     name: "Blob Resource",
-    description: "A large gzipped resource",
     mimeType: "application/gzip",
     onReadResource: readLargeBlob,
   },
