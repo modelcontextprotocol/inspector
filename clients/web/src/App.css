@@ -31,10 +31,16 @@
      otherwise defaults to pure white. */
   --inspector-surface-body: var(--mantine-color-gray-1);
   --inspector-surface-card: var(--mantine-color-white);
-  /* Recessed list-item surface (Protocol/Network message cards): light-grey in
-     light mode so the entries read as sunk into their white panel; keeps the
-     standard card tone in dark (overridden below). */
-  --inspector-surface-inset: var(--mantine-color-gray-1);
+  /* Server-card fill: a hair lighter than the grey app background (`gray-0` vs
+     the body's `gray-1`) so the cards read as faintly raised on the white
+     Servers box. Light mode only; dark tracks the standard card surface. */
+  --inspector-surface-card-server: var(--mantine-color-gray-0);
+  /* Entry-card surface (Protocol / Network / Task message cards): the faint
+     `gray-0` grey — a hair lighter than the `gray-1` app background and matching
+     the server cards — so the entries read as soft cards on their white panel
+     (their inner Code blocks are raised to white via the `inset` variant). Keeps
+     the standard card tone in dark (overridden below). */
+  --inspector-surface-inset: var(--mantine-color-gray-0);
   /* Code/content surfaces match the light-grey body so they stay distinct
      against the white cards (the Code block has no border of its own). Dark
      mode keeps the darker `dark-9` inset below. */
@@ -125,6 +131,9 @@
      tab bar share `gray-1`. Cards (`gray-9`) still sit a step above it. */
   --inspector-surface-body: var(--mantine-color-dark-8);
   --inspector-surface-card: var(--mantine-color-gray-9);
+  /* Dark keeps server cards at the standard card surface (the lighter grey is a
+     light-mode-only treatment). */
+  --inspector-surface-card-server: var(--inspector-surface-card);
   /* Dark keeps the message cards at the standard card tone (they already
      contrast against the darker panel/body), so only light mode goes grey. */
   --inspector-surface-inset: var(--mantine-color-gray-9);

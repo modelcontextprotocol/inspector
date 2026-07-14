@@ -221,6 +221,15 @@ export function ServerListScreen({
       cols={{ base: 1, "1040px": 2, "1560px": 3 }}
       spacing="lg"
       className="grid-align-start"
+      // Override the card-surface var for the whole grid so every server card
+      // (in any state — the theme's default/highlighted/errored/disabled Card
+      // variants all read `--inspector-surface-card`) picks up the faintly-grey
+      // server tone, without touching the shared token or the variant logic.
+      styles={{
+        root: {
+          "--inspector-surface-card": "var(--inspector-surface-card-server)",
+        },
+      }}
     >
       {servers.map((server) =>
         reorderable ? (

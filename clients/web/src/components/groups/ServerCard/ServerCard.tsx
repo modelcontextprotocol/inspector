@@ -103,6 +103,16 @@ const SubtleButton = Button.withProps({
   size: "xs",
 });
 
+// Raise the card's ContentViewer Code block (the command/URL) to the "on-card"
+// surface — white in light mode — mirroring the Protocol/Network `inset` message
+// cards, so it reads as raised on the card instead of blending with it. Set as a
+// cascade var on the card root; the Code theme reads `--inspector-code-surface`.
+const CARD_STYLES = {
+  root: {
+    "--inspector-code-surface": "var(--inspector-surface-code-oncard)",
+  },
+} as const;
+
 const RemoveButton = Button.withProps({
   variant: "subtle",
   size: "xs",
@@ -220,6 +230,7 @@ export function ServerCard({
     <Card
       ref={rootRef}
       variant={variant}
+      styles={CARD_STYLES}
       onClick={highlighted ? onClearHighlight : undefined}
       {...(isDimmed ? { "aria-disabled": true, inert: true } : {})}
     >
