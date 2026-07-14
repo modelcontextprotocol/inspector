@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Divider, Stack } from "@mantine/core";
+import { Stack } from "@mantine/core";
 import { MonitoringControls } from "../MonitoringControls/MonitoringControls";
 import { ScreenStage } from "../../elements/ScreenStage/ScreenStage";
 
@@ -22,9 +22,12 @@ export interface MonitoringScreenProps {
 
 // Fills the pinned column: a fixed controls row on top and the selected screen
 // filling the remaining height below (mih:0 lets the inner ScrollArea bound).
+// `pt: md` gives the controls a little breathing room below the header instead
+// of sitting flush against it.
 const ColumnLayout = Stack.withProps({
   h: "100%",
   gap: 0,
+  pt: "md",
 });
 
 // Relative-positioned host so each tab's `ScreenStage` (absolutely positioned)
@@ -59,7 +62,6 @@ export function MonitoringScreen({
         searchValue={searchValue}
         onSearchChange={onSearchChange}
       />
-      <Divider />
       <ScreenSlot>
         {tabs.map((tab) => (
           <ScreenStage key={tab} active={tab === value} fill>

@@ -127,7 +127,7 @@ export function ConsoleScreen({
     // See LoggingScreen: only override `h` when embedded, so the standalone
     // screen keeps ScreenLayout's default full-screen height (a `h={undefined}`
     // would clobber it and collapse an empty screen to its controls' height).
-    <ScreenLayout {...(embedded ? { h: "100%" } : {})}>
+    <ScreenLayout {...(embedded ? { h: "100%", pt: "md" } : {})}>
       {embedded ? null : (
         <Sidebar>
           <SidebarCard>
