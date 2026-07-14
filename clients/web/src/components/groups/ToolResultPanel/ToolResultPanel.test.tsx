@@ -139,7 +139,9 @@ describe("ToolResultPanel", () => {
       expect(
         resultHasResourceLinks({
           isError: true,
-          content: [{ type: "resource_link", uri: "demo://r/1", name: "Linked" }],
+          content: [
+            { type: "resource_link", uri: "demo://r/1", name: "Linked" },
+          ],
         }),
       ).toBe(false);
     });
