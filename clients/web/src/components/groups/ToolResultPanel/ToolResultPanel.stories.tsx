@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { Card, Flex } from "@mantine/core";
 import { fn } from "storybook/test";
 import { ToolResultPanel } from "./ToolResultPanel";
 
@@ -119,7 +120,9 @@ export const MixedContent: Story = {
 
 // A run of `resource_link` blocks is grouped into one scrollable "Resource
 // Links" box, with each link card in the recessed inset surface that matches
-// the Protocol message cards.
+// the Protocol message cards. The decorator mirrors the Tools screen's
+// full-height result card (ContentPane height → ContentCard `flex: 1`) so the
+// box fills the available space and scrolls within, as it does in the app.
 export const ResourceLinks: Story = {
   args: {
     result: resourceLinksResult,
@@ -127,6 +130,15 @@ export const ResourceLinks: Story = {
       contents: [{ uri, mimeType: "text/plain", text: `Contents of ${uri}` }],
     }),
   },
+  decorators: [
+    (Story) => (
+      <Flex h={520} direction="column" align="stretch">
+        <Card withBorder padding="lg" variant="preview" flex={1}>
+          <Story />
+        </Card>
+      </Flex>
+    ),
+  ],
 };
 
 export const ErrorResult: Story = {

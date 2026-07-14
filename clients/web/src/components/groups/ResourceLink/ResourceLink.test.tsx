@@ -24,9 +24,13 @@ describe("ResourceLink", () => {
     expect(screen.getByText("text/markdown")).toBeInTheDocument();
   });
 
-  it("is not interactive without onReadResource", () => {
+  it("renders no expand control without onReadResource", () => {
     renderWithMantine(<ResourceLink uri={URI} />);
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    // The URI copy button is always present, but there's no expand affordance.
+    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Expand" }),
+    ).not.toBeInTheDocument();
   });
 
   it("reads the resource on demand and renders the result inline", async () => {
@@ -36,21 +40,17 @@ describe("ResourceLink", () => {
       <ResourceLink uri={URI} onReadResource={onReadResource} />,
     );
 
-    const button = screen.getByRole("button", {
-      name: `Expand resource ${URI}`,
-    });
-    expect(button).toHaveAttribute("aria-expanded", "false");
-
-    await user.click(button);
+    await user.click(screen.getByRole("button", { name: "Expand" }));
 
     expect(onReadResource).toHaveBeenCalledWith(URI);
     // The full read result is rendered inline as formatted JSON.
     await waitFor(() =>
       expect(screen.getByText(/"hello body"/)).toBeInTheDocument(),
     );
+    // The toggle flips to the collapse control once expanded.
     expect(
-      screen.getByRole("button", { name: `Collapse resource ${URI}` }),
-    ).toHaveAttribute("aria-expanded", "true");
+      screen.getByRole("button", { name: "Collapse" }),
+    ).toBeInTheDocument();
   });
 
   it("collapses and re-expands without re-reading (result cached)", async () => {
@@ -60,23 +60,18 @@ describe("ResourceLink", () => {
       <ResourceLink uri={URI} onReadResource={onReadResource} />,
     );
 
-    await user.click(
-      screen.getByRole("button", { name: `Expand resource ${URI}` }),
-    );
+    await user.click(screen.getByRole("button", { name: "Expand" }));
     await waitFor(() =>
       expect(screen.getByText(/"cached body"/)).toBeInTheDocument(),
     );
 
-    // Collapse — content is hidden.
-    await user.click(
-      screen.getByRole("button", { name: `Collapse resource ${URI}` }),
-    );
-    expect(screen.queryByText(/"cached body"/)).not.toBeInTheDocument();
+    // Collapse — the toggle flips back to the expand control. (The read result
+    // stays mounted inside the animated Collapse, so it isn't re-read.)
+    await user.click(screen.getByRole("button", { name: "Collapse" }));
+    expect(screen.getByRole("button", { name: "Expand" })).toBeInTheDocument();
 
-    // Re-expand — content returns without a second read.
-    await user.click(
-      screen.getByRole("button", { name: `Expand resource ${URI}` }),
-    );
+    // Re-expand — content is still present without a second read.
+    await user.click(screen.getByRole("button", { name: "Expand" }));
     expect(screen.getByText(/"cached body"/)).toBeInTheDocument();
     expect(onReadResource).toHaveBeenCalledTimes(1);
   });
@@ -88,7 +83,7 @@ describe("ResourceLink", () => {
       <ResourceLink uri={URI} onReadResource={onReadResource} />,
     );
 
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByRole("button", { name: "Expand" }));
     await waitFor(() =>
       expect(screen.getByText("Failed to read resource")).toBeInTheDocument(),
     );
@@ -104,7 +99,7 @@ describe("ResourceLink", () => {
       <ResourceLink uri={URI} onReadResource={onReadResource} />,
     );
 
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByRole("button", { name: "Expand" }));
     await waitFor(() =>
       expect(screen.getByText("Failed to read resource")).toBeInTheDocument(),
     );
@@ -122,20 +117,14 @@ describe("ResourceLink", () => {
     );
 
     // First expand fails.
-    await user.click(
-      screen.getByRole("button", { name: `Expand resource ${URI}` }),
-    );
+    await user.click(screen.getByRole("button", { name: "Expand" }));
     await waitFor(() =>
       expect(screen.getByText("Failed to read resource")).toBeInTheDocument(),
     );
 
     // Collapse, then re-expand — the read is retried (error is not cached).
-    await user.click(
-      screen.getByRole("button", { name: `Collapse resource ${URI}` }),
-    );
-    await user.click(
-      screen.getByRole("button", { name: `Expand resource ${URI}` }),
-    );
+    await user.click(screen.getByRole("button", { name: "Collapse" }));
+    await user.click(screen.getByRole("button", { name: "Expand" }));
 
     await waitFor(() =>
       expect(screen.getByText(/"recovered body"/)).toBeInTheDocument(),
@@ -160,15 +149,9 @@ describe("ResourceLink", () => {
     );
 
     // Expand — read is in flight (loading), then collapse and re-expand.
-    await user.click(
-      screen.getByRole("button", { name: `Expand resource ${URI}` }),
-    );
-    await user.click(
-      screen.getByRole("button", { name: `Collapse resource ${URI}` }),
-    );
-    await user.click(
-      screen.getByRole("button", { name: `Expand resource ${URI}` }),
-    );
+    await user.click(screen.getByRole("button", { name: "Expand" }));
+    await user.click(screen.getByRole("button", { name: "Collapse" }));
+    await user.click(screen.getByRole("button", { name: "Expand" }));
 
     // Still only the original in-flight read — no redundant fetch.
     expect(onReadResource).toHaveBeenCalledTimes(1);

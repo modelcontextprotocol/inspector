@@ -1,16 +1,18 @@
 import type { ReactNode } from "react";
 import { Badge, Group, Stack, Text } from "@mantine/core";
+import { CopyButton } from "../CopyButton/CopyButton";
 
 export interface ResourceLinkInfoProps {
-  /** The linked resource's URI (always shown). */
+  /** The linked resource's URI (always shown, with a copy button). */
   uri: string;
-  /** Optional human-friendly name shown beneath the URI. */
+  /** Optional human-friendly name shown above the URI. */
   name?: string;
   /** Optional MIME type shown as a badge. */
   mimeType?: string;
   /**
-   * Optional trailing element placed at the end of the URI row — e.g. an
-   * expand/collapse indicator supplied by an interactive wrapper.
+   * Optional trailing element placed at the end of the header row (beside the
+   * MIME badge) — e.g. an expand/collapse control supplied by an interactive
+   * wrapper.
    */
   action?: ReactNode;
 }
@@ -19,11 +21,19 @@ const HeaderStack = Stack.withProps({
   gap: 4,
 });
 
-const UriRow = Group.withProps({
-  justify: "space-between",
+// Name + meta (MIME badge, action). `justify` is set per-instance: spread when
+// a name is present, otherwise the meta hugs the right.
+const HeaderRow = Group.withProps({
   wrap: "nowrap",
   gap: "xs",
   align: "flex-start",
+});
+
+// Copy control + the URI, on the line below the name.
+const UriRow = Group.withProps({
+  wrap: "nowrap",
+  gap: "xs",
+  align: "center",
 });
 
 const UriText = Text.withProps({
@@ -52,13 +62,16 @@ const MimeBadge = Badge.withProps({
 const NameText = Text.withProps({
   size: "sm",
   fw: 600,
+  flex: 1,
+  miw: 0,
 });
 
 /**
- * Pure-display metadata for a `resource_link`: the URI (monospace, link-styled),
- * an optional name, and a MIME-type badge. The optional `action` slot lets an
- * interactive wrapper (e.g. {@link ResourceLink}) place an expand/collapse
- * indicator in the URI row.
+ * Pure-display metadata for a `resource_link`: an optional name and MIME-type
+ * badge on the header row, then the URI (monospace, link-styled) on the line
+ * below with a copy button. The optional `action` slot lets an interactive
+ * wrapper (e.g. {@link ResourceLink}) place an expand/collapse control beside
+ * the MIME badge.
  */
 export function ResourceLinkInfo({
   uri,
@@ -66,16 +79,22 @@ export function ResourceLinkInfo({
   mimeType,
   action,
 }: ResourceLinkInfoProps) {
+  const hasHeader = Boolean(name || mimeType || action);
   return (
     <HeaderStack>
+      {hasHeader && (
+        <HeaderRow justify={name ? "space-between" : "flex-end"}>
+          {name && <NameText>{name}</NameText>}
+          <MetaGroup>
+            {mimeType && <MimeBadge>{mimeType}</MimeBadge>}
+            {action}
+          </MetaGroup>
+        </HeaderRow>
+      )}
       <UriRow>
+        <CopyButton value={uri} />
         <UriText>{uri}</UriText>
-        <MetaGroup>
-          {mimeType && <MimeBadge>{mimeType}</MimeBadge>}
-          {action}
-        </MetaGroup>
       </UriRow>
-      {name && <NameText>{name}</NameText>}
     </HeaderStack>
   );
 }

@@ -181,7 +181,11 @@ export function ToolsScreen({
         // `result` (App.tsx), so the executing form (progress + cancel) shows
         // until the result lands.
         <ContentPane mah={SCROLL_MAX_HEIGHT}>
-          <ContentCard>
+          {/* `flex={1}` makes the result card fill the pane's full height (not
+              just size to content) so ToolResultPanel's inner scroll regions —
+              in particular a "Resource Links" box — expand into the available
+              space and scroll within, instead of leaving the card short. */}
+          <ContentCard flex={1}>
             <ToolResultPanel
               result={callState.result}
               onClear={() => onClearResult?.()}

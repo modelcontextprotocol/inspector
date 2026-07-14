@@ -64,9 +64,7 @@ describe("ToolResultPanel", () => {
     expect(
       screen.getByRole("heading", { name: "Resource Links" }),
     ).toBeInTheDocument();
-    await user.click(
-      screen.getByRole("button", { name: "Expand resource demo://r/1" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Expand" }));
     expect(onReadResource).toHaveBeenCalledWith("demo://r/1");
     await waitFor(() =>
       expect(screen.getByText(/"linked body"/)).toBeInTheDocument(),
