@@ -2,6 +2,7 @@ import {
   Alert,
   CloseButton,
   Group,
+  Paper,
   ScrollArea,
   Stack,
   Text,
@@ -27,6 +28,36 @@ export interface ToolResultPanelProps {
    * and inline their contents.
    */
   onReadResource?: (uri: string) => Promise<ReadResourceResult>;
+}
+
+type ContentBlock = CallToolResult["content"][number];
+type ResourceLinkBlock = Extract<ContentBlock, { type: "resource_link" }>;
+
+// A result's content is rendered as a run of segments in original order: each
+// non-link block on its own, and every maximal run of consecutive
+// `resource_link` blocks collapsed into one grouped "Resource Links" box.
+type ResultSegment =
+  | { kind: "links"; links: { block: ResourceLinkBlock; index: number }[] }
+  | { kind: "block"; block: ContentBlock; index: number };
+
+// Walk the content array once, coalescing adjacent `resource_link` blocks into a
+// single `links` segment so a run of links renders inside one scrollable box
+// while preserving the overall block order.
+function segmentContent(content: ContentBlock[]): ResultSegment[] {
+  const segments: ResultSegment[] = [];
+  content.forEach((block, index) => {
+    if (block.type === "resource_link") {
+      const last = segments[segments.length - 1];
+      if (last && last.kind === "links") {
+        last.links.push({ block, index });
+      } else {
+        segments.push({ kind: "links", links: [{ block, index }] });
+      }
+    } else {
+      segments.push({ kind: "block", block, index });
+    }
+  });
+  return segments;
 }
 
 // Outer column: the header pins (`flex: 0 0 auto`) and the scroll region
@@ -65,6 +96,39 @@ const ResultStack = Stack.withProps({
   gap: "md",
 });
 
+// Grouped container for a run of `resource_link` blocks — a bordered box with a
+// "Resource Links" heading and its own bounded scroll region, mirroring the
+// "Messages" box in the Protocol monitoring sidebar (ProtocolListPanel).
+const ResourceLinksBox = Paper.withProps({
+  withBorder: true,
+  radius: "md",
+  p: "md",
+});
+
+const ResourceLinksInner = Stack.withProps({
+  gap: "sm",
+});
+
+const ResourceLinksHeader = Title.withProps({
+  // The panel "Results" title is h3 (size h4); this sub-box heading is h4 so the
+  // heading order doesn't skip a level (axe `heading-order`).
+  order: 4,
+  size: "h5",
+});
+
+// Caps the grouped links so a long list scrolls within the box instead of
+// pushing the rest of the result down — mirrors the bounded Messages list.
+const ResourceLinksScroll = ScrollArea.Autosize.withProps({
+  mah: 360,
+  type: "auto",
+  scrollbars: "y",
+  offsetScrollbars: true,
+});
+
+const ResourceLinksStack = Stack.withProps({
+  gap: "sm",
+});
+
 export function ToolResultPanel({
   result,
   onClear,
@@ -95,21 +159,31 @@ export function ToolResultPanel({
           ) : result.content.length === 0 ? (
             <Text c="dimmed">No results yet</Text>
           ) : (
-            result.content.map((block, index) =>
-              block.type === "resource_link" ? (
-                <ResourceLink
-                  key={index}
-                  uri={block.uri}
-                  name={block.name}
-                  description={block.description}
-                  mimeType={block.mimeType}
-                  onReadResource={onReadResource}
-                />
+            segmentContent(result.content).map((segment) =>
+              segment.kind === "links" ? (
+                <ResourceLinksBox key={`links-${segment.links[0].index}`}>
+                  <ResourceLinksInner>
+                    <ResourceLinksHeader>Resource Links</ResourceLinksHeader>
+                    <ResourceLinksScroll>
+                      <ResourceLinksStack>
+                        {segment.links.map(({ block, index }) => (
+                          <ResourceLink
+                            key={index}
+                            uri={block.uri}
+                            name={block.name}
+                            mimeType={block.mimeType}
+                            onReadResource={onReadResource}
+                          />
+                        ))}
+                      </ResourceLinksStack>
+                    </ResourceLinksScroll>
+                  </ResourceLinksInner>
+                </ResourceLinksBox>
               ) : (
                 <ContentViewer
-                  key={index}
-                  block={block}
-                  copyable={block.type === "text"}
+                  key={segment.index}
+                  block={segment.block}
+                  copyable={segment.block.type === "text"}
                 />
               ),
             )

@@ -15,18 +15,12 @@ const readResult = (text: string): ReadResourceResult => ({
 });
 
 describe("ResourceLink", () => {
-  it("renders uri, name, description, and mimeType", () => {
+  it("renders uri, name, and mimeType", () => {
     renderWithMantine(
-      <ResourceLink
-        uri={URI}
-        name="Readme"
-        description="The project readme"
-        mimeType="text/markdown"
-      />,
+      <ResourceLink uri={URI} name="Readme" mimeType="text/markdown" />,
     );
     expect(screen.getByText(URI)).toBeInTheDocument();
     expect(screen.getByText("Readme")).toBeInTheDocument();
-    expect(screen.getByText("The project readme")).toBeInTheDocument();
     expect(screen.getByText("text/markdown")).toBeInTheDocument();
   });
 
@@ -50,11 +44,10 @@ describe("ResourceLink", () => {
     await user.click(button);
 
     expect(onReadResource).toHaveBeenCalledWith(URI);
+    // The full read result is rendered inline as formatted JSON.
     await waitFor(() =>
-      expect(screen.getByText("Resource:")).toBeInTheDocument(),
+      expect(screen.getByText(/"hello body"/)).toBeInTheDocument(),
     );
-    // The full read result is rendered as formatted JSON.
-    expect(screen.getByText(/"hello body"/)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: `Collapse resource ${URI}` }),
     ).toHaveAttribute("aria-expanded", "true");
@@ -78,7 +71,7 @@ describe("ResourceLink", () => {
     await user.click(
       screen.getByRole("button", { name: `Collapse resource ${URI}` }),
     );
-    expect(screen.queryByText("Resource:")).not.toBeInTheDocument();
+    expect(screen.queryByText(/"cached body"/)).not.toBeInTheDocument();
 
     // Re-expand — content returns without a second read.
     await user.click(

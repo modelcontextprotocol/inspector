@@ -41,7 +41,7 @@ describe("ToolResultPanel", () => {
     expect(screen.getByText("No results yet")).toBeInTheDocument();
   });
 
-  it("renders a resource_link block as an expandable ResourceLink", async () => {
+  it("groups resource_link blocks in a scrollable Resource Links box", async () => {
     const user = userEvent.setup();
     const onReadResource = vi.fn().mockResolvedValue({
       contents: [{ uri: "demo://r/1", text: "linked body" }],
@@ -60,6 +60,10 @@ describe("ToolResultPanel", () => {
       />,
     );
     expect(screen.getByText("ok")).toBeInTheDocument();
+    // The link sits inside a grouped, labeled box.
+    expect(
+      screen.getByRole("heading", { name: "Resource Links" }),
+    ).toBeInTheDocument();
     await user.click(
       screen.getByRole("button", { name: "Expand resource demo://r/1" }),
     );
@@ -67,6 +71,41 @@ describe("ToolResultPanel", () => {
     await waitFor(() =>
       expect(screen.getByText(/"linked body"/)).toBeInTheDocument(),
     );
+  });
+
+  it("collapses consecutive resource_link blocks into a single box", () => {
+    const result: CallToolResult = {
+      content: [
+        { type: "text", text: "intro" },
+        { type: "resource_link", uri: "demo://r/1", name: "One" },
+        { type: "resource_link", uri: "demo://r/2", name: "Two" },
+        { type: "resource_link", uri: "demo://r/3", name: "Three" },
+      ],
+    };
+    renderWithMantine(<ToolResultPanel result={result} onClear={() => {}} />);
+    // One shared "Resource Links" heading for the whole run of links.
+    expect(
+      screen.getAllByRole("heading", { name: "Resource Links" }),
+    ).toHaveLength(1);
+    expect(screen.getByText("One")).toBeInTheDocument();
+    expect(screen.getByText("Two")).toBeInTheDocument();
+    expect(screen.getByText("Three")).toBeInTheDocument();
+  });
+
+  it("renders a separate Resource Links box per non-adjacent run", () => {
+    const result: CallToolResult = {
+      content: [
+        { type: "resource_link", uri: "demo://r/1", name: "One" },
+        { type: "text", text: "divider" },
+        { type: "resource_link", uri: "demo://r/2", name: "Two" },
+      ],
+    };
+    renderWithMantine(<ToolResultPanel result={result} onClear={() => {}} />);
+    // The text block between the two links splits them into two boxes.
+    expect(
+      screen.getAllByRole("heading", { name: "Resource Links" }),
+    ).toHaveLength(2);
+    expect(screen.getByText("divider")).toBeInTheDocument();
   });
 
   it("invokes onClear when the close button is clicked", async () => {

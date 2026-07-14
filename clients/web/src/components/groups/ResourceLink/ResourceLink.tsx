@@ -1,8 +1,8 @@
 import { useState } from "react";
 import {
   Alert,
+  Card,
   Loader,
-  Paper,
   ScrollArea,
   Stack,
   Text,
@@ -18,8 +18,6 @@ export interface ResourceLinkProps {
   uri: string;
   /** Optional human-friendly name shown beneath the URI. */
   name?: string;
-  /** Optional description shown beneath the name. */
-  description?: string;
   /** Optional MIME type shown as a badge. */
   mimeType?: string;
   /**
@@ -30,10 +28,15 @@ export interface ResourceLinkProps {
   onReadResource?: (uri: string) => Promise<ReadResourceResult>;
 }
 
-const LinkCard = Paper.withProps({
+// Recessed "inset" surface so each link card reads the same as a Protocol
+// message card (ProtocolEntry), matching its colors in both light and dark
+// modes; the inset variant also raises nested Code blocks (the expanded read
+// result) onto a lighter surface via its cascade variable.
+const LinkCard = Card.withProps({
   withBorder: true,
-  p: "sm",
+  padding: "sm",
   radius: "md",
+  variant: "inset",
 });
 
 const HeaderButton = UnstyledButton.withProps({
@@ -58,12 +61,6 @@ const ResultScroll = ScrollArea.Autosize.withProps({
   offsetScrollbars: true,
 });
 
-const ResourceLabel = Text.withProps({
-  size: "sm",
-  fw: 600,
-  c: "green",
-});
-
 const LoadingText = Text.withProps({
   size: "sm",
   c: "dimmed",
@@ -79,7 +76,6 @@ const LoadingText = Text.withProps({
 export function ResourceLink({
   uri,
   name,
-  description,
   mimeType,
   onReadResource,
 }: ResourceLinkProps) {
@@ -126,7 +122,6 @@ export function ResourceLink({
     <ResourceLinkInfo
       uri={uri}
       name={name}
-      description={description}
       mimeType={mimeType}
       action={action}
     />
@@ -154,18 +149,15 @@ export function ResourceLink({
               {error}
             </Alert>
           ) : result !== null ? (
-            <>
-              <ResourceLabel>Resource:</ResourceLabel>
-              <ResultScroll>
-                <ContentViewer
-                  block={{
-                    type: "text",
-                    text: JSON.stringify(result, null, 2),
-                  }}
-                  copyable
-                />
-              </ResultScroll>
-            </>
+            <ResultScroll>
+              <ContentViewer
+                block={{
+                  type: "text",
+                  text: JSON.stringify(result, null, 2),
+                }}
+                copyable
+              />
+            </ResultScroll>
           ) : null}
         </ExpandedSection>
       )}

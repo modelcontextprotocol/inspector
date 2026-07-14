@@ -60,6 +60,33 @@ const mixedResult: CallToolResult = {
   ],
 };
 
+const resourceLinksResult: CallToolResult = {
+  content: [
+    {
+      type: "text",
+      text: "Here are 3 resource links to resources available in this server:",
+    },
+    {
+      type: "resource_link",
+      uri: "demo://resource/dynamic/blob/1",
+      name: "Blob Resource 1",
+      mimeType: "text/plain",
+    },
+    {
+      type: "resource_link",
+      uri: "demo://resource/dynamic/text/2",
+      name: "Text Resource 2",
+      mimeType: "text/plain",
+    },
+    {
+      type: "resource_link",
+      uri: "demo://resource/dynamic/blob/3",
+      name: "Blob Resource 3",
+      mimeType: "text/plain",
+    },
+  ],
+};
+
 export const Empty: Story = {
   args: {
     result: emptyResult,
@@ -87,6 +114,18 @@ export const ImageResult: Story = {
 export const MixedContent: Story = {
   args: {
     result: mixedResult,
+  },
+};
+
+// A run of `resource_link` blocks is grouped into one scrollable "Resource
+// Links" box, with each link card in the recessed inset surface that matches
+// the Protocol message cards.
+export const ResourceLinks: Story = {
+  args: {
+    result: resourceLinksResult,
+    onReadResource: async (uri: string) => ({
+      contents: [{ uri, mimeType: "text/plain", text: `Contents of ${uri}` }],
+    }),
   },
 };
 
