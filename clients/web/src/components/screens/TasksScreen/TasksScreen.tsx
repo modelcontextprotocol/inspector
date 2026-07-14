@@ -29,7 +29,7 @@ export interface TasksUiState {
 
 const ScreenLayout = Flex.withProps({
   variant: "screen",
-  h: "calc(100dvh - var(--app-shell-header-height, 0px))",
+  h: "calc(100dvh - var(--app-shell-header-height, 0px) - var(--app-shell-footer-height, 0px))",
   gap: "md",
   p: "xl",
 });
@@ -59,7 +59,9 @@ export function TasksScreen({
     // Embedded fills the monitoring sidebar column (100%); standalone keeps the
     // ScreenLayout's default full-screen height. Only override `h` when embedded
     // — passing `h={undefined}` would clobber the default (withProps spreads).
-    <ScreenLayout {...(embedded ? { h: "100%" } : {})}>
+    // Embedded also halves the top padding (`pt: md` vs `xl`) so the panel sits
+    // closer to the sidebar's tab/search controls (see LoggingScreen).
+    <ScreenLayout {...(embedded ? { h: "100%", pt: "md" } : {})}>
       {embedded ? null : (
         <Sidebar>
           <SidebarCard>

@@ -9,7 +9,7 @@ import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/Serv
 import { TransportBadge } from "../../elements/TransportBadge/TransportBadge";
 import { ConnectionToggle } from "../../elements/ConnectionToggle/ConnectionToggle";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
-import { FAILED_CARD_SCROLL_DELAY_MS } from "../../views/InspectorView/monitorColumnAnimation";
+import { CARD_SCROLL_DELAY_MS } from "../../views/InspectorView/monitorColumnAnimation";
 
 export interface ServerCardProps extends ServerEntry {
   activeServer?: string;
@@ -45,6 +45,13 @@ export interface ServerCardProps extends ServerEntry {
    * is connected or a new connection is attempted.
    */
   errored?: boolean;
+  /**
+   * When true, this server just connected successfully: the card draws the green
+   * highlight border and scrolls itself into view once the monitoring sidebar
+   * has opened — the success mirror of `errored` (#1682). The parent clears this
+   * on disconnect or a new connection attempt.
+   */
+  justConnected?: boolean;
   /**
    * Whether a highlighted card scrolls itself into view. When several cards are
    * highlighted at once (a batch import) only the first should scroll, so the
@@ -96,6 +103,16 @@ const SubtleButton = Button.withProps({
   size: "xs",
 });
 
+// Raise the card's ContentViewer Code block (the command/URL) to the "on-card"
+// surface — white in light mode — mirroring the Protocol/Network `inset` message
+// cards, so it reads as raised on the card instead of blending with it. Set as a
+// cascade var on the card root; the Code theme reads `--inspector-code-surface`.
+const CARD_STYLES = {
+  root: {
+    "--inspector-code-surface": "var(--inspector-surface-code-oncard)",
+  },
+} as const;
+
 const RemoveButton = Button.withProps({
   variant: "subtle",
   size: "xs",
@@ -146,6 +163,7 @@ export function ServerCard({
   dragHandle,
   highlighted = false,
   errored = false,
+  justConnected = false,
   scrollOnHighlight = true,
   onClearHighlight,
 }: ServerCardProps) {
@@ -173,9 +191,24 @@ export function ServerCard({
     if (!justErrored) return;
     const timer = setTimeout(() => {
       rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, FAILED_CARD_SCROLL_DELAY_MS);
+    }, CARD_SCROLL_DELAY_MS);
     return () => clearTimeout(timer);
   }, [errored]);
+
+  // Success mirror of the errored scroll (#1682): on the →connected transition,
+  // scroll the just-connected card into view, deferred past the monitoring
+  // sidebar's open (same shared delay) so the grid reflow settles first. Edge-
+  // guarded so a re-render while still connected doesn't re-scroll.
+  const wasConnectedRef = useRef(justConnected);
+  useEffect(() => {
+    const justBecameConnected = justConnected && !wasConnectedRef.current;
+    wasConnectedRef.current = justConnected;
+    if (!justBecameConnected) return;
+    const timer = setTimeout(() => {
+      rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, CARD_SCROLL_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [justConnected]);
   const transport = getTransport(config);
   const commandOrUrl = getCommandOrUrl(config);
   const version = info?.version;
@@ -184,12 +217,12 @@ export function ServerCard({
 
   // A dimmed card (another server is active) is inert, so the disabled variant
   // wins; otherwise a failed-connection card draws the red error border, then a
-  // freshly-added card draws the highlighted green border.
+  // freshly-added or just-connected card draws the highlighted green border.
   const variant = isDimmed
     ? "disabled"
     : errored
       ? "errored"
-      : highlighted
+      : highlighted || justConnected
         ? "highlighted"
         : undefined;
 
@@ -197,6 +230,7 @@ export function ServerCard({
     <Card
       ref={rootRef}
       variant={variant}
+      styles={CARD_STYLES}
       onClick={highlighted ? onClearHighlight : undefined}
       {...(isDimmed ? { "aria-disabled": true, inert: true } : {})}
     >
@@ -210,6 +244,11 @@ export function ServerCard({
             <ServerStatusIndicator
               status={connection.status}
               retryCount={connection.retryCount}
+              failed={errored}
+              // The card has its own width and isn't subject to the header's
+              // tab-row crowding, so always show the status label rather than
+              // inheriting the header-motivated viewport breakpoint.
+              showLabel
             />
             <ConnectionToggle
               status={connection.status}

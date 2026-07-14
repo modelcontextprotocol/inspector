@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type {
   InitializeResult,
@@ -20,18 +20,16 @@ import {
 } from "../../../test/renderWithMantine";
 import { InspectorView, type InspectorViewProps } from "./InspectorView";
 
-// The monitoring sidebar (#1616) is gated on a 1040px viewport media query.
-// happy-dom's viewport is 1024px, so that query is really false; make just that
-// gate controllable per test. ViewHeader's own 992/768 queries stay "wide" (as
-// they are in the real 1024px happy-dom viewport), so header rendering — and
-// every existing test below — is unaffected.
-const monitorWide = vi.hoisted(() => ({ value: false }));
+// happy-dom's viewport is 1024px, narrower than the app's 1280px floor, so any
+// viewport media query would read "narrow". Force every `useMediaQuery` "wide"
+// so the connected header renders its full form (the only surviving query is
+// ServerStatusIndicator's 1500px status-text gate — the monitoring sidebar's old
+// 1040px gate was removed when the app gained its 1280px floor).
 vi.mock("@mantine/hooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@mantine/hooks")>();
   return {
     ...actual,
-    useMediaQuery: (query: string): boolean =>
-      query === "(min-width: 1040px)" ? monitorWide.value : true,
+    useMediaQuery: (): boolean => true,
   };
 });
 import type { BridgeFactory } from "../../elements/AppRenderer/AppRenderer";
@@ -245,6 +243,16 @@ describe("InspectorView", () => {
       <StatefulInspectorViewHost {...makeProps({ servers: [sampleServer] })} />,
     );
     expect(screen.getByText("Alpha")).toBeInTheDocument();
+  });
+
+  it("renders the footer row with the version and copyright (#1682)", () => {
+    renderWithMantine(
+      <StatefulInspectorViewHost {...makeProps({ version: "9.9.9" })} />,
+    );
+    expect(screen.getByText("v9.9.9")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Model Context Protocol.*Series of LF Projects, LLC\./),
+    ).toBeInTheDocument();
   });
 
   it("dispatches onToggleConnection with the server id when the card toggle is clicked", async () => {
@@ -1441,11 +1449,6 @@ describe("InspectorView", () => {
     };
     const httpInit = initWithCapabilities(allCapabilities);
 
-    beforeEach(() => {
-      // Default narrow so a test only pins when it opts in.
-      monitorWide.value = false;
-    });
-
     function connectedHttp(overrides: Partial<InspectorViewProps> = {}) {
       return makeProps({
         servers: [httpServer],
@@ -1464,17 +1467,7 @@ describe("InspectorView", () => {
       return user;
     }
 
-    it("shows the header monitoring toggle only when wide", async () => {
-      monitorWide.value = false;
-      const { unmount } = renderWithMantine(
-        <StatefulInspectorViewHost {...connectedHttp()} />,
-      );
-      expect(
-        screen.queryByRole("button", { name: "Open monitoring sidebar" }),
-      ).not.toBeInTheDocument();
-      unmount();
-
-      monitorWide.value = true;
+    it("shows the header monitoring toggle when connected with monitor tabs", async () => {
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       expect(
         await screen.findByRole("button", { name: "Open monitoring sidebar" }),
@@ -1483,7 +1476,6 @@ describe("InspectorView", () => {
 
     it("hides the header monitoring toggle when there is no connected or failed server", () => {
       // Disconnected, wide viewport: nothing to monitor, so no toggle appears.
-      monitorWide.value = true;
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
@@ -1502,7 +1494,6 @@ describe("InspectorView", () => {
     });
 
     it("opens the monitoring sidebar when a connection is established", async () => {
-      monitorWide.value = true;
       const { rerender } = renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
@@ -1527,7 +1518,6 @@ describe("InspectorView", () => {
     it("does not auto-open on a mount that starts already connected", () => {
       // No disconnected → connected transition, and no stored preference, so the
       // column stays closed (a user who closed it isn't fought on remount).
-      monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       expect(
         screen.queryByRole("button", { name: "Close monitoring sidebar" }),
@@ -1550,7 +1540,6 @@ describe("InspectorView", () => {
     }
 
     it("opens the monitoring sidebar on a failed connection attempt (#1621)", async () => {
-      monitorWide.value = true;
       const { rerender } = renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
@@ -1600,7 +1589,6 @@ describe("InspectorView", () => {
     });
 
     it("surfaces Console (stderr), not Network, in the failure column for a stdio server (#1621)", async () => {
-      monitorWide.value = true;
       const stdioErr: ServerEntry = {
         id: "beta",
         name: "Beta",
@@ -1647,7 +1635,6 @@ describe("InspectorView", () => {
       // was Protocol must still land on the Console diagnostic, not the (empty)
       // Protocol — Protocol is content-gated out of the failure column.
       window.localStorage.setItem("inspector.monitor.tab", "Protocol");
-      monitorWide.value = true;
       const stdioErr: ServerEntry = {
         id: "beta",
         name: "Beta",
@@ -1684,7 +1671,6 @@ describe("InspectorView", () => {
       // A connect failure with nothing captured yet (no stderr, no fetch, and
       // Protocol cleared on the error transition) opens onto nothing — so the
       // column stays closed rather than showing an empty pane.
-      monitorWide.value = true;
       const { rerender } = renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
@@ -1707,7 +1693,6 @@ describe("InspectorView", () => {
     it("offers Protocol in the failure column when it has captured content (#1621)", async () => {
       // The failure Protocol tab is content-gated, so when the message log *does*
       // hold entries it's offered alongside the diagnostic (Network here).
-      monitorWide.value = true;
       const { rerender } = renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
@@ -1753,7 +1738,6 @@ describe("InspectorView", () => {
     it("does not auto-open on a mount that starts already errored (#1621)", () => {
       // No transition into error, and no stored preference, so the column stays
       // closed — a user who closed it isn't fought on remount.
-      monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...failedHttp()} />);
       expect(
         screen.queryByRole("button", { name: "Close monitoring sidebar" }),
@@ -1766,7 +1750,6 @@ describe("InspectorView", () => {
       // attempts). That must NOT reorganize the column into the failure tab set
       // — it closes like any session teardown, so a user who closed the column
       // mid-session isn't reopened onto diagnostics.
-      monitorWide.value = true;
       window.localStorage.setItem("inspector.monitor.pinned", "true");
       const { rerender } = renderWithMantine(
         <StatefulInspectorViewHost {...connectedHttp()} />,
@@ -1803,7 +1786,6 @@ describe("InspectorView", () => {
     };
 
     it("offers Console (not Network) as a monitor tab for a connected stdio server (#1621)", async () => {
-      monitorWide.value = true;
       window.localStorage.setItem("inspector.monitor.pinned", "true");
       renderWithMantine(
         <StatefulInspectorViewHost
@@ -1831,7 +1813,6 @@ describe("InspectorView", () => {
       // Column not pinned, so the monitor group (incl. Console) lives in the
       // header menu — the user can reach the stderr stream during a live
       // session, not only on failure.
-      monitorWide.value = true;
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
@@ -1853,7 +1834,6 @@ describe("InspectorView", () => {
     });
 
     it("pins the monitor group into the column and removes it from the header", async () => {
-      monitorWide.value = true;
       const user = userEvent.setup();
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       await user.click(
@@ -1892,7 +1872,6 @@ describe("InspectorView", () => {
     });
 
     it("returns the monitor group to the header when the column is closed", async () => {
-      monitorWide.value = true;
       const user = userEvent.setup();
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       await user.click(
@@ -1915,7 +1894,6 @@ describe("InspectorView", () => {
     });
 
     it("keeps the current header screen (not the column's) when closed", async () => {
-      monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       // Navigate the primary onto a monitor tab (Logs) first, then open the
       // column — which moves the monitor group out of the header, so the primary
@@ -1951,25 +1929,9 @@ describe("InspectorView", () => {
       ).toBeInTheDocument();
     });
 
-    it("persists the pin preference and reopens the column when wide", () => {
-      // Stored preference from a prior wide session.
+    it("reopens the column from the stored pin preference", () => {
+      // A stored preference from a prior session reopens the column on load.
       window.localStorage.setItem("inspector.monitor.pinned", "true");
-
-      // Narrow: the column stays closed and the group is in the header.
-      monitorWide.value = false;
-      const { unmount } = renderWithMantine(
-        <StatefulInspectorViewHost {...connectedHttp()} />,
-      );
-      expect(
-        screen.queryByRole("button", { name: "Close monitoring sidebar" }),
-      ).toBeNull();
-      expect(
-        within(screen.getByRole("banner")).getByRole("radio", { name: "Logs" }),
-      ).toBeInTheDocument();
-      unmount();
-
-      // Wide: the preserved preference reopens the column without re-pinning.
-      monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       expect(
         screen.getByRole("button", { name: "Close monitoring sidebar" }),
@@ -1978,7 +1940,6 @@ describe("InspectorView", () => {
 
     it("keeps the column closed when the stored preference is explicitly false", () => {
       window.localStorage.setItem("inspector.monitor.pinned", "false");
-      monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       expect(
         screen.queryByRole("button", { name: "Close monitoring sidebar" }),
@@ -1987,7 +1948,6 @@ describe("InspectorView", () => {
 
     it("hides the column on disconnect but keeps the pin preference", async () => {
       window.localStorage.setItem("inspector.monitor.pinned", "true");
-      monitorWide.value = true;
       const { rerender } = renderWithMantine(
         <StatefulInspectorViewHost {...connectedHttp()} />,
       );
@@ -2018,7 +1978,6 @@ describe("InspectorView", () => {
 
     it("drops Network from the column tabs for a stdio server", () => {
       window.localStorage.setItem("inspector.monitor.pinned", "true");
-      monitorWide.value = true;
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
@@ -2041,7 +2000,6 @@ describe("InspectorView", () => {
       // Stored tab is Network, but a stdio + logging-only server can't offer it.
       window.localStorage.setItem("inspector.monitor.pinned", "true");
       window.localStorage.setItem("inspector.monitor.tab", "Network");
-      monitorWide.value = true;
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
@@ -2061,7 +2019,6 @@ describe("InspectorView", () => {
       // stdio + logging only ⇒ availableTabs = [Servers, Logs, Protocol]; pinning
       // moves both monitor tabs out, leaving [Servers] as the only header tab.
       window.localStorage.setItem("inspector.monitor.pinned", "true");
-      monitorWide.value = true;
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
@@ -2085,7 +2042,6 @@ describe("InspectorView", () => {
 
     it("persists the selected column tab", async () => {
       window.localStorage.setItem("inspector.monitor.pinned", "true");
-      monitorWide.value = true;
       const user = userEvent.setup();
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       await user.click(await screen.findByRole("radio", { name: "Protocol" }));
@@ -2098,7 +2054,6 @@ describe("InspectorView", () => {
 
     it("keeps the column search across tabs and filters each screen", async () => {
       window.localStorage.setItem("inspector.monitor.pinned", "true");
-      monitorWide.value = true;
       const user = userEvent.setup();
       renderWithMantine(
         <StatefulInspectorViewHost
@@ -2139,7 +2094,6 @@ describe("InspectorView", () => {
     it("resizes and persists the column width from the keyboard", async () => {
       window.localStorage.setItem("inspector.monitor.pinned", "true");
       window.localStorage.setItem("inspector.monitor.width", "420");
-      monitorWide.value = true;
       renderWithMantine(<StatefulInspectorViewHost {...connectedHttp()} />);
       const handle = await screen.findByRole("separator", {
         name: "Resize monitoring sidebar",

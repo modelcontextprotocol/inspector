@@ -70,6 +70,19 @@ describe("ViewHeader", () => {
       ).toBeInTheDocument();
     });
 
+    it("shows an 'MCP Documentation' tooltip on the logo link (#1682)", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ViewHeader
+          connected={false}
+          onToggleTheme={vi.fn()}
+          onOpenClientSettings={vi.fn()}
+        />,
+      );
+      await user.hover(screen.getByRole("link"));
+      expect(await screen.findByText("MCP Documentation")).toBeInTheDocument();
+    });
+
     it("invokes onOpenClientSettings when the client settings button is clicked", async () => {
       const user = userEvent.setup();
       const onOpenClientSettings = vi.fn();
@@ -179,10 +192,10 @@ describe("ViewHeader", () => {
       renderWithMantine(
         <ViewHeader {...connectedProps} onDisconnect={onDisconnect} />,
       );
-      // Either label-button "Disconnect" (wide) or icon-only with aria-label
-      const disconnectButton =
-        screen.queryByRole("button", { name: "Disconnect" }) ??
-        screen.getByRole("button", { name: /disconnect/i });
+      // Disconnect is always the icon, labelled by its aria-label / tooltip.
+      const disconnectButton = screen.getByRole("button", {
+        name: "Disconnect from server",
+      });
       await user.click(disconnectButton);
       expect(onDisconnect).toHaveBeenCalledTimes(1);
     });
@@ -193,7 +206,7 @@ describe("ViewHeader", () => {
       expect(screen.getAllByText("Prompts").length).toBeGreaterThan(0);
     });
 
-    it("renders the SegmentedControl and label disconnect button on wide viewports", async () => {
+    it("renders the SegmentedControl and the disconnect icon on wide viewports", async () => {
       mediaQueryMock.value = true;
       const user = userEvent.setup();
       const onTabChange = vi.fn();
@@ -205,8 +218,10 @@ describe("ViewHeader", () => {
           onDisconnect={onDisconnect}
         />,
       );
-      // Disconnect renders as a labelled button on wide viewport.
-      const disconnectBtn = screen.getByRole("button", { name: "Disconnect" });
+      // Disconnect is always the icon (labelled by its tooltip / aria-label).
+      const disconnectBtn = screen.getByRole("button", {
+        name: "Disconnect from server",
+      });
       await user.click(disconnectBtn);
       expect(onDisconnect).toHaveBeenCalledTimes(1);
 
@@ -307,7 +322,7 @@ describe("ViewHeader", () => {
       ).toBe("in");
       expect(
         screen
-          .getByRole("button", { name: "Disconnect" })
+          .getByRole("button", { name: "Disconnect from server" })
           .closest("[data-anim]")
           ?.getAttribute("data-anim"),
       ).toBe("in");
@@ -328,7 +343,7 @@ describe("ViewHeader", () => {
       ).toBe("out");
       expect(
         screen
-          .getByRole("button", { name: "Disconnect" })
+          .getByRole("button", { name: "Disconnect from server" })
           .closest("[data-anim]")
           ?.getAttribute("data-anim"),
       ).toBe("out");
@@ -337,7 +352,7 @@ describe("ViewHeader", () => {
         expect(screen.queryByText("my-mcp-server")).not.toBeInTheDocument(),
       );
       expect(
-        screen.queryByRole("button", { name: "Disconnect" }),
+        screen.queryByRole("button", { name: "Disconnect from server" }),
       ).not.toBeInTheDocument();
     });
 
@@ -415,20 +430,14 @@ describe("ViewHeader", () => {
       }
     });
 
-    it("invokes onTabChange when a different tab is picked from the Select", async () => {
+    it("invokes onTabChange when a different tab is picked", async () => {
       const user = userEvent.setup();
       const onTabChange = vi.fn();
       renderWithMantine(
         <ViewHeader {...connectedProps} onTabChange={onTabChange} />,
       );
-      // On narrow viewport (default mediaQuery=false), tabs use a Select.
-      const select = screen.getByRole("textbox");
-      await user.click(select);
-      const option = await screen.findByRole("option", {
-        name: "Resources",
-        hidden: true,
-      });
-      await user.click(option);
+      // Tabs always render as a SegmentedControl (radios); pick another one.
+      await user.click(screen.getByRole("radio", { name: "Resources" }));
       expect(onTabChange).toHaveBeenCalledWith("Resources");
     });
   });

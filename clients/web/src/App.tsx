@@ -101,8 +101,6 @@ import { useServerListWritable } from "@inspector/core/react/useServerListWritab
 import { useInspectorVersion } from "@inspector/core/react/useInspectorVersion.js";
 import { usePendingClientRequests } from "@inspector/core/react/usePendingClientRequests.js";
 import { InspectorView } from "./components/views/InspectorView/InspectorView";
-import { VersionBadge } from "./components/elements/VersionBadge/VersionBadge";
-import { CopyrightBadge } from "./components/elements/CopyrightBadge/CopyrightBadge";
 import type {
   ToolCallState,
   ToolsUiState,
@@ -654,6 +652,14 @@ function App() {
     undefined,
   );
 
+  // Id of the server that just connected successfully (#1682) — the success
+  // mirror of `failedServerId`. Drives the green highlight + scroll-into-view on
+  // that ServerCard. Set on the →connected transition, cleared when a new
+  // connection attempt starts or the session disconnects.
+  const [connectedServerId, setConnectedServerId] = useState<
+    string | undefined
+  >(undefined);
+
   // InspectorClient + per-primitive state managers. All recreated together
   // whenever the user switches active servers, then destroyed when the
   // next switch happens (or when the component unmounts).
@@ -992,6 +998,18 @@ function App() {
       setLatencyMs(undefined);
     }
   }, [connectionStatus]);
+
+  // Track the just-connected server so its card gets the green highlight +
+  // scroll-into-view (#1682). Unlike `failedServerId` (which must survive the
+  // `disconnect` event a failed connect fires), "connected" is a stable status,
+  // so a status-driven effect can both set and clear it: set on connect, clear
+  // whenever the session isn't connected (disconnect, a new attempt's
+  // "connecting", or an error).
+  useEffect(() => {
+    setConnectedServerId(
+      connectionStatus === "connected" ? activeServerId : undefined,
+    );
+  }, [connectionStatus, activeServerId]);
 
   // Disconnect the previous InspectorClient when it's replaced (server
   // switch) or when App unmounts (HMR, tests). Without this the prior
@@ -3821,6 +3839,8 @@ function App() {
           serverListWritable={serverListWritable}
           activeServer={activeServerId}
           erroredServerId={failedServerId}
+          connectedServerId={connectedServerId}
+          version={inspectorVersion}
           connectionStatus={connectionStatus}
           connectErrorMessage={connectErrorMessage}
           initializeResult={initializeResult}
@@ -3965,8 +3985,6 @@ function App() {
           onRefreshApps={onRefreshTools}
         />
       </Box>
-      <CopyrightBadge />
-      <VersionBadge version={inspectorVersion} />
       <ServerConfigModal
         opened={configModal !== null}
         mode={configModal?.mode ?? "add"}

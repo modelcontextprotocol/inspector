@@ -131,6 +131,22 @@ describe("ProtocolEntry", () => {
     expect(screen.getByText("resources/read")).toBeInTheDocument();
   });
 
+  it("adds a Copy button beside a resource URI target, but not a tool name", () => {
+    const { rerender } = renderWithMantine(
+      <ProtocolEntry {...baseProps} entry={successEntry} />,
+    );
+    const withoutResource = screen.queryAllByRole("button", {
+      name: "Copy",
+    }).length;
+    rerender(<ProtocolEntry {...baseProps} entry={resourceReadEntry} />);
+    // The resource entry has exactly one more Copy button — the one beside its
+    // URI target (both entries otherwise carry the same expanded ContentViewer
+    // copy affordances).
+    expect(screen.queryAllByRole("button", { name: "Copy" }).length).toBe(
+      withoutResource + 1,
+    );
+  });
+
   it("renders Error status when response has error", () => {
     renderWithMantine(<ProtocolEntry {...baseProps} entry={errorEntry} />);
     expect(screen.getByText("Error")).toBeInTheDocument();

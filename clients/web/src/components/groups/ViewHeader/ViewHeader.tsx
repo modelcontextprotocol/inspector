@@ -3,11 +3,9 @@ import {
   ActionIcon,
   Anchor,
   Box,
-  Button,
   Group,
   Image,
   SegmentedControl,
-  Select,
   Text,
   Title,
   Tooltip,
@@ -15,9 +13,9 @@ import {
   useComputedColorScheme,
   type MantineTransition,
 } from "@mantine/core";
-import { useMediaQuery } from "@mantine/hooks";
 import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
-import { MdLightMode, MdDarkMode, MdLinkOff, MdSettings } from "react-icons/md";
+import { MdLightMode, MdDarkMode, MdSettings } from "react-icons/md";
+import { VscDebugDisconnect } from "react-icons/vsc";
 import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
 import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/ServerStatusIndicator";
 import {
@@ -62,8 +60,6 @@ export type ViewHeaderProps = ConnectedProps | UnconnectedProps;
 // duration. The motion itself is CSS (`.header-anim`); keep the 300ms /
 // 150ms-stagger there in sync with this value.
 const HEADER_ANIM_MS = 300;
-// Fixed Select width on narrow viewports (fits the longest tab label).
-const SELECT_WIDTH = 140;
 // Grace window after a connection is established before the new-tab glow arms
 // (#1450). Primitive lists (prompts/resources/tasks) are fetched asynchronously
 // just after the handshake, so their tabs appear a few renders into the
@@ -181,20 +177,10 @@ const RightConnectedGroup = Group.withProps({
   wrap: "nowrap",
 });
 
-const DisconnectButton = Button.withProps({
-  variant: "subtle",
-  // `color` drives the subtle hover/active tint; `c` overrides just the label
-  // to the AA-compliant danger red (red.6 text alone fell under contrast).
-  color: "red.6",
-  size: "sm",
-  c: "var(--inspector-danger-text)",
-});
-
 const DisconnectIcon = ActionIcon.withProps({
   variant: "subtle",
-  c: "red",
   size: 36,
-  "aria-label": "Disconnect",
+  "aria-label": "Disconnect from server",
 });
 
 const ClientSettingsToggle = ActionIcon.withProps({
@@ -249,8 +235,6 @@ export function ViewHeader(props: ViewHeaderProps) {
   }
   const monitorToggleForRender = props.monitorToggle ?? lastMonitorToggle;
   const ThemeIcon = colorScheme === "dark" ? MdLightMode : MdDarkMode;
-  const showSegmented = useMediaQuery("(min-width: 992px)");
-  const showDisconnectLabel = useMediaQuery("(min-width: 768px)");
 
   // Retain the latest connected display data so each region can keep rendering
   // it while animating out after disconnect (#1450). Uses React's "adjust state
@@ -318,9 +302,11 @@ export function ViewHeader(props: ViewHeaderProps) {
   return (
     <HeaderBar>
       <LeftSection>
-        <LogoLink>
-          <LogoImage src={logoSrc} />
-        </LogoLink>
+        <Tooltip label="MCP Documentation">
+          <LogoLink>
+            <LogoImage src={logoSrc} />
+          </LogoLink>
+        </Tooltip>
         <Transition
           mounted={props.connected}
           transition="fade"
@@ -364,26 +350,12 @@ export function ViewHeader(props: ViewHeaderProps) {
                 className="header-anim header-stack-cell"
                 data-anim={connectedAnim}
               >
-                {showSegmented ? (
-                  <SegmentedControl
-                    value={headerData.activeTab}
-                    onChange={handleTabChange}
-                    data={toGlowingTabData(headerData.availableTabs, glowing)}
-                    size="sm"
-                  />
-                ) : (
-                  // Narrow viewport: the new-tab glow doesn't apply to the
-                  // dropdown (a collapsed Select can't pulse a single option),
-                  // so the labels stay plain strings here.
-                  <Select
-                    value={headerData.activeTab}
-                    onChange={(value) => value && handleTabChange?.(value)}
-                    data={headerData.availableTabs}
-                    size="sm"
-                    allowDeselect={false}
-                    w={SELECT_WIDTH}
-                  />
-                )}
+                <SegmentedControl
+                  value={headerData.activeTab}
+                  onChange={handleTabChange}
+                  data={toGlowingTabData(headerData.availableTabs, glowing)}
+                  size="sm"
+                />
               </Box>
             ) : (
               // Unreachable in practice — the Transition only mounts while
@@ -425,15 +397,11 @@ export function ViewHeader(props: ViewHeaderProps) {
                   status={headerData.status}
                   latencyMs={headerData.latencyMs}
                 />
-                {showDisconnectLabel ? (
-                  <DisconnectButton onClick={handleDisconnect}>
-                    Disconnect
-                  </DisconnectButton>
-                ) : (
-                  <DisconnectIcon onClick={handleDisconnect} title="Disconnect">
-                    <MdLinkOff size={20} />
+                <Tooltip label="Disconnect from server">
+                  <DisconnectIcon onClick={handleDisconnect}>
+                    <VscDebugDisconnect size={20} />
                   </DisconnectIcon>
-                )}
+                </Tooltip>
               </RightConnectedGroup>
             ) : (
               /* v8 ignore next -- unreachable: this Transition only mounts

@@ -28,6 +28,17 @@ export const Disconnected: Story = {
   },
 };
 
+// A failed connection settles the status back to "disconnected", but the
+// `failed` flag surfaces it as a red "Failed" instead of the grey
+// "Disconnected" (#1682).
+export const Failed: Story = {
+  args: {
+    status: "disconnected",
+    failed: true,
+    showLabel: true,
+  },
+};
+
 export const Error: Story = {
   args: {
     status: "error",

@@ -43,6 +43,13 @@ describe("ServerListScreen", () => {
     expect(screen.getByText("Beta")).toBeInTheDocument();
   });
 
+  it("renders the 'Servers' box heading", () => {
+    renderWithMantine(<ServerListScreen {...baseProps} />);
+    expect(
+      screen.getByRole("heading", { name: "Servers" }),
+    ).toBeInTheDocument();
+  });
+
   it("renders the empty state with no servers", () => {
     renderWithMantine(<ServerListScreen {...baseProps} servers={[]} />);
     expect(
@@ -153,6 +160,32 @@ describe("ServerListScreen", () => {
       );
       expect(
         container.querySelectorAll('[data-variant="errored"]'),
+      ).toHaveLength(0);
+    });
+  });
+
+  describe("just-connected highlight (#1682)", () => {
+    it("draws the green highlight border on the just-connected server's card", () => {
+      const { container } = renderWithMantine(
+        <ServerListScreen
+          {...baseProps}
+          activeServer="beta"
+          connectedServerId="beta"
+        />,
+      );
+      const highlighted = container.querySelectorAll(
+        '[data-variant="highlighted"]',
+      );
+      expect(highlighted).toHaveLength(1);
+      expect(highlighted[0]).toHaveTextContent("Beta");
+    });
+
+    it("draws no highlight border when connectedServerId is unset", () => {
+      const { container } = renderWithMantine(
+        <ServerListScreen {...baseProps} activeServer="beta" />,
+      );
+      expect(
+        container.querySelectorAll('[data-variant="highlighted"]'),
       ).toHaveLength(0);
     });
   });

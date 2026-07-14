@@ -471,4 +471,107 @@ describe("ServerCard", () => {
       }
     });
   });
+
+  describe("just-connected highlight (#1682)", () => {
+    it("draws the green highlight-variant border when justConnected", () => {
+      const { container } = renderWithMantine(
+        <ServerCard {...baseProps} connection={connected} justConnected />,
+      );
+      expect(
+        container.querySelector('[data-variant="highlighted"]'),
+      ).not.toBeNull();
+    });
+
+    it("does not draw the highlight border when not justConnected", () => {
+      const { container } = renderWithMantine(
+        <ServerCard {...baseProps} connection={connected} />,
+      );
+      expect(
+        container.querySelector('[data-variant="highlighted"]'),
+      ).toBeNull();
+    });
+
+    it("prefers the dimmed (disabled) variant over the just-connected highlight", () => {
+      const { container } = renderWithMantine(
+        <ServerCard
+          {...baseProps}
+          connection={connected}
+          activeServer="other"
+          justConnected
+        />,
+      );
+      expect(
+        container.querySelector('[data-variant="disabled"]'),
+      ).not.toBeNull();
+    });
+
+    it("does not clear on click when justConnected (unlike the freshly-added highlight)", async () => {
+      const user = userEvent.setup();
+      const onClearHighlight = vi.fn();
+      renderWithMantine(
+        <ServerCard
+          {...baseProps}
+          connection={connected}
+          justConnected
+          onClearHighlight={onClearHighlight}
+        />,
+      );
+      await user.click(screen.getByText("My MCP Server"));
+      expect(onClearHighlight).not.toHaveBeenCalled();
+    });
+
+    it("scrolls the card into view on the just-connected transition, deferred past the sidebar", () => {
+      vi.useFakeTimers();
+      const scrollIntoView = vi.fn();
+      const orig = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoView;
+      try {
+        const { rerender } = renderWithMantine(
+          <ServerCard {...baseProps} connection={connecting} />,
+        );
+        vi.advanceTimersByTime(1000);
+        expect(scrollIntoView).not.toHaveBeenCalled();
+
+        // Becoming connected schedules a deferred scroll (past the column open).
+        rerender(
+          <ServerCard {...baseProps} connection={connected} justConnected />,
+        );
+        expect(scrollIntoView).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(320);
+        expect(scrollIntoView).toHaveBeenCalledTimes(1);
+
+        // A further re-render while still connected does not scroll again.
+        rerender(
+          <ServerCard
+            {...baseProps}
+            name="Renamed"
+            connection={connected}
+            justConnected
+          />,
+        );
+        vi.advanceTimersByTime(1000);
+        expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      } finally {
+        Element.prototype.scrollIntoView = orig;
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not scroll when mounted already connected (no transition)", () => {
+      vi.useFakeTimers();
+      const scrollIntoView = vi.fn();
+      const orig = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoView;
+      try {
+        renderWithMantine(
+          <ServerCard {...baseProps} connection={connected} justConnected />,
+        );
+        vi.advanceTimersByTime(1000);
+        expect(scrollIntoView).not.toHaveBeenCalled();
+      } finally {
+        Element.prototype.scrollIntoView = orig;
+        vi.useRealTimers();
+      }
+    });
+  });
 });

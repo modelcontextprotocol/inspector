@@ -37,33 +37,20 @@ export const ThemeText = Text.extend({
         },
       };
     }
-    // Two small, unobtrusive labels pinned to the bottom corners of the screen
-    // on the same row (#1639): the build version (bottom-left) and the
-    // copyright notice (bottom-right). Each occupies the full-height `xl` bottom
-    // margin band (`height: xl` + flex centering) so the text sits vertically
-    // centered in it, and insets by `xl` horizontally to line up with the
-    // content's left/right margins. Both are grey, non-interactive (clicks pass
-    // through), and out of the tab/selection flow.
+    // Two small, unobtrusive labels that sit in the footer row (#1682): the
+    // build version (left) and the copyright notice (right), positioned by the
+    // footer's `space-between` Group. Both are grey, single-line, and out of the
+    // text-selection flow. (Superseded the fixed bottom-corner badges of #1639
+    // now that the footer is a real, full-width AppShell row.)
     if (
       props.variant === "versionBadge" ||
       props.variant === "copyrightBadge"
     ) {
-      const horizontal =
-        props.variant === "versionBadge"
-          ? { left: "var(--mantine-spacing-xl)" }
-          : { right: "var(--mantine-spacing-xl)" };
       return {
         root: {
-          position: "fixed",
-          bottom: 0,
-          height: "var(--mantine-spacing-xl)",
-          display: "flex",
-          alignItems: "center",
-          ...horizontal,
-          zIndex: 100,
           color: "var(--inspector-text-secondary)",
           fontSize: "var(--mantine-font-size-xs)",
-          pointerEvents: "none",
+          whiteSpace: "nowrap",
           userSelect: "none",
         },
       };

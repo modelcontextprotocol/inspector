@@ -15,7 +15,7 @@ import {
   Transition,
   type MantineTransition,
 } from "@mantine/core";
-import { useLocalStorage, useMediaQuery } from "@mantine/hooks";
+import { useLocalStorage } from "@mantine/hooks";
 import type {
   InitializeResult,
   LoggingLevel,
@@ -37,6 +37,8 @@ import type {
 import { isTerminalStatus } from "@inspector/core/mcp/types.js";
 import { isAppTool } from "@inspector/core/mcp/apps.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
+import { VersionBadge } from "../../elements/VersionBadge/VersionBadge";
+import { CopyrightBadge } from "../../elements/CopyrightBadge/CopyrightBadge";
 import { ServerListScreen } from "../../screens/ServerListScreen/ServerListScreen";
 import {
   ToolsScreen,
@@ -196,11 +198,6 @@ function isMonitorTab(tab: string): tab is MonitorTab {
   );
 }
 
-// The viewport width below which the split collapses to a single column: matches
-// the point where ServerListScreen drops to one card, so the primary area always
-// has room for at least one full-width card beside the column.
-const MONITOR_WIDE_QUERY = "(min-width: 1040px)";
-
 // Monitoring sidebar width bounds (px). MIN keeps the stream readable; MAX stops
 // the column from crowding out the primary area.
 const MONITOR_WIDTH_MIN = 320;
@@ -271,6 +268,22 @@ const SplitRow = Flex.withProps({
   gap: 0,
   h: "100%",
   w: "100%",
+});
+
+// Footer row (#1682): a full-width AppShell.Footer band, styled like the header
+// (Mantine gives AppShell.Footer the same `--mantine-color-body` background and
+// a matching top border by default). Because it's a real AppShell region it
+// reserves its own height (`--app-shell-footer-height`), so the primary screen
+// and the monitoring sidebar both stop above it instead of the old fixed badges
+// overlapping the sidebar. `32` keeps it the same height as the previous badge
+// band (`spacing.xl`). The version sits at the left, the copyright at the right.
+const FOOTER_HEIGHT = 32;
+const FooterRow = Group.withProps({
+  h: "100%",
+  px: "xl",
+  justify: "space-between",
+  align: "center",
+  wrap: "nowrap",
 });
 
 // The pinned monitoring sidebar. Fixed-basis (its width is driven live via the
@@ -344,6 +357,18 @@ export interface InspectorViewProps {
    * parent clears on the failure's `disconnect` event.
    */
   erroredServerId?: string;
+  /**
+   * Id of the server that just connected successfully (#1682). Its card draws
+   * the green highlight border and scrolls into view once the monitoring
+   * sidebar has opened — the success mirror of `erroredServerId`.
+   */
+  connectedServerId?: string;
+  /**
+   * The Inspector build version (root `package.json`), shown at the left of the
+   * footer row (#1682). Absent on a legacy backend that omits it — the version
+   * label then renders nothing.
+   */
+  version?: string;
   connectionStatus: ConnectionStatus;
   /**
    * Last connection-level error message (handshake failure, OAuth start
@@ -531,6 +556,8 @@ export function InspectorView({
   serverListWritable = true,
   activeServer,
   erroredServerId,
+  connectedServerId,
+  version,
   connectionStatus,
   connectErrorMessage,
   initializeResult,
@@ -687,13 +714,6 @@ export function InspectorView({
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const columnWidth = dragWidth ?? monitorWidth;
 
-  // The split only exists with enough horizontal room. `true` initial value so
-  // the first synchronous paint assumes wide (the common desktop case) rather
-  // than flashing the collapsed layout.
-  const isWide = useMediaQuery(MONITOR_WIDE_QUERY, true, {
-    getInitialValueInEffect: false,
-  });
-
   // Open the monitoring sidebar when a connection is established (#1616) OR when a
   // connect *attempt* fails (#1621). Gated on the *transition into* the target
   // status (via the ref) rather than the status itself, so it fires once on an
@@ -838,13 +858,13 @@ export function InspectorView({
     }
     return [];
   }, [connected, failed, availableTabs, stderrLogs, network, protocol]);
-  // The column can exist when: the viewport is wide enough, the session is
-  // connected OR a connect attempt failed, and at least one monitor tab is
-  // actually available. This is the same rule the server list used to gate its
-  // open-sidebar button on, and it now also gates the header MonitoringToggle
-  // (#1661) — the toggle is hidden entirely when the column can't exist.
+  // The column can exist when the session is connected OR a connect attempt
+  // failed, and at least one monitor tab is actually available. (The app floors
+  // at a 1280px min-width, so there's always room for the split — no viewport
+  // gate.) This also gates the header MonitoringToggle (#1661) — the toggle is
+  // hidden entirely when the column can't exist.
   const monitorColumnAvailable =
-    !!isWide && (connected || failed) && monitorAvailable.length > 0;
+    (connected || failed) && monitorAvailable.length > 0;
   const effectivePinned = monitorPinned && monitorColumnAvailable;
 
   // The header loses the monitor group while the column is open (its screens
@@ -1132,7 +1152,11 @@ export function InspectorView({
     // past the viewport and made the whole InspectorView scroll — the theme's
     // Main-slot height clamp + overflow:hidden keep that scroll on the inner
     // ScrollArea regions only.
-    <AppShell header={{ height: 60 }} padding={0}>
+    <AppShell
+      header={{ height: 60 }}
+      footer={{ height: FOOTER_HEIGHT }}
+      padding={0}
+    >
       <AppShell.Header
         data-testid="connection-status"
         data-status={connectionStatus}
@@ -1171,6 +1195,7 @@ export function InspectorView({
                 writable={serverListWritable}
                 activeServer={dimCardsAgainst}
                 erroredServerId={erroredServerId}
+                connectedServerId={connectedServerId}
                 onAddManually={onServerAdd}
                 onImportConfig={onServerImportConfig}
                 onImportServerJson={onServerImportJson}
@@ -1305,6 +1330,12 @@ export function InspectorView({
           </Transition>
         </SplitRow>
       </AppShell.Main>
+      <AppShell.Footer>
+        <FooterRow>
+          <VersionBadge version={version} />
+          <CopyrightBadge />
+        </FooterRow>
+      </AppShell.Footer>
     </AppShell>
   );
 }

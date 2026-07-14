@@ -33,7 +33,7 @@ export interface LogsUiState {
 
 const ScreenLayout = Flex.withProps({
   variant: "screen",
-  h: "calc(100dvh - var(--app-shell-header-height, 0px))",
+  h: "calc(100dvh - var(--app-shell-header-height, 0px) - var(--app-shell-footer-height, 0px))",
   gap: "md",
   p: "xl",
 });
@@ -82,7 +82,9 @@ export function LoggingScreen({
     // ScreenLayout's default full-screen height. Passing `h={undefined}` here
     // would clobber that default (withProps plain-spreads), collapsing an empty
     // screen to its controls' height — so only override `h` when embedded.
-    <ScreenLayout {...(embedded ? { h: "100%" } : {})}>
+    // Embedded also halves the top padding (`pt: md` vs the `xl` default) so the
+    // panel sits closer to the sidebar's tab/search controls above it.
+    <ScreenLayout {...(embedded ? { h: "100%", pt: "md" } : {})}>
       {embedded ? null : (
         <Sidebar>
           <SidebarCard>

@@ -15,11 +15,14 @@ export interface MonitoringControlsProps {
 // The controls row at the top of the pinned monitoring sidebar: a segmented tab
 // switcher on the left and a search box filling the rest. The column is closed
 // from the single header MonitoringToggle (#1661), so there is no close button
-// here.
+// here. `px: xl` matches the `xl` horizontal inset the embedded screen below
+// gives its panel (its `ScreenLayout` padding), so the tabs + search span the
+// same width as the content and line up with its left/right edges.
 const ControlsBar = Group.withProps({
   wrap: "nowrap",
   gap: "sm",
-  p: "sm",
+  px: "xl",
+  py: "sm",
 });
 
 // Search box, styled to match the `*Controls` search fields; `flex:1`/`miw:0`

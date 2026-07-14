@@ -25,7 +25,7 @@ export interface AppControlsProps {
 }
 
 const LIST_MAX_HEIGHT =
-  "calc(100vh - var(--app-shell-header-height, 0px) - var(--mantine-spacing-xl) * 2 - 220px)";
+  "calc(100vh - var(--app-shell-header-height, 0px) - var(--app-shell-footer-height, 0px) - var(--mantine-spacing-xl) * 2 - 220px)";
 
 const EmptyState = Text.withProps({
   c: "dimmed",

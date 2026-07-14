@@ -14,6 +14,7 @@ import {
 import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
 import { isLongLivedStreamResponse } from "@inspector/core/mcp/fetchTracking.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
 import { CategoryBadge } from "../../elements/CategoryBadge/CategoryBadge";
@@ -281,6 +282,7 @@ export function NetworkEntry({
               <ControlsCluster>{metaBadges}</ControlsCluster>
             </HeaderRow>
             <Group gap="xs" wrap="nowrap" justify="space-between">
+              <CopyButton value={entry.url} />
               <ScrollArea
                 scrollbarSize={6}
                 flex={1}
@@ -304,6 +306,7 @@ export function NetworkEntry({
                 </TimestampText>
                 <MethodBadge method={entry.method} />
                 <CategoryBadge category={entry.category} />
+                <CopyButton value={entry.url} />
                 <UrlText>{entry.url}</UrlText>
               </Group>
               <Group gap="sm" wrap="nowrap">

@@ -4,7 +4,7 @@ import { ScrollArea, Stack } from "@mantine/core";
 // Full-size, the monitor stream panels bound their scroll to the viewport
 // minus the header and the panel's own chrome.
 const FULLSIZE_MAH =
-  "calc(100vh - var(--app-shell-header-height, 0px) - 150px)";
+  "calc(100vh - var(--app-shell-header-height, 0px) - var(--app-shell-footer-height, 0px) - 150px)";
 
 export interface EmbeddableScrollAreaProps {
   /**

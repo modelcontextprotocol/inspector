@@ -39,6 +39,27 @@ describe("ServerStatusIndicator", () => {
     expect(screen.getByText("Error")).toBeInTheDocument();
   });
 
+  it("renders 'Failed' with the error color when failed, overriding the disconnected status (#1682)", () => {
+    const { container } = renderWithMantine(
+      <ServerStatusIndicator status="disconnected" failed showLabel />,
+    );
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.queryByText("Disconnected")).not.toBeInTheDocument();
+    // The dot uses the error color, not the disconnected grey.
+    const dot = container.querySelector(".mantine-Paper-root");
+    expect(dot?.getAttribute("style") ?? "").toContain(
+      "inspector-status-error",
+    );
+  });
+
+  it("does not show 'Failed' when the failed flag is unset (a deliberate disconnect)", () => {
+    renderWithMantine(
+      <ServerStatusIndicator status="disconnected" showLabel />,
+    );
+    expect(screen.getByText("Disconnected")).toBeInTheDocument();
+    expect(screen.queryByText("Failed")).not.toBeInTheDocument();
+  });
+
   it("hides label and uses title when showLabel is false", () => {
     renderWithMantine(
       <ServerStatusIndicator
