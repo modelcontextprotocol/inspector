@@ -98,6 +98,20 @@ const ResultStack = Stack.withProps({
   gap: "md",
 });
 
+// A non-link block that shares the card with a "Resource Links" box: capped at
+// half the available height and scrollable within, so a long text block can't
+// crowd the links box out of view (it keeps the remaining space). `Autosize`
+// sizes to content up to the cap, so a short block still takes only what it
+// needs. Without links, non-link blocks flow in the main scroll body instead.
+const NonLinkCap = ScrollArea.Autosize.withProps({
+  mah: "50%",
+  flex: "0 1 auto",
+  mih: 0,
+  type: "auto",
+  scrollbars: "y",
+  offsetScrollbars: true,
+});
+
 // Body column for results that contain a "Resource Links" box: it fills the
 // card so the box (which is `flex: 1` within it) can grow to the available
 // height and scroll internally, rather than capping at its content height.
@@ -190,21 +204,31 @@ export function ToolResultPanel({
   // scroll-within-card body so a short result doesn't reserve empty height.
   const hasLinks = resultHasResourceLinks(result);
 
-  const segmentNodes = segments.map((segment) =>
-    segment.kind === "links" ? (
-      <ResourceLinksGroup
-        key={`links-${segment.links[0].index}`}
-        links={segment.links}
-        onReadResource={onReadResource}
-      />
-    ) : (
+  const segmentNodes = segments.map((segment) => {
+    if (segment.kind === "links") {
+      return (
+        <ResourceLinksGroup
+          key={`links-${segment.links[0].index}`}
+          links={segment.links}
+          onReadResource={onReadResource}
+        />
+      );
+    }
+    const viewer = (
       <ContentViewer
         key={segment.index}
         block={segment.block}
         copyable={segment.block.type === "text"}
       />
-    ),
-  );
+    );
+    // Alongside a Resource Links box, cap the block at half the height (and let
+    // it scroll); on its own it flows in the outer scroll body uncapped.
+    return hasLinks ? (
+      <NonLinkCap key={segment.index}>{viewer}</NonLinkCap>
+    ) : (
+      viewer
+    );
+  });
 
   return (
     <PanelStack>

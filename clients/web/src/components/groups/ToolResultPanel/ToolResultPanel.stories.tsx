@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Card, Flex } from "@mantine/core";
 import { fn } from "storybook/test";
@@ -88,6 +88,34 @@ const resourceLinksResult: CallToolResult = {
   ],
 };
 
+// A long text block preceding the links, so the 50%-height cap on the text is
+// exercised: the text scrolls within (at most) half the card and the Resource
+// Links box keeps the rest.
+const resourceLinksWithLongTextResult: CallToolResult = {
+  content: [
+    {
+      type: "text",
+      text: "Here are 3 resource links to resources available in this server. "
+        .repeat(60)
+        .trim(),
+    },
+    ...resourceLinksResult.content.filter((b) => b.type === "resource_link"),
+  ],
+};
+
+// Mirrors the Tools screen's full-height result card (ContentPane height →
+// ContentCard `flex: 1`) so the box fills the available space and scrolls
+// within, as it does in the app.
+const fillHeightDecorators: Decorator[] = [
+  (Story) => (
+    <Flex h={520} direction="column" align="stretch">
+      <Card withBorder padding="lg" variant="preview" flex={1}>
+        <Story />
+      </Card>
+    </Flex>
+  ),
+];
+
 export const Empty: Story = {
   args: {
     result: emptyResult,
@@ -130,15 +158,19 @@ export const ResourceLinks: Story = {
       contents: [{ uri, mimeType: "text/plain", text: `Contents of ${uri}` }],
     }),
   },
-  decorators: [
-    (Story) => (
-      <Flex h={520} direction="column" align="stretch">
-        <Card withBorder padding="lg" variant="preview" flex={1}>
-          <Story />
-        </Card>
-      </Flex>
-    ),
-  ],
+  decorators: fillHeightDecorators,
+};
+
+// A long text block above the links is capped at half the card height and
+// scrolls within, so it can't push the Resource Links box out of view.
+export const ResourceLinksWithLongText: Story = {
+  args: {
+    result: resourceLinksWithLongTextResult,
+    onReadResource: async (uri: string) => ({
+      contents: [{ uri, mimeType: "text/plain", text: `Contents of ${uri}` }],
+    }),
+  },
+  decorators: fillHeightDecorators,
 };
 
 export const ErrorResult: Story = {
