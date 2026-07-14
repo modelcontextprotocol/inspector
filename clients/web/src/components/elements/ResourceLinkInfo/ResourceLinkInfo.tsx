@@ -10,9 +10,10 @@ export interface ResourceLinkInfoProps {
   /** Optional MIME type shown as a badge. */
   mimeType?: string;
   /**
-   * Optional trailing element placed at the end of the header row (beside the
-   * MIME badge) — e.g. an expand/collapse control supplied by an interactive
-   * wrapper.
+   * Optional trailing element placed at the end of the URI row (opposite the
+   * copy button) — e.g. an expand/collapse control supplied by an interactive
+   * wrapper. Mirrors ProtocolEntry, whose toggle sits on the row below the
+   * badges.
    */
   action?: ReactNode;
 }
@@ -21,42 +22,58 @@ const HeaderStack = Stack.withProps({
   gap: 4,
 });
 
-// Name + meta (MIME badge, action). `justify` is set per-instance: spread when
-// a name is present, otherwise the meta hugs the right.
+// Name (left) + MIME badge (right). `justify` is set per-instance: spread when
+// a name is present, otherwise the badge hugs the right.
 const HeaderRow = Group.withProps({
-  wrap: "nowrap",
-  gap: "xs",
-  align: "flex-start",
-});
-
-// Copy control + the URI, on the line below the name.
-const UriRow = Group.withProps({
   wrap: "nowrap",
   gap: "xs",
   align: "center",
 });
 
+// Copy control + URI (left) and the optional expand/collapse control (right),
+// on the line below the header — mirroring ProtocolEntry's controls row.
+const UriRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+  gap: "xs",
+  align: "center",
+});
+
+// Copy button + URI cluster; flexes so the URI fills and the action stays right.
+const UriCluster = Group.withProps({
+  wrap: "nowrap",
+  gap: "xs",
+  align: "center",
+  flex: 1,
+  miw: 0,
+});
+
+// Match how ProtocolEntry/NetworkEntry render a URL: `sm` / `fw: 500`, in the
+// default sans-serif face and text color (not a blue monospace "link"). The
+// `monoBreak` variant only adds `word-break: break-all` so a long URI wraps
+// within the card instead of overflowing.
 const UriText = Text.withProps({
   size: "sm",
-  c: "blue",
-  ff: "monospace",
+  fw: 500,
   variant: "monoBreak",
   flex: 1,
   miw: 0,
 });
 
-const MetaGroup = Group.withProps({
-  gap: "xs",
-  wrap: "nowrap",
-});
-
 const MimeBadge = Badge.withProps({
-  size: "sm",
-  variant: "light",
-  color: "blue",
+  // Match the point size of the ProtocolEntry method/status badges; the
+  // lowercase MIME text reads smaller than their uppercase labels at `sm`.
+  size: "md",
+  radius: "sm",
   // MIME types are conventionally lowercase; keep them as-is rather than
   // letting Badge's default uppercase transform mangle them.
   tt: "none",
+  autoContrast: false,
+  // Light mode: the tinted blue-light chip (unchanged). Dark mode: a solid
+  // dark-blue fill with white text — matching the solid ProtocolEntry badges
+  // rather than a washed-out translucent tint.
+  bg: "light-dark(var(--mantine-color-blue-light), var(--mantine-color-blue-9))",
+  c: "light-dark(var(--mantine-color-blue-light-color), var(--mantine-color-white))",
 });
 
 const NameText = Text.withProps({
@@ -70,8 +87,8 @@ const NameText = Text.withProps({
  * Pure-display metadata for a `resource_link`: an optional name and MIME-type
  * badge on the header row, then the URI (monospace, link-styled) on the line
  * below with a copy button. The optional `action` slot lets an interactive
- * wrapper (e.g. {@link ResourceLink}) place an expand/collapse control beside
- * the MIME badge.
+ * wrapper (e.g. {@link ResourceLink}) place an expand/collapse control at the
+ * end of the URI row.
  */
 export function ResourceLinkInfo({
   uri,
@@ -79,21 +96,21 @@ export function ResourceLinkInfo({
   mimeType,
   action,
 }: ResourceLinkInfoProps) {
-  const hasHeader = Boolean(name || mimeType || action);
+  const hasHeader = Boolean(name || mimeType);
   return (
     <HeaderStack>
       {hasHeader && (
         <HeaderRow justify={name ? "space-between" : "flex-end"}>
           {name && <NameText>{name}</NameText>}
-          <MetaGroup>
-            {mimeType && <MimeBadge>{mimeType}</MimeBadge>}
-            {action}
-          </MetaGroup>
+          {mimeType && <MimeBadge>{mimeType}</MimeBadge>}
         </HeaderRow>
       )}
       <UriRow>
-        <CopyButton value={uri} />
-        <UriText>{uri}</UriText>
+        <UriCluster>
+          <CopyButton value={uri} />
+          <UriText>{uri}</UriText>
+        </UriCluster>
+        {action}
       </UriRow>
     </HeaderStack>
   );
