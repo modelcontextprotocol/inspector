@@ -14,6 +14,7 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ResourceLink } from "../ResourceLink/ResourceLink";
+import { resultHasResourceLinks } from "./toolResultUtils";
 
 export interface ToolResultPanelProps {
   result: CallToolResult;
@@ -187,7 +188,7 @@ export function ToolResultPanel({
   // Results with a Resource Links box fill the card so the box grows to the
   // available height (and scrolls inside). Plain text/image results keep the
   // scroll-within-card body so a short result doesn't reserve empty height.
-  const hasLinks = segments.some((s) => s.kind === "links");
+  const hasLinks = resultHasResourceLinks(result);
 
   const segmentNodes = segments.map((segment) =>
     segment.kind === "links" ? (

@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "../../../test/renderWithMantine";
 import { ToolResultPanel } from "./ToolResultPanel";
+import { resultHasResourceLinks } from "./toolResultUtils";
 
 const okResult: CallToolResult = {
   content: [{ type: "text", text: "ok" }],
@@ -112,5 +113,35 @@ describe("ToolResultPanel", () => {
     renderWithMantine(<ToolResultPanel result={okResult} onClear={onClear} />);
     await user.click(screen.getByRole("button", { name: "Close results" }));
     expect(onClear).toHaveBeenCalledTimes(1);
+  });
+
+  describe("resultHasResourceLinks", () => {
+    it("is true only for a non-error result containing a resource_link", () => {
+      expect(
+        resultHasResourceLinks({
+          content: [
+            { type: "text", text: "ok" },
+            { type: "resource_link", uri: "demo://r/1", name: "Linked" },
+          ],
+        }),
+      ).toBe(true);
+    });
+
+    it("is false for a text-only result", () => {
+      expect(resultHasResourceLinks(okResult)).toBe(false);
+    });
+
+    it("is false for an empty result", () => {
+      expect(resultHasResourceLinks(emptyResult)).toBe(false);
+    });
+
+    it("is false when the result is an error, even with a resource_link", () => {
+      expect(
+        resultHasResourceLinks({
+          isError: true,
+          content: [{ type: "resource_link", uri: "demo://r/1", name: "Linked" }],
+        }),
+      ).toBe(false);
+    });
   });
 });

@@ -176,6 +176,27 @@ describe("ToolsScreen", () => {
     expect(screen.getByText("Results")).toBeInTheDocument();
   });
 
+  it("fills the result card with a Resource Links box when the result has links", () => {
+    // A resource_link result takes the full-height (`flex={1}`) card branch so
+    // the Resource Links box can grow and scroll within.
+    renderWithMantine(
+      <ToolsScreen
+        {...baseProps}
+        callState={{
+          status: "ok",
+          result: {
+            content: [
+              { type: "resource_link", uri: "demo://r/1", name: "Linked" },
+            ],
+          },
+        }}
+      />,
+    );
+    expect(
+      screen.getByRole("heading", { name: "Resource Links" }),
+    ).toBeInTheDocument();
+  });
+
   it("invokes onCallTool with form values on Execute", async () => {
     const user = userEvent.setup();
     const onCallTool = vi.fn();
