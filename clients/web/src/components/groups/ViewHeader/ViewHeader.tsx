@@ -193,9 +193,8 @@ const DisconnectButton = Button.withProps({
 
 const DisconnectIcon = ActionIcon.withProps({
   variant: "subtle",
-  c: "red",
   size: 36,
-  "aria-label": "Disconnect",
+  "aria-label": "Disconnect from server",
 });
 
 const ClientSettingsToggle = ActionIcon.withProps({
@@ -252,9 +251,10 @@ export function ViewHeader(props: ViewHeaderProps) {
   const ThemeIcon = colorScheme === "dark" ? MdLightMode : MdDarkMode;
   const showSegmented = useMediaQuery("(min-width: 992px)");
   // Below the 1280px app min-width the header runs out of room (with every tab
-  // shown, the connection text wraps and the Disconnect label clips), so collapse
-  // the Disconnect control to its icon at that floor. Matches the connection
-  // status indicator, which drops its text at the same breakpoint.
+  // shown, the Disconnect label clips), so collapse the Disconnect control to its
+  // icon at that floor. The connection status text drops earlier, at 1500px —
+  // it's the wider element — so the two shed independently (see
+  // ServerStatusIndicator).
   const showDisconnectLabel = useMediaQuery("(min-width: 1281px)");
 
   // Retain the latest connected display data so each region can keep rendering
@@ -437,9 +437,11 @@ export function ViewHeader(props: ViewHeaderProps) {
                     Disconnect
                   </DisconnectButton>
                 ) : (
-                  <DisconnectIcon onClick={handleDisconnect} title="Disconnect">
-                    <VscDebugDisconnect size={20} />
-                  </DisconnectIcon>
+                  <Tooltip label="Disconnect from server">
+                    <DisconnectIcon onClick={handleDisconnect}>
+                      <VscDebugDisconnect size={20} />
+                    </DisconnectIcon>
+                  </Tooltip>
                 )}
               </RightConnectedGroup>
             ) : (

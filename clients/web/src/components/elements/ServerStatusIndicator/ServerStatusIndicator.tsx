@@ -56,10 +56,12 @@ export function ServerStatusIndicator({
   failed = false,
   showLabel: showLabelProp,
 }: ServerStatusIndicatorProps) {
-  // Show the text label only above the 1280px app min-width; at/below that floor
-  // the header is tight (see ViewHeader's Disconnect collapse), so the indicator
-  // drops to a dot-only status with the label moved to its `title` tooltip.
-  const wideViewport = useMediaQuery("(min-width: 1281px)");
+  // Drop the text label below 1500px. "Connected (Nms)" is the header's widest
+  // optional element, so shedding it first — earlier than the Disconnect control,
+  // which collapses at the 1280px floor (see ViewHeader) — keeps the tab row from
+  // crowding. Below the breakpoint the indicator is a dot only, with the label
+  // moved to its `title` tooltip.
+  const wideViewport = useMediaQuery("(min-width: 1500px)");
   const showLabel = showLabelProp ?? wideViewport;
   // A failed connection settles the status back to "disconnected"; the `failed`
   // flag distinguishes it as a failure (red + "Failed") from a deliberate
