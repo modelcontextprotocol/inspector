@@ -12,6 +12,7 @@ import {
 } from "@mantine/core";
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { MessageDirectionBadge } from "../../elements/MessageDirectionBadge/MessageDirectionBadge";
 import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
@@ -110,6 +111,15 @@ function extractTarget(entry: MessageEntry): string | undefined {
   return undefined;
 }
 
+// The resource URI when the target is one (e.g. `resources/read`), so it can be
+// copied. Tool/prompt targets are plain names, not URIs, and get no copy button.
+function extractResourceUri(entry: MessageEntry): string | undefined {
+  const msg = entry.message;
+  if (!("params" in msg) || !msg.params) return undefined;
+  const params = msg.params as Record<string, unknown>;
+  return typeof params.uri === "string" ? params.uri : undefined;
+}
+
 // The pending → OK/Error lifecycle only applies to requests: messageLogState
 // attaches a `response` to request entries by JSON-RPC id. A notification is
 // fire-and-forget (no id, no response, ever) and an unmatched standalone
@@ -151,6 +161,7 @@ export function ProtocolEntry({
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
   const method = extractMethod(entry);
   const target = extractTarget(entry);
+  const resourceUri = extractResourceUri(entry);
   const status = extractStatus(entry);
   const canReplay = isReplayableProtocolMethod(method);
 
@@ -194,18 +205,21 @@ export function ProtocolEntry({
               <HeaderCluster flex={1}>
                 <MethodBadge method={method} />
                 {target && (
-                  <ScrollArea
-                    scrollbarSize={6}
-                    flex={1}
-                    miw={0}
-                    // The target scrolls horizontally but has no focusable child,
-                    // so make the viewport itself keyboard-scrollable (WCAG SC
-                    // 2.1.1). Scrollbar auto-hides via the `type="scroll"` theme
-                    // default.
-                    viewportProps={{ tabIndex: 0 }}
-                  >
-                    <TargetScroll>{target}</TargetScroll>
-                  </ScrollArea>
+                  <>
+                    {resourceUri && <CopyButton value={resourceUri} />}
+                    <ScrollArea
+                      scrollbarSize={6}
+                      flex={1}
+                      miw={0}
+                      // The target scrolls horizontally but has no focusable
+                      // child, so make the viewport itself keyboard-scrollable
+                      // (WCAG SC 2.1.1). Scrollbar auto-hides via the
+                      // `type="scroll"` theme default.
+                      viewportProps={{ tabIndex: 0 }}
+                    >
+                      <TargetScroll>{target}</TargetScroll>
+                    </ScrollArea>
+                  </>
                 )}
               </HeaderCluster>
               <ControlsCluster>
@@ -227,7 +241,12 @@ export function ProtocolEntry({
                 </TimestampText>
                 {directionBadge}
                 <MethodBadge method={method} />
-                {target && <TargetText>{target}</TargetText>}
+                {target && (
+                  <>
+                    {resourceUri && <CopyButton value={resourceUri} />}
+                    <TargetText>{target}</TargetText>
+                  </>
+                )}
               </Group>
               <Group gap="sm">
                 {durationText}
