@@ -245,6 +245,10 @@ export function ServerCard({
               status={connection.status}
               retryCount={connection.retryCount}
               failed={errored}
+              // The card has its own width and isn't subject to the header's
+              // tab-row crowding, so always show the status label rather than
+              // inheriting the header-motivated viewport breakpoint.
+              showLabel
             />
             <ConnectionToggle
               status={connection.status}
