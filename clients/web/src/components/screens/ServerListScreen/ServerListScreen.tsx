@@ -98,6 +98,9 @@ const PanelContainer = Paper.withProps({
   p: "lg",
   flex: 1,
   variant: "panel",
+  // The box takes the same surface as the header and footer (white in light
+  // mode) rather than the grey app background.
+  bg: "var(--mantine-color-body)",
 });
 
 // Header row inside the box: "Servers" title on the left, the Export / Add /
