@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { Box } from "@mantine/core";
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { fn } from "storybook/test";
 import { ProtocolEntry } from "./ProtocolEntry";
@@ -76,6 +77,36 @@ const resourceReadEntry: MessageEntry = {
   duration: 45,
 };
 
+// A resources/read whose URI overflows the narrow monitoring column, so the
+// embedded header shows it in a horizontal scroll area rather than truncating.
+const longUriResourceEntry: MessageEntry = {
+  id: "req-5",
+  timestamp: new Date("2026-03-17T10:35:00Z"),
+  direction: "request",
+  origin: "client",
+  message: {
+    jsonrpc: "2.0",
+    id: 5,
+    method: "resources/read",
+    params: {
+      uri: "demo://resource/static/document/architecture/overview/system-design-and-data-flow.md",
+    },
+  },
+  response: {
+    jsonrpc: "2.0",
+    id: 5,
+    result: {
+      contents: [
+        {
+          uri: "demo://resource/static/document/architecture/overview/system-design-and-data-flow.md",
+          text: "# Architecture Overview",
+        },
+      ],
+    },
+  },
+  duration: 41,
+};
+
 const pendingEntry: MessageEntry = {
   id: "req-4",
   timestamp: new Date("2026-03-17T10:34:00Z"),
@@ -127,4 +158,23 @@ export const Pending: Story = {
     isPinned: false,
     isListExpanded: false,
   },
+};
+
+// Embedded (monitoring-sidebar) layout with a long resource URI: the target sits
+// in a horizontal scroll area rather than truncating with an ellipsis. Wrapped
+// in the pinned column's width so the overflow is visible.
+export const EmbeddedLongUri: Story = {
+  args: {
+    entry: longUriResourceEntry,
+    isPinned: false,
+    isListExpanded: false,
+    embedded: true,
+  },
+  decorators: [
+    (Story) => (
+      <Box w={340}>
+        <Story />
+      </Box>
+    ),
+  ],
 };

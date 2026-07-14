@@ -6,6 +6,7 @@ import {
   Collapse,
   Divider,
   Group,
+  ScrollArea,
   Stack,
   Text,
 } from "@mantine/core";
@@ -65,6 +66,15 @@ const TimestampText = Text.withProps({
 const TargetText = Text.withProps({
   size: "sm",
   fw: 500,
+});
+
+// Compact-header target (e.g. a long resource URI): never wraps, so it scrolls
+// horizontally inside its ScrollArea instead of truncating with an ellipsis
+// (mirrors NetworkEntry's URL).
+const TargetScroll = Text.withProps({
+  size: "sm",
+  fw: 500,
+  variant: "nowrap",
 });
 
 const DurationText = Text.withProps({
@@ -184,9 +194,18 @@ export function ProtocolEntry({
               <HeaderCluster flex={1}>
                 <MethodBadge method={method} />
                 {target && (
-                  <TargetText truncate="end" miw={0}>
-                    {target}
-                  </TargetText>
+                  <ScrollArea
+                    scrollbarSize={6}
+                    flex={1}
+                    miw={0}
+                    // The target scrolls horizontally but has no focusable child,
+                    // so make the viewport itself keyboard-scrollable (WCAG SC
+                    // 2.1.1). Scrollbar auto-hides via the `type="scroll"` theme
+                    // default.
+                    viewportProps={{ tabIndex: 0 }}
+                  >
+                    <TargetScroll>{target}</TargetScroll>
+                  </ScrollArea>
                 )}
               </HeaderCluster>
               <ControlsCluster>
