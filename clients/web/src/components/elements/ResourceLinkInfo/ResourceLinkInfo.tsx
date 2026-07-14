@@ -6,6 +6,8 @@ export interface ResourceLinkInfoProps {
   uri: string;
   /** Optional human-friendly name shown beneath the URI. */
   name?: string;
+  /** Optional description shown beneath the name. */
+  description?: string;
   /** Optional MIME type shown as a badge. */
   mimeType?: string;
   /**
@@ -54,15 +56,21 @@ const NameText = Text.withProps({
   fw: 600,
 });
 
+const DescriptionText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
 /**
  * Pure-display metadata for a `resource_link`: the URI (monospace, link-styled),
- * an optional name, and a MIME-type badge. The optional `action` slot lets an
- * interactive wrapper (e.g. {@link ResourceLink}) place an expand/collapse
- * indicator in the URI row.
+ * optional name / description, and a MIME-type badge. The optional `action`
+ * slot lets an interactive wrapper (e.g. {@link ResourceLink}) place an
+ * expand/collapse indicator in the URI row.
  */
 export function ResourceLinkInfo({
   uri,
   name,
+  description,
   mimeType,
   action,
 }: ResourceLinkInfoProps) {
@@ -76,6 +84,7 @@ export function ResourceLinkInfo({
         </MetaGroup>
       </UriRow>
       {name && <NameText>{name}</NameText>}
+      {description && <DescriptionText>{description}</DescriptionText>}
     </HeaderStack>
   );
 }
