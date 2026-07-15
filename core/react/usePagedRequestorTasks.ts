@@ -39,10 +39,7 @@ export function usePagedRequestorTasks(
     setTasks(pagedRequestorTasksState.getTasks());
     setNextCursor(pagedRequestorTasksState.getNextCursor() ?? undefined);
     const onTasksChange = (
-      event: TypedEventGeneric<
-        PagedRequestorTasksStateEventMap,
-        "tasksChange"
-      >,
+      event: TypedEventGeneric<PagedRequestorTasksStateEventMap, "tasksChange">,
     ) => {
       setTasks(event.detail);
       setNextCursor(pagedRequestorTasksState.getNextCursor() ?? undefined);

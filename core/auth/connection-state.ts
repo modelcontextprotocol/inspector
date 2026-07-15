@@ -1,10 +1,18 @@
-import type { OAuthClientInformation, OAuthTokens } from "@modelcontextprotocol/client";
+import type {
+  OAuthClientInformation,
+  OAuthTokens,
+} from "@modelcontextprotocol/client";
 import type { EnterpriseManagedAuthIdpConfig } from "../client/types.js";
 import { getEmaIdpLoginState, normalizeIdpIssuer } from "./ema/idpSession.js";
 import { idpOAuthStorageKey } from "./ema/storage.js";
 import { isJwtExpired } from "./ema/jwt.js";
 import type { OAuthStorage } from "./storage.js";
-import type { AuthProtocol, OAuthClientRegistrationKind, OAuthConnectionState, OAuthFlowState } from "./types.js";
+import type {
+  AuthProtocol,
+  OAuthClientRegistrationKind,
+  OAuthConnectionState,
+  OAuthFlowState,
+} from "./types.js";
 import { authProtocolFromEnterpriseManaged } from "./types.js";
 
 export interface BuildOAuthConnectionStateParams {
@@ -17,9 +25,7 @@ export interface BuildOAuthConnectionStateParams {
 }
 
 /** True when persisted tokens include a non-expired access token (JWT exp when parseable). */
-export function isAccessTokenUsable(
-  tokens: OAuthTokens | undefined,
-): boolean {
+export function isAccessTokenUsable(tokens: OAuthTokens | undefined): boolean {
   if (!tokens?.access_token) return false;
   return !isJwtExpired(tokens.access_token);
 }
@@ -27,10 +33,9 @@ export function isAccessTokenUsable(
 function resolveClient(
   preregistered: OAuthClientInformation | undefined,
   dynamic: OAuthClientInformation | undefined,
-  dynamicRegistrationKind: Extract<
-    OAuthClientRegistrationKind,
-    "dcr" | "cimd"
-  > | undefined,
+  dynamicRegistrationKind:
+    | Extract<OAuthClientRegistrationKind, "dcr" | "cimd">
+    | undefined,
 ): OAuthConnectionState["client"] | undefined {
   if (preregistered?.client_id) {
     return {
@@ -81,7 +86,7 @@ export async function buildOAuthConnectionState(
       ? flowTokens
       : storedTokens && isAccessTokenUsable(storedTokens)
         ? storedTokens
-        : flowTokens ?? storedTokens;
+        : (flowTokens ?? storedTokens);
 
   const preregistered = await storage.getClientInformation(serverUrl, true);
   const dynamic = await storage.getClientInformation(serverUrl);
@@ -120,7 +125,9 @@ export async function buildOAuthConnectionState(
     const idp = params.enterpriseManagedAuth.idp;
     const issuer = normalizeIdpIssuer(idp.issuer);
     const idpSession = await getEmaIdpLoginState(storage, issuer);
-    const idpMetadata = await storage.getServerMetadata(idpOAuthStorageKey(issuer));
+    const idpMetadata = await storage.getServerMetadata(
+      idpOAuthStorageKey(issuer),
+    );
     state.ema = {
       idpIssuer: issuer,
       idpClientId: idp.clientId,

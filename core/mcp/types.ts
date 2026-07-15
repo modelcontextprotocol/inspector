@@ -1,4 +1,23 @@
-import type { CallToolResult, ClientNotification, ClientRequest, GetPromptResult, Implementation, JSONRPCErrorResponse, JSONRPCNotification, JSONRPCRequest, JSONRPCResultResponse, LoggingLevel, Prompt, ReadResourceResult, Resource, Root, ServerCapabilities, ServerNotification, ServerRequest, Tool } from "@modelcontextprotocol/client";
+import type {
+  CallToolResult,
+  ClientNotification,
+  ClientRequest,
+  GetPromptResult,
+  Implementation,
+  JSONRPCErrorResponse,
+  JSONRPCNotification,
+  JSONRPCRequest,
+  JSONRPCResultResponse,
+  LoggingLevel,
+  Prompt,
+  ReadResourceResult,
+  Resource,
+  Root,
+  ServerCapabilities,
+  ServerNotification,
+  ServerRequest,
+  Tool,
+} from "@modelcontextprotocol/client";
 import type { Client } from "@modelcontextprotocol/client";
 import type { OAuthClientProvider } from "@modelcontextprotocol/client";
 import type { Transport } from "@modelcontextprotocol/client";
@@ -149,7 +168,9 @@ export type ConnectionStatus =
  * (see InspectorClient's `onclose` handler, #1490). A bare `=== "disconnected"`
  * check would therefore tear down in one ordering but not the other.
  */
-export function isTerminalStatus(status: ConnectionStatus | undefined): boolean {
+export function isTerminalStatus(
+  status: ConnectionStatus | undefined,
+): boolean {
   return status === "disconnected" || status === "error";
 }
 

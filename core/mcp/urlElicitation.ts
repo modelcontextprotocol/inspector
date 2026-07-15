@@ -1,4 +1,8 @@
-import { ProtocolErrorCode, ProtocolError, UrlElicitationRequiredError } from "@modelcontextprotocol/client";
+import {
+  ProtocolErrorCode,
+  ProtocolError,
+  UrlElicitationRequiredError,
+} from "@modelcontextprotocol/client";
 import type { ElicitRequestURLParams } from "@modelcontextprotocol/client";
 
 export type { ElicitRequestURLParams };
@@ -46,7 +50,10 @@ export function getUrlElicitationsFromError(
   if (error instanceof UrlElicitationRequiredError) {
     return error.elicitations ?? [];
   }
-  if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
+  if (
+    error instanceof ProtocolError &&
+    error.code === ProtocolErrorCode.UrlElicitationRequired
+  ) {
     const data = error.data as
       | { elicitations?: ElicitRequestURLParams[] }
       | undefined;

@@ -6,7 +6,17 @@
  */
 
 import { vi } from "vitest";
-import type { ClientCapabilities, Implementation, LoggingLevel, Prompt, Resource, ResourceTemplateType as ResourceTemplate, ServerCapabilities, Task, Tool } from "@modelcontextprotocol/client";
+import type {
+  ClientCapabilities,
+  Implementation,
+  LoggingLevel,
+  Prompt,
+  Resource,
+  ResourceTemplateType as ResourceTemplate,
+  ServerCapabilities,
+  Task,
+  Tool,
+} from "@modelcontextprotocol/client";
 import { InspectorClientEventTarget } from "../inspectorClientEventTarget.js";
 import type {
   AppRendererClient,

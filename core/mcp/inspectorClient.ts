@@ -46,7 +46,38 @@ import {
   MessageTrackingTransport,
   type MessageTrackingCallbacks,
 } from "./messageTrackingTransport.js";
-import type { CallToolRequest, JSONRPCRequest, JSONRPCNotification, JSONRPCResultResponse, JSONRPCErrorResponse, ServerCapabilities, ClientCapabilities, Implementation, LoggingLevel, Tool, Resource, ResourceTemplateType as ResourceTemplate, Prompt, Root, CreateMessageRequest, CreateMessageResult, ElicitRequest, ElicitResult, ElicitRequestURLParams, CallToolResult, Task, Progress, ProgressToken, ListToolsRequest, ListResourcesRequest, ListResourceTemplatesRequest, ListPromptsRequest, ReadResourceRequest, GetPromptRequest, CompleteRequest } from "@modelcontextprotocol/client";
+import type {
+  CallToolRequest,
+  JSONRPCRequest,
+  JSONRPCNotification,
+  JSONRPCResultResponse,
+  JSONRPCErrorResponse,
+  ServerCapabilities,
+  ClientCapabilities,
+  Implementation,
+  LoggingLevel,
+  Tool,
+  Resource,
+  ResourceTemplateType as ResourceTemplate,
+  Prompt,
+  Root,
+  CreateMessageRequest,
+  CreateMessageResult,
+  ElicitRequest,
+  ElicitResult,
+  ElicitRequestURLParams,
+  CallToolResult,
+  Task,
+  Progress,
+  ProgressToken,
+  ListToolsRequest,
+  ListResourcesRequest,
+  ListResourceTemplatesRequest,
+  ListPromptsRequest,
+  ReadResourceRequest,
+  GetPromptRequest,
+  CompleteRequest,
+} from "@modelcontextprotocol/client";
 import type { Transport } from "@modelcontextprotocol/client";
 import type {
   RequestOptions,
@@ -633,9 +664,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     internal._requestHandlers.set(method, (request, ctx) => {
       const task = (request as { params?: { task?: unknown } })?.params?.task;
       if (this.receiverTasks && task != null) {
-        return rawHandler(
-          request as CreateMessageRequest & ElicitRequest,
-        );
+        return rawHandler(request as CreateMessageRequest & ElicitRequest);
       }
       return validating(request, ctx);
     });
@@ -723,7 +752,10 @@ export class InspectorClient extends InspectorClientEventTarget {
   private async getReceiverTaskPayload(taskId: string): Promise<ClientResult> {
     const record = this.receiverTaskRecords.get(taskId);
     if (!record) {
-      throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unknown taskId: ${taskId}`);
+      throw new ProtocolError(
+        ProtocolErrorCode.InvalidParams,
+        `Unknown taskId: ${taskId}`,
+      );
     }
     return record.payloadPromise;
   }
@@ -731,7 +763,10 @@ export class InspectorClient extends InspectorClientEventTarget {
   private cancelReceiverTask(taskId: string): Task {
     const record = this.receiverTaskRecords.get(taskId);
     if (!record) {
-      throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unknown taskId: ${taskId}`);
+      throw new ProtocolError(
+        ProtocolErrorCode.InvalidParams,
+        `Unknown taskId: ${taskId}`,
+      );
     }
     if (InspectorClient.isTerminalTaskStatus(record.task.status)) {
       return record.task;
@@ -1012,7 +1047,10 @@ export class InspectorClient extends InspectorClientEventTarget {
             this.addPendingSample(samplingRequest);
           });
         };
-        this.client.setRequestHandler("sampling/createMessage", samplingHandler);
+        this.client.setRequestHandler(
+          "sampling/createMessage",
+          samplingHandler,
+        );
         if (this.receiverTasks) {
           this.installReceiverTaskResponseBypass(
             "sampling/createMessage",
@@ -2001,7 +2039,14 @@ export class InspectorClient extends InspectorClientEventTarget {
       result as CallToolResult,
     );
     if (outputValidationError && !options?.skipOutputValidation) {
-      throw new Error(outputValidationError);
+      // Match the prior contract: on v1 a strict output-schema violation
+      // surfaced as the SDK's typed `McpError`/`ProtocolError` (code
+      // InvalidParams), not a bare Error — so downstream code that branches on
+      // `instanceof ProtocolError` / `error.code` keeps working.
+      throw new ProtocolError(
+        ProtocolErrorCode.InvalidParams,
+        outputValidationError,
+      );
     }
 
     const invocation: ToolCallInvocation = {
@@ -2161,6 +2206,14 @@ export class InspectorClient extends InspectorClientEventTarget {
     );
     // The SDK registers the progress handler synchronously while constructing
     // the request promise (before this await), so the new key is present now.
+    // ASSUMES SERIAL CONSTRUCTION: `find` takes the first key not present in the
+    // pre-request snapshot, which is unambiguous only because no OTHER request
+    // registers a progress handler between the snapshot and this request's
+    // synchronous registration. Tool calls are user-driven and serial, so that
+    // holds today; if concurrent task-augmented calls are ever constructed in
+    // the same microtask window, two subscription ids could cross-wire and this
+    // must move to an SDK-supported correlation (see the delete-when-native note
+    // on `installReceiverTaskResponseBypass`).
     const progressSubscriptionId = requestOptions.onprogress
       ? [...progressHandlers.keys()].find((k) => !keysBeforeRequest.has(k))
       : undefined;

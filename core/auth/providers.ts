@@ -2,7 +2,12 @@ import type {
   OAuthClientProvider,
   OAuthClientInformationContext,
 } from "@modelcontextprotocol/client";
-import type { OAuthClientInformation, OAuthClientMetadata, OAuthTokens, OAuthMetadata } from "@modelcontextprotocol/client";
+import type {
+  OAuthClientInformation,
+  OAuthClientMetadata,
+  OAuthTokens,
+  OAuthMetadata,
+} from "@modelcontextprotocol/client";
 import type { OAuthStorage, SaveClientInformationOptions } from "./storage.js";
 import { generateOAuthState } from "./utils.js";
 
@@ -210,9 +215,13 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
       options && "registrationKind" in options
         ? options.registrationKind
         : "dcr";
-    await this.storage.saveClientInformation(this.serverUrl, clientInformation, {
-      registrationKind,
-    });
+    await this.storage.saveClientInformation(
+      this.serverUrl,
+      clientInformation,
+      {
+        registrationKind,
+      },
+    );
   }
 
   async saveScope(scope: string | undefined): Promise<void> {

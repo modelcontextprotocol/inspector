@@ -106,9 +106,7 @@ type StoredInspectorFields = Pick<
 export function envRecordToPairs(
   env: Record<string, string> | undefined,
 ): { key: string; value: string }[] {
-  return env
-    ? Object.entries(env).map(([key, value]) => ({ key, value }))
-    : [];
+  return env ? Object.entries(env).map(([key, value]) => ({ key, value })) : [];
 }
 
 /**
@@ -232,9 +230,7 @@ export function inspectorSettingsToStoredFields(
     out.headers = headersRecord;
   }
 
-  const metadataFiltered = settings.metadata.filter(
-    (m) => m.key.trim() !== "",
-  );
+  const metadataFiltered = settings.metadata.filter((m) => m.key.trim() !== "");
   if (metadataFiltered.length > 0) {
     out.metadata = metadataFiltered;
   }
@@ -333,9 +329,7 @@ export const INSPECTOR_FIELD_KEYS = new Set(
  * `satisfies` constraint above forces the map update, which propagates
  * here.
  */
-export function stripInspectorFields(
-  stored: StoredMCPServer,
-): MCPServerConfig {
+export function stripInspectorFields(stored: StoredMCPServer): MCPServerConfig {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(
     stored as unknown as Record<string, unknown>,
@@ -361,7 +355,9 @@ export function mcpConfigToServerEntries(config: MCPConfig): ServerEntry[] {
     // `InspectorServerSettings` only.
     const inspectorFields: StoredInspectorFields = {};
     const sdkOnly: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(raw as unknown as Record<string, unknown>)) {
+    for (const [k, v] of Object.entries(
+      raw as unknown as Record<string, unknown>,
+    )) {
       if (INSPECTOR_FIELD_KEYS.has(k as keyof StoredInspectorFields)) {
         (inspectorFields as Record<string, unknown>)[k] = v;
       } else {

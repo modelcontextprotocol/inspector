@@ -1,5 +1,12 @@
-import type { OAuthClientInformation, OAuthTokens, OAuthMetadata } from "@modelcontextprotocol/client";
-import { OAuthClientInformationSchema, OAuthTokensSchema } from "@modelcontextprotocol/core";
+import type {
+  OAuthClientInformation,
+  OAuthTokens,
+  OAuthMetadata,
+} from "@modelcontextprotocol/client";
+import {
+  OAuthClientInformationSchema,
+  OAuthTokensSchema,
+} from "@modelcontextprotocol/core";
 import type { OAuthStorage } from "./storage.js";
 import { type OAuthMemoryStore, type ServerOAuthState } from "./store.js";
 import type { OAuthPersistBackend } from "./oauth-persist.js";
@@ -173,7 +180,9 @@ export class OAuthStorageBase implements OAuthStorage {
 
   async clearCodeVerifier(serverUrl: string): Promise<void> {
     await this.ensureLoaded();
-    this.memory.getState().setServerState(serverUrl, { codeVerifier: undefined });
+    this.memory
+      .getState()
+      .setServerState(serverUrl, { codeVerifier: undefined });
     await this.persist();
   }
 
@@ -206,7 +215,9 @@ export class OAuthStorageBase implements OAuthStorage {
     metadata: OAuthMetadata,
   ): Promise<void> {
     await this.ensureLoaded();
-    this.memory.getState().setServerState(serverUrl, { serverMetadata: metadata });
+    this.memory
+      .getState()
+      .setServerState(serverUrl, { serverMetadata: metadata });
     await this.persist();
   }
 

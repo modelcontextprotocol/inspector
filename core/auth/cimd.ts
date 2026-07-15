@@ -1,4 +1,7 @@
-import { discoverAuthorizationServerMetadata, discoverOAuthProtectedResourceMetadata } from "@modelcontextprotocol/client";
+import {
+  discoverAuthorizationServerMetadata,
+  discoverOAuthProtectedResourceMetadata,
+} from "@modelcontextprotocol/client";
 import type { OAuthClientInformation } from "@modelcontextprotocol/client";
 import { getAuthorizationServerUrl } from "./discovery.js";
 import type { BaseOAuthClientProvider } from "./providers.js";

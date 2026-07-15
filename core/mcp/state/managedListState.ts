@@ -194,9 +194,10 @@ export abstract class ManagedListState<
    * concrete subclass event maps keep the call sites type-safe.
    */
   private emit(type: keyof M, detail: unknown): void {
-    (
-      this.dispatchTypedEvent as unknown as (t: keyof M, d: unknown) => void
-    )(type, detail);
+    (this.dispatchTypedEvent as unknown as (t: keyof M, d: unknown) => void)(
+      type,
+      detail,
+    );
   }
 
   private setListChanged(value: boolean): void {

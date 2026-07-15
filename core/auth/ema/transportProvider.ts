@@ -1,5 +1,9 @@
 import type { OAuthClientProvider } from "@modelcontextprotocol/client";
-import type { OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from "@modelcontextprotocol/client";
+import type {
+  OAuthClientInformationMixed,
+  OAuthClientMetadata,
+  OAuthTokens,
+} from "@modelcontextprotocol/client";
 import type { BaseOAuthClientProvider } from "../providers.js";
 import {
   refreshEmaResourceTokens,
@@ -8,10 +12,7 @@ import {
 } from "./emaFlow.js";
 import { isJwtExpired } from "./jwt.js";
 
-function isAccessTokenUsable(
-  tokens: OAuthTokens,
-  skewMs = 60_000,
-): boolean {
+function isAccessTokenUsable(tokens: OAuthTokens, skewMs = 60_000): boolean {
   if (!tokens.access_token) return false;
   return !isJwtExpired(tokens.access_token, skewMs);
 }
@@ -28,10 +29,7 @@ export class EmaTransportOAuthProvider implements OAuthClientProvider {
   private readonly inner: BaseOAuthClientProvider;
   private readonly emaConfig: EmaFlowConfig;
 
-  constructor(
-    inner: BaseOAuthClientProvider,
-    emaConfig: EmaFlowConfig,
-  ) {
+  constructor(inner: BaseOAuthClientProvider, emaConfig: EmaFlowConfig) {
     this.inner = inner;
     this.emaConfig = emaConfig;
   }

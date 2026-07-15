@@ -1,5 +1,8 @@
 import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/client";
-import type { OAuthClientInformation, OAuthTokens } from "@modelcontextprotocol/client";
+import type {
+  OAuthClientInformation,
+  OAuthTokens,
+} from "@modelcontextprotocol/client";
 import { OAuthTokensSchema } from "@modelcontextprotocol/core";
 import type { EnterpriseManagedAuthIdpConfig } from "../../client/types.js";
 import {

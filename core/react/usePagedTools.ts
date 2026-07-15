@@ -21,9 +21,7 @@ export function usePagedTools(
   client: InspectorClientProtocol | null,
   pagedToolsState: PagedToolsState | null,
 ): UsePagedToolsResult {
-  const [tools, setTools] = useState<Tool[]>(
-    pagedToolsState?.getTools() ?? [],
-  );
+  const [tools, setTools] = useState<Tool[]>(pagedToolsState?.getTools() ?? []);
 
   useEffect(() => {
     if (!pagedToolsState) {

@@ -1,4 +1,7 @@
-import type { CreateMessageRequest, CreateMessageResult } from "@modelcontextprotocol/client";
+import type {
+  CreateMessageRequest,
+  CreateMessageResult,
+} from "@modelcontextprotocol/client";
 import { RELATED_TASK_META_KEY } from "@modelcontextprotocol/client";
 
 export type { CreateMessageRequest, CreateMessageResult };

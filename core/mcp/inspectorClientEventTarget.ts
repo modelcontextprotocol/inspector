@@ -24,7 +24,17 @@ import type {
   ResourceReadInvocation,
   ResourceTemplateReadInvocation,
 } from "./types.js";
-import type { Tool, ServerCapabilities, Implementation, Root, Progress, ProgressToken, Task, CallToolResult, ProtocolError } from "@modelcontextprotocol/client";
+import type {
+  Tool,
+  ServerCapabilities,
+  Implementation,
+  Root,
+  Progress,
+  ProgressToken,
+  Task,
+  CallToolResult,
+  ProtocolError,
+} from "@modelcontextprotocol/client";
 import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import type { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
 import type { JsonValue } from "../json/jsonUtils.js";

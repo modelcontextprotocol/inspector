@@ -3,7 +3,11 @@
  * Persisted via `OAuthStorageBase` + `OAuthPersistBackend` backends.
  */
 
-import type { OAuthClientInformation, OAuthTokens, OAuthMetadata } from "@modelcontextprotocol/client";
+import type {
+  OAuthClientInformation,
+  OAuthTokens,
+  OAuthMetadata,
+} from "@modelcontextprotocol/client";
 import type {
   IdpSessionState,
   OAuthClientRegistrationKind,

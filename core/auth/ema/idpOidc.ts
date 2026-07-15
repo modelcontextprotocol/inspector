@@ -1,5 +1,12 @@
-import { discoverAuthorizationServerMetadata, exchangeAuthorization, startAuthorization } from "@modelcontextprotocol/client";
-import type { OAuthClientInformation, OAuthMetadata } from "@modelcontextprotocol/client";
+import {
+  discoverAuthorizationServerMetadata,
+  exchangeAuthorization,
+  startAuthorization,
+} from "@modelcontextprotocol/client";
+import type {
+  OAuthClientInformation,
+  OAuthMetadata,
+} from "@modelcontextprotocol/client";
 import { OAuthMetadataSchema } from "@modelcontextprotocol/core";
 import type { OAuthStorage } from "../storage.js";
 import type { EnterpriseManagedAuthIdpConfig } from "../../client/types.js";
@@ -44,7 +51,9 @@ export async function discoverIdpMetadata(
     fetchFn,
   });
   if (!metadata) {
-    throw new Error(`Failed to discover OIDC metadata for IdP issuer ${issuer}`);
+    throw new Error(
+      `Failed to discover OIDC metadata for IdP issuer ${issuer}`,
+    );
   }
   return OAuthMetadataSchema.parse(metadata);
 }
@@ -56,7 +65,11 @@ export async function startIdpOidcAuthorization(params: {
   fetchFn?: typeof fetch;
 }): Promise<{ authorizationUrl: URL }> {
   const issuer = normalizeIdpIssuer(params.idp.issuer);
-  const metadata = await resolveIdpMetadata(issuer, params.storage, params.fetchFn);
+  const metadata = await resolveIdpMetadata(
+    issuer,
+    params.storage,
+    params.fetchFn,
+  );
   const clientInformation = idpClientInformation(params.idp);
   const storageKey = idpOAuthStorageKey(issuer);
   const state = generateOAuthState();

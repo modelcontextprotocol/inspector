@@ -55,10 +55,7 @@ export function useManagedPrompts(
       onListChangedChange,
     );
     return () => {
-      managedPromptsState.removeEventListener(
-        "promptsChange",
-        onPromptsChange,
-      );
+      managedPromptsState.removeEventListener("promptsChange", onPromptsChange);
       managedPromptsState.removeEventListener(
         "listChangedChange",
         onListChangedChange,

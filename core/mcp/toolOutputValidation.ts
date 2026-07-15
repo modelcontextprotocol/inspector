@@ -1,5 +1,8 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/client";
-import type { JsonSchemaType, jsonSchemaValidator } from "@modelcontextprotocol/client";
+import type {
+  JsonSchemaType,
+  jsonSchemaValidator,
+} from "@modelcontextprotocol/client";
 
 /**
  * Validate a delivered tool result's `structuredContent` against the tool's

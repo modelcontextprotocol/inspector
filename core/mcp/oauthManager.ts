@@ -286,8 +286,7 @@ export class OAuthManager {
     try {
       if (this.isEnterpriseManaged()) {
         const emaConfig = await this.getEmaFlowConfig();
-        const scopeForMint =
-          this.pendingAuthorizationScope ?? emaConfig.scope;
+        const scopeForMint = this.pendingAuthorizationScope ?? emaConfig.scope;
         const config = scopeForMint
           ? { ...emaConfig, scope: scopeForMint }
           : emaConfig;
@@ -449,7 +448,9 @@ export class OAuthManager {
    */
   async refreshEnterpriseManagedTokens(): Promise<boolean> {
     if (!this.isEnterpriseManaged()) return false;
-    const tokens = await refreshEmaResourceTokens(await this.getEmaFlowConfig());
+    const tokens = await refreshEmaResourceTokens(
+      await this.getEmaFlowConfig(),
+    );
     return tokens !== undefined;
   }
 

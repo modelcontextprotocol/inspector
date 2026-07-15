@@ -10,7 +10,14 @@
  * (the same path v2 `auth()` takes when refresh cannot widen scope).
  */
 
-import { auth as sdkAuth, discoverOAuthServerInfo, isHttpsUrl, registerClient, selectResourceURL, startAuthorization } from "@modelcontextprotocol/client";
+import {
+  auth as sdkAuth,
+  discoverOAuthServerInfo,
+  isHttpsUrl,
+  registerClient,
+  selectResourceURL,
+  startAuthorization,
+} from "@modelcontextprotocol/client";
 import type { OAuthClientProvider } from "@modelcontextprotocol/client";
 import type { FetchLike } from "@modelcontextprotocol/client";
 /**

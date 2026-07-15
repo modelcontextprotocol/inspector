@@ -20,7 +20,17 @@ import type {
   PromptGetInvocation,
   ToolCallInvocation,
 } from "./types.js";
-import type { ClientCapabilities, Implementation, LoggingLevel, Prompt, Resource, ResourceTemplateType as ResourceTemplate, ServerCapabilities, Task, Tool } from "@modelcontextprotocol/client";
+import type {
+  ClientCapabilities,
+  Implementation,
+  LoggingLevel,
+  Prompt,
+  Resource,
+  ResourceTemplateType as ResourceTemplate,
+  ServerCapabilities,
+  Task,
+  Tool,
+} from "@modelcontextprotocol/client";
 import type { JsonValue } from "../json/jsonUtils.js";
 import type { InspectorClientEventTarget } from "./inspectorClientEventTarget.js";
 import type { SamplingCreateMessage } from "./samplingCreateMessage.js";

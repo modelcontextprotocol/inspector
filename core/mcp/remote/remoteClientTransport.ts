@@ -3,8 +3,14 @@
  * Pure TypeScript; works in browser, Deno, or Node.
  */
 
-import type { Transport, TransportSendOptions } from "@modelcontextprotocol/client";
-import type { JSONRPCMessage, MessageExtraInfo } from "@modelcontextprotocol/client";
+import type {
+  Transport,
+  TransportSendOptions,
+} from "@modelcontextprotocol/client";
+import type {
+  JSONRPCMessage,
+  MessageExtraInfo,
+} from "@modelcontextprotocol/client";
 import type { InspectorServerSettings, StderrLogEntry } from "../types.js";
 import type { FetchRequestEntryBase } from "../types.js";
 import type {

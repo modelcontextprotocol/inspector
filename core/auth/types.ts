@@ -1,4 +1,10 @@
-import type { OAuthMetadata, OAuthClientInformation, OAuthClientInformationFull, OAuthTokens, OAuthProtectedResourceMetadata } from "@modelcontextprotocol/client";
+import type {
+  OAuthMetadata,
+  OAuthClientInformation,
+  OAuthClientInformationFull,
+  OAuthTokens,
+  OAuthProtectedResourceMetadata,
+} from "@modelcontextprotocol/client";
 
 // OAuth flow steps
 export type OAuthStep =

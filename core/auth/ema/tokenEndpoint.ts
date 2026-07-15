@@ -1,5 +1,8 @@
 import { selectClientAuthMethod } from "@modelcontextprotocol/client";
-import type { OAuthClientInformation, OAuthMetadata } from "@modelcontextprotocol/client";
+import type {
+  OAuthClientInformation,
+  OAuthMetadata,
+} from "@modelcontextprotocol/client";
 
 export async function parseOAuthTokenErrorResponse(
   response: Response,
