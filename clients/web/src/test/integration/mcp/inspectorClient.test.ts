@@ -5157,7 +5157,7 @@ describe("InspectorClient", () => {
     });
 
     describe("getAppRendererClient", () => {
-      it("returns null before connect, and a proxy after connect that forwards setNotificationHandler", async () => {
+      it("returns null before connect, and a cached proxy after connect", async () => {
         server = createTestServerHttp({
           serverInfo: createTestServerInfo(),
           tools: [createEchoTool()],
@@ -5177,11 +5177,75 @@ describe("InspectorClient", () => {
         expect(proxy1).not.toBeNull();
         // Second call returns the cached proxy
         expect(c.getAppRendererClient()).toBe(proxy1);
-        // setNotificationHandler on the proxy delegates to the underlying client
         expect(
           typeof (proxy1 as unknown as { setNotificationHandler?: unknown })
             .setNotificationHandler,
         ).toBe("function");
+      });
+
+      it("translates the ext-apps v1 schema-first setNotificationHandler call to v2's method-string form", async () => {
+        // Regression: `@modelcontextprotocol/ext-apps` (SDK v1 peer) subscribes
+        // with `setNotificationHandler(NotificationSchema, handler)`. On SDK v2
+        // that throws "'[object Object]' is not a spec notification method",
+        // breaking App rendering at connect. The proxy must translate the
+        // schema (whose `.shape.method.value` is the method literal) to the
+        // method string so the handler still fires on the real notification.
+        server = createTestServerHttp({
+          serverInfo: createTestServerInfo(),
+          tools: [createAddToolTool()],
+          listChanged: { tools: true },
+        });
+        await server.start();
+        const c = new InspectorClient(
+          { type: "streamable-http", url: server.url },
+          { environment: { transport: createTransportNode } },
+        );
+        client = c;
+        await c.connect();
+
+        const proxy = c.getAppRendererClient() as unknown as {
+          setNotificationHandler: (
+            schema: unknown,
+            handler: () => void,
+          ) => void;
+        };
+        // A v1-style Zod notification schema, as ext-apps passes it (NOT a
+        // string): its `.shape.method.value` carries the method literal.
+        const v1StyleSchema = {
+          shape: { method: { value: "notifications/tools/list_changed" } },
+        };
+        let handlerFired = false;
+        expect(() =>
+          proxy.setNotificationHandler(v1StyleSchema, () => {
+            handlerFired = true;
+          }),
+        ).not.toThrow();
+
+        // The registration must land under the extracted method string: trigger
+        // a real tools/list_changed and confirm the schema-first handler runs.
+        const addToolTool = await getTool(c, "add_tool");
+        await c.callTool(addToolTool, {
+          name: "added_via_schema_first",
+          description: "added at runtime",
+        });
+        await vi.waitFor(() => expect(handlerFired).toBe(true), {
+          timeout: 5000,
+        });
+
+        // A native string-first call (ours) passes through unchanged.
+        expect(() =>
+          proxy.setNotificationHandler(
+            "notifications/prompts/list_changed",
+            () => {},
+          ),
+        ).not.toThrow();
+
+        // An unrecognized first arg (no `.shape.method.value`) can't be
+        // translated and falls through to the SDK, which rejects it clearly —
+        // we don't silently swallow a genuinely-malformed registration.
+        expect(() =>
+          proxy.setNotificationHandler({} as unknown, () => {}),
+        ).toThrow(/not a spec notification method/);
       });
     });
 

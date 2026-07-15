@@ -187,6 +187,24 @@ const TOOL_CALL_CANCELLED_REASON = "Tool call cancelled by user";
 const DEFAULT_TASK_POLL_INTERVAL_MS = 500;
 
 /**
+ * Extract the method literal from an MCP notification Zod schema (e.g.
+ * `ToolListChangedNotificationSchema`), or `undefined` if the shape isn't
+ * recognized. Used by the App-renderer client proxy to translate the SDK-v1
+ * schema-first `setNotificationHandler` API — which `@modelcontextprotocol/ext-apps`
+ * still uses — into SDK v2's method-string form. Reads the `method` literal off
+ * the notification schema's `shape` (the shape both the v1 SDK and v2 core
+ * schemas expose).
+ */
+function notificationMethodFromSchema(schema: unknown): string | undefined {
+  if (schema !== null && typeof schema === "object") {
+    const literal = (schema as { shape?: { method?: { value?: unknown } } })
+      .shape?.method?.value;
+    if (typeof literal === "string") return literal;
+  }
+  return undefined;
+}
+
+/**
  * The descriptor for a single tools/call, threaded through the retry loop and
  * each attempt. Bundled into one object so `callToolWithRetries`/`attemptToolCall`
  * don't take a long, transposition-prone positional parameter list.
@@ -1441,9 +1459,25 @@ export class InspectorClient extends InspectorClientEventTarget {
       get(proxyTarget, prop, receiver) {
         const value = Reflect.get(proxyTarget, prop, receiver);
         if (prop === "setNotificationHandler" && typeof value === "function") {
-          return (...args: Parameters<Client["setNotificationHandler"]>) => {
-            // Add behavior here (e.g. wrap handler, log, filter)
-            return value.apply(target, args);
+          return (schemaOrMethod: unknown, ...rest: unknown[]) => {
+            // `@modelcontextprotocol/ext-apps` still peers on SDK v1 and
+            // subscribes to list-changed notifications with the v1 schema-first
+            // API `setNotificationHandler(NotificationSchema, handler)`. SDK v2
+            // requires a method STRING as the first argument and throws
+            // "'[object Object]' is not a spec notification method" on a schema —
+            // which broke App rendering during the initial connect handshake.
+            // Translate a schema-first call to the method-string form; native
+            // string-first calls (ours) pass through untouched. Remove when
+            // ext-apps#702 ships a v2 peer.
+            const method =
+              typeof schemaOrMethod === "string"
+                ? schemaOrMethod
+                : (notificationMethodFromSchema(schemaOrMethod) ??
+                  schemaOrMethod);
+            return (value as (...a: unknown[]) => unknown).apply(target, [
+              method,
+              ...rest,
+            ]);
           };
         }
         return value;
