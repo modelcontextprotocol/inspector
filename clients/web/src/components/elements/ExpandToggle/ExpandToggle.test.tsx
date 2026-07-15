@@ -23,4 +23,30 @@ describe("ExpandToggle", () => {
     await user.click(screen.getByRole("button", { name: "Expand" }));
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
+
+  it("uses ariaLabel as the accessible name when provided", () => {
+    renderWithMantine(
+      <ExpandToggle
+        expanded={false}
+        onToggle={vi.fn()}
+        ariaLabel="Expand resource demo://r/1"
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Expand resource demo://r/1" }),
+    ).toBeInTheDocument();
+  });
+
+  it("exposes aria-expanded=false when collapsed", () => {
+    renderWithMantine(<ExpandToggle expanded={false} onToggle={vi.fn()} />);
+    expect(screen.getByRole("button")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("exposes aria-expanded=true when expanded", () => {
+    renderWithMantine(<ExpandToggle expanded={true} onToggle={vi.fn()} />);
+    expect(screen.getByRole("button")).toHaveAttribute("aria-expanded", "true");
+  });
 });

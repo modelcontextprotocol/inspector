@@ -13,7 +13,6 @@ export const Full: Story = {
   args: {
     uri: "file:///docs/readme.md",
     name: "Readme",
-    description: "Project documentation",
     mimeType: "text/markdown",
   },
 };

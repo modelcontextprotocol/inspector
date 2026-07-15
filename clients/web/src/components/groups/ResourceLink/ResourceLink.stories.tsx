@@ -41,13 +41,16 @@ export const Static: Story = {
   args: {
     uri: URI,
     name: "Readme",
-    description: "Project documentation",
     mimeType: "text/markdown",
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     expect(canvas.getByText(URI)).toBeInTheDocument();
-    expect(canvas.queryByRole("button")).not.toBeInTheDocument();
+    // Copy button is present; there's no expand control in the static card.
+    expect(canvas.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+    expect(
+      canvas.queryByRole("button", { name: /^Expand resource/ }),
+    ).not.toBeInTheDocument();
   },
 };
 
@@ -55,18 +58,16 @@ export const Expandable: Story = {
   args: {
     uri: URI,
     name: "Readme",
-    description: "Click to read on demand",
     mimeType: "text/markdown",
     onReadResource: readMarkdown,
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const button = canvas.getByRole("button", {
-      name: `Expand resource ${URI}`,
-    });
-    await userEvent.click(button);
+    await userEvent.click(
+      canvas.getByRole("button", { name: `Expand resource ${URI}` }),
+    );
     await waitFor(() =>
-      expect(canvas.getByText("Resource:")).toBeInTheDocument(),
+      expect(canvas.getByText(/Read on demand/)).toBeInTheDocument(),
     );
   },
 };
@@ -77,7 +78,6 @@ export const LargeResult: Story = {
   args: {
     uri: BLOB_URI,
     name: "Blob Resource",
-    description: "A large gzipped resource",
     mimeType: "application/gzip",
     onReadResource: readLargeBlob,
   },
@@ -86,8 +86,10 @@ export const LargeResult: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: `Expand resource ${BLOB_URI}` }),
     );
+    // The `"blob"` key appears only in the expanded read result's JSON (not in
+    // the metadata badge), so it confirms the inline result rendered.
     await waitFor(() =>
-      expect(canvas.getByText("Resource:")).toBeInTheDocument(),
+      expect(canvas.getByText(/"blob":/)).toBeInTheDocument(),
     );
   },
 };

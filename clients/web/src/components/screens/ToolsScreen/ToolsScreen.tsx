@@ -10,6 +10,7 @@ import {
   type ToolProgress,
 } from "../../groups/ToolDetailPanel/ToolDetailPanel";
 import { ToolResultPanel } from "../../groups/ToolResultPanel/ToolResultPanel";
+import { resultHasResourceLinks } from "../../groups/ToolResultPanel/toolResultUtils";
 import { collectSchemaDefaults } from "../../../utils/jsonUtils";
 
 export interface ToolCallState {
@@ -181,7 +182,14 @@ export function ToolsScreen({
         // `result` (App.tsx), so the executing form (progress + cancel) shows
         // until the result lands.
         <ContentPane mah={SCROLL_MAX_HEIGHT}>
-          <ContentCard>
+          {/* Fill the pane's full height only when the result renders a
+              "Resource Links" box, so that box can expand into the available
+              space and scroll within. Plain text/image/error results keep the
+              content-sized card (matching the input-form state) instead of
+              reserving a tall empty card. */}
+          <ContentCard
+            flex={resultHasResourceLinks(callState.result) ? 1 : undefined}
+          >
             <ToolResultPanel
               result={callState.result}
               onClear={() => onClearResult?.()}

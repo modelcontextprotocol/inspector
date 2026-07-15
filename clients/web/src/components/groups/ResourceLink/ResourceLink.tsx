@@ -1,25 +1,15 @@
 import { useState } from "react";
-import {
-  Alert,
-  Loader,
-  Paper,
-  ScrollArea,
-  Stack,
-  Text,
-  UnstyledButton,
-} from "@mantine/core";
+import { Alert, Card, Collapse, ScrollArea, Stack, Text } from "@mantine/core";
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
-import { RiArrowDownSLine, RiArrowRightSLine } from "react-icons/ri";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { ResourceLinkInfo } from "../../elements/ResourceLinkInfo/ResourceLinkInfo";
 
 export interface ResourceLinkProps {
   /** The linked resource's URI (always shown). */
   uri: string;
-  /** Optional human-friendly name shown beneath the URI. */
+  /** Optional human-friendly name shown above the URI. */
   name?: string;
-  /** Optional description shown beneath the name. */
-  description?: string;
   /** Optional MIME type shown as a badge. */
   mimeType?: string;
   /**
@@ -30,15 +20,15 @@ export interface ResourceLinkProps {
   onReadResource?: (uri: string) => Promise<ReadResourceResult>;
 }
 
-const LinkCard = Paper.withProps({
+// Recessed "inset" surface so each link card reads the same as a Protocol
+// message card (ProtocolEntry), matching its colors in both light and dark
+// modes; the inset variant also raises nested Code blocks (the expanded read
+// result) onto a lighter surface via its cascade variable.
+const LinkCard = Card.withProps({
   withBorder: true,
-  p: "sm",
+  padding: "sm",
   radius: "md",
-});
-
-const HeaderButton = UnstyledButton.withProps({
-  w: "100%",
-  ta: "left",
+  variant: "inset",
 });
 
 const ExpandedSection = Stack.withProps({
@@ -58,12 +48,6 @@ const ResultScroll = ScrollArea.Autosize.withProps({
   offsetScrollbars: true,
 });
 
-const ResourceLabel = Text.withProps({
-  size: "sm",
-  fw: 600,
-  c: "green",
-});
-
 const LoadingText = Text.withProps({
   size: "sm",
   c: "dimmed",
@@ -79,7 +63,6 @@ const LoadingText = Text.withProps({
 export function ResourceLink({
   uri,
   name,
-  description,
   mimeType,
   onReadResource,
 }: ResourceLinkProps) {
@@ -113,49 +96,43 @@ export function ResourceLink({
     }
   }
 
-  const Chevron = expanded ? RiArrowDownSLine : RiArrowRightSLine;
+  // Same tooltip'd expand/collapse control as ProtocolEntry (ExpandToggle),
+  // placed in the header row's meta slot as a sibling of the URI's copy button.
+  // A per-resource `ariaLabel` keeps the toggles distinguishable to assistive
+  // tech when several links are listed (the visible tooltip stays "Expand").
   const action = expandable ? (
-    loading ? (
-      <Loader size="xs" />
-    ) : (
-      <Chevron size={16} aria-hidden />
-    )
-  ) : undefined;
-
-  const info = (
-    <ResourceLinkInfo
-      uri={uri}
-      name={name}
-      description={description}
-      mimeType={mimeType}
-      action={action}
+    <ExpandToggle
+      expanded={expanded}
+      onToggle={() => void toggle()}
+      ariaLabel={`${expanded ? "Collapse" : "Expand"} resource ${uri}`}
     />
-  );
+  ) : undefined;
 
   return (
     <LinkCard>
-      {expandable ? (
-        <HeaderButton
-          onClick={() => void toggle()}
-          aria-expanded={expanded}
-          aria-label={`${expanded ? "Collapse" : "Expand"} resource ${uri}`}
-        >
-          {info}
-        </HeaderButton>
-      ) : (
-        info
-      )}
-      {expanded && (
-        <ExpandedSection>
-          {loading ? (
-            <LoadingText>Loading resource…</LoadingText>
-          ) : error !== null ? (
-            <Alert color="red" variant="light" title="Failed to read resource">
-              {error}
-            </Alert>
-          ) : result !== null ? (
-            <>
-              <ResourceLabel>Resource:</ResourceLabel>
+      <ResourceLinkInfo
+        uri={uri}
+        name={name}
+        mimeType={mimeType}
+        action={action}
+      />
+      {/* Same expand/collapse animation as ProtocolEntry: content stays mounted
+          (so the cached read result survives a collapse) and animates via
+          Mantine's Collapse. */}
+      {expandable && (
+        <Collapse in={expanded}>
+          <ExpandedSection>
+            {loading ? (
+              <LoadingText>Loading resource…</LoadingText>
+            ) : error !== null ? (
+              <Alert
+                color="red"
+                variant="light"
+                title="Failed to read resource"
+              >
+                {error}
+              </Alert>
+            ) : result !== null ? (
               <ResultScroll>
                 <ContentViewer
                   block={{
@@ -165,9 +142,9 @@ export function ResourceLink({
                   copyable
                 />
               </ResultScroll>
-            </>
-          ) : null}
-        </ExpandedSection>
+            ) : null}
+          </ExpandedSection>
+        </Collapse>
       )}
     </LinkCard>
   );
