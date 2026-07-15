@@ -1,7 +1,4 @@
-import type {
-  OAuthClientInformation,
-  OAuthTokens,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthClientInformation, OAuthTokens } from "@modelcontextprotocol/client";
 import type { EnterpriseManagedAuthIdpConfig } from "../client/types.js";
 import { getEmaIdpLoginState, normalizeIdpIssuer } from "./ema/idpSession.js";
 import { idpOAuthStorageKey } from "./ema/storage.js";

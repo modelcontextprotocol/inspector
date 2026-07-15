@@ -4,7 +4,7 @@ import type {
   ManagedRequestorTasksState,
   ManagedRequestorTasksStateEventMap,
 } from "../mcp/state/managedRequestorTasksState.js";
-import type { Task } from "@modelcontextprotocol/sdk/types.js";
+import type { Task } from "@modelcontextprotocol/client";
 import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
 
 export interface UseManagedRequestorTasksResult {

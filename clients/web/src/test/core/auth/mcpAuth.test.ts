@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import type { OAuthClientProvider } from "@modelcontextprotocol/client";
 
 const {
   sdkAuth,
@@ -17,11 +17,9 @@ const {
   isHttpsUrl: vi.fn(),
 }));
 
-vi.mock("@modelcontextprotocol/sdk/client/auth.js", async (importOriginal) => {
+vi.mock("@modelcontextprotocol/client", async (importOriginal) => {
   const actual =
-    await importOriginal<
-      typeof import("@modelcontextprotocol/sdk/client/auth.js")
-    >();
+    await importOriginal<typeof import("@modelcontextprotocol/client")>();
   return {
     ...actual,
     auth: sdkAuth,
@@ -34,7 +32,7 @@ vi.mock("@modelcontextprotocol/sdk/client/auth.js", async (importOriginal) => {
 });
 
 import { mcpAuth } from "@inspector/core/auth/mcpAuth.js";
-import { InvalidClientMetadataError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
+import { InvalidClientMetadataError } from "@inspector/core/auth/mcpAuth.js";
 
 function makeProvider(
   overrides: Partial<OAuthClientProvider> = {},

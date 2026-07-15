@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { ResourceTemplate } from "@modelcontextprotocol/sdk/types.js";
+import type { ResourceTemplateType as ResourceTemplate } from "@modelcontextprotocol/client";
 import { PagedResourceTemplatesState } from "@inspector/core/mcp/state/pagedResourceTemplatesState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 

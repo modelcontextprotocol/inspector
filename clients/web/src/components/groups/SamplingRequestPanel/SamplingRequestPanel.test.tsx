@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type {
   CreateMessageRequestParams,
   CreateMessageResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { SamplingRequestPanel } from "./SamplingRequestPanel";
 

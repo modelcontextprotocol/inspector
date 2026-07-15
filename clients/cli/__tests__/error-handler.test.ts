@@ -193,8 +193,8 @@ describe("classifyError", () => {
     expect(envelope.status).toBe(403);
   });
 
-  it("ignores a JSON-RPC McpError numeric .code (outside the HTTP range) as a status", () => {
-    // MCP SDK's McpError carries a numeric `.code` that is a JSON-RPC error
+  it("ignores a JSON-RPC ProtocolError numeric .code (outside the HTTP range) as a status", () => {
+    // MCP SDK's ProtocolError carries a numeric `.code` that is a JSON-RPC error
     // code (e.g. -32601 MethodNotFound), NOT an HTTP status. It must not leak
     // into `status`, nor get misclassified as AUTH_REQUIRED.
     const err = Object.assign(new Error("Method not found"), { code: -32601 });

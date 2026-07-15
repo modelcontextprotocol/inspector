@@ -6,7 +6,7 @@
  */
 
 import { DEFAULT_MAX_FETCH_REQUESTS, DEFAULT_TASK_TTL_MS } from "./types.js";
-import type { Root } from "@modelcontextprotocol/sdk/types.js";
+import type { Root } from "@modelcontextprotocol/client";
 import type {
   InspectorServerSettings,
   MCPConfig,

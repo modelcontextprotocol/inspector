@@ -7,7 +7,7 @@ import {
   Title,
 } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { AppListItem } from "../AppListItem/AppListItem";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";

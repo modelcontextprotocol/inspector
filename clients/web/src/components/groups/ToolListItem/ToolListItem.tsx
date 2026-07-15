@@ -1,5 +1,5 @@
 import { Group, Image, Stack, Text, UnstyledButton } from "@mantine/core";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import { resolveDisplayLabel } from "../../../utils/toolUtils";
 
 export interface ToolListItemProps {

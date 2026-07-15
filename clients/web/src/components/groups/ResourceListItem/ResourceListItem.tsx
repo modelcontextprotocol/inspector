@@ -1,8 +1,8 @@
 import { Text, UnstyledButton } from "@mantine/core";
 import type {
   Resource,
-  ResourceTemplate,
-} from "@modelcontextprotocol/sdk/types.js";
+  ResourceTemplateType as ResourceTemplate,
+} from "@modelcontextprotocol/client";
 
 export interface ResourceListItemProps {
   resource: Resource | ResourceTemplate;

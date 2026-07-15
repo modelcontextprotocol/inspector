@@ -8,7 +8,7 @@ import {
   Text,
   UnstyledButton,
 } from "@mantine/core";
-import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
+import type { ReadResourceResult } from "@modelcontextprotocol/client";
 import { RiArrowDownSLine, RiArrowRightSLine } from "react-icons/ri";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ResourceLinkInfo } from "../../elements/ResourceLinkInfo/ResourceLinkInfo";

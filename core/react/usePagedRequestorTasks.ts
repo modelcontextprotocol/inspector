@@ -5,7 +5,7 @@ import type {
   PagedRequestorTasksStateEventMap,
   LoadPageResult,
 } from "../mcp/state/pagedRequestorTasksState.js";
-import type { Task } from "@modelcontextprotocol/sdk/types.js";
+import type { Task } from "@modelcontextprotocol/client";
 import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
 
 export interface UsePagedRequestorTasksResult {

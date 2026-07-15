@@ -8,13 +8,13 @@ import type {
   McpUiHostCapabilities,
   McpUiResourceMeta,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Client } from "@modelcontextprotocol/client";
 import type {
   EmbeddedResource,
   Implementation,
   ReadResourceResult,
   ResourceLink,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import {
   approveCspSources,
   buildSandboxCspPolicy,
@@ -212,9 +212,17 @@ export function createAppBridgeFactory(
     // never mutates the shared HOST_CAPABILITIES constant — each app may
     // declare its own csp/permissions.
     const hostCapabilities: McpUiHostCapabilities = { ...HOST_CAPABILITIES };
-    const bridge = new AppBridge(client, HOST_INFO, hostCapabilities, {
-      hostContext: snapshotHostContext(iframe, HOST_AVAILABLE_DISPLAY_MODES),
-    });
+    // ext-apps' `AppBridge` peers on SDK v1's `Client`/`Implementation`; both
+    // are runtime-compatible with v2's. Cast at this single construction
+    // boundary. TODO: drop when ext-apps#702 ships a v2 peer release.
+    const bridge = new AppBridge(
+      client as unknown as ConstructorParameters<typeof AppBridge>[0],
+      HOST_INFO as unknown as ConstructorParameters<typeof AppBridge>[1],
+      hostCapabilities,
+      {
+        hostContext: snapshotHostContext(iframe, HOST_AVAILABLE_DISPLAY_MODES),
+      },
+    );
 
     // The double-iframe proxy posts `sandboxready` once it can receive content.
     // Read the tool's UI resource and hand its HTML (plus any sandbox/permission
@@ -226,7 +234,9 @@ export function createAppBridgeFactory(
     bridge.addEventListener("sandboxready", () => {
       void (async () => {
         try {
-          const uri = getToolUiResourceUri(tool);
+          const uri = getToolUiResourceUri(
+            tool as Parameters<typeof getToolUiResourceUri>[0],
+          );
           if (!uri) return;
           const result = await deps.readResource(uri);
           const { html, meta } = extractHtmlAndMeta(result);

@@ -8,9 +8,9 @@ import type {
   CreateTransportResult,
   InspectorServerSettings,
 } from "../types.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { SSEClientTransport } from "@modelcontextprotocol/client";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createFetchTracker } from "../fetchTracking.js";
 import { createAuthChallengeInterceptFetch } from "./authChallengeFetch.js";
 import type { Dispatcher } from "undici";

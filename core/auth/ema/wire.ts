@@ -1,9 +1,6 @@
-import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
-import type {
-  OAuthClientInformation,
-  OAuthTokens,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
-import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/client";
+import type { OAuthClientInformation, OAuthTokens } from "@modelcontextprotocol/client";
+import { OAuthTokensSchema } from "@modelcontextprotocol/core";
 import type { EnterpriseManagedAuthIdpConfig } from "../../client/types.js";
 import {
   GRANT_TYPE_JWT_BEARER,

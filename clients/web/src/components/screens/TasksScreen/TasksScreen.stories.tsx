@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { Task } from "@modelcontextprotocol/sdk/types.js";
+import type { Task } from "@modelcontextprotocol/client";
 import { fn } from "storybook/test";
 import { TasksScreen } from "./TasksScreen";
 import { EMPTY_TASKS_UI } from "../screenUiState";

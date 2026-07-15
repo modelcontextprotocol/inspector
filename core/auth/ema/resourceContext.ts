@@ -1,10 +1,6 @@
-import {
-  discoverAuthorizationServerMetadata,
-  discoverOAuthProtectedResourceMetadata,
-  selectResourceURL,
-} from "@modelcontextprotocol/sdk/client/auth.js";
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
-import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { discoverAuthorizationServerMetadata, discoverOAuthProtectedResourceMetadata, selectResourceURL } from "@modelcontextprotocol/client";
+import type { OAuthClientProvider } from "@modelcontextprotocol/client";
+import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/client";
 import { getAuthorizationServerUrl } from "../discovery.js";
 
 export interface EmaResourceContext {

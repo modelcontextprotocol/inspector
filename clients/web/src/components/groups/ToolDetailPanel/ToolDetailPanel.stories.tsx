@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { ToolDetailPanel } from "./ToolDetailPanel";
 

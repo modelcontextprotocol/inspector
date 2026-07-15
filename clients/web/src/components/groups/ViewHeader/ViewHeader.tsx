@@ -13,7 +13,7 @@ import {
   useComputedColorScheme,
   type MantineTransition,
 } from "@mantine/core";
-import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
+import type { Implementation } from "@modelcontextprotocol/client";
 import { MdLightMode, MdDarkMode, MdSettings } from "react-icons/md";
 import { VscDebugDisconnect } from "react-icons/vsc";
 import type { ConnectionStatus } from "@inspector/core/mcp/types.js";

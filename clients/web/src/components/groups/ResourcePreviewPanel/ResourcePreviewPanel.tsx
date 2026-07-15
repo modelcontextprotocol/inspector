@@ -13,7 +13,7 @@ import type {
   BlobResourceContents,
   Resource,
   TextResourceContents,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { accessibleTextColor } from "../../elements/accessibleTextColor";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";

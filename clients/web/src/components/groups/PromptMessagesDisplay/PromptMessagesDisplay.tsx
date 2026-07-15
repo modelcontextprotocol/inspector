@@ -7,7 +7,7 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import type { PromptMessage } from "@modelcontextprotocol/sdk/types.js";
+import type { PromptMessage } from "@modelcontextprotocol/client";
 import { MessageBubble } from "../../elements/MessageBubble/MessageBubble";
 
 export interface PromptMessagesDisplayProps {

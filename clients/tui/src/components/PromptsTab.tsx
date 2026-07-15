@@ -7,7 +7,7 @@ import type {
   Prompt,
   PromptArgument,
   GetPromptResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { useSelectableList } from "../hooks/useSelectableList.js";
 
 interface PromptsTabProps {

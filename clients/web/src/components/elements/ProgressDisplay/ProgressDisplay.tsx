@@ -1,5 +1,5 @@
 import { Group, Progress, Stack, Text } from "@mantine/core";
-import type { ProgressNotification } from "@modelcontextprotocol/sdk/types.js";
+import type { ProgressNotification } from "@modelcontextprotocol/client";
 
 export interface ProgressDisplayProps {
   params: Pick<

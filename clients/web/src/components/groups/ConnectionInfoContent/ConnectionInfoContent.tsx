@@ -12,7 +12,7 @@ import {
 import type {
   ClientCapabilities,
   InitializeResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import type { ServerType } from "@inspector/core/mcp/types.js";
 import type { OAuthClientRegistrationKind } from "@inspector/core/auth/types.js";
 import {

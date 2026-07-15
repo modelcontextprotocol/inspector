@@ -4,7 +4,7 @@ import {
   discoverEmaResourceContext,
   discoverResourceAsMetadata,
 } from "@inspector/core/auth/ema/resourceContext.js";
-import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/client";
 import { minimalOAuthAsMetadata } from "../../../integration/mcp/ema-mock-servers.js";
 
 const SERVER_URL = "http://127.0.0.1:9999/mcp";

@@ -20,7 +20,7 @@ import type {
   JSONRPCErrorResponse,
   JSONRPCResponse,
   ServerCapabilities,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 
 export interface HeaderPair {
   key: string;

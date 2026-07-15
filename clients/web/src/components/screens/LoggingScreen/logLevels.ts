@@ -1,4 +1,4 @@
-import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
+import type { LoggingLevel } from "@modelcontextprotocol/client";
 
 // Default visible-level filter: every level on. Shared by LoggingScreen (its
 // fallback when the parent hasn't set `visibleLevels`) and App, which seeds and

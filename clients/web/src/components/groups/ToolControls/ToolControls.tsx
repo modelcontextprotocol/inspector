@@ -1,6 +1,6 @@
 import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { ToolListItem } from "../ToolListItem/ToolListItem";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";

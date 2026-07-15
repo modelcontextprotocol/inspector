@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import { ProtocolErrorCode, ProtocolError } from "@modelcontextprotocol/client";
 import { UrlElicitationLoopError } from "@inspector/core/mcp/urlElicitation.js";
 import { ToolCallCancelledError } from "@inspector/core/mcp/toolCallCancelledError.js";
 import {
@@ -1107,8 +1107,8 @@ describe("App task wiring", () => {
         callTool: ReturnType<typeof vi.fn>;
       }
     ).callTool.mockRejectedValueOnce(
-      new McpError(
-        ErrorCode.UrlElicitationRequired,
+      new ProtocolError(
+        ProtocolErrorCode.UrlElicitationRequired,
         "This request requires browser-based authorization.",
       ),
     );

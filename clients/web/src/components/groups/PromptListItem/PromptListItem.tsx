@@ -1,5 +1,5 @@
 import { Stack, Text, UnstyledButton } from "@mantine/core";
-import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
+import type { Prompt } from "@modelcontextprotocol/client";
 
 export interface PromptListItemProps {
   prompt: Prompt;

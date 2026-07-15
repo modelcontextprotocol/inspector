@@ -1,12 +1,5 @@
-import type {
-  OAuthClientInformation,
-  OAuthTokens,
-  OAuthMetadata,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
-import {
-  OAuthClientInformationSchema,
-  OAuthTokensSchema,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthClientInformation, OAuthTokens, OAuthMetadata } from "@modelcontextprotocol/client";
+import { OAuthClientInformationSchema, OAuthTokensSchema } from "@modelcontextprotocol/core";
 import type { OAuthStorage } from "./storage.js";
 import { type OAuthMemoryStore, type ServerOAuthState } from "./store.js";
 import type { OAuthPersistBackend } from "./oauth-persist.js";

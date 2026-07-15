@@ -8,10 +8,7 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
-import type {
-  ProgressNotification,
-  Task,
-} from "@modelcontextprotocol/sdk/types.js";
+import type { ProgressNotification, Task } from "@modelcontextprotocol/client";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";

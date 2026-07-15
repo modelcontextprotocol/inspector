@@ -1,13 +1,6 @@
-import {
-  discoverAuthorizationServerMetadata,
-  exchangeAuthorization,
-  startAuthorization,
-} from "@modelcontextprotocol/sdk/client/auth.js";
-import type {
-  OAuthClientInformation,
-  OAuthMetadata,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
-import { OAuthMetadataSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { discoverAuthorizationServerMetadata, exchangeAuthorization, startAuthorization } from "@modelcontextprotocol/client";
+import type { OAuthClientInformation, OAuthMetadata } from "@modelcontextprotocol/client";
+import { OAuthMetadataSchema } from "@modelcontextprotocol/core";
 import type { OAuthStorage } from "../storage.js";
 import type { EnterpriseManagedAuthIdpConfig } from "../../client/types.js";
 import { generateOAuthState, parseHttpUrl } from "../utils.js";

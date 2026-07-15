@@ -3,7 +3,7 @@ import { Box, Text, useInput, type Key } from "ink";
 import { Form } from "ink-form";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
-import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
+import type { ReadResourceResult } from "@modelcontextprotocol/client";
 import { uriTemplateToForm } from "../utils/uriTemplateToForm.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 

@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
-  ErrorCode,
-  McpError,
+  ProtocolErrorCode,
+  ProtocolError,
   UrlElicitationRequiredError,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import type {
   ElicitRequestURLParams,
   Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import { UrlElicitationLoopError } from "@inspector/core/mcp/urlElicitation.js";
 import type { CreateTransport } from "@inspector/core/mcp/types.js";
@@ -224,8 +224,8 @@ describe("InspectorClient URL-elicitation error path", () => {
   it("rethrows a -32042 error with no elicitations without queuing anything", async () => {
     const fake: FakeClient = {
       callTool: vi.fn(async () => {
-        throw new McpError(
-          ErrorCode.UrlElicitationRequired,
+        throw new ProtocolError(
+          ProtocolErrorCode.UrlElicitationRequired,
           "This request requires browser-based authorization.",
         );
       }),
@@ -234,7 +234,7 @@ describe("InspectorClient URL-elicitation error path", () => {
     const client = makeClient(fake);
 
     await expect(client.callTool(tool, {})).rejects.toMatchObject({
-      code: ErrorCode.UrlElicitationRequired,
+      code: ProtocolErrorCode.UrlElicitationRequired,
     });
     expect(client.getPendingElicitations()).toHaveLength(0);
     expect(fake.callTool).toHaveBeenCalledTimes(1);

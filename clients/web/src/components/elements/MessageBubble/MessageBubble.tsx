@@ -3,7 +3,7 @@ import type {
   ContentBlock,
   PromptMessage,
   SamplingMessage,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { ContentViewer } from "../ContentViewer/ContentViewer";
 
 export interface MessageBubbleProps {

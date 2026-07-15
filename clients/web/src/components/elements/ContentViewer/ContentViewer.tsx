@@ -4,7 +4,7 @@ import type {
   BlobResourceContents,
   ContentBlock,
   TextResourceContents,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";

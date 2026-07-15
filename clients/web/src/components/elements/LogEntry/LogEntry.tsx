@@ -2,7 +2,7 @@ import { Group, Stack, Text } from "@mantine/core";
 import type {
   LoggingLevel,
   LoggingMessageNotification,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { LogLevelBadge } from "../LogLevelBadge/LogLevelBadge";
 import { accessibleTextColor } from "../accessibleTextColor";
 

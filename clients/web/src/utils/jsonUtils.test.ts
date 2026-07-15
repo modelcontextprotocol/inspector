@@ -7,7 +7,7 @@ import {
   collectSchemaDefaults,
   hasMissingRequiredFields,
 } from "./jsonUtils";
-import type { JsonSchemaType } from "./jsonUtils";
+import type { InspectorFormSchema } from "./jsonUtils";
 
 describe("getDataType", () => {
   it("returns 'array' for arrays", () => {
@@ -172,7 +172,7 @@ describe("updateValueAtPath edge case suppression", () => {
 
 describe("collectSchemaDefaults", () => {
   it("collects defaults across field types and omits fields without one", () => {
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         firstLine: {
@@ -197,7 +197,7 @@ describe("collectSchemaDefaults", () => {
   });
 
   it("recurses into nested object schemas and skips empty ones", () => {
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         db: {
@@ -224,7 +224,7 @@ describe("collectSchemaDefaults", () => {
 });
 
 describe("hasMissingRequiredFields", () => {
-  const schema: JsonSchemaType = {
+  const schema: InspectorFormSchema = {
     type: "object",
     properties: { name: { type: "string" }, age: { type: "integer" } },
     required: ["name"],

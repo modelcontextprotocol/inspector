@@ -19,7 +19,7 @@ import type {
   ProgressToken,
   Task,
   Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { getServerType } from "@inspector/core/mcp/config.js";
 import type {
@@ -451,7 +451,7 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-// Pretty-print a thrown error for the URL-elicitation details modal: an McpError
+// Pretty-print a thrown error for the URL-elicitation details modal: a ProtocolError
 // carries a `code`/`data` worth showing alongside the message, so include them
 // when present; otherwise fall back to the plain message.
 function formatErrorDetails(err: unknown): string {

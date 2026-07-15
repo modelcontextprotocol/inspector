@@ -3,7 +3,7 @@
  */
 
 import type { FormStructure, FormSection, FormField } from "ink-form";
-import { UriTemplate } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
+import { UriTemplate } from "@modelcontextprotocol/client";
 
 /**
  * Converts a URI Template to ink-form structure

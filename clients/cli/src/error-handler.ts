@@ -77,7 +77,7 @@ function statusOf(error: unknown): number | undefined {
   if (typeof e.status === "number") return e.status;
   if (typeof e.response?.status === "number") return e.response.status;
   // SDK SseError / StreamableHTTPError expose `.code` as the HTTP status. Guard
-  // to the HTTP range (100-599) so a JSON-RPC McpError code (e.g. -32601
+  // to the HTTP range (100-599) so a JSON-RPC ProtocolError code (e.g. -32601
   // MethodNotFound) is not mistaken for an HTTP status and leaked into the
   // envelope or misclassified as AUTH_REQUIRED. String node codes like
   // "ENOTFOUND" are already excluded by the numeric check.

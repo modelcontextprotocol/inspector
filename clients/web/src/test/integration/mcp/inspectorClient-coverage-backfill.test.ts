@@ -23,8 +23,8 @@ import {
   createNumberedResources,
   createNumberedPrompts,
 } from "@modelcontextprotocol/inspector-test-server";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
+import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/client";
 
 const serverCommand = getTestMcpServerCommand();
 
@@ -184,7 +184,10 @@ describe("InspectorClient coverage backfill", () => {
       };
       const original = c.client.complete;
       c.client.complete = async () => {
-        throw new McpError(ErrorCode.MethodNotFound, "Method not found");
+        throw new ProtocolError(
+          ProtocolErrorCode.MethodNotFound,
+          "Method not found",
+        );
       };
       try {
         await expect(
@@ -591,11 +594,13 @@ describe("InspectorClient coverage backfill", () => {
       client = stdioClient();
       await client.connect();
       // Force the streaming API to throw synchronously so the error-path
-      // metadata-merge branches run for each combination.
+      // metadata-merge branches run for each combination. `callToolStream`
+      // drives tasks via the private `pollTaskToolCall` generator (SDK v2
+      // removed `client.experimental.tasks`), so patch that instead.
       const c = client as unknown as {
-        client: { experimental: { tasks: { callToolStream: () => never } } };
+        pollTaskToolCall: () => never;
       };
-      c.client.experimental.tasks.callToolStream = () => {
+      c.pollTaskToolCall = () => {
         throw new Error("forced-stream-failure");
       };
 
@@ -747,9 +752,9 @@ describe("InspectorClient coverage backfill", () => {
       await client.connect();
       const echo = await getTool(client, "echo");
       const c = client as unknown as {
-        client: { experimental: { tasks: { callToolStream: () => never } } };
+        pollTaskToolCall: () => never;
       };
-      c.client.experimental.tasks.callToolStream = () => {
+      c.pollTaskToolCall = () => {
         throw "string-stream-failure";
       };
       await expect(
@@ -761,18 +766,12 @@ describe("InspectorClient coverage backfill", () => {
       client = stdioClient();
       await client.connect();
       const c = client as unknown as {
-        client: {
-          listResources: () => Promise<unknown>;
-          listResourceTemplates: () => Promise<unknown>;
-          listPrompts: () => Promise<unknown>;
-          listTools: () => Promise<unknown>;
-        };
+        client: { request: () => Promise<unknown> };
       };
-      // Return responses missing the array field → `|| []` fallback branches.
-      c.client.listResources = async () => ({});
-      c.client.listResourceTemplates = async () => ({});
-      c.client.listPrompts = async () => ({});
-      c.client.listTools = async () => ({});
+      // InspectorClient's list methods issue raw `client.request({method:"…/list"})`
+      // (SDK v2's `client.listX()` auto-aggregate pages), so mock `request` to
+      // return a body missing the array field → `|| []` fallback branches.
+      c.client.request = async () => ({});
 
       expect((await client.listResources()).resources).toEqual([]);
       expect((await client.listResourceTemplates()).resourceTemplates).toEqual(
@@ -800,19 +799,26 @@ describe("InspectorClient coverage backfill", () => {
       gen: () => AsyncGenerator<unknown>,
       getTaskResult?: () => Promise<unknown>,
     ): void {
+      // SDK v2 removed `client.experimental.tasks`; `callToolStream` now drives
+      // tasks via the private `pollTaskToolCall` generator, and the no-result
+      // fallback fetches the payload with a raw `client.request({method:"tasks/result"})`.
       const internal = c as unknown as {
+        pollTaskToolCall: () => AsyncGenerator<unknown>;
         client: {
-          experimental: {
-            tasks: {
-              callToolStream: () => AsyncGenerator<unknown>;
-              getTaskResult: (id: string) => Promise<unknown>;
-            };
-          };
+          request: (
+            req: { method: string },
+            schema: unknown,
+            opts: unknown,
+          ) => Promise<unknown>;
         };
       };
-      internal.client.experimental.tasks.callToolStream = gen;
+      internal.pollTaskToolCall = gen;
       if (getTaskResult) {
-        internal.client.experimental.tasks.getTaskResult = getTaskResult;
+        const origRequest = internal.client.request.bind(internal.client);
+        internal.client.request = (req, schema, opts) =>
+          req.method === "tasks/result"
+            ? getTaskResult()
+            : origRequest(req, schema, opts);
       }
     }
 

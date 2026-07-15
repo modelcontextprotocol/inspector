@@ -3,7 +3,7 @@
  */
 
 import type { FormStructure, FormSection, FormField } from "ink-form";
-import type { PromptArgument } from "@modelcontextprotocol/sdk/types.js";
+import type { PromptArgument } from "@modelcontextprotocol/client";
 
 /**
  * Converts prompt arguments array to ink-form structure

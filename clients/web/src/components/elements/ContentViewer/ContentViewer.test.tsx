@@ -3,7 +3,7 @@ import type {
   BlobResourceContents,
   ContentBlock,
   TextResourceContents,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { ContentViewer } from "./ContentViewer";
 

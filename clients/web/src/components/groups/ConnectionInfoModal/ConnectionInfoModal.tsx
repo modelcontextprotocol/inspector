@@ -2,7 +2,7 @@ import { CloseButton, Group, Modal, Stack } from "@mantine/core";
 import type {
   ClientCapabilities,
   InitializeResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import type { ServerType } from "@inspector/core/mcp/types.js";
 import {
   ConnectionInfoContent,

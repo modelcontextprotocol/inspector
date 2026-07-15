@@ -4,7 +4,7 @@ import type {
   ClientCapabilities,
   Implementation,
   ServerCapabilities,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 import { useInspectorClient } from "@inspector/core/react/useInspectorClient";
 import type { InspectorClientProtocol } from "@inspector/core/mcp/inspectorClientProtocol";

@@ -12,7 +12,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 
 const NODE_ONLY_OPTIMIZE_DEPS_EXCLUDE = [
-  "@modelcontextprotocol/sdk/client/stdio.js",
+  "@modelcontextprotocol/client/stdio",
   // `atomically` is reached only through `core/storage/store-io.ts`,
   // which is imported by `core/mcp/remote/node/server.ts` (the Hono
   // app). The module never lands in the browser graph; excluding it
@@ -52,7 +52,7 @@ export function getViteDevOptimizeDeps() {
     exclude: [...NODE_ONLY_OPTIMIZE_DEPS_EXCLUDE],
     force: true,
     ignoreOutdatedRequests: true,
-    include: ["ajv", "@modelcontextprotocol/sdk/validation/ajv"],
+    include: ["ajv", "@modelcontextprotocol/client/validators/ajv"],
   };
 }
 

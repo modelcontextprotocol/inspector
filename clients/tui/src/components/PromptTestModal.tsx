@@ -3,10 +3,7 @@ import { Box, Text, useInput, type Key } from "ink";
 import { Form } from "ink-form";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
-import type {
-  Prompt,
-  GetPromptResult,
-} from "@modelcontextprotocol/sdk/types.js";
+import type { Prompt, GetPromptResult } from "@modelcontextprotocol/client";
 import { promptArgsToForm } from "../utils/promptArgsToForm.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 

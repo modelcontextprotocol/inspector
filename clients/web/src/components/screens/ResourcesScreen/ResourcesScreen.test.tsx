@@ -3,9 +3,9 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type {
   Resource,
-  ResourceTemplate,
+  ResourceTemplateType as ResourceTemplate,
   ReadResourceResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import {
   ResourcesScreen,

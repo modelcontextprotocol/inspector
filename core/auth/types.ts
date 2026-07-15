@@ -1,10 +1,4 @@
-import type {
-  OAuthMetadata,
-  OAuthClientInformation,
-  OAuthClientInformationFull,
-  OAuthTokens,
-  OAuthProtectedResourceMetadata,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthMetadata, OAuthClientInformation, OAuthClientInformationFull, OAuthTokens, OAuthProtectedResourceMetadata } from "@modelcontextprotocol/client";
 
 // OAuth flow steps
 export type OAuthStep =

@@ -15,7 +15,7 @@ import { RemoteClientTransport } from "@inspector/core/mcp/remote/remoteClientTr
 import type { RemoteTransportOptions } from "@inspector/core/mcp/remote/remoteClientTransport.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import type { RemoteEvent } from "@inspector/core/mcp/remote/types.js";
-import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import type { JSONRPCMessage } from "@modelcontextprotocol/client";
 import {
   AuthChallengeError,
   AuthRecoveryRequiredError,

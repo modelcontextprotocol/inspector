@@ -10,7 +10,7 @@ import {
 import type {
   CallToolResult,
   ReadResourceResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ResourceLink } from "../ResourceLink/ResourceLink";
 

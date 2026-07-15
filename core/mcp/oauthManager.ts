@@ -7,8 +7,8 @@
 import { BaseOAuthClientProvider } from "../auth/providers.js";
 import type { OAuthFlowState, OAuthStep } from "../auth/types.js";
 import { EMPTY_OAUTH_FLOW_STATE } from "../auth/types.js";
-import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
-import type { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthTokens } from "@modelcontextprotocol/client";
+import type { OAuthClientInformation } from "@modelcontextprotocol/client";
 import { mcpAuth } from "../auth/mcpAuth.js";
 import type { OAuthStorage } from "../auth/storage.js";
 import { parseOAuthState } from "../auth/utils.js";

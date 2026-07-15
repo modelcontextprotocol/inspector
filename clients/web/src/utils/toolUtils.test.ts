@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import { hasInputFields, resolveDisplayLabel } from "./toolUtils";
 
 describe("resolveDisplayLabel", () => {

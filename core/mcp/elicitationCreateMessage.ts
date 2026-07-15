@@ -1,8 +1,5 @@
-import type {
-  ElicitRequest,
-  ElicitResult,
-} from "@modelcontextprotocol/sdk/types.js";
-import { RELATED_TASK_META_KEY } from "@modelcontextprotocol/sdk/types.js";
+import type { ElicitRequest, ElicitResult } from "@modelcontextprotocol/client";
+import { RELATED_TASK_META_KEY } from "@modelcontextprotocol/client";
 
 export type { ElicitRequest, ElicitResult };
 

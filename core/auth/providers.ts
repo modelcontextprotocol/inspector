@@ -1,10 +1,8 @@
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
-  OAuthClientInformation,
-  OAuthClientMetadata,
-  OAuthTokens,
-  OAuthMetadata,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+  OAuthClientProvider,
+  OAuthClientInformationContext,
+} from "@modelcontextprotocol/client";
+import type { OAuthClientInformation, OAuthClientMetadata, OAuthTokens, OAuthMetadata } from "@modelcontextprotocol/client";
 import type { OAuthStorage, SaveClientInformationOptions } from "./storage.js";
 import { generateOAuthState } from "./utils.js";
 
@@ -201,10 +199,19 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
 
   async saveClientInformation(
     clientInformation: OAuthClientInformation,
-    options?: SaveClientInformationOptions,
+    // SDK v2's `OAuthClientProvider.saveClientInformation` passes an
+    // `OAuthClientInformationContext` ({ issuer }); our own DCR/CIMD callers
+    // pass `SaveClientInformationOptions` ({ registrationKind }). Accept either
+    // and narrow on the discriminating key. Per-issuer keying (SEP-2352) is a
+    // later card — for now we only read the registration kind.
+    options?: SaveClientInformationOptions | OAuthClientInformationContext,
   ): Promise<void> {
+    const registrationKind =
+      options && "registrationKind" in options
+        ? options.registrationKind
+        : "dcr";
     await this.storage.saveClientInformation(this.serverUrl, clientInformation, {
-      registrationKind: options?.registrationKind ?? "dcr",
+      registrationKind,
     });
   }
 

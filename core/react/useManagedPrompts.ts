@@ -4,7 +4,7 @@ import type {
   ManagedPromptsState,
   ManagedPromptsStateEventMap,
 } from "../mcp/state/managedPromptsState.js";
-import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
+import type { Prompt } from "@modelcontextprotocol/client";
 import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
 
 export interface UseManagedPromptsResult {

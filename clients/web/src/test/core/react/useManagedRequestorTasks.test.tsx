@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import type { Task } from "@modelcontextprotocol/sdk/types.js";
+import type { Task } from "@modelcontextprotocol/client";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 import { ManagedRequestorTasksState } from "@inspector/core/mcp/state/managedRequestorTasksState";
 import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks";

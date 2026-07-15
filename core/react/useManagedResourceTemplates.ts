@@ -4,7 +4,7 @@ import type {
   ManagedResourceTemplatesState,
   ManagedResourceTemplatesStateEventMap,
 } from "../mcp/state/managedResourceTemplatesState.js";
-import type { ResourceTemplate } from "@modelcontextprotocol/sdk/types.js";
+import type { ResourceTemplateType as ResourceTemplate } from "@modelcontextprotocol/client";
 import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
 
 export interface UseManagedResourceTemplatesResult {

@@ -1,8 +1,8 @@
-import type { JsonValue, JsonSchemaType, JsonObject } from "./jsonUtils";
+import type { JsonValue, InspectorFormSchema, JsonObject } from "./jsonUtils";
 import Ajv from "ajv";
 import type { ValidateFunction } from "ajv";
-import type { Tool, JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
-import { isJSONRPCRequest } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool, JSONRPCMessage } from "@modelcontextprotocol/client";
+import { isJSONRPCRequest } from "@modelcontextprotocol/client";
 
 const ajv = new Ajv();
 
@@ -87,9 +87,9 @@ export function hasOutputSchema(toolName: string): boolean {
  * @returns A default value matching the schema type
  */
 export function generateDefaultValue(
-  schema: JsonSchemaType,
+  schema: InspectorFormSchema,
   propertyName?: string,
-  parentSchema?: JsonSchemaType,
+  parentSchema?: InspectorFormSchema,
 ): JsonValue {
   if ("default" in schema && schema.default !== undefined) {
     return schema.default;
@@ -121,7 +121,8 @@ export function generateDefaultValue(
       // Include required properties OR optional properties that declare a default
       Object.entries(schema.properties).forEach(([key, prop]) => {
         const hasExplicitDefault =
-          "default" in prop && (prop as JsonSchemaType).default !== undefined;
+          "default" in prop &&
+          (prop as InspectorFormSchema).default !== undefined;
         if (isPropertyRequired(key, schema) || hasExplicitDefault) {
           const value = generateDefaultValue(prop, key, schema);
           if (value !== undefined) {
@@ -150,7 +151,7 @@ export function generateDefaultValue(
  */
 export function isPropertyRequired(
   propertyName: string,
-  schema: JsonSchemaType,
+  schema: InspectorFormSchema,
 ): boolean {
   return schema.required?.includes(propertyName) ?? false;
 }
@@ -162,9 +163,9 @@ export function isPropertyRequired(
  * @returns The resolved schema without $ref
  */
 export function resolveRef(
-  schema: JsonSchemaType,
-  rootSchema: JsonSchemaType,
-): JsonSchemaType {
+  schema: InspectorFormSchema,
+  rootSchema: InspectorFormSchema,
+): InspectorFormSchema {
   if (!("$ref" in schema) || !schema.$ref) {
     return schema;
   }
@@ -191,7 +192,7 @@ export function resolveRef(
       }
     }
 
-    return current as JsonSchemaType;
+    return current as InspectorFormSchema;
   }
 
   // For other types of references, return the original schema
@@ -204,13 +205,15 @@ export function resolveRef(
  * @param schema The JSON schema to normalize
  * @returns A normalized schema or the original schema
  */
-export function normalizeUnionType(schema: JsonSchemaType): JsonSchemaType {
+export function normalizeUnionType(
+  schema: InspectorFormSchema,
+): InspectorFormSchema {
   // Handle anyOf with exactly string and null (FastMCP pattern)
   if (
     schema.anyOf &&
     schema.anyOf.length === 2 &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "string") &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
+    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "string") &&
+    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "null")
   ) {
     return { ...schema, type: "string", anyOf: undefined, nullable: true };
   }
@@ -219,8 +222,8 @@ export function normalizeUnionType(schema: JsonSchemaType): JsonSchemaType {
   if (
     schema.anyOf &&
     schema.anyOf.length === 2 &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "boolean") &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
+    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "boolean") &&
+    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "null")
   ) {
     return { ...schema, type: "boolean", anyOf: undefined, nullable: true };
   }
@@ -229,8 +232,8 @@ export function normalizeUnionType(schema: JsonSchemaType): JsonSchemaType {
   if (
     schema.anyOf &&
     schema.anyOf.length === 2 &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "number") &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
+    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "number") &&
+    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "null")
   ) {
     return { ...schema, type: "number", anyOf: undefined, nullable: true };
   }
@@ -239,8 +242,8 @@ export function normalizeUnionType(schema: JsonSchemaType): JsonSchemaType {
   if (
     schema.anyOf &&
     schema.anyOf.length === 2 &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "integer") &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
+    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "integer") &&
+    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "null")
   ) {
     return { ...schema, type: "integer", anyOf: undefined, nullable: true };
   }
@@ -249,8 +252,8 @@ export function normalizeUnionType(schema: JsonSchemaType): JsonSchemaType {
   if (
     schema.anyOf &&
     schema.anyOf.length === 2 &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "array") &&
-    schema.anyOf.some((t) => (t as JsonSchemaType).type === "null")
+    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "array") &&
+    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "null")
   ) {
     return { ...schema, type: "array", anyOf: undefined, nullable: true };
   }
@@ -320,7 +323,7 @@ export function resolveRefsInMessage(message: JSONRPCMessage): JSONRPCMessage {
     return message;
   }
 
-  const requestedSchema = message.params.requestedSchema as JsonSchemaType;
+  const requestedSchema = message.params.requestedSchema as InspectorFormSchema;
 
   if (!requestedSchema?.properties) {
     return message;

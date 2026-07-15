@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Task } from "@modelcontextprotocol/sdk/types.js";
+import type { Task } from "@modelcontextprotocol/client";
 import type { TaskWithOptionalCreatedAt } from "@inspector/core/mcp/inspectorClientEventTarget";
 import { mergeTaskIntoList } from "@inspector/core/mcp/state/mergeTaskIntoList";
 

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import { fn } from "storybook/test";
 import { SUN_ICON_SVG } from "../../../test/fixtures/storyIcons";
 import { AppDetailPanel } from "./AppDetailPanel";

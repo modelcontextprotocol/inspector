@@ -23,7 +23,7 @@ import type {
 } from "./managedResourcesState.js";
 import type { InspectorResourceSubscription } from "../types.js";
 import { isTerminalStatus } from "../types.js";
-import type { Resource } from "@modelcontextprotocol/sdk/types.js";
+import type { Resource } from "@modelcontextprotocol/client";
 import {
   TypedEventTarget,
   type TypedEventGeneric,

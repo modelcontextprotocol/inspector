@@ -4,7 +4,7 @@ import { expect, fn, userEvent, within } from "storybook/test";
 import type {
   CreateMessageRequestParams,
   ElicitRequestFormParams,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import {
   PendingClientRequestModal,
   type PendingClientRequestModalProps,

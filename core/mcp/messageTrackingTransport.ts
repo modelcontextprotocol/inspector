@@ -1,17 +1,6 @@
-import type {
-  Transport,
-  TransportSendOptions,
-} from "@modelcontextprotocol/sdk/shared/transport.js";
-import type {
-  JSONRPCMessage,
-  MessageExtraInfo,
-} from "@modelcontextprotocol/sdk/types.js";
-import type {
-  JSONRPCRequest,
-  JSONRPCNotification,
-  JSONRPCResultResponse,
-  JSONRPCErrorResponse,
-} from "@modelcontextprotocol/sdk/types.js";
+import type { Transport, TransportSendOptions } from "@modelcontextprotocol/client";
+import type { JSONRPCMessage, MessageExtraInfo } from "@modelcontextprotocol/client";
+import type { JSONRPCRequest, JSONRPCNotification, JSONRPCResultResponse, JSONRPCErrorResponse } from "@modelcontextprotocol/client";
 import type { MessageOrigin } from "./types.js";
 
 export interface MessageTrackingCallbacks {

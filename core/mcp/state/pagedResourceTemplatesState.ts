@@ -12,7 +12,7 @@
  */
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
-import type { ResourceTemplate } from "@modelcontextprotocol/sdk/types.js";
+import type { ResourceTemplateType as ResourceTemplate } from "@modelcontextprotocol/client";
 import { isTerminalStatus } from "../types.js";
 import { TypedEventTarget } from "../typedEventTarget.js";
 

@@ -1,4 +1,4 @@
-import type { Task } from "@modelcontextprotocol/sdk/types.js";
+import type { Task } from "@modelcontextprotocol/client";
 import type { TaskWithOptionalCreatedAt } from "../inspectorClientEventTarget.js";
 
 /**

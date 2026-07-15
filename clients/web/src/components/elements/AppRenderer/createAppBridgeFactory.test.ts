@@ -7,11 +7,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type {
-  Tool,
-  ReadResourceResult,
-} from "@modelcontextprotocol/sdk/types.js";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Tool, ReadResourceResult } from "@modelcontextprotocol/client";
+import type { Client } from "@modelcontextprotocol/client";
 
 // --- ext-apps mock -------------------------------------------------------
 const bridgeInstances: MockBridge[] = [];

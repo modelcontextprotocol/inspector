@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import type { ResourceTemplate } from "@modelcontextprotocol/sdk/types.js";
+import type { ResourceTemplateType as ResourceTemplate } from "@modelcontextprotocol/client";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 import { ManagedResourceTemplatesState } from "@inspector/core/mcp/state/managedResourceTemplatesState";
 import { useManagedResourceTemplates } from "@inspector/core/react/useManagedResourceTemplates";

@@ -10,17 +10,23 @@
  * (the same path v2 `auth()` takes when refresh cannot widen scope).
  */
 
-import {
-  auth as sdkAuth,
-  discoverOAuthServerInfo,
-  isHttpsUrl,
-  registerClient,
-  selectResourceURL,
-  startAuthorization,
-} from "@modelcontextprotocol/sdk/client/auth.js";
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
-import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { InvalidClientMetadataError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
+import { auth as sdkAuth, discoverOAuthServerInfo, isHttpsUrl, registerClient, selectResourceURL, startAuthorization } from "@modelcontextprotocol/client";
+import type { OAuthClientProvider } from "@modelcontextprotocol/client";
+import type { FetchLike } from "@modelcontextprotocol/client";
+/**
+ * Thrown when the OAuth client metadata the Inspector would register is
+ * invalid (e.g. a non-HTTPS `clientMetadataUrl`). SDK v2 moved the original
+ * `InvalidClientMetadataError` into `@modelcontextprotocol/server-legacy`,
+ * whose `/auth` entry pulls in Node/Express server handlers that must never
+ * reach the browser bundle. This local class preserves the thrown type and
+ * message for the Inspector's client-side validation without that dependency.
+ */
+export class InvalidClientMetadataError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidClientMetadataError";
+  }
+}
 
 export type McpAuthResult = "AUTHORIZED" | "REDIRECT";
 

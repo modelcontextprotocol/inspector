@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
-import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
+import type { LoggingLevel } from "@modelcontextprotocol/client";
 import { LogEntry } from "../../elements/LogEntry/LogEntry";
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
 import {

@@ -11,7 +11,7 @@
  */
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
-import type { Resource } from "@modelcontextprotocol/sdk/types.js";
+import type { Resource } from "@modelcontextprotocol/client";
 import { isTerminalStatus } from "../types.js";
 import { TypedEventTarget } from "../typedEventTarget.js";
 

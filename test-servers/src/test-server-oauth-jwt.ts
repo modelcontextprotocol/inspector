@@ -2,20 +2,13 @@
  * JWT access-token validation for test MCP servers using an external authorization server.
  */
 
-import {
-  createRemoteJWKSet,
-  customFetch,
-  jwtVerify,
-} from "jose";
-import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
+import { createRemoteJWKSet, customFetch, jwtVerify } from "jose";
+import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/client";
 import type { ServerConfig } from "./composable-test-server.js";
 
 type ExternalValidatorOAuthConfig = Pick<
   NonNullable<ServerConfig["oauth"]>,
-  | "authorizationServers"
-  | "accessTokenIssuers"
-  | "jwksUri"
-  | "resourceAudience"
+  "authorizationServers" | "accessTokenIssuers" | "jwksUri" | "resourceAudience"
 >;
 
 function normalizeIssuer(issuer: string): string {
@@ -28,7 +21,9 @@ function audienceMatches(aud: unknown, expected: string): boolean {
     return normalizeIssuer(aud) === normalized;
   }
   if (Array.isArray(aud)) {
-    return aud.some((a) => typeof a === "string" && normalizeIssuer(a) === normalized);
+    return aud.some(
+      (a) => typeof a === "string" && normalizeIssuer(a) === normalized,
+    );
   }
   return false;
 }
@@ -85,9 +80,7 @@ export class ExternalAccessTokenValidator {
 
   private async init(): Promise<void> {
     const configuredIssuers =
-      this.config.accessTokenIssuers ??
-      this.config.authorizationServers ??
-      [];
+      this.config.accessTokenIssuers ?? this.config.authorizationServers ?? [];
     if (configuredIssuers.length === 0) {
       throw new Error(
         "External access token validation requires authorizationServers or accessTokenIssuers",

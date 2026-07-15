@@ -1,26 +1,7 @@
-import type {
-  CallToolResult,
-  ClientNotification,
-  ClientRequest,
-  GetPromptResult,
-  Implementation,
-  JSONRPCErrorResponse,
-  JSONRPCNotification,
-  JSONRPCRequest,
-  JSONRPCResultResponse,
-  LoggingLevel,
-  Prompt,
-  ReadResourceResult,
-  Resource,
-  Root,
-  ServerCapabilities,
-  ServerNotification,
-  ServerRequest,
-  Tool,
-} from "@modelcontextprotocol/sdk/types.js";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { CallToolResult, ClientNotification, ClientRequest, GetPromptResult, Implementation, JSONRPCErrorResponse, JSONRPCNotification, JSONRPCRequest, JSONRPCResultResponse, LoggingLevel, Prompt, ReadResourceResult, Resource, Root, ServerCapabilities, ServerNotification, ServerRequest, Tool } from "@modelcontextprotocol/client";
+import type { Client } from "@modelcontextprotocol/client";
+import type { OAuthClientProvider } from "@modelcontextprotocol/client";
+import type { Transport } from "@modelcontextprotocol/client";
 import type { InspectorLogger } from "../logging/logger.js";
 import type { JsonValue } from "../json/jsonUtils.js";
 import type {

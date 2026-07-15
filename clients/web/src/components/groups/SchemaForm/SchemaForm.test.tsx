@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import type { JsonSchemaType } from "../../../utils/jsonUtils";
+import type { InspectorFormSchema } from "../../../utils/jsonUtils";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { SchemaForm } from "./SchemaForm";
 
@@ -8,7 +8,7 @@ describe("SchemaForm", () => {
   it("renders a string TextInput and propagates onChange", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         name: { type: "string", title: "Name" },
@@ -26,7 +26,7 @@ describe("SchemaForm", () => {
   it("renders a Number/Integer field and propagates a numeric value", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         count: { type: "integer", title: "Count", minimum: 0, maximum: 100 },
@@ -47,7 +47,7 @@ describe("SchemaForm", () => {
   it("renders a checkbox for boolean fields and toggles on click", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         enabled: { type: "boolean", title: "Enabled" },
@@ -63,7 +63,7 @@ describe("SchemaForm", () => {
 
   it("renders an enum Select with the supplied options", () => {
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         format: {
@@ -87,7 +87,7 @@ describe("SchemaForm", () => {
   it("invokes onChange when an enum Select option is chosen", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         format: {
@@ -112,7 +112,7 @@ describe("SchemaForm", () => {
   it("clears a string field via its Clear button", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         name: { type: "string", title: "Name" },
@@ -133,7 +133,7 @@ describe("SchemaForm", () => {
   it("passes undefined to onChange when a number field is cleared", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         count: { type: "integer", title: "Count" },
@@ -153,7 +153,7 @@ describe("SchemaForm", () => {
 
   it("falls back to empty/const labels for oneOf items missing const and title", () => {
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         choice: {
@@ -173,7 +173,7 @@ describe("SchemaForm", () => {
 
   it("falls back to empty/const labels for anyOf items missing const and title", () => {
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         tags: {
@@ -195,7 +195,7 @@ describe("SchemaForm", () => {
 
   it("renders an oneOf Select using titles for labels", () => {
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         size: {
@@ -218,7 +218,7 @@ describe("SchemaForm", () => {
   it("invokes onChange when a oneOf Select option is chosen", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         size: {
@@ -246,7 +246,7 @@ describe("SchemaForm", () => {
   it("renders a MultiSelect for array with anyOf items and invokes onChange when an option is selected", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         tags: {
@@ -277,7 +277,7 @@ describe("SchemaForm", () => {
   it("renders a MultiSelect for an array of enum items and invokes onChange when an option is selected", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         instruments: {
@@ -306,7 +306,7 @@ describe("SchemaForm", () => {
   it("uses enumNames for enum-array option labels and the raw value on change", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         sizes: {
@@ -336,7 +336,7 @@ describe("SchemaForm", () => {
 
   it("renders nested object fields recursively", () => {
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         address: {
@@ -360,7 +360,7 @@ describe("SchemaForm", () => {
   it("propagates nested object changes back to top-level onChange", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         address: {
@@ -383,7 +383,7 @@ describe("SchemaForm", () => {
 
   it("falls back to a JsonInput for complex/unsupported schemas", () => {
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         config: {
@@ -406,7 +406,7 @@ describe("SchemaForm", () => {
   it("invokes onChange via JsonInput when valid JSON is pasted", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         config: { type: "array", title: "Config" },
@@ -426,7 +426,7 @@ describe("SchemaForm", () => {
   it("falls back to passing raw string to onChange when JSON is invalid in JsonInput", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         config: { type: "array", title: "Config" },
@@ -443,7 +443,7 @@ describe("SchemaForm", () => {
   });
 
   it("uses default values when value is undefined", () => {
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         name: { type: "string", title: "Name", default: "Alice" },
@@ -456,7 +456,7 @@ describe("SchemaForm", () => {
   });
 
   it("respects the disabled prop on inputs", () => {
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         name: { type: "string", title: "Name" },
@@ -476,7 +476,7 @@ describe("SchemaForm", () => {
   });
 
   it("uses field name when title is missing", () => {
-    const schema: JsonSchemaType = {
+    const schema: InspectorFormSchema = {
       type: "object",
       properties: {
         rawField: { type: "string" },
@@ -489,7 +489,7 @@ describe("SchemaForm", () => {
   });
 
   it("renders nothing inside the form when properties are missing", () => {
-    const schema: JsonSchemaType = { type: "object" };
+    const schema: InspectorFormSchema = { type: "object" };
     const { container } = renderWithMantine(
       <SchemaForm schema={schema} values={{}} onChange={vi.fn()} />,
     );

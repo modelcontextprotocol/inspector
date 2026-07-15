@@ -2,7 +2,7 @@ import { Badge, Button, Group, Paper, Stack, Text } from "@mantine/core";
 import type {
   CreateMessageRequestParams,
   CreateMessageResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 
 export interface InlineSamplingRequestProps {
   request: CreateMessageRequestParams;

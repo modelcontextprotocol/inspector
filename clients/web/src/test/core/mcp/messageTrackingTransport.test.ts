@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import type { Transport } from "@modelcontextprotocol/client";
+import type { JSONRPCMessage } from "@modelcontextprotocol/client";
 import { MessageTrackingTransport } from "@inspector/core/mcp/messageTrackingTransport.js";
 
 /** Minimal in-memory Transport so we can drive send()/onmessage directly. */

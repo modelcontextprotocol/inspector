@@ -1,6 +1,6 @@
 import { Button, Group, Select, Stack, TextInput, Title } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
-import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
+import type { LoggingLevel } from "@modelcontextprotocol/client";
 import { FilterToggleButton } from "../../elements/FilterToggleButton/FilterToggleButton";
 
 const LOG_LEVELS: LoggingLevel[] = [

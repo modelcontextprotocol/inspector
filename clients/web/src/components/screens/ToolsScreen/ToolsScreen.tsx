@@ -3,14 +3,14 @@ import type {
   CallToolResult,
   ReadResourceResult,
   Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { ToolControls } from "../../groups/ToolControls/ToolControls";
 import {
   ToolDetailPanel,
   type ToolProgress,
 } from "../../groups/ToolDetailPanel/ToolDetailPanel";
 import { ToolResultPanel } from "../../groups/ToolResultPanel/ToolResultPanel";
-import { collectSchemaDefaults } from "../../../utils/jsonUtils";
+import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
 
 export interface ToolCallState {
   status: "idle" | "pending" | "ok" | "error";
@@ -162,7 +162,10 @@ export function ToolsScreen({
               // empty-object fallback is an unreachable defensive default.
               let formValues: Record<string, unknown> = {};
               /* v8 ignore next -- unreachable: onSelectTool always names a tool in the list */
-              if (tool) formValues = collectSchemaDefaults(tool.inputSchema);
+              if (tool)
+                formValues = collectSchemaDefaults(
+                  toFormSchema(tool.inputSchema) ?? {},
+                );
               onUiChange({
                 ...ui,
                 selectedToolName: name,

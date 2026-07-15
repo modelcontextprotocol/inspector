@@ -4,7 +4,7 @@ import {
   convertToolParameters,
   convertPromptArguments,
 } from "@inspector/core/json/jsonUtils.js";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 
 describe("JSON Utils", () => {
   describe("convertParameterValue", () => {

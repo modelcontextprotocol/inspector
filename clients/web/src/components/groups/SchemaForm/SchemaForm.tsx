@@ -9,7 +9,7 @@ import {
   TextInput,
 } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
-import type { JsonSchemaType } from "../../../utils/jsonUtils";
+import type { InspectorFormSchema } from "../../../utils/jsonUtils";
 
 const FieldLabel = Text.withProps({
   fw: 500,
@@ -26,20 +26,23 @@ function serializeJson(value: unknown): string {
 }
 
 export interface SchemaFormProps {
-  schema: JsonSchemaType;
+  schema: InspectorFormSchema;
   values: Record<string, unknown>;
   onChange: (values: Record<string, unknown>) => void;
   disabled?: boolean;
 }
 
-function getDefaultValue(fieldSchema: JsonSchemaType): unknown {
+function getDefaultValue(fieldSchema: InspectorFormSchema): unknown {
   if (fieldSchema.default !== undefined) {
     return fieldSchema.default;
   }
   return undefined;
 }
 
-function resolveValue(value: unknown, fieldSchema: JsonSchemaType): unknown {
+function resolveValue(
+  value: unknown,
+  fieldSchema: InspectorFormSchema,
+): unknown {
   if (value !== undefined) {
     return value;
   }
@@ -59,7 +62,7 @@ export function SchemaForm({
     onChange({ ...values, [fieldName]: fieldValue });
   }
 
-  function renderField(fieldName: string, fieldSchema: JsonSchemaType) {
+  function renderField(fieldName: string, fieldSchema: InspectorFormSchema) {
     const isRequired = requiredFields.includes(fieldName);
     const label = fieldSchema.title ?? fieldName;
     const description = fieldSchema.description;

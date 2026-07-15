@@ -13,7 +13,7 @@
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { InspectorClientEventMap } from "../inspectorClientEventTarget.js";
-import type { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
+import type { ServerCapabilities } from "@modelcontextprotocol/client";
 import { isTerminalStatus } from "../types.js";
 import { TypedEventTarget } from "../typedEventTarget.js";
 

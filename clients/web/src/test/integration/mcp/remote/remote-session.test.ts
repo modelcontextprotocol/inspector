@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { Transport } from "@modelcontextprotocol/client";
 import { RemoteSession } from "@inspector/core/mcp/remote/node/remote-session.js";
 import type { FetchRequestEntryBase } from "@inspector/core/mcp/types.js";
 import { AuthChallengeError } from "@inspector/core/auth/challenge.js";

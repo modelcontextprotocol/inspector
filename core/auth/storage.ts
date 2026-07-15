@@ -1,8 +1,4 @@
-import type {
-  OAuthClientInformation,
-  OAuthTokens,
-  OAuthMetadata,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthClientInformation, OAuthTokens, OAuthMetadata } from "@modelcontextprotocol/client";
 import type { OAuthClientRegistrationKind } from "./types.js";
 
 /**

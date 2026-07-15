@@ -5,8 +5,8 @@
  * Can be used programmatically or run as a standalone executable
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { McpServer } from "@modelcontextprotocol/server";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { fileURLToPath } from "url";
 import type {
   ServerConfig,

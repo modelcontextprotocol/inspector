@@ -2,8 +2,8 @@
  * Remote session - holds a transport and event queue for a remote client.
  */
 
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import type { Transport } from "@modelcontextprotocol/client";
+import type { JSONRPCMessage } from "@modelcontextprotocol/client";
 import type { FetchRequestEntryBase } from "../../types.js";
 import type { RemoteEvent } from "../types.js";
 import type { AuthChallenge } from "../../../auth/challenge.js";

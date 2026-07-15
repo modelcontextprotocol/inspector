@@ -31,7 +31,7 @@ import type {
   RemoteSendRequest,
   RemoteSetAuthStateRequest,
 } from "../types.js";
-import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import type { JSONRPCMessage } from "@modelcontextprotocol/client";
 import { AuthChallengeError } from "../../../auth/challenge.js";
 import {
   DEFAULT_MAX_FETCH_REQUESTS,

@@ -5,7 +5,7 @@
  * Usage: server-composable --config <path> [--json|--yaml]
  */
 
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import type { ResourceDefinition } from "./composable-test-server.js";
 import { createMcpServer } from "./test-server-fixtures.js";
 import { loadConfig, type ConfigFormat } from "./load-config.js";

@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Box } from "@mantine/core";
 import type { ReactNode } from "react";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import { fn } from "storybook/test";
 import { AppRenderer, type BridgeFactory } from "./AppRenderer";
 

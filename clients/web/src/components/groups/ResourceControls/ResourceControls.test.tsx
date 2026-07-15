@@ -3,8 +3,8 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type {
   Resource,
-  ResourceTemplate,
-} from "@modelcontextprotocol/sdk/types.js";
+  ResourceTemplateType as ResourceTemplate,
+} from "@modelcontextprotocol/client";
 import type { InspectorResourceSubscription } from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import {

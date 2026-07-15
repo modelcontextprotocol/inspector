@@ -25,7 +25,7 @@ import type {
   ContentBlock,
   LoggingMessageNotification,
   Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import type {
   AppBridgeEventMap,
   McpUiDisplayMode,
@@ -42,7 +42,7 @@ import { AppControls } from "../../groups/AppControls/AppControls";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { LogLevelBadge } from "../../elements/LogLevelBadge/LogLevelBadge";
 import { hasInputFields, resolveDisplayLabel } from "../../../utils/toolUtils";
-import { collectSchemaDefaults } from "../../../utils/jsonUtils";
+import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
 
 export interface AppsScreenProps {
   tools: Tool[];
@@ -475,7 +475,7 @@ export function AppsScreen({
     onUiChange({
       ...ui,
       selectedAppName: name,
-      formValues: collectSchemaDefaults(next.inputSchema),
+      formValues: collectSchemaDefaults(toFormSchema(next.inputSchema) ?? {}),
     });
     setMaximized(false);
     resetAppChannels();

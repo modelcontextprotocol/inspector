@@ -38,12 +38,12 @@ import { writeStoreFile } from "@inspector/core/storage/store-io.js";
 import {
   refreshAuthorization,
   discoverAuthorizationServerMetadata,
-} from "@modelcontextprotocol/sdk/client/auth.js";
+} from "@modelcontextprotocol/client";
 import type {
   OAuthClientInformation,
   OAuthMetadata,
   OAuthTokens,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+} from "@modelcontextprotocol/client";
 import { CliExitCodeError, EXIT_CODES } from "./error-handler.js";
 import {
   ConsoleNavigation,
@@ -67,10 +67,8 @@ import {
   loadRunnerClientConfig,
   type RunnerClientConfigOverrides,
 } from "@inspector/core/client/runner.js";
-import {
-  LoggingLevelSchema,
-  type LoggingLevel,
-} from "@modelcontextprotocol/sdk/types.js";
+import { type LoggingLevel } from "@modelcontextprotocol/client";
+import { LoggingLevelSchema } from "@modelcontextprotocol/core";
 import { readInspectorVersion } from "@inspector/core/node/version.js";
 
 export const validLogLevels: LoggingLevel[] = Object.values(

@@ -1,4 +1,4 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { Client } from "@modelcontextprotocol/client";
 import type {
   MCPServerConfig,
   StderrLogEntry,
@@ -46,64 +46,42 @@ import {
   MessageTrackingTransport,
   type MessageTrackingCallbacks,
 } from "./messageTrackingTransport.js";
-import type {
-  CallToolRequest,
-  JSONRPCRequest,
-  JSONRPCNotification,
-  JSONRPCResultResponse,
-  JSONRPCErrorResponse,
-  ServerCapabilities,
-  ClientCapabilities,
-  Implementation,
-  LoggingLevel,
-  Tool,
-  Resource,
-  ResourceTemplate,
-  Prompt,
-  Root,
-  CreateMessageResult,
-  ElicitRequest,
-  ElicitResult,
-  ElicitRequestURLParams,
-  CallToolResult,
-  Task,
-  Progress,
-  ProgressToken,
-  ListToolsRequest,
-  ListResourcesRequest,
-  ListResourceTemplatesRequest,
-  ListPromptsRequest,
-  ReadResourceRequest,
-  GetPromptRequest,
-  CompleteRequest,
-} from "@modelcontextprotocol/sdk/types.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { CallToolRequest, JSONRPCRequest, JSONRPCNotification, JSONRPCResultResponse, JSONRPCErrorResponse, ServerCapabilities, ClientCapabilities, Implementation, LoggingLevel, Tool, Resource, ResourceTemplateType as ResourceTemplate, Prompt, Root, CreateMessageRequest, CreateMessageResult, ElicitRequest, ElicitResult, ElicitRequestURLParams, CallToolResult, Task, Progress, ProgressToken, ListToolsRequest, ListResourcesRequest, ListResourceTemplatesRequest, ListPromptsRequest, ReadResourceRequest, GetPromptRequest, CompleteRequest } from "@modelcontextprotocol/client";
+import type { Transport } from "@modelcontextprotocol/client";
 import type {
   RequestOptions,
   ProgressCallback,
-} from "@modelcontextprotocol/sdk/shared/protocol.js";
+  VersionNegotiationOptions,
+} from "@modelcontextprotocol/client";
+import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/client";
 import {
-  CreateMessageRequestSchema,
-  ElicitRequestSchema,
   EmptyResultSchema,
-  ListRootsRequestSchema,
-  ElicitationCompleteNotificationSchema,
-  RootsListChangedNotificationSchema,
-  ToolListChangedNotificationSchema,
-  ResourceListChangedNotificationSchema,
-  PromptListChangedNotificationSchema,
-  ResourceUpdatedNotificationSchema,
   CallToolResultSchema,
-  McpError,
-  ErrorCode,
+  // Task request schemas — used for `.shape.params` in the 3-arg custom
+  // `setRequestHandler` form (tasks/* are excluded from v2's spec-method set).
   ListTasksRequestSchema,
   GetTaskRequestSchema,
   GetTaskPayloadRequestSchema,
   CancelTaskRequestSchema,
   TaskStatusNotificationSchema,
-} from "@modelcontextprotocol/sdk/types.js";
-import type { ClientResult } from "@modelcontextprotocol/sdk/types.js";
-import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
+  // Task result schemas — explicit result schemas for the raw requestor-task
+  // requests that replace the removed `client.experimental.tasks.*` helpers.
+  CreateTaskResultSchema,
+  GetTaskResultSchema,
+  CancelTaskResultSchema,
+  ListTasksResultSchema,
+  // List result schemas — used by the single-page list methods below. SDK v2's
+  // high-level `client.listTools()` etc. auto-aggregate ALL pages (returning
+  // `nextCursor: undefined`), which defeats the Inspector's pagination-debugging
+  // purpose. Drop to raw `client.request` with these explicit schemas so each
+  // call fetches exactly one page and surfaces the server's `nextCursor`.
+  ListToolsResultSchema,
+  ListResourcesResultSchema,
+  ListResourceTemplatesResultSchema,
+  ListPromptsResultSchema,
+} from "@modelcontextprotocol/core";
+import type { ClientResult } from "@modelcontextprotocol/client";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { validateToolOutput } from "./toolOutputValidation.js";
 import { TasksListChangedNotificationSchema } from "./taskNotificationSchemas.js";
 import {
@@ -111,7 +89,7 @@ import {
   convertToolParameters,
   convertPromptArguments,
 } from "../json/jsonUtils.js";
-import { UriTemplate } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
+import { UriTemplate } from "@modelcontextprotocol/client";
 import {
   InspectorClientEventTarget,
   type TaskWithOptionalCreatedAt,
@@ -138,7 +116,7 @@ import {
   type AuthChallengeOutcome,
   type HandleAuthChallengeOptions,
 } from "../auth/challenge.js";
-import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthTokens } from "@modelcontextprotocol/client";
 import { silentLogger, type InspectorLogger } from "../logging/logger.js";
 import { createFetchTracker } from "./fetchTracking.js";
 import { OAuthManager, type OAuthManagerConfig } from "./oauthManager.js";
@@ -169,6 +147,13 @@ const MAX_URL_ELICITATION_RETRIES = 5;
  * an ordinary error, not a "Tool call cancelled" — #1458).
  */
 const TOOL_CALL_CANCELLED_REASON = "Tool call cancelled by user";
+
+/**
+ * Fallback poll cadence (ms) for {@link InspectorClient.pollTaskToolCall} when a
+ * task does not advertise its own `pollInterval`. Replaces the cadence the
+ * removed SDK `experimental.tasks.callToolStream` helper managed internally.
+ */
+const DEFAULT_TASK_POLL_INTERVAL_MS = 500;
 
 /**
  * The descriptor for a single tools/call, threaded through the retry loop and
@@ -353,7 +338,15 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Transport is created in connect() (single place for create / wrap / attach).
 
     // Build client capabilities
-    const clientOptions: { capabilities?: ClientCapabilities } = {};
+    const clientOptions: {
+      capabilities?: ClientCapabilities;
+      versionNegotiation?: VersionNegotiationOptions;
+    } = {
+      // Pin to the legacy (2025-11-25) protocol so this migration stays
+      // behavior-neutral: nothing 2026-era goes on the wire. Era/version
+      // selection becomes per-server configuration in a later card.
+      versionNegotiation: { mode: "legacy" },
+    };
     const capabilities: ClientCapabilities = {};
     if (this.sample) {
       capabilities.sampling = {};
@@ -603,6 +596,51 @@ export class InspectorClient extends InspectorClientEventTarget {
     );
   }
 
+  /**
+   * Route a receiver (server-initiated) task-augmented `sampling/createMessage`
+   * or `elicitation/create` response around the v2 Client's result validation.
+   *
+   * SDK v2's `Client` wraps every spec request handler (`_wrapHandler`) to
+   * validate the result it returns — for sampling/elicitation it checks the
+   * value against `CreateMessageResult` / `ElicitResult` and rejects anything
+   * else with a `-32602`. The 2025-11-25 task flow answers a task-augmented
+   * request with a `CreateTaskResult` (`{ task }`), which that validation
+   * rejects — breaking server-initiated tasks that worked on the legacy client.
+   *
+   * There is no public seam to opt a handler out of result validation, so we
+   * swap the wrapped entry in the Protocol's private `_requestHandlers` map for
+   * one that dispatches the task-augmented branch straight through the raw
+   * handler (whose `{ task }` return then rides the legacy codec's pass-through
+   * `encodeResult` to the wire), while ordinary (non-task) requests keep the
+   * validating path. Mirrors the bypass a legacy server needs to emit `{ task }`.
+   * Delete once the SDK models task-augmented results natively (see #1624 stack).
+   */
+  private installReceiverTaskResponseBypass(
+    method: "sampling/createMessage" | "elicitation/create",
+    rawHandler: (
+      request: CreateMessageRequest & ElicitRequest,
+    ) => Promise<CreateMessageResult> | Promise<ElicitResult>,
+  ): void {
+    if (!this.client) return;
+    const internal = this.client as unknown as {
+      _requestHandlers: Map<
+        string,
+        (request: unknown, ctx: unknown) => unknown
+      >;
+    };
+    const validating = internal._requestHandlers.get(method);
+    if (!validating) return;
+    internal._requestHandlers.set(method, (request, ctx) => {
+      const task = (request as { params?: { task?: unknown } })?.params?.task;
+      if (this.receiverTasks && task != null) {
+        return rawHandler(
+          request as CreateMessageRequest & ElicitRequest,
+        );
+      }
+      return validating(request, ctx);
+    });
+  }
+
   private createReceiverTask(opts: {
     ttl?: number;
     initialStatus: Task["status"];
@@ -685,7 +723,7 @@ export class InspectorClient extends InspectorClientEventTarget {
   private async getReceiverTaskPayload(taskId: string): Promise<ClientResult> {
     const record = this.receiverTaskRecords.get(taskId);
     if (!record) {
-      throw new McpError(ErrorCode.InvalidParams, `Unknown taskId: ${taskId}`);
+      throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unknown taskId: ${taskId}`);
     }
     return record.payloadPromise;
   }
@@ -693,7 +731,7 @@ export class InspectorClient extends InspectorClientEventTarget {
   private cancelReceiverTask(taskId: string): Task {
     const record = this.receiverTaskRecords.get(taskId);
     if (!record) {
-      throw new McpError(ErrorCode.InvalidParams, `Unknown taskId: ${taskId}`);
+      throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unknown taskId: ${taskId}`);
     }
     if (InspectorClient.isTerminalTaskStatus(record.task.status)) {
       return record.task;
@@ -906,7 +944,9 @@ export class InspectorClient extends InspectorClientEventTarget {
 
       // Set up sampling request handler if sampling capability is enabled
       if (this.sample && this.client) {
-        this.client.setRequestHandler(CreateMessageRequestSchema, (request) => {
+        const samplingHandler = (
+          request: CreateMessageRequest,
+        ): Promise<CreateMessageResult> => {
           const paramsTask = (request.params as { task?: { ttl?: number } })
             ?.task;
           if (this.receiverTasks && paramsTask != null) {
@@ -946,7 +986,17 @@ export class InspectorClient extends InspectorClientEventTarget {
               );
               this.addPendingSample(samplingRequest);
             })();
-            return Promise.resolve({ task: record.task });
+            // Task-augmented (2025-11-25) response: the server sent a
+            // task-augmented `sampling/createMessage`, so we reply with a
+            // `CreateTaskResult` (`{ task }`) rather than a `CreateMessageResult`.
+            // The v2 Client validates a spec handler's result and would reject
+            // `{ task }` with -32602; `installReceiverTaskResponseBypass` below
+            // routes this task-augmented branch around that validation so the
+            // legacy `{ task }` response reaches the wire. The cast satisfies the
+            // handler's declared `CreateMessageResult` return type.
+            return Promise.resolve({
+              task: record.task,
+            } as unknown as CreateMessageResult);
           }
           return new Promise<CreateMessageResult>((resolve, reject) => {
             const samplingRequest = new SamplingCreateMessage(
@@ -961,12 +1011,21 @@ export class InspectorClient extends InspectorClientEventTarget {
             );
             this.addPendingSample(samplingRequest);
           });
-        });
+        };
+        this.client.setRequestHandler("sampling/createMessage", samplingHandler);
+        if (this.receiverTasks) {
+          this.installReceiverTaskResponseBypass(
+            "sampling/createMessage",
+            samplingHandler,
+          );
+        }
       }
 
       // Set up elicitation request handler if elicitation capability is enabled
       if (this.elicit && this.client) {
-        this.client.setRequestHandler(ElicitRequestSchema, (request) => {
+        const elicitHandler = (
+          request: ElicitRequest,
+        ): Promise<ElicitResult> => {
           const paramsTask = (request.params as { task?: { ttl?: number } })
             ?.task;
           if (this.receiverTasks && paramsTask != null) {
@@ -1005,7 +1064,14 @@ export class InspectorClient extends InspectorClientEventTarget {
               );
               this.addPendingElicitation(elicitationRequest);
             })();
-            return Promise.resolve({ task: record.task });
+            // Task-augmented (2025-11-25) response — see the sampling handler
+            // above. Reply with a `CreateTaskResult` (`{ task }`), routed around
+            // the v2 Client's result validation by
+            // `installReceiverTaskResponseBypass` below; the cast satisfies the
+            // handler's declared `ElicitResult` return type.
+            return Promise.resolve({
+              task: record.task,
+            } as unknown as ElicitResult);
           }
           return new Promise<ElicitResult>((resolve) => {
             const elicitationRequest = new ElicitationCreateMessage(
@@ -1017,44 +1083,67 @@ export class InspectorClient extends InspectorClientEventTarget {
             );
             this.addPendingElicitation(elicitationRequest);
           });
-        });
+        };
+        this.client.setRequestHandler("elicitation/create", elicitHandler);
+        if (this.receiverTasks) {
+          this.installReceiverTaskResponseBypass(
+            "elicitation/create",
+            elicitHandler,
+          );
+        }
       }
 
       // Set up roots/list request handler if roots capability is enabled
       if (this.roots !== undefined && this.client) {
-        this.client.setRequestHandler(ListRootsRequestSchema, async () => {
+        this.client.setRequestHandler("roots/list", async () => {
           return { roots: this.roots ?? [] };
         });
       }
 
-      // Set up receiver-task request handlers (server polls us for tasks/list, tasks/get, tasks/result, tasks/cancel)
+      // Set up receiver-task request handlers (server polls us for tasks/list,
+      // tasks/get, tasks/result, tasks/cancel). SDK v2 removed tasks from the
+      // spec-method set, so these register through the 3-arg custom form with an
+      // explicit params schema (from the deprecated-but-importable task request
+      // schemas). The `result` schema is intentionally omitted so the SDK does
+      // not validate our responder return — matching v1, where only the
+      // requester validated (our receiver `Task` may omit fields a strict result
+      // schema would require).
       if (this.receiverTasks && this.client) {
-        this.client.setRequestHandler(ListTasksRequestSchema, async () => ({
-          tasks: this.listReceiverTasks(),
-        }));
-        this.client.setRequestHandler(GetTaskRequestSchema, async (req) => {
-          const record = this.getReceiverTask(req.params.taskId);
-          if (!record) {
-            throw new McpError(
-              ErrorCode.InvalidParams,
-              `Unknown taskId: ${req.params.taskId}`,
-            );
-          }
-          return record.task;
-        });
         this.client.setRequestHandler(
-          GetTaskPayloadRequestSchema,
-          async (req) => this.getReceiverTaskPayload(req.params.taskId),
+          "tasks/list",
+          { params: ListTasksRequestSchema.shape.params },
+          async () => ({ tasks: this.listReceiverTasks() }),
         );
-        this.client.setRequestHandler(CancelTaskRequestSchema, async (req) =>
-          this.cancelReceiverTask(req.params.taskId),
+        this.client.setRequestHandler(
+          "tasks/get",
+          { params: GetTaskRequestSchema.shape.params },
+          async (params) => {
+            const record = this.getReceiverTask(params.taskId);
+            if (!record) {
+              throw new ProtocolError(
+                ProtocolErrorCode.InvalidParams,
+                `Unknown taskId: ${params.taskId}`,
+              );
+            }
+            return record.task;
+          },
+        );
+        this.client.setRequestHandler(
+          "tasks/result",
+          { params: GetTaskPayloadRequestSchema.shape.params },
+          async (params) => this.getReceiverTaskPayload(params.taskId),
+        );
+        this.client.setRequestHandler(
+          "tasks/cancel",
+          { params: CancelTaskRequestSchema.shape.params },
+          async (params) => this.cancelReceiverTask(params.taskId),
         );
       }
 
       // Set up notification handler for roots/list_changed from server
       if (this.client) {
         this.client.setNotificationHandler(
-          RootsListChangedNotificationSchema,
+          "notifications/roots/list_changed",
           async () => {
             // Dispatch event to notify UI that server's roots may have changed
             // Note: rootsChange is a CustomEvent with Root[] payload, not a signal event
@@ -1074,7 +1163,7 @@ export class InspectorClient extends InspectorClientEventTarget {
           this.capabilities?.tools?.listChanged
         ) {
           this.client.setNotificationHandler(
-            ToolListChangedNotificationSchema,
+            "notifications/tools/list_changed",
             async () => {
               // Always fire notification event (for tracking)
               this.dispatchTypedEvent("toolsListChanged");
@@ -1091,7 +1180,7 @@ export class InspectorClient extends InspectorClientEventTarget {
           this.capabilities?.resources?.listChanged
         ) {
           this.client.setNotificationHandler(
-            ResourceListChangedNotificationSchema,
+            "notifications/resources/list_changed",
             async () => {
               this.dispatchTypedEvent("resourcesListChanged");
               this.dispatchTypedEvent("resourceTemplatesListChanged");
@@ -1105,25 +1194,30 @@ export class InspectorClient extends InspectorClientEventTarget {
           this.capabilities?.prompts?.listChanged
         ) {
           this.client.setNotificationHandler(
-            PromptListChangedNotificationSchema,
+            "notifications/prompts/list_changed",
             async () => {
               this.dispatchTypedEvent("promptsListChanged");
             },
           );
         }
 
-        // Tasks list_changed and status handlers (when server advertises tasks capability)
+        // Tasks list_changed and status handlers (when server advertises tasks
+        // capability). Both are custom (2025-11-25) notification methods absent
+        // from v2's spec-notification set, so they register through the 3-arg
+        // custom form with an explicit params schema.
         if (this.capabilities?.tasks) {
           this.client.setNotificationHandler(
-            TasksListChangedNotificationSchema,
+            "notifications/tasks/list_changed",
+            { params: TasksListChangedNotificationSchema.shape.params },
             async () => {
               this.dispatchTypedEvent("tasksListChanged");
             },
           );
           this.client.setNotificationHandler(
-            TaskStatusNotificationSchema,
-            async (notification) => {
-              const task = notification.params as Task;
+            "notifications/tasks/status",
+            { params: TaskStatusNotificationSchema.shape.params },
+            async (params) => {
+              const task = params as Task;
               this.dispatchTypedEvent("taskStatusChange", {
                 taskId: task.taskId,
                 task,
@@ -1135,7 +1229,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         // Resource updated notification handler (only if server supports subscriptions)
         if (this.capabilities?.resources?.subscribe === true) {
           this.client.setNotificationHandler(
-            ResourceUpdatedNotificationSchema,
+            "notifications/resources/updated",
             async (notification) => {
               const uri = notification.params.uri;
               // Only process if we're subscribed to this resource
@@ -1154,7 +1248,7 @@ export class InspectorClient extends InspectorClientEventTarget {
           this.elicit.url === true;
         if (urlElicitEnabled) {
           this.client.setNotificationHandler(
-            ElicitationCompleteNotificationSchema,
+            "notifications/elicitation/complete",
             async (notification) => {
               const { elicitationId } = notification.params;
               const pending = this.pendingElicitations.find(
@@ -1378,10 +1472,14 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    const task = await this.client.experimental.tasks.getTask(
-      taskId,
+    // SDK v2 removed `client.experimental.tasks.*`; drive the 2025-11-25
+    // `tasks/get` wire method directly with its explicit (deprecated-but-
+    // importable) result schema. `GetTaskResult` is the flattened task object.
+    const task = (await this.client.request(
+      { method: "tasks/get", params: { taskId } },
+      GetTaskResultSchema,
       this.getRequestOptions(),
-    );
+    )) as Task;
 
     // Dispatch client-origin event (taskStatusChange is server-only)
     this.dispatchTypedEvent("requestorTaskUpdated", {
@@ -1400,9 +1498,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    // Use CallToolResultSchema for validation
-    return await this.client.experimental.tasks.getTaskResult(
-      taskId,
+    // `tasks/result` returns the task's stored payload; for a task-augmented
+    // tool call that payload is a CallToolResult, so validate with
+    // CallToolResultSchema (replacing the removed experimental helper).
+    return await this.client.request(
+      { method: "tasks/result", params: { taskId } },
       CallToolResultSchema,
       this.getRequestOptions(),
     );
@@ -1421,8 +1521,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     // whose error message may arrive before this resolves — the stream's error
     // path reads this set to label the task "cancelled" rather than "failed".
     this.cancelledTaskIds.add(taskId);
-    await this.client.experimental.tasks.cancelTask(
-      taskId,
+    await this.client.request(
+      { method: "tasks/cancel", params: { taskId } },
+      CancelTaskResultSchema,
       this.getRequestOptions(),
     );
 
@@ -1469,10 +1570,12 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    return await this.client.experimental.tasks.listTasks(
-      cursor,
+    const result = await this.client.request(
+      { method: "tasks/list", params: cursor ? { cursor } : {} },
+      ListTasksResultSchema,
       this.getRequestOptions(),
     );
+    return { tasks: result.tasks as Task[], nextCursor: result.nextCursor };
   }
 
   /**
@@ -1626,8 +1729,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       ...(cursor ? { cursor } : {}),
     };
     const response = await this.invokeMcpClient(() =>
-      this.client!.listTools(
-        params,
+      this.client!.request(
+        { method: "tools/list", params },
+        ListToolsResultSchema,
         this.getRequestOptions(metadata?.progressToken),
       ),
     );
@@ -1880,17 +1984,25 @@ export class InspectorClient extends InspectorClientEventTarget {
               CallToolResultSchema,
               requestOptions,
             )
-          : client.callTool(callParams, undefined, requestOptions),
+          : client.callTool(callParams, requestOptions),
       { method: "tools/call", toolName: tool.name },
     );
 
-    // On the bypass path the result was delivered without the SDK's strict
-    // output validation. Run that check ourselves, non-fatally, so callers can
-    // warn that strict clients would reject this payload (the app still
-    // renders, but it may not in other hosts).
-    const outputValidationError = options?.skipOutputValidation
-      ? this.validateToolOutput(tool, result as CallToolResult)
-      : undefined;
+    // Output-schema validation. SDK v2's `callTool` relaxed some checks (e.g. it
+    // no longer rejects a structuredContent with undeclared properties against a
+    // strict `additionalProperties: false` schema), so we run our own Ajv check
+    // to preserve the Inspector's v1 behavior:
+    //  - default path: strict — a schema violation rejects the call (matching
+    //    what a strict host would do), so the caller sees the error.
+    //  - skipOutputValidation (MCP Apps passthrough): non-fatal — surface it as
+    //    an advisory so a schema-violating-but-real result still reaches the app.
+    const outputValidationError = this.validateToolOutput(
+      tool,
+      result as CallToolResult,
+    );
+    if (outputValidationError && !options?.skipOutputValidation) {
+      throw new Error(outputValidationError);
+    }
 
     const invocation: ToolCallInvocation = {
       toolName: tool.name,
@@ -2003,6 +2115,114 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Poll a task-augmented tool call to completion. Replaces the removed
+   * `client.experimental.tasks.callToolStream` helper: it sends the
+   * task-augmented `tools/call` (the server responds with a task handle, i.e. a
+   * `CreateTaskResult`), then polls `tasks/get` until the task reaches a
+   * terminal status, yielding the same `taskCreated | taskStatus | result |
+   * error` message shapes the caller's `for await` loop consumes — so all the
+   * downstream event dispatch and terminal-state handling stays unchanged.
+   */
+  private async *pollTaskToolCall(
+    params: CallToolRequest["params"],
+    requestOptions: RequestOptions,
+  ): AsyncGenerator<
+    | { type: "taskCreated"; task: Task }
+    | { type: "taskStatus"; task: Task }
+    | { type: "result"; result: CallToolResult }
+    | { type: "error"; error: ProtocolError }
+  > {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    const client = this.client;
+    // The server streams `notifications/progress` for a task AFTER the
+    // task-augmented `tools/call` has already returned its `{ task }` handle. But
+    // SDK v2 deletes a request's progress subscription the moment that request
+    // resolves, so those later ticks would be dropped. Capture the subscription
+    // id the SDK registers for this request (the only new key in the private
+    // `_progressHandlers` map) so we can keep the caller's `onprogress` alive
+    // through the poll and clean it up when the task terminates.
+    const progressHandlers = (
+      client as unknown as {
+        _progressHandlers: Map<number, ProgressCallback>;
+      }
+    )._progressHandlers;
+    const keysBeforeRequest = new Set(progressHandlers.keys());
+    // Create the task-augmented tool call. A task-capable server returns a task
+    // handle (`CreateTaskResult` = `{ task }`), but a server that completes
+    // synchronously (or for which the tool forbids/ignores task augmentation)
+    // may return an immediate `CallToolResult` instead — accept either with a
+    // union schema and branch on the presence of `task`.
+    const requestPromise = client.request(
+      { method: "tools/call", params },
+      CreateTaskResultSchema.or(CallToolResultSchema),
+      requestOptions,
+    );
+    // The SDK registers the progress handler synchronously while constructing
+    // the request promise (before this await), so the new key is present now.
+    const progressSubscriptionId = requestOptions.onprogress
+      ? [...progressHandlers.keys()].find((k) => !keysBeforeRequest.has(k))
+      : undefined;
+    const created = await requestPromise;
+    if (!("task" in created) || created.task == null) {
+      // Immediate result — no task was created; yield it directly.
+      yield { type: "result", result: created as CallToolResult };
+      return;
+    }
+    let task = created.task as Task;
+    yield { type: "taskCreated", task };
+
+    // Revive the (now-deleted) progress subscription for the poll so task-
+    // execution progress ticks reach the caller's `onprogress`.
+    if (progressSubscriptionId != null && requestOptions.onprogress) {
+      progressHandlers.set(progressSubscriptionId, requestOptions.onprogress);
+    }
+    try {
+      // Poll `tasks/get` until the task reaches a terminal status. Honour the
+      // server-advertised `pollInterval` when present, else the default cadence.
+      while (!InspectorClient.isTerminalTaskStatus(task.status)) {
+        const pollInterval =
+          typeof task.pollInterval === "number" && task.pollInterval > 0
+            ? task.pollInterval
+            : DEFAULT_TASK_POLL_INTERVAL_MS;
+        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        task = (await client.request(
+          { method: "tasks/get", params: { taskId: task.taskId } },
+          GetTaskResultSchema,
+          this.getRequestOptions(),
+        )) as Task;
+        yield { type: "taskStatus", task };
+      }
+    } finally {
+      if (progressSubscriptionId != null) {
+        progressHandlers.delete(progressSubscriptionId);
+      }
+    }
+
+    if (task.status === "completed") {
+      const result = await client.request(
+        { method: "tasks/result", params: { taskId: task.taskId } },
+        CallToolResultSchema,
+        this.getRequestOptions(),
+      );
+      yield { type: "result", result };
+    } else {
+      // failed | cancelled — surface as an error the caller's loop labels as
+      // "cancelled" (via cancelledTaskIds) or "failed". Carry a ProtocolError so
+      // the `error` payload matches the event map's type (the SDK helper this
+      // replaces also yielded a protocol-error-shaped value).
+      yield {
+        type: "error",
+        error: new ProtocolError(
+          ProtocolErrorCode.InternalError,
+          task.statusMessage ?? `Task ${task.status}`,
+        ),
+      };
+    }
+  }
+
+  /**
    * Call a tool with task support (streaming).
    * Caller must provide the Tool (e.g. from a state manager).
    * @param tool The tool to call (use tool.name for the request)
@@ -2086,9 +2306,8 @@ export class InspectorClient extends InspectorClientEventTarget {
         };
       }
 
-      const stream = this.client.experimental.tasks.callToolStream(
+      const stream = this.pollTaskToolCall(
         streamParams as CallToolRequest["params"],
-        undefined, // Use default CallToolResultSchema
         requestOptions,
       );
 
@@ -2194,9 +2413,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       // Try to get it from the task result endpoint
       if (!finalResult && taskId) {
         try {
-          finalResult = await this.client.experimental.tasks.getTaskResult(
-            taskId,
-            undefined,
+          finalResult = await this.client.request(
+            { method: "tasks/result", params: { taskId } },
+            CallToolResultSchema,
             this.getRequestOptions(), // no metadata for fallback
           );
         } catch (resultError) {
@@ -2271,8 +2490,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       ...(cursor ? { cursor } : {}),
     };
     const response = await this.invokeMcpClient(() =>
-      this.client!.listResources(
-        params,
+      this.client!.request(
+        { method: "resources/list", params },
+        ListResourcesResultSchema,
         this.getRequestOptions(metadata?.progressToken),
       ),
     );
@@ -2398,8 +2618,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     };
     const response = await this.invokeMcpClient(
       () =>
-        this.client!.listResourceTemplates(
-          params,
+        this.client!.request(
+          { method: "resources/templates/list", params },
+          ListResourceTemplatesResultSchema,
           this.getRequestOptions(metadata?.progressToken),
         ),
       { method: "resources/templates/list" },
@@ -2429,8 +2650,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       ...(cursor ? { cursor } : {}),
     };
     const response = await this.invokeMcpClient(() =>
-      this.client!.listPrompts(
-        params,
+      this.client!.request(
+        { method: "prompts/list", params },
+        ListPromptsResultSchema,
         this.getRequestOptions(metadata?.progressToken),
       ),
     );
@@ -2546,8 +2768,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     } catch (error) {
       // Handle MethodNotFound gracefully (server doesn't support completions)
       if (
-        (error instanceof McpError &&
-          error.code === ErrorCode.MethodNotFound) ||
+        (error instanceof ProtocolError &&
+          error.code === ProtocolErrorCode.MethodNotFound) ||
         (error instanceof Error &&
           (error.message.includes("Method not found") ||
             error.message.includes("does not support completions")))

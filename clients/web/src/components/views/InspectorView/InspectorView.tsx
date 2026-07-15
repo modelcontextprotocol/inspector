@@ -22,10 +22,10 @@ import type {
   Prompt,
   ReadResourceResult,
   Resource,
-  ResourceTemplate,
+  ResourceTemplateType as ResourceTemplate,
   Task,
   Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import type {
   ConnectionStatus,
   FetchRequestEntry,
@@ -91,7 +91,7 @@ import { MonitoringScreen } from "../../groups/MonitoringScreen/MonitoringScreen
 import { ResizeHandle } from "../../elements/ResizeHandle/ResizeHandle";
 import { getServerType } from "@inspector/core/mcp/config.js";
 import { INSPECTOR_SERVERS_TAB } from "../../../utils/inspectorTabs";
-import { collectSchemaDefaults } from "../../../utils/jsonUtils";
+import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
 import { MONITOR_COLUMN_ANIM_MS } from "./monitorColumnAnimation";
 
 const SORT_DEFAULT: SortDirection = "newest-first";
@@ -913,7 +913,7 @@ export function InspectorView({
     // fails, and Open App is silently disabled — an automated driver's click
     // then no-ops and the iframe-wait spins forever.
     const formValues = {
-      ...collectSchemaDefaults(target.inputSchema),
+      ...collectSchemaDefaults(toFormSchema(target.inputSchema) ?? {}),
       ...deepLink.appArgs,
     };
     // Seed the selection directly rather than routing through
