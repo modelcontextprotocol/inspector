@@ -1215,6 +1215,12 @@ function wireTaskHandlers(
   taskTools: Map<string, TaskToolDefinition>,
 ): void {
   const lowLevel = mcpServer.server;
+  // SDK gap (server side): `Server` exposes no public API to override an already
+  // registered handler or to send a `tools/call` response that bypasses its
+  // result-schema validation, so we reach the private `_requestHandlers` map via
+  // a narrowed cast (`RawHandlerHost`). Mirrors the client-side bypass in
+  // `core/mcp/inspectorClient.ts`; both go away when the SDK models task-augmented
+  // results natively.
   const registry = (lowLevel as unknown as RawHandlerHost)._requestHandlers;
   const sdkToolsCall = registry.get("tools/call");
   // Map each created task back to the tool that owns it, so tasks/get and

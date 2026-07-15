@@ -355,6 +355,11 @@ export function mcpConfigToServerEntries(config: MCPConfig): ServerEntry[] {
     // `InspectorServerSettings` only.
     const inspectorFields: StoredInspectorFields = {};
     const sdkOnly: Record<string, unknown> = {};
+    // Widen the typed config object to a generic record to iterate its keys.
+    // `StoredMCPServer` has no index signature, so TS requires the `unknown`
+    // step (`as Record<string, unknown>` alone is TS2352). This is a plain
+    // structural widening, not an SDK-shape workaround. (Pre-existing pattern,
+    // also at the `serverEntryToStored` / oauth-strip casts in this file.)
     for (const [k, v] of Object.entries(
       raw as unknown as Record<string, unknown>,
     )) {

@@ -63,6 +63,7 @@ import type {
   Root,
   CreateMessageRequest,
   CreateMessageResult,
+  CreateTaskResult,
   ElicitRequest,
   ElicitResult,
   ElicitRequestURLParams,
@@ -671,6 +672,12 @@ export class InspectorClient extends InspectorClientEventTarget {
     ) => Promise<CreateMessageResult> | Promise<ElicitResult>,
   ): void {
     if (!this.client) return;
+    // SDK gap: `Client` exposes no public way to (a) read a registered request
+    // handler or (b) opt one out of the result validation its `_wrapHandler`
+    // installs, so we reach the private `_requestHandlers` map through a
+    // narrowed cast. A public "register a raw/unvalidated handler" API — or a
+    // handler-result type that includes `CreateTaskResult` — would remove both
+    // this cast and the ones on the sampling/elicit returns above.
     const internal = this.client as unknown as {
       _requestHandlers: Map<
         string,
@@ -1045,11 +1052,18 @@ export class InspectorClient extends InspectorClientEventTarget {
             // The v2 Client validates a spec handler's result and would reject
             // `{ task }` with -32602; `installReceiverTaskResponseBypass` below
             // routes this task-augmented branch around that validation so the
-            // legacy `{ task }` response reaches the wire. The cast satisfies the
-            // handler's declared `CreateMessageResult` return type.
-            return Promise.resolve({
-              task: record.task,
-            } as unknown as CreateMessageResult);
+            // legacy `{ task }` response reaches the wire. `taskResult` is typed
+            // as `CreateTaskResult` so its shape IS checked; the unavoidable
+            // `as unknown as CreateMessageResult` bridges the SDK gap — the 2-arg
+            // `setRequestHandler` overload types a sampling handler's return as
+            // `CreateMessageResult` only and doesn't model the (deprecated but
+            // wire-valid) task-augmented `CreateTaskResult`. A handler-result
+            // union `CreateMessageResult | CreateTaskResult` on the SDK side
+            // would remove this cast.
+            const taskResult: CreateTaskResult = { task: record.task };
+            return Promise.resolve(
+              taskResult as unknown as CreateMessageResult,
+            );
           }
           return new Promise<CreateMessageResult>((resolve, reject) => {
             const samplingRequest = new SamplingCreateMessage(
@@ -1123,11 +1137,13 @@ export class InspectorClient extends InspectorClientEventTarget {
             // Task-augmented (2025-11-25) response — see the sampling handler
             // above. Reply with a `CreateTaskResult` (`{ task }`), routed around
             // the v2 Client's result validation by
-            // `installReceiverTaskResponseBypass` below; the cast satisfies the
-            // handler's declared `ElicitResult` return type.
-            return Promise.resolve({
-              task: record.task,
-            } as unknown as ElicitResult);
+            // `installReceiverTaskResponseBypass` below. `taskResult` is typed so
+            // its shape is checked; the `as unknown as ElicitResult` bridges the
+            // same SDK gap as the sampling handler — the 2-arg `setRequestHandler`
+            // overload types an elicitation handler's return as `ElicitResult`
+            // only and doesn't model the task-augmented `CreateTaskResult`.
+            const taskResult: CreateTaskResult = { task: record.task };
+            return Promise.resolve(taskResult as unknown as ElicitResult);
           }
           return new Promise<ElicitResult>((resolve) => {
             const elicitationRequest = new ElicitationCreateMessage(
@@ -2222,6 +2238,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     // id the SDK registers for this request (the only new key in the private
     // `_progressHandlers` map) so we can keep the caller's `onprogress` alive
     // through the poll and clean it up when the task terminates.
+    // SDK gap: `Client` exposes no public API to keep a progress subscription
+    // alive across a resolved request (or to subscribe to progress by token), so
+    // we reach the private `_progressHandlers` map through a narrowed cast. A
+    // public "durable progress subscription" hook would remove this cast.
     const progressHandlers = (
       client as unknown as {
         _progressHandlers: Map<number, ProgressCallback>;
