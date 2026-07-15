@@ -122,14 +122,16 @@ describe("ContentViewer", () => {
       type: "resource_link",
       uri: "ui://app",
       name: "Cool App",
-      description: "An app",
       mimeType: "text/html",
     };
     renderWithMantine(<ContentViewer block={block} />);
     expect(screen.getByText("Cool App")).toBeInTheDocument();
-    expect(screen.getByText("An app")).toBeInTheDocument();
     expect(screen.getByText("text/html")).toBeInTheDocument();
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    // The URI copy button is present, but there's no expand control.
+    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Expand resource/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders nothing for unknown block types", () => {

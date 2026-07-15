@@ -367,7 +367,6 @@ function BlockContent({
         <ResourceLinkInfo
           uri={block.uri}
           name={block.name}
-          description={block.description}
           mimeType={block.mimeType}
         />
       );
