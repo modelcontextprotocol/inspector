@@ -130,7 +130,7 @@ describe("ContentViewer", () => {
     // The URI copy button is present, but there's no expand control.
     expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Expand" }),
+      screen.queryByRole("button", { name: /^Expand resource/ }),
     ).not.toBeInTheDocument();
   });
 

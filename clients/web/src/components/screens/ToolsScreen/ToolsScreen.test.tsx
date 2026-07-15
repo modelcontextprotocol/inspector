@@ -163,7 +163,7 @@ describe("ToolsScreen", () => {
     expect(screen.queryByText("Results")).toBeNull();
   });
 
-  it("renders the result panel when callState has a result", () => {
+  it("renders a content-sized result card for a plain text result", () => {
     renderWithMantine(
       <ToolsScreen
         {...baseProps}
@@ -174,6 +174,9 @@ describe("ToolsScreen", () => {
       />,
     );
     expect(screen.getByText("Results")).toBeInTheDocument();
+    // No links → the result card is NOT flex-filled (sizes to content).
+    const card = screen.getByText("Results").closest(".mantine-Card-root");
+    expect(card).not.toHaveStyle({ flex: "1" });
   });
 
   it("fills the result card with a Resource Links box when the result has links", () => {
@@ -195,6 +198,10 @@ describe("ToolsScreen", () => {
     expect(
       screen.getByRole("heading", { name: "Resource Links" }),
     ).toBeInTheDocument();
+    // Links → the result card fills the pane (`flex: 1`), distinguishing this
+    // branch from the content-sized text-result card above.
+    const card = screen.getByText("Results").closest(".mantine-Card-root");
+    expect(card).toHaveStyle({ flex: "1" });
   });
 
   it("invokes onCallTool with form values on Execute", async () => {

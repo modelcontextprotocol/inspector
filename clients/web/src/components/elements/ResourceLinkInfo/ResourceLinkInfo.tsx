@@ -85,10 +85,11 @@ const NameText = Text.withProps({
 
 /**
  * Pure-display metadata for a `resource_link`: an optional name and MIME-type
- * badge on the header row, then the URI (monospace, link-styled) on the line
- * below with a copy button. The optional `action` slot lets an interactive
- * wrapper (e.g. {@link ResourceLink}) place an expand/collapse control at the
- * end of the URI row.
+ * badge on the header row, then the URI on the line below with a copy button.
+ * The URI is styled like ProtocolEntry/NetworkEntry URLs (`sm` / `fw: 500`,
+ * default sans-serif face and color), not a blue monospace link. The optional
+ * `action` slot lets an interactive wrapper (e.g. {@link ResourceLink}) place
+ * an expand/collapse control at the end of the URI row.
  */
 export function ResourceLinkInfo({
   uri,

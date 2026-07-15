@@ -98,8 +98,14 @@ export function ResourceLink({
 
   // Same tooltip'd expand/collapse control as ProtocolEntry (ExpandToggle),
   // placed in the header row's meta slot as a sibling of the URI's copy button.
+  // A per-resource `ariaLabel` keeps the toggles distinguishable to assistive
+  // tech when several links are listed (the visible tooltip stays "Expand").
   const action = expandable ? (
-    <ExpandToggle expanded={expanded} onToggle={() => void toggle()} />
+    <ExpandToggle
+      expanded={expanded}
+      onToggle={() => void toggle()}
+      ariaLabel={`${expanded ? "Collapse" : "Expand"} resource ${uri}`}
+    />
   ) : undefined;
 
   return (

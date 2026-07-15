@@ -49,7 +49,7 @@ export const Static: Story = {
     // Copy button is present; there's no expand control in the static card.
     expect(canvas.getByRole("button", { name: "Copy" })).toBeInTheDocument();
     expect(
-      canvas.queryByRole("button", { name: "Expand" }),
+      canvas.queryByRole("button", { name: /^Expand resource/ }),
     ).not.toBeInTheDocument();
   },
 };
@@ -63,7 +63,9 @@ export const Expandable: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole("button", { name: "Expand" }));
+    await userEvent.click(
+      canvas.getByRole("button", { name: `Expand resource ${URI}` }),
+    );
     await waitFor(() =>
       expect(canvas.getByText(/Read on demand/)).toBeInTheDocument(),
     );
@@ -81,7 +83,9 @@ export const LargeResult: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole("button", { name: "Expand" }));
+    await userEvent.click(
+      canvas.getByRole("button", { name: `Expand resource ${BLOB_URI}` }),
+    );
     // The `"blob"` key appears only in the expanded read result's JSON (not in
     // the metadata badge), so it confirms the inline result rendered.
     await waitFor(() =>
