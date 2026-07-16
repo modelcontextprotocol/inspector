@@ -1,7 +1,9 @@
 import { CloseButton, Group, Modal, Stack } from "@mantine/core";
 import type {
   ClientCapabilities,
+  DiscoverResult,
   InitializeResult,
+  ProtocolEra,
 } from "@modelcontextprotocol/client";
 import type { ServerType } from "@inspector/core/mcp/types.js";
 import {
@@ -15,6 +17,8 @@ export interface ConnectionInfoModalProps {
   initializeResult: InitializeResult;
   clientCapabilities: ClientCapabilities;
   transport: ServerType;
+  protocolEra?: ProtocolEra;
+  discoverResult?: DiscoverResult;
   oauth?: OAuthDetails;
   onClearOAuth?: () => void;
 }
@@ -25,6 +29,8 @@ export function ConnectionInfoModal({
   initializeResult,
   clientCapabilities,
   transport,
+  protocolEra,
+  discoverResult,
   oauth,
   onClearOAuth,
 }: ConnectionInfoModalProps) {
@@ -47,6 +53,8 @@ export function ConnectionInfoModal({
           initializeResult={initializeResult}
           clientCapabilities={clientCapabilities}
           transport={transport}
+          protocolEra={protocolEra}
+          discoverResult={discoverResult}
           oauth={oauth}
           onClearOAuth={onClearOAuth}
         />

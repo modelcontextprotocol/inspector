@@ -5,7 +5,11 @@
  * remote-server route handlers.
  */
 
-import { DEFAULT_MAX_FETCH_REQUESTS, DEFAULT_TASK_TTL_MS } from "./types.js";
+import {
+  DEFAULT_MAX_FETCH_REQUESTS,
+  DEFAULT_PROTOCOL_ERA,
+  DEFAULT_TASK_TTL_MS,
+} from "./types.js";
 import type { Root } from "@modelcontextprotocol/client";
 import type {
   InspectorServerSettings,
@@ -89,6 +93,7 @@ type StoredInspectorFields = Pick<
   StoredMCPServer,
   | "headers"
   | "metadata"
+  | "protocolEra"
   | "connectionTimeout"
   | "requestTimeout"
   | "taskTtl"
@@ -162,6 +167,7 @@ export function storedFieldsToInspectorSettings(
     stored.maxFetchRequests !== undefined ||
     stored.oauth !== undefined ||
     stored.roots !== undefined ||
+    stored.protocolEra !== undefined ||
     stored.env !== undefined ||
     stored.cwd !== undefined;
   if (!hasAny) return undefined;
@@ -189,6 +195,12 @@ export function storedFieldsToInspectorSettings(
     // `[]`, which `inspectorSettingsToStoredFields` then omits on write.
     roots: stored.roots ?? [],
   };
+  // Absent on disk reads back as the default era; the write side then omits the
+  // default so a byte-stable round-trip never injects `protocolEra` into files
+  // that never set it.
+  if (stored.protocolEra !== undefined) {
+    settings.protocolEra = stored.protocolEra;
+  }
   // Truthiness drops empty-string OAuth fields — mirrors the write-side
   // coercion in `validateSettings` (server.ts) so a round-trip can't
   // accidentally surface `oauthClientId: ""` to the form, where the
@@ -258,6 +270,16 @@ export function inspectorSettingsToStoredFields(
     out.autoRefreshOnListChanged = true;
   }
 
+  // Persist only when it differs from the default era. Absent reads back as
+  // DEFAULT_PROTOCOL_ERA, so writing the default would inject the field into
+  // hand-edited files that never had it and break byte-stable round-trips.
+  if (
+    settings.protocolEra !== undefined &&
+    settings.protocolEra !== DEFAULT_PROTOCOL_ERA
+  ) {
+    out.protocolEra = settings.protocolEra;
+  }
+
   // Persist only when it differs from the default. Unlike the timeouts, 0 is a
   // meaningful value here (unlimited), so the omit-sentinel is the default
   // itself rather than 0 — writing the default would inject the field into
@@ -309,6 +331,7 @@ export function inspectorSettingsToStoredFields(
 const INSPECTOR_FIELD_KEY_MAP = {
   headers: true,
   metadata: true,
+  protocolEra: true,
   connectionTimeout: true,
   requestTimeout: true,
   taskTtl: true,

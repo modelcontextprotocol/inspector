@@ -66,6 +66,7 @@ const baseHandlers = {
   onTimeoutChange: vi.fn(),
   onAutoRefreshChange: vi.fn(),
   onMaxFetchRequestsChange: vi.fn(),
+  onProtocolEraChange: vi.fn(),
   onOAuthChange: vi.fn(),
   onAddRoot: vi.fn(),
   onRemoveRoot: vi.fn(),
@@ -86,6 +87,46 @@ describe("ServerSettingsForm", () => {
     expect(screen.getByText("Timeouts")).toBeInTheDocument();
     expect(screen.getByText("OAuth Settings")).toBeInTheDocument();
     expect(screen.getByText("Roots")).toBeInTheDocument();
+  });
+
+  it("defaults the Protocol Era select to Legacy when unset", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["options"]}
+      />,
+    );
+    expect(
+      screen.getByDisplayValue("Legacy (2025-11-25 handshake)"),
+    ).toBeInTheDocument();
+  });
+
+  it("invokes onProtocolEraChange with the selected era", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["options"]}
+      />,
+    );
+    await user.click(screen.getByDisplayValue("Legacy (2025-11-25 handshake)"));
+    await user.click(screen.getByText("Modern (2026-07-28, sessionless)"));
+    expect(baseHandlers.onProtocolEraChange).toHaveBeenCalledWith("modern");
+  });
+
+  it("reflects the configured protocolEra in the select value", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, protocolEra: "auto" }}
+        expandedSections={["options"]}
+      />,
+    );
+    expect(
+      screen.getByDisplayValue("Auto (probe, fall back to legacy)"),
+    ).toBeInTheDocument();
   });
 
   it("shows empty hints for headers and metadata when no entries exist", () => {

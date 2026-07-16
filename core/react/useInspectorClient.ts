@@ -7,6 +7,8 @@ import type {
   ClientCapabilities,
   ServerCapabilities,
   Implementation,
+  ProtocolEra,
+  DiscoverResult,
 } from "@modelcontextprotocol/client";
 
 // Module-scope frozen object so the `?? EMPTY_CLIENT_CAPABILITIES`
@@ -22,6 +24,18 @@ export interface UseInspectorClientResult {
   serverInfo?: Implementation;
   instructions?: string;
   protocolVersion?: string;
+  /**
+   * Protocol era negotiated with the server (SEP §7.8): `"legacy"` for the
+   * 2025-11-25 initialize handshake, `"modern"` for the 2026-era sessionless
+   * model. Undefined when not connected or on a plain legacy connect. (#1626)
+   */
+  protocolEra?: ProtocolEra;
+  /**
+   * The `server/discover` result on a probed/pinned connect — server identity,
+   * capabilities, and supported versions learned without an initialize
+   * handshake. Undefined on a legacy connect. (#1626)
+   */
+  discoverResult?: DiscoverResult;
   /**
    * Message from the most recent mid-session transport failure (the client's
    * `error` event — stdio crash, SSE drop, HTTP 5xx). Stays set until the next
@@ -66,6 +80,12 @@ export function useInspectorClient(
   const [protocolVersion, setProtocolVersion] = useState<string | undefined>(
     inspectorClient?.getProtocolVersion(),
   );
+  const [protocolEra, setProtocolEra] = useState<ProtocolEra | undefined>(
+    inspectorClient?.getProtocolEra(),
+  );
+  const [discoverResult, setDiscoverResult] = useState<
+    DiscoverResult | undefined
+  >(inspectorClient?.getDiscoverResult());
   const [lastError, setLastError] = useState<string | undefined>(undefined);
 
   useEffect(() => {
@@ -75,6 +95,8 @@ export function useInspectorClient(
       setServerInfo(undefined);
       setInstructions(undefined);
       setProtocolVersion(undefined);
+      setProtocolEra(undefined);
+      setDiscoverResult(undefined);
       setLastError(undefined);
       return;
     }
@@ -84,6 +106,8 @@ export function useInspectorClient(
     setServerInfo(inspectorClient.getServerInfo());
     setInstructions(inspectorClient.getInstructions());
     setProtocolVersion(inspectorClient.getProtocolVersion());
+    setProtocolEra(inspectorClient.getProtocolEra());
+    setDiscoverResult(inspectorClient.getDiscoverResult());
     setLastError(undefined);
 
     const onStatusChange = (event: TypedEvent<"statusChange">) => {
@@ -111,6 +135,14 @@ export function useInspectorClient(
     ) => {
       setProtocolVersion(event.detail);
     };
+    const onProtocolEraChange = (event: TypedEvent<"protocolEraChange">) => {
+      setProtocolEra(event.detail);
+    };
+    const onDiscoverResultChange = (
+      event: TypedEvent<"discoverResultChange">,
+    ) => {
+      setDiscoverResult(event.detail);
+    };
 
     inspectorClient.addEventListener("statusChange", onStatusChange);
     inspectorClient.addEventListener("error", onError);
@@ -126,6 +158,11 @@ export function useInspectorClient(
     inspectorClient.addEventListener(
       "protocolVersionChange",
       onProtocolVersionChange,
+    );
+    inspectorClient.addEventListener("protocolEraChange", onProtocolEraChange);
+    inspectorClient.addEventListener(
+      "discoverResultChange",
+      onDiscoverResultChange,
     );
 
     return () => {
@@ -146,6 +183,14 @@ export function useInspectorClient(
       inspectorClient.removeEventListener(
         "protocolVersionChange",
         onProtocolVersionChange,
+      );
+      inspectorClient.removeEventListener(
+        "protocolEraChange",
+        onProtocolEraChange,
+      );
+      inspectorClient.removeEventListener(
+        "discoverResultChange",
+        onDiscoverResultChange,
       );
     };
   }, [inspectorClient]);
@@ -173,6 +218,8 @@ export function useInspectorClient(
     serverInfo,
     instructions,
     protocolVersion,
+    protocolEra,
+    discoverResult,
     lastError,
     appRendererClient: inspectorClient?.getAppRendererClient() ?? null,
     connect,

@@ -22,9 +22,11 @@ import type {
 } from "./types.js";
 import type {
   ClientCapabilities,
+  DiscoverResult,
   Implementation,
   LoggingLevel,
   Prompt,
+  ProtocolEra,
   Resource,
   ResourceTemplateType as ResourceTemplate,
   ServerCapabilities,
@@ -56,6 +58,8 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   getServerInfo(): Implementation | undefined;
   getInstructions(): string | undefined;
   getProtocolVersion(): string | undefined;
+  getProtocolEra(): ProtocolEra | undefined;
+  getDiscoverResult(): DiscoverResult | undefined;
   getServerSettings(): InspectorServerSettings | undefined;
   setServerSettings(settings: InspectorServerSettings): void;
   getAppRendererClient(): AppRendererClient | null;

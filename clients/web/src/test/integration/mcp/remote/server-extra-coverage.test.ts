@@ -424,6 +424,11 @@ describe("server.ts supplemental coverage", () => {
       expect((await res.json()).error).toMatch(/roots/);
     });
 
+    it("rejects an unknown protocolEra", async () => {
+      const res = await postSettings({ ...base, protocolEra: "future" });
+      expect((await res.json()).error).toMatch(/protocolEra/);
+    });
+
     it("accepts a fully-populated valid settings payload", async () => {
       const res = await postSettings({
         ...base,
@@ -432,6 +437,7 @@ describe("server.ts supplemental coverage", () => {
         taskTtl: 1000,
         autoRefreshOnListChanged: true,
         maxFetchRequests: 5,
+        protocolEra: "modern",
         oauthClientId: "cid",
         oauthScopes: "a b",
         enterpriseManaged: true,
@@ -467,6 +473,8 @@ describe("server.ts supplemental coverage", () => {
               requestTimeout: -1,
               taskTtl: "x",
               maxFetchRequests: -1,
+              // unknown era literal → isProtocolEra branch
+              protocolEra: "future",
               // enterpriseManaged non-boolean → isOauthObject inner branch
               oauth: { enterpriseManaged: "yes" },
               // a non-string `name` → isRootArray inner branch
@@ -494,6 +502,7 @@ describe("server.ts supplemental coverage", () => {
           "requestTimeout",
           "taskTtl",
           "maxFetchRequests",
+          "protocolEra",
           "oauth",
           "roots",
         ]) {

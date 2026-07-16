@@ -137,6 +137,12 @@ function InteractiveRender(args: ServerSettingsFormProps) {
           settings: { ...args.settings, maxFetchRequests: value },
         });
       }}
+      onProtocolEraChange={(value) => {
+        args.onProtocolEraChange(value);
+        updateArgs({
+          settings: { ...args.settings, protocolEra: value },
+        });
+      }}
       onOAuthChange={(oauth) => {
         args.onOAuthChange(oauth);
         updateArgs({
@@ -173,6 +179,7 @@ const meta: Meta<typeof ServerSettingsForm> = {
     onTimeoutChange: fn(),
     onAutoRefreshChange: fn(),
     onMaxFetchRequestsChange: fn(),
+    onProtocolEraChange: fn(),
     onOAuthChange: fn(),
   },
 };

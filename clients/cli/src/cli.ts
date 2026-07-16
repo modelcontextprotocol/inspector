@@ -9,6 +9,7 @@ import type {
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
   DEFAULT_TASK_TTL_MS,
+  eraToVersionNegotiation,
 } from "@inspector/core/mcp/types.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import {
@@ -162,6 +163,11 @@ async function callMethod(
     sample: false,
     elicit: false,
     serverSettings,
+    // Per-server protocol era (SEP §7.8) from mcp.json → SDK versionNegotiation.
+    // Absent era defaults to legacy in the InspectorClient constructor (#1626).
+    ...(serverSettings?.protocolEra && {
+      versionNegotiation: eraToVersionNegotiation(serverSettings.protocolEra),
+    }),
     ...clientAuthOptions,
   });
 

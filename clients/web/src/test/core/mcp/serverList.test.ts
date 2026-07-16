@@ -303,6 +303,57 @@ describe("serverEntriesToMcpConfig", () => {
     expect(round).toEqual(original);
   });
 
+  it("round-trips protocolEra: lifts a non-default value to settings and back to disk", () => {
+    const original: MCPConfig = {
+      mcpServers: {
+        "era-modern": {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          protocolEra: "modern",
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.protocolEra).toBe("modern");
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect(round).toEqual(original);
+  });
+
+  it("round-trips protocolEra: auto is a non-default value", () => {
+    const original: MCPConfig = {
+      mcpServers: {
+        "era-auto": {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          protocolEra: "auto",
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.protocolEra).toBe("auto");
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect(round).toEqual(original);
+  });
+
+  it("omits protocolEra from disk when it equals the default (legacy)", () => {
+    // A legacy era is the default — writing it back must NOT inject the field.
+    // A benign inspector field keeps `settings` materialized.
+    const original: MCPConfig = {
+      mcpServers: {
+        "era-legacy": {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          protocolEra: "legacy",
+          connectionTimeout: 5000,
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.protocolEra).toBe("legacy");
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect("protocolEra" in (round.mcpServers["era-legacy"] ?? {})).toBe(false);
+  });
+
   it("lifts top-level Inspector-extension fields onto ServerEntry.settings (form shape)", () => {
     const cfg: MCPConfig = {
       mcpServers: {

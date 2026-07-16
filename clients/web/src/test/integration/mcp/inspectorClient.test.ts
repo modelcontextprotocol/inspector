@@ -746,12 +746,44 @@ describe("InspectorClient", () => {
 
       expect(client.getProtocolVersion()).toBeUndefined();
       await client.connect();
-      // stdio transports don't store the version themselves; the capture
-      // happens in MessageTrackingTransport, so this also guards that path.
+      // The SDK Client's getNegotiatedProtocolVersion() supplies the version
+      // for both eras.
       expect(client.getProtocolVersion()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      // A legacy connect reports the legacy era; there is no server/discover
+      // result without a probe.
+      expect(client.getProtocolEra()).toBe("legacy");
+      expect(client.getDiscoverResult()).toBeUndefined();
 
       await client.disconnect();
       expect(client.getProtocolVersion()).toBeUndefined();
+      expect(client.getProtocolEra()).toBeUndefined();
+      expect(client.getDiscoverResult()).toBeUndefined();
+    });
+
+    it("negotiates the legacy era under versionNegotiation 'auto' against a legacy server (stdio)", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+          // Auto probes server/discover, then falls back to the initialize
+          // handshake on this legacy test server — so the negotiated era is
+          // legacy and getProtocolEra() reports it (vs. undefined on a plain
+          // legacy connect).
+          versionNegotiation: { mode: "auto" },
+        },
+      );
+
+      await client.connect();
+      expect(client.getProtocolEra()).toBe("legacy");
+      expect(client.getProtocolVersion()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      // A legacy server has no server/discover result even when probed.
+      expect(client.getDiscoverResult()).toBeUndefined();
+
+      await client.disconnect();
     });
 
     it("should not auto-fetch server contents when disabled", async () => {

@@ -42,6 +42,33 @@ export const FullCapabilities: Story = {
   },
 };
 
+export const ModernEra: Story = {
+  args: {
+    initializeResult: {
+      protocolVersion: "2026-07-28",
+      serverInfo: { name: "Modern Server", version: "2.0.0" },
+      capabilities: {
+        tools: { listChanged: true },
+        resources: { subscribe: true },
+      },
+    },
+    clientCapabilities: fullClientCaps,
+    transport: "streamable-http",
+    protocolEra: "modern",
+    discoverResult: {
+      supportedVersions: ["2026-07-28", "2025-11-25"],
+      serverInfo: { name: "Modern Server", version: "2.0.0" },
+      capabilities: {
+        tools: { listChanged: true },
+        resources: { subscribe: true },
+        extensions: {
+          "io.modelcontextprotocol/tasks": {},
+        },
+      },
+    },
+  },
+};
+
 export const MinimalCapabilities: Story = {
   args: {
     initializeResult: {

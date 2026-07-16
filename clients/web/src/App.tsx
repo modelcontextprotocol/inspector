@@ -43,6 +43,7 @@ import type {
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
   DEFAULT_TASK_TTL_MS,
+  eraToVersionNegotiation,
 } from "@inspector/core/mcp/types.js";
 import {
   API_SERVER_ENV_VARS,
@@ -905,6 +906,8 @@ function App() {
     serverInfo,
     instructions,
     protocolVersion,
+    protocolEra,
+    discoverResult,
     lastError,
   } = useInspectorClient(inspectorClient);
   const {
@@ -2137,6 +2140,14 @@ function App() {
           installEnterpriseManagedAuth: clientConfig.enterpriseManagedAuth,
         }),
         ...(savedSettings && { serverSettings: savedSettings }),
+        // Per-server protocol era (SEP §7.8) → SDK versionNegotiation. Absent
+        // settings or an unset era default to legacy inside
+        // eraToVersionNegotiation / the InspectorClient constructor (#1626).
+        ...(savedSettings?.protocolEra && {
+          versionNegotiation: eraToVersionNegotiation(
+            savedSettings.protocolEra,
+          ),
+        }),
         // Set on the `/oauth/callback` rebuild so the client's `saveSession`
         // events (and any later persistence) key off the same OAuth authId
         // the pre-redirect page saved under.
@@ -4042,6 +4053,8 @@ function App() {
           initializeResult={initializeResult}
           clientCapabilities={clientCapabilities}
           transport={connectionInfoTransport}
+          protocolEra={protocolEra}
+          discoverResult={discoverResult}
           oauth={connectionInfoOAuth}
           onClearOAuth={
             connectionInfoCanClearOAuth ? handleClearConnectionOAuth : undefined
