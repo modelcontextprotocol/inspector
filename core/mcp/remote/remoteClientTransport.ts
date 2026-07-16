@@ -6,11 +6,11 @@
 import type {
   Transport,
   TransportSendOptions,
-} from "@modelcontextprotocol/sdk/shared/transport.js";
+} from "@modelcontextprotocol/client";
 import type {
   JSONRPCMessage,
   MessageExtraInfo,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import type { InspectorServerSettings, StderrLogEntry } from "../types.js";
 import type { FetchRequestEntryBase } from "../types.js";
 import type {
@@ -61,7 +61,7 @@ export interface RemoteTransportOptions {
   onFetchResponseBody?: (id: string, responseBody: string) => void;
 
   /** Optional OAuth client provider for Bearer authentication */
-  authProvider?: import("@modelcontextprotocol/sdk/client/auth.js").OAuthClientProvider;
+  authProvider?: import("@modelcontextprotocol/client").OAuthClientProvider;
 
   /**
    * Optional per-server settings forwarded in the /api/mcp/connect body.

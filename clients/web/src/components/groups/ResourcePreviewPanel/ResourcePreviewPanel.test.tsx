@@ -4,7 +4,7 @@ import type {
   BlobResourceContents,
   Resource,
   TextResourceContents,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { ResourcePreviewPanel } from "./ResourcePreviewPanel";
 

@@ -11,7 +11,7 @@ import {
   Title,
 } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
-import type { Root } from "@modelcontextprotocol/sdk/types.js";
+import type { Root } from "@modelcontextprotocol/client";
 
 export type RootDraft = { name: string; uri: string };
 

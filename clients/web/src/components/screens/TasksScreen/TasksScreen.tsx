@@ -1,5 +1,5 @@
 import { Card, Flex, Stack } from "@mantine/core";
-import type { Task, TaskStatus } from "@modelcontextprotocol/sdk/types.js";
+import type { Task, TaskStatus } from "@modelcontextprotocol/client";
 import { TaskControls } from "../../groups/TaskControls/TaskControls";
 import { TaskListPanel } from "../../groups/TaskListPanel/TaskListPanel";
 import type { TaskProgress } from "../../groups/TaskCard/TaskCard";

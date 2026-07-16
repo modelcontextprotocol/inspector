@@ -8,10 +8,7 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
-import type {
-  GetPromptResult,
-  Prompt,
-} from "@modelcontextprotocol/sdk/types.js";
+import type { GetPromptResult, Prompt } from "@modelcontextprotocol/client";
 import { PromptControls } from "../../groups/PromptControls/PromptControls";
 import { PromptArgumentsForm } from "../../groups/PromptArgumentsForm/PromptArgumentsForm";
 import { PromptMessagesDisplay } from "../../groups/PromptMessagesDisplay/PromptMessagesDisplay";

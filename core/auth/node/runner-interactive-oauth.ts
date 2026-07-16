@@ -9,7 +9,7 @@ import type { RunnerOAuthCallbackConfig } from "./runner-oauth-callback.js";
 export interface RunnerInteractiveOAuthClient {
   authenticate(): Promise<URL | undefined>;
   beginInteractiveAuthorization(authorizationUrl: URL): Promise<void>;
-  completeOAuthFlow(authorizationCode: string): Promise<void>;
+  completeOAuthFlow(authorizationCode: string, iss?: string): Promise<void>;
   checkAuthChallengeSatisfied(challenge: AuthChallenge): Promise<boolean>;
 }
 
@@ -67,7 +67,7 @@ export async function runRunnerInteractiveOAuth(
       path: options.callbackListen.pathname,
       onCallback: async (params) => {
         try {
-          await options.client.completeOAuthFlow(params.code);
+          await options.client.completeOAuthFlow(params.code, params.iss);
           flowResolve();
         } catch (err) {
           flowReject(err instanceof Error ? err : new Error(String(err)));

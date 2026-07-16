@@ -7,7 +7,7 @@ import type {
   OAuthClientInformation,
   OAuthTokens,
   OAuthMetadata,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+} from "@modelcontextprotocol/client";
 import type {
   IdpSessionState,
   OAuthClientRegistrationKind,

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import type {
   OAuthClientInformation,
   OAuthMetadata,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+} from "@modelcontextprotocol/client";
 import {
   parseOAuthTokenErrorResponse,
   postOAuthTokenRequest,

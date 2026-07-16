@@ -17,7 +17,7 @@ import type {
   ServerType,
 } from "@inspector/core/mcp/types.js";
 import { isOAuthCapableServerType } from "@inspector/core/mcp/config.js";
-import type { Root } from "@modelcontextprotocol/sdk/types.js";
+import type { Root } from "@modelcontextprotocol/client";
 
 export type ServerSettingsSection =
   | "options"

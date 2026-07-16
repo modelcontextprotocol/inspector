@@ -5,65 +5,42 @@
  * This allows composing MCP test servers with different capabilities, tools, resources, and prompts.
  */
 
+import * as z from "zod/v4";
 import {
   McpServer,
   ResourceTemplate as SdkResourceTemplate,
-} from "@modelcontextprotocol/sdk/server/mcp.js";
+  completable,
+  isCompletable,
+} from "@modelcontextprotocol/server";
 import type {
   Implementation,
   Tool,
   Resource,
-  ResourceTemplate,
+  ResourceTemplateType as ResourceTemplate,
   Prompt,
   CallToolResult,
-} from "@modelcontextprotocol/sdk/types.js";
-import {
-  InMemoryTaskStore,
-  InMemoryTaskMessageQueue,
-} from "@modelcontextprotocol/sdk/experimental/tasks/stores/in-memory.js";
-import type {
-  TaskStore,
-  TaskMessageQueue,
-  ToolTaskHandler,
-} from "@modelcontextprotocol/sdk/experimental/tasks/interfaces.js";
-import type {
+  PromptArgument,
   RegisteredTool,
   RegisteredResource,
   RegisteredPrompt,
   RegisteredResourceTemplate,
-} from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type {
-  ServerRequest,
-  ServerNotification,
-} from "@modelcontextprotocol/sdk/types.js";
+  ServerContext,
+  ServerCapabilities,
+  Task,
+  GetTaskResult,
+  ListTasksResult,
+  ListToolsResult,
+  ListResourcesResult,
+  ListResourceTemplatesResult,
+  ListPromptsResult,
+} from "@modelcontextprotocol/server";
 import {
-  SetLevelRequestSchema,
-  SubscribeRequestSchema,
-  UnsubscribeRequestSchema,
-  ListToolsRequestSchema,
-  ListResourcesRequestSchema,
-  ListResourceTemplatesRequestSchema,
-  ListPromptsRequestSchema,
-  type ListToolsResult,
-  type ListResourcesResult,
-  type ListResourceTemplatesResult,
-  type ListPromptsResult,
-} from "@modelcontextprotocol/sdk/types.js";
-import type { AnySchema } from "@modelcontextprotocol/sdk/server/zod-compat.js";
-import {
-  type ZodRawShapeCompat,
-  getObjectShape,
-  getSchemaDescription,
-  isSchemaOptional,
-  normalizeObjectSchema,
-} from "@modelcontextprotocol/sdk/server/zod-compat.js";
-import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
-import {
-  completable,
-  isCompletable,
-} from "@modelcontextprotocol/sdk/server/completable.js";
-import type { PromptArgument } from "@modelcontextprotocol/sdk/types.js";
+  GetTaskRequestSchema,
+  GetTaskPayloadRequestSchema,
+  CancelTaskRequestSchema,
+  ListTasksRequestSchema,
+  TaskStatusNotificationSchema,
+} from "@modelcontextprotocol/core";
 
 // Empty object JSON schema constant (from SDK's mcp.js)
 const EMPTY_OBJECT_JSON_SCHEMA = {
@@ -71,8 +48,83 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
   properties: {},
 } as const;
 
-type ToolInputSchema = ZodRawShapeCompat;
-type PromptArgsSchema = ZodRawShapeCompat;
+// A raw arg shape: field name → zod schema. Using the full `z.ZodType` (not
+// `z.ZodRawShape`, which is a readonly `$ZodType` map) keeps it assignable to the
+// SDK's `registerTool`/`registerPrompt` raw-shape overloads and mutable for the
+// completable() wrapping below.
+type ToolInputSchema = Record<string, z.ZodType>;
+type PromptArgsSchema = Record<string, z.ZodType>;
+
+/**
+ * Back-compat handler `extra` shape.
+ *
+ * SDK v2 removed `RequestHandlerExtra`; low-level handlers now receive a
+ * {@link ServerContext} whose per-request data lives under `ctx.mcpReq`. This
+ * type is the flattened view the composable test-server tool/resource/task
+ * handlers consume, rebuilt from `ctx.mcpReq` by {@link toHandlerExtra}.
+ */
+export interface HandlerExtra {
+  /** `_meta` sent with the request params (e.g. `_meta.progressToken`). */
+  _meta?: Record<string, unknown>;
+  /** The inbound JSON-RPC request id (for `relatedRequestId` on notifications). */
+  requestId?: string | number;
+  /** Abort signal for the in-flight request. */
+  signal?: AbortSignal;
+  /** Send a server→client request (`sampling/createMessage`, `elicitation/create`, `tasks/*`, …). */
+  sendRequest?: <T extends z.core.$ZodType>(
+    request: { method: string; params?: Record<string, unknown> },
+    resultSchema: T,
+  ) => Promise<z.output<T>>;
+  /** Send a server→client notification. */
+  sendNotification?: (notification: {
+    method: string;
+    params?: Record<string, unknown>;
+  }) => Promise<void>;
+}
+
+/** Minimal structural view of `ctx.mcpReq` for building {@link HandlerExtra}. */
+interface McpReqContext {
+  mcpReq?: {
+    id?: string | number;
+    _meta?: Record<string, unknown>;
+    signal?: AbortSignal;
+    send?: HandlerExtra["sendRequest"];
+    notify?: HandlerExtra["sendNotification"];
+  };
+}
+
+/** Rebuild the legacy flattened `extra` object from a v2 {@link ServerContext}. */
+function toHandlerExtra(ctx: ServerContext | undefined): HandlerExtra {
+  const mcpReq = (ctx as McpReqContext | undefined)?.mcpReq;
+  return {
+    _meta: mcpReq?._meta,
+    requestId: mcpReq?.id,
+    signal: mcpReq?.signal,
+    sendRequest: mcpReq?.send,
+    sendNotification: mcpReq?.notify,
+  };
+}
+
+/**
+ * Derive `prompts/list` argument descriptors from a raw zod arg shape.
+ * Replaces the SDK's removed `getObjectShape` / `getSchemaDescription` /
+ * `isSchemaOptional` compat helpers. A field is `required` unless it accepts
+ * `undefined` (i.e. it is `.optional()` / `.default()` / nullish).
+ */
+function promptArgumentsFromRawShape(
+  shape: Record<string, z.ZodType> | undefined,
+): PromptArgument[] | undefined {
+  if (!shape) return undefined;
+  return Object.entries(shape).map(([name, field]) => {
+    const schema = field as z.ZodType;
+    const acceptsUndefined = schema.safeParse(undefined).success;
+    return {
+      name,
+      description: schema.description,
+      required: !acceptsUndefined,
+    } as PromptArgument;
+  });
+}
 
 interface ServerState {
   registeredTools: Map<string, RegisteredTool>; // Keyed by name
@@ -96,6 +148,140 @@ export interface TestServerContext {
   serverControl?: { isClosing(): boolean };
 }
 
+// ---------------------------------------------------------------------------
+// Legacy (2025-11-25) tasks — re-implemented by hand.
+//
+// SDK v2 deleted the experimental tasks runtime (`InMemoryTaskStore`,
+// `registerToolTask`, `client/server.experimental.tasks.*`). The Inspector still
+// exercises the 2025-11-25 task wire methods end to end, so the composable
+// server keeps answering them with a small in-memory store plus low-level
+// custom-method handlers wired up in `createMcpServer`.
+// ---------------------------------------------------------------------------
+
+/** Task lifecycle status (2025-11-25 vocabulary). */
+export type TaskStatus = Task["status"];
+
+/** Loosely-typed argument bag handed to a task tool's `getTask`/`getTaskResult`. */
+export type ShapeOutput<_Shape> = Record<string, unknown>;
+
+/** Payload a task stores as its result (for `tasks/result`). */
+export type StoredTaskResult = CallToolResult & Record<string, unknown>;
+
+/**
+ * In-memory task store. Replaces the deleted SDK `InMemoryTaskStore`; keeps the
+ * subset of methods the composable fixtures use plus list/cancel for the
+ * `tasks/list` and `tasks/cancel` wire handlers.
+ */
+export class InMemoryTaskStore {
+  private tasks = new Map<string, Task>();
+  private results = new Map<string, StoredTaskResult>();
+  /** Optional hook fired on every status change (wired to `notifications/tasks/status`). */
+  onTaskStatusChanged?: (task: Task) => void;
+
+  private touch(task: Task): Task {
+    task.lastUpdatedAt = new Date().toISOString();
+    return task;
+  }
+
+  async createTask(options: { ttl?: number } = {}): Promise<Task> {
+    const now = new Date().toISOString();
+    const task: Task = {
+      taskId:
+        globalThis.crypto?.randomUUID?.() ??
+        `task-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+      status: "working",
+      ttl: options.ttl ?? null,
+      createdAt: now,
+      lastUpdatedAt: now,
+    };
+    this.tasks.set(task.taskId, task);
+    this.onTaskStatusChanged?.(task);
+    return task;
+  }
+
+  async getTask(taskId: string): Promise<Task | undefined> {
+    return this.tasks.get(taskId);
+  }
+
+  async updateTaskStatus(
+    taskId: string,
+    status: TaskStatus,
+    statusMessage?: string,
+  ): Promise<Task | undefined> {
+    const task = this.tasks.get(taskId);
+    if (!task) return undefined;
+    task.status = status;
+    if (statusMessage !== undefined) {
+      task.statusMessage = statusMessage;
+    }
+    this.touch(task);
+    this.onTaskStatusChanged?.(task);
+    return task;
+  }
+
+  async storeTaskResult(
+    taskId: string,
+    status: TaskStatus,
+    result: StoredTaskResult,
+  ): Promise<void> {
+    this.results.set(taskId, result);
+    await this.updateTaskStatus(taskId, status);
+  }
+
+  async getTaskResult(taskId: string): Promise<StoredTaskResult> {
+    const result = this.results.get(taskId);
+    if (!result) {
+      throw new Error(`No result stored for task ${taskId}`);
+    }
+    return result;
+  }
+
+  async listTasks(): Promise<Task[]> {
+    return [...this.tasks.values()];
+  }
+}
+
+/** `extra` handed to a task tool's `createTask` (server→client requests + the store). */
+export interface CreateTaskRequestHandlerExtra {
+  taskStore: InMemoryTaskStore;
+  /** `_meta` from the augmenting `tools/call` (e.g. `_meta.progressToken`). */
+  _meta?: Record<string, unknown>;
+  /** The inbound request id. */
+  requestId?: string | number;
+  /** Send a server→client request (`elicitation/create`, `sampling/createMessage`, `tasks/*`). */
+  sendRequest: <T extends z.core.$ZodType>(
+    request: { method: string; params?: Record<string, unknown> },
+    resultSchema: T,
+  ) => Promise<z.output<T>>;
+  /** Send a server→client notification (`notifications/progress`, …). */
+  sendNotification: (notification: {
+    method: string;
+    params?: Record<string, unknown>;
+  }) => Promise<void>;
+}
+
+/** `extra` handed to a task tool's `getTask`/`getTaskResult`. */
+export interface TaskRequestHandlerExtra {
+  taskId: string;
+  taskStore: InMemoryTaskStore;
+}
+
+/** Handler triplet for a task-augmented tool (replaces the SDK's `ToolTaskHandler`). */
+export interface ToolTaskHandler {
+  createTask: (
+    args: Record<string, unknown>,
+    extra: CreateTaskRequestHandlerExtra,
+  ) => Promise<{ task: Task }>;
+  getTask: (
+    args: Record<string, unknown>,
+    extra: TaskRequestHandlerExtra,
+  ) => Promise<GetTaskResult>;
+  getTaskResult: (
+    args: Record<string, unknown>,
+    extra: TaskRequestHandlerExtra,
+  ) => Promise<CallToolResult>;
+}
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -109,7 +295,7 @@ export interface ToolDefinition {
   handler: (
     params: Record<string, unknown>,
     context?: TestServerContext,
-    extra?: RequestHandlerExtra<ServerRequest, ServerNotification>,
+    extra?: HandlerExtra,
   ) => Promise<CallToolResult>;
 }
 
@@ -122,7 +308,7 @@ export interface TaskToolDefinition {
   execution?: { taskSupport: "required" | "optional" };
   /** Passed through to the SDK so clients can read tool-level `_meta` (e.g. `_meta.ui.resourceUri` for an App-flavored task tool). Mirrors {@link ToolDefinition._meta}. */
   _meta?: Record<string, unknown>;
-  handler: ToolTaskHandler<ToolInputSchema | undefined>;
+  handler: ToolTaskHandler;
 }
 
 export interface ResourceDefinition {
@@ -164,12 +350,12 @@ export interface ResourceTemplateDefinition {
   description?: string;
   /** OAuth scopes required to read resources from this template (enforced at HTTP layer). */
   requiredScopes?: string[];
-  inputSchema?: ZodRawShapeCompat; // Schema for template variables
+  inputSchema?: Record<string, z.ZodType>; // Schema for template variables
   handler: (
     uri: URL,
     params: Record<string, unknown>,
     context?: TestServerContext,
-    extra?: RequestHandlerExtra<ServerRequest, ServerNotification>,
+    extra?: HandlerExtra,
   ) => Promise<{
     contents: Array<{ uri: string; mimeType?: string; text: string }>;
   }>;
@@ -248,15 +434,10 @@ export interface ServerConfig {
     cancel?: boolean; // default: true
   };
   /**
-   * Task store implementation (optional, defaults to InMemoryTaskStore)
-   * Only used if tasks capability is enabled
+   * Task store implementation (optional, defaults to a fresh {@link InMemoryTaskStore}).
+   * Only used if tasks capability is enabled.
    */
-  taskStore?: TaskStore;
-  /**
-   * Task message queue implementation (optional, defaults to InMemoryTaskMessageQueue)
-   * Only used if tasks capability is enabled
-   */
-  taskMessageQueue?: TaskMessageQueue;
+  taskStore?: InMemoryTaskStore;
   /**
    * OAuth 2.1 configuration for test server.
    * - **combined** (default): this server is both MCP resource and authorization server.
@@ -400,22 +581,30 @@ export function createMcpServer(config: ServerConfig): McpServer {
     }
   }
 
-  // Create task store and message queue if tasks are enabled
+  // Create the in-memory task store if tasks are enabled. SDK v2 has no built-in
+  // task runtime, so the store is owned here and its methods answer the wire.
   const taskStore =
     config.tasks !== undefined
       ? config.taskStore || new InMemoryTaskStore()
       : undefined;
-  const taskMessageQueue =
-    config.tasks !== undefined
-      ? config.taskMessageQueue || new InMemoryTaskMessageQueue()
-      : undefined;
 
-  // Create the server with capabilities and task stores
+  // Create the server with capabilities
   const mcpServer = new McpServer(config.serverInfo, {
-    capabilities,
-    taskStore,
-    taskMessageQueue,
+    capabilities: capabilities as ServerCapabilities,
   });
+
+  // Emit `notifications/tasks/status` whenever a task changes status, mirroring
+  // the deleted SDK task runtime. Best-effort: notifications need a live stream,
+  // so a send failure (e.g. no active SSE stream) must not break task execution.
+  if (taskStore) {
+    taskStore.onTaskStatusChanged = (task: Task) => {
+      const notification = TaskStatusNotificationSchema.parse({
+        method: "notifications/tasks/status",
+        params: { ...task },
+      });
+      void mcpServer.server.notification(notification).catch(() => {});
+    };
+  }
 
   // Create state (this is really session state, which is what we'll call it if we implement sessions at some point)
   const state: ServerState = {
@@ -434,25 +623,23 @@ export function createMcpServer(config: ServerConfig): McpServer {
     ...(config.serverControl && { serverControl: config.serverControl }),
   };
 
-  // Set up logging handler if logging is enabled
+  // Set up logging handler if logging is enabled. `logging/setLevel` is a spec
+  // method, so v2's `setRequestHandler` takes the method string (2-arg form).
   if (config.logging === true) {
-    mcpServer.server.setRequestHandler(
-      SetLevelRequestSchema,
-      async (request) => {
-        // Call optional callback if provided (for testing)
-        if (config.onLogLevelSet) {
-          config.onLogLevelSet(request.params.level);
-        }
-        // Return empty result as per MCP spec
-        return {};
-      },
-    );
+    mcpServer.server.setRequestHandler("logging/setLevel", async (request) => {
+      // Call optional callback if provided (for testing)
+      if (config.onLogLevelSet) {
+        config.onLogLevelSet(request.params.level);
+      }
+      // Return empty result as per MCP spec
+      return {};
+    });
   }
 
   // Set up resource subscription handlers if subscriptions are enabled
   if (config.subscriptions === true) {
     mcpServer.server.setRequestHandler(
-      SubscribeRequestSchema,
+      "resources/subscribe",
       async (request) => {
         // Track subscription in state (accessible via closure)
         const uri = request.params.uri;
@@ -462,7 +649,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
     );
 
     mcpServer.server.setRequestHandler(
-      UnsubscribeRequestSchema,
+      "resources/unsubscribe",
       async (request) => {
         // Remove subscription from state (accessible via closure)
         const uri = request.params.uri;
@@ -484,50 +671,58 @@ export function createMcpServer(config: ServerConfig): McpServer {
     );
   }
 
+  // Task tools registered on this server, keyed by name. The `tools/call`
+  // override below routes calls to these through their `createTask` handler
+  // (returning a task handle), reproducing the deleted SDK task runtime.
+  const taskTools = new Map<string, TaskToolDefinition>();
+
   // Set up tools
   if (config.tools && config.tools.length > 0) {
     for (const tool of config.tools) {
       if (isTaskTool(tool)) {
-        // Register task-based tool
-        // registerToolTask has two overloads: one with inputSchema (required) and one without
-        const registered = tool.inputSchema
-          ? mcpServer.experimental.tasks.registerToolTask(
-              tool.name,
+        // Register the task tool as an ordinary tool so it surfaces in
+        // `tools/list` with its input schema, `_meta`, and `execution` support.
+        // Its callback is a defensive placeholder: the `tools/call` override
+        // intercepts task tools before the SDK handler ever runs it.
+        const registered = mcpServer.registerTool(
+          tool.name,
+          {
+            description: tool.description,
+            ...(tool.inputSchema && { inputSchema: tool.inputSchema }),
+            ...(tool._meta != null && { _meta: tool._meta }),
+          },
+          async () => ({
+            content: [
               {
-                description: tool.description,
-                inputSchema: tool.inputSchema,
-                execution: tool.execution,
-                ...(tool._meta != null && { _meta: tool._meta }),
+                type: "text" as const,
+                text: `Task tool ${tool.name} must be invoked as a task`,
               },
-              tool.handler,
-            )
-          : mcpServer.experimental.tasks.registerToolTask(
-              tool.name,
-              {
-                description: tool.description,
-                execution: tool.execution,
-                ...(tool._meta != null && { _meta: tool._meta }),
-              },
-              tool.handler,
-            );
+            ],
+            isError: true,
+          }),
+        );
+        // `execution` is not a `registerTool` config field; set it directly so
+        // `tools/list` advertises task support (matches the old registerToolTask).
+        registered.execution = tool.execution ?? { taskSupport: "required" };
         state.registeredTools.set(tool.name, registered);
+        taskTools.set(tool.name, tool);
       } else {
         // Register regular tool
         const registered = mcpServer.registerTool(
           tool.name,
           {
+            inputSchema: tool.inputSchema ?? {},
             description: tool.description,
-            inputSchema: tool.inputSchema,
             ...(tool.outputSchema != null && {
-              outputSchema: tool.outputSchema as AnySchema,
+              outputSchema: tool.outputSchema as z.ZodType,
             }),
             ...(tool._meta != null && { _meta: tool._meta }),
           },
-          async (args, extra) => {
+          async (args, ctx) => {
             const result = await tool.handler(
               args as Record<string, unknown>,
               context,
-              extra,
+              toHandlerExtra(ctx),
             );
             const rawStructured =
               result &&
@@ -688,8 +883,13 @@ export function createMcpServer(config: ServerConfig): McpServer {
         {
           description: template.description,
         },
-        async (uri: URL, variables: Record<string, unknown>, extra) => {
-          const result = await template.handler(uri, variables, context, extra);
+        async (uri: URL, variables: Record<string, unknown>, ctx) => {
+          const result = await template.handler(
+            uri,
+            variables,
+            context,
+            toHandlerExtra(ctx),
+          );
           return result;
         },
       );
@@ -705,7 +905,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
 
       // If completions callbacks are provided, wrap the corresponding schemas
       if (prompt.completions && argsSchema) {
-        const enhancedSchema: ZodRawShapeCompat = { ...argsSchema };
+        const enhancedSchema: Record<string, z.ZodType> = { ...argsSchema };
         for (const [argName, completeCallback] of Object.entries(
           prompt.completions,
         )) {
@@ -774,68 +974,53 @@ export function createMcpServer(config: ServerConfig): McpServer {
 
   // Tools pagination
   if (capabilities.tools && maxPageSize.tools !== undefined) {
-    mcpServer.server.setRequestHandler(
-      ListToolsRequestSchema,
-      async (request) => {
-        const cursor = request.params?.cursor;
-        const pageSize = maxPageSize.tools!;
+    mcpServer.server.setRequestHandler("tools/list", async (request) => {
+      const cursor = request.params?.cursor;
+      const pageSize = maxPageSize.tools!;
 
-        // Convert registered tools to Tool format using the same logic as the SDK (mcp.js lines 67-95)
-        const allTools: Tool[] = [];
-        for (const [name, registered] of state.registeredTools.entries()) {
-          if (registered.enabled) {
-            // Match SDK's approach exactly (mcp.js lines 71-95)
-            const toolDefinition: Record<string, unknown> = {
-              name,
-              title: registered.title,
-              description: registered.description,
-              inputSchema: (() => {
-                const obj = normalizeObjectSchema(registered.inputSchema);
-                return obj
-                  ? toJsonSchemaCompat(obj, {
-                      strictUnions: true,
-                      pipeStrategy: "input",
-                    })
-                  : EMPTY_OBJECT_JSON_SCHEMA;
-              })(),
-              annotations: registered.annotations,
-              execution: registered.execution,
-              _meta: registered._meta,
-            };
+      // Convert registered tools to Tool format, mirroring the SDK's tools/list.
+      // The input-schema JSON comes from the SDK's memoised converter; the
+      // output-schema JSON is the value the SDK cached at registration.
+      const allTools: Tool[] = [];
+      for (const [name, registered] of state.registeredTools.entries()) {
+        if (registered.enabled) {
+          const toolDefinition: Record<string, unknown> = {
+            name,
+            title: registered.title,
+            description: registered.description,
+            inputSchema:
+              mcpServer.toolInputSchemaJson(name) ?? EMPTY_OBJECT_JSON_SCHEMA,
+            annotations: registered.annotations,
+            execution: registered.execution,
+            _meta: registered._meta,
+          };
 
-            if (registered.outputSchema) {
-              const obj = normalizeObjectSchema(registered.outputSchema);
-              if (obj) {
-                toolDefinition.outputSchema = toJsonSchemaCompat(obj, {
-                  strictUnions: true,
-                  pipeStrategy: "output",
-                });
-              }
-            }
-
-            allTools.push(toolDefinition as Tool);
+          if (registered.outputSchema && registered.outputSchemaJson) {
+            toolDefinition.outputSchema = registered.outputSchemaJson;
           }
+
+          allTools.push(toolDefinition as Tool);
         }
+      }
 
-        const startIndex = cursor ? parseInt(cursor, 10) : 0;
-        const endIndex = startIndex + pageSize;
-        const page = allTools.slice(startIndex, endIndex);
-        const nextCursor =
-          endIndex < allTools.length ? endIndex.toString() : undefined;
+      const startIndex = cursor ? parseInt(cursor, 10) : 0;
+      const endIndex = startIndex + pageSize;
+      const page = allTools.slice(startIndex, endIndex);
+      const nextCursor =
+        endIndex < allTools.length ? endIndex.toString() : undefined;
 
-        return {
-          tools: page,
-          nextCursor,
-        } as ListToolsResult;
-      },
-    );
+      return {
+        tools: page,
+        nextCursor,
+      } as ListToolsResult;
+    });
   }
 
   // Resources pagination
   if (capabilities.resources && maxPageSize.resources !== undefined) {
     mcpServer.server.setRequestHandler(
-      ListResourcesRequestSchema,
-      async (request, extra) => {
+      "resources/list",
+      async (request, ctx) => {
         const cursor = request.params?.cursor;
         const pageSize = maxPageSize.resources!;
 
@@ -860,8 +1045,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
         for (const template of state.registeredResourceTemplates.values()) {
           if (template.enabled && template.resourceTemplate.listCallback) {
             try {
-              const result =
-                await template.resourceTemplate.listCallback(extra);
+              const result = await template.resourceTemplate.listCallback(ctx);
               for (const resource of result.resources) {
                 allResources.push({
                   ...resource,
@@ -896,7 +1080,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
   // Resource templates pagination
   if (capabilities.resources && maxPageSize.resourceTemplates !== undefined) {
     mcpServer.server.setRequestHandler(
-      ListResourceTemplatesRequestSchema,
+      "resources/templates/list",
       async (request) => {
         const cursor = request.params?.cursor;
         const pageSize = maxPageSize.resourceTemplates!;
@@ -952,54 +1136,193 @@ export function createMcpServer(config: ServerConfig): McpServer {
 
   // Prompts pagination
   if (capabilities.prompts && maxPageSize.prompts !== undefined) {
-    mcpServer.server.setRequestHandler(
-      ListPromptsRequestSchema,
-      async (request) => {
-        const cursor = request.params?.cursor;
-        const pageSize = maxPageSize.prompts!;
+    mcpServer.server.setRequestHandler("prompts/list", async (request) => {
+      const cursor = request.params?.cursor;
+      const pageSize = maxPageSize.prompts!;
 
-        // Convert registered prompts to Prompt format using the same logic as the SDK
-        const allPrompts: Prompt[] = [];
-        for (const [name, prompt] of state.registeredPrompts.entries()) {
-          if (prompt.enabled) {
-            // Use the same conversion logic the SDK uses (from mcp.js line 408-419)
-            const shape = prompt.argsSchema
-              ? getObjectShape(prompt.argsSchema)
-              : undefined;
-            const arguments_ = shape
-              ? Object.entries(shape).map(([argName, field]) => {
-                  const description = getSchemaDescription(field);
-                  const isOptional = isSchemaOptional(field);
-                  return {
-                    name: argName,
-                    description,
-                    required: !isOptional,
-                  } as PromptArgument;
-                })
-              : undefined;
+      // Convert registered prompts to Prompt format. The argument descriptors
+      // are derived from the config's raw arg shape (the SDK no longer exposes
+      // a public shape-introspection helper).
+      const allPrompts: Prompt[] = [];
+      for (const [name, prompt] of state.registeredPrompts.entries()) {
+        if (prompt.enabled) {
+          const promptDef = config.prompts?.find((p) => p.name === name);
+          const arguments_ = promptArgumentsFromRawShape(promptDef?.argsSchema);
 
-            allPrompts.push({
-              name,
-              title: prompt.title,
-              description: prompt.description,
-              arguments: arguments_,
-            } as Prompt);
-          }
+          allPrompts.push({
+            name,
+            title: prompt.title,
+            description: prompt.description,
+            arguments: arguments_,
+          } as Prompt);
         }
+      }
 
-        const startIndex = cursor ? parseInt(cursor, 10) : 0;
-        const endIndex = startIndex + pageSize;
-        const page = allPrompts.slice(startIndex, endIndex);
-        const nextCursor =
-          endIndex < allPrompts.length ? endIndex.toString() : undefined;
+      const startIndex = cursor ? parseInt(cursor, 10) : 0;
+      const endIndex = startIndex + pageSize;
+      const page = allPrompts.slice(startIndex, endIndex);
+      const nextCursor =
+        endIndex < allPrompts.length ? endIndex.toString() : undefined;
 
-        return {
-          prompts: page,
-          nextCursor,
-        } as ListPromptsResult;
-      },
-    );
+      return {
+        prompts: page,
+        nextCursor,
+      } as ListPromptsResult;
+    });
+  }
+
+  // --- Legacy tasks wiring (only when the tasks capability is enabled) ---
+  if (taskStore) {
+    wireTaskHandlers(mcpServer, taskStore, taskTools);
   }
 
   return mcpServer;
+}
+
+/** Structural view of the low-level `Server`'s request-handler registry. */
+interface RawHandlerHost {
+  _requestHandlers: Map<
+    string,
+    (request: unknown, ctx: unknown) => Promise<unknown>
+  >;
+}
+
+/** Inbound `tools/call` request shape we read for task routing. */
+interface ToolsCallRequest {
+  params: {
+    name: string;
+    arguments?: Record<string, unknown>;
+    _meta?: Record<string, unknown>;
+  };
+}
+
+/**
+ * Wire up the 2025-11-25 task methods by hand:
+ *  - override `tools/call` so a task tool returns a `{ task }` handle
+ *    (`CreateTaskResult`) and runs its `createTask`, while ordinary tools fall
+ *    through to the SDK's own handler;
+ *  - register low-level `tasks/get` / `tasks/result` / `tasks/cancel` /
+ *    `tasks/list` handlers backed by the in-memory store.
+ *
+ * The `tools/call` override is installed directly into the handler registry
+ * (not via `setRequestHandler`) so the `{ task }` result skips the `Server`'s
+ * `tools/call` result-schema validation — a task handle is not a `CallToolResult`
+ * but is a valid legacy `tools/call` response.
+ */
+function wireTaskHandlers(
+  mcpServer: McpServer,
+  taskStore: InMemoryTaskStore,
+  taskTools: Map<string, TaskToolDefinition>,
+): void {
+  const lowLevel = mcpServer.server;
+  // SDK gap (server side): `Server` exposes no public API to override an already
+  // registered handler or to send a `tools/call` response that bypasses its
+  // result-schema validation, so we reach the private `_requestHandlers` map via
+  // a narrowed cast (`RawHandlerHost`). Mirrors the client-side bypass in
+  // `core/mcp/inspectorClient.ts`; both go away when the SDK models task-augmented
+  // results natively.
+  const registry = (lowLevel as unknown as RawHandlerHost)._requestHandlers;
+  const sdkToolsCall = registry.get("tools/call");
+  // Map each created task back to the tool that owns it, so tasks/get and
+  // tasks/result route through that tool's handler.
+  const taskOwners = new Map<string, TaskToolDefinition>();
+
+  registry.set("tools/call", async (request, ctx) => {
+    const req = request as ToolsCallRequest;
+    const taskTool = taskTools.get(req.params.name);
+    if (taskTool) {
+      const mcpReq = (ctx as McpReqContext).mcpReq;
+      // Task execution is fire-and-forget: it runs AFTER this `tools/call`
+      // request has already responded with the task handle. Its server→client
+      // requests (elicitation/sampling) and notifications (progress) must
+      // therefore go on the server's STANDALONE stream, not the per-request
+      // stream (`mcpReq.send`/`mcpReq.notify` tag `relatedRequestId` to this
+      // now-closed request, so the client never sees them). Route through the
+      // server's own `request`/`notification` instead.
+      const extra: CreateTaskRequestHandlerExtra = {
+        taskStore,
+        _meta: req.params._meta ?? mcpReq?._meta,
+        requestId: mcpReq?.id,
+        sendRequest: ((request, resultSchema) =>
+          mcpServer.server.request(
+            request,
+            resultSchema,
+          )) as CreateTaskRequestHandlerExtra["sendRequest"],
+        sendNotification: (notification) =>
+          mcpServer.server.notification(notification),
+      };
+      const { task } = await taskTool.handler.createTask(
+        req.params.arguments ?? {},
+        extra,
+      );
+      taskOwners.set(task.taskId, taskTool);
+      // Return a result that is BOTH a valid legacy `CreateTaskResult` (carries
+      // `task`) AND a valid wire `CallToolResult` (carries `content`). The
+      // Inspector's task-augmented `tools/call` is validated on the client
+      // against the tools/call wire schema, whose SEP-2106 guard rejects a body
+      // that carries `task` but no `content`; including a placeholder `content`
+      // satisfies that guard while the `task` handle drives the task flow (the
+      // real payload is later fetched via `tasks/result`).
+      return {
+        content: [{ type: "text", text: `Task ${task.taskId} created` }],
+        task,
+      };
+    }
+    if (!sdkToolsCall) {
+      throw new Error("tools/call handler is not initialized");
+    }
+    return sdkToolsCall(request, ctx);
+  });
+
+  mcpServer.server.setRequestHandler(
+    "tasks/get",
+    { params: GetTaskRequestSchema.shape.params },
+    async (params): Promise<GetTaskResult> => {
+      const taskId = params.taskId;
+      const owner = taskOwners.get(taskId);
+      if (owner) {
+        return owner.handler.getTask({}, { taskId, taskStore });
+      }
+      const task = await taskStore.getTask(taskId);
+      if (!task) {
+        throw new Error(`Unknown taskId: ${taskId}`);
+      }
+      return task as GetTaskResult;
+    },
+  );
+
+  mcpServer.server.setRequestHandler(
+    "tasks/result",
+    { params: GetTaskPayloadRequestSchema.shape.params },
+    async (params): Promise<CallToolResult> => {
+      const taskId = params.taskId;
+      const owner = taskOwners.get(taskId);
+      if (owner) {
+        return owner.handler.getTaskResult({}, { taskId, taskStore });
+      }
+      return taskStore.getTaskResult(taskId);
+    },
+  );
+
+  mcpServer.server.setRequestHandler(
+    "tasks/cancel",
+    { params: CancelTaskRequestSchema.shape.params },
+    async (params): Promise<Task> => {
+      const taskId = params.taskId;
+      const task = await taskStore.updateTaskStatus(taskId, "cancelled");
+      if (!task) {
+        throw new Error(`Unknown taskId: ${taskId}`);
+      }
+      return task;
+    },
+  );
+
+  mcpServer.server.setRequestHandler(
+    "tasks/list",
+    { params: ListTasksRequestSchema.shape.params },
+    async (): Promise<ListTasksResult> => {
+      const tasks = await taskStore.listTasks();
+      return { tasks };
+    },
+  );
 }

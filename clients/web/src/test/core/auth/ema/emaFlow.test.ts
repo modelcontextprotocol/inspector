@@ -381,6 +381,7 @@ describe("emaFlow", () => {
     const tokens = await completeEmaIdpAuthorizationAndMint(
       config,
       "auth-code",
+      IDP_ISSUER,
     );
 
     expect(tokens.access_token).toBe("resource-access-token");
@@ -415,7 +416,7 @@ describe("emaFlow", () => {
     await startEmaIdpAuthorization(config);
 
     await expect(
-      completeEmaIdpAuthorizationAndMint(config, "auth-code"),
+      completeEmaIdpAuthorizationAndMint(config, "auth-code", IDP_ISSUER),
     ).rejects.toThrow(/EMA legs 2–3 \(resource token mint\)/);
   });
 
@@ -480,7 +481,7 @@ describe("emaFlow", () => {
     });
 
     await expect(
-      completeEmaIdpAuthorizationAndMint(config, "auth-code"),
+      completeEmaIdpAuthorizationAndMint(config, "auth-code", IDP_ISSUER),
     ).rejects.toThrow(
       "EMA leg 1 (IdP authorization code exchange): leg1-non-error",
     );

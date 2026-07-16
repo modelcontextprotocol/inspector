@@ -11,7 +11,7 @@
  */
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
-import type { ResourceTemplate } from "@modelcontextprotocol/sdk/types.js";
+import type { ResourceTemplateType as ResourceTemplate } from "@modelcontextprotocol/client";
 import {
   ManagedListState,
   DEFAULT_LIST_CHANGED_DEBOUNCE_MS,

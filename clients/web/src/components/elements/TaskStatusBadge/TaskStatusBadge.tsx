@@ -1,5 +1,5 @@
 import { Badge } from "@mantine/core";
-import type { TaskStatus } from "@modelcontextprotocol/sdk/types.js";
+import type { TaskStatus } from "@modelcontextprotocol/client";
 import { filledBadgeColor } from "../filledBadgeColor";
 
 export interface TaskStatusBadgeProps {

@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type {
-  ReadResourceResult,
-  Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+import type { ReadResourceResult, Tool } from "@modelcontextprotocol/client";
 import {
   extractAppInfo,
   getAppResourceUri,

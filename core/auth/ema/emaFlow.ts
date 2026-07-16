@@ -1,4 +1,4 @@
-import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthTokens } from "@modelcontextprotocol/client";
 import type { OAuthStorage } from "../storage.js";
 import type { EnterpriseManagedAuthIdpConfig } from "../../client/types.js";
 import {
@@ -125,11 +125,13 @@ export async function startEmaIdpAuthorization(
 export async function completeEmaIdpAuthorizationAndMint(
   config: EmaFlowConfig,
   authorizationCode: string,
+  iss?: string,
 ): Promise<OAuthTokens> {
   try {
     await completeIdpOidcAuthorization({
       idp: config.idp,
       authorizationCode,
+      iss,
       redirectUrl: config.redirectUrl,
       storage: config.storage,
       fetchFn: config.fetchFn,

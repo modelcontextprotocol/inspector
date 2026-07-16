@@ -7,7 +7,7 @@ import type {
   ClientCapabilities,
   ServerCapabilities,
   Implementation,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 
 // Module-scope frozen object so the `?? EMPTY_CLIENT_CAPABILITIES`
 // fallback below doesn't return a fresh literal on every render —

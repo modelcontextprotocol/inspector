@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type {
   CreateMessageRequestParams,
   CreateMessageResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { fn } from "storybook/test";
 import { SamplingRequestPanel } from "./SamplingRequestPanel";
 

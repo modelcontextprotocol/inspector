@@ -7,10 +7,10 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
-import type { ElicitRequestFormParams } from "@modelcontextprotocol/sdk/types.js";
+import type { ElicitRequestFormParams } from "@modelcontextprotocol/client";
 import {
   hasMissingRequiredFields,
-  type JsonSchemaType,
+  type InspectorFormSchema,
 } from "../../../utils/jsonUtils";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
 
@@ -68,7 +68,7 @@ export function ElicitationFormPanel({
   onCancel,
   busy = false,
 }: ElicitationFormPanelProps) {
-  const requestedSchema = request.requestedSchema as JsonSchemaType;
+  const requestedSchema = request.requestedSchema as InspectorFormSchema;
   const submitDisabled =
     busy || hasMissingRequiredFields(requestedSchema, values);
   return (

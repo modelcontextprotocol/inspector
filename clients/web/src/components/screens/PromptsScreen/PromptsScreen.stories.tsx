@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
+import type { Prompt } from "@modelcontextprotocol/client";
 import { fn, userEvent, within } from "storybook/test";
 import { PromptsScreen } from "./PromptsScreen";
 import type { GetPromptState, PromptsUiState } from "./PromptsScreen";

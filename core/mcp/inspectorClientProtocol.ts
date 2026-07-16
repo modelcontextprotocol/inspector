@@ -26,11 +26,11 @@ import type {
   LoggingLevel,
   Prompt,
   Resource,
-  ResourceTemplate,
+  ResourceTemplateType as ResourceTemplate,
   ServerCapabilities,
   Task,
   Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import type { JsonValue } from "../json/jsonUtils.js";
 import type { InspectorClientEventTarget } from "./inspectorClientEventTarget.js";
 import type { SamplingCreateMessage } from "./samplingCreateMessage.js";

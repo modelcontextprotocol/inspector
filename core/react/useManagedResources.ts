@@ -4,7 +4,7 @@ import type {
   ManagedResourcesState,
   ManagedResourcesStateEventMap,
 } from "../mcp/state/managedResourcesState.js";
-import type { Resource } from "@modelcontextprotocol/sdk/types.js";
+import type { Resource } from "@modelcontextprotocol/client";
 import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
 
 export interface UseManagedResourcesResult {

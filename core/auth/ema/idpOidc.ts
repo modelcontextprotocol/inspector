@@ -2,12 +2,12 @@ import {
   discoverAuthorizationServerMetadata,
   exchangeAuthorization,
   startAuthorization,
-} from "@modelcontextprotocol/sdk/client/auth.js";
+} from "@modelcontextprotocol/client";
 import type {
   OAuthClientInformation,
   OAuthMetadata,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
-import { OAuthMetadataSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
+} from "@modelcontextprotocol/client";
+import { OAuthMetadataSchema } from "@modelcontextprotocol/core";
 import type { OAuthStorage } from "../storage.js";
 import type { EnterpriseManagedAuthIdpConfig } from "../../client/types.js";
 import { generateOAuthState, parseHttpUrl } from "../utils.js";
@@ -51,7 +51,9 @@ export async function discoverIdpMetadata(
     fetchFn,
   });
   if (!metadata) {
-    throw new Error(`Failed to discover OIDC metadata for IdP issuer ${issuer}`);
+    throw new Error(
+      `Failed to discover OIDC metadata for IdP issuer ${issuer}`,
+    );
   }
   return OAuthMetadataSchema.parse(metadata);
 }
@@ -63,7 +65,11 @@ export async function startIdpOidcAuthorization(params: {
   fetchFn?: typeof fetch;
 }): Promise<{ authorizationUrl: URL }> {
   const issuer = normalizeIdpIssuer(params.idp.issuer);
-  const metadata = await resolveIdpMetadata(issuer, params.storage, params.fetchFn);
+  const metadata = await resolveIdpMetadata(
+    issuer,
+    params.storage,
+    params.fetchFn,
+  );
   const clientInformation = idpClientInformation(params.idp);
   const storageKey = idpOAuthStorageKey(issuer);
   const state = generateOAuthState();
@@ -91,6 +97,12 @@ export async function startIdpOidcAuthorization(params: {
 export async function completeIdpOidcAuthorization(params: {
   idp: EnterpriseManagedAuthIdpConfig;
   authorizationCode: string;
+  /**
+   * RFC 9207 `iss` from the IdP callback. Forwarded to the SDK, which rejects
+   * the exchange when the IdP metadata advertises
+   * `authorization_response_iss_parameter_supported` but no `iss` arrives.
+   */
+  iss?: string;
   redirectUrl: string;
   storage: OAuthStorage;
   fetchFn?: typeof fetch;
@@ -121,6 +133,7 @@ export async function completeIdpOidcAuthorization(params: {
     metadata,
     clientInformation,
     authorizationCode: params.authorizationCode,
+    iss: params.iss,
     codeVerifier,
     redirectUri: params.redirectUrl,
     fetchFn: params.fetchFn,

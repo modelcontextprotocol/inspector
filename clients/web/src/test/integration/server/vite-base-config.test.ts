@@ -19,7 +19,7 @@ describe("getViteBaseConfig", () => {
     const config = getViteBaseConfig();
     expect(config.optimizeDeps.exclude).toEqual(
       expect.arrayContaining([
-        "@modelcontextprotocol/sdk/client/stdio.js",
+        "@modelcontextprotocol/client/stdio",
         "atomically",
         "cross-spawn",
         "which",
@@ -42,7 +42,7 @@ describe("getViteDevOptimizeDeps", () => {
     expect(config.ignoreOutdatedRequests).toBe(true);
     expect(config.include).toEqual([
       "ajv",
-      "@modelcontextprotocol/sdk/validation/ajv",
+      "@modelcontextprotocol/client/validators/ajv",
     ]);
     expect(config.exclude).toEqual(getViteBaseConfig().optimizeDeps.exclude);
   });

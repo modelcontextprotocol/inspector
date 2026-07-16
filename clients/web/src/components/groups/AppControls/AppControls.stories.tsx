@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import { fn, userEvent, within } from "storybook/test";
 import { AppControls } from "./AppControls";
 import { SUN_ICON_SVG } from "../../../test/fixtures/storyIcons";

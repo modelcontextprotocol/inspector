@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { TaskStatus } from "@modelcontextprotocol/sdk/types.js";
+import type { TaskStatus } from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { TaskStatusBadge } from "./TaskStatusBadge";
 

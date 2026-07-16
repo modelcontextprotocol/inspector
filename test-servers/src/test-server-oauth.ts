@@ -152,7 +152,10 @@ function setupMetadataEndpoints(
         const requestBaseUrl = `${req.protocol}://${req.get("host")}`;
         const actualIssuerUrl = config.issuerUrl ?? new URL(requestBaseUrl);
         const metadata = {
-          issuer: actualIssuerUrl.href.replace(/\/$/, "") + "/",
+          // RFC 8414 §3.3: the issuer MUST be identical to the base URL the
+          // well-known path was appended to — i.e. no trailing slash. SDK v2's
+          // client enforces this exactly (IssuerMismatchError otherwise).
+          issuer: actualIssuerUrl.href.replace(/\/$/, ""),
           authorization_endpoint: new URL("/oauth/authorize", actualIssuerUrl)
             .href,
           token_endpoint: new URL("/oauth/token", actualIssuerUrl).href,
@@ -160,7 +163,10 @@ function setupMetadataEndpoints(
           response_types_supported: ["code"],
           grant_types_supported: ["authorization_code", "refresh_token"],
           code_challenge_methods_supported: ["S256"],
-          token_endpoint_auth_methods_supported: ["client_secret_basic", "none"],
+          token_endpoint_auth_methods_supported: [
+            "client_secret_basic",
+            "none",
+          ],
           ...(config.supportDCR && {
             registration_endpoint: new URL("/oauth/register", actualIssuerUrl)
               .href,
@@ -180,12 +186,10 @@ function setupMetadataEndpoints(
     "/.well-known/oauth-protected-resource",
     (req: Request, res: Response) => {
       const requestBaseUrl = `${req.protocol}://${req.get("host")}`;
-      const resourceUrl =
-        config.resource ?? new URL("/", requestBaseUrl).href;
-      const localAsUrl = (config.issuerUrl ?? new URL(requestBaseUrl)).href.replace(
-        /\/$/,
-        "",
-      );
+      const resourceUrl = config.resource ?? new URL("/", requestBaseUrl).href;
+      const localAsUrl = (
+        config.issuerUrl ?? new URL(requestBaseUrl)
+      ).href.replace(/\/$/, "");
       const authorizationServers =
         mode === "protected-resource"
           ? (config.authorizationServers ?? [])
@@ -278,7 +282,11 @@ async function parseAuthorizationRequest(
   }
 
   if (response_type !== "code") {
-    return { ok: false, status: 400, body: { error: "unsupported_response_type" } };
+    return {
+      ok: false,
+      status: 400,
+      body: { error: "unsupported_response_type" },
+    };
   }
 
   const client = await findClient(client_id, config);
@@ -286,10 +294,7 @@ async function parseAuthorizationRequest(
     return { ok: false, status: 400, body: { error: "invalid_client" } };
   }
 
-  if (
-    client.redirectUris &&
-    !client.redirectUris.includes(redirect_uri)
-  ) {
+  if (client.redirectUris && !client.redirectUris.includes(redirect_uri)) {
     return {
       ok: false,
       status: 400,
@@ -874,7 +879,10 @@ export function buildScopeRequirementRegistry(
   }
   for (const template of config.resourceTemplates ?? []) {
     if (template.requiredScopes?.length) {
-      registry.resourceTemplates.set(template.uriTemplate, template.requiredScopes);
+      registry.resourceTemplates.set(
+        template.uriTemplate,
+        template.requiredScopes,
+      );
     }
   }
 
@@ -967,14 +975,15 @@ export function createScopeCheckMiddleware(
       return next();
     }
 
-    const granted =
-      oauthReq.oauthTokenScopes ?? getAccessTokenScopes(token);
+    const granted = oauthReq.oauthTokenScopes ?? getAccessTokenScopes(token);
     if (tokenHasRequiredScopes(granted, requiredScopes)) {
       return next();
     }
 
     const grantedSet = new Set(granted);
-    const missingScopes = requiredScopes.filter((scope) => !grantedSet.has(scope));
+    const missingScopes = requiredScopes.filter(
+      (scope) => !grantedSet.has(scope),
+    );
     const scopeHeader = missingScopes.join(" ") || requiredScopes.join(" ");
     res.status(403);
     res.setHeader("Content-Type", "application/json");

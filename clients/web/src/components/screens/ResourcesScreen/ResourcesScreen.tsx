@@ -11,8 +11,8 @@ import {
 import type {
   ReadResourceResult,
   Resource,
-  ResourceTemplate,
-} from "@modelcontextprotocol/sdk/types.js";
+  ResourceTemplateType as ResourceTemplate,
+} from "@modelcontextprotocol/client";
 import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
 import { ResourceControls } from "../../groups/ResourceControls/ResourceControls";
 import { ResourcePreviewPanel } from "../../groups/ResourcePreviewPanel/ResourcePreviewPanel";

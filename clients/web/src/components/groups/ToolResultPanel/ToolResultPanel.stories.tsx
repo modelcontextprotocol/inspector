@@ -1,5 +1,5 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult } from "@modelcontextprotocol/client";
 import { Card, Flex } from "@mantine/core";
 import { fn } from "storybook/test";
 import { ToolResultPanel } from "./ToolResultPanel";

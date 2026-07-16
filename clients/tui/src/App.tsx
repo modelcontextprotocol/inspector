@@ -18,7 +18,7 @@ import type {
   Prompt,
   PromptArgument,
   GetPromptResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import {
   ManagedToolsState,
@@ -923,7 +923,7 @@ function App({
     resource:
       | Resource
       | {
-          content: import("@modelcontextprotocol/sdk/types.js").ReadResourceResult;
+          content: import("@modelcontextprotocol/client").ReadResourceResult;
         },
   ) => (
     <>

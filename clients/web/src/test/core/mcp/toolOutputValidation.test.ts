@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
-import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
+import type { CallToolResult, Tool } from "@modelcontextprotocol/client";
 import { validateToolOutput } from "@inspector/core/mcp/toolOutputValidation";
 
 const provider = new AjvJsonSchemaValidator();

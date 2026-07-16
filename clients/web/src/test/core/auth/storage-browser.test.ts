@@ -7,7 +7,7 @@ import type {
   OAuthClientInformation,
   OAuthTokens,
   OAuthMetadata,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+} from "@modelcontextprotocol/client";
 
 // Mock sessionStorage for Node.js environment
 class MockSessionStorage implements Storage {

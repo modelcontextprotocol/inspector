@@ -6,7 +6,7 @@ import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type {
   Resource,
   ReadResourceResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { useSelectableList } from "../hooks/useSelectableList.js";
 
 interface ResourceTemplate {

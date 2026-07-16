@@ -2,10 +2,10 @@ import type {
   InitializeResult,
   Prompt,
   Resource,
-  ResourceTemplate,
+  ResourceTemplateType as ResourceTemplate,
   Task,
   Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type {
   FetchRequestEntry,

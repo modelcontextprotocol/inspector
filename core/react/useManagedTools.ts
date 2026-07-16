@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import type { InspectorClientProtocol } from "../mcp/inspectorClientProtocol.js";
 import type { ManagedToolsState } from "../mcp/state/managedToolsState.js";
 import type { ManagedToolsStateEventMap } from "../mcp/state/managedToolsState.js";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
 
 export interface UseManagedToolsResult {

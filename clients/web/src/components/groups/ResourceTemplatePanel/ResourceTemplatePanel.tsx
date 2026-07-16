@@ -10,7 +10,7 @@ import {
 } from "@mantine/core";
 import { accessibleTextColor } from "../../elements/accessibleTextColor";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
-import type { ResourceTemplate } from "@modelcontextprotocol/sdk/types.js";
+import type { ResourceTemplateType as ResourceTemplate } from "@modelcontextprotocol/client";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
 

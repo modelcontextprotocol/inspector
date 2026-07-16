@@ -48,7 +48,7 @@ export default defineConfig(({ command }) => {
   // build-time onwarn suppressions rather than re-hiding the symptom).
   plugins: [react(), honoMiddlewarePlugin(buildWebServerConfigFromEnv())],
   // Shared optimizeDeps exclusions so node-only packages
-  // (`@modelcontextprotocol/sdk/client/stdio.js`, `cross-spawn`, `which`)
+  // (`@modelcontextprotocol/client/stdio`, `cross-spawn`, `which`)
   // consumed by the dev backend aren't scanned for browser pre-bundling.
   // Browser code reaches the node-side stack via the Hono plugin only.
   // Dev server: force a full dep pre-bundle each launch (no stale cache).
@@ -229,15 +229,14 @@ export default defineConfig(({ command }) => {
           // storage. 30s matches the v1.5 core/vitest.config.ts.
           testTimeout: 30000,
           hookTimeout: 30000,
-          // Inline the MCP SDK so vi.mock("@modelcontextprotocol/sdk/...")
+          // Inline the MCP SDK so vi.mock("@modelcontextprotocol/client")
           // hooks the same transformed copy that source files import.
           // Externalized node_modules are loaded via Node's loader and bypass
-          // Vitest's mock system. The explicit alias above pins the auth.js
-          // subpath to one canonical ID; inlining ensures the transformer
-          // pipeline owns the module rather than the Node loader.
+          // Vitest's mock system. Inlining ensures the transformer pipeline
+          // owns the module rather than the Node loader.
           server: {
             deps: {
-              inline: [/@modelcontextprotocol\/sdk/],
+              inline: [/@modelcontextprotocol\/(client|core)/],
             },
           },
         },

@@ -3,10 +3,10 @@ import {
   discoverScopes,
   getAuthorizationServerUrl,
 } from "@inspector/core/auth/discovery.js";
-import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/client";
 
 // Mock SDK functions
-vi.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
+vi.mock("@modelcontextprotocol/client", () => ({
   discoverAuthorizationServerMetadata: vi.fn(),
 }));
 
@@ -17,7 +17,7 @@ describe("OAuth Scope Discovery", () => {
 
   it("should return scopes from resource metadata when available", async () => {
     const { discoverAuthorizationServerMetadata } =
-      await import("@modelcontextprotocol/sdk/client/auth.js");
+      await import("@modelcontextprotocol/client");
     vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
       issuer: "http://localhost:3000",
       authorization_endpoint: "http://localhost:3000/authorize",
@@ -42,7 +42,7 @@ describe("OAuth Scope Discovery", () => {
 
   it("should fall back to OAuth metadata scopes when resource metadata has no scopes", async () => {
     const { discoverAuthorizationServerMetadata } =
-      await import("@modelcontextprotocol/sdk/client/auth.js");
+      await import("@modelcontextprotocol/client");
     vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
       issuer: "http://localhost:3000",
       authorization_endpoint: "http://localhost:3000/authorize",
@@ -67,7 +67,7 @@ describe("OAuth Scope Discovery", () => {
 
   it("should fall back to OAuth metadata scopes when resource metadata is not provided", async () => {
     const { discoverAuthorizationServerMetadata } =
-      await import("@modelcontextprotocol/sdk/client/auth.js");
+      await import("@modelcontextprotocol/client");
     vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
       issuer: "http://localhost:3000",
       authorization_endpoint: "http://localhost:3000/authorize",
@@ -83,7 +83,7 @@ describe("OAuth Scope Discovery", () => {
 
   it("should return undefined when no scopes are available", async () => {
     const { discoverAuthorizationServerMetadata } =
-      await import("@modelcontextprotocol/sdk/client/auth.js");
+      await import("@modelcontextprotocol/client");
     vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
       issuer: "http://localhost:3000",
       authorization_endpoint: "http://localhost:3000/authorize",
@@ -99,7 +99,7 @@ describe("OAuth Scope Discovery", () => {
 
   it("should return undefined when discovery fails", async () => {
     const { discoverAuthorizationServerMetadata } =
-      await import("@modelcontextprotocol/sdk/client/auth.js");
+      await import("@modelcontextprotocol/client");
     vi.mocked(discoverAuthorizationServerMetadata).mockRejectedValue(
       new Error("Discovery failed"),
     );
@@ -111,7 +111,7 @@ describe("OAuth Scope Discovery", () => {
 
   it("should return undefined when metadata is undefined", async () => {
     const { discoverAuthorizationServerMetadata } =
-      await import("@modelcontextprotocol/sdk/client/auth.js");
+      await import("@modelcontextprotocol/client");
     vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue(undefined);
 
     const scopes = await discoverScopes("http://localhost:3000");
@@ -121,7 +121,7 @@ describe("OAuth Scope Discovery", () => {
 
   it("should use OAuth metadata scopes when resource has scopes_supported undefined", async () => {
     const { discoverAuthorizationServerMetadata } =
-      await import("@modelcontextprotocol/sdk/client/auth.js");
+      await import("@modelcontextprotocol/client");
     vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
       issuer: "http://localhost:3000",
       authorization_endpoint: "http://localhost:3000/authorize",
@@ -146,7 +146,7 @@ describe("OAuth Scope Discovery", () => {
 
   it("should return single scope when only one scope is supported", async () => {
     const { discoverAuthorizationServerMetadata } =
-      await import("@modelcontextprotocol/sdk/client/auth.js");
+      await import("@modelcontextprotocol/client");
     vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
       issuer: "http://localhost:3000",
       authorization_endpoint: "http://localhost:3000/authorize",
@@ -162,7 +162,7 @@ describe("OAuth Scope Discovery", () => {
 
   it("should pass fetchFn to discoverAuthorizationServerMetadata when provided", async () => {
     const { discoverAuthorizationServerMetadata } =
-      await import("@modelcontextprotocol/sdk/client/auth.js");
+      await import("@modelcontextprotocol/client");
     const mockFetchFn = vi.fn();
     vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
       issuer: "http://localhost:3000",
@@ -182,7 +182,7 @@ describe("OAuth Scope Discovery", () => {
 
   it("should use authorization_servers URL from resource metadata for discovery (different domain)", async () => {
     const { discoverAuthorizationServerMetadata } =
-      await import("@modelcontextprotocol/sdk/client/auth.js");
+      await import("@modelcontextprotocol/client");
     vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
       issuer: "https://auth-server.com",
       authorization_endpoint: "https://auth-server.com/authorize",
@@ -211,7 +211,7 @@ describe("OAuth Scope Discovery", () => {
 
   it("should preserve full path in authorization_servers URL", async () => {
     const { discoverAuthorizationServerMetadata } =
-      await import("@modelcontextprotocol/sdk/client/auth.js");
+      await import("@modelcontextprotocol/client");
     vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
       issuer: "https://auth-server.com/realms/my-realm",
       authorization_endpoint:
@@ -241,7 +241,7 @@ describe("OAuth Scope Discovery", () => {
 
   it("should fall back to serverUrl when authorization_servers is empty", async () => {
     const { discoverAuthorizationServerMetadata } =
-      await import("@modelcontextprotocol/sdk/client/auth.js");
+      await import("@modelcontextprotocol/client");
     vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue({
       issuer: "https://mcp-server.com",
       authorization_endpoint: "https://mcp-server.com/authorize",

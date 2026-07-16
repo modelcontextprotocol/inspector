@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
+import type { ReadResourceResult } from "@modelcontextprotocol/client";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { ResourceLink } from "./ResourceLink";
 

@@ -19,7 +19,12 @@ export function vitestSharedPaths(clientDir: string) {
     ),
   };
 
-  const sharedDedupe = ['react', 'react-dom', '@modelcontextprotocol/sdk'];
+  const sharedDedupe = [
+    'react',
+    'react-dom',
+    '@modelcontextprotocol/client',
+    '@modelcontextprotocol/core',
+  ];
 
   const nodeModulesAliases = [
     { find: /^react$/, replacement: path.resolve(dirname, 'node_modules/react') },
@@ -64,13 +69,6 @@ export function vitestSharedPaths(clientDir: string) {
     },
     { find: /^express$/, replacement: path.resolve(dirname, 'node_modules/express') },
     { find: /^yaml$/, replacement: path.resolve(repoRoot, 'node_modules/yaml') },
-    {
-      find: /^@modelcontextprotocol\/sdk\/client\/auth\.js$/,
-      replacement: path.resolve(
-        dirname,
-        'node_modules/@modelcontextprotocol/sdk/dist/esm/client/auth.js',
-      ),
-    },
   ];
 
   const projectResolve = {

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { ElicitRequestFormParams } from "@modelcontextprotocol/sdk/types.js";
+import type { ElicitRequestFormParams } from "@modelcontextprotocol/client";
 import { fn } from "storybook/test";
 import { ElicitationFormPanel } from "./ElicitationFormPanel";
 

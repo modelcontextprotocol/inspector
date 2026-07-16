@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
-import type { Task, TaskStatus } from "@modelcontextprotocol/sdk/types.js";
+import type { Task, TaskStatus } from "@modelcontextprotocol/client";
 import { TaskCard } from "../TaskCard/TaskCard";
 import type { TaskProgress } from "../TaskCard/TaskCard";
 import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";

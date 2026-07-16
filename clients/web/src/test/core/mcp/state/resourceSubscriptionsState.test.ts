@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import type { Resource } from "@modelcontextprotocol/sdk/types.js";
+import type { Resource } from "@modelcontextprotocol/client";
 import { ResourceSubscriptionsState } from "@inspector/core/mcp/state/resourceSubscriptionsState";
 import { ManagedResourcesState } from "@inspector/core/mcp/state/managedResourcesState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";

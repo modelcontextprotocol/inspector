@@ -1,5 +1,5 @@
 import { Badge } from "@mantine/core";
-import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
+import type { LoggingLevel } from "@modelcontextprotocol/client";
 import { filledBadgeColor } from "../filledBadgeColor";
 
 export interface LogLevelBadgeProps {

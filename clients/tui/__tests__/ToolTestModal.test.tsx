@@ -2,7 +2,7 @@ import React from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "ink-testing-library";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 
 // ScrollView passthrough so the results JSX actually mounts (and is covered).
 vi.mock("ink-scroll-view", () => import("./helpers/inkScrollViewMock.js"));

@@ -1,11 +1,15 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  McpServer,
+  WebStandardStreamableHTTPServerTransport,
+} from "@modelcontextprotocol/server";
+import type { JSONRPCMessage } from "@modelcontextprotocol/server";
 import { createMcpServer } from "./test-server-fixtures.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { SSEServerTransport } from "@modelcontextprotocol/server-legacy/sse";
 import type { Request, Response } from "express";
 import express from "express";
 import { createServer as createHttpServer, Server as HttpServer } from "http";
 import { createServer as createNetServer } from "net";
+import { Readable } from "node:stream";
 import * as crypto from "node:crypto";
 import type { ServerConfig } from "./test-server-fixtures.js";
 import {
@@ -19,6 +23,53 @@ import {
   setTestServerControl,
   type ServerControl,
 } from "./test-server-control.js";
+
+/**
+ * Build a Web-standard {@link Request} from an Express request.
+ *
+ * SDK v2's {@link WebStandardStreamableHTTPServerTransport} speaks the Fetch API
+ * (`Request`/`Response`) rather than Node `req`/`res`. The JSON body is passed
+ * to `handleRequest` via `parsedBody` (Express already parsed it), so the Web
+ * request carries only method, URL, and headers.
+ */
+function toWebRequest(req: Request): globalThis.Request {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (Array.isArray(value)) {
+      for (const v of value) headers.append(key, v);
+    } else if (value != null) {
+      headers.set(key, String(value));
+    }
+  }
+  const url = `http://localhost${req.originalUrl || req.url}`;
+  return new globalThis.Request(url, { method: req.method, headers });
+}
+
+/**
+ * Stream a Web-standard {@link Response} (from `handleRequest`) back onto an
+ * Express response, preserving status, headers, and any SSE body stream. The
+ * body stream is destroyed if the client disconnects first.
+ */
+async function writeWebResponse(
+  res: Response,
+  webResponse: globalThis.Response,
+): Promise<void> {
+  res.status(webResponse.status);
+  webResponse.headers.forEach((value, key) => {
+    res.setHeader(key, value);
+  });
+  if (!webResponse.body) {
+    res.end();
+    return;
+  }
+  const nodeStream = Readable.fromWeb(
+    webResponse.body as import("node:stream/web").ReadableStream,
+  );
+  res.on("close", () => {
+    nodeStream.destroy();
+  });
+  nodeStream.pipe(res);
+}
 
 export interface RecordedRequest {
   method: string;
@@ -79,7 +130,9 @@ export class TestServerHttp {
   private _closing = false;
   private recordedRequests: RecordedRequest[] = [];
   private httpServer?: HttpServer;
-  private transport?: StreamableHTTPServerTransport | SSEServerTransport;
+  private transport?:
+    | WebStandardStreamableHTTPServerTransport
+    | SSEServerTransport;
   private baseUrl?: string;
   private currentRequestHeaders?: Record<string, string>;
   private currentLogLevel: string | null = null;
@@ -105,10 +158,10 @@ export class TestServerHttp {
    * This wraps the transport's onmessage handler to record requests/notifications
    */
   private setupMessageInterception(
-    transport: StreamableHTTPServerTransport | SSEServerTransport,
+    transport: WebStandardStreamableHTTPServerTransport | SSEServerTransport,
   ): void {
     const originalOnMessage = transport.onmessage;
-    transport.onmessage = async (message) => {
+    transport.onmessage = async (message: JSONRPCMessage) => {
       const timestamp = Date.now();
       const method =
         "method" in message && typeof message.method === "string"
@@ -191,7 +244,8 @@ export class TestServerHttp {
     }
 
     // Store transports and one McpServer per session (SDK allows only one transport per server)
-    const transports: Map<string, StreamableHTTPServerTransport> = new Map();
+    const transports: Map<string, WebStandardStreamableHTTPServerTransport> =
+      new Map();
     this.mcpServersBySession = new Map();
 
     // Bearer token middleware for MCP routes if requireAuth
@@ -224,7 +278,10 @@ export class TestServerHttp {
         }
 
         try {
-          await transport.handleRequest(req, res, req.body);
+          const webResponse = await transport.handleRequest(toWebRequest(req), {
+            parsedBody: req.body,
+          });
+          await writeWebResponse(res, webResponse);
         } catch (error) {
           // If response already sent (e.g., by OAuth middleware), don't send another
           if (!res.headersSent) {
@@ -236,7 +293,7 @@ export class TestServerHttp {
       } else {
         // New session - create a new transport and a new McpServer (one server per connection)
         const sessionMcpServer = createMcpServer(this.configWithCallback);
-        const newTransport = new StreamableHTTPServerTransport({
+        const newTransport = new WebStandardStreamableHTTPServerTransport({
           sessionIdGenerator: () => crypto.randomUUID(),
           onsessioninitialized: (sessionId: string) => {
             transports.set(sessionId, newTransport);
@@ -257,7 +314,11 @@ export class TestServerHttp {
         await sessionMcpServer.connect(newTransport);
 
         try {
-          await newTransport.handleRequest(req, res, req.body);
+          const webResponse = await newTransport.handleRequest(
+            toWebRequest(req),
+            { parsedBody: req.body },
+          );
+          await writeWebResponse(res, webResponse);
         } catch (error) {
           // If response already sent (e.g., by OAuth middleware), don't send another
           if (!res.headersSent) {
@@ -292,7 +353,8 @@ export class TestServerHttp {
       // Let the transport handle the GET request
       this.currentRequestHeaders = extractHeaders(req);
       try {
-        await transport.handleRequest(req, res);
+        const webResponse = await transport.handleRequest(toWebRequest(req));
+        await writeWebResponse(res, webResponse);
       } catch (error) {
         if (!res.headersSent) {
           res.status(500).json({

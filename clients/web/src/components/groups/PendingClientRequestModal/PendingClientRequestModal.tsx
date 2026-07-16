@@ -5,13 +5,13 @@ import type {
   CreateMessageResult,
   ElicitRequestFormParams,
   ElicitResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { SamplingRequestPanel } from "../SamplingRequestPanel/SamplingRequestPanel";
 import { ElicitationFormPanel } from "../ElicitationFormPanel/ElicitationFormPanel";
 import { ElicitationUrlPanel } from "../ElicitationUrlPanel/ElicitationUrlPanel";
 import {
   collectSchemaDefaults,
-  type JsonSchemaType,
+  type InspectorFormSchema,
 } from "../../../utils/jsonUtils";
 
 /**
@@ -140,7 +140,7 @@ function ElicitationFormModalBody({
   // resolveValue, but onChange only writes edited fields). The modal body is
   // keyed by request id, so this lazy initializer re-runs per request.
   const [values, setValues] = useState<Record<string, unknown>>(() =>
-    collectSchemaDefaults(request.requestedSchema as JsonSchemaType),
+    collectSchemaDefaults(request.requestedSchema as InspectorFormSchema),
   );
   const { responded, once } = useRespondOnce();
   return (

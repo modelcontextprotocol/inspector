@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type {
   PromptMessage,
   SamplingMessage,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { MessageBubble } from "./MessageBubble";
 

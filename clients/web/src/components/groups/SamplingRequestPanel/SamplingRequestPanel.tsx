@@ -16,7 +16,7 @@ import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type {
   CreateMessageRequestParams,
   CreateMessageResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { MessageBubble } from "../../elements/MessageBubble/MessageBubble";
 
 export interface SamplingRequestPanelProps {

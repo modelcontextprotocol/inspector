@@ -1,17 +1,17 @@
 import type {
   Transport,
   TransportSendOptions,
-} from "@modelcontextprotocol/sdk/shared/transport.js";
+} from "@modelcontextprotocol/client";
 import type {
   JSONRPCMessage,
   MessageExtraInfo,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import type {
   JSONRPCRequest,
   JSONRPCNotification,
   JSONRPCResultResponse,
   JSONRPCErrorResponse,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import type { MessageOrigin } from "./types.js";
 
 export interface MessageTrackingCallbacks {
@@ -32,10 +32,7 @@ export class MessageTrackingTransport implements Transport {
   private callbacks: MessageTrackingCallbacks;
   private negotiatedProtocolVersion?: string;
 
-  constructor(
-    baseTransport: Transport,
-    callbacks: MessageTrackingCallbacks,
-  ) {
+  constructor(baseTransport: Transport, callbacks: MessageTrackingCallbacks) {
     this.baseTransport = baseTransport;
     this.callbacks = callbacks;
   }

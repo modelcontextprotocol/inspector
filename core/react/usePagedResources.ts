@@ -5,7 +5,7 @@ import type {
   PagedResourcesStateEventMap,
   LoadPageResult,
 } from "../mcp/state/pagedResourcesState.js";
-import type { Resource } from "@modelcontextprotocol/sdk/types.js";
+import type { Resource } from "@modelcontextprotocol/client";
 import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
 
 export interface UsePagedResourcesResult {

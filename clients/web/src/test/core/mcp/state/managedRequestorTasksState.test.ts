@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { Task } from "@modelcontextprotocol/sdk/types.js";
+import type { Task } from "@modelcontextprotocol/client";
 import { ManagedRequestorTasksState } from "@inspector/core/mcp/state/managedRequestorTasksState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 import { waitForChangeEvent } from "./waitForChangeEvent";

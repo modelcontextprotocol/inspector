@@ -3,8 +3,8 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
+import { Client } from "@modelcontextprotocol/client";
+import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/client";
 import { MessageTrackingTransport } from "@inspector/core/mcp/messageTrackingTransport.js";
 import { RemoteClientTransport } from "@inspector/core/mcp/remote/remoteClientTransport.js";
 

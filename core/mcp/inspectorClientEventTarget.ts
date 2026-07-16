@@ -33,12 +33,12 @@ import type {
   ProgressToken,
   Task,
   CallToolResult,
-  McpError,
-} from "@modelcontextprotocol/sdk/types.js";
+  ProtocolError,
+} from "@modelcontextprotocol/client";
 import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import type { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
 import type { JsonValue } from "../json/jsonUtils.js";
-import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthTokens } from "@modelcontextprotocol/client";
 import type { AuthChallenge } from "../auth/challenge.js";
 
 /** Task with createdAt optional so we can emit synthetic tasks (e.g. on result/error) that omit it. */
@@ -116,14 +116,14 @@ export interface InspectorClientEventMap {
     taskId: string;
     task: TaskWithOptionalCreatedAt;
     result?: CallToolResult;
-    error?: McpError;
+    error?: ProtocolError;
   };
   /** Fired from getRequestorTask() and callToolStream (client-origin task updates). */
   requestorTaskUpdated: {
     taskId: string;
     task: TaskWithOptionalCreatedAt;
     result?: CallToolResult;
-    error?: McpError;
+    error?: ProtocolError;
   };
   taskCancelled: { taskId: string };
   /**

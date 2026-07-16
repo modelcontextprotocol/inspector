@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { ElicitRequest } from "@modelcontextprotocol/sdk/types.js";
+import type { ElicitRequest } from "@modelcontextprotocol/client";
 import { ElicitationCreateMessage } from "@inspector/core/mcp/elicitationCreateMessage.js";
 
 function urlRequest(): ElicitRequest {

@@ -12,11 +12,11 @@ import type {
   LoggingLevel,
   Prompt,
   Resource,
-  ResourceTemplate,
+  ResourceTemplateType as ResourceTemplate,
   ServerCapabilities,
   Task,
   Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { InspectorClientEventTarget } from "../inspectorClientEventTarget.js";
 import type {
   AppRendererClient,

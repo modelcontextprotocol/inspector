@@ -1,5 +1,5 @@
 import { Badge } from "@mantine/core";
-import type { Role } from "@modelcontextprotocol/sdk/types.js";
+import type { Role } from "@modelcontextprotocol/client";
 import { filledBadgeColor } from "../filledBadgeColor";
 
 export type AnnotationFacet =

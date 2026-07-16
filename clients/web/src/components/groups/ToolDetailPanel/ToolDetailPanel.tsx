@@ -16,8 +16,9 @@ import type {
   ProgressNotification,
   Tool,
   ToolAnnotations,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { resolveDisplayLabel } from "../../../utils/toolUtils";
+import { toFormSchema } from "../../../utils/jsonUtils";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
@@ -160,6 +161,8 @@ export function ToolDetailPanel({
   onCancel,
 }: ToolDetailPanelProps) {
   const { name, title, description, icons, annotations, inputSchema } = tool;
+  // Narrow the SDK protocol schema to the form renderer's schema type.
+  const formSchema = toFormSchema(inputSchema) ?? {};
   const iconSrc = icons?.[0]?.src;
 
   // Descriptions are shown by default (most are short); the chevron lets the
@@ -240,7 +243,7 @@ export function ToolDetailPanel({
           <Divider />
 
           <SchemaForm
-            schema={inputSchema}
+            schema={formSchema}
             values={formValues}
             onChange={onFormChange}
             disabled={isExecuting}

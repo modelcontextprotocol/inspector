@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { Stack, Text } from "@mantine/core";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult, Tool } from "@modelcontextprotocol/client";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import {

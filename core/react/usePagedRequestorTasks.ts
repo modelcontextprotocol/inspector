@@ -5,7 +5,7 @@ import type {
   PagedRequestorTasksStateEventMap,
   LoadPageResult,
 } from "../mcp/state/pagedRequestorTasksState.js";
-import type { Task } from "@modelcontextprotocol/sdk/types.js";
+import type { Task } from "@modelcontextprotocol/client";
 import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
 
 export interface UsePagedRequestorTasksResult {
@@ -39,10 +39,7 @@ export function usePagedRequestorTasks(
     setTasks(pagedRequestorTasksState.getTasks());
     setNextCursor(pagedRequestorTasksState.getNextCursor() ?? undefined);
     const onTasksChange = (
-      event: TypedEventGeneric<
-        PagedRequestorTasksStateEventMap,
-        "tasksChange"
-      >,
+      event: TypedEventGeneric<PagedRequestorTasksStateEventMap, "tasksChange">,
     ) => {
       setTasks(event.detail);
       setNextCursor(pagedRequestorTasksState.getNextCursor() ?? undefined);

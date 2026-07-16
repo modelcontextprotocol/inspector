@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
+import type { LoggingLevel } from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { LogLevelBadge } from "./LogLevelBadge";
 

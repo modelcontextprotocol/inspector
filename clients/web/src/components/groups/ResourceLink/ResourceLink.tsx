@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Alert, Card, Collapse, ScrollArea, Stack, Text } from "@mantine/core";
-import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
+import type { ReadResourceResult } from "@modelcontextprotocol/client";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { ResourceLinkInfo } from "../../elements/ResourceLinkInfo/ResourceLinkInfo";

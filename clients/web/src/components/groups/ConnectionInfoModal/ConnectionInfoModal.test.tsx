@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type {
   ClientCapabilities,
   InitializeResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { ConnectionInfoModal } from "./ConnectionInfoModal";
 

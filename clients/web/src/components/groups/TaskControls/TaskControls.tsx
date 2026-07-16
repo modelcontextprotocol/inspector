@@ -1,6 +1,6 @@
 import { Button, Group, Select, Stack, TextInput, Title } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
-import type { TaskStatus } from "@modelcontextprotocol/sdk/types.js";
+import type { TaskStatus } from "@modelcontextprotocol/client";
 
 const STATUS_OPTIONS: TaskStatus[] = [
   "working",

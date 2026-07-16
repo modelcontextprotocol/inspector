@@ -1,8 +1,8 @@
 import {
   discoverAuthorizationServerMetadata,
   discoverOAuthProtectedResourceMetadata,
-} from "@modelcontextprotocol/sdk/client/auth.js";
-import type { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
+} from "@modelcontextprotocol/client";
+import type { OAuthClientInformation } from "@modelcontextprotocol/client";
 import { getAuthorizationServerUrl } from "./discovery.js";
 import type { BaseOAuthClientProvider } from "./providers.js";
 

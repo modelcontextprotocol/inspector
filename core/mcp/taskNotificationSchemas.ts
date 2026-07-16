@@ -14,7 +14,7 @@
  * types (which is private, so we can't import it). We accept optional params only
  * so the notification parses; we do not use any params in the handler.
  */
-import { NotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import { NotificationSchema } from "@modelcontextprotocol/core";
 import { z } from "zod/v4";
 
 export const TasksListChangedNotificationSchema = NotificationSchema.extend({

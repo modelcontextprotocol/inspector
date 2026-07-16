@@ -5,7 +5,7 @@ import type {
   PagedToolsStateEventMap,
   LoadPageResult,
 } from "../mcp/state/pagedToolsState.js";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
 
 export interface UsePagedToolsResult {
@@ -21,9 +21,7 @@ export function usePagedTools(
   client: InspectorClientProtocol | null,
   pagedToolsState: PagedToolsState | null,
 ): UsePagedToolsResult {
-  const [tools, setTools] = useState<Tool[]>(
-    pagedToolsState?.getTools() ?? [],
-  );
+  const [tools, setTools] = useState<Tool[]>(pagedToolsState?.getTools() ?? []);
 
   useEffect(() => {
     if (!pagedToolsState) {

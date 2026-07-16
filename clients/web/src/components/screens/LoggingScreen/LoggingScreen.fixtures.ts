@@ -1,4 +1,4 @@
-import type { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
+import type { LoggingLevel } from "@modelcontextprotocol/client";
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
 
 const logMessages: {

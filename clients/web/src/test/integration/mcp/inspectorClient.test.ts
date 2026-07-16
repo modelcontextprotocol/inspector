@@ -63,16 +63,16 @@ import type {
   Task,
   Tool,
   Resource,
-  ResourceTemplate,
+  ResourceTemplateType as ResourceTemplate,
   Prompt,
   Progress,
   ContentBlock,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import {
   RELATED_TASK_META_KEY,
-  McpError,
-  ErrorCode,
-} from "@modelcontextprotocol/sdk/types.js";
+  SdkError,
+  SdkErrorCode,
+} from "@modelcontextprotocol/client";
 
 /** Get all tools from the client via listTools() (paginates if needed). */
 async function getAllTools(client: InspectorClient): Promise<Tool[]> {
@@ -310,7 +310,7 @@ describe("InspectorClient", () => {
       };
       const fakeFactory = () => ({
         transport:
-          hangingTransport as unknown as import("@modelcontextprotocol/sdk/shared/transport.js").Transport,
+          hangingTransport as unknown as import("@modelcontextprotocol/client").Transport,
       });
       client = new InspectorClient(
         { type: "streamable-http", url: "http://localhost:1/never" },
@@ -358,7 +358,7 @@ describe("InspectorClient", () => {
       };
       const fakeFactory = () => ({
         transport:
-          unauthorizedTransport as unknown as import("@modelcontextprotocol/sdk/shared/transport.js").Transport,
+          unauthorizedTransport as unknown as import("@modelcontextprotocol/client").Transport,
       });
       client = new InspectorClient(
         { type: "streamable-http", url: "http://localhost:8081/mcp" },
@@ -967,20 +967,13 @@ describe("InspectorClient", () => {
     });
 
     it("should handle tool not found", async () => {
-      const result = await client!.callTool(
-        minimalTool("nonexistent-tool"),
-        {},
-      );
-      // When tool is not found, the SDK returns an error response, not an exception
-      expect(result.success).toBe(true); // SDK returns error in result, not as exception
-      expect(result.result).toHaveProperty("isError", true);
-      expect(result.result).toBeDefined();
-      if (result.result) {
-        expect(result.result).toHaveProperty("content");
-        const content = result.result.content as ContentBlock[];
-        expect(content[0]).toHaveProperty("text");
-        expect((content[0] as { text: string }).text).toContain("not found");
-      }
+      // SDK v2 change (#1624): an unknown-tool call now *rejects* with a
+      // ProtocolError (-32602) instead of resolving an `isError: true` result.
+      // callTool records the failed call and rethrows, so the caller sees a
+      // rejection whose message names the missing tool.
+      await expect(
+        client!.callTool(minimalTool("nonexistent-tool"), {}),
+      ).rejects.toThrow(/not found|unknown tool|nonexistent-tool/i);
     });
 
     it("cancelToolCall() is a no-op (returns false) when no call is in flight", () => {
@@ -994,13 +987,9 @@ describe("InspectorClient", () => {
       );
     });
 
-    it("cancelToolCall() aborts the in-flight call: sends notifications/cancelled, rejects with ToolCallCancelledError, and records no failed call", async () => {
+    it("cancelToolCall() aborts the in-flight call: rejects with ToolCallCancelledError, and records no failed call", async () => {
       const tool = await getTool(client!, "echo");
 
-      const messages: MessageEntry[] = [];
-      client!.addEventListener("message", (event) => {
-        messages.push(event.detail);
-      });
       let failedCallCount = 0;
       client!.addEventListener("toolCallResultChange", (event) => {
         if (!event.detail.success) failedCallCount++;
@@ -1013,14 +1002,14 @@ describe("InspectorClient", () => {
 
       await expect(promise).rejects.toBeInstanceOf(ToolCallCancelledError);
 
-      // The MCP cancellation flow: a notifications/cancelled reaches the server.
-      const cancelled = messages.find(
-        (m) =>
-          m.direction === "notification" &&
-          "method" in m.message &&
-          m.message.method === "notifications/cancelled",
-      );
-      expect(cancelled).toBeDefined();
+      // SDK v2 change (spec §9.2): cancellation now surfaces as a stream/connection
+      // abort rather than a guaranteed `notifications/cancelled` frame. v2's
+      // `callTool` awaits output-validator compilation before it issues the
+      // `tools/call` request, so a synchronous cancel aborts the shared signal
+      // *before* that request registers — the SDK then takes its pre-aborted
+      // early-reject path and emits no cancellation frame. The user-facing
+      // behavior we care about is unchanged: the call rejects with
+      // ToolCallCancelledError and is not recorded as a failed call.
 
       // Cancelling is intentional, so it is not recorded as a failed tool call.
       expect(failedCallCount).toBe(0);
@@ -2427,8 +2416,8 @@ describe("InspectorClient", () => {
       } catch (e) {
         err = e;
       }
-      expect(err).toBeInstanceOf(McpError);
-      expect((err as McpError).code).toBe(ErrorCode.RequestTimeout);
+      expect(err).toBeInstanceOf(SdkError);
+      expect((err as SdkError).code).toBe(SdkErrorCode.RequestTimeout);
 
       await client.disconnect();
       await server.stop();
@@ -2858,7 +2847,7 @@ describe("InspectorClient", () => {
           onerror: undefined,
           onmessage: undefined,
           sessionId: undefined,
-        } as unknown as import("@modelcontextprotocol/sdk/shared/transport.js").Transport,
+        } as unknown as import("@modelcontextprotocol/client").Transport,
       });
       client = new InspectorClient(
         { type: "streamable-http", url: "http://localhost:1/never" },
@@ -2896,7 +2885,7 @@ describe("InspectorClient", () => {
       };
       const factory = () => ({
         transport:
-          transport as unknown as import("@modelcontextprotocol/sdk/shared/transport.js").Transport,
+          transport as unknown as import("@modelcontextprotocol/client").Transport,
       });
       client = new InspectorClient(
         { type: "streamable-http", url: "http://localhost:1/never" },
@@ -5168,7 +5157,7 @@ describe("InspectorClient", () => {
     });
 
     describe("getAppRendererClient", () => {
-      it("returns null before connect, and a proxy after connect that forwards setNotificationHandler", async () => {
+      it("returns null before connect, and a cached proxy after connect", async () => {
         server = createTestServerHttp({
           serverInfo: createTestServerInfo(),
           tools: [createEchoTool()],
@@ -5188,11 +5177,75 @@ describe("InspectorClient", () => {
         expect(proxy1).not.toBeNull();
         // Second call returns the cached proxy
         expect(c.getAppRendererClient()).toBe(proxy1);
-        // setNotificationHandler on the proxy delegates to the underlying client
         expect(
           typeof (proxy1 as unknown as { setNotificationHandler?: unknown })
             .setNotificationHandler,
         ).toBe("function");
+      });
+
+      it("translates the ext-apps v1 schema-first setNotificationHandler call to v2's method-string form", async () => {
+        // Regression: `@modelcontextprotocol/ext-apps` (SDK v1 peer) subscribes
+        // with `setNotificationHandler(NotificationSchema, handler)`. On SDK v2
+        // that throws "'[object Object]' is not a spec notification method",
+        // breaking App rendering at connect. The proxy must translate the
+        // schema (whose `.shape.method.value` is the method literal) to the
+        // method string so the handler still fires on the real notification.
+        server = createTestServerHttp({
+          serverInfo: createTestServerInfo(),
+          tools: [createAddToolTool()],
+          listChanged: { tools: true },
+        });
+        await server.start();
+        const c = new InspectorClient(
+          { type: "streamable-http", url: server.url },
+          { environment: { transport: createTransportNode } },
+        );
+        client = c;
+        await c.connect();
+
+        const proxy = c.getAppRendererClient() as unknown as {
+          setNotificationHandler: (
+            schema: unknown,
+            handler: () => void,
+          ) => void;
+        };
+        // A v1-style Zod notification schema, as ext-apps passes it (NOT a
+        // string): its `.shape.method.value` carries the method literal.
+        const v1StyleSchema = {
+          shape: { method: { value: "notifications/tools/list_changed" } },
+        };
+        let handlerFired = false;
+        expect(() =>
+          proxy.setNotificationHandler(v1StyleSchema, () => {
+            handlerFired = true;
+          }),
+        ).not.toThrow();
+
+        // The registration must land under the extracted method string: trigger
+        // a real tools/list_changed and confirm the schema-first handler runs.
+        const addToolTool = await getTool(c, "add_tool");
+        await c.callTool(addToolTool, {
+          name: "added_via_schema_first",
+          description: "added at runtime",
+        });
+        await vi.waitFor(() => expect(handlerFired).toBe(true), {
+          timeout: 5000,
+        });
+
+        // A native string-first call (ours) passes through unchanged.
+        expect(() =>
+          proxy.setNotificationHandler(
+            "notifications/prompts/list_changed",
+            () => {},
+          ),
+        ).not.toThrow();
+
+        // An unrecognized first arg (no `.shape.method.value`) can't be
+        // translated and falls through to the SDK, which rejects it clearly —
+        // we don't silently swallow a genuinely-malformed registration.
+        expect(() =>
+          proxy.setNotificationHandler({} as unknown, () => {}),
+        ).toThrow(/not a spec notification method/);
       });
     });
 

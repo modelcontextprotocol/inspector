@@ -2,7 +2,7 @@ import { Group, Text } from "@mantine/core";
 import type {
   ClientCapabilities,
   ServerCapabilities,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 
 export type CapabilityKey = keyof ServerCapabilities | keyof ClientCapabilities;
 

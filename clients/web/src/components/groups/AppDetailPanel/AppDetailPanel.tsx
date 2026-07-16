@@ -1,9 +1,12 @@
 import { Button, Divider, ScrollArea, Stack, Text } from "@mantine/core";
 import { MdPlayArrow } from "react-icons/md";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
 import { hasInputFields } from "../../../utils/toolUtils";
-import { hasMissingRequiredFields } from "../../../utils/jsonUtils";
+import {
+  hasMissingRequiredFields,
+  toFormSchema,
+} from "../../../utils/jsonUtils";
 
 export interface AppDetailPanelProps {
   tool: Tool;
@@ -43,7 +46,12 @@ export function AppDetailPanel({
   onOpenApp,
 }: AppDetailPanelProps) {
   const { description, inputSchema } = tool;
-  const hasErrors = hasMissingRequiredFields(inputSchema, formValues);
+  // Narrow the SDK protocol schema to the form renderer's schema type. A Tool's
+  // `inputSchema` is always an object per the SDK types, so `toFormSchema` never
+  // returns null here — the `?? {}` is a defensive fallback that can't be hit.
+  /* v8 ignore next -- unreachable: Tool.inputSchema is always an object */
+  const formSchema = toFormSchema(inputSchema) ?? {};
+  const hasErrors = hasMissingRequiredFields(formSchema, formValues);
   const disabled = isOpening || hasErrors;
   const hasFields = hasInputFields(tool);
 
@@ -58,7 +66,7 @@ export function AppDetailPanel({
             filling required fields. The disabled-when-incomplete gate is on
             the Open App button below, not on the form itself. */}
         <SchemaForm
-          schema={inputSchema}
+          schema={formSchema}
           values={formValues}
           onChange={onFormChange}
           disabled={isOpening}

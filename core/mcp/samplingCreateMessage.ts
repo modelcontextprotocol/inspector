@@ -1,8 +1,8 @@
 import type {
   CreateMessageRequest,
   CreateMessageResult,
-} from "@modelcontextprotocol/sdk/types.js";
-import { RELATED_TASK_META_KEY } from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
+import { RELATED_TASK_META_KEY } from "@modelcontextprotocol/client";
 
 export type { CreateMessageRequest, CreateMessageResult };
 

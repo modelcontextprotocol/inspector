@@ -27,7 +27,8 @@ export default defineConfig({
     'atomically',
     'chokidar',
     '@napi-rs/keyring',
-    '@modelcontextprotocol/sdk',
+    '@modelcontextprotocol/client',
+    '@modelcontextprotocol/core',
   ],
   esbuildOptions(options) {
     options.alias = {

@@ -5,7 +5,7 @@ import type {
   PagedPromptsStateEventMap,
   LoadPageResult,
 } from "../mcp/state/pagedPromptsState.js";
-import type { Prompt } from "@modelcontextprotocol/sdk/types.js";
+import type { Prompt } from "@modelcontextprotocol/client";
 import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
 
 export interface UsePagedPromptsResult {

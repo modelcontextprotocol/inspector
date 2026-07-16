@@ -7,8 +7,8 @@
 import { BaseOAuthClientProvider } from "../auth/providers.js";
 import type { OAuthFlowState, OAuthStep } from "../auth/types.js";
 import { EMPTY_OAUTH_FLOW_STATE } from "../auth/types.js";
-import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
-import type { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthTokens } from "@modelcontextprotocol/client";
+import type { OAuthClientInformation } from "@modelcontextprotocol/client";
 import { mcpAuth } from "../auth/mcpAuth.js";
 import type { OAuthStorage } from "../auth/storage.js";
 import { parseOAuthState } from "../auth/utils.js";
@@ -286,14 +286,14 @@ export class OAuthManager {
     try {
       if (this.isEnterpriseManaged()) {
         const emaConfig = await this.getEmaFlowConfig();
-        const scopeForMint =
-          this.pendingAuthorizationScope ?? emaConfig.scope;
+        const scopeForMint = this.pendingAuthorizationScope ?? emaConfig.scope;
         const config = scopeForMint
           ? { ...emaConfig, scope: scopeForMint }
           : emaConfig;
         const tokens = await completeEmaIdpAuthorizationAndMint(
           config,
           authorizationCode,
+          iss,
         );
         const requestedScope = this.pendingAuthorizationScope;
         const scopeToPersist = resolvePersistedScopeAfterGrant(
@@ -449,7 +449,9 @@ export class OAuthManager {
    */
   async refreshEnterpriseManagedTokens(): Promise<boolean> {
     if (!this.isEnterpriseManaged()) return false;
-    const tokens = await refreshEmaResourceTokens(await this.getEmaFlowConfig());
+    const tokens = await refreshEmaResourceTokens(
+      await this.getEmaFlowConfig(),
+    );
     return tokens !== undefined;
   }
 

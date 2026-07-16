@@ -7,9 +7,9 @@ import type {
   FetchRequestEntryBase,
   InspectorServerSettings,
 } from "../types.js";
-import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import type { JSONRPCMessage } from "@modelcontextprotocol/client";
 import type { AuthChallenge } from "../../auth/challenge.js";
-import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthTokens } from "@modelcontextprotocol/client";
 
 /** OAuth token set pushed to the remote backend for upstream MCP Bearer auth. */
 export interface RemoteMcpOAuthTokens {

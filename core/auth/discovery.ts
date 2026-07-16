@@ -1,5 +1,5 @@
-import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
-import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/client";
+import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/client";
 import { parseHttpUrl } from "./utils.js";
 
 /**

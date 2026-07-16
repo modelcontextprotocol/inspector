@@ -3,8 +3,8 @@ import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import { RiArrowRightSLine } from "react-icons/ri";
 import type {
   Resource,
-  ResourceTemplate,
-} from "@modelcontextprotocol/sdk/types.js";
+  ResourceTemplateType as ResourceTemplate,
+} from "@modelcontextprotocol/client";
 import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";

@@ -1,7 +1,7 @@
 import type {
   ClientCapabilities,
   InitializeResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ConnectionInfoContent } from "./ConnectionInfoContent";
 

@@ -1,9 +1,9 @@
 import {
-  ErrorCode,
-  McpError,
+  ProtocolErrorCode,
+  ProtocolError,
   UrlElicitationRequiredError,
-} from "@modelcontextprotocol/sdk/types.js";
-import type { ElicitRequestURLParams } from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
+import type { ElicitRequestURLParams } from "@modelcontextprotocol/client";
 
 export type { ElicitRequestURLParams };
 
@@ -34,8 +34,8 @@ export class UrlElicitationLoopError extends Error {
  *
  * Two shapes reach us, both code `-32042`:
  * - the SDK's typed {@link UrlElicitationRequiredError} (created by
- *   `McpError.fromError` when `data.elicitations` is present), and
- * - a generic {@link McpError} with code `-32042` when the server omitted
+ *   `ProtocolError.fromError` when `data.elicitations` is present), and
+ * - a generic {@link ProtocolError} with code `-32042` when the server omitted
  *   `data.elicitations` (a non-spec response — the spec requires the list).
  *
  * The empty array is meaningful: it signals the non-spec "no elicitations"
@@ -50,7 +50,10 @@ export function getUrlElicitationsFromError(
   if (error instanceof UrlElicitationRequiredError) {
     return error.elicitations ?? [];
   }
-  if (error instanceof McpError && error.code === ErrorCode.UrlElicitationRequired) {
+  if (
+    error instanceof ProtocolError &&
+    error.code === ProtocolErrorCode.UrlElicitationRequired
+  ) {
     const data = error.data as
       | { elicitations?: ElicitRequestURLParams[] }
       | undefined;

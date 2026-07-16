@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthTokens } from "@modelcontextprotocol/client";
 import type { BaseOAuthClientProvider } from "@inspector/core/auth/providers.js";
 import type { EmaFlowConfig } from "@inspector/core/auth/ema/emaFlow.js";
 import { EmaTransportOAuthProvider } from "@inspector/core/auth/ema/transportProvider.js";

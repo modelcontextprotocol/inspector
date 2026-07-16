@@ -1,8 +1,5 @@
 import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type {
-  ReadResourceResult,
-  Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+import type { ReadResourceResult, Tool } from "@modelcontextprotocol/client";
 
 /**
  * Returns the UI resource URI advertised by an MCP App tool, or `undefined`
@@ -22,7 +19,13 @@ import type {
  * `@inspector/core`.
  */
 export function getAppResourceUri(tool: Tool): string | undefined {
-  return getToolUiResourceUri(tool);
+  // `@modelcontextprotocol/ext-apps` still peers on SDK v1, so its
+  // `getToolUiResourceUri` param is typed as the v1 `Tool`. The runtime shape
+  // this reads (`_meta.ui.resourceUri`) is identical under v2, so cast at this
+  // single boundary. TODO: drop the cast when ext-apps#702 ships a v2 peer.
+  return getToolUiResourceUri(
+    tool as Parameters<typeof getToolUiResourceUri>[0],
+  );
 }
 
 /**

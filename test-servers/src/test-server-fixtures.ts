@@ -6,13 +6,20 @@
  */
 
 import * as z from "zod/v4";
-import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
+import {
+  RELATED_TASK_META_KEY,
+  type Implementation,
+  type ElicitRequestFormParams,
+  type ElicitRequestURLParams,
+  type GetTaskResult,
+  type CallToolResult,
+} from "@modelcontextprotocol/server";
 import {
   CreateMessageResultSchema,
   CreateTaskResultSchema,
   ElicitResultSchema,
   GetTaskResultSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/core";
 import type {
   ToolDefinition,
   TaskToolDefinition,
@@ -21,27 +28,12 @@ import type {
   ResourceTemplateDefinition,
   ServerConfig,
   TestServerContext,
-} from "./composable-test-server.js";
-import { getTestServerControl } from "./test-server-control.js";
-import type {
-  ElicitRequestFormParams,
-  ElicitRequestURLParams,
-} from "@modelcontextprotocol/sdk/types.js";
-import type {
   TaskRequestHandlerExtra,
   CreateTaskRequestHandlerExtra,
-} from "@modelcontextprotocol/sdk/experimental/tasks/interfaces.js";
-import { RELATED_TASK_META_KEY } from "@modelcontextprotocol/sdk/types.js";
-import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
-import type { ShapeOutput } from "@modelcontextprotocol/sdk/server/zod-compat.js";
-import type {
-  GetTaskResult,
-  CallToolResult,
-  ServerRequest,
-  ServerNotification,
-} from "@modelcontextprotocol/sdk/types.js";
-import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
+  HandlerExtra,
+  ShapeOutput,
+} from "./composable-test-server.js";
+import { getTestServerControl } from "./test-server-control.js";
 
 /** Build a CallToolResult from a text message (and optional isError). */
 function toToolResult(text: string, isError?: boolean): CallToolResult {
@@ -1224,7 +1216,9 @@ export function createAddToolTool(): ToolDefinition {
         params.name as string,
         {
           description: params.description as string,
-          inputSchema: params.inputSchema as ZodRawShapeCompat | undefined,
+          inputSchema: params.inputSchema as
+            | Record<string, z.ZodType>
+            | undefined,
         },
         async () => {
           return {
@@ -1327,7 +1321,9 @@ export function createAddPromptTool(): ToolDefinition {
         params.name as string,
         {
           description: params.description as string | undefined,
-          argsSchema: params.argsSchema as ZodRawShapeCompat | undefined,
+          argsSchema: params.argsSchema as
+            | Record<string, z.ZodType>
+            | undefined,
         },
         async () => {
           return {
@@ -1457,7 +1453,7 @@ export function createSendProgressTool(
     handler: async (
       params: Record<string, unknown>,
       context?: TestServerContext,
-      extra?: RequestHandlerExtra<ServerRequest, ServerNotification>,
+      extra?: HandlerExtra,
     ): Promise<CallToolResult> => {
       if (!context) {
         throw new Error("Server context not available");
@@ -1470,7 +1466,10 @@ export function createSendProgressTool(
       const message = (params.message as string) || "Processing...";
 
       // Extract progressToken from metadata
-      const progressToken = extra?._meta?.progressToken;
+      const progressToken = extra?._meta?.progressToken as
+        | string
+        | number
+        | undefined;
 
       // Send progress notifications
       let sent = 0;
@@ -1668,7 +1667,7 @@ async function runTaskExecution(params: RunTaskExecutionParams): Promise<void> {
     if (elicitationSchema) {
       await extra.taskStore.updateTaskStatus(task.taskId, "input_required");
       try {
-        const jsonSchema = toJsonSchemaCompat(
+        const jsonSchema = z.toJSONSchema(
           elicitationSchema,
         ) as ElicitRequestFormParams["requestedSchema"];
         const elicitationParams: ElicitRequestFormParams = {
@@ -1908,7 +1907,10 @@ export function createTaskTool(
         const message = (args as Record<string, unknown>)?.message as
           | string
           | undefined;
-        const progressToken = extra._meta?.progressToken;
+        const progressToken = extra._meta?.progressToken as
+          | string
+          | number
+          | undefined;
         const task = await extra.taskStore.createTask({});
         runTaskExecution({
           task,

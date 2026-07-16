@@ -8,7 +8,7 @@ import type {
   ServerCapabilities,
   Task,
   Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { ServerEntry } from "@inspector/core/mcp/types.js";
 import {

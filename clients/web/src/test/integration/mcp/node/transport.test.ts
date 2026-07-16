@@ -15,7 +15,7 @@ import {
   createEchoTool,
   createTestServerInfo,
 } from "@modelcontextprotocol/inspector-test-server";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { Client } from "@modelcontextprotocol/client";
 
 describe("Transport", () => {
   describe("getServerType", () => {

@@ -32,9 +32,17 @@ function createTestOAuthConfig(
 }
 
 const mockAuth = vi.fn();
-vi.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
-  auth: (...args: unknown[]) => mockAuth(...args),
-}));
+// Partial mock: keep every real export (Client, transports, types, …) and
+// override only `auth`. A full-replace factory would drop `Client`, which
+// InspectorClient imports from the same module.
+vi.mock("@modelcontextprotocol/client", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@modelcontextprotocol/client")>();
+  return {
+    ...actual,
+    auth: (...args: unknown[]) => mockAuth(...args),
+  };
+});
 
 describe("InspectorClient OAuth fetchFn", () => {
   let client: InspectorClient;

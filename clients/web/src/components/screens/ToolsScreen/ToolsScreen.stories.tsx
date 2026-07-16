@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { ElicitRequest, Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { ElicitRequest, Tool } from "@modelcontextprotocol/client";
 import { Modal } from "@mantine/core";
 import { fn, userEvent, within } from "storybook/test";
 import { ToolsScreen } from "./ToolsScreen";

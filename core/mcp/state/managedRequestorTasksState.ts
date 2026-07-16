@@ -8,7 +8,7 @@
  */
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
-import type { Task } from "@modelcontextprotocol/sdk/types.js";
+import type { Task } from "@modelcontextprotocol/client";
 import { isTerminalStatus } from "../types.js";
 import type { InspectorClientEventMap } from "../inspectorClientEventTarget.js";
 import {

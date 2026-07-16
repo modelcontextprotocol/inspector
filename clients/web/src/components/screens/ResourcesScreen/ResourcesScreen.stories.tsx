@@ -3,8 +3,8 @@ import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type {
   Resource,
-  ResourceTemplate,
-} from "@modelcontextprotocol/sdk/types.js";
+  ResourceTemplateType as ResourceTemplate,
+} from "@modelcontextprotocol/client";
 import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { ResourcesScreen } from "./ResourcesScreen";

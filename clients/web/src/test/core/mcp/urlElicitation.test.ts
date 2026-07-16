@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
-  ErrorCode,
-  McpError,
+  ProtocolErrorCode,
+  ProtocolError,
   UrlElicitationRequiredError,
-} from "@modelcontextprotocol/sdk/types.js";
-import type { ElicitRequestURLParams } from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
+import type { ElicitRequestURLParams } from "@modelcontextprotocol/client";
 import { getUrlElicitationsFromError } from "@inspector/core/mcp/urlElicitation.js";
 
 const elicitation: ElicitRequestURLParams = {
@@ -20,25 +20,28 @@ describe("getUrlElicitationsFromError", () => {
     expect(getUrlElicitationsFromError(error)).toEqual([elicitation]);
   });
 
-  it("returns the elicitations from a generic McpError carrying the -32042 data", () => {
-    const error = new McpError(
-      ErrorCode.UrlElicitationRequired,
+  it("returns the elicitations from a generic ProtocolError carrying the -32042 data", () => {
+    const error = new ProtocolError(
+      ProtocolErrorCode.UrlElicitationRequired,
       "This request requires browser-based authorization.",
       { elicitations: [elicitation] },
     );
     expect(getUrlElicitationsFromError(error)).toEqual([elicitation]);
   });
 
-  it("returns an empty array for a -32042 McpError with no elicitations (non-spec)", () => {
-    const error = new McpError(
-      ErrorCode.UrlElicitationRequired,
+  it("returns an empty array for a -32042 ProtocolError with no elicitations (non-spec)", () => {
+    const error = new ProtocolError(
+      ProtocolErrorCode.UrlElicitationRequired,
       "This request requires browser-based authorization.",
     );
     expect(getUrlElicitationsFromError(error)).toEqual([]);
   });
 
-  it("returns null for a non -32042 McpError", () => {
-    const error = new McpError(ErrorCode.InvalidParams, "bad params");
+  it("returns null for a non -32042 ProtocolError", () => {
+    const error = new ProtocolError(
+      ProtocolErrorCode.InvalidParams,
+      "bad params",
+    );
     expect(getUrlElicitationsFromError(error)).toBeNull();
   });
 

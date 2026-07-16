@@ -3,7 +3,7 @@ import { act } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type { ContentBlock, Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock, Tool } from "@modelcontextprotocol/client";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   renderWithMantine,

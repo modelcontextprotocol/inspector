@@ -24,7 +24,8 @@ export default defineConfig({
     'open',
     'commander',
     'pino',
-    '@modelcontextprotocol/sdk',
+    '@modelcontextprotocol/client',
+    '@modelcontextprotocol/core',
     '@napi-rs/keyring',
   ],
   esbuildOptions(options) {

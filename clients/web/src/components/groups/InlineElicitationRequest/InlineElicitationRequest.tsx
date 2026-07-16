@@ -11,8 +11,8 @@ import {
 import type {
   ElicitRequest,
   ElicitRequestFormParams,
-} from "@modelcontextprotocol/sdk/types.js";
-import type { JsonSchemaType } from "../../../utils/jsonUtils";
+} from "@modelcontextprotocol/client";
+import type { InspectorFormSchema } from "../../../utils/jsonUtils";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
 
 export interface InlineElicitationRequestProps {
@@ -89,7 +89,7 @@ export function InlineElicitationRequest({
 
         {isFormMode(request) && (
           <SchemaForm
-            schema={request.requestedSchema as JsonSchemaType}
+            schema={request.requestedSchema as InspectorFormSchema}
             values={values ?? {}}
             onChange={onChange}
           />

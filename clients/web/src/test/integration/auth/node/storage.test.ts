@@ -9,7 +9,7 @@ import type {
   OAuthClientInformation,
   OAuthTokens,
   OAuthMetadata,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+} from "@modelcontextprotocol/client";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
