@@ -21,7 +21,15 @@ export const EMA_MOCK_IDP_CLIENT_SECRET = "ema-mock-idp-secret";
 export const EMA_MOCK_RESOURCE_CLIENT_ID = "ema-mock-resource-client";
 export const EMA_MOCK_RESOURCE_CLIENT_SECRET = "ema-mock-resource-secret";
 
-/** Fields required by SDK `OAuthMetadataSchema` for discovery in tests. */
+/**
+ * Fields required by SDK `OAuthMetadataSchema` for discovery in tests.
+ *
+ * `authorization_response_iss_parameter_supported` mirrors real-world IdPs
+ * (e.g. Okta/xaa.dev): once advertised, the SDK enforces RFC 9207 §2.4 and
+ * rejects a callback whose `iss` is missing. Keep it on so the mock stays at
+ * least as strict as production servers — with it absent the SDK silently takes
+ * its lenient path and a dropped `iss` goes unnoticed.
+ */
 export function minimalOAuthAsMetadata(
   baseUrl: string,
   authorizationEndpoint = `${baseUrl}/authorize`,
@@ -32,6 +40,7 @@ export function minimalOAuthAsMetadata(
     token_endpoint: `${baseUrl}/token`,
     response_types_supported: ["code"],
     token_endpoint_auth_methods_supported: ["client_secret_post"],
+    authorization_response_iss_parameter_supported: true,
   };
 }
 

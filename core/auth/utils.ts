@@ -89,7 +89,10 @@ export const parseOAuthCallbackParams = (location: string): CallbackParams => {
 
   const code = params.get("code");
   if (code) {
-    return { successful: true, code };
+    const iss = params.get("iss");
+    return iss === null
+      ? { successful: true, code }
+      : { successful: true, code, iss };
   }
 
   const error = params.get("error");

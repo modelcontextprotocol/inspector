@@ -56,15 +56,21 @@ function createMockCallbackServer(handlers: {
   } as unknown as OAuthCallbackServer;
 }
 
-/** Drive the loopback callback the way a browser redirect would. */
+const CALLBACK_ISS = "https://as.example";
+
+/**
+ * Drive the loopback callback the way a browser redirect would, including the
+ * RFC 9207 `iss` that real authorization servers send.
+ */
 async function simulateCallback(
   handlers: MockCallbackHandlers,
   code = "auth-code-123",
+  iss: string | undefined = CALLBACK_ISS,
 ): Promise<void> {
   if (!handlers.onCallback) {
     throw new Error("onCallback not registered");
   }
-  await handlers.onCallback({ code });
+  await handlers.onCallback({ code, iss });
 }
 
 describe("runRunnerInteractiveOAuth", () => {
@@ -145,7 +151,10 @@ describe("runRunnerInteractiveOAuth", () => {
     });
 
     expect(result).toEqual({ kind: "success" });
-    expect(client.completeOAuthFlow).toHaveBeenCalledWith("auth-code-123");
+    expect(client.completeOAuthFlow).toHaveBeenCalledWith(
+      "auth-code-123",
+      CALLBACK_ISS,
+    );
     expect(redirectUrlProvider.redirectUrl).toBe(
       "http://127.0.0.1:6276/oauth/callback",
     );
@@ -179,7 +188,10 @@ describe("runRunnerInteractiveOAuth", () => {
       authorizationUrl,
     );
     expect(client.authenticate).not.toHaveBeenCalled();
-    expect(client.completeOAuthFlow).toHaveBeenCalledWith("step-up-code");
+    expect(client.completeOAuthFlow).toHaveBeenCalledWith(
+      "step-up-code",
+      CALLBACK_ISS,
+    );
   });
 
   it("returns insufficient_scope when post-step-up check fails", async () => {

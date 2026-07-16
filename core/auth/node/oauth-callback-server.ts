@@ -30,6 +30,8 @@ function escapeHtml(s: string): string {
 export type OAuthCallbackHandler = (params: {
   code: string;
   state?: string;
+  /** RFC 9207 `iss`, when the authorization server sends it. */
+  iss?: string;
 }) => Promise<void>;
 
 export type OAuthErrorHandler = (params: {
@@ -181,7 +183,7 @@ export class OAuthCallbackServer {
       this.handled = true;
       const cb = this.onCallback;
       if (cb) {
-        cb({ code: params.code, state })
+        cb({ code: params.code, state, iss: params.iss })
           .then(() => {
             send(200, SUCCESS_HTML);
             void this.stop();

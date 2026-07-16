@@ -125,11 +125,13 @@ export async function startEmaIdpAuthorization(
 export async function completeEmaIdpAuthorizationAndMint(
   config: EmaFlowConfig,
   authorizationCode: string,
+  iss?: string,
 ): Promise<OAuthTokens> {
   try {
     await completeIdpOidcAuthorization({
       idp: config.idp,
       authorizationCode,
+      iss,
       redirectUrl: config.redirectUrl,
       storage: config.storage,
       fetchFn: config.fetchFn,

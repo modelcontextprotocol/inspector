@@ -2326,6 +2326,7 @@ function App() {
         connectStartRef.current = Date.now();
         await client.resumeAfterOAuth(params.code, {
           remoteSessionId: resumeSnapshot?.remoteSessionId,
+          iss: params.iss,
         });
       } catch (err) {
         connectStartRef.current = undefined;

@@ -44,7 +44,7 @@ export type McpAuthResult = "AUTHORIZED" | "REDIRECT";
 export interface McpAuthOptions {
   serverUrl: string | URL;
   authorizationCode?: string;
-  /** RFC 9207 callback `iss` — forwarded on v2 upgrade; ignored by v1 SDK `auth()`. */
+  /** RFC 9207 callback `iss`, validated by the SDK against the metadata issuer. */
   iss?: string;
   scope?: string;
   resourceMetadataUrl?: URL;
@@ -74,6 +74,7 @@ export async function mcpAuth(
   return sdkAuth(provider, {
     serverUrl: options.serverUrl,
     authorizationCode: options.authorizationCode,
+    iss: options.iss,
     scope: options.scope,
     resourceMetadataUrl: options.resourceMetadataUrl,
     fetchFn: options.fetchFn,

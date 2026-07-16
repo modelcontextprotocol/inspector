@@ -1525,11 +1525,12 @@ describe("OAuthManager", () => {
       );
       expect(outcome.kind).toBe("interactive");
 
-      await manager.completeOAuthFlow("auth-code");
+      await manager.completeOAuthFlow("auth-code", "https://idp.example.com");
 
       expect(mintSpy).toHaveBeenCalledWith(
         expect.objectContaining({ scope: "mcp tools:read weather:read" }),
         "auth-code",
+        "https://idp.example.com",
       );
       expect(storageOf(params).saveScope).toHaveBeenCalledWith(
         SERVER_URL,

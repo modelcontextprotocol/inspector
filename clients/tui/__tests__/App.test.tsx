@@ -983,9 +983,12 @@ describe("App (OAuth flows)", () => {
     const r = await mount(oneHttp());
     await press(r, ["c"]);
     await waitUntil(() => h.cb.opts !== null);
-    await h.cb.opts!.onCallback({ code: "abc" });
+    await h.cb.opts!.onCallback({ code: "abc", iss: "https://as.example" });
     await tick();
-    expect(h.clientSpies.completeOAuthFlow).toHaveBeenCalledWith("abc");
+    expect(h.clientSpies.completeOAuthFlow).toHaveBeenCalledWith(
+      "abc",
+      "https://as.example",
+    );
   });
 
   it("reports an OAuth callback error during a 401 connect", async () => {

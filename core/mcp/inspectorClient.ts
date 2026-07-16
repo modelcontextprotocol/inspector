@@ -3360,9 +3360,9 @@ export class InspectorClient extends InspectorClientEventTarget {
    */
   async resumeAfterOAuth(
     authorizationCode: string,
-    options?: { remoteSessionId?: string },
+    options?: { remoteSessionId?: string; iss?: string },
   ): Promise<void> {
-    await this.completeOAuthFlow(authorizationCode);
+    await this.completeOAuthFlow(authorizationCode, options?.iss);
 
     const remoteSessionId = options?.remoteSessionId;
     const transport = this.baseTransport;

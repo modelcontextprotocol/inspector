@@ -97,6 +97,12 @@ export async function startIdpOidcAuthorization(params: {
 export async function completeIdpOidcAuthorization(params: {
   idp: EnterpriseManagedAuthIdpConfig;
   authorizationCode: string;
+  /**
+   * RFC 9207 `iss` from the IdP callback. Forwarded to the SDK, which rejects
+   * the exchange when the IdP metadata advertises
+   * `authorization_response_iss_parameter_supported` but no `iss` arrives.
+   */
+  iss?: string;
   redirectUrl: string;
   storage: OAuthStorage;
   fetchFn?: typeof fetch;
@@ -127,6 +133,7 @@ export async function completeIdpOidcAuthorization(params: {
     metadata,
     clientInformation,
     authorizationCode: params.authorizationCode,
+    iss: params.iss,
     codeVerifier,
     redirectUri: params.redirectUrl,
     fetchFn: params.fetchFn,

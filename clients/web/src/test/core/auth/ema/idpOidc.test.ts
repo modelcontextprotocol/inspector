@@ -390,6 +390,7 @@ describe("completeIdpOidcAuthorization", () => {
     const result = await completeIdpOidcAuthorization({
       idp,
       authorizationCode: "auth-code-xyz",
+      iss: IDP_ISSUER,
       redirectUrl: "http://127.0.0.1:3000/oauth/callback",
       storage,
       fetchFn,
@@ -465,6 +466,7 @@ describe("completeIdpOidcAuthorization", () => {
     const result = await completeIdpOidcAuthorization({
       idp,
       authorizationCode: "code",
+      iss: IDP_ISSUER,
       redirectUrl: "http://127.0.0.1:3000/oauth/callback",
       storage,
       fetchFn,
@@ -498,10 +500,67 @@ describe("completeIdpOidcAuthorization", () => {
       completeIdpOidcAuthorization({
         idp,
         authorizationCode: "code",
+        iss: IDP_ISSUER,
         redirectUrl: "http://127.0.0.1:3000/oauth/callback",
         storage,
         fetchFn,
       }),
     ).rejects.toThrow("IdP token response did not include an ID Token");
+  });
+
+  // Regression: the IdP metadata advertises
+  // `authorization_response_iss_parameter_supported`, so the SDK enforces
+  // RFC 9207 §2.4 and rejects the exchange unless the callback `iss` is
+  // forwarded. Dropping `iss` anywhere between the callback and
+  // `exchangeAuthorization` breaks EMA leg 1 against every real IdP.
+  it("forwards the callback iss to the token exchange (RFC 9207)", async () => {
+    storage = buildStorage();
+    const idToken = jwtWithExp(Math.floor(Date.now() / 1000) + 3600);
+    const fetchFn = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id_token: idToken,
+            access_token: "at",
+            token_type: "Bearer",
+          }),
+        ),
+    );
+
+    await expect(
+      completeIdpOidcAuthorization({
+        idp,
+        authorizationCode: "code",
+        redirectUrl: "http://127.0.0.1:3000/oauth/callback",
+        storage,
+        fetchFn,
+      }),
+    ).rejects.toThrow(/Issuer mismatch/);
+
+    const result = await completeIdpOidcAuthorization({
+      idp,
+      authorizationCode: "code",
+      iss: IDP_ISSUER,
+      redirectUrl: "http://127.0.0.1:3000/oauth/callback",
+      storage,
+      fetchFn,
+    });
+    expect(result.idToken).toBe(idToken);
+  });
+
+  it("rejects a callback iss from a different issuer (mix-up defense)", async () => {
+    storage = buildStorage();
+    const fetchFn = vi.fn();
+    await expect(
+      completeIdpOidcAuthorization({
+        idp,
+        authorizationCode: "code",
+        iss: "https://evil.example.com",
+        redirectUrl: "http://127.0.0.1:3000/oauth/callback",
+        storage,
+        fetchFn,
+      }),
+    ).rejects.toThrow(/Issuer mismatch/);
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });

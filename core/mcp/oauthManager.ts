@@ -293,6 +293,7 @@ export class OAuthManager {
         const tokens = await completeEmaIdpAuthorizationAndMint(
           config,
           authorizationCode,
+          iss,
         );
         const requestedScope = this.pendingAuthorizationScope;
         const scopeToPersist = resolvePersistedScopeAfterGrant(
