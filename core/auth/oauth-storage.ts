@@ -112,6 +112,10 @@ export class OAuthStorageBase implements OAuthStorage {
     issuer: string,
     updates: Partial<IssuerBoundOAuthState>,
     clearLegacy: Partial<ServerOAuthState>,
+    // Saves promote the issuer to `activeIssuer` (it answers ctx-less reads);
+    // clears must not — clearing one AS's credentials shouldn't make it the
+    // active one.
+    setActive = true,
   ): void {
     const state = this.memory.getState().getServerState(serverUrl);
     const byIssuer = {
@@ -120,7 +124,7 @@ export class OAuthStorageBase implements OAuthStorage {
     };
     this.memory.getState().setServerState(serverUrl, {
       byIssuer,
-      activeIssuer: issuer,
+      ...(setActive && { activeIssuer: issuer }),
       ...clearLegacy,
     });
   }
@@ -154,14 +158,19 @@ export class OAuthStorageBase implements OAuthStorage {
 
     // Per-issuer registration (SEP-2352), falling back to the legacy unkeyed slot.
     const slot = this.issuerSlot(state, issuer);
-    const clientInfo = slot?.clientInformation ?? state.clientInformation;
+    const fromSlot = slot?.clientInformation;
+    const clientInfo = fromSlot ?? state.clientInformation;
     if (!clientInfo) {
       return undefined;
     }
     const parsed = await OAuthClientInformationSchema.parseAsync(clientInfo);
+    // Stamp only when the value actually came from the issuer-keyed slot. Gating
+    // on `fromSlot` (not merely on the slot existing) keeps a legacy unkeyed
+    // credential — potentially minted by a *different* AS — from being stamped
+    // with this issuer, which would defeat the SDK's discardIfIssuerMismatch.
     return withIssuer(
       parsed,
-      slot ? this.resolveReadIssuer(state, issuer) : undefined,
+      fromSlot ? this.resolveReadIssuer(state, issuer) : undefined,
     );
   }
 
@@ -237,6 +246,7 @@ export class OAuthStorageBase implements OAuthStorage {
         issuer,
         { clientInformation: undefined, clientRegistrationKind: undefined },
         {},
+        false,
       );
     } else {
       // Clear every issuer's registration plus the legacy unkeyed entry.
@@ -261,14 +271,17 @@ export class OAuthStorageBase implements OAuthStorage {
     await this.ensureLoaded();
     const state = this.memory.getState().getServerState(serverUrl);
     const slot = this.issuerSlot(state, issuer);
-    const tokens = slot?.tokens ?? state.tokens;
+    const fromSlot = slot?.tokens;
+    const tokens = fromSlot ?? state.tokens;
     if (!tokens) {
       return undefined;
     }
     const parsed = await OAuthTokensSchema.parseAsync(tokens);
+    // Stamp only when the value came from the issuer-keyed slot (see
+    // getClientInformation) — never stamp a legacy unkeyed token with this issuer.
     return withIssuer(
       parsed,
-      slot ? this.resolveReadIssuer(state, issuer) : undefined,
+      fromSlot ? this.resolveReadIssuer(state, issuer) : undefined,
     );
   }
 
@@ -302,7 +315,13 @@ export class OAuthStorageBase implements OAuthStorage {
   async clearTokens(serverUrl: string, issuer?: string): Promise<void> {
     await this.ensureLoaded();
     if (issuer !== undefined) {
-      this.updateIssuerSlot(serverUrl, issuer, { tokens: undefined }, {});
+      this.updateIssuerSlot(
+        serverUrl,
+        issuer,
+        { tokens: undefined },
+        {},
+        false,
+      );
     } else {
       const state = this.memory.getState().getServerState(serverUrl);
       const byIssuer = this.mapIssuerSlots(state, () => ({

@@ -41,13 +41,16 @@ export function oauthNetworkPhase(
   ) {
     return "discovery";
   }
-  if (path.endsWith("/register") || path.includes("/register/")) {
+  // Match the endpoint as the final path segment (trailing slash tolerated) so a
+  // nested path like `/token/refresh` or `/api/register/foo` is not misclassified.
+  const endpoint = path.replace(/\/+$/, "");
+  if (endpoint.endsWith("/register")) {
     return "registration";
   }
-  if (path.endsWith("/token") || path.includes("/token/")) {
+  if (endpoint.endsWith("/token")) {
     return "token";
   }
-  if (path.endsWith("/authorize") || path.includes("/authorize/")) {
+  if (endpoint.endsWith("/authorize")) {
     return "authorize";
   }
   return undefined;

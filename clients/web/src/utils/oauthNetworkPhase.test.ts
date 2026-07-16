@@ -45,6 +45,20 @@ describe("oauthNetworkPhase", () => {
     expect(oauthNetworkPhase("https://mcp.example.com/mcp")).toBeUndefined();
   });
 
+  it("matches the endpoint as the final path segment, not a nested one", () => {
+    // A nested segment must not classify as the OAuth endpoint...
+    expect(
+      oauthNetworkPhase("https://as.example.com/oauth/token/refresh"),
+    ).toBeUndefined();
+    expect(
+      oauthNetworkPhase("https://gw.example.com/api/register/foo"),
+    ).toBeUndefined();
+    // ...but a trailing slash on the real endpoint is tolerated.
+    expect(oauthNetworkPhase("https://as.example.com/oauth/token/")).toBe(
+      "token",
+    );
+  });
+
   it("tolerates a non-absolute URL by stripping the query", () => {
     expect(oauthNetworkPhase("/register?foo=bar")).toBe("registration");
     expect(oauthNetworkPhase("not a url")).toBeUndefined();

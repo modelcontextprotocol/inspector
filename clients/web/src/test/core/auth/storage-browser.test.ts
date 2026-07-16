@@ -533,6 +533,63 @@ describe("BrowserOAuthStorage", () => {
       });
     });
 
+    it("does not stamp a legacy fallback credential when the issuer slot lacks it", async () => {
+      // Legacy unkeyed client info survives, but a byIssuer slot exists for
+      // issuerA holding only tokens (no clientInformation). Reading client info
+      // for issuerA must fall back to the legacy value WITHOUT stamping it with
+      // issuerA — the legacy credential may have been minted by a different AS.
+      await storage.saveClientInformation(
+        testServerUrl,
+        { client_id: "legacy-client" },
+        { registrationKind: "dcr" },
+      );
+      await storage.saveTokens(
+        testServerUrl,
+        { access_token: "tok-a", token_type: "Bearer" },
+        { issuer: issuerA },
+      );
+
+      const clientInfo = await storage.getClientInformation(
+        testServerUrl,
+        false,
+        issuerA,
+      );
+      // No issuer stamp — so the SDK's discardIfIssuerMismatch stays engaged.
+      expect(clientInfo).toEqual({ client_id: "legacy-client" });
+
+      // Symmetric case: legacy tokens survive, slot has only clientInformation.
+      await storage.clear(testServerUrl);
+      await storage.saveTokens(testServerUrl, {
+        access_token: "legacy-tok",
+        token_type: "Bearer",
+      });
+      await storage.saveClientInformation(
+        testServerUrl,
+        { client_id: "client-a" },
+        { registrationKind: "dcr", issuer: issuerA },
+      );
+      const tokens = await storage.getTokens(testServerUrl, issuerA);
+      expect(tokens).toEqual({
+        access_token: "legacy-tok",
+        token_type: "Bearer",
+      });
+    });
+
+    it("does not promote a cleared issuer to the active (ctx-less) slot", async () => {
+      await storage.saveTokens(
+        testServerUrl,
+        { access_token: "tok-a", token_type: "Bearer" },
+        { issuer: issuerA },
+      );
+      // Clearing a *different* issuer must not make it the active issuer.
+      await storage.clearTokens(testServerUrl, issuerB);
+
+      // The ctx-less (per-request bearer) read still resolves issuerA's token.
+      expect(await storage.getTokens(testServerUrl)).toMatchObject({
+        access_token: "tok-a",
+      });
+    });
+
     it("clears every issuer's tokens/registration when no issuer is given", async () => {
       await storage.saveTokens(
         testServerUrl,
