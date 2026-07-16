@@ -525,9 +525,17 @@ export function useConnection({
           header.name.trim().toLowerCase() === "authorization",
       );
 
+      // Track whether the Authorization header was injected from the OAuth
+      // provider (as opposed to a user-supplied static header). For direct
+      // connections this token must NOT be baked into requestInit, because the
+      // SDK's authProvider already injects and refreshes it on every request; a
+      // baked connect-time snapshot would shadow the refreshed token (#1434).
+      let oauthTokenInjected = false;
+
       if (needsOAuthToken) {
         const oauthToken = (await serverAuthProvider.tokens())?.access_token;
         if (oauthToken) {
+          oauthTokenInjected = true;
           // Add the OAuth token
           finalHeaders = [
             // Remove any existing Authorization headers with empty tokens
@@ -575,6 +583,17 @@ export function useConnection({
         serverUrl = new URL(sseUrl);
 
         const requestHeaders = { ...headers };
+        // For direct connections the SDK's authProvider is the single,
+        // always-current source of the OAuth Authorization header: it injects
+        // the token on every request and refreshes it on 401. Baking a
+        // connect-time token snapshot into requestInit/the custom fetch would
+        // shadow the refreshed token and leave the session permanently sending
+        // the stale token after a refresh (#1434). A user-supplied static
+        // Authorization header must still override the provider, so only strip
+        // the header here when it was injected from the OAuth provider.
+        if (oauthTokenInjected) {
+          delete requestHeaders["Authorization"];
+        }
         if (mcpSessionId) {
           requestHeaders["mcp-session-id"] = mcpSessionId;
         }
@@ -588,9 +607,13 @@ export function useConnection({
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
               ) => {
+                // Let the SDK-provided init (which already merges the
+                // provider's fresh Authorization with requestInit.headers)
+                // win over the connect-time snapshot, so a refreshed token is
+                // actually sent (#1434).
                 const response = await fetch(url, {
-                  ...init,
                   headers: requestHeaders,
+                  ...init,
                 });
 
                 // Capture protocol-related headers from response
