@@ -496,6 +496,26 @@ describe("ServerSettingsForm", () => {
     });
   });
 
+  it("invokes onOAuthChange with the chosen insufficient-scope policy (SEP-2350)", async () => {
+    const user = userEvent.setup();
+    const onOAuthChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onOAuthChange={onOAuthChange}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    await user.click(
+      screen.getByRole("textbox", { name: /Insufficient-scope/i }),
+    );
+    await user.click(screen.getByText("Throw (surface the error)"));
+    expect(onOAuthChange).toHaveBeenCalledWith(
+      expect.objectContaining({ onInsufficientScope: "throw" }),
+    );
+  });
+
   it("invokes onOAuthChange when enterprise-managed is toggled", async () => {
     const user = userEvent.setup();
     const onOAuthChange = vi.fn();

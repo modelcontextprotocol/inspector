@@ -771,7 +771,14 @@ export class OAuthManager {
     }
 
     const clientInfo = await provider.clientInformation();
-    await this.recordAuthorizationCodeFlowState(capturedUrl, clientInfo);
+    await this.recordAuthorizationCodeFlowState(
+      capturedUrl,
+      clientInfo,
+      // SEP-2350: label a step-up redirect distinctly from a first-time login.
+      enriched.reason === "insufficient_scope"
+        ? "scope_step_up"
+        : "authorization_code",
+    );
 
     return {
       kind: "interactive",
@@ -810,10 +817,11 @@ export class OAuthManager {
   private async recordAuthorizationCodeFlowState(
     authorizationUrl: URL,
     oauthClientInfo?: OAuthClientInformation | null,
+    step: OAuthStep = "authorization_code",
   ): Promise<void> {
     this.oauthFlowState = {
       ...EMPTY_OAUTH_FLOW_STATE,
-      oauthStep: "authorization_code",
+      oauthStep: step,
       authorizationUrl,
       oauthClientInfo: oauthClientInfo ?? null,
     };

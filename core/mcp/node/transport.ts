@@ -211,6 +211,11 @@ export function createTransportNode(
       authProvider,
       requestInit,
       fetch: transportFetch,
+      // SEP-2350: how the transport reacts to a `403 insufficient_scope`
+      // challenge. Defaults to the SDK's `reauthorize` when unset.
+      ...(settings?.oauthOnInsufficientScope && {
+        onInsufficientScope: settings.oauthOnInsufficientScope,
+      }),
     });
 
     return { transport };

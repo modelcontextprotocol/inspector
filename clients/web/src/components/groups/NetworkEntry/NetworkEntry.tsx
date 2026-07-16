@@ -19,6 +19,10 @@ import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
 import { CategoryBadge } from "../../elements/CategoryBadge/CategoryBadge";
 import { maskSecretsInBody } from "../../../utils/maskSecrets";
+import {
+  oauthNetworkPhase,
+  oauthNetworkPhaseLabel,
+} from "../../../utils/oauthNetworkPhase";
 
 export interface NetworkEntryProps {
   entry: FetchRequestEntry;
@@ -247,6 +251,16 @@ export function NetworkEntry({
     setIsExpanded(isListExpanded);
   }, [isListExpanded]);
 
+  // OAuth flow phase for `auth`-category requests (discovery / registration /
+  // authorize / token), so the Network tab labels the auth conversation.
+  const oauthPhase =
+    entry.category === "auth" ? oauthNetworkPhase(entry.url) : undefined;
+  const phaseBadge = oauthPhase ? (
+    <Badge color="violet" variant="light">
+      {oauthNetworkPhaseLabel(oauthPhase)}
+    </Badge>
+  ) : null;
+
   const metaBadges = (
     <>
       {entry.duration != null && (
@@ -278,6 +292,7 @@ export function NetworkEntry({
                 </TimestampText>
                 <MethodBadge method={entry.method} />
                 <CategoryBadge category={entry.category} />
+                {phaseBadge}
               </HeaderCluster>
               <ControlsCluster>{metaBadges}</ControlsCluster>
             </HeaderRow>
@@ -306,6 +321,7 @@ export function NetworkEntry({
                 </TimestampText>
                 <MethodBadge method={entry.method} />
                 <CategoryBadge category={entry.category} />
+                {phaseBadge}
                 <CopyButton value={entry.url} />
                 <UrlText>{entry.url}</UrlText>
               </Group>

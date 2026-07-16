@@ -95,6 +95,29 @@ describe("ServerSettingsModal", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("maps the OAuth insufficient-scope policy into settings (SEP-2350)", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={initialSettings}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /OAuth Settings/i }));
+    await user.click(
+      screen.getByRole("textbox", { name: /Insufficient-scope/i }),
+    );
+    await user.click(screen.getByText("Throw (surface the error)"));
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({ oauthOnInsufficientScope: "throw" }),
+    );
+  });
+
   it("calls onSettingsChange when adding a header after expanding the section", async () => {
     const user = userEvent.setup();
     const onSettingsChange = vi.fn();

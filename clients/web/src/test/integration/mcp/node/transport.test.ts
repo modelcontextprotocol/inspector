@@ -259,6 +259,38 @@ describe("Transport", () => {
       }
     });
 
+    it("forwards settings.oauthOnInsufficientScope to the streamable-http transport (SEP-2350)", () => {
+      const config: MCPServerConfig = {
+        type: "streamable-http",
+        url: "https://mcp.example.com/mcp",
+      };
+      const baseSettings: InspectorServerSettings = {
+        headers: [],
+        env: [],
+        metadata: [],
+        connectionTimeout: 0,
+        requestTimeout: 0,
+        taskTtl: 0,
+        maxFetchRequests: 1000,
+        roots: [],
+      };
+
+      const asThrow = createTransportNode(config, {
+        settings: { ...baseSettings, oauthOnInsufficientScope: "throw" },
+      });
+      expect(
+        (asThrow.transport as unknown as { _onInsufficientScope?: string })
+          ._onInsufficientScope,
+      ).toBe("throw");
+
+      // Unset → the SDK's default policy.
+      const asDefault = createTransportNode(config, { settings: baseSettings });
+      expect(
+        (asDefault.transport as unknown as { _onInsufficientScope?: string })
+          ._onInsufficientScope,
+      ).toBe("reauthorize");
+    });
+
     it("applies settings.headers to the outgoing SSE request", async () => {
       const server = createTestServerHttp({
         serverInfo: createTestServerInfo(),

@@ -429,4 +429,159 @@ describe("BrowserOAuthStorage", () => {
       );
     });
   });
+
+  describe("SEP-2352 per-issuer keying", () => {
+    const issuerA = "https://as-a.example.com";
+    const issuerB = "https://as-b.example.com";
+
+    it("keeps separate client registrations per issuer and re-attaches the issuer stamp on read", async () => {
+      await storage.saveClientInformation(
+        testServerUrl,
+        { client_id: "client-a" },
+        { registrationKind: "dcr", issuer: issuerA },
+      );
+      await storage.saveClientInformation(
+        testServerUrl,
+        { client_id: "client-b" },
+        { registrationKind: "cimd", issuer: issuerB },
+      );
+
+      // Each issuer resolves its own credentials, stamped with its issuer
+      // (SEP-2352) — the stamp is what lets the SDK reject cross-AS reuse.
+      expect(
+        await storage.getClientInformation(testServerUrl, false, issuerA),
+      ).toEqual({ client_id: "client-a", issuer: issuerA });
+      expect(
+        await storage.getClientInformation(testServerUrl, false, issuerB),
+      ).toEqual({ client_id: "client-b", issuer: issuerB });
+      expect(
+        await storage.getClientRegistrationKind(testServerUrl, issuerA),
+      ).toBe("dcr");
+      expect(
+        await storage.getClientRegistrationKind(testServerUrl, issuerB),
+      ).toBe("cimd");
+    });
+
+    it("answers a ctx-less token read from the most-recently-saved (active) issuer", async () => {
+      await storage.saveTokens(
+        testServerUrl,
+        { access_token: "tok-a", token_type: "Bearer" },
+        { issuer: issuerA },
+      );
+      await storage.saveTokens(
+        testServerUrl,
+        { access_token: "tok-b", token_type: "Bearer" },
+        { issuer: issuerB },
+      );
+
+      // No issuer → active issuer (last saved = B); the per-request bearer read.
+      expect(await storage.getTokens(testServerUrl)).toEqual({
+        access_token: "tok-b",
+        token_type: "Bearer",
+        issuer: issuerB,
+      });
+      // Explicit issuer selects that AS's tokens.
+      expect(await storage.getTokens(testServerUrl, issuerA)).toEqual({
+        access_token: "tok-a",
+        token_type: "Bearer",
+        issuer: issuerA,
+      });
+    });
+
+    it("promotes the legacy unkeyed slot: an unstamped token read falls back, then a stamped save supersedes it", async () => {
+      // Legacy pre-1625 blob: unstamped tokens at the top level.
+      await storage.saveTokens(testServerUrl, {
+        access_token: "legacy",
+        token_type: "Bearer",
+      });
+      // Read for a specific issuer falls back to the unkeyed slot (unstamped).
+      expect(await storage.getTokens(testServerUrl, issuerA)).toEqual({
+        access_token: "legacy",
+        token_type: "Bearer",
+      });
+
+      // First stamped save promotes into byIssuer and clears the fallback.
+      await storage.saveTokens(
+        testServerUrl,
+        { access_token: "fresh", token_type: "Bearer" },
+        { issuer: issuerA },
+      );
+      expect(await storage.getTokens(testServerUrl, issuerA)).toEqual({
+        access_token: "fresh",
+        token_type: "Bearer",
+        issuer: issuerA,
+      });
+    });
+
+    it("clears a single issuer's tokens, leaving other issuers intact", async () => {
+      await storage.saveTokens(
+        testServerUrl,
+        { access_token: "tok-a", token_type: "Bearer" },
+        { issuer: issuerA },
+      );
+      await storage.saveTokens(
+        testServerUrl,
+        { access_token: "tok-b", token_type: "Bearer" },
+        { issuer: issuerB },
+      );
+
+      await storage.clearTokens(testServerUrl, issuerA);
+
+      expect(await storage.getTokens(testServerUrl, issuerA)).toBeUndefined();
+      expect(await storage.getTokens(testServerUrl, issuerB)).toMatchObject({
+        access_token: "tok-b",
+      });
+    });
+
+    it("clears every issuer's tokens/registration when no issuer is given", async () => {
+      await storage.saveTokens(
+        testServerUrl,
+        { access_token: "tok-a", token_type: "Bearer" },
+        { issuer: issuerA },
+      );
+      await storage.saveClientInformation(
+        testServerUrl,
+        { client_id: "client-b" },
+        { registrationKind: "dcr", issuer: issuerB },
+      );
+
+      await storage.clearTokens(testServerUrl);
+      await storage.clearClientInformation(testServerUrl);
+
+      expect(await storage.getTokens(testServerUrl, issuerA)).toBeUndefined();
+      expect(
+        await storage.getClientInformation(testServerUrl, false, issuerB),
+      ).toBeUndefined();
+    });
+
+    it("tags EMA resource tokens even on the issuer-keyed save path", async () => {
+      await storage.saveTokens(
+        testServerUrl,
+        { access_token: "ema", token_type: "Bearer" },
+        { issuer: issuerA, enterpriseManaged: true },
+      );
+
+      await storage.clearEnterpriseManagedResourceServers();
+
+      expect(await storage.getTokens(testServerUrl, issuerA)).toBeUndefined();
+    });
+  });
+
+  describe("discovery state (SEP-2352)", () => {
+    it("saves, reads, and clears the discovery state", async () => {
+      expect(await storage.getDiscoveryState(testServerUrl)).toBeUndefined();
+
+      const discoveryState = {
+        authorizationServerUrl: "https://as.example.com",
+        resourceMetadataUrl: "https://mcp.example.com/.well-known/x",
+      };
+      await storage.saveDiscoveryState(testServerUrl, discoveryState);
+      expect(await storage.getDiscoveryState(testServerUrl)).toEqual(
+        discoveryState,
+      );
+
+      await storage.clearDiscoveryState(testServerUrl);
+      expect(await storage.getDiscoveryState(testServerUrl)).toBeUndefined();
+    });
+  });
 });

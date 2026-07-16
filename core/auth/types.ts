@@ -6,12 +6,21 @@ import type {
   OAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/client";
 
-// OAuth flow steps
+// OAuth flow steps. Extended for the 2026-07-28 authorization hardening:
+// `cimd_fetch` (SEP-991 client-id metadata document registration), `issuer_comparison`
+// (SEP-2352 authorization-server binding check), and `scope_step_up` (SEP-2350
+// accumulated-scope re-authorization).
 export type OAuthStep =
   | "metadata_discovery"
   | "client_registration"
+  /** SEP-991 — registering via a Client ID Metadata Document instead of DCR. */
+  | "cimd_fetch"
+  /** SEP-2352 — comparing the resolved AS `issuer` against stored/discovered state. */
+  | "issuer_comparison"
   | "authorization_redirect"
   | "authorization_code"
+  /** SEP-2350 — re-authorizing with the accumulated (prior ∪ challenged) scope union. */
+  | "scope_step_up"
   | "token_request"
   | "complete";
 

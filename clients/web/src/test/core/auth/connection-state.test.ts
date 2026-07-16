@@ -56,6 +56,9 @@ function createStorage(
     clearIdpSession: vi.fn(),
     clearEnterpriseManagedResourceServers: vi.fn(),
     getCodeVerifier: vi.fn(),
+    getDiscoveryState: vi.fn().mockResolvedValue(undefined),
+    saveDiscoveryState: vi.fn(),
+    clearDiscoveryState: vi.fn(),
   };
 }
 

@@ -289,4 +289,24 @@ describe("NetworkEntry", () => {
       screen.queryByRole("button", { name: "Reveal secrets in body" }),
     ).not.toBeInTheDocument();
   });
+
+  it("labels an auth-category request with its OAuth flow phase", () => {
+    const tokenRequest: FetchRequestEntry = {
+      ...baseEntry,
+      url: "https://as.example.com/oauth/token",
+      category: "auth",
+    };
+    renderWithMantine(
+      <NetworkEntry entry={tokenRequest} isListExpanded={false} />,
+    );
+    expect(screen.getByText("Token")).toBeInTheDocument();
+  });
+
+  it("does not label transport requests or unrecognized auth URLs", () => {
+    renderWithMantine(
+      <NetworkEntry entry={baseEntry} isListExpanded={false} />,
+    );
+    expect(screen.queryByText("Token")).not.toBeInTheDocument();
+    expect(screen.queryByText("Discovery")).not.toBeInTheDocument();
+  });
 });

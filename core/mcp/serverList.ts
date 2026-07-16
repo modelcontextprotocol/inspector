@@ -197,6 +197,9 @@ export function storedFieldsToInspectorSettings(
   if (stored.oauth?.clientSecret)
     settings.oauthClientSecret = stored.oauth.clientSecret;
   if (stored.oauth?.scopes) settings.oauthScopes = stored.oauth.scopes;
+  if (stored.oauth?.onInsufficientScope) {
+    settings.oauthOnInsufficientScope = stored.oauth.onInsufficientScope;
+  }
   if (stored.oauth?.enterpriseManaged === true) {
     settings.enterpriseManaged = true;
   }
@@ -263,16 +266,14 @@ export function inspectorSettingsToStoredFields(
     out.maxFetchRequests = settings.maxFetchRequests;
   }
 
-  const oauthFields: {
-    clientId?: string;
-    clientSecret?: string;
-    scopes?: string;
-    enterpriseManaged?: boolean;
-  } = {};
+  const oauthFields: NonNullable<StoredMCPServer["oauth"]> = {};
   if (settings.oauthClientId) oauthFields.clientId = settings.oauthClientId;
   if (settings.oauthClientSecret)
     oauthFields.clientSecret = settings.oauthClientSecret;
   if (settings.oauthScopes) oauthFields.scopes = settings.oauthScopes;
+  if (settings.oauthOnInsufficientScope) {
+    oauthFields.onInsufficientScope = settings.oauthOnInsufficientScope;
+  }
   if (settings.enterpriseManaged === true) {
     oauthFields.enterpriseManaged = true;
   }

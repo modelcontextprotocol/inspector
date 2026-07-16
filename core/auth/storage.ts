@@ -2,6 +2,7 @@ import type {
   OAuthClientInformation,
   OAuthTokens,
   OAuthMetadata,
+  OAuthDiscoveryState,
 } from "@modelcontextprotocol/client";
 import type { OAuthClientRegistrationKind } from "./types.js";
 
@@ -12,12 +13,23 @@ import type { OAuthClientRegistrationKind } from "./types.js";
 export interface SaveTokensOptions {
   /** Marks resource tokens minted via EMA (legs 2–3) for sign-out cleanup. */
   enterpriseManaged?: boolean;
+  /**
+   * Authorization-server `issuer` these tokens are bound to (SEP-2352). When set,
+   * tokens are keyed under `(server, issuer)`; when omitted (EMA / legacy callers)
+   * they write the per-server fallback slot.
+   */
+  issuer?: string;
 }
 
 export type { OAuthClientRegistrationKind };
 
 export interface SaveClientInformationOptions {
   registrationKind: "dcr" | "cimd";
+  /**
+   * Authorization-server `issuer` this client registration is bound to (SEP-2352).
+   * Client identifiers are unique to the AS that issued them (RFC 6749 §2.2).
+   */
+  issuer?: string;
 }
 
 export interface OAuthStorage {
@@ -29,11 +41,16 @@ export interface OAuthStorage {
   load(): Promise<void>;
 
   /**
-   * Get client information (preregistered or dynamically registered)
+   * Get client information (preregistered or dynamically registered).
+   *
+   * @param issuer - When set, return the registration bound to this AS `issuer`
+   *   (SEP-2352). When omitted, return the active-issuer slot, falling back to
+   *   the legacy unkeyed entry.
    */
   getClientInformation(
     serverUrl: string,
     isPreregistered?: boolean,
+    issuer?: string,
   ): Promise<OAuthClientInformation | undefined>;
 
   /**
@@ -41,6 +58,7 @@ export interface OAuthStorage {
    */
   getClientRegistrationKind(
     serverUrl: string,
+    issuer?: string,
   ): Promise<OAuthClientRegistrationKind | undefined>;
 
   /**
@@ -61,17 +79,25 @@ export interface OAuthStorage {
   ): Promise<void>;
 
   /**
-   * Clear client information
+   * Clear client information. When `issuer` is set, clear only that AS's
+   * registration; when omitted, clear every issuer's registration plus the
+   * legacy unkeyed entry.
    */
   clearClientInformation(
     serverUrl: string,
     isPreregistered?: boolean,
+    issuer?: string,
   ): Promise<void>;
 
   /**
-   * Get OAuth tokens
+   * Get OAuth tokens. When `issuer` is set, return that AS's tokens (SEP-2352);
+   * when omitted, return the active-issuer tokens, falling back to the legacy
+   * unkeyed entry (the transport's per-request bearer read).
    */
-  getTokens(serverUrl: string): Promise<OAuthTokens | undefined>;
+  getTokens(
+    serverUrl: string,
+    issuer?: string,
+  ): Promise<OAuthTokens | undefined>;
 
   /**
    * Save OAuth tokens
@@ -83,9 +109,10 @@ export interface OAuthStorage {
   ): Promise<void>;
 
   /**
-   * Clear OAuth tokens
+   * Clear OAuth tokens. When `issuer` is set, clear only that AS's tokens; when
+   * omitted, clear every issuer's tokens plus the legacy unkeyed entry.
    */
-  clearTokens(serverUrl: string): Promise<void>;
+  clearTokens(serverUrl: string, issuer?: string): Promise<void>;
 
   /**
    * Get code verifier (for PKCE)
@@ -131,6 +158,29 @@ export interface OAuthStorage {
    * Clear server metadata
    */
   clearServerMetadata(serverUrl: string): Promise<void>;
+
+  /**
+   * Get the cached RFC 9728/8414 discovery state (SEP-2352). The SDK restores it
+   * to skip re-discovery and, on the authorization-code callback leg, to bind the
+   * exchange to the AS that minted the code (`AuthorizationServerMismatchError`).
+   */
+  getDiscoveryState(
+    serverUrl: string,
+  ): Promise<OAuthDiscoveryState | undefined>;
+
+  /**
+   * Save the RFC 9728/8414 discovery state. Persisted alongside the code verifier
+   * so it survives the authorization redirect round-trip.
+   */
+  saveDiscoveryState(
+    serverUrl: string,
+    state: OAuthDiscoveryState,
+  ): Promise<void>;
+
+  /**
+   * Clear the cached discovery state (SDK `invalidateCredentials('discovery')`).
+   */
+  clearDiscoveryState(serverUrl: string): Promise<void>;
 
   /**
    * Clear all OAuth data for a server

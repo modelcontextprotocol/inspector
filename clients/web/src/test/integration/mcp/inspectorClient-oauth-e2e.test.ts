@@ -1071,8 +1071,12 @@ describe("InspectorClient OAuth E2E", () => {
 
         expect(client.getStatus()).toBe("connected");
 
+        type StoredTokens = { tokens?: { access_token?: string } };
         type StateShape = {
-          servers?: Record<string, { tokens?: { access_token?: string } }>;
+          servers?: Record<
+            string,
+            StoredTokens & { byIssuer?: Record<string, StoredTokens> }
+          >;
         };
         // Persistence is fire-and-forget; await the write rather than polling.
         await flushStoreFileWrites(customPath);
@@ -1081,8 +1085,16 @@ describe("InspectorClient OAuth E2E", () => {
         ) as StateShape;
         const servers = parsed.servers ?? {};
         expect(Object.keys(servers).length).toBeGreaterThan(0);
+        // SEP-2352: tokens persist under `byIssuer[issuer].tokens`; accept the
+        // legacy top-level slot too.
         expect(
-          Object.values(servers).some((s) => !!s?.tokens?.access_token),
+          Object.values(servers).some(
+            (s) =>
+              !!s?.tokens?.access_token ||
+              Object.values(s?.byIssuer ?? {}).some(
+                (slot) => !!slot?.tokens?.access_token,
+              ),
+          ),
         ).toBe(true);
       } finally {
         try {
