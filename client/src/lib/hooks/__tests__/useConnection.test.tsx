@@ -1387,7 +1387,7 @@ describe("useConnection", () => {
     });
   });
 
-  describe("Direct connection OAuth token handling (#1434)", () => {
+  describe("Direct connection OAuth token handling", () => {
     beforeEach(() => {
       jest.clearAllMocks();
       mockSSETransport.options = undefined;

@@ -590,7 +590,8 @@ export function useConnection({
         // shadow the refreshed token and leave the session permanently sending
         // the stale token after a refresh (#1434). A user-supplied static
         // Authorization header must still override the provider, so only strip
-        // the header here when it was injected from the OAuth provider.
+        // the header here when it was injected from the OAuth provider (the
+        // header we inject is always named exactly "Authorization").
         if (oauthTokenInjected) {
           delete requestHeaders["Authorization"];
         }
