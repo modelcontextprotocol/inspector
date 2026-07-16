@@ -1387,10 +1387,53 @@ describe("useConnection", () => {
     });
   });
 
-  describe("Direct connection OAuth token Content-Type (#1160)", () => {
+  describe("Direct connection OAuth token Content-Type", () => {
     beforeEach(() => {
       jest.clearAllMocks();
+      mockSSETransport.options = undefined;
       mockStreamableHTTPTransport.options = undefined;
+    });
+
+    test("does not mutate the shared requestInit headers with a Content-Type", async () => {
+      // Regression test for #1160. The streamable-http custom fetch must not
+      // write a capitalized `Content-Type: application/json` onto the shared
+      // `requestHeaders` object, because that object is also passed as
+      // `requestInit.headers`, which the SDK reuses for OAuth token requests.
+      // If it is mutated here, the token request's own lowercase
+      // `content-type: application/x-www-form-urlencoded` collides (by case)
+      // with it and produces a malformed comma-joined value that strict
+      // servers reject with 415.
+      const directProps = {
+        ...defaultProps,
+        transportType: "streamable-http" as const,
+        connectionType: "direct" as const,
+      };
+
+      const { result } = renderHook(() => useConnection(directProps));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const customFetch = mockStreamableHTTPTransport.options?.fetch;
+      expect(customFetch).toBeDefined();
+
+      // Issue an ordinary MCP request through the wrapper, exactly as the SDK
+      // would. In the buggy version this mutated the shared requestInit
+      // headers.
+      await customFetch?.("http://test.com/mcp", {
+        method: "POST",
+        headers: new Headers({
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        }),
+      });
+
+      // The connect-time headers baked into requestInit must remain free of a
+      // Content-Type so they cannot corrupt the SDK's token request.
+      expect(
+        mockStreamableHTTPTransport.options?.requestInit?.headers,
+      ).not.toHaveProperty("Content-Type");
     });
 
     // Mirrors the SDK's shared `createFetchWithInit`, which wraps the custom
@@ -1406,12 +1449,9 @@ describe("useConnection", () => {
     };
 
     test("refresh_token request keeps a single application/x-www-form-urlencoded Content-Type", async () => {
-      // Regression test for #1160: the streamable-http custom fetch must not
-      // mutate the shared requestInit headers with a capitalized
-      // `Content-Type: application/json`. If it does, the SDK's token request
-      // (lowercase `content-type: application/x-www-form-urlencoded`) merges
-      // with it by object spread, and the case mismatch yields a malformed
-      // comma-joined `Content-Type` that strict servers reject with 415.
+      // End-to-end evidence for #1160: replays the exact SDK token-request
+      // composition and asserts the Content-Type that ends up on the wire is
+      // not the malformed comma-joined value.
       const directProps = {
         ...defaultProps,
         transportType: "streamable-http" as const,
@@ -1462,9 +1502,9 @@ describe("useConnection", () => {
       );
 
       // Inspect the Content-Type actually put on the wire for the token request.
-      const lastCall = (global.fetch as jest.Mock).mock.calls.at(-1);
+      const calls = (global.fetch as jest.Mock).mock.calls;
       const sentHeaders = new Headers(
-        lastCall?.[1]?.headers as HeadersInit | undefined,
+        calls[calls.length - 1]?.[1]?.headers as HeadersInit | undefined,
       );
       expect(sentHeaders.get("content-type")).toBe(
         "application/x-www-form-urlencoded",
