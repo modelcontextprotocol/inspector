@@ -1387,6 +1387,91 @@ describe("useConnection", () => {
     });
   });
 
+  describe("Direct connection OAuth token Content-Type (#1160)", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockStreamableHTTPTransport.options = undefined;
+    });
+
+    // Mirrors the SDK's shared `createFetchWithInit`, which wraps the custom
+    // `fetch` with the connect-time `requestInit` and is what the SDK uses for
+    // OAuth token requests. See @modelcontextprotocol/sdk shared/transport.ts.
+    const normalizeHeaders = (
+      headers: HeadersInit | undefined,
+    ): Record<string, string> => {
+      if (!headers) return {};
+      if (headers instanceof Headers) return Object.fromEntries(headers);
+      if (Array.isArray(headers)) return Object.fromEntries(headers);
+      return { ...(headers as Record<string, string>) };
+    };
+
+    test("refresh_token request keeps a single application/x-www-form-urlencoded Content-Type", async () => {
+      // Regression test for #1160: the streamable-http custom fetch must not
+      // mutate the shared requestInit headers with a capitalized
+      // `Content-Type: application/json`. If it does, the SDK's token request
+      // (lowercase `content-type: application/x-www-form-urlencoded`) merges
+      // with it by object spread, and the case mismatch yields a malformed
+      // comma-joined `Content-Type` that strict servers reject with 415.
+      const directProps = {
+        ...defaultProps,
+        transportType: "streamable-http" as const,
+        connectionType: "direct" as const,
+      };
+
+      const { result } = renderHook(() => useConnection(directProps));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const customFetch = mockStreamableHTTPTransport.options?.fetch;
+      const requestInit = mockStreamableHTTPTransport.options?.requestInit;
+      expect(customFetch).toBeDefined();
+
+      // 1) An ordinary MCP request runs first (as the SDK would issue it). In
+      //    the buggy version this mutated the shared requestInit headers.
+      await customFetch?.("http://test.com/mcp", {
+        method: "POST",
+        headers: new Headers({
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        }),
+      });
+
+      // 2) The SDK then issues the refresh_token request through
+      //    createFetchWithInit(customFetch, requestInit).
+      const tokenInit: RequestInit = {
+        method: "POST",
+        body: "grant_type=refresh_token&refresh_token=abc",
+        headers: new Headers({
+          "content-type": "application/x-www-form-urlencoded",
+          accept: "application/json",
+        }),
+      };
+      const mergedInit = {
+        ...requestInit,
+        ...tokenInit,
+        headers: {
+          ...normalizeHeaders(requestInit?.headers),
+          ...normalizeHeaders(tokenInit.headers),
+        },
+      };
+      await customFetch?.(
+        "http://test.com/mcp-oauth/token",
+        mergedInit as RequestInit,
+      );
+
+      // Inspect the Content-Type actually put on the wire for the token request.
+      const lastCall = (global.fetch as jest.Mock).mock.calls.at(-1);
+      const sentHeaders = new Headers(
+        lastCall?.[1]?.headers as HeadersInit | undefined,
+      );
+      expect(sentHeaders.get("content-type")).toBe(
+        "application/x-www-form-urlencoded",
+      );
+    });
+  });
+
   describe("Connection URL Verification", () => {
     beforeEach(() => {
       jest.clearAllMocks();
