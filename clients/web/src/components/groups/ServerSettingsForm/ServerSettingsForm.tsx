@@ -6,6 +6,7 @@ import {
   Flex,
   Group,
   NumberInput,
+  Select,
   Stack,
   Text,
   TextInput,
@@ -255,6 +256,7 @@ export function ServerSettingsForm({
       clientSecret: settings.oauthClientSecret ?? "",
       scopes: settings.oauthScopes ?? "",
       enterpriseManaged: settings.enterpriseManaged ?? false,
+      onInsufficientScope: settings.oauthOnInsufficientScope,
     };
   }
 
@@ -510,6 +512,26 @@ export function ServerSettingsForm({
                     />
                   ) : null
                 }
+              />
+              <Select
+                label="Insufficient-scope response"
+                description="On a 403 insufficient_scope challenge (SEP-2350): re-authorize with the accumulated scope union, or surface the error to you."
+                data={[
+                  {
+                    value: "reauthorize",
+                    label: "Re-authorize (union scopes)",
+                  },
+                  { value: "throw", label: "Throw (surface the error)" },
+                ]}
+                value={settings.oauthOnInsufficientScope ?? "reauthorize"}
+                onChange={(value) =>
+                  onOAuthChange({
+                    ...currentOAuth(),
+                    onInsufficientScope:
+                      value === "throw" ? "throw" : "reauthorize",
+                  })
+                }
+                allowDeselect={false}
               />
               {onClearStoredOAuth ? (
                 <Flex align="flex-start" gap="sm" wrap="wrap">

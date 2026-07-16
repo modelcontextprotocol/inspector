@@ -26,7 +26,7 @@ describe("StepUpAuthModal", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("lists additional scopes from the challenge, not the SEP-2350 union", () => {
+  it("visualizes the SEP-2350 scope union, tagging carried-over vs newly-required scopes", () => {
     renderWithMantine(
       <StepUpAuthModal
         opened
@@ -40,14 +40,35 @@ describe("StepUpAuthModal", () => {
       screen.getByText(/Additional permissions required/i),
     ).toBeInTheDocument();
     expect(screen.getByText(/get_temp/)).toBeInTheDocument();
+    expect(screen.getByText("Scopes to authorize")).toBeInTheDocument();
+    // The whole union renders — challenged scope tagged "new", the rest carried
+    // over from the prior grant and tagged "already granted".
     expect(screen.getByText("weather:read")).toBeInTheDocument();
-    expect(screen.queryByText("tools:read")).not.toBeInTheDocument();
-    expect(screen.queryByText("mcp")).not.toBeInTheDocument();
+    expect(screen.getByText("tools:read")).toBeInTheDocument();
+    expect(screen.getByText("mcp")).toBeInTheDocument();
+    expect(screen.getByText("new")).toBeInTheDocument();
+    expect(screen.getAllByText("already granted")).toHaveLength(2);
     expect(
       screen.getByText(
         /redirected to authorize, then returned to the inspector/i,
       ),
     ).toBeInTheDocument();
+  });
+
+  it("shows only the challenged scopes when there is no prior grant to union", () => {
+    renderWithMantine(
+      <StepUpAuthModal
+        opened
+        challenge={stepUpChallenge}
+        // Union equals the challenged scope — nothing carried over.
+        authorizationScopes={["weather:read"]}
+        onAuthorize={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Additional scopes needed")).toBeInTheDocument();
+    expect(screen.getByText("weather:read")).toBeInTheDocument();
+    expect(screen.queryByText("Scopes to authorize")).not.toBeInTheDocument();
   });
 
   it("uses EMA copy when enterpriseManaged is true", () => {

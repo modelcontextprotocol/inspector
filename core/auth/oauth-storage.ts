@@ -2,13 +2,18 @@ import type {
   OAuthClientInformation,
   OAuthTokens,
   OAuthMetadata,
+  OAuthDiscoveryState,
 } from "@modelcontextprotocol/client";
 import {
   OAuthClientInformationSchema,
   OAuthTokensSchema,
 } from "@modelcontextprotocol/core";
 import type { OAuthStorage } from "./storage.js";
-import { type OAuthMemoryStore, type ServerOAuthState } from "./store.js";
+import {
+  type OAuthMemoryStore,
+  type ServerOAuthState,
+  type IssuerBoundOAuthState,
+} from "./store.js";
 import type { OAuthPersistBackend } from "./oauth-persist.js";
 import type {
   IdpSessionState,
@@ -16,6 +21,16 @@ import type {
   SaveClientInformationOptions,
   SaveTokensOptions,
 } from "./storage.js";
+
+/**
+ * Re-attach the `issuer` stamp (SEP-2352) that `OAuthTokensSchema` /
+ * `OAuthClientInformationSchema` strip on parse. The stamp is the `byIssuer` key,
+ * so it is recovered from the key rather than the parsed value — this is what lets
+ * the SDK's `discardIfIssuerMismatch` reject cross-AS credential reuse.
+ */
+function withIssuer<T extends object>(value: T, issuer: string | undefined): T {
+  return issuer === undefined ? value : { ...value, issuer };
+}
 
 /**
  * Concrete OAuthStorage implementation backed by in-memory state and an explicit
@@ -66,29 +81,109 @@ export class OAuthStorageBase implements OAuthStorage {
     await tracked;
   }
 
+  /**
+   * Resolve the AS-`issuer` key whose credentials answer a read. An explicit
+   * `issuer` (from the SDK's `ctx.issuer`) wins; otherwise the most-recently-saved
+   * `activeIssuer` answers the transport's ctx-less per-request bearer read.
+   */
+  private resolveReadIssuer(
+    state: ServerOAuthState,
+    issuer?: string,
+  ): string | undefined {
+    return issuer ?? state.activeIssuer;
+  }
+
+  /** Read the issuer-bound slot for a read, if one exists. */
+  private issuerSlot(
+    state: ServerOAuthState,
+    issuer?: string,
+  ): IssuerBoundOAuthState | undefined {
+    const key = this.resolveReadIssuer(state, issuer);
+    return key ? state.byIssuer?.[key] : undefined;
+  }
+
+  /**
+   * Read-modify-write the `byIssuer[issuer]` slot, set `activeIssuer`, and clear
+   * the given legacy top-level fallback fields (lazy migration — the fallback is
+   * promoted into the keyed slot on first issuer-stamped save).
+   */
+  private updateIssuerSlot(
+    serverUrl: string,
+    issuer: string,
+    updates: Partial<IssuerBoundOAuthState>,
+    clearLegacy: Partial<ServerOAuthState>,
+    // Saves promote the issuer to `activeIssuer` (it answers ctx-less reads);
+    // clears must not — clearing one AS's credentials shouldn't make it the
+    // active one.
+    setActive = true,
+  ): void {
+    const state = this.memory.getState().getServerState(serverUrl);
+    const byIssuer = {
+      ...state.byIssuer,
+      [issuer]: { ...state.byIssuer?.[issuer], ...updates },
+    };
+    this.memory.getState().setServerState(serverUrl, {
+      byIssuer,
+      ...(setActive && { activeIssuer: issuer }),
+      ...clearLegacy,
+    });
+  }
+
+  /** Apply `fn` to every issuer slot (used by issuer-agnostic clears). */
+  private mapIssuerSlots(
+    state: ServerOAuthState,
+    fn: (slot: IssuerBoundOAuthState) => Partial<IssuerBoundOAuthState>,
+  ): Record<string, IssuerBoundOAuthState> {
+    const byIssuer: Record<string, IssuerBoundOAuthState> = {};
+    for (const [key, slot] of Object.entries(state.byIssuer ?? {})) {
+      byIssuer[key] = { ...slot, ...fn(slot) };
+    }
+    return byIssuer;
+  }
+
   async getClientInformation(
     serverUrl: string,
     isPreregistered?: boolean,
+    issuer?: string,
   ): Promise<OAuthClientInformation | undefined> {
     await this.ensureLoaded();
     const state = this.memory.getState().getServerState(serverUrl);
-    const clientInfo = isPreregistered
-      ? state.preregisteredClientInformation
-      : state.clientInformation;
 
+    if (isPreregistered) {
+      const prereg = state.preregisteredClientInformation;
+      return prereg
+        ? await OAuthClientInformationSchema.parseAsync(prereg)
+        : undefined;
+    }
+
+    // Per-issuer registration (SEP-2352), falling back to the legacy unkeyed slot.
+    const slot = this.issuerSlot(state, issuer);
+    const fromSlot = slot?.clientInformation;
+    const clientInfo = fromSlot ?? state.clientInformation;
     if (!clientInfo) {
       return undefined;
     }
-
-    return await OAuthClientInformationSchema.parseAsync(clientInfo);
+    const parsed = await OAuthClientInformationSchema.parseAsync(clientInfo);
+    // Stamp only when the value actually came from the issuer-keyed slot. Gating
+    // on `fromSlot` (not merely on the slot existing) keeps a legacy unkeyed
+    // credential — potentially minted by a *different* AS — from being stamped
+    // with this issuer, which would defeat the SDK's discardIfIssuerMismatch.
+    return withIssuer(
+      parsed,
+      fromSlot ? this.resolveReadIssuer(state, issuer) : undefined,
+    );
   }
 
   async getClientRegistrationKind(
     serverUrl: string,
+    issuer?: string,
   ): Promise<OAuthClientRegistrationKind | undefined> {
     await this.ensureLoaded();
-    return this.memory.getState().getServerState(serverUrl)
-      .clientRegistrationKind;
+    const state = this.memory.getState().getServerState(serverUrl);
+    return (
+      this.issuerSlot(state, issuer)?.clientRegistrationKind ??
+      state.clientRegistrationKind
+    );
   }
 
   async saveClientInformation(
@@ -97,10 +192,24 @@ export class OAuthStorageBase implements OAuthStorage {
     options: SaveClientInformationOptions,
   ): Promise<void> {
     await this.ensureLoaded();
-    this.memory.getState().setServerState(serverUrl, {
-      clientInformation,
-      clientRegistrationKind: options.registrationKind,
-    });
+    if (options.issuer !== undefined) {
+      this.updateIssuerSlot(
+        serverUrl,
+        options.issuer,
+        {
+          clientInformation,
+          clientRegistrationKind: options.registrationKind,
+        },
+        { clientInformation: undefined, clientRegistrationKind: undefined },
+      );
+    } else {
+      // No issuer yet (our own DCR/CIMD pre-registration callers): write the
+      // unkeyed slot; the SDK promotes it per-issuer on the next stamped save.
+      this.memory.getState().setServerState(serverUrl, {
+        clientInformation,
+        clientRegistrationKind: options.registrationKind,
+      });
+    }
     await this.persist();
   }
 
@@ -119,29 +228,61 @@ export class OAuthStorageBase implements OAuthStorage {
   async clearClientInformation(
     serverUrl: string,
     isPreregistered?: boolean,
+    issuer?: string,
   ): Promise<void> {
     await this.ensureLoaded();
-    const updates: Partial<ServerOAuthState> = {};
 
     if (isPreregistered) {
-      updates.preregisteredClientInformation = undefined;
-    } else {
-      updates.clientInformation = undefined;
-      updates.clientRegistrationKind = undefined;
+      this.memory.getState().setServerState(serverUrl, {
+        preregisteredClientInformation: undefined,
+      });
+      await this.persist();
+      return;
     }
 
-    this.memory.getState().setServerState(serverUrl, updates);
+    if (issuer !== undefined) {
+      this.updateIssuerSlot(
+        serverUrl,
+        issuer,
+        { clientInformation: undefined, clientRegistrationKind: undefined },
+        {},
+        false,
+      );
+    } else {
+      // Clear every issuer's registration plus the legacy unkeyed entry.
+      const state = this.memory.getState().getServerState(serverUrl);
+      const byIssuer = this.mapIssuerSlots(state, () => ({
+        clientInformation: undefined,
+        clientRegistrationKind: undefined,
+      }));
+      this.memory.getState().setServerState(serverUrl, {
+        byIssuer,
+        clientInformation: undefined,
+        clientRegistrationKind: undefined,
+      });
+    }
     await this.persist();
   }
 
-  async getTokens(serverUrl: string): Promise<OAuthTokens | undefined> {
+  async getTokens(
+    serverUrl: string,
+    issuer?: string,
+  ): Promise<OAuthTokens | undefined> {
     await this.ensureLoaded();
     const state = this.memory.getState().getServerState(serverUrl);
-    if (!state.tokens) {
+    const slot = this.issuerSlot(state, issuer);
+    const fromSlot = slot?.tokens;
+    const tokens = fromSlot ?? state.tokens;
+    if (!tokens) {
       return undefined;
     }
-
-    return await OAuthTokensSchema.parseAsync(state.tokens);
+    const parsed = await OAuthTokensSchema.parseAsync(tokens);
+    // Stamp only when the value came from the issuer-keyed slot (see
+    // getClientInformation) — never stamp a legacy unkeyed token with this issuer.
+    return withIssuer(
+      parsed,
+      fromSlot ? this.resolveReadIssuer(state, issuer) : undefined,
+    );
   }
 
   async saveTokens(
@@ -150,16 +291,46 @@ export class OAuthStorageBase implements OAuthStorage {
     options?: SaveTokensOptions,
   ): Promise<void> {
     await this.ensureLoaded();
-    this.memory.getState().setServerState(serverUrl, {
-      tokens,
-      ...(options?.enterpriseManaged === true && { enterpriseManaged: true }),
-    });
+    if (options?.issuer !== undefined) {
+      this.updateIssuerSlot(
+        serverUrl,
+        options.issuer,
+        { tokens },
+        {
+          tokens: undefined,
+          ...(options.enterpriseManaged === true && {
+            enterpriseManaged: true,
+          }),
+        },
+      );
+    } else {
+      this.memory.getState().setServerState(serverUrl, {
+        tokens,
+        ...(options?.enterpriseManaged === true && { enterpriseManaged: true }),
+      });
+    }
     await this.persist();
   }
 
-  async clearTokens(serverUrl: string): Promise<void> {
+  async clearTokens(serverUrl: string, issuer?: string): Promise<void> {
     await this.ensureLoaded();
-    this.memory.getState().setServerState(serverUrl, { tokens: undefined });
+    if (issuer !== undefined) {
+      this.updateIssuerSlot(
+        serverUrl,
+        issuer,
+        { tokens: undefined },
+        {},
+        false,
+      );
+    } else {
+      const state = this.memory.getState().getServerState(serverUrl);
+      const byIssuer = this.mapIssuerSlots(state, () => ({
+        tokens: undefined,
+      }));
+      this.memory
+        .getState()
+        .setServerState(serverUrl, { byIssuer, tokens: undefined });
+    }
     await this.persist();
   }
 
@@ -226,6 +397,30 @@ export class OAuthStorageBase implements OAuthStorage {
     this.memory
       .getState()
       .setServerState(serverUrl, { serverMetadata: undefined });
+    await this.persist();
+  }
+
+  async getDiscoveryState(
+    serverUrl: string,
+  ): Promise<OAuthDiscoveryState | undefined> {
+    await this.ensureLoaded();
+    return this.memory.getState().getServerState(serverUrl).discoveryState;
+  }
+
+  async saveDiscoveryState(
+    serverUrl: string,
+    state: OAuthDiscoveryState,
+  ): Promise<void> {
+    await this.ensureLoaded();
+    this.memory.getState().setServerState(serverUrl, { discoveryState: state });
+    await this.persist();
+  }
+
+  async clearDiscoveryState(serverUrl: string): Promise<void> {
+    await this.ensureLoaded();
+    this.memory
+      .getState()
+      .setServerState(serverUrl, { discoveryState: undefined });
     await this.persist();
   }
 

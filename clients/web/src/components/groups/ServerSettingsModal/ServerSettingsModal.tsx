@@ -150,6 +150,10 @@ export function ServerSettingsModal({
       oauthClientSecret: oauth.clientSecret,
       oauthScopes: oauth.scopes,
       enterpriseManaged: oauth.enterpriseManaged ? true : undefined,
+      // SEP-2350: persist only the non-default ('throw') so unset servers keep
+      // the SDK's `reauthorize` behavior without writing a spurious field.
+      oauthOnInsufficientScope:
+        oauth.onInsufficientScope === "throw" ? "throw" : undefined,
     });
   }
 

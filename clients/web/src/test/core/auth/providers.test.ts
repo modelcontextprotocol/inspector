@@ -223,7 +223,13 @@ describe("OAuthNavigation", () => {
         saveTokens: vi.fn(async () => undefined),
         saveCodeVerifier: vi.fn(async () => undefined),
         getCodeVerifier: vi.fn().mockResolvedValue(undefined),
-        clear: vi.fn(),
+        clear: vi.fn(async () => undefined),
+        clearTokens: vi.fn(async () => undefined),
+        clearClientInformation: vi.fn(async () => undefined),
+        clearCodeVerifier: vi.fn(async () => undefined),
+        clearDiscoveryState: vi.fn(async () => undefined),
+        getDiscoveryState: vi.fn().mockResolvedValue(undefined),
+        saveDiscoveryState: vi.fn(async () => undefined),
         getServerMetadata: vi.fn().mockResolvedValue(null),
         saveServerMetadata: vi.fn(async () => undefined),
       } as unknown as OAuthStorage;
@@ -362,17 +368,21 @@ describe("OAuthNavigation", () => {
         response_types_supported: ["code"],
       });
 
-      expect(storage.saveTokens).toHaveBeenCalledWith(SERVER, {
-        access_token: "t",
-        token_type: "Bearer",
-      });
+      expect(storage.saveTokens).toHaveBeenCalledWith(
+        SERVER,
+        {
+          access_token: "t",
+          token_type: "Bearer",
+        },
+        { issuer: undefined },
+      );
       expect(storage.saveScope).toHaveBeenCalledWith(SERVER, "openid");
       expect(storage.saveClientInformation).toHaveBeenCalledWith(
         SERVER,
         {
           client_id: "c",
         },
-        { registrationKind: "dcr" },
+        { registrationKind: "dcr", issuer: undefined },
       );
       expect(storage.savePreregisteredClientInformation).toHaveBeenCalledWith(
         SERVER,
@@ -385,6 +395,88 @@ describe("OAuthNavigation", () => {
       const state = await provider.state();
       expect(typeof state).toBe("string");
       expect(state.length).toBeGreaterThan(0);
+    });
+
+    it("declares application_type 'native' in DCR client metadata (SEP-837)", () => {
+      const provider = makeProvider(makeStorage());
+      expect(provider.clientMetadata.application_type).toBe("native");
+    });
+
+    describe("SEP-2352 issuer threading", () => {
+      it("forwards ctx.issuer to storage on clientInformation/tokens reads", async () => {
+        const storage = makeStorage();
+        const provider = makeProvider(storage);
+        const issuer = "https://as.example.com";
+
+        await provider.clientInformation({ issuer });
+        await provider.tokens({ issuer });
+
+        // Preregistered lookup (issuer-independent) then the per-issuer dynamic slot.
+        expect(storage.getClientInformation).toHaveBeenCalledWith(SERVER, true);
+        expect(storage.getClientInformation).toHaveBeenCalledWith(
+          SERVER,
+          false,
+          issuer,
+        );
+        expect(storage.getTokens).toHaveBeenCalledWith(SERVER, issuer);
+      });
+
+      it("keys saves by ctx.issuer and defaults registration kind to dcr", async () => {
+        const storage = makeStorage();
+        const provider = makeProvider(storage);
+        const issuer = "https://as.example.com";
+
+        await provider.saveClientInformation({ client_id: "c" }, { issuer });
+        await provider.saveTokens(
+          { access_token: "t", token_type: "Bearer" },
+          { issuer },
+        );
+
+        expect(storage.saveClientInformation).toHaveBeenCalledWith(
+          SERVER,
+          { client_id: "c" },
+          { registrationKind: "dcr", issuer },
+        );
+        expect(storage.saveTokens).toHaveBeenCalledWith(
+          SERVER,
+          { access_token: "t", token_type: "Bearer" },
+          { issuer },
+        );
+      });
+
+      it("round-trips discovery state to storage", async () => {
+        const storage = makeStorage();
+        const provider = makeProvider(storage);
+        const discoveryState = {
+          authorizationServerUrl: "https://as.example.com",
+        };
+
+        await provider.saveDiscoveryState(discoveryState);
+        await provider.discoveryState();
+
+        expect(storage.saveDiscoveryState).toHaveBeenCalledWith(
+          SERVER,
+          discoveryState,
+        );
+        expect(storage.getDiscoveryState).toHaveBeenCalledWith(SERVER);
+      });
+
+      it("maps invalidateCredentials scopes to the matching storage clear", async () => {
+        const storage = makeStorage();
+        const provider = makeProvider(storage);
+
+        await provider.invalidateCredentials("all");
+        await provider.invalidateCredentials("client");
+        await provider.invalidateCredentials("tokens");
+        await provider.invalidateCredentials("verifier");
+        await provider.invalidateCredentials("discovery");
+
+        expect(storage.clear).toHaveBeenCalledWith(SERVER);
+        expect(storage.clearClientInformation).toHaveBeenCalledWith(SERVER);
+        expect(storage.clearTokens).toHaveBeenCalledWith(SERVER);
+        expect(storage.clearCodeVerifier).toHaveBeenCalledWith(SERVER);
+        expect(storage.clearDiscoveryState).toHaveBeenCalledWith(SERVER);
+      });
     });
   });
 });

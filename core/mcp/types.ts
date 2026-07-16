@@ -134,6 +134,8 @@ export type StoredMCPServer = MCPServerConfig & {
     scopes?: string;
     /** When true, connect via enterprise IdP (EMA) instead of standard resource OAuth. */
     enterpriseManaged?: boolean;
+    /** SEP-2350 step-up policy for `403 insufficient_scope` (default `reauthorize`). */
+    onInsufficientScope?: OnInsufficientScopePolicy;
   };
   /**
    * Filesystem/URI roots advertised to the server via the `roots` client
@@ -406,7 +408,16 @@ export interface OAuthSettings {
   clientSecret: string;
   scopes: string;
   enterpriseManaged?: boolean;
+  onInsufficientScope?: OnInsufficientScopePolicy;
 }
+
+/**
+ * SEP-2350 step-up policy for a `403 insufficient_scope` challenge. `reauthorize`
+ * (the SDK default) drives step-up authorization with the accumulated scope union;
+ * `throw` surfaces the challenge to the host instead. Forwarded to the
+ * StreamableHTTP transport's `onInsufficientScope` option.
+ */
+export type OnInsufficientScopePolicy = "reauthorize" | "throw";
 
 /**
  * Default TTL (ms) for tasks created via "Run as task". Mirrors v1/v1.5's
@@ -454,6 +465,11 @@ export interface InspectorServerSettings {
   oauthClientId?: string;
   oauthClientSecret?: string;
   oauthScopes?: string;
+  /**
+   * SEP-2350 step-up policy for a `403 insufficient_scope` challenge on this
+   * server's HTTP transport. Defaults to `reauthorize` when unset.
+   */
+  oauthOnInsufficientScope?: OnInsufficientScopePolicy;
   /**
    * When true, connect via the configured enterprise IdP (EMA) instead of
    * interactive OAuth to the MCP authorization server. Per-server OAuth

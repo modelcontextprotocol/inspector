@@ -613,3 +613,73 @@ describe("ClientSettingsForm interactions", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+describe("ClientSettingsForm SEP-837 registration UX", () => {
+  it("renders a registration-rejection alert with the RFC 7591 error detail", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={EMPTY_CLIENT_SETTINGS}
+        expandedSections={[]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        registrationError={{
+          error: "invalid_redirect_uri",
+          errorDescription: "Loopback redirect URIs are not permitted",
+          status: 400,
+        }}
+      />,
+    );
+    expect(
+      screen.getByText("Client registration was rejected"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/invalid_redirect_uri — .* — HTTP 400/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/registers as a native client/i),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to a generic message when no RFC 7591 detail is present", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={EMPTY_CLIENT_SETTINGS}
+        expandedSections={[]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        registrationError={{}}
+      />,
+    );
+    expect(
+      screen.getByText(
+        "The authorization server rejected client registration.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("omits the rejection alert when there is no registration error", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={EMPTY_CLIENT_SETTINGS}
+        expandedSections={[]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+      />,
+    );
+    expect(
+      screen.queryByText("Client registration was rejected"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("reflects DCR's deprecated-in-favor-of-CIMD status in the CIMD section", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={EMPTY_CLIENT_SETTINGS}
+        expandedSections={["cimd"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/deprecated in favor of/i)).toBeInTheDocument();
+  });
+});

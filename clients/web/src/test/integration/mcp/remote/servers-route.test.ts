@@ -1478,6 +1478,67 @@ describe("/api/servers routes", () => {
       expect(body.error).toMatch(/settings\.env/);
     });
 
+    it("rejects an invalid settings.oauthOnInsufficientScope with 400", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            srv: { type: "streamable-http", url: "https://x.test/mcp" },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/srv`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            env: [],
+            oauthOnInsufficientScope: "nope",
+          },
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/oauthOnInsufficientScope/);
+    });
+
+    it("persists a valid settings.oauthOnInsufficientScope onto the stored config", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            srv: { type: "streamable-http", url: "https://x.test/mcp" },
+          },
+        }),
+      );
+      const res = await fetch(`${h.baseUrl}/api/servers/srv`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            headers: [],
+            metadata: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            env: [],
+            oauthOnInsufficientScope: "throw",
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const stored = JSON.parse(readFileSync(h.configPath, "utf-8")) as {
+        mcpServers: Record<
+          string,
+          { oauth?: { onInsufficientScope?: string } }
+        >;
+      };
+      expect(stored.mcpServers.srv?.oauth?.onInsufficientScope).toBe("throw");
+    });
+
     it("ignores settings env/cwd for a non-stdio server (no leak onto config)", async () => {
       writeFileSync(
         h.configPath,

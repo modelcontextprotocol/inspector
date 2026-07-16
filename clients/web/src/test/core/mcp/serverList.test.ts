@@ -863,6 +863,43 @@ describe("enterpriseManaged oauth settings", () => {
   });
 });
 
+describe("oauthOnInsufficientScope (SEP-2350)", () => {
+  const baseSettings = {
+    headers: [],
+    env: [],
+    metadata: [],
+    connectionTimeout: 0,
+    requestTimeout: 0,
+    taskTtl: 60000,
+    maxFetchRequests: 1000,
+    roots: [],
+  };
+
+  it("lifts oauth.onInsufficientScope to settings", () => {
+    const settings = storedFieldsToInspectorSettings({
+      oauth: { clientId: "cid", onInsufficientScope: "throw" },
+    });
+    expect(settings?.oauthOnInsufficientScope).toBe("throw");
+  });
+
+  it("persists onInsufficientScope under oauth on disk", () => {
+    const stored = inspectorSettingsToStoredFields({
+      ...baseSettings,
+      oauthClientId: "cid",
+      oauthOnInsufficientScope: "throw",
+    });
+    expect(stored.oauth?.onInsufficientScope).toBe("throw");
+  });
+
+  it("omits onInsufficientScope when unset", () => {
+    const stored = inspectorSettingsToStoredFields({
+      ...baseSettings,
+      oauthClientId: "cid",
+    });
+    expect(stored.oauth?.onInsufficientScope).toBeUndefined();
+  });
+});
+
 describe("envRecordToPairs / envPairsToRecord", () => {
   it("envRecordToPairs preserves key insertion order", () => {
     expect(envRecordToPairs({ B: "2", A: "1" })).toEqual([

@@ -7,6 +7,7 @@ import type {
   OAuthClientMetadata,
   OAuthTokens,
   OAuthMetadata,
+  OAuthDiscoveryState,
 } from "@modelcontextprotocol/client";
 import type { OAuthStorage, SaveClientInformationOptions } from "./storage.js";
 import { generateOAuthState } from "./utils.js";
@@ -178,6 +179,13 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
       client_name: "MCP Inspector",
       client_uri: "https://github.com/modelcontextprotocol/inspector",
       scope: this.scope ?? "",
+      // SEP-837: the Inspector is a locally-hosted app reached over localhost, so
+      // it registers as a native client. OIDC-flavored ASes default an omitted
+      // `application_type` to `"web"`, which forbids loopback redirect URIs and
+      // rejects DCR. (The SDK also infers `"native"` from loopback `redirect_uris`;
+      // declaring it explicitly keeps the value visible and correct even when the
+      // redirect host is not itself a loopback literal.)
+      application_type: "native",
     };
 
     // Note: clientMetadataUrl for CIMD mode is passed to registerClient() directly,
@@ -190,8 +198,11 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     return generateOAuthState();
   }
 
-  async clientInformation(): Promise<OAuthClientInformation | undefined> {
-    // Try preregistered first, then dynamically registered
+  async clientInformation(
+    ctx?: OAuthClientInformationContext,
+  ): Promise<OAuthClientInformation | undefined> {
+    // Try preregistered (static, issuer-independent) first, then the per-issuer
+    // dynamic registration (SEP-2352 — keyed by `ctx.issuer`).
     const preregistered = await this.storage.getClientInformation(
       this.serverUrl,
       true,
@@ -199,7 +210,11 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     if (preregistered) {
       return preregistered;
     }
-    return await this.storage.getClientInformation(this.serverUrl, false);
+    return await this.storage.getClientInformation(
+      this.serverUrl,
+      false,
+      ctx?.issuer,
+    );
   }
 
   async saveClientInformation(
@@ -207,19 +222,22 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     // SDK v2's `OAuthClientProvider.saveClientInformation` passes an
     // `OAuthClientInformationContext` ({ issuer }); our own DCR/CIMD callers
     // pass `SaveClientInformationOptions` ({ registrationKind }). Accept either
-    // and narrow on the discriminating key. Per-issuer keying (SEP-2352) is a
-    // later card — for now we only read the registration kind.
+    // and read whichever keys are present: the SDK supplies `issuer` (SEP-2352
+    // per-AS keying) and defaults registration kind to DCR; our callers supply
+    // the registration kind and no issuer yet.
     options?: SaveClientInformationOptions | OAuthClientInformationContext,
   ): Promise<void> {
     const registrationKind =
       options && "registrationKind" in options
         ? options.registrationKind
         : "dcr";
+    const issuer = options && "issuer" in options ? options.issuer : undefined;
     await this.storage.saveClientInformation(
       this.serverUrl,
       clientInformation,
       {
         registrationKind,
+        issuer,
       },
     );
   }
@@ -238,12 +256,19 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     );
   }
 
-  async tokens(): Promise<OAuthTokens | undefined> {
-    return await this.storage.getTokens(this.serverUrl);
+  async tokens(
+    ctx?: OAuthClientInformationContext,
+  ): Promise<OAuthTokens | undefined> {
+    return await this.storage.getTokens(this.serverUrl, ctx?.issuer);
   }
 
-  async saveTokens(tokens: OAuthTokens): Promise<void> {
-    await this.storage.saveTokens(this.serverUrl, tokens);
+  async saveTokens(
+    tokens: OAuthTokens,
+    ctx?: OAuthClientInformationContext,
+  ): Promise<void> {
+    await this.storage.saveTokens(this.serverUrl, tokens, {
+      issuer: ctx?.issuer,
+    });
   }
 
   redirectToAuthorization(authorizationUrl: URL): void {
@@ -284,5 +309,48 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
 
   async saveServerMetadata(metadata: OAuthMetadata): Promise<void> {
     await this.storage.saveServerMetadata(this.serverUrl, metadata);
+  }
+
+  /**
+   * SEP-2352 discovery-state round-trip. The SDK persists RFC 9728/8414 discovery
+   * here (alongside the code verifier) so that on the authorization-code callback
+   * leg it can compare the resolved AS `issuer` against the one recorded at
+   * redirect time and reject a mismatch (`AuthorizationServerMismatchError`).
+   * Without these two methods the SDK only `console.warn`s and the binding check
+   * is inactive.
+   */
+  async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
+    await this.storage.saveDiscoveryState(this.serverUrl, state);
+  }
+
+  async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
+    return this.storage.getDiscoveryState(this.serverUrl);
+  }
+
+  /**
+   * SEP-2352 credential invalidation. The SDK calls this to drop credentials the
+   * server has rejected; hosts also call `'discovery'` on repeated 401s so a
+   * changed `authorization_servers` list is re-fetched.
+   */
+  async invalidateCredentials(
+    scope: "all" | "client" | "tokens" | "verifier" | "discovery",
+  ): Promise<void> {
+    switch (scope) {
+      case "all":
+        await this.storage.clear(this.serverUrl);
+        return;
+      case "client":
+        await this.storage.clearClientInformation(this.serverUrl);
+        return;
+      case "tokens":
+        await this.storage.clearTokens(this.serverUrl);
+        return;
+      case "verifier":
+        await this.storage.clearCodeVerifier(this.serverUrl);
+        return;
+      case "discovery":
+        await this.storage.clearDiscoveryState(this.serverUrl);
+        return;
+    }
   }
 }

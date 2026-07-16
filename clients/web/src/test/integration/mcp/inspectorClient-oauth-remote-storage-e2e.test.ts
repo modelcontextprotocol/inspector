@@ -351,12 +351,24 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
           "oauth",
           remoteAuthToken!,
           (body) => {
+            // SEP-2352: tokens persist under `byIssuer[issuer].tokens`, keyed by
+            // authorization-server issuer. Accept the legacy top-level slot too.
+            type StoredTokens = { tokens?: { access_token?: string } };
             const b = body as {
-              servers?: Record<string, { tokens?: { access_token?: string } }>;
+              servers?: Record<
+                string,
+                StoredTokens & { byIssuer?: Record<string, StoredTokens> }
+              >;
             };
             return !!(
               b?.servers &&
-              Object.values(b.servers).some((s) => s?.tokens?.access_token)
+              Object.values(b.servers).some(
+                (s) =>
+                  s?.tokens?.access_token ||
+                  Object.values(s?.byIssuer ?? {}).some(
+                    (slot) => slot?.tokens?.access_token,
+                  ),
+              )
             );
           },
         );

@@ -22,6 +22,23 @@ export interface ClientSettingsErrors {
   clientMetadataUrl?: string;
 }
 
+/**
+ * A Dynamic Client Registration rejection surfaced from the authorization
+ * server (SEP-837). Parsed from the SDK's `RegistrationRejectedError` — the
+ * RFC 7591 error JSON (`error` / `error_description`) plus the HTTP status — so
+ * the form can explain *why* registration failed (commonly a redirect-URI
+ * constraint that the `application_type: "native"` declaration is meant to
+ * satisfy) rather than showing a bare failure.
+ */
+export interface OAuthRegistrationError {
+  /** RFC 7591 `error` code (e.g. `invalid_redirect_uri`, `invalid_client_metadata`). */
+  error?: string;
+  /** RFC 7591 `error_description`, if the AS provided one. */
+  errorDescription?: string;
+  /** HTTP status returned by the registration endpoint. */
+  status?: number;
+}
+
 export interface ValidateClientSettingsOptions {
   /**
    * Also flag required fields left blank. Off by default so inline (as-you-type)

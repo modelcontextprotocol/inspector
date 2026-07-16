@@ -1415,6 +1415,17 @@ export function createRemoteApp(
         error: "settings.enterpriseManaged must be a boolean",
       };
     }
+    if (
+      obj.oauthOnInsufficientScope !== undefined &&
+      obj.oauthOnInsufficientScope !== "reauthorize" &&
+      obj.oauthOnInsufficientScope !== "throw"
+    ) {
+      return {
+        ok: false,
+        error:
+          "settings.oauthOnInsufficientScope must be 'reauthorize' or 'throw'",
+      };
+    }
     // roots is optional on the wire (older clients won't send it); when
     // present it must be an array of `{ uri, name? }`. Reuses the same
     // module-scope `isRootArray` guard the read path applies in
@@ -1476,6 +1487,12 @@ export function createRemoteApp(
     }
     if (obj.enterpriseManaged === true) {
       value.enterpriseManaged = true;
+    }
+    if (
+      obj.oauthOnInsufficientScope === "reauthorize" ||
+      obj.oauthOnInsufficientScope === "throw"
+    ) {
+      value.oauthOnInsufficientScope = obj.oauthOnInsufficientScope;
     }
     // Empty cwd coerces to absent on the value (matching the read side); the
     // write-through distinguishes "sent cwd: '' " (clear) from "cwd omitted"

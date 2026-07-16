@@ -58,6 +58,9 @@ function createMockParams(
     saveIdpSession: vi.fn().mockResolvedValue(undefined),
     clearIdpSession: vi.fn(),
     clearEnterpriseManagedResourceServers: vi.fn(),
+    getDiscoveryState: vi.fn().mockResolvedValue(undefined),
+    saveDiscoveryState: vi.fn().mockResolvedValue(undefined),
+    clearDiscoveryState: vi.fn().mockResolvedValue(undefined),
   };
 
   const redirectUrlProvider = {
@@ -1231,6 +1234,9 @@ describe("OAuthManager", () => {
       expect(
         params.initialConfig.navigation!.navigateToAuthorization,
       ).not.toHaveBeenCalled();
+      // SEP-2350: a step-up redirect is recorded as `scope_step_up`, distinct
+      // from a first-time `authorization_code` login.
+      expect(manager.getOAuthFlowStep()).toBe("scope_step_up");
       captureSpy.mockRestore();
     });
 
