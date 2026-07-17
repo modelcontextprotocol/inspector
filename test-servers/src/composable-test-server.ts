@@ -11,6 +11,7 @@ import {
   ResourceTemplate as SdkResourceTemplate,
   completable,
   isCompletable,
+  isInputRequiredResult,
 } from "@modelcontextprotocol/server";
 import type {
   Implementation,
@@ -19,6 +20,7 @@ import type {
   ResourceTemplateType as ResourceTemplate,
   Prompt,
   CallToolResult,
+  InputRequiredResult,
   PromptArgument,
   RegisteredTool,
   RegisteredResource,
@@ -80,6 +82,16 @@ export interface HandlerExtra {
     method: string;
     params?: Record<string, unknown>;
   }) => Promise<void>;
+  /**
+   * MRTR (2026-07-28): the bare input responses a retried request echoes back,
+   * keyed by the identifiers the server assigned in `inputRequests`. Present
+   * only on the retry round, so an MRTR tool branches on it to distinguish the
+   * original call (return `inputRequired(...)`) from the retry (return the final
+   * result). Undefined on legacy connections and on the first round.
+   */
+  inputResponses?: Record<string, unknown>;
+  /** MRTR: the opaque `requestState` the client echoed on retry (resolved value). */
+  requestState?: unknown;
 }
 
 /** Minimal structural view of `ctx.mcpReq` for building {@link HandlerExtra}. */
@@ -90,6 +102,10 @@ interface McpReqContext {
     signal?: AbortSignal;
     send?: HandlerExtra["sendRequest"];
     notify?: HandlerExtra["sendNotification"];
+    /** MRTR input responses on a retried request (2026-07-28). */
+    inputResponses?: Record<string, unknown>;
+    /** MRTR request-state accessor (resolves the echoed opaque token). */
+    requestState?: () => unknown;
   };
 }
 
@@ -102,6 +118,8 @@ function toHandlerExtra(ctx: ServerContext | undefined): HandlerExtra {
     signal: mcpReq?.signal,
     sendRequest: mcpReq?.send,
     sendNotification: mcpReq?.notify,
+    inputResponses: mcpReq?.inputResponses,
+    requestState: mcpReq?.requestState?.(),
   };
 }
 
@@ -296,7 +314,10 @@ export interface ToolDefinition {
     params: Record<string, unknown>,
     context?: TestServerContext,
     extra?: HandlerExtra,
-  ) => Promise<CallToolResult>;
+    // A handler may return an `InputRequiredResult` (via `inputRequired(...)`)
+    // on the 2026-07-28 leg to drive an MRTR round-trip; the wrapper forwards it
+    // verbatim rather than coercing it to a `CallToolResult`.
+  ) => Promise<CallToolResult | InputRequiredResult>;
 }
 
 export interface TaskToolDefinition {
@@ -745,6 +766,14 @@ export function createMcpServer(config: ServerConfig): McpServer {
               context,
               toHandlerExtra(ctx),
             );
+            // MRTR (2026-07-28): a handler may return an `input_required` result
+            // to request input before completing. Forward it verbatim — the SDK
+            // serves it as the modern input_required result and the client
+            // retries. (Coercing it into a CallToolResult below would strip
+            // `resultType`/`inputRequests`/`requestState`.)
+            if (isInputRequiredResult(result)) {
+              return result;
+            }
             const rawStructured =
               result &&
               typeof result === "object" &&
