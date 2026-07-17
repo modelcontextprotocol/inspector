@@ -27,7 +27,8 @@ export interface UseInspectorClientResult {
   /**
    * Protocol era negotiated with the server (SEP §7.8): `"legacy"` for the
    * 2025-11-25 initialize handshake, `"modern"` for the 2026-era sessionless
-   * model. Undefined when not connected or on a plain legacy connect. (#1626)
+   * model. Populated for every era once connected (a plain legacy connect
+   * reports `"legacy"`); undefined only when not connected. (#1626)
    */
   protocolEra?: ProtocolEra;
   /**

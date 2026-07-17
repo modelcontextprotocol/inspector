@@ -58,7 +58,7 @@ export interface InspectorClientEventMap {
   serverInfoChange: Implementation | undefined;
   instructionsChange: string | undefined;
   protocolVersionChange: string | undefined;
-  /** Protocol era negotiated after connect (SEP §7.8). Undefined on legacy. */
+  /** Protocol era negotiated after connect (SEP §7.8); `"legacy"` on a legacy connect, undefined when not connected. */
   protocolEraChange: ProtocolEra | undefined;
   /** `server/discover` result on a probed/pinned connect; undefined on legacy. */
   discoverResultChange: DiscoverResult | undefined;

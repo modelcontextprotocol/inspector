@@ -1786,8 +1786,9 @@ export class InspectorClient extends InspectorClientEventTarget {
   /**
    * The protocol era negotiated with the server (SEP §7.8): `"legacy"` for the
    * 2025-11-25 initialize handshake, `"modern"` for the 2026-era sessionless
-   * model. Undefined when not connected, or on a plain legacy connect where the
-   * SDK doesn't run negotiation (mode "legacy"). (#1626)
+   * model. Populated for every era once connected — including a plain legacy
+   * (`mode: "legacy"`) connect, which the SDK reports as `"legacy"`. Undefined
+   * only when not connected (before connect / after disconnect). (#1626)
    */
   getProtocolEra(): ProtocolEra | undefined {
     return this.protocolEra;
@@ -2956,9 +2957,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       }
 
       // Era model (SEP §7.8): the SDK Client owns negotiation and exposes the
-      // outcome. `getProtocolEra()` / `getDiscoverResult()` are undefined on a
-      // plain legacy connect (mode "legacy"); populated once "auto"/"modern"
-      // negotiates.
+      // outcome. `getProtocolEra()` is populated for every era once connected —
+      // a plain legacy connect reports `"legacy"`. `getDiscoverResult()` is
+      // populated only when "auto"/"modern" actually probed server/discover.
       this.protocolEra = this.client.getProtocolEra();
       this.dispatchTypedEvent("protocolEraChange", this.protocolEra);
       this.discoverResult = this.client.getDiscoverResult();

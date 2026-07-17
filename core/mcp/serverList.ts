@@ -16,6 +16,7 @@ import type {
   MCPConfig,
   MCPServerConfig,
   ServerEntry,
+  ServerProtocolEra,
   ServerType,
   StdioServerConfig,
   StoredMCPServer,
@@ -32,6 +33,27 @@ const VALID_SERVER_TYPES: ReadonlySet<ServerType> = new Set([
   "sse",
   "streamable-http",
 ]);
+
+const VALID_PROTOCOL_ERAS: ReadonlySet<ServerProtocolEra> = new Set([
+  "legacy",
+  "auto",
+  "modern",
+]);
+
+/**
+ * Runtime guard for the `protocolEra` literal. `StoredMCPServer` types the
+ * field as `ServerProtocolEra`, but a hand-edited `mcp.json` read directly by
+ * the CLI/TUI (which don't pass through the `/api/servers` route validators)
+ * can carry any string. Dropping unknowns here keeps a garbage value from
+ * reaching `eraToVersionNegotiation` — matching the read-side check the
+ * `/api/servers` route already applies.
+ */
+export function isProtocolEra(value: unknown): value is ServerProtocolEra {
+  return (
+    typeof value === "string" &&
+    VALID_PROTOCOL_ERAS.has(value as ServerProtocolEra)
+  );
+}
 
 /**
  * Normalizes server type:
@@ -197,8 +219,9 @@ export function storedFieldsToInspectorSettings(
   };
   // Absent on disk reads back as the default era; the write side then omits the
   // default so a byte-stable round-trip never injects `protocolEra` into files
-  // that never set it.
-  if (stored.protocolEra !== undefined) {
+  // that never set it. An unknown literal from a hand-edited file is dropped
+  // (→ default legacy) rather than passed through to `eraToVersionNegotiation`.
+  if (isProtocolEra(stored.protocolEra)) {
     settings.protocolEra = stored.protocolEra;
   }
   // Truthiness drops empty-string OAuth fields — mirrors the write-side

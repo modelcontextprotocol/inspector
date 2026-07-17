@@ -335,6 +335,25 @@ describe("serverEntriesToMcpConfig", () => {
     expect(round).toEqual(original);
   });
 
+  it("drops an unknown protocolEra literal on read (hand-edited file)", () => {
+    // The CLI/TUI read mcp.json directly (no /api/servers validators), so a
+    // garbage era must be dropped here rather than reaching versionNegotiation.
+    // Spread the invalid field through an `object`-typed literal so the garbage
+    // value models a hand-edited file without needing an `as unknown as` cast.
+    const badEra: object = { protocolEra: "future" };
+    const original: MCPConfig = {
+      mcpServers: {
+        "era-bad": {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          ...badEra,
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.protocolEra).toBeUndefined();
+  });
+
   it("omits protocolEra from disk when it equals the default (legacy)", () => {
     // A legacy era is the default — writing it back must NOT inject the field.
     // A benign inspector field keeps `settings` materialized.

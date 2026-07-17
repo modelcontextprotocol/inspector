@@ -111,10 +111,9 @@ function formatClientRegistrationKind(
   }
 }
 
-// A plain legacy connect (versionNegotiation "legacy") leaves the SDK's
-// `getProtocolEra()` undefined — the client never ran negotiation. Treat that
-// as the legacy era for display, since the connection used the 2025-11-25
-// initialize handshake.
+// The SDK reports the era for every connected era, including a plain legacy
+// connect (`"legacy"`); it's undefined only when not connected. Anything other
+// than `"modern"` renders as the legacy era.
 function isModernEra(era: ProtocolEra | undefined): boolean {
   return era === "modern";
 }
@@ -123,9 +122,15 @@ function formatEra(era: ProtocolEra | undefined): string {
   return isModernEra(era) ? "Modern" : "Legacy";
 }
 
-// Modern connections are sessionless (no `Mcp-Session-Id`, nothing to DELETE on
-// disconnect); legacy connections may carry a server session.
-function formatSession(era: ProtocolEra | undefined): string {
+// The session concept is HTTP-only: modern HTTP connections are sessionless (no
+// `Mcp-Session-Id`, nothing to DELETE on disconnect) while a legacy HTTP
+// connection may carry a server session. stdio has no HTTP session at all, so
+// the row is not applicable there.
+function formatSession(
+  era: ProtocolEra | undefined,
+  transport: ServerType,
+): string {
+  if (transport === "stdio") return "N/A (stdio)";
   return isModernEra(era) ? "Sessionless" : "Session-based";
 }
 
@@ -212,7 +217,7 @@ export function ConnectionInfoContent({
           </Badge>
 
           <Text size="sm">Session</Text>
-          <ValueText>{formatSession(protocolEra)}</ValueText>
+          <ValueText>{formatSession(protocolEra, transport)}</ValueText>
         </SimpleGrid>
       </Stack>
 

@@ -99,7 +99,7 @@ describe("ConnectionInfoContent", () => {
     expect(screen.queryByText("Server Instructions")).not.toBeInTheDocument();
   });
 
-  it("defaults to the Legacy era and session-based when no protocolEra is given", () => {
+  it("defaults to the Legacy era, and marks the session N/A for stdio", () => {
     renderWithMantine(
       <ConnectionInfoContent
         initializeResult={fullResult}
@@ -109,9 +109,23 @@ describe("ConnectionInfoContent", () => {
     );
     expect(screen.getByText("Era")).toBeInTheDocument();
     expect(screen.getByText("Legacy")).toBeInTheDocument();
-    expect(screen.getByText("Session-based")).toBeInTheDocument();
+    // stdio has no HTTP session concept.
+    expect(screen.getByText("N/A (stdio)")).toBeInTheDocument();
     // No discover result → no Discovery section.
     expect(screen.queryByText("Discovery")).not.toBeInTheDocument();
+  });
+
+  it("marks a legacy HTTP connection as session-based", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="legacy"
+      />,
+    );
+    expect(screen.getByText("Legacy")).toBeInTheDocument();
+    expect(screen.getByText("Session-based")).toBeInTheDocument();
   });
 
   it("shows the Modern era as sessionless and renders the discovery section", () => {
