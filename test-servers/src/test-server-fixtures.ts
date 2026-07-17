@@ -381,15 +381,21 @@ export function createCollectFormElicitationTool(): ToolDefinition {
  * Used by `test-servers/configs/modern-mrtr-http.json` so the Inspector's
  * History view can render a real MRTR round-trip as one grouped conversation.
  */
+// Process-wide counter so each original MRTR call mints a DISTINCT
+// `requestState`. It must live at MODULE scope, not inside `createMrtrTool` or
+// its handler closure: the modern (2026-07-28) leg is stateless — the SDK's
+// `createMcpHandler` rebuilds the server (and every tool closure) per request
+// (see `test-server-http.ts` `startModernHttp`), so a per-closure counter would
+// reset to 0 on every request and every token would end in `:1`, defeating the
+// point. A stable-per-action token would let two same-action calls (whose rounds
+// land adjacently in the History log) fold into a single `MrtrConversation`,
+// since grouping clusters contiguous entries sharing a token — confusing for a
+// demo whose whole point is eyeballing the grouping. Only bumped on the mint
+// (first) round; the retry echoes the token, it isn't re-minted. Real SDK tokens
+// are already unique per operation.
+let mrtrMintCount = 0;
+
 export function createMrtrTool(): ToolDefinition {
-  // Per-server-instance counter so each original call mints a DISTINCT
-  // `requestState`. A stable-per-action token would let two same-action calls
-  // (whose rounds land adjacently in the History log) fold into a single
-  // `MrtrConversation`, since grouping clusters contiguous entries sharing a
-  // token — confusing for a demo whose whole point is eyeballing the grouping.
-  // Only bumped on the mint (first) round; the retry echoes the token, it isn't
-  // re-minted. Real SDK tokens are already unique per operation.
-  let mintCount = 0;
   return {
     name: "mrtr_confirm",
     description:
@@ -424,7 +430,7 @@ export function createMrtrTool(): ToolDefinition {
               },
             }),
           },
-          requestState: `mrtr:${action}:${++mintCount}`,
+          requestState: `mrtr:${action}:${++mrtrMintCount}`,
         });
       }
 
