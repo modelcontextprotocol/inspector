@@ -1,0 +1,12 @@
+{
+  "serverInfo": {
+    "name": "composable-modern",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "echo" }, { "preset": "get_temp" }],
+  "transport": {
+    "type": "streamable-http",
+    "port": 3100,
+    "modern": true
+  }
+}

@@ -1,8 +1,12 @@
 import {
   McpServer,
   WebStandardStreamableHTTPServerTransport,
+  createMcpHandler,
 } from "@modelcontextprotocol/server";
-import type { JSONRPCMessage } from "@modelcontextprotocol/server";
+import type {
+  JSONRPCMessage,
+  McpHttpHandler,
+} from "@modelcontextprotocol/server";
 import { createMcpServer } from "./test-server-fixtures.js";
 import { SSEServerTransport } from "@modelcontextprotocol/server-legacy/sse";
 import type { Request, Response } from "express";
@@ -138,6 +142,8 @@ export class TestServerHttp {
   private currentLogLevel: string | null = null;
   /** One McpServer per connection (SSE and streamable-http both use this; SDK allows only one transport per server) */
   private mcpServersBySession?: Map<string, McpServer>;
+  /** Modern (2026-07-28) fetch handler, present only when `config.modern` is set. */
+  private modernHandler?: McpHttpHandler;
 
   constructor(config: ServerConfig) {
     this.config = config;
@@ -230,6 +236,73 @@ export class TestServerHttp {
     }
   }
 
+  /**
+   * Start the underlying HTTP server listening on localhost, resolving with the
+   * assigned port. Localhost-only to avoid macOS firewall prompts; port 0 lets
+   * the OS assign an available port.
+   */
+  private listen(port: number): Promise<number> {
+    return new Promise((resolve, reject) => {
+      this.httpServer!.listen(port, "127.0.0.1", () => {
+        const address = this.httpServer!.address();
+        const assignedPort =
+          typeof address === "object" && address !== null ? address.port : port;
+        this.baseUrl = `http://localhost:${assignedPort}`;
+        resolve(assignedPort);
+      });
+      this.httpServer!.on("error", reject);
+    });
+  }
+
+  /**
+   * Mount the modern (2026-07-28) leg via the SDK's `createMcpHandler`. Unlike
+   * the 2025 session model, serving is per-request and stateless: every method
+   * routes through one web-standard `fetch` handler, which classifies each
+   * request (modern envelope vs. legacy) and serves it — no `Mcp-Session-Id`
+   * bookkeeping. The same factory backs both eras, so `legacy: "stateless"`
+   * still answers a plain `initialize` handshake.
+   *
+   * Message recording (`setupMessageInterception`) is not wired here: the
+   * modern handler owns per-request transports internally and exposes no
+   * `onmessage` seam. Tests that need recorded traffic use the 2025 path.
+   */
+  private async startModernHttp(
+    app: express.Express,
+    mcpMiddleware: express.RequestHandler[],
+    port: number,
+  ): Promise<number> {
+    const handler = createMcpHandler(
+      () => createMcpServer(this.configWithCallback),
+      { legacy: this.config.modern?.legacy ?? "stateless" },
+    );
+    this.modernHandler = handler;
+
+    const route = async (req: Request, res: Response): Promise<void> => {
+      if (res.headersSent) {
+        return;
+      }
+      this.currentRequestHeaders = extractHeaders(req);
+      try {
+        const webResponse = await handler.fetch(toWebRequest(req), {
+          parsedBody: req.body,
+        });
+        await writeWebResponse(res, webResponse);
+      } catch (error) {
+        if (!res.headersSent) {
+          res.status(500).json({
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    };
+
+    app.post("/mcp", ...mcpMiddleware, route);
+    app.get("/mcp", ...mcpMiddleware, route);
+    app.delete("/mcp", ...mcpMiddleware, route);
+
+    return this.listen(port);
+  }
+
   private async startHttp(port: number): Promise<number> {
     const app = express();
     app.use(express.json());
@@ -243,11 +316,6 @@ export class TestServerHttp {
       setupOAuthRoutes(app, this.config.oauth);
     }
 
-    // Store transports and one McpServer per session (SDK allows only one transport per server)
-    const transports: Map<string, WebStandardStreamableHTTPServerTransport> =
-      new Map();
-    this.mcpServersBySession = new Map();
-
     // Bearer token middleware for MCP routes if requireAuth
     const mcpMiddleware: express.RequestHandler[] = [];
     if (this.config.oauth?.enabled && this.config.oauth.requireAuth) {
@@ -257,6 +325,16 @@ export class TestServerHttp {
         mcpMiddleware.push(createScopeCheckMiddleware(scopeRegistry));
       }
     }
+
+    // Modern (2026-07-28) serving replaces the 2025 session model entirely.
+    if (this.config.modern) {
+      return this.startModernHttp(app, mcpMiddleware, port);
+    }
+
+    // Store transports and one McpServer per session (SDK allows only one transport per server)
+    const transports: Map<string, WebStandardStreamableHTTPServerTransport> =
+      new Map();
+    this.mcpServersBySession = new Map();
 
     // Set up Express route to handle MCP requests
     app.post("/mcp", ...mcpMiddleware, async (req: Request, res: Response) => {
@@ -364,18 +442,7 @@ export class TestServerHttp {
       }
     });
 
-    // Start listening on localhost only to avoid macOS firewall prompts
-    // Use port 0 to let the OS assign an available port if no port was specified
-    return new Promise((resolve, reject) => {
-      this.httpServer!.listen(port, "127.0.0.1", () => {
-        const address = this.httpServer!.address();
-        const assignedPort =
-          typeof address === "object" && address !== null ? address.port : port;
-        this.baseUrl = `http://localhost:${assignedPort}`;
-        resolve(assignedPort);
-      });
-      this.httpServer!.on("error", reject);
-    });
+    return this.listen(port);
   }
 
   private async startSse(port: number): Promise<number> {
@@ -459,18 +526,7 @@ export class TestServerHttp {
       }
     });
 
-    // Start listening on localhost only to avoid macOS firewall prompts
-    // Use port 0 to let the OS assign an available port if no port was specified
-    return new Promise((resolve, reject) => {
-      this.httpServer!.listen(port, "127.0.0.1", () => {
-        const address = this.httpServer!.address();
-        const assignedPort =
-          typeof address === "object" && address !== null ? address.port : port;
-        this.baseUrl = `http://localhost:${assignedPort}`;
-        resolve(assignedPort);
-      });
-      this.httpServer!.on("error", reject);
-    });
+    return this.listen(port);
   }
 
   /**
@@ -478,6 +534,12 @@ export class TestServerHttp {
    */
   async stop(): Promise<void> {
     this._closing = true;
+    // Tear down the modern leg (aborts in-flight modern exchanges and closes
+    // their per-request instances) when it was mounted.
+    if (this.modernHandler) {
+      await this.modernHandler.close();
+      this.modernHandler = undefined;
+    }
     // Close all per-connection McpServers (SSE and streamable-http both use the map)
     if (this.mcpServersBySession) {
       for (const mcp of this.mcpServersBySession.values()) {

@@ -96,6 +96,13 @@ export function resolveConfig(config: ConfigFile): ServerConfig {
     port: isHttp ? transport.port : undefined,
   };
 
+  // Normalize the modern flag: `true` is shorthand for the default (dual-era
+  // stateless) posture; the object form passes through.
+  if (transport.modern !== undefined) {
+    serverConfig.modern =
+      transport.modern === true ? {} : transport.modern || undefined;
+  }
+
   if (config.oauth) {
     const { issuerUrl, ...oauthRest } = config.oauth;
     serverConfig.oauth = {

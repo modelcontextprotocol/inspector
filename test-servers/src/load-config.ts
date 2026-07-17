@@ -66,6 +66,13 @@ export interface ConfigFile {
   transport: {
     type: "stdio" | "streamable-http" | "sse";
     port?: number;
+    /**
+     * Serve the modern (2026-07-28) protocol era via the SDK's
+     * `createMcpHandler` (only valid with `type: "streamable-http"`). `true`
+     * is shorthand for dual-era stateless serving; the object form selects the
+     * legacy-fallback posture. See {@link ServerConfig.modern}.
+     */
+    modern?: boolean | { legacy?: "stateless" | "reject" };
   };
 }
 
@@ -121,10 +128,16 @@ function validateConfig(
       `Invalid config in ${filePath}: transport.type is required`,
     );
   }
-  const transportType = (o.transport as Record<string, unknown>).type as string;
+  const transport = o.transport as Record<string, unknown>;
+  const transportType = transport.type as string;
   if (!["stdio", "streamable-http", "sse"].includes(transportType)) {
     throw new Error(
       `Invalid config in ${filePath}: transport.type must be stdio, streamable-http, or sse`,
+    );
+  }
+  if (transport.modern !== undefined && transportType !== "streamable-http") {
+    throw new Error(
+      `Invalid config in ${filePath}: transport.modern requires transport.type "streamable-http"`,
     );
   }
 
@@ -160,10 +173,7 @@ function validateConfig(
         }
       }
     }
-    if (
-      (transportType === "stdio") &&
-      oauth.enabled === true
-    ) {
+    if (transportType === "stdio" && oauth.enabled === true) {
       throw new Error(
         `Invalid config in ${filePath}: oauth requires streamable-http or sse transport`,
       );

@@ -523,6 +523,27 @@ export interface ServerConfig {
     supportRefreshTokens?: boolean;
   };
   /**
+   * Serve the modern (2026-07-28) protocol era via the SDK's
+   * `createMcpHandler` instead of the 2025 session-based streamable transport.
+   * Only meaningful for `serverType: "streamable-http"` (the modern model is
+   * HTTP-centric: per-request POST + `server/discover`).
+   *
+   * When present, the HTTP server mounts `createMcpHandler(factory, { legacy })`
+   * so an SDK v2 client negotiating `protocolEra: "auto" | "modern"` reaches the
+   * modern leg end-to-end (populated `server/discover` result, sessionless).
+   *
+   * - `legacy: "stateless"` (default) — dual-era: modern envelope requests use
+   *   the modern leg; legacy-classified requests (e.g. a plain `initialize`
+   *   handshake) fall back to per-request stateless 2025 serving, so a
+   *   `protocolEra: "legacy"` client still connects.
+   * - `legacy: "reject"` — modern-only strict: legacy-classified requests get
+   *   the unsupported-protocol-version error, exercising the pin-failure and
+   *   `server/discover` surfaces.
+   */
+  modern?: {
+    legacy?: "stateless" | "reject";
+  };
+  /**
    * Optional server control for orderly shutdown (test HTTP server).
    * When present, progress-sending tools check isClosing() before sending and skip/break if closing.
    */
