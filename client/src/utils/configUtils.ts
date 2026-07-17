@@ -59,18 +59,14 @@ export const getMCPTaskTtl = (config: InspectorConfig): number => {
 };
 
 export const getInitialTransportType = ():
-  | "stdio"
-  | "sse"
-  | "streamable-http" => {
+  "stdio" | "sse" | "streamable-http" => {
   const param = getSearchParam("transport");
   if (param === "stdio" || param === "sse" || param === "streamable-http") {
     return param;
   }
   return (
     (localStorage.getItem("lastTransportType") as
-      | "stdio"
-      | "sse"
-      | "streamable-http") || "stdio"
+      "stdio" | "sse" | "streamable-http") || "stdio"
   );
 };
 

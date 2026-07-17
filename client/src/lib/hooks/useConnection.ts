@@ -564,8 +564,7 @@ export function useConnection({
 
       // Create appropriate transport
       let transportOptions:
-        | StreamableHTTPClientTransportOptions
-        | SSEClientTransportOptions;
+        StreamableHTTPClientTransportOptions | SSEClientTransportOptions;
 
       let serverUrl: URL;
 
@@ -843,8 +842,7 @@ export function useConnection({
       const makeTaskId = () => {
         // Prefer UUID when available; otherwise fall back to a reasonably unique id.
         const cryptoAny = globalThis.crypto as unknown as
-          | { randomUUID?: () => string }
-          | undefined;
+          { randomUUID?: () => string } | undefined;
         return (
           cryptoAny?.randomUUID?.() ??
           `task_${Date.now()}_${Math.random().toString(16).slice(2)}`

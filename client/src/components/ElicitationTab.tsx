@@ -20,8 +20,7 @@ export interface ElicitationUrlRequestData extends ElicitationRequestBase {
 }
 
 export type ElicitationRequestData =
-  | ElicitationFormRequestData
-  | ElicitationUrlRequestData;
+  ElicitationFormRequestData | ElicitationUrlRequestData;
 
 export interface ElicitationResponse {
   action: "accept" | "decline" | "cancel";

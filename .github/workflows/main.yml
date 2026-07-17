@@ -14,9 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Check formatting
-        run: npx prettier --check .
-
       - uses: actions/setup-node@v6
         with:
           node-version-file: package.json
@@ -25,6 +22,9 @@ jobs:
       # Working around https://github.com/npm/cli/issues/4828
       # - run: npm ci
       - run: npm install --no-package-lock
+
+      - name: Check formatting
+        run: npm run prettier-check
 
       - name: Check version consistency
         run: npm run check-version
