@@ -110,6 +110,8 @@ npm run test-servers:build   # (from clients/web) → tsc -p test-servers, emits
 
 The Vite alias `@modelcontextprotocol/inspector-test-server` (in `clients/web/vite.config.ts`) points at `test-servers/build/index.js` so `getTestMcpServerPath()` resolves to a real `.js` path.
 
+A streamable-HTTP server can also serve the **modern (2026-07-28) protocol era** via the SDK's `createMcpHandler` — set `transport.modern` in the JSON config (`true` for dual-era stateless serving, or `{ "legacy": "reject" }` for modern-only strict), or pass `modern` on the `ServerConfig` for an in-process `createTestServerHttp`. This is what lets an Inspector connection negotiating `protocolEra: "auto" | "modern"` reach the modern leg (populated `server/discover`, sessionless). See `test-servers/configs/modern-http.json`.
+
 ## Building
 
 ```bash
