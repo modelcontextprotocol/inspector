@@ -886,10 +886,24 @@ function isBlockedProxyAddress(ip: string): boolean {
   }
   if (kind === 6) {
     const addr = ip.toLowerCase();
-    // IPv4-mapped IPv6 (e.g. ::ffff:169.254.169.254) — check the IPv4 form
-    const mapped = addr.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    // IPv4-mapped IPv6 (::ffff:x). The WHATWG URL parser serializes the embedded
+    // IPv4 in hex (::ffff:a9fe:a9fe for 169.254.169.254), while DNS and other
+    // sources may use the dotted form (::ffff:169.254.169.254) — handle both by
+    // extracting the IPv4 and re-checking it.
+    const mapped = addr.match(/^::ffff:(.+)$/);
     if (mapped) {
-      return isBlockedProxyAddress(mapped[1]);
+      const tail = mapped[1];
+      if (isIP(tail) === 4) {
+        return isBlockedProxyAddress(tail);
+      }
+      const hex = tail.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+      if (hex) {
+        const high = parseInt(hex[1], 16);
+        const low = parseInt(hex[2], 16);
+        return isBlockedProxyAddress(
+          `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`,
+        );
+      }
     }
     // fe80::/10 — IPv6 link-local
     if (/^fe[89ab]/.test(addr)) {

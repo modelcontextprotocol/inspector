@@ -249,6 +249,25 @@ describe("POST /fetch endpoint", () => {
     expect(body.error).toMatch(/blocked address/i);
   });
 
+  it("returns 403 for the metadata IP in IPv4-mapped IPv6 form (SSRF guard)", async () => {
+    // The WHATWG URL parser serializes this host to ::ffff:a9fe:a9fe, which must
+    // still be recognized as 169.254.169.254 and blocked.
+    const res = await fetch(`${baseUrl}/fetch`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-MCP-Proxy-Auth": `Bearer ${TEST_TOKEN}`,
+      },
+      body: JSON.stringify({
+        url: "http://[::ffff:169.254.169.254]/latest/meta-data/",
+        init: { method: "GET" },
+      }),
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/blocked address/i);
+  });
+
   it("blocks a redirect that points at a blocked address (SSRF guard)", async () => {
     await withLocalUpstream(
       (req, res) => {
