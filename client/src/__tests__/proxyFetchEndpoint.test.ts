@@ -231,4 +231,78 @@ describe("POST /fetch endpoint", () => {
       },
     );
   });
+
+  it("returns 403 for a link-local / cloud-metadata target (SSRF guard)", async () => {
+    const res = await fetch(`${baseUrl}/fetch`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-MCP-Proxy-Auth": `Bearer ${TEST_TOKEN}`,
+      },
+      body: JSON.stringify({
+        url: "http://169.254.169.254/latest/meta-data/",
+        init: { method: "GET" },
+      }),
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/blocked address/i);
+  });
+
+  it("blocks a redirect that points at a blocked address (SSRF guard)", async () => {
+    await withLocalUpstream(
+      (req, res) => {
+        res.writeHead(302, { Location: "http://169.254.169.254/latest/" });
+        res.end();
+      },
+      async (origin) => {
+        const res = await fetch(`${baseUrl}/fetch`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-MCP-Proxy-Auth": `Bearer ${TEST_TOKEN}`,
+          },
+          body: JSON.stringify({
+            url: `${origin}/redirect`,
+            init: { method: "GET" },
+          }),
+        });
+        expect(res.status).toBe(403);
+        const body = (await res.json()) as { error: string };
+        expect(body.error).toMatch(/blocked address/i);
+      },
+    );
+  });
+
+  it("follows redirects between allowed hosts", async () => {
+    const payload = JSON.stringify({ hello: "redirected" });
+    await withLocalUpstream(
+      (req, res) => {
+        if (req.url === "/start") {
+          res.writeHead(302, { Location: "/final" });
+          res.end();
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(payload);
+      },
+      async (origin) => {
+        const res = await fetch(`${baseUrl}/fetch`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-MCP-Proxy-Auth": `Bearer ${TEST_TOKEN}`,
+          },
+          body: JSON.stringify({
+            url: `${origin}/start`,
+            init: { method: "GET" },
+          }),
+        });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { status: number; body: string };
+        expect(body.status).toBe(200);
+        expect(body.body).toBe(payload);
+      },
+    );
+  });
 });
