@@ -117,8 +117,12 @@ const SubscriptionCluster = Group.withProps({
   miw: 0,
 });
 
+// `complete` is green — it's the success signal now that the redundant "OK"
+// status badge is suppressed, so a modern success keeps the same at-a-glance
+// green affordance a legacy success has. `input_required` is yellow (in
+// progress: awaiting input before the retry).
 function resultTypeColor(resultType: "complete" | "input_required"): string {
-  return resultType === "input_required" ? "yellow" : "gray";
+  return resultType === "input_required" ? "yellow" : "green";
 }
 
 function resultTypeLabel(resultType: "complete" | "input_required"): string {

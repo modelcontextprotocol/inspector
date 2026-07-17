@@ -139,7 +139,15 @@ export function MrtrConversation({
   const status = conversationStatus(ordered[ordered.length - 1]);
 
   return (
-    <ConversationContainer aria-label={`MRTR conversation ${requestState}`}>
+    // In the narrow monitoring column the per-round entries are already bordered
+    // cards, so the container drops its own border and tightens padding there to
+    // avoid a busy border-in-border nesting; the full-width view keeps the
+    // bordered surface that sets the conversation apart from single entries.
+    <ConversationContainer
+      withBorder={!embedded}
+      p={embedded ? "xs" : "md"}
+      aria-label={`MRTR conversation ${requestState}`}
+    >
       <Stack gap="sm">
         <HeaderRow>
           <HeaderLeft>
