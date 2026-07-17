@@ -155,4 +155,9 @@ describe("ProtocolScreen", () => {
     );
     expect(screen.getByText("No request history")).toBeInTheDocument();
   });
+
+  it("passes the protocol era through to the list header badge", () => {
+    renderWithMantine(<ProtocolScreen {...baseProps} protocolEra="modern" />);
+    expect(screen.getByText("Modern")).toBeInTheDocument();
+  });
 });

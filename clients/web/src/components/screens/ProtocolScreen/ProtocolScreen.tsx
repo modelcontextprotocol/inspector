@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { Card, Flex, Stack } from "@mantine/core";
+import type { ProtocolEra } from "@modelcontextprotocol/client";
 import type {
   MessageEntry,
   MessageMethod,
@@ -13,6 +14,8 @@ import type { SortDirection } from "../../elements/SortToggle/SortToggle";
 export interface ProtocolScreenProps {
   entries: MessageEntry[];
   pinnedIds: Set<string>;
+  /** Negotiated protocol era (SEP §7.8), shown as a badge in the list header. */
+  protocolEra?: ProtocolEra;
   ui: ProtocolUiState;
   onUiChange: (next: ProtocolUiState) => void;
   onClearAll: () => void;
@@ -59,6 +62,7 @@ const SidebarCard = Card.withProps({
 export function ProtocolScreen({
   entries,
   pinnedIds,
+  protocolEra,
   ui,
   onUiChange,
   onClearAll,
@@ -129,6 +133,7 @@ export function ProtocolScreen({
       <ProtocolListPanel
         entries={entries}
         pinnedIds={pinnedIds}
+        protocolEra={protocolEra}
         searchText={search}
         methodFilter={methodFilter}
         visibleDirections={visibleDirections}

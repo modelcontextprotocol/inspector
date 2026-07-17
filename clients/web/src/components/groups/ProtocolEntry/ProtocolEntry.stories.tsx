@@ -120,6 +120,67 @@ const pendingEntry: MessageEntry = {
   },
 };
 
+// Modern (2026-07-28) era frames. An `input_required` result is the first round
+// of an MRTR conversation; the retried call returns `complete`.
+const inputRequiredEntry: MessageEntry = {
+  id: "mrtr-1",
+  timestamp: new Date("2026-07-28T10:00:00Z"),
+  direction: "request",
+  origin: "client",
+  message: {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: { name: "book_flight", arguments: { destination: "SFO" } },
+  },
+  response: {
+    jsonrpc: "2.0",
+    id: 1,
+    result: {
+      resultType: "input_required",
+      requestState: "opaque-server-token",
+      inputRequests: {
+        "1": {
+          method: "elicitation/create",
+          params: { message: "Confirm passenger name" },
+        },
+      },
+    },
+  },
+  duration: 30,
+};
+
+const discoverEntry: MessageEntry = {
+  id: "disc-1",
+  timestamp: new Date("2026-07-28T09:59:00Z"),
+  direction: "request",
+  origin: "client",
+  message: { jsonrpc: "2.0", id: 0, method: "server/discover" },
+  response: {
+    jsonrpc: "2.0",
+    id: 0,
+    result: {
+      supportedVersions: ["2026-07-28"],
+      capabilities: { tools: {}, resources: {} },
+    },
+  },
+  duration: 12,
+};
+
+const subscriptionNotificationEntry: MessageEntry = {
+  id: "sub-1",
+  timestamp: new Date("2026-07-28T10:05:00Z"),
+  direction: "notification",
+  origin: "server",
+  message: {
+    jsonrpc: "2.0",
+    method: "notifications/resources/list_changed",
+    params: {
+      _meta: { "io.modelcontextprotocol/subscriptionId": "sub-abc123" },
+    },
+  },
+};
+
 export const SuccessCollapsed: Story = {
   args: {
     entry: toolCallEntry,
@@ -155,6 +216,34 @@ export const Pinned: Story = {
 export const Pending: Story = {
   args: {
     entry: pendingEntry,
+    isPinned: false,
+    isListExpanded: false,
+  },
+};
+
+// Modern-era: an `input_required` result, labeled with a yellow badge (the
+// operation isn't done — it needs input and will be retried).
+export const ModernInputRequired: Story = {
+  args: {
+    entry: inputRequiredEntry,
+    isPinned: false,
+    isListExpanded: true,
+  },
+};
+
+// Modern-era: a `server/discover` probe, flagged with the "modern" frame badge.
+export const ModernDiscoverFrame: Story = {
+  args: {
+    entry: discoverEntry,
+    isPinned: false,
+    isListExpanded: false,
+  },
+};
+
+// Modern-era: a push notification tagged with a subscriptionId (copyable).
+export const ModernSubscriptionNotification: Story = {
+  args: {
+    entry: subscriptionNotificationEntry,
     isPinned: false,
     isListExpanded: false,
   },

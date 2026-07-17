@@ -20,6 +20,7 @@ import type {
   InitializeResult,
   LoggingLevel,
   Prompt,
+  ProtocolEra,
   ReadResourceResult,
   Resource,
   ResourceTemplateType as ResourceTemplate,
@@ -398,6 +399,8 @@ export interface InspectorViewProps {
   tasks: Task[];
   progressByTaskId?: Record<string, TaskProgress>;
   protocol: MessageEntry[];
+  /** Negotiated protocol era (SEP §7.8), for the Protocol view's era badge. */
+  protocolEra?: ProtocolEra;
   network: FetchRequestEntry[];
   /** Captured stdio stderr (the Console screen). Empty for HTTP servers. (#1621) */
   stderrLogs: StderrLogEntry[];
@@ -574,6 +577,7 @@ export function InspectorView({
   tasks,
   progressByTaskId,
   protocol,
+  protocolEra,
   network,
   stderrLogs,
   toolCallState,
@@ -1059,6 +1063,7 @@ export function InspectorView({
   };
   const protocolScreenProps = {
     entries: protocol,
+    protocolEra,
     pinnedIds: pinnedProtocolIds ?? new Set<string>(),
     ui: protocolUi,
     onUiChange: onProtocolUiChange,
