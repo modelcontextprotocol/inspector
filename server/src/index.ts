@@ -85,6 +85,10 @@ const sendErrorResponse = (
   res.status(status).json({ error: message });
 };
 
+const logClientTransportError = (error: unknown) => {
+  console.error("Error sending message to inspector client:", error);
+};
+
 /**
  * Prefer forwarding the upstream MCP 401 (WWW-Authenticate + body) so the browser
  * matches direct-mode OAuth behavior. Falls back to a generic 401 JSON response
@@ -672,17 +676,19 @@ app.get(
         if (chunk.toString().includes("MODULE_NOT_FOUND")) {
           // Server command not found, remove transports
           const message = "Command not found, transports removed";
-          webAppTransport.send({
-            jsonrpc: "2.0",
-            method: "notifications/message",
-            params: {
-              level: "emergency",
-              logger: "proxy",
-              data: {
-                message,
+          void webAppTransport
+            .send({
+              jsonrpc: "2.0",
+              method: "notifications/message",
+              params: {
+                level: "emergency",
+                logger: "proxy",
+                data: {
+                  message,
+                },
               },
-            },
-          });
+            })
+            .catch(logClientTransportError);
           webAppTransport.close();
           serverTransport.close();
           webAppTransports.delete(webAppTransport.sessionId);
@@ -722,17 +728,19 @@ app.get(
           } else {
             level = "info";
           }
-          webAppTransport.send({
-            jsonrpc: "2.0",
-            method: "notifications/message",
-            params: {
-              level,
-              logger: "stdio",
-              data: {
-                message,
+          void webAppTransport
+            .send({
+              jsonrpc: "2.0",
+              method: "notifications/message",
+              params: {
+                level,
+                logger: "stdio",
+                data: {
+                  message,
+                },
               },
-            },
-          });
+            })
+            .catch(logClientTransportError);
         }
       });
 
