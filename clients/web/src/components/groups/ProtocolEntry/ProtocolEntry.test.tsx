@@ -452,6 +452,19 @@ describe("ProtocolEntry — modern vocabulary", () => {
     expect(screen.getByText("complete")).toBeInTheDocument();
   });
 
+  it("suppresses the redundant OK status badge when a resultType badge shows", () => {
+    // A modern success carries both a green OK (transport-level) and a
+    // resultType badge; the resultType is the single signal, so OK is hidden.
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={completeEntry} />);
+    expect(screen.getByText("complete")).toBeInTheDocument();
+    expect(screen.queryByText("OK")).not.toBeInTheDocument();
+  });
+
+  it("still shows the OK status badge on a legacy result with no resultType", () => {
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={successEntry} />);
+    expect(screen.getByText("OK")).toBeInTheDocument();
+  });
+
   it("does not label resultType on a legacy result", () => {
     renderWithMantine(<ProtocolEntry {...baseProps} entry={successEntry} />);
     expect(screen.queryByText("input required")).not.toBeInTheDocument();

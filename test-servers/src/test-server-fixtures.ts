@@ -382,6 +382,14 @@ export function createCollectFormElicitationTool(): ToolDefinition {
  * History view can render a real MRTR round-trip as one grouped conversation.
  */
 export function createMrtrTool(): ToolDefinition {
+  // Per-server-instance counter so each original call mints a DISTINCT
+  // `requestState`. A stable-per-action token would let two same-action calls
+  // (whose rounds land adjacently in the History log) fold into a single
+  // `MrtrConversation`, since grouping clusters contiguous entries sharing a
+  // token — confusing for a demo whose whole point is eyeballing the grouping.
+  // Only bumped on the mint (first) round; the retry echoes the token, it isn't
+  // re-minted. Real SDK tokens are already unique per operation.
+  let mintCount = 0;
   return {
     name: "mrtr_confirm",
     description:
@@ -416,7 +424,7 @@ export function createMrtrTool(): ToolDefinition {
               },
             }),
           },
-          requestState: `mrtr:${action}`,
+          requestState: `mrtr:${action}:${++mintCount}`,
         });
       }
 

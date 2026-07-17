@@ -10,7 +10,7 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
-import type { MessageEntry } from "../../../../../../core/mcp/types.js";
+import type { MessageEntry } from "@inspector/core/mcp/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { MessageDirectionBadge } from "../../elements/MessageDirectionBadge/MessageDirectionBadge";
@@ -219,11 +219,6 @@ export function ProtocolEntry({
       direction={entry.origin === "client" ? "outgoing" : "incoming"}
     />
   );
-  const statusBadge = status !== "none" && (
-    <Badge color={statusColor(status)} variant="status">
-      {statusLabel(status)}
-    </Badge>
-  );
   // The modern `resultType` on the paired result (spec §7.3): `input_required`
   // (the operation isn't done — it needs input and will be retried) vs the
   // ordinary `complete`. Only present on modern results, so it doubles as a
@@ -231,6 +226,14 @@ export function ProtocolEntry({
   const resultTypeBadge = resultType && (
     <Badge color={resultTypeColor(resultType)} variant="status">
       {resultTypeLabel(resultType)}
+    </Badge>
+  );
+  // Suppress the redundant green "OK" when a `resultType` badge already conveys
+  // the outcome (a modern success is `complete`/`input required`); errors and
+  // pending have no `resultType`, so their status badge still shows.
+  const statusBadge = status !== "none" && !resultType && (
+    <Badge color={statusColor(status)} variant="status">
+      {statusLabel(status)}
     </Badge>
   );
   const modernFrameBadge = isModern && (
