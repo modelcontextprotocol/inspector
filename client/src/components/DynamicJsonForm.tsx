@@ -347,8 +347,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
           // Titled single-select using oneOf/anyOf with const/title pairs
           const titledOptions = (
             (propSchema.oneOf ?? propSchema.anyOf) as
-              | (JsonSchemaType | JsonSchemaConst)[]
-              | undefined
+              (JsonSchemaType | JsonSchemaConst)[] | undefined
           )?.filter((opt): opt is JsonSchemaConst => "const" in opt);
 
           if (titledOptions && titledOptions.length > 0) {
@@ -606,8 +605,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
 
           const titledMulti = (
             (itemSchema.anyOf ?? itemSchema.oneOf) as
-              | (JsonSchemaType | JsonSchemaConst)[]
-              | undefined
+              (JsonSchemaType | JsonSchemaConst)[] | undefined
           )?.filter((opt): opt is JsonSchemaConst => "const" in opt);
 
           if (titledMulti && titledMulti.length > 0) {
