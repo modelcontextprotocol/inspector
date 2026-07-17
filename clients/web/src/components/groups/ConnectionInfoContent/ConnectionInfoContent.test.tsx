@@ -99,6 +99,83 @@ describe("ConnectionInfoContent", () => {
     expect(screen.queryByText("Server Instructions")).not.toBeInTheDocument();
   });
 
+  it("defaults to the Legacy era, and marks the session N/A for stdio", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="stdio"
+      />,
+    );
+    expect(screen.getByText("Era")).toBeInTheDocument();
+    expect(screen.getByText("Legacy")).toBeInTheDocument();
+    // stdio has no HTTP session concept.
+    expect(screen.getByText("N/A (stdio)")).toBeInTheDocument();
+    // No discover result → no Discovery section.
+    expect(screen.queryByText("Discovery")).not.toBeInTheDocument();
+  });
+
+  it("marks a legacy HTTP connection as session-based", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="legacy"
+      />,
+    );
+    expect(screen.getByText("Legacy")).toBeInTheDocument();
+    expect(screen.getByText("Session-based")).toBeInTheDocument();
+  });
+
+  it("shows the Modern era as sessionless and renders the discovery section", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="modern"
+        discoverResult={{
+          supportedVersions: ["2026-07-28", "2025-11-25"],
+          serverInfo: { name: "Everything Server", version: "2.1.0" },
+          capabilities: {
+            tools: {},
+            extensions: {
+              "io.modelcontextprotocol/tasks": {},
+            },
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText("Modern")).toBeInTheDocument();
+    expect(screen.getByText("Sessionless")).toBeInTheDocument();
+    expect(screen.getByText("Discovery")).toBeInTheDocument();
+    expect(screen.getByText("2026-07-28, 2025-11-25")).toBeInTheDocument();
+    expect(
+      screen.getByText("io.modelcontextprotocol/tasks"),
+    ).toBeInTheDocument();
+  });
+
+  it("renders em-dashes for empty supported versions and absent extensions", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="modern"
+        discoverResult={{
+          supportedVersions: [],
+          serverInfo: { name: "Everything Server", version: "2.1.0" },
+          capabilities: { tools: {} },
+        }}
+      />,
+    );
+    expect(screen.getByText("Supported versions")).toBeInTheDocument();
+    expect(screen.getByText("Extensions")).toBeInTheDocument();
+    // Both the empty-versions and no-extensions values render as an em dash.
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
+  });
+
   it("renders client registration kind when provided", () => {
     renderWithMantine(
       <ConnectionInfoContent

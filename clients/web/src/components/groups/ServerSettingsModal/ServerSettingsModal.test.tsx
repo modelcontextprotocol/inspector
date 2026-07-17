@@ -118,6 +118,27 @@ describe("ServerSettingsModal", () => {
     );
   });
 
+  it("maps the selected protocol era into settings (#1626)", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={emptySettings}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    // The Options section (with Protocol Era) is expanded by default.
+    await user.click(screen.getByDisplayValue("Legacy (2025-11-25 handshake)"));
+    await user.click(screen.getByText("Modern (2026-07-28, sessionless)"));
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({ protocolEra: "modern" }),
+    );
+  });
+
   it("calls onSettingsChange when adding a header after expanding the section", async () => {
     const user = userEvent.setup();
     const onSettingsChange = vi.fn();

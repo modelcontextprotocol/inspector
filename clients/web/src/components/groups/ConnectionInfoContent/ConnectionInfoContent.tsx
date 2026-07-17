@@ -11,7 +11,9 @@ import {
 } from "@mantine/core";
 import type {
   ClientCapabilities,
+  DiscoverResult,
   InitializeResult,
+  ProtocolEra,
 } from "@modelcontextprotocol/client";
 import type { ServerType } from "@inspector/core/mcp/types.js";
 import type { OAuthClientRegistrationKind } from "@inspector/core/auth/types.js";
@@ -38,6 +40,18 @@ export interface ConnectionInfoContentProps {
   initializeResult: InitializeResult;
   clientCapabilities: ClientCapabilities;
   transport: ServerType;
+  /**
+   * Protocol era negotiated with the server (SEP §7.8). `"modern"` connections
+   * are sessionless and learn capabilities from `server/discover`; `"legacy"`
+   * (or undefined, on a plain legacy connect) use the initialize handshake.
+   * (#1626)
+   */
+  protocolEra?: ProtocolEra;
+  /**
+   * The `server/discover` result on a modern connection — supported versions,
+   * capabilities, and extensions learned up front. Undefined on legacy. (#1626)
+   */
+  discoverResult?: DiscoverResult;
   oauth?: OAuthDetails;
   onClearOAuth?: () => void;
 }
@@ -97,6 +111,38 @@ function formatClientRegistrationKind(
   }
 }
 
+// The SDK reports the era for every connected era, including a plain legacy
+// connect (`"legacy"`); it's undefined only when not connected. Anything other
+// than `"modern"` renders as the legacy era.
+function isModernEra(era: ProtocolEra | undefined): boolean {
+  return era === "modern";
+}
+
+function formatEra(era: ProtocolEra | undefined): string {
+  return isModernEra(era) ? "Modern" : "Legacy";
+}
+
+// The session concept is HTTP-only: modern HTTP connections are sessionless (no
+// `Mcp-Session-Id`, nothing to DELETE on disconnect) while a legacy HTTP
+// connection may carry a server session. stdio has no HTTP session at all, so
+// the row is not applicable there.
+function formatSession(
+  era: ProtocolEra | undefined,
+  transport: ServerType,
+): string {
+  if (transport === "stdio") return "N/A (stdio)";
+  return isModernEra(era) ? "Sessionless" : "Session-based";
+}
+
+// The `extensions` map the server advertised in its `server/discover`
+// capabilities (SEP-2133). Render the extension identifiers, or an em dash when
+// none were advertised.
+function formatExtensions(discoverResult: DiscoverResult): string {
+  const extensions = discoverResult.capabilities.extensions;
+  const keys = extensions ? Object.keys(extensions) : [];
+  return keys.length > 0 ? keys.join(", ") : "—";
+}
+
 const SERVER_CAPABILITY_KEYS: CapabilityKey[] = [
   "tools",
   "resources",
@@ -131,6 +177,8 @@ export function ConnectionInfoContent({
   initializeResult,
   clientCapabilities,
   transport,
+  protocolEra,
+  discoverResult,
   oauth,
   onClearOAuth,
 }: ConnectionInfoContentProps) {
@@ -159,8 +207,36 @@ export function ConnectionInfoContent({
 
           <Text size="sm">Transport</Text>
           <Badge variant="outline">{transport}</Badge>
+
+          <Text size="sm">Era</Text>
+          <Badge
+            variant="outline"
+            color={isModernEra(protocolEra) ? "blue" : "gray"}
+          >
+            {formatEra(protocolEra)}
+          </Badge>
+
+          <Text size="sm">Session</Text>
+          <ValueText>{formatSession(protocolEra, transport)}</ValueText>
         </SimpleGrid>
       </Stack>
+
+      {discoverResult && (
+        <Stack gap="xs">
+          <SectionHeading>Discovery</SectionHeading>
+          <SimpleGrid cols={2}>
+            <Text size="sm">Supported versions</Text>
+            <ValueText>
+              {discoverResult.supportedVersions.length > 0
+                ? discoverResult.supportedVersions.join(", ")
+                : "—"}
+            </ValueText>
+
+            <Text size="sm">Extensions</Text>
+            <ValueText>{formatExtensions(discoverResult)}</ValueText>
+          </SimpleGrid>
+        </Stack>
+      )}
 
       <SimpleGrid cols={2}>
         <Stack gap="xs">

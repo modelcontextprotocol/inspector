@@ -1045,6 +1045,8 @@ describe("/api/servers routes", () => {
               connectionTimeout: "30s",
               // Good: valid number
               requestTimeout: 60000,
+              // Good: valid era literal → round-trips
+              protocolEra: "modern",
               // Bad: array instead of object → drop
               oauth: ["not", "an", "object"],
               // Bad: entry missing a string `uri` → drop the whole roots field
@@ -1063,6 +1065,7 @@ describe("/api/servers routes", () => {
       // Good fields survive.
       expect(fetched.headers).toEqual({ "X-Keep": "yes" });
       expect(fetched.requestTimeout).toBe(60000);
+      expect(fetched.protocolEra).toBe("modern");
       // Bad fields are dropped.
       expect(fetched).not.toHaveProperty("metadata");
       expect(fetched).not.toHaveProperty("connectionTimeout");

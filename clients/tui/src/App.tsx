@@ -20,6 +20,7 @@ import type {
   GetPromptResult,
 } from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { eraToVersionNegotiation } from "@inspector/core/mcp/types.js";
 import {
   ManagedToolsState,
   ManagedResourcesState,
@@ -303,6 +304,13 @@ function App({
               defaultMetadata,
             }),
           ...(savedSettings && { serverSettings: savedSettings }),
+          // Per-server protocol era (SEP §7.8) from mcp.json → SDK
+          // versionNegotiation; absent era defaults to legacy (#1626).
+          ...(savedSettings?.protocolEra && {
+            versionNegotiation: eraToVersionNegotiation(
+              savedSettings.protocolEra,
+            ),
+          }),
           ...clientAuthOptions,
         };
         if (isOAuthCapableServerConfig(serverConfig)) {

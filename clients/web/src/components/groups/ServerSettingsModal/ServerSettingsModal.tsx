@@ -3,6 +3,7 @@ import { CloseButton, Group, Modal, Stack } from "@mantine/core";
 import type {
   InspectorServerSettings,
   OAuthSettings,
+  ServerProtocolEra,
   ServerType,
 } from "@inspector/core/mcp/types.js";
 import { isOAuthCapableServerType } from "@inspector/core/mcp/config.js";
@@ -165,6 +166,10 @@ export function ServerSettingsModal({
     onSettingsChange({ ...settings, maxFetchRequests: value });
   }
 
+  function handleProtocolEraChange(value: ServerProtocolEra) {
+    onSettingsChange({ ...settings, protocolEra: value });
+  }
+
   function handleAddRoot() {
     onSettingsChange({
       ...settings,
@@ -228,6 +233,7 @@ export function ServerSettingsModal({
           onTimeoutChange={handleTimeoutChange}
           onAutoRefreshChange={handleAutoRefreshChange}
           onMaxFetchRequestsChange={handleMaxFetchRequestsChange}
+          onProtocolEraChange={handleProtocolEraChange}
           onOAuthChange={handleOAuthChange}
           onClearStoredOAuth={onClearStoredOAuth}
           onAddRoot={handleAddRoot}

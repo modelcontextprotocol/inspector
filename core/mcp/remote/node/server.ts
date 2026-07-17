@@ -51,6 +51,7 @@ import {
   extractSecretsFromStored,
   INSPECTOR_FIELD_KEYS,
   inspectorSettingsToStoredFields,
+  isProtocolEra,
   mergeSecretsIntoStored,
   normalizeServerType,
   storedFieldsToInspectorSettings,
@@ -1178,6 +1179,13 @@ export function createRemoteApp(
         );
         delete valObj.roots;
       }
+      if ("protocolEra" in valObj && !isProtocolEra(valObj.protocolEra)) {
+        logWarn(
+          { route: "/api/servers", id, droppedKey: "protocolEra" },
+          "Dropping malformed `protocolEra` field — expected 'legacy', 'auto', or 'modern'.",
+        );
+        delete valObj.protocolEra;
+      }
 
       out[id] = normalizeServerType(
         valObj as Record<string, unknown> & { type?: string },
@@ -1436,6 +1444,15 @@ export function createRemoteApp(
         error: "settings.roots must be an array of { uri, name? }",
       };
     }
+    // protocolEra is optional on the wire (older clients won't send it); when
+    // present it must be one of the three era literals, otherwise it defaults
+    // to absent (→ legacy) below.
+    if (obj.protocolEra !== undefined && !isProtocolEra(obj.protocolEra)) {
+      return {
+        ok: false,
+        error: "settings.protocolEra must be 'legacy', 'auto', or 'modern'",
+      };
+    }
     // Build the validated value from explicitly named fields rather than
     // casting the raw object through. Unknown keys silently drop so a
     // misconfigured client can't smuggle stowaways onto disk, and consumers
@@ -1493,6 +1510,11 @@ export function createRemoteApp(
       obj.oauthOnInsufficientScope === "throw"
     ) {
       value.oauthOnInsufficientScope = obj.oauthOnInsufficientScope;
+    }
+    // Optional; when a valid era is present, carry it. Absence reads back as the
+    // default era downstream (eraToVersionNegotiation is not called for absent).
+    if (isProtocolEra(obj.protocolEra)) {
+      value.protocolEra = obj.protocolEra;
     }
     // Empty cwd coerces to absent on the value (matching the read side); the
     // write-through distinguishes "sent cwd: '' " (clear) from "cwd omitted"

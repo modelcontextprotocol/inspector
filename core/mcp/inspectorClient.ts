@@ -84,6 +84,8 @@ import type {
   RequestOptions,
   ProgressCallback,
   VersionNegotiationOptions,
+  ProtocolEra,
+  DiscoverResult,
 } from "@modelcontextprotocol/client";
 import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/client";
 import {
@@ -247,6 +249,7 @@ export class InspectorClient extends InspectorClientEventTarget {
   private requestTimeout: number | undefined;
   private defaultMetadata: Record<string, string> | undefined;
   private serverSettings: InspectorServerSettings | undefined;
+  private versionNegotiation: VersionNegotiationOptions;
   private status: ConnectionStatus = "disconnected";
   // True only while an explicit disconnect() owns the teardown. close() can
   // trigger the transport's onclose synchronously, so this lets onclose defer
@@ -258,6 +261,12 @@ export class InspectorClient extends InspectorClientEventTarget {
   private serverInfo?: Implementation;
   private instructions?: string;
   private protocolVersion?: string;
+  // Era model (SEP §7.8). Populated after connect from the SDK Client's
+  // negotiation accessors. `protocolEra` is the negotiated era ("legacy" |
+  // "modern"); `discoverResult` is the `server/discover` payload on a
+  // probed/pinned connection (undefined on a plain legacy connect).
+  private protocolEra?: ProtocolEra;
+  private discoverResult?: DiscoverResult;
   // The capabilities this Inspector client advertises to the server during the
   // initialize handshake. Built once in setupClient() and snapshotted here so
   // UI surfaces (Server Info modal) can display them without poking at the
@@ -341,6 +350,9 @@ export class InspectorClient extends InspectorClientEventTarget {
         ? options.defaultMetadata
         : undefined;
     this.serverSettings = options.serverSettings;
+    // Default to the legacy 2025-11-25 era when the caller doesn't pin one, per
+    // the SDK guidance that a debugging tool must not auto-probe (#1626).
+    this.versionNegotiation = options.versionNegotiation ?? { mode: "legacy" };
     this.directAuthRecovery = options.directAuthRecovery ?? false;
     // Only set roots if explicitly provided (even if empty array) - this enables roots capability
     this.roots = options.roots;
@@ -392,10 +404,11 @@ export class InspectorClient extends InspectorClientEventTarget {
       capabilities?: ClientCapabilities;
       versionNegotiation?: VersionNegotiationOptions;
     } = {
-      // Pin to the legacy (2025-11-25) protocol so this migration stays
-      // behavior-neutral: nothing 2026-era goes on the wire. Era/version
-      // selection becomes per-server configuration in a later card.
-      versionNegotiation: { mode: "legacy" },
+      // Per-server protocol era (SEP §7.8), threaded from config via
+      // `eraToVersionNegotiation` and defaulted to `{ mode: "legacy" }` in the
+      // constructor. "legacy" keeps the wire byte-identical to a 2025 client;
+      // "auto"/"modern" opt into 2026-era negotiation (#1626).
+      versionNegotiation: this.versionNegotiation,
     };
     const capabilities: ClientCapabilities = {};
     if (this.sample) {
@@ -1450,6 +1463,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.serverInfo = undefined;
     this.instructions = undefined;
     this.protocolVersion = undefined;
+    this.protocolEra = undefined;
+    this.discoverResult = undefined;
     this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
     this.dispatchTypedEvent(
       "pendingElicitationsChange",
@@ -1459,6 +1474,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.dispatchTypedEvent("serverInfoChange", this.serverInfo);
     this.dispatchTypedEvent("instructionsChange", this.instructions);
     this.dispatchTypedEvent("protocolVersionChange", this.protocolVersion);
+    this.dispatchTypedEvent("protocolEraChange", this.protocolEra);
+    this.dispatchTypedEvent("discoverResultChange", this.discoverResult);
   }
 
   /**
@@ -1757,11 +1774,36 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Get the MCP protocol version negotiated with the server during the
-   * initialize handshake (e.g. "2025-06-18"). Undefined when not connected.
+   * Get the MCP protocol version negotiated with the server. On a legacy
+   * connect this is the version from the initialize handshake (e.g.
+   * "2025-06-18"); on a modern connect it's the negotiated modern revision.
+   * Undefined when not connected.
    */
   getProtocolVersion(): string | undefined {
     return this.protocolVersion;
+  }
+
+  /**
+   * The protocol era negotiated with the server (SEP §7.8): `"legacy"` for the
+   * 2025-11-25 initialize handshake, `"modern"` for the 2026-era sessionless
+   * model. Populated for every era once connected — including a plain legacy
+   * (`mode: "legacy"`) connect, which the SDK reports as `"legacy"`. Undefined
+   * only when not connected (before connect / after disconnect). (#1626)
+   */
+  getProtocolEra(): ProtocolEra | undefined {
+    return this.protocolEra;
+  }
+
+  /**
+   * The `server/discover` result captured on a probed (`"auto"`) or pinned
+   * (`"modern"`) connect — server identity, capabilities, and supported
+   * versions learned up front without an initialize handshake. Undefined when
+   * not connected or on a plain legacy connect. Persistable and feedable back
+   * to the SDK as `connect(transport, { prior })` for a zero-round-trip
+   * reconnect. (#1626)
+   */
+  getDiscoverResult(): DiscoverResult | undefined {
+    return this.discoverResult;
   }
 
   /**
@@ -2914,13 +2956,20 @@ export class InspectorClient extends InspectorClientEventTarget {
         this.dispatchTypedEvent("instructionsChange", this.instructions);
       }
 
-      // The negotiated protocol version isn't exposed by the SDK Client; it's
-      // stamped onto the transport during initialize. MessageTrackingTransport
-      // captures it (see its setProtocolVersion) so we can surface it here.
-      if (this.transport instanceof MessageTrackingTransport) {
-        this.protocolVersion = this.transport.protocolVersion;
-        this.dispatchTypedEvent("protocolVersionChange", this.protocolVersion);
-      }
+      // Era model (SEP §7.8): the SDK Client owns negotiation and exposes the
+      // outcome. `getProtocolEra()` is populated for every era once connected —
+      // a plain legacy connect reports `"legacy"`. `getDiscoverResult()` is
+      // populated only when "auto"/"modern" actually probed server/discover.
+      this.protocolEra = this.client.getProtocolEra();
+      this.dispatchTypedEvent("protocolEraChange", this.protocolEra);
+      this.discoverResult = this.client.getDiscoverResult();
+      this.dispatchTypedEvent("discoverResultChange", this.discoverResult);
+
+      // The SDK's negotiated-version accessor works for both eras (the
+      // initialize handshake on legacy, the discover/pin on modern), so it
+      // supersedes the older MessageTrackingTransport capture.
+      this.protocolVersion = this.client.getNegotiatedProtocolVersion();
+      this.dispatchTypedEvent("protocolVersionChange", this.protocolVersion);
     } catch {
       // Ignore errors in fetching server info
     }

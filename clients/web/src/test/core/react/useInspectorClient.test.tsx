@@ -77,6 +77,59 @@ describe("useInspectorClient", () => {
     expect(result.current.protocolVersion).toBe("2025-06-18");
   });
 
+  it("returns initial protocolEra / discoverResult from the client", () => {
+    const discoverResult = {
+      supportedVersions: ["2026-07-28"],
+      serverInfo: SERVER_INFO,
+      capabilities: {},
+    };
+    const client = new FakeInspectorClient({
+      status: "connected",
+      protocolEra: "modern",
+      discoverResult,
+    });
+    const { result } = renderHook(() => useInspectorClient(client));
+    expect(result.current.protocolEra).toBe("modern");
+    expect(result.current.discoverResult).toEqual(discoverResult);
+  });
+
+  it("subscribes to protocolEraChange and discoverResultChange", () => {
+    const client = new FakeInspectorClient();
+    const { result } = renderHook(() => useInspectorClient(client));
+    expect(result.current.protocolEra).toBeUndefined();
+    expect(result.current.discoverResult).toBeUndefined();
+    const discoverResult = {
+      supportedVersions: ["2026-07-28"],
+      serverInfo: SERVER_INFO,
+      capabilities: {},
+    };
+    act(() => {
+      client.setProtocolEra("modern");
+      client.setDiscoverResult(discoverResult);
+    });
+    expect(result.current.protocolEra).toBe("modern");
+    expect(result.current.discoverResult).toEqual(discoverResult);
+  });
+
+  it("resets protocolEra / discoverResult to defaults when client becomes null", () => {
+    const client = new FakeInspectorClient({
+      status: "connected",
+      protocolEra: "modern",
+      discoverResult: {
+        supportedVersions: ["2026-07-28"],
+        serverInfo: SERVER_INFO,
+        capabilities: {},
+      },
+    });
+    const { result, rerender } = renderHook(({ c }) => useInspectorClient(c), {
+      initialProps: { c: client as FakeInspectorClient | null },
+    });
+    expect(result.current.protocolEra).toBe("modern");
+    rerender({ c: null });
+    expect(result.current.protocolEra).toBeUndefined();
+    expect(result.current.discoverResult).toBeUndefined();
+  });
+
   it("connect() and disconnect() proxy to the client and update status", async () => {
     const client = new FakeInspectorClient();
     const { result } = renderHook(() => useInspectorClient(client));

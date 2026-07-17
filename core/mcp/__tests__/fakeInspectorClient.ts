@@ -8,9 +8,11 @@
 import { vi } from "vitest";
 import type {
   ClientCapabilities,
+  DiscoverResult,
   Implementation,
   LoggingLevel,
   Prompt,
+  ProtocolEra,
   Resource,
   ResourceTemplateType as ResourceTemplate,
   ServerCapabilities,
@@ -45,6 +47,8 @@ export interface FakeInspectorClientOptions {
   serverInfo?: Implementation;
   instructions?: string;
   protocolVersion?: string;
+  protocolEra?: ProtocolEra;
+  discoverResult?: DiscoverResult;
   serverSettings?: InspectorServerSettings;
 }
 
@@ -58,6 +62,8 @@ export class FakeInspectorClient
   private serverInfo: Implementation | undefined;
   private instructions: string | undefined;
   private protocolVersion: string | undefined;
+  private protocolEra: ProtocolEra | undefined;
+  private discoverResult: DiscoverResult | undefined;
   private serverSettings: InspectorServerSettings | undefined;
   private appRendererClient: AppRendererClient | null = null;
   private sessionId: string | undefined;
@@ -153,6 +159,8 @@ export class FakeInspectorClient
     this.serverInfo = options.serverInfo;
     this.instructions = options.instructions;
     this.protocolVersion = options.protocolVersion;
+    this.protocolEra = options.protocolEra;
+    this.discoverResult = options.discoverResult;
     this.serverSettings = options.serverSettings;
   }
 
@@ -178,6 +186,14 @@ export class FakeInspectorClient
 
   getProtocolVersion(): string | undefined {
     return this.protocolVersion;
+  }
+
+  getProtocolEra(): ProtocolEra | undefined {
+    return this.protocolEra;
+  }
+
+  getDiscoverResult(): DiscoverResult | undefined {
+    return this.discoverResult;
   }
 
   getServerSettings(): InspectorServerSettings | undefined {
@@ -257,6 +273,16 @@ export class FakeInspectorClient
   setProtocolVersion(protocolVersion: string | undefined): void {
     this.protocolVersion = protocolVersion;
     this.dispatchTypedEvent("protocolVersionChange", protocolVersion);
+  }
+
+  setProtocolEra(protocolEra: ProtocolEra | undefined): void {
+    this.protocolEra = protocolEra;
+    this.dispatchTypedEvent("protocolEraChange", protocolEra);
+  }
+
+  setDiscoverResult(discoverResult: DiscoverResult | undefined): void {
+    this.discoverResult = discoverResult;
+    this.dispatchTypedEvent("discoverResultChange", discoverResult);
   }
 
   setAppRendererClient(client: AppRendererClient | null): void {

@@ -15,8 +15,10 @@ import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type {
   InspectorServerSettings,
   OAuthSettings,
+  ServerProtocolEra,
   ServerType,
 } from "@inspector/core/mcp/types.js";
+import { DEFAULT_PROTOCOL_ERA } from "@inspector/core/mcp/types.js";
 import { isOAuthCapableServerType } from "@inspector/core/mcp/config.js";
 import type { Root } from "@modelcontextprotocol/client";
 
@@ -57,11 +59,29 @@ export interface ServerSettingsFormProps {
   ) => void;
   onAutoRefreshChange: (value: boolean) => void;
   onMaxFetchRequestsChange: (value: number) => void;
+  onProtocolEraChange: (value: ServerProtocolEra) => void;
   onOAuthChange: (oauth: OAuthSettings) => void;
   onClearStoredOAuth?: () => void;
   onAddRoot: () => void;
   onRemoveRoot: (index: number) => void;
   onRootChange: (index: number, uri: string, name: string) => void;
+}
+
+// Protocol-era options (SEP §7.8). Values are `ServerProtocolEra`; the pinned
+// modern revision is an internal detail (MODERN_PROTOCOL_VERSION), so the label
+// stays version-free.
+const PROTOCOL_ERA_OPTIONS: { value: ServerProtocolEra; label: string }[] = [
+  { value: "legacy", label: "Legacy (2025-11-25 handshake)" },
+  { value: "auto", label: "Auto (probe, fall back to legacy)" },
+  { value: "modern", label: "Modern (2026-07-28, sessionless)" },
+];
+
+const PROTOCOL_ERA_VALUES: ReadonlySet<ServerProtocolEra> = new Set(
+  PROTOCOL_ERA_OPTIONS.map((o) => o.value),
+);
+
+function isProtocolEra(value: string | null): value is ServerProtocolEra {
+  return value !== null && PROTOCOL_ERA_VALUES.has(value as ServerProtocolEra);
 }
 
 const RemoveIcon = ActionIcon.withProps({
@@ -220,6 +240,7 @@ export function ServerSettingsForm({
   onTimeoutChange,
   onAutoRefreshChange,
   onMaxFetchRequestsChange,
+  onProtocolEraChange,
   onOAuthChange,
   onClearStoredOAuth,
   onAddRoot,
@@ -273,6 +294,20 @@ export function ServerSettingsForm({
         <Accordion.Control>Options</Accordion.Control>
         <Accordion.Panel>
           <Stack gap="md">
+            <Select
+              label="Protocol Era"
+              description="Which MCP protocol era to negotiate with this server (independent of the transport). Legacy uses the 2025-11-25 initialize handshake; Auto probes server/discover and falls back to legacy; Modern pins the 2026-07-28 sessionless protocol. Defaults to Legacy — debugging tools should not auto-probe."
+              data={PROTOCOL_ERA_OPTIONS}
+              value={settings.protocolEra ?? DEFAULT_PROTOCOL_ERA}
+              onChange={(value) => {
+                // Select emits `string | null`; the null (cleared) case is
+                // unreachable here — the field is not clearable and the value
+                // always resolves to a known era.
+                /* v8 ignore next -- Select never emits an out-of-range value */
+                if (isProtocolEra(value)) onProtocolEraChange(value);
+              }}
+              allowDeselect={false}
+            />
             <Checkbox
               label="Auto Refresh on List Changed Notifications"
               description="When checked, tool/prompt/resource lists refresh automatically when the server sends a */list_changed notification. When unchecked, the list-changed indicator appears and you refresh on demand."

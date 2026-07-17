@@ -17,6 +17,7 @@ import type {
   ServerNotification,
   ServerRequest,
   Tool,
+  VersionNegotiationOptions,
 } from "@modelcontextprotocol/client";
 import type { Client } from "@modelcontextprotocol/client";
 import type { OAuthClientProvider } from "@modelcontextprotocol/client";
@@ -102,6 +103,13 @@ export type StoredMCPServer = MCPServerConfig & {
    * shape is preserved on disk and in memory.
    */
   metadata?: { key: string; value: string }[];
+  /**
+   * Protocol era to negotiate with this server (`"legacy" | "auto" | "modern"`),
+   * orthogonal to the transport `type`. Inspector-specific (no analog in the
+   * broader mcp.json ecosystem). Omitted on disk when it equals the default
+   * (`"legacy"`). (#1626)
+   */
+  protocolEra?: ServerProtocolEra;
   /** Inspector-specific connect-time timeout (ms). */
   connectionTimeout?: number;
   /** Inspector-specific request timeout (ms). */
@@ -435,6 +443,50 @@ export const DEFAULT_TASK_TTL_MS = 60000;
 export const DEFAULT_MAX_FETCH_REQUESTS = 1000;
 
 /**
+ * Per-server protocol era (SEP §7.8 backward-compat model), an orthogonal
+ * dimension to the transport `type`. Drives the SDK Client's
+ * `versionNegotiation`:
+ *
+ * - `"legacy"` — the plain 2025-11-25 `initialize` handshake, byte-identical to
+ *   a client without negotiation. **This is the default** per the SDK's
+ *   guidance that a debugging tool must not auto-probe (a probe stalls on
+ *   silent stdio legacy servers and pollutes recorded transcripts).
+ * - `"auto"` — probe `server/discover` at connect and fall back to `initialize`
+ *   on any non-modern outcome.
+ * - `"modern"` — pin the modern era at exactly `MODERN_PROTOCOL_VERSION`; no
+ *   fallback (a non-modern server fails loudly).
+ */
+export type ServerProtocolEra = "legacy" | "auto" | "modern";
+
+/** The default per-server protocol era when none is configured. */
+export const DEFAULT_PROTOCOL_ERA: ServerProtocolEra = "legacy";
+
+/**
+ * The modern protocol revision `"modern"` era pins to. The successor to
+ * 2025-11-25; the first revision with the per-request-metadata / sessionless
+ * model (SEP §7.1).
+ */
+export const MODERN_PROTOCOL_VERSION = "2026-07-28";
+
+/**
+ * Map a per-server {@link ServerProtocolEra} onto the SDK Client's
+ * `versionNegotiation` option. `"modern"` pins {@link MODERN_PROTOCOL_VERSION};
+ * `"legacy"`/`"auto"` pass their mode straight through.
+ */
+export function eraToVersionNegotiation(
+  era: ServerProtocolEra,
+): VersionNegotiationOptions {
+  switch (era) {
+    case "auto":
+      return { mode: "auto" };
+    case "modern":
+      return { mode: { pin: MODERN_PROTOCOL_VERSION } };
+    case "legacy":
+      return { mode: "legacy" };
+  }
+}
+
+/**
  * Runtime settings for a configured server. A subset of
  * InspectorClientOptions (v1.5) relevant to the settings form:
  * headers, metadata, timeouts, and OAuth credentials.
@@ -497,6 +549,14 @@ export interface InspectorServerSettings {
    * persist (see `inspectorSettingsToStoredFields`).
    */
   roots: Root[];
+  /**
+   * Protocol era to negotiate with this server (orthogonal to the transport
+   * `type`). Drives the SDK Client's `versionNegotiation`. Optional so a bare
+   * settings node reads back without one; absence means {@link
+   * DEFAULT_PROTOCOL_ERA} (`"legacy"`). Persisted on disk as `protocolEra` and
+   * omitted when it equals the default, keeping the file diff minimal.
+   */
+  protocolEra?: ServerProtocolEra;
 }
 
 /**
@@ -741,6 +801,15 @@ export interface InspectorClientOptions {
    * `serverSettings` itself is only consumed by the transport.
    */
   serverSettings?: InspectorServerSettings;
+
+  /**
+   * Protocol version negotiation for the SDK Client (SEP §7.8 era model).
+   * When omitted, the client pins the legacy 2025-11-25 era
+   * (`{ mode: "legacy" }`), byte-identical to a client without negotiation.
+   * Callers derive this from the per-server {@link ServerProtocolEra} via
+   * {@link eraToVersionNegotiation}. (#1626)
+   */
+  versionNegotiation?: VersionNegotiationOptions;
 
   /**
    * OAuth configuration (client credentials, scope, etc.)

@@ -220,6 +220,7 @@ gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-i
 - Follow TypeScript best practices and coding standards
 - NEVER use 'any' as a type
 - NEVER suppress error types (e.g., no-unused-vars, no-explicit-any) in the typescript or eslint configuration as a way of satisfying the linter or compiler.
+- AVOID double casts (`as unknown as T`). They erase all type safety and usually signal that the real type is being worked around. Prefer a type guard, a narrower single `as` cast, or fixing the underlying type. When a double cast is genuinely unavoidable (e.g. a documented gap in a third-party type, or bridging a structurally-identical shape TS can't relate), it MUST carry an inline comment justifying why it is safe and why no better option exists — an unjustified `as unknown as` is not acceptable in review.
 - Utilize type annotations and interfaces to improve code clarity and maintainability
 - Leverage TypeScript's type inference and static analysis features for better code quality and refactoring
 - Use type guards and type assertions to handle potential type mismatches and ensure type safety

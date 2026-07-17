@@ -34,6 +34,8 @@ import type {
   Task,
   CallToolResult,
   ProtocolError,
+  ProtocolEra,
+  DiscoverResult,
 } from "@modelcontextprotocol/client";
 import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import type { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
@@ -56,6 +58,10 @@ export interface InspectorClientEventMap {
   serverInfoChange: Implementation | undefined;
   instructionsChange: string | undefined;
   protocolVersionChange: string | undefined;
+  /** Protocol era negotiated after connect (SEP §7.8); `"legacy"` on a legacy connect, undefined when not connected. */
+  protocolEraChange: ProtocolEra | undefined;
+  /** `server/discover` result on a probed/pinned connect; undefined on legacy. */
+  discoverResultChange: DiscoverResult | undefined;
   message: MessageEntry;
   stderrLog: StderrLogEntry;
   fetchRequest: FetchRequestEntry;
