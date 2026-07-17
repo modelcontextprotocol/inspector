@@ -41,7 +41,6 @@ import type {
   InspectorServerSettings,
   MCPConfig,
   MCPServerConfig,
-  ServerProtocolEra,
   StdioServerConfig,
   StoredMCPServer,
 } from "../../types.js";
@@ -52,6 +51,7 @@ import {
   extractSecretsFromStored,
   INSPECTOR_FIELD_KEYS,
   inspectorSettingsToStoredFields,
+  isProtocolEra,
   mergeSecretsIntoStored,
   normalizeServerType,
   storedFieldsToInspectorSettings,
@@ -1078,8 +1078,6 @@ export function createRemoteApp(
       return true;
     });
   };
-  const isProtocolEra = (v: unknown): v is ServerProtocolEra =>
-    v === "legacy" || v === "auto" || v === "modern";
   // `Number.isFinite` rejects `Infinity` and `NaN` as well as non-numbers,
   // matching the write-side semantics in `validateSettings`. A hand-edited
   // file with `connectionTimeout: Infinity` would otherwise pass the guard
