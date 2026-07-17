@@ -135,7 +135,9 @@ function validateConfig(
       `Invalid config in ${filePath}: transport.type must be stdio, streamable-http, or sse`,
     );
   }
-  if (transport.modern !== undefined && transportType !== "streamable-http") {
+  // Only reject *enabling* modern on a non-HTTP transport; a falsy `modern`
+  // (e.g. `false`) is a no-op that `resolveConfig` normalizes away.
+  if (transport.modern && transportType !== "streamable-http") {
     throw new Error(
       `Invalid config in ${filePath}: transport.modern requires transport.type "streamable-http"`,
     );
