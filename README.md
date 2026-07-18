@@ -241,13 +241,14 @@ ALLOWED_ORIGINS=http://localhost:6274,http://localhost:8000 npm start
 
 The MCP Inspector supports the following configuration settings. To change them, click on the `Configuration` button in the MCP Inspector UI:
 
-| Setting                                 | Description                                                                                                                                         | Default |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `MCP_SERVER_REQUEST_TIMEOUT`            | Client-side timeout (ms) - Inspector will cancel the request if no response is received within this time. Note: servers may have their own timeouts | 300000  |
-| `MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS` | Reset timeout on progress notifications                                                                                                             | true    |
-| `MCP_REQUEST_MAX_TOTAL_TIMEOUT`         | Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)                                                    | 60000   |
-| `MCP_PROXY_FULL_ADDRESS`                | Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577                                        | ""      |
-| `MCP_AUTO_OPEN_ENABLED`                 | Enable automatic browser opening when inspector starts (works with authentication enabled). Only as environment var, not configurable in browser.   | true    |
+| Setting                                 | Description                                                                                                                                                                    | Default |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| `MCP_SERVER_REQUEST_TIMEOUT`            | Client-side timeout (ms) - Inspector will cancel the request if no response is received within this time. Note: servers may have their own timeouts                            | 300000  |
+| `MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS` | Reset timeout on progress notifications                                                                                                                                        | true    |
+| `MCP_REQUEST_MAX_TOTAL_TIMEOUT`         | Maximum total timeout for requests sent to the MCP server (ms) (Use with progress notifications)                                                                               | 60000   |
+| `MCP_PROXY_FULL_ADDRESS`                | Set this if you are running the MCP Inspector Proxy on a non-default address. Example: http://10.1.1.22:5577                                                                   | ""      |
+| `MCP_AUTO_OPEN_ENABLED`                 | Enable automatic browser opening when inspector starts (works with authentication enabled). Only as environment var, not configurable in browser.                              | true    |
+| `MCP_SERVER_ENDPOINT`                   | Default MCP server endpoint to connect to on startup. Transport type is auto-detected from path (`/sse` → SSE, `/mcp` → Streamable HTTP). Example: `http://localhost:8080/sse` | ""      |
 
 **Note on Timeouts:** The timeout settings above control when the Inspector (as an MCP client) will cancel requests. These are independent of any server-side timeouts. For example, if a server tool has a 10-minute timeout but the Inspector's timeout is set to 30 seconds, the Inspector will cancel the request after 30 seconds. Conversely, if the Inspector's timeout is 10 minutes but the server times out after 30 seconds, you'll receive the server's timeout error. For tools that require user interaction (like elicitation) or long-running operations, ensure the Inspector's timeout is set appropriately.
 
