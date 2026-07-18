@@ -982,6 +982,64 @@ describe("useConnection", () => {
     });
   });
 
+  describe("Credentials Include (direct connection)", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockSSETransport.url = undefined;
+      mockSSETransport.options = undefined;
+    });
+
+    test("passes credentials: 'include' to direct fetch when credentialsInclude is true", async () => {
+      const props = {
+        ...defaultProps,
+        connectionType: "direct" as const,
+        credentialsInclude: true,
+      };
+
+      const { result } = renderHook(() => useConnection(props));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const mockFetch = mockSSETransport.options?.fetch;
+      expect(mockFetch).toBeDefined();
+
+      await mockFetch?.("http://test.com", {
+        headers: { Accept: "text/event-stream" },
+      });
+
+      expect((global.fetch as jest.Mock).mock.calls[0][1]).toHaveProperty(
+        "credentials",
+        "include",
+      );
+    });
+
+    test("omits credentials on direct fetch when credentialsInclude is unset", async () => {
+      const props = {
+        ...defaultProps,
+        connectionType: "direct" as const,
+      };
+
+      const { result } = renderHook(() => useConnection(props));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const mockFetch = mockSSETransport.options?.fetch;
+      expect(mockFetch).toBeDefined();
+
+      await mockFetch?.("http://test.com", {
+        headers: { Accept: "text/event-stream" },
+      });
+
+      expect((global.fetch as jest.Mock).mock.calls[0][1]).not.toHaveProperty(
+        "credentials",
+      );
+    });
+  });
+
   describe("Proxy Authentication Headers", () => {
     beforeEach(() => {
       jest.clearAllMocks();
