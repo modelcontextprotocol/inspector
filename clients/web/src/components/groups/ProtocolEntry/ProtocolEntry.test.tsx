@@ -585,5 +585,20 @@ describe("ProtocolEntry — modern vocabulary", () => {
       // ...but it still renders as an Error.
       expect(screen.getByText("Error")).toBeInTheDocument();
     });
+
+    it("shows the chip only in the wide layout, not the compact sidebar row", () => {
+      // Compact: only the expanded-detail alert carries the label (1 match); no
+      // row chip. Wide: the row chip AND the alert (2 matches).
+      const { unmount } = renderWithMantine(
+        <ProtocolEntry {...baseProps} entry={headerMismatchEntry} embedded />,
+      );
+      expect(screen.getAllByText("-32020 HeaderMismatch")).toHaveLength(1);
+      unmount();
+
+      renderWithMantine(
+        <ProtocolEntry {...baseProps} entry={headerMismatchEntry} />,
+      );
+      expect(screen.getAllByText("-32020 HeaderMismatch")).toHaveLength(2);
+    });
   });
 });

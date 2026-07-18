@@ -261,8 +261,9 @@ export function ProtocolEntry({
       direction={entry.origin === "client" ? "outgoing" : "incoming"}
     />
   );
-  // Distinct chip for a modern spec error (SEP-2243 / SEP-2575). Sits on the top
-  // line right after the direction badge in both layouts.
+  // Distinct chip for a modern spec error (SEP-2243 / SEP-2575). Shown only in
+  // the wide layout (right after the method chip); the compact sidebar relies on
+  // its ERROR status badge to keep the two-line row uncluttered.
   const specError = extractSpecError(entry);
   const specErrorBadge = specError && (
     <McpErrorBadge
@@ -314,7 +315,6 @@ export function ProtocolEntry({
                   {formatTimestampCompact(entry.timestamp)}
                 </TimestampText>
                 {directionBadge}
-                {specErrorBadge}
               </HeaderCluster>
               <ControlsCluster>
                 {durationText}
@@ -363,8 +363,8 @@ export function ProtocolEntry({
                   {formatTimestamp(entry.timestamp)}
                 </TimestampText>
                 {directionBadge}
-                {specErrorBadge}
                 <MethodBadge method={method} />
+                {specErrorBadge}
                 {modernFrameBadge}
                 {subscriptionBadge}
                 {target && (
