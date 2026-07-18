@@ -35,6 +35,10 @@ export function McpErrorBadge({ code, name, description }: McpErrorBadgeProps) {
       color={filledBadgeColor(COLOR_BY_CODE[code] ?? "red")}
       variant="filled"
       autoContrast
+      // Keep the spec/SDK identifier's own casing (e.g. "UnsupportedProtocolVersion")
+      // rather than Mantine's default uppercase, which runs these long
+      // PascalCase names together and hurts readability.
+      tt="none"
     >
       {code} {name}
     </Badge>
