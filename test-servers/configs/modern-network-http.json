@@ -1,0 +1,20 @@
+{
+  "serverInfo": {
+    "name": "modern-network-showcase",
+    "version": "1.0.0"
+  },
+  "tools": [
+    { "preset": "echo" },
+    { "preset": "get_weather" },
+    { "preset": "trigger_header_mismatch" },
+    { "preset": "trigger_missing_capability" },
+    { "preset": "trigger_unsupported_version" },
+    { "preset": "trigger_method_not_found" }
+  ],
+  "resources": [{ "preset": "architecture" }],
+  "transport": {
+    "type": "streamable-http",
+    "port": 3110,
+    "modern": { "legacy": "stateless", "injectSpecErrors": true }
+  }
+}

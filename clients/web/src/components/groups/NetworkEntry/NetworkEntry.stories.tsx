@@ -143,3 +143,123 @@ export const StreamingResponse: Story = {
 export const FetchError: Story = {
   args: { entry: transportError, isListExpanded: true },
 };
+
+/** Mirror of the SDK's SEP-2243 sentinel encoding, for building fixtures. */
+function encodeSentinel(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return `=?base64?${btoa(bin)}?=`;
+}
+
+// A modern Streamable HTTP tools/call: mirrored Mcp-Method / Mcp-Name headers,
+// a Mcp-Param-* custom header, and a sentinel-encoded value that decodes to a
+// non-ASCII string.
+const modernHeadersEntry: FetchRequestEntry = {
+  id: "n-modern",
+  timestamp: new Date("2026-07-28T10:30:20Z"),
+  method: "POST",
+  url: "https://example.com/mcp",
+  requestHeaders: {
+    "content-type": "application/json",
+    "mcp-method": "tools/call",
+    "mcp-name": "get_weather",
+    "mcp-param-city": encodeSentinel("São Paulo"),
+    "mcp-protocol-version": "2026-07-28",
+  },
+  requestBody: JSON.stringify({
+    jsonrpc: "2.0",
+    id: 7,
+    method: "tools/call",
+    params: {
+      name: "get_weather",
+      arguments: { city: "São Paulo" },
+      _meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28" },
+    },
+  }),
+  responseStatus: 200,
+  responseStatusText: "OK",
+  responseHeaders: { "content-type": "application/json" },
+  responseBody: '{"jsonrpc":"2.0","id":7,"result":{}}',
+  duration: 33,
+  category: "transport",
+};
+
+// A HeaderMismatch: the sent Mcp-Method disagrees with the body's method, and
+// the server rejects it with -32020 / HTTP 400.
+const headerMismatchEntry: FetchRequestEntry = {
+  id: "n-mismatch",
+  timestamp: new Date("2026-07-28T10:30:22Z"),
+  method: "POST",
+  url: "https://example.com/mcp",
+  requestHeaders: {
+    "content-type": "application/json",
+    "mcp-method": "tools/list",
+    "mcp-protocol-version": "2026-07-28",
+  },
+  requestBody: JSON.stringify({
+    jsonrpc: "2.0",
+    id: 8,
+    method: "tools/call",
+    params: {
+      name: "get_weather",
+      _meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28" },
+    },
+  }),
+  responseStatus: 400,
+  responseStatusText: "Bad Request",
+  responseHeaders: { "content-type": "application/json" },
+  responseBody: JSON.stringify({
+    jsonrpc: "2.0",
+    id: 8,
+    error: { code: -32020, message: "Mcp-Method header does not match body" },
+  }),
+  duration: 12,
+  category: "transport",
+};
+
+const cancelledEntry: FetchRequestEntry = {
+  id: "n-cancel",
+  timestamp: new Date("2026-07-28T10:30:28Z"),
+  method: "POST",
+  url: "https://example.com/mcp",
+  requestHeaders: { "mcp-method": "tools/call" },
+  requestBody: '{"jsonrpc":"2.0","id":11,"method":"tools/call"}',
+  error: "The operation was aborted",
+  category: "transport",
+};
+
+export const ModernHeaders: Story = {
+  args: { entry: modernHeadersEntry, isListExpanded: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // The sentinel Mcp-Param value decodes to its non-ASCII string and is
+    // flagged as base64-encoded.
+    await expect(canvas.getByText("São Paulo")).toBeInTheDocument();
+    await expect(canvas.getByText("base64")).toBeInTheDocument();
+  },
+};
+
+// The header/body consistency marker is an HTTP-header concern that stays in the
+// Network tab (the -32020 spec-error chip itself moved to the Protocol tab).
+export const HeaderBodyMismatch: Story = {
+  args: { entry: headerMismatchEntry, isListExpanded: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // The disagreeing header is called out against the body...
+    await expect(
+      canvas.getByLabelText(/expected tools\/call/),
+    ).toBeInTheDocument();
+    // ...but the spec-error chip is NOT here (it lives in the Protocol tab now).
+    await expect(canvas.queryByText("-32020 HeaderMismatch")).toBeNull();
+  },
+};
+
+export const Cancelled: Story = {
+  args: { entry: cancelledEntry, isListExpanded: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Cancelled")).toBeInTheDocument();
+    await expect(canvas.getByText("Request cancelled")).toBeInTheDocument();
+  },
+};

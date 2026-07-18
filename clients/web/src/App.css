@@ -122,6 +122,10 @@
   --inspector-badge-transport-fg: var(--mantine-color-blue-light-color);
   --inspector-badge-auth-bg: var(--mantine-color-violet-light);
   --inspector-badge-auth-fg: var(--mantine-color-violet-light-color);
+
+  /* Accent for the modern MCP-mirrored header names (Mcp-Method / Mcp-Name /
+     Mcp-Param-* / MCP-Protocol-Version) in the Network tab's header tables. */
+  --inspector-mcp-header-accent: var(--mantine-color-violet-7);
 }
 
 /* Dark mode overrides — tokens that need adjustment in dark scheme */
@@ -190,6 +194,7 @@
   --inspector-badge-transport-fg: var(--mantine-color-blue-0);
   --inspector-badge-auth-bg: var(--mantine-color-violet-6);
   --inspector-badge-auth-fg: var(--mantine-color-violet-0);
+  --inspector-mcp-header-accent: var(--mantine-color-violet-4);
 
   /* ── A11y contrast (dark) ──────────────────────────────── */
   /* Mantine's dark `dimmed` (dark-2) drops below AA on the lighter dark

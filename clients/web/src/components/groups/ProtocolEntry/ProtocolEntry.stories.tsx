@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Box } from "@mantine/core";
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
-import { fn } from "storybook/test";
+import { expect, fn, within } from "storybook/test";
 import { ProtocolEntry } from "./ProtocolEntry";
 
 const meta: Meta<typeof ProtocolEntry> = {
@@ -266,4 +266,91 @@ export const EmbeddedLongUri: Story = {
       </Box>
     ),
   ],
+};
+
+// Modern spec errors (SEP-2243 / SEP-2575) are surfaced distinctly in the
+// Protocol tab: a colour-coded chip on the header row plus an explanatory alert.
+const headerMismatchEntry: MessageEntry = {
+  id: "req-err-20",
+  timestamp: new Date("2026-07-28T10:30:22Z"),
+  direction: "request",
+  origin: "client",
+  message: {
+    jsonrpc: "2.0",
+    id: 20,
+    method: "tools/call",
+    params: { name: "get_weather" },
+  },
+  response: {
+    jsonrpc: "2.0",
+    id: 20,
+    error: { code: -32020, message: "Mcp-Method header does not match body" },
+  },
+  duration: 12,
+};
+
+const unsupportedVersionEntry: MessageEntry = {
+  ...headerMismatchEntry,
+  id: "req-err-22",
+  response: {
+    jsonrpc: "2.0",
+    id: 20,
+    error: {
+      code: -32022,
+      message: "Unsupported protocol version",
+      data: { supported: ["2025-06-18", "2025-11-25", "2026-07-28"] },
+    },
+  },
+};
+
+// -32601 arrives as HTTP 404 (thrown by the SDK) and is folded onto its pending
+// request by enrichProtocolEntries, so it too reaches the Protocol tab.
+const methodNotFoundEntry: MessageEntry = {
+  ...headerMismatchEntry,
+  id: "req-err-601",
+  response: {
+    jsonrpc: "2.0",
+    id: 20,
+    error: { code: -32601, message: "Method not found" },
+  },
+};
+
+export const HeaderMismatch: Story = {
+  args: { entry: headerMismatchEntry, isListExpanded: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(
+      canvas.getAllByText("-32020 HeaderMismatch").length,
+    ).toBeGreaterThan(0);
+    await expect(
+      canvas.getByText(/An Mcp-\* header did not match/),
+    ).toBeInTheDocument();
+  },
+};
+
+export const UnsupportedVersion: Story = {
+  args: { entry: unsupportedVersionEntry, isListExpanded: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(
+      canvas.getByText(/Server supports: 2025-06-18, 2025-11-25, 2026-07-28/),
+    ).toBeInTheDocument();
+  },
+};
+
+export const MethodNotFound: Story = {
+  // `correlatedHttpStatus: 404` marks this as the genuine modern thrown-404
+  // taxonomy; an in-band -32601 on a 200 (or over stdio, with no HTTP at all)
+  // renders as an ordinary error instead.
+  args: {
+    entry: methodNotFoundEntry,
+    isListExpanded: false,
+    correlatedHttpStatus: 404,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(
+      canvas.getAllByText("-32601 MethodNotFound").length,
+    ).toBeGreaterThan(0);
+  },
 };

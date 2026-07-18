@@ -125,6 +125,67 @@ function extractHeaders(req: Request): Record<string, string> {
   return headers;
 }
 
+/**
+ * Maps a trigger `tools/call` name to the crafted spec-error response the
+ * injector returns (see {@link ServerConfig.modern}.injectSpecErrors). Each is a
+ * real HTTP status + JSON-RPC error body per the 2026-07-28 transport spec, so
+ * the Inspector's Network tab renders the taxonomy exactly as it would from a
+ * real modern server.
+ */
+const SPEC_ERROR_TRIGGERS: Record<
+  string,
+  { httpStatus: number; code: number; message: string; data?: unknown }
+> = {
+  trigger_header_mismatch: {
+    httpStatus: 400,
+    code: -32020,
+    message: "Mcp-Method header does not match the JSON-RPC body",
+  },
+  trigger_missing_capability: {
+    httpStatus: 400,
+    code: -32021,
+    message: "Client is missing a required capability",
+  },
+  trigger_unsupported_version: {
+    httpStatus: 400,
+    code: -32022,
+    message: "Unsupported protocol version",
+    data: { supported: ["2025-06-18", "2025-11-25", "2026-07-28"] },
+  },
+  trigger_method_not_found: {
+    httpStatus: 404,
+    code: -32601,
+    message: "Method not found",
+  },
+};
+
+interface JsonRpcCallBody {
+  id?: string | number | null;
+  method?: string;
+  params?: { name?: string };
+}
+
+const specErrorInjector: express.RequestHandler = (req, res, next) => {
+  const body = req.body as JsonRpcCallBody | undefined;
+  const trigger =
+    body?.method === "tools/call" && typeof body.params?.name === "string"
+      ? SPEC_ERROR_TRIGGERS[body.params.name]
+      : undefined;
+  if (!trigger) {
+    next();
+    return;
+  }
+  res.status(trigger.httpStatus).json({
+    jsonrpc: "2.0",
+    id: body?.id ?? null,
+    error: {
+      code: trigger.code,
+      message: trigger.message,
+      ...(trigger.data !== undefined ? { data: trigger.data } : {}),
+    },
+  });
+};
+
 // With this test server, your test can hold an instance and you can get the server's recorded message history at any time.
 //
 export class TestServerHttp {
@@ -296,7 +357,15 @@ export class TestServerHttp {
       }
     };
 
-    app.post("/mcp", ...mcpMiddleware, route);
+    // Optional spec-error injector: returns the SEP-2243 / SEP-2575 error codes
+    // for the trigger tool calls so the Inspector's Network tab can be exercised
+    // against them (a conformant server never emits these on demand).
+    const extraMiddleware: express.RequestHandler[] = this.config.modern
+      ?.injectSpecErrors
+      ? [specErrorInjector]
+      : [];
+
+    app.post("/mcp", ...mcpMiddleware, ...extraMiddleware, route);
     app.get("/mcp", ...mcpMiddleware, route);
     app.delete("/mcp", ...mcpMiddleware, route);
 

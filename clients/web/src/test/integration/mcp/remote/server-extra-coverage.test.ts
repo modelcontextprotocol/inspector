@@ -238,6 +238,18 @@ describe("server.ts supplemental coverage", () => {
           res.end(JSON.stringify({ got: req.headers["x-probe"] ?? null }));
           return;
         }
+        if (req.url === "/echo-mcp") {
+          // Echo back every mirrored MCP header the proxy forwarded, so a test
+          // can assert the browser-built Mcp-* headers survive the /api/fetch
+          // hop verbatim (SEP-2243 header mirroring works through the proxy).
+          const mcp: Record<string, string | string[] | undefined> = {};
+          for (const [k, v] of Object.entries(req.headers)) {
+            if (k.toLowerCase().startsWith("mcp-")) mcp[k] = v;
+          }
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(mcp));
+          return;
+        }
         res.writeHead(200, { "Content-Type": "text/plain" });
         res.end("plain body");
       });
@@ -280,6 +292,34 @@ describe("server.ts supplemental coverage", () => {
       expect(body.status).toBe(200);
       expect(body.headers["content-type"]).toContain("application/json");
       expect(JSON.parse(body.body!)).toEqual({ got: "abc" });
+    });
+
+    it("forwards modern MCP mirrored headers verbatim (SEP-2243 mirroring through the proxy)", async () => {
+      // The browser-side SDK builds Mcp-Method / Mcp-Name / Mcp-Param-* /
+      // MCP-Protocol-Version before calling the (proxied) fetch; /api/fetch must
+      // re-send them unchanged so mirroring is preserved on the browser path.
+      const mirrored = {
+        "Mcp-Method": "tools/call",
+        "Mcp-Name": "get_weather",
+        "Mcp-Param-City": "=?base64?U8OjbyBQYXVsbw==?=",
+        "MCP-Protocol-Version": "2026-07-28",
+      };
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: `${targetUrl}/echo-mcp`,
+          method: "POST",
+          headers: mirrored,
+        }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { body?: string };
+      const echoed = JSON.parse(body.body!) as Record<string, string>;
+      expect(echoed["mcp-method"]).toBe("tools/call");
+      expect(echoed["mcp-name"]).toBe("get_weather");
+      expect(echoed["mcp-param-city"]).toBe("=?base64?U8OjbyBQYXVsbw==?=");
+      expect(echoed["mcp-protocol-version"]).toBe("2026-07-28");
     });
 
     it("omits the body for an event-stream content type", async () => {

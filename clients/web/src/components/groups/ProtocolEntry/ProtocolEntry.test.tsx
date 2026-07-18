@@ -500,4 +500,207 @@ describe("ProtocolEntry — modern vocabulary", () => {
     );
     expect(screen.getByText("input required")).toBeInTheDocument();
   });
+
+  describe("modern spec-error chip (SEP-2243 / SEP-2575)", () => {
+    const headerMismatchEntry: MessageEntry = {
+      id: "req-err-20",
+      timestamp: new Date("2026-07-28T10:30:00Z"),
+      direction: "request",
+      origin: "client",
+      message: {
+        jsonrpc: "2.0",
+        id: 20,
+        method: "tools/call",
+        params: { name: "get_weather" },
+      },
+      response: {
+        jsonrpc: "2.0",
+        id: 20,
+        error: { code: -32020, message: "Mcp-Method mismatch" },
+      },
+      duration: 12,
+    };
+
+    it("chips a -32020 HeaderMismatch and explains it in the expanded alert", () => {
+      renderWithMantine(
+        <ProtocolEntry
+          {...baseProps}
+          entry={headerMismatchEntry}
+          isListExpanded={true}
+        />,
+      );
+      // Chip on the header row + title in the expanded alert.
+      expect(
+        screen.getAllByText("-32020 HeaderMismatch").length,
+      ).toBeGreaterThan(0);
+      expect(
+        screen.getByText(/An Mcp-\* header did not match/),
+      ).toBeInTheDocument();
+    });
+
+    it("lists the supported versions for a -32022", () => {
+      const entry: MessageEntry = {
+        ...headerMismatchEntry,
+        id: "req-err-22",
+        response: {
+          jsonrpc: "2.0",
+          id: 20,
+          error: {
+            code: -32022,
+            message: "unsupported",
+            data: { supported: ["2025-11-25", "2026-07-28"] },
+          },
+        },
+      };
+      renderWithMantine(
+        <ProtocolEntry {...baseProps} entry={entry} isListExpanded={true} />,
+      );
+      expect(
+        screen.getByText(/Server supports: 2025-11-25, 2026-07-28/),
+      ).toBeInTheDocument();
+    });
+
+    const methodNotFoundEntry: MessageEntry = {
+      ...headerMismatchEntry,
+      id: "req-err-601",
+      response: {
+        jsonrpc: "2.0",
+        id: 20,
+        error: { code: -32601, message: "Method not found" },
+      },
+    };
+
+    it("recognises a -32601 folded onto the request when the correlated fetch is a 404", () => {
+      // -32601 arrives as HTTP 404 and is folded onto the pending request by
+      // enrichProtocolEntries; the 404 status marks it as the modern taxonomy.
+      renderWithMantine(
+        <ProtocolEntry
+          {...baseProps}
+          entry={methodNotFoundEntry}
+          correlatedHttpStatus={404}
+        />,
+      );
+      expect(
+        screen.getAllByText("-32601 MethodNotFound").length,
+      ).toBeGreaterThan(0);
+    });
+
+    it("does NOT dress up an ordinary in-band -32601 on a 200 as the modern spec error", () => {
+      // A server returning -32601 in-band on HTTP 200 for an unsupported method
+      // is a plain JSON-RPC error, not the modern 404 taxonomy — no spec chip,
+      // no 404-asserting alert, and no reveal link.
+      renderWithMantine(
+        <ProtocolEntry
+          {...baseProps}
+          entry={methodNotFoundEntry}
+          isListExpanded={true}
+          correlatedHttpStatus={200}
+          onRevealInNetwork={() => {}}
+        />,
+      );
+      expect(screen.queryByText("-32601 MethodNotFound")).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: /View the HTTP request/ }),
+      ).not.toBeInTheDocument();
+      // ...but it still renders as an ordinary Error.
+      expect(screen.getAllByText("Error").length).toBeGreaterThan(0);
+    });
+
+    it("does NOT modern-frame a -32601 with no correlated fetch (e.g. stdio)", () => {
+      // Over stdio there is no Network entry at all, so correlatedHttpStatus is
+      // undefined. An unknown status is not a 404, so an unsupported-method probe
+      // is a plain error — no modern badge, no 404-asserting copy.
+      renderWithMantine(
+        <ProtocolEntry
+          {...baseProps}
+          entry={methodNotFoundEntry}
+          isListExpanded={true}
+        />,
+      );
+      expect(screen.queryByText("-32601 MethodNotFound")).toBeNull();
+      expect(screen.getAllByText("Error").length).toBeGreaterThan(0);
+    });
+
+    it("does not chip an ordinary (non-spec) error like -32000", () => {
+      renderWithMantine(<ProtocolEntry {...baseProps} entry={errorEntry} />);
+      // errorEntry carries -32000 (implementation-defined) → no spec chip.
+      expect(screen.queryByText(/HeaderMismatch|MethodNotFound/)).toBeNull();
+      // ...but it still renders as an Error.
+      expect(screen.getByText("Error")).toBeInTheDocument();
+    });
+
+    it("shows a 'view in Network' link when onRevealInNetwork is provided, and calls it", async () => {
+      const user = userEvent.setup();
+      const onReveal = vi.fn();
+      renderWithMantine(
+        <ProtocolEntry
+          {...baseProps}
+          entry={headerMismatchEntry}
+          isListExpanded={true}
+          onRevealInNetwork={onReveal}
+        />,
+      );
+      const link = screen.getByRole("button", {
+        name: /View the HTTP request in the Network tab/,
+      });
+      await user.click(link);
+      expect(onReveal).toHaveBeenCalledTimes(1);
+    });
+
+    it("omits the reveal link when there is no correlated Network entry", () => {
+      renderWithMantine(
+        <ProtocolEntry
+          {...baseProps}
+          entry={headerMismatchEntry}
+          isListExpanded={true}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: /View the HTTP request/ }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("omits the reveal link for a protocol-only error even with a correlation", () => {
+      // -32021 MissingRequiredClientCapability is not header/HTTP related, so
+      // no link — even though a callback (correlated entry) is supplied.
+      const capabilityEntry: MessageEntry = {
+        ...headerMismatchEntry,
+        id: "req-err-21",
+        response: {
+          jsonrpc: "2.0",
+          id: 20,
+          error: { code: -32021, message: "missing capability" },
+        },
+      };
+      renderWithMantine(
+        <ProtocolEntry
+          {...baseProps}
+          entry={capabilityEntry}
+          isListExpanded={true}
+          onRevealInNetwork={() => {}}
+        />,
+      );
+      expect(
+        screen.getAllByText("-32021 MissingRequiredClientCapability").length,
+      ).toBeGreaterThan(0);
+      expect(
+        screen.queryByRole("button", { name: /View the HTTP request/ }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("shows the chip only in the wide layout, not the compact sidebar row", () => {
+      // Compact: only the expanded-detail alert carries the label (1 match); no
+      // row chip. Wide: the row chip AND the alert (2 matches).
+      const { unmount } = renderWithMantine(
+        <ProtocolEntry {...baseProps} entry={headerMismatchEntry} embedded />,
+      );
+      expect(screen.getAllByText("-32020 HeaderMismatch")).toHaveLength(1);
+      unmount();
+
+      renderWithMantine(
+        <ProtocolEntry {...baseProps} entry={headerMismatchEntry} />,
+      );
+      expect(screen.getAllByText("-32020 HeaderMismatch")).toHaveLength(2);
+    });
+  });
 });

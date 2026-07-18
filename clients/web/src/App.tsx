@@ -153,6 +153,7 @@ import {
 } from "./components/groups/PendingClientRequestModal/PendingClientRequestModal";
 import { buildExportFilename, downloadJsonFile } from "./lib/downloadFile";
 import { INSPECTOR_SERVERS_TAB } from "./utils/inspectorTabs";
+import { enrichProtocolEntries } from "./utils/correlateTransportErrors";
 import {
   parseDeepLink,
   deepLinkConfigEquals,
@@ -938,6 +939,15 @@ function App() {
   const { messages } = useMessageLog(messageLogState);
   const { fetchRequests } = useFetchRequestLog(fetchRequestLogState);
   const { stderrLogs } = useStderrLog(stderrLogState);
+
+  // Fold the transport errors the SDK throws rather than delivers (e.g. -32601
+  // on HTTP 404) onto their still-pending Protocol requests, by correlating with
+  // the Network log via JSON-RPC id. Returns `messages` unchanged when nothing
+  // matched, so the Protocol view only re-renders when an enrichment applies.
+  const protocolEntries = useMemo(
+    () => enrichProtocolEntries(messages, fetchRequests),
+    [messages, fetchRequests],
+  );
 
   // Surface the otherwise-invisible "response body dropped after rotation" case
   // (#1390) as a deduped toast that links to this server's Network Log Size
@@ -3871,7 +3881,7 @@ function App() {
           logs={logs}
           tasks={tasks}
           progressByTaskId={progressByTaskId}
-          protocol={messages}
+          protocol={protocolEntries}
           protocolEra={protocolEra}
           network={fetchRequests}
           stderrLogs={stderrLogs}

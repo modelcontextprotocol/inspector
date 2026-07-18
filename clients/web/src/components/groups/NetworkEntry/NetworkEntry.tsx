@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Badge,
   Button,
   Card,
@@ -10,7 +11,9 @@ import {
   Stack,
   Table,
   Text,
+  Tooltip,
 } from "@mantine/core";
+import { RiErrorWarningLine } from "react-icons/ri";
 import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
 import { isLongLivedStreamResponse } from "@inspector/core/mcp/fetchTracking.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
@@ -23,6 +26,13 @@ import {
   oauthNetworkPhase,
   oauthNetworkPhaseLabel,
 } from "../../../utils/oauthNetworkPhase";
+import {
+  checkHeaderConsistency,
+  decodeMcpParamValue,
+  isCancellationAbort,
+  isMcpHeader,
+  type HeaderConsistency,
+} from "../../../utils/mcpNetworkHeaders";
 
 export interface NetworkEntryProps {
   entry: FetchRequestEntry;
@@ -33,6 +43,13 @@ export interface NetworkEntryProps {
    * horizontal scroll area with the expand toggle on the right.
    */
   embedded?: boolean;
+  /**
+   * When true, this entry was targeted by a "reveal in Network" jump (from a
+   * correlated Protocol error): it scrolls itself into view and force-expands
+   * once, then calls {@link onRevealComplete} so the one-shot signal clears.
+   */
+  revealed?: boolean;
+  onRevealComplete?: () => void;
 }
 
 const EntryContainer = Card.withProps({
@@ -104,6 +121,9 @@ function formatTimestampCompact(date: Date): string {
 }
 
 function statusColor(entry: FetchRequestEntry): string {
+  // A cancelled request surfaces as a connection abort under the modern
+  // transport; render it neutrally rather than as a hard error (SEP-2575).
+  if (isCancellationAbort(entry)) return "gray";
   if (entry.error) return "red";
   const status = entry.responseStatus;
   if (status === undefined) return "gray";
@@ -115,6 +135,7 @@ function statusColor(entry: FetchRequestEntry): string {
 }
 
 function statusLabel(entry: FetchRequestEntry): string {
+  if (isCancellationAbort(entry)) return "Cancelled";
   if (entry.error) return "Error";
   if (entry.responseStatus === undefined) return "Pending";
   return entry.responseStatusText
@@ -129,7 +150,105 @@ function isLongLivedStream(entry: FetchRequestEntry): boolean {
   );
 }
 
-function HeadersTable({ headers }: { headers: Record<string, string> }) {
+// Header-table cell text. A modern MCP-mirrored header name gets a violet accent
+// so the spec headers (Mcp-Method / Mcp-Name / Mcp-Param-* / MCP-Protocol-Version)
+// stand out from ordinary ones; a value that disagrees with the request body is
+// shown in the danger colour.
+const HeaderNameText = Text.withProps({
+  size: "xs",
+  ff: "monospace",
+  fw: 500,
+});
+
+const McpHeaderNameText = Text.withProps({
+  size: "xs",
+  ff: "monospace",
+  fw: 600,
+  c: "var(--inspector-mcp-header-accent)",
+});
+
+const HeaderValueText = Text.withProps({
+  size: "xs",
+  ff: "monospace",
+  variant: "monoBreak",
+});
+
+const MismatchValueText = Text.withProps({
+  size: "xs",
+  ff: "monospace",
+  variant: "monoBreak",
+  c: "var(--inspector-danger-text)",
+});
+
+const MismatchMarker = Text.withProps({
+  component: "span",
+  // role="img" makes the aria-label permitted on the span (it wraps a decorative
+  // icon) and announces the mismatch to assistive tech.
+  role: "img",
+  c: "var(--inspector-danger-text)",
+});
+
+function HeaderValueCell({
+  name,
+  value,
+  consistency,
+}: {
+  name: string;
+  value: string;
+  consistency?: HeaderConsistency;
+}) {
+  // Only modern MCP headers carry sentinel-encoded values; a plain header is
+  // shown verbatim (never re-interpreted as base64).
+  const decoded = isMcpHeader(name)
+    ? decodeMcpParamValue(value)
+    : { value, encoded: false, raw: value };
+  const mismatch = consistency !== undefined && !consistency.ok;
+
+  return (
+    <Group gap="xs" wrap="nowrap" align="center">
+      {mismatch ? (
+        <MismatchValueText>{decoded.value}</MismatchValueText>
+      ) : (
+        <HeaderValueText>{decoded.value}</HeaderValueText>
+      )}
+      {decoded.encoded && (
+        <Tooltip
+          label={`base64 sentinel — raw: ${decoded.raw}`}
+          withArrow
+          multiline
+          w={280}
+        >
+          <Badge size="xs" color="gray" variant="light">
+            base64
+          </Badge>
+        </Tooltip>
+      )}
+      {mismatch && (
+        <Tooltip
+          label={`Expected: ${consistency.expected}`}
+          withArrow
+          multiline
+          w={280}
+        >
+          <MismatchMarker
+            aria-label={`Header does not match body; expected ${consistency.expected}`}
+          >
+            <RiErrorWarningLine />
+          </MismatchMarker>
+        </Tooltip>
+      )}
+    </Group>
+  );
+}
+
+function HeadersTable({
+  headers,
+  consistency,
+}: {
+  headers: Record<string, string>;
+  /** Header/body cross-checks (request side only) to flag mismatches. */
+  consistency?: HeaderConsistency[];
+}) {
   const rows = Object.entries(headers);
   if (rows.length === 0) {
     return (
@@ -138,20 +257,25 @@ function HeadersTable({ headers }: { headers: Record<string, string> }) {
       </Text>
     );
   }
+  const byHeader = new Map((consistency ?? []).map((row) => [row.header, row]));
   return (
     <Table striped withColumnBorders fz="xs">
       <Table.Tbody>
         {rows.map(([name, value]) => (
           <Table.Tr key={name}>
             <Table.Td>
-              <Text size="xs" ff="monospace" fw={500}>
-                {name}
-              </Text>
+              {isMcpHeader(name) ? (
+                <McpHeaderNameText>{name}</McpHeaderNameText>
+              ) : (
+                <HeaderNameText>{name}</HeaderNameText>
+              )}
             </Table.Td>
             <Table.Td>
-              <Text size="xs" ff="monospace" variant="monoBreak">
-                {value}
-              </Text>
+              <HeaderValueCell
+                name={name}
+                value={value}
+                consistency={byHeader.get(name.toLowerCase())}
+              />
             </Table.Td>
           </Table.Tr>
         ))}
@@ -159,6 +283,13 @@ function HeadersTable({ headers }: { headers: Record<string, string> }) {
     </Table>
   );
 }
+
+const CancellationAlert = Alert.withProps({
+  variant: "light",
+  color: "gray",
+  title: "Request cancelled",
+  icon: <RiErrorWarningLine />,
+});
 
 const RevealButton = Button.withProps({
   variant: "subtle",
@@ -238,8 +369,11 @@ export function NetworkEntry({
   entry,
   isListExpanded,
   embedded = false,
+  revealed = false,
+  onRevealComplete,
 }: NetworkEntryProps) {
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   // The list-level Expand/Collapse toggle is authoritative: each time the
   // parent changes `isListExpanded`, every entry snaps to that state and
@@ -251,6 +385,24 @@ export function NetworkEntry({
     setIsExpanded(isListExpanded);
   }, [isListExpanded]);
 
+  // "Reveal in Network" one-shot: when targeted, force this entry open and
+  // scroll it into view, then clear the signal. The scroll runs in a rAF so it
+  // lands after `useScrollMemory`'s layout-effect restore (which would otherwise
+  // fight it) and after the force-expand has grown the row. `onRevealComplete`
+  // clears the parent's `revealId`, which flips `revealed` back to false and re-
+  // runs this effect's cleanup — so it must fire *inside* the rAF, after the
+  // scroll, otherwise the cleanup's `cancelAnimationFrame` would race and could
+  // cancel the very frame doing the scroll.
+  useEffect(() => {
+    if (!revealed) return;
+    setIsExpanded(true);
+    const raf = requestAnimationFrame(() => {
+      rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      onRevealComplete?.();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [revealed, onRevealComplete]);
+
   // OAuth flow phase for `auth`-category requests (discovery / registration /
   // authorize / token), so the Network tab labels the auth conversation.
   const oauthPhase =
@@ -260,6 +412,16 @@ export function NetworkEntry({
       {oauthNetworkPhaseLabel(oauthPhase)}
     </Badge>
   ) : null;
+
+  // Request header/body cross-checks so a mirrored-header mismatch is visible
+  // before the server rejects it. (Protocol errors like -32020 are surfaced
+  // distinctly in the Protocol tab, not here — the Network tab stays focused on
+  // the HTTP transaction.)
+  const headerConsistency = useMemo(
+    () => checkHeaderConsistency(entry),
+    [entry],
+  );
+  const aborted = isCancellationAbort(entry);
 
   const metaBadges = (
     <>
@@ -280,7 +442,7 @@ export function NetworkEntry({
   );
 
   return (
-    <EntryContainer>
+    <EntryContainer ref={rootRef}>
       <Stack gap="sm">
         {embedded ? (
           // Compact two-line header for the narrow column.
@@ -339,11 +501,26 @@ export function NetworkEntry({
         <Collapse in={isExpanded}>
           <Stack gap="sm">
             <Divider />
+            {aborted && (
+              <CancellationAlert>
+                <Text size="xs">
+                  Cancellation appears as a connection abort — the modern
+                  transport aborts the request stream instead of sending a{" "}
+                  <Text span ff="monospace">
+                    notifications/cancelled
+                  </Text>{" "}
+                  frame (SEP-2575).
+                </Text>
+              </CancellationAlert>
+            )}
             <Stack gap="xs">
               <Text size="sm" fw={500}>
                 Request Headers
               </Text>
-              <HeadersTable headers={entry.requestHeaders} />
+              <HeadersTable
+                headers={entry.requestHeaders}
+                consistency={headerConsistency}
+              />
             </Stack>
             {entry.requestBody && (
               <Stack gap="xs">

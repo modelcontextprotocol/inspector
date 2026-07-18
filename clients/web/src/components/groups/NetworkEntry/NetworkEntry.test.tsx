@@ -1,7 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
-import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import {
+  renderWithMantine,
+  screen,
+  waitFor,
+} from "../../../test/renderWithMantine";
 import { NetworkEntry } from "./NetworkEntry";
 
 const baseEntry: FetchRequestEntry = {
@@ -308,5 +313,127 @@ describe("NetworkEntry", () => {
     );
     expect(screen.queryByText("Token")).not.toBeInTheDocument();
     expect(screen.queryByText("Discovery")).not.toBeInTheDocument();
+  });
+
+  describe("modern Streamable HTTP awareness (SEP-2243 / SEP-2575)", () => {
+    /** Mirror of the SDK's sentinel encoding, for building test inputs. */
+    function encodeSentinel(value: string): string {
+      const bytes = new TextEncoder().encode(value);
+      let bin = "";
+      for (const b of bytes) bin += String.fromCharCode(b);
+      return `=?base64?${btoa(bin)}?=`;
+    }
+
+    it("decodes a sentinel-encoded Mcp-Name header and flags it as base64", () => {
+      const entry: FetchRequestEntry = {
+        ...baseEntry,
+        requestHeaders: {
+          "mcp-method": "tools/call",
+          "mcp-name": encodeSentinel("get weather ☀"),
+        },
+        requestBody: JSON.stringify({
+          method: "tools/call",
+          params: { name: "get weather ☀" },
+        }),
+      };
+      renderWithMantine(<NetworkEntry entry={entry} isListExpanded={true} />);
+      expect(screen.getByText("get weather ☀")).toBeInTheDocument();
+      expect(screen.getByText("base64")).toBeInTheDocument();
+    });
+
+    it("marks a header that disagrees with the request body", () => {
+      const entry: FetchRequestEntry = {
+        ...baseEntry,
+        requestHeaders: { "mcp-method": "tools/list" },
+        requestBody: JSON.stringify({ method: "tools/call", params: {} }),
+      };
+      renderWithMantine(<NetworkEntry entry={entry} isListExpanded={true} />);
+      expect(
+        screen.getByLabelText(
+          /Header does not match body; expected tools\/call/,
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it("does NOT badge a spec error (those live in the Protocol tab now)", () => {
+      // A -32020 response is still a plain HTTP entry here; the distinct
+      // spec-error chip/alert moved to the Protocol tab.
+      const entry: FetchRequestEntry = {
+        ...baseEntry,
+        responseStatus: 400,
+        responseStatusText: "Bad Request",
+        responseBody: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          error: { code: -32020, message: "Mcp-Method mismatch" },
+        }),
+      };
+      renderWithMantine(<NetworkEntry entry={entry} isListExpanded={true} />);
+      expect(screen.getByText("400 Bad Request")).toBeInTheDocument();
+      expect(
+        screen.queryByText("-32020 HeaderMismatch"),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText(/Server supports:/)).not.toBeInTheDocument();
+    });
+
+    it("when revealed, force-expands, scrolls into view, and clears the signal", async () => {
+      const scrollIntoView = vi.fn();
+      // happy-dom doesn't implement scrollIntoView; stub it on the prototype.
+      Element.prototype.scrollIntoView = scrollIntoView;
+      const onRevealComplete = vi.fn();
+      renderWithMantine(
+        <NetworkEntry
+          entry={baseEntry}
+          isListExpanded={false}
+          revealed
+          onRevealComplete={onRevealComplete}
+        />,
+      );
+      // Force-expanded even though isListExpanded is false.
+      expect(screen.getByText("Request Headers")).toBeInTheDocument();
+      // The scroll runs in a rAF, and the signal clears *after* it (inside the
+      // same frame) — not synchronously — so a re-render can't cancel the scroll.
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+      expect(onRevealComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it("still scrolls when clearing the signal flips `revealed` back to false", async () => {
+      // Reproduces the real integration: onRevealComplete clears the parent's
+      // revealId, which flips this entry's `revealed` prop true→false and runs
+      // the effect cleanup (cancelAnimationFrame). The scroll must survive.
+      const scrollIntoView = vi.fn();
+      Element.prototype.scrollIntoView = scrollIntoView;
+      const Harness = () => {
+        const [revealed, setRevealed] = useState(true);
+        return (
+          <NetworkEntry
+            entry={baseEntry}
+            isListExpanded={false}
+            revealed={revealed}
+            onRevealComplete={() => setRevealed(false)}
+          />
+        );
+      };
+      renderWithMantine(<Harness />);
+      // The scroll fired inside the rAF before the clear could cancel it.
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(1));
+    });
+
+    it("labels a cancelled request as an abort, not a hard error", () => {
+      const cancelled: FetchRequestEntry = {
+        ...baseEntry,
+        responseStatus: undefined,
+        responseStatusText: undefined,
+        responseHeaders: undefined,
+        responseBody: undefined,
+        error: "The operation was aborted",
+      };
+      renderWithMantine(
+        <NetworkEntry entry={cancelled} isListExpanded={true} />,
+      );
+      expect(screen.getByText("Cancelled")).toBeInTheDocument();
+      expect(screen.getByText("Request cancelled")).toBeInTheDocument();
+      expect(screen.getByText(/notifications\/cancelled/)).toBeInTheDocument();
+    });
   });
 });

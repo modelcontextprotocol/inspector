@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import {
+  Alert,
+  Anchor,
   Badge,
-  Button,
   Card,
   Collapse,
   Divider,
@@ -10,14 +11,20 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
+import { RiErrorWarningLine } from "react-icons/ri";
 import type { MessageEntry } from "@inspector/core/mcp/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { MessageDirectionBadge } from "../../elements/MessageDirectionBadge/MessageDirectionBadge";
 import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
+import { McpErrorBadge } from "../../elements/McpErrorBadge/McpErrorBadge";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { PinToggle } from "../../elements/PinToggle/PinToggle";
 import { ReplayButton } from "../../elements/ReplayButton/ReplayButton";
+import {
+  classifyProtocolSpecError,
+  type McpSpecError,
+} from "../../../utils/mcpNetworkHeaders";
 import {
   extractMethod,
   extractResultType,
@@ -38,6 +45,19 @@ export interface ProtocolEntryProps {
    * the controls — Replay as an icon — on the right.
    */
   embedded?: boolean;
+  /**
+   * When provided (a spec-error entry with a correlated Network request), the
+   * expanded alert shows a "view in Network" link that jumps to, and expands,
+   * the matching HTTP entry.
+   */
+  onRevealInNetwork?: () => void;
+  /**
+   * HTTP status of this entry's correlated Network fetch, when known. Used to
+   * gate the generic `-32601` to a genuine modern 404 (an in-band `-32601` on a
+   * 200 is an ordinary error, not the modern taxonomy). Omitted when there is no
+   * correlated HTTP record.
+   */
+  correlatedHttpStatus?: number;
 }
 
 const EntryContainer = Card.withProps({
@@ -129,11 +149,6 @@ function resultTypeLabel(resultType: "complete" | "input_required"): string {
   return resultType === "input_required" ? "input required" : "complete";
 }
 
-const SubtleButton = Button.withProps({
-  variant: "subtle",
-  size: "xs",
-});
-
 function formatDuration(ms: number): string {
   return `${ms}ms`;
 }
@@ -196,6 +211,57 @@ function serializeMessage(value: unknown): string {
   return JSON.stringify(value);
 }
 
+// The JSON-RPC error carried by a message — either the folded error `response`
+// on a request, or an error message frame itself — classified as a modern spec
+// error (SEP-2243 / SEP-2575) or null. Protocol errors the SDK throws rather
+// than delivers (e.g. -32601) are folded onto the pending request upstream (see
+// `enrichProtocolEntries`), so they land here too.
+function extractSpecError(
+  entry: MessageEntry,
+  httpStatus?: number,
+): McpSpecError | null {
+  const error =
+    entry.response && "error" in entry.response
+      ? entry.response.error
+      : "error" in entry.message
+        ? entry.message.error
+        : undefined;
+  if (!error || typeof error.code !== "number") return null;
+  return classifyProtocolSpecError(error.code, error.data, httpStatus);
+}
+
+// Friendly summary of a modern spec error, shown in the expanded detail. The
+// HTTP-level facts (status, mirrored headers) live on the correlated Network
+// entry, reachable via the "view in Network" link when one exists.
+function McpSpecErrorAlert({
+  error,
+  onReveal,
+}: {
+  error: McpSpecError;
+  onReveal?: () => void;
+}) {
+  return (
+    <Alert
+      variant="light"
+      color="red"
+      title={`${error.code} ${error.name}`}
+      icon={<RiErrorWarningLine />}
+    >
+      <Stack gap="xs">
+        <Text size="xs">{error.description}</Text>
+        {error.supported && (
+          <Text size="xs">Server supports: {error.supported.join(", ")}</Text>
+        )}
+        {onReveal && (
+          <Anchor component="button" type="button" size="xs" onClick={onReveal}>
+            View the HTTP request in the Network tab →
+          </Anchor>
+        )}
+      </Stack>
+    </Alert>
+  );
+}
+
 export function ProtocolEntry({
   entry,
   isPinned,
@@ -203,6 +269,8 @@ export function ProtocolEntry({
   onReplay,
   onTogglePin,
   embedded = false,
+  onRevealInNetwork,
+  correlatedHttpStatus,
 }: ProtocolEntryProps) {
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
   const method = extractMethod(entry);
@@ -221,6 +289,17 @@ export function ProtocolEntry({
   const directionBadge = entry.origin && (
     <MessageDirectionBadge
       direction={entry.origin === "client" ? "outgoing" : "incoming"}
+    />
+  );
+  // Distinct chip for a modern spec error (SEP-2243 / SEP-2575). Shown only in
+  // the wide layout (right after the method chip); the compact sidebar relies on
+  // its ERROR status badge to keep the two-line row uncluttered.
+  const specError = extractSpecError(entry, correlatedHttpStatus);
+  const specErrorBadge = specError && (
+    <McpErrorBadge
+      code={specError.code}
+      name={specError.name}
+      description={specError.description}
     />
   );
   // The modern `resultType` on the paired result (spec §7.3): `input_required`
@@ -315,6 +394,7 @@ export function ProtocolEntry({
                 </TimestampText>
                 {directionBadge}
                 <MethodBadge method={method} />
+                {specErrorBadge}
                 {modernFrameBadge}
                 {subscriptionBadge}
                 {target && (
@@ -331,19 +411,13 @@ export function ProtocolEntry({
               </Group>
             </HeaderRow>
 
-            <Group gap="xs" justify="space-between">
-              <Group gap="xs">
-                {canReplay && (
-                  <SubtleButton onClick={onReplay}>Replay</SubtleButton>
-                )}
-              </Group>
-              <Group gap="xs">
-                <PinToggle pinned={isPinned} onToggle={onTogglePin} />
-                <ExpandToggle
-                  expanded={isExpanded}
-                  onToggle={() => setIsExpanded((v) => !v)}
-                />
-              </Group>
+            <Group gap="xs" justify="flex-end">
+              {canReplay && <ReplayButton onReplay={onReplay} />}
+              <PinToggle pinned={isPinned} onToggle={onTogglePin} />
+              <ExpandToggle
+                expanded={isExpanded}
+                onToggle={() => setIsExpanded((v) => !v)}
+              />
             </Group>
           </>
         )}
@@ -351,6 +425,16 @@ export function ProtocolEntry({
         <Collapse in={isExpanded}>
           <Stack gap="sm">
             <Divider />
+            {specError && (
+              <McpSpecErrorAlert
+                error={specError}
+                // Only header/HTTP-status errors gain from the raw HTTP entry;
+                // a protocol-only error (e.g. -32021) shows no link.
+                onReveal={
+                  specError.httpRelevant ? onRevealInNetwork : undefined
+                }
+              />
+            )}
             {"params" in entry.message && entry.message.params && (
               <Stack gap="xs">
                 <Text size="sm">Parameters:</Text>

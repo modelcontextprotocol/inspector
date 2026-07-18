@@ -118,7 +118,7 @@ All work should be driven by items on the project board.
 
   Set the label at create time (`gh issue create --label v2 ...`, `gh pr create --label v2 ...`) — don't rely on backfilling later, since unlabeled PRs are easy to miss when filtering by version.
 - **Add the issue to the board and set Status.** After creating an issue, add it to board #28 and set its Status. (PRs are never added to the board — they're tracked through their linked issue's card.) This is the step most easily forgotten because it needs several IDs — copy the recipes below verbatim.
-- When work begins, create a feature branch and set the item's Status to **In progress** (or one of the building statuses below).
+- When work begins, create a feature branch and set the item's Status to **In progress** (or **SDK V2 + New Spec** for a card in that stack).
 - When work is complete:
   - Run format, lint, typecheck, build, and test — ensure all checks pass
   - Open a PR against the matching base branch (`main` for v1, `v2/main` for v2) and set the item's Status to **In review**
@@ -140,20 +140,17 @@ gh project field-list 28 --owner modelcontextprotocol --format json \
 | Project node ID | `PVT_kwDOCt2Azc4BJVxt` |
 | Status field ID | `PVTSSF_lADOCt2Azc4BJVxtzg5iI8c` |
 
-Status option IDs (`--single-select-option-id`) — **last verified 2026-07-09**:
+Status option IDs (`--single-select-option-id`) — **last verified 2026-07-18** (the `Building …` and `MCP Apps Extension` columns were removed; their old IDs `4ac261ee` / `c28da89f` / `73d0b807` are now rejected):
 
 | Status | Option ID |
 | --- | --- |
 | Todo | `fbdaf21e` |
-| Building CLI / TUI / CORE | `4ac261ee` |
-| Building Web | `c28da89f` |
-| MCP Apps Extension | `73d0b807` |
 | SDK V2 + New Spec | `1bbb6f57` |
 | In Progress | `195df262` |
 | In Review | `159c8a02` |
 | Done | `248a3910` |
 
-Use **Todo** for approved-but-not-started work, **In Progress** for general active work, one of the **Building** statuses (or **MCP Apps Extension** / **SDK V2 + New Spec**) while actively coding that surface, **In Review** once a PR is open, and **Done** on merge.
+Use **Todo** for approved-but-not-started work, **In Progress** for general active work (regardless of surface), **SDK V2 + New Spec** for cards in that stack, **In Review** once a PR is open, and **Done** on merge.
 
 > ⚠️ **Never add, rename, or remove a board column (Status option) with the `updateProjectV2Field` GraphQL mutation unless you pass every existing option's `id`.** That mutation does a **full replace** of the option list: if you resend options by name/color/description but omit their `id`s, GitHub **deletes all existing options and mints new ones**, which **orphans the Status of every card on the board** (all items go blank) *and* invalidates every option id in the table above. This has happened once (required reconstructing ~197 items' statuses by inference). Safe alternatives, in order of preference:
 > 1. **Add/rename/remove a column in the GitHub web UI** (Project #28 → Status field settings). This preserves ids of untouched options and never orphans cards.

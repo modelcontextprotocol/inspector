@@ -610,6 +610,36 @@ describe("redactBody", () => {
     expect(JSON.parse(out!)).toEqual({ access_token: REDACTED_VALUE });
   });
 
+  it("does NOT redact a numeric JSON-RPC error `code` (only string secrets)", () => {
+    // The OAuth `code` name collides with a JSON-RPC error `code`, but the
+    // latter is a number and never a secret — masking it would break the
+    // Network tab's modern spec-error classification (-32020/-32021/…).
+    const out = redactBody(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 7,
+        error: { code: -32020, message: "header mismatch" },
+      }),
+      "application/json",
+    );
+    const parsed = JSON.parse(out!) as {
+      error: { code: number; message: string };
+    };
+    expect(parsed.error.code).toBe(-32020);
+    expect(parsed.error.message).toBe("header mismatch");
+  });
+
+  it("still redacts a string-valued OAuth `code`", () => {
+    const out = redactBody(
+      JSON.stringify({ grant_type: "authorization_code", code: "SECRET" }),
+      "application/json",
+    );
+    expect(JSON.parse(out!)).toEqual({
+      grant_type: "authorization_code",
+      code: REDACTED_VALUE,
+    });
+  });
+
   it("leaves a JSON scalar (no field names) unchanged", () => {
     expect(redactBody('"just a string"', "application/json")).toBe(
       '"just a string"',

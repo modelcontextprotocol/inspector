@@ -23,6 +23,9 @@ export interface NetworkScreenProps {
   onToggleCompact: () => void;
   /** See LoggingScreen: fills the parent height and drops the filter sidebar. */
   embedded?: boolean;
+  /** "Reveal in Network" target (a fetch-entry id) + its one-shot clear. */
+  revealId?: string;
+  onRevealComplete?: () => void;
 }
 
 // Filter text + visible-category set — controlled by the parent (App) as one
@@ -60,6 +63,8 @@ export function NetworkScreen({
   compact,
   onToggleCompact,
   embedded = false,
+  revealId,
+  onRevealComplete,
 }: NetworkScreenProps) {
   const { filterText, visibleCategories } = ui;
 
@@ -114,6 +119,8 @@ export function NetworkScreen({
         compact={compact}
         onToggleCompact={onToggleCompact}
         embedded={embedded}
+        revealId={revealId}
+        onRevealComplete={onRevealComplete}
       />
     </ScreenLayout>
   );

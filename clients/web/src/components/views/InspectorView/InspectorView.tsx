@@ -92,6 +92,11 @@ import { MonitoringScreen } from "../../groups/MonitoringScreen/MonitoringScreen
 import { ResizeHandle } from "../../elements/ResizeHandle/ResizeHandle";
 import { getServerType } from "@inspector/core/mcp/config.js";
 import { INSPECTOR_SERVERS_TAB } from "../../../utils/inspectorTabs";
+import {
+  correlateFetchEntry,
+  correlatedFetchStatusById,
+  revealableMessageIds,
+} from "../../../utils/correlateTransportErrors";
 import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
 import { MONITOR_COLUMN_ANIM_MS } from "./monitorColumnAnimation";
 
@@ -958,6 +963,30 @@ export function InspectorView({
     setMonitorTab(tab);
     setMonitorPinned(true);
   }
+  // Jump from a Protocol spec error to its correlated Network HTTP entry:
+  // reveal the Network view (in whichever mode is active), un-hide the target by
+  // clearing whatever filter would drop it, then hand the fetch id to the panel
+  // which scrolls to and expands that entry.
+  function handleRevealInNetwork(messageId: string) {
+    const entry = protocol.find((m) => m.id === messageId);
+    if (!entry) return;
+    const fetchEntry = correlateFetchEntry(entry, network);
+    if (!fetchEntry) return;
+    onNetworkUiChange({
+      filterText: "",
+      visibleCategories: {
+        ...networkUi.visibleCategories,
+        [fetchEntry.category]: true,
+      },
+    });
+    setMonitorSearch("");
+    if (effectivePinned) {
+      pinMonitor(NETWORK_TAB);
+    } else {
+      onActiveTabChange(NETWORK_TAB);
+    }
+    setRevealNetworkId(fetchEntry.id);
+  }
   function handleMonitorTabChange(tab: string) {
     // The SegmentedControl's data only holds valid monitor tabs, so the guard's
     // false arm is unreachable through the UI.
@@ -997,6 +1026,24 @@ export function InspectorView({
   // filters (levels / categories / directions / method) have no control in the
   // column and are bypassed there.
   const [monitorSearch, setMonitorSearch] = useState("");
+
+  // "Reveal in Network": a fetch-entry id to scroll to + expand, set when the
+  // user clicks through from a correlated Protocol spec error. `revealableIds`
+  // is the set of Protocol entries that have a Network counterpart (link shown).
+  const [revealNetworkId, setRevealNetworkId] = useState<string | undefined>(
+    undefined,
+  );
+  const revealableProtocolIds = useMemo(
+    () => revealableMessageIds(protocol, network),
+    [protocol, network],
+  );
+  // Correlated HTTP status per Protocol entry, so the Protocol view can gate the
+  // generic `-32601` to a genuine modern 404 (an in-band `-32601` on a 200 is an
+  // ordinary error, not the modern transport taxonomy).
+  const protocolStatusById = useMemo(
+    () => correlatedFetchStatusById(protocol, network),
+    [protocol, network],
+  );
 
   // Merge the parent's `serversInput` (static config) with the runtime
   // connection state owned by the parent — only the active server reflects
@@ -1077,6 +1124,9 @@ export function InspectorView({
     onSortChange: setProtocolSort,
     compact: protocolCompact,
     onToggleCompact: () => setProtocolCompact((c) => !c),
+    onRevealInNetwork: handleRevealInNetwork,
+    revealableIds: revealableProtocolIds,
+    correlatedStatusById: protocolStatusById,
   };
   const networkScreenProps = {
     entries: network,
@@ -1088,6 +1138,14 @@ export function InspectorView({
     onSortChange: setNetworkSort,
     compact: networkCompact,
     onToggleCompact: () => setNetworkCompact((c) => !c),
+    // `revealId` is spread into both the pinned-sidebar monitor instance and the
+    // primary full-screen ScreenStage instance, and ScreenStage keeps inactive
+    // children mounted — so when the sidebar is pinned two NetworkEntry instances
+    // match this id. Both fire (the hidden one's scrollIntoView is a no-op) and
+    // both call onRevealComplete; the clear is idempotent, so the double-fire is
+    // expected and harmless.
+    revealId: revealNetworkId,
+    onRevealComplete: () => setRevealNetworkId(undefined),
   };
   const consoleScreenProps = {
     entries: stderrLogs,

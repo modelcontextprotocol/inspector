@@ -563,6 +563,14 @@ export interface ServerConfig {
    */
   modern?: {
     legacy?: "stateless" | "reject";
+    /**
+     * When true, the modern HTTP leg installs a middleware that returns the
+     * SEP-2243 / SEP-2575 spec error codes for specially-named trigger tool
+     * calls (see `SPEC_ERROR_TRIGGERS` in test-server-http.ts). Used by the
+     * `modern-network-http` showcase to exercise the Inspector's Network-tab
+     * error rendering (a conformant server never produces these on demand).
+     */
+    injectSpecErrors?: boolean;
   };
   /**
    * Optional server control for orderly shutdown (test HTTP server).
