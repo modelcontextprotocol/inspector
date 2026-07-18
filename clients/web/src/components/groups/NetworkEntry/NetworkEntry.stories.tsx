@@ -218,48 +218,6 @@ const headerMismatchEntry: FetchRequestEntry = {
   category: "transport",
 };
 
-const unsupportedVersionEntry: FetchRequestEntry = {
-  id: "n-version",
-  timestamp: new Date("2026-07-28T10:30:24Z"),
-  method: "POST",
-  url: "https://example.com/mcp",
-  requestHeaders: { "content-type": "application/json" },
-  requestBody: '{"jsonrpc":"2.0","id":9,"method":"initialize"}',
-  responseStatus: 400,
-  responseStatusText: "Bad Request",
-  responseHeaders: { "content-type": "application/json" },
-  responseBody: JSON.stringify({
-    jsonrpc: "2.0",
-    id: 9,
-    error: {
-      code: -32022,
-      message: "Unsupported protocol version",
-      data: { supported: ["2025-06-18", "2025-11-25", "2026-07-28"] },
-    },
-  }),
-  duration: 8,
-  category: "transport",
-};
-
-const modernMethodNotFoundEntry: FetchRequestEntry = {
-  id: "n-404",
-  timestamp: new Date("2026-07-28T10:30:26Z"),
-  method: "POST",
-  url: "https://example.com/mcp",
-  requestHeaders: { "content-type": "application/json" },
-  requestBody: '{"jsonrpc":"2.0","id":10,"method":"tasks/get"}',
-  responseStatus: 404,
-  responseStatusText: "Not Found",
-  responseHeaders: { "content-type": "application/json" },
-  responseBody: JSON.stringify({
-    jsonrpc: "2.0",
-    id: 10,
-    error: { code: -32601, message: "Method not found" },
-  }),
-  duration: 6,
-  category: "transport",
-};
-
 const cancelledEntry: FetchRequestEntry = {
   id: "n-cancel",
   timestamp: new Date("2026-07-28T10:30:28Z"),
@@ -282,37 +240,18 @@ export const ModernHeaders: Story = {
   },
 };
 
-export const HeaderMismatchError: Story = {
+// The header/body consistency marker is an HTTP-header concern that stays in the
+// Network tab (the -32020 spec-error chip itself moved to the Protocol tab).
+export const HeaderBodyMismatch: Story = {
   args: { entry: headerMismatchEntry, isListExpanded: true },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(
-      canvas.getAllByText("-32020 HeaderMismatch").length,
-    ).toBeGreaterThan(0);
-    // The disagreeing header is called out against the body.
+    // The disagreeing header is called out against the body...
     await expect(
       canvas.getByLabelText(/expected tools\/call/),
     ).toBeInTheDocument();
-  },
-};
-
-export const UnsupportedVersionError: Story = {
-  args: { entry: unsupportedVersionEntry, isListExpanded: true },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(
-      canvas.getByText(/Server supports: 2025-06-18, 2025-11-25, 2026-07-28/),
-    ).toBeInTheDocument();
-  },
-};
-
-export const ModernMethodNotFound: Story = {
-  args: { entry: modernMethodNotFoundEntry, isListExpanded: false },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(
-      canvas.getAllByText("-32601 MethodNotFound").length,
-    ).toBeGreaterThan(0);
+    // ...but the spec-error chip is NOT here (it lives in the Protocol tab now).
+    await expect(canvas.queryByText("-32020 HeaderMismatch")).toBeNull();
   },
 };
 

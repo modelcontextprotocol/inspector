@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkHeaderConsistency,
   classifyMcpSpecError,
+  classifyProtocolSpecError,
   decodeMcpParamValue,
   HEADER_MISMATCH_ERROR_CODE,
   isCancellationAbort,
@@ -195,6 +196,26 @@ describe("classifyMcpSpecError", () => {
     expect(
       classifyMcpSpecError({ responseStatus: 200, responseBody: "{}" }),
     ).toBeNull();
+  });
+});
+
+describe("classifyProtocolSpecError", () => {
+  it("classifies by code alone (no HTTP status), incl. -32601", () => {
+    expect(classifyProtocolSpecError(-32601)?.name).toBe("MethodNotFound");
+    expect(classifyProtocolSpecError(HEADER_MISMATCH_ERROR_CODE)?.name).toBe(
+      "HeaderMismatch",
+    );
+  });
+
+  it("extracts supported versions for -32022", () => {
+    expect(
+      classifyProtocolSpecError(-32022, { supported: ["2026-07-28"] })
+        ?.supported,
+    ).toEqual(["2026-07-28"]);
+  });
+
+  it("returns null for a non-spec code", () => {
+    expect(classifyProtocolSpecError(-32000)).toBeNull();
   });
 });
 

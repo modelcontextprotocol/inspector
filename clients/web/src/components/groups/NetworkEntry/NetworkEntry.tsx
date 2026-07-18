@@ -21,7 +21,6 @@ import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
 import { CategoryBadge } from "../../elements/CategoryBadge/CategoryBadge";
-import { McpErrorBadge } from "../../elements/McpErrorBadge/McpErrorBadge";
 import { maskSecretsInBody } from "../../../utils/maskSecrets";
 import {
   oauthNetworkPhase,
@@ -29,12 +28,10 @@ import {
 } from "../../../utils/oauthNetworkPhase";
 import {
   checkHeaderConsistency,
-  classifyMcpSpecError,
   decodeMcpParamValue,
   isCancellationAbort,
   isMcpHeader,
   type HeaderConsistency,
-  type McpSpecError,
 } from "../../../utils/mcpNetworkHeaders";
 
 export interface NetworkEntryProps {
@@ -280,34 +277,6 @@ function HeadersTable({
   );
 }
 
-// Friendly summary of a modern spec error (SEP-2243 / SEP-2575) above the raw
-// response body — names the code, explains it, and for -32022 lists the
-// server-supported protocol versions.
-function McpSpecErrorAlert({ error }: { error: McpSpecError }) {
-  // A single AA-safe severity accent — the per-code colour distinction lives in
-  // the McpErrorBadge; the Alert names the code in its title text.
-  return (
-    <Alert
-      variant="light"
-      color="red"
-      title={`${error.code} ${error.name}`}
-      icon={<RiErrorWarningLine />}
-    >
-      <Stack gap="xs">
-        <Text size="xs">{error.description}</Text>
-        <Text size="xs" c="dimmed">
-          {error.actualHttpStatus != null
-            ? `HTTP ${error.actualHttpStatus} (spec: ${error.expectedHttpStatus}).`
-            : `Spec HTTP status: ${error.expectedHttpStatus}.`}
-        </Text>
-        {error.supported && (
-          <Text size="xs">Server supports: {error.supported.join(", ")}</Text>
-        )}
-      </Stack>
-    </Alert>
-  );
-}
-
 const CancellationAlert = Alert.withProps({
   variant: "light",
   color: "gray",
@@ -416,29 +385,15 @@ export function NetworkEntry({
     </Badge>
   ) : null;
 
-  // Modern Streamable HTTP awareness (SEP-2243 / SEP-2575): a recognised spec
-  // error to badge distinctly, and request header/body cross-checks so a
-  // HeaderMismatch is visible before the server even rejects it. Both are pure
-  // functions of the (immutable) entry, so memoise on it.
-  const specError = useMemo(() => classifyMcpSpecError(entry), [entry]);
+  // Request header/body cross-checks so a mirrored-header mismatch is visible
+  // before the server rejects it. (Protocol errors like -32020 are surfaced
+  // distinctly in the Protocol tab, not here — the Network tab stays focused on
+  // the HTTP transaction.)
   const headerConsistency = useMemo(
     () => checkHeaderConsistency(entry),
     [entry],
   );
   const aborted = isCancellationAbort(entry);
-
-  // The spec-error chip is rendered separately from `metaBadges` so each layout
-  // can keep it off the top row, where a long name (e.g.
-  // "MissingRequiredClientCapability") crowds and truncates the method / URL.
-  // Both layouts place it on the second row: beside the URL on the compact
-  // sidebar, and at the start of the toggle row in the full-width layout.
-  const specErrorBadge = specError ? (
-    <McpErrorBadge
-      code={specError.code}
-      name={specError.name}
-      description={specError.description}
-    />
-  ) : null;
 
   const metaBadges = (
     <>
@@ -488,7 +443,6 @@ export function NetworkEntry({
               >
                 <UrlScroll>{entry.url}</UrlScroll>
               </ScrollArea>
-              {specErrorBadge}
               {expandToggle}
             </Group>
           </Stack>
@@ -510,15 +464,7 @@ export function NetworkEntry({
               </Group>
             </HeaderRow>
 
-            {/* Second row: the spec-error chip at the start (so a long name
-                never crowds/truncates the top row), the expand toggle at the
-                end. `space-between` only when the chip is present. */}
-            <Group
-              gap="xs"
-              wrap="nowrap"
-              justify={specErrorBadge ? "space-between" : "flex-end"}
-            >
-              {specErrorBadge}
+            <Group gap="xs" justify="flex-end">
               {expandToggle}
             </Group>
           </>
@@ -527,7 +473,6 @@ export function NetworkEntry({
         <Collapse in={isExpanded}>
           <Stack gap="sm">
             <Divider />
-            {specError && <McpSpecErrorAlert error={specError} />}
             {aborted && (
               <CancellationAlert>
                 <Text size="xs">

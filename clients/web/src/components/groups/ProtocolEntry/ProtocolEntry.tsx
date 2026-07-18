@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  Alert,
   Badge,
   Card,
   Collapse,
@@ -9,14 +10,20 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
+import { RiErrorWarningLine } from "react-icons/ri";
 import type { MessageEntry } from "@inspector/core/mcp/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { MessageDirectionBadge } from "../../elements/MessageDirectionBadge/MessageDirectionBadge";
 import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
+import { McpErrorBadge } from "../../elements/McpErrorBadge/McpErrorBadge";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { PinToggle } from "../../elements/PinToggle/PinToggle";
 import { ReplayButton } from "../../elements/ReplayButton/ReplayButton";
+import {
+  classifyProtocolSpecError,
+  type McpSpecError,
+} from "../../../utils/mcpNetworkHeaders";
 import {
   extractMethod,
   extractResultType,
@@ -190,6 +197,43 @@ function serializeMessage(value: unknown): string {
   return JSON.stringify(value);
 }
 
+// The JSON-RPC error carried by a message — either the folded error `response`
+// on a request, or an error message frame itself — classified as a modern spec
+// error (SEP-2243 / SEP-2575) or null. Protocol errors the SDK throws rather
+// than delivers (e.g. -32601) are folded onto the pending request upstream (see
+// `enrichProtocolEntries`), so they land here too.
+function extractSpecError(entry: MessageEntry): McpSpecError | null {
+  const error =
+    entry.response && "error" in entry.response
+      ? entry.response.error
+      : "error" in entry.message
+        ? entry.message.error
+        : undefined;
+  if (!error || typeof error.code !== "number") return null;
+  return classifyProtocolSpecError(error.code, error.data);
+}
+
+// Friendly summary of a modern spec error, shown in the expanded detail. The
+// HTTP-level facts (status, mirrored headers) live on the correlated Network
+// entry, reachable from the reveal link (added in the follow-up).
+function McpSpecErrorAlert({ error }: { error: McpSpecError }) {
+  return (
+    <Alert
+      variant="light"
+      color="red"
+      title={`${error.code} ${error.name}`}
+      icon={<RiErrorWarningLine />}
+    >
+      <Stack gap="xs">
+        <Text size="xs">{error.description}</Text>
+        {error.supported && (
+          <Text size="xs">Server supports: {error.supported.join(", ")}</Text>
+        )}
+      </Stack>
+    </Alert>
+  );
+}
+
 export function ProtocolEntry({
   entry,
   isPinned,
@@ -215,6 +259,16 @@ export function ProtocolEntry({
   const directionBadge = entry.origin && (
     <MessageDirectionBadge
       direction={entry.origin === "client" ? "outgoing" : "incoming"}
+    />
+  );
+  // Distinct chip for a modern spec error (SEP-2243 / SEP-2575). Sits on the top
+  // line right after the direction badge in both layouts.
+  const specError = extractSpecError(entry);
+  const specErrorBadge = specError && (
+    <McpErrorBadge
+      code={specError.code}
+      name={specError.name}
+      description={specError.description}
     />
   );
   // The modern `resultType` on the paired result (spec §7.3): `input_required`
@@ -260,6 +314,7 @@ export function ProtocolEntry({
                   {formatTimestampCompact(entry.timestamp)}
                 </TimestampText>
                 {directionBadge}
+                {specErrorBadge}
               </HeaderCluster>
               <ControlsCluster>
                 {durationText}
@@ -308,6 +363,7 @@ export function ProtocolEntry({
                   {formatTimestamp(entry.timestamp)}
                 </TimestampText>
                 {directionBadge}
+                {specErrorBadge}
                 <MethodBadge method={method} />
                 {modernFrameBadge}
                 {subscriptionBadge}
@@ -339,6 +395,7 @@ export function ProtocolEntry({
         <Collapse in={isExpanded}>
           <Stack gap="sm">
             <Divider />
+            {specError && <McpSpecErrorAlert error={specError} />}
             {"params" in entry.message && entry.message.params && (
               <Stack gap="xs">
                 <Text size="sm">Parameters:</Text>

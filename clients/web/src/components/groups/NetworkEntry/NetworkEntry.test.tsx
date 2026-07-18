@@ -350,7 +350,9 @@ describe("NetworkEntry", () => {
       ).toBeInTheDocument();
     });
 
-    it("badges a -32020 HeaderMismatch and summarises it in an alert", () => {
+    it("does NOT badge a spec error (those live in the Protocol tab now)", () => {
+      // A -32020 response is still a plain HTTP entry here; the distinct
+      // spec-error chip/alert moved to the Protocol tab.
       const entry: FetchRequestEntry = {
         ...baseEntry,
         responseStatus: 400,
@@ -362,56 +364,11 @@ describe("NetworkEntry", () => {
         }),
       };
       renderWithMantine(<NetworkEntry entry={entry} isListExpanded={true} />);
+      expect(screen.getByText("400 Bad Request")).toBeInTheDocument();
       expect(
-        screen.getAllByText("-32020 HeaderMismatch").length,
-      ).toBeGreaterThan(0);
-    });
-
-    it("lists the supported versions for a -32022 UnsupportedProtocolVersion", () => {
-      const entry: FetchRequestEntry = {
-        ...baseEntry,
-        responseStatus: 400,
-        responseStatusText: "Bad Request",
-        responseBody: JSON.stringify({
-          error: {
-            code: -32022,
-            message: "unsupported",
-            data: { supported: ["2025-11-25", "2026-07-28"] },
-          },
-        }),
-      };
-      renderWithMantine(<NetworkEntry entry={entry} isListExpanded={true} />);
-      expect(
-        screen.getByText(/Server supports: 2025-11-25, 2026-07-28/),
-      ).toBeInTheDocument();
-    });
-
-    it("badges a modern -32601 on an HTTP 404 but not an in-band -32601 on 200", () => {
-      const modern404: FetchRequestEntry = {
-        ...baseEntry,
-        id: "n-404",
-        responseStatus: 404,
-        responseStatusText: "Not Found",
-        responseBody: JSON.stringify({ error: { code: -32601 } }),
-      };
-      const { unmount } = renderWithMantine(
-        <NetworkEntry entry={modern404} isListExpanded={false} />,
-      );
-      expect(
-        screen.getAllByText("-32601 MethodNotFound").length,
-      ).toBeGreaterThan(0);
-      unmount();
-
-      const inBand: FetchRequestEntry = {
-        ...baseEntry,
-        id: "n-200",
-        responseStatus: 200,
-        responseBody: JSON.stringify({ error: { code: -32601 } }),
-      };
-      renderWithMantine(<NetworkEntry entry={inBand} isListExpanded={false} />);
-      expect(
-        screen.queryByText("-32601 MethodNotFound"),
+        screen.queryByText("-32020 HeaderMismatch"),
       ).not.toBeInTheDocument();
+      expect(screen.queryByText(/Server supports:/)).not.toBeInTheDocument();
     });
 
     it("labels a cancelled request as an abort, not a hard error", () => {

@@ -220,6 +220,28 @@ export function classifyMcpSpecError(
 }
 
 /**
+ * Classify a JSON-RPC error *code* (e.g. from a Protocol message's
+ * `response.error`) as one of the modern spec errors, or `null`. Unlike
+ * {@link classifyMcpSpecError}, this works from the code alone — the Protocol
+ * view carries no HTTP status (that lives on the correlated Network entry), so
+ * `-32601` is recognised here whenever it appears as a JSON-RPC error, not only
+ * on an HTTP 404.
+ */
+export function classifyProtocolSpecError(
+  code: number,
+  data?: unknown,
+): McpSpecError | null {
+  const meta = SPEC_ERROR_META[code];
+  if (!meta) return null;
+  const result: McpSpecError = { code, ...meta };
+  if (code === ProtocolErrorCode.UnsupportedProtocolVersion) {
+    const supported = extractSupportedVersions(data);
+    if (supported) result.supported = supported;
+  }
+  return result;
+}
+
+/**
  * A bare HTTP 404 with no JSON-RPC body is how a legacy HTTP+SSE endpoint (or a
  * non-MCP server) answers an unknown route — distinct from a modern server's
  * `-32601` 404 (see {@link classifyMcpSpecError}). Surfacing it helps explain
