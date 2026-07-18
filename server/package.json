@@ -24,7 +24,8 @@
     "build": "tsc && shx cp -R static build",
     "start": "node build/index.js",
     "dev": "tsx watch --clear-screen=false src/index.ts",
-    "dev:windows": "tsx watch --clear-screen=false src/index.ts < NUL"
+    "dev:windows": "tsx watch --clear-screen=false src/index.ts < NUL",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

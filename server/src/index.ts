@@ -28,6 +28,7 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy, { type ProxyHeaderHolder } from "./mcpProxy.js";
+import { redactSensitiveEntries, redactQueryForLogging } from "./redact.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
@@ -432,7 +433,10 @@ const createTransport = async (
   headerHolder?: ProxyHeaderHolder;
 }> => {
   const query = req.query;
-  console.log("Query parameters:", JSON.stringify(query));
+  console.log(
+    "Query parameters:",
+    JSON.stringify(redactQueryForLogging(query)),
+  );
 
   const transportType = query.transportType as string;
 
@@ -463,7 +467,9 @@ const createTransport = async (
     const headerHolder: ProxyHeaderHolder = { headers };
 
     console.log(
-      `SSE transport: url=${url}, headers=${JSON.stringify(headers)}`,
+      `SSE transport: url=${url}, headers=${JSON.stringify(
+        redactSensitiveEntries(headers),
+      )}`,
     );
 
     const transport = new SSEClientTransport(new URL(url), {
