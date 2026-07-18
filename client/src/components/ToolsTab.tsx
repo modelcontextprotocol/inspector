@@ -738,15 +738,9 @@ const ToolsTab = ({
                         )}
                       </Button>
                     </div>
-                    <div
-                      className={`transition-all ${
-                        isOutputSchemaExpanded
-                          ? ""
-                          : "max-h-[8rem] overflow-y-auto"
-                      }`}
-                    >
+                    {isOutputSchemaExpanded && (
                       <JsonView data={selectedTool.outputSchema} />
-                    </div>
+                    )}
                   </div>
                 )}
                 {selectedTool &&
@@ -776,15 +770,9 @@ const ToolsTab = ({
                           )}
                         </Button>
                       </div>
-                      <div
-                        className={`transition-all ${
-                          isMetadataExpanded
-                            ? ""
-                            : "max-h-[8rem] overflow-y-auto"
-                        }`}
-                      >
+                      {isMetadataExpanded && (
                         <JsonView data={selectedTool._meta} />
-                      </div>
+                      )}
                     </div>
                   )}
                 {taskSupport !== "forbidden" && (
