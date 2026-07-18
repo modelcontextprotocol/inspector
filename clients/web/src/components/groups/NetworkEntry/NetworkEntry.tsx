@@ -427,19 +427,24 @@ export function NetworkEntry({
   );
   const aborted = isCancellationAbort(entry);
 
+  // The spec-error chip is rendered separately from `metaBadges` so the two
+  // layouts can place it where there's room: on the compact sidebar it would
+  // crowd and truncate the (already tight) top row, so it sits on the second
+  // row beside the URL; the full-width layout keeps it in the top-right cluster.
+  const specErrorBadge = specError ? (
+    <McpErrorBadge
+      code={specError.code}
+      name={specError.name}
+      description={specError.description}
+    />
+  ) : null;
+
   const metaBadges = (
     <>
       {entry.duration != null && (
         <DurationText>{formatDuration(entry.duration)}</DurationText>
       )}
       {isLongLivedStream(entry) && <Badge color="orange">SSE</Badge>}
-      {specError && (
-        <McpErrorBadge
-          code={specError.code}
-          name={specError.name}
-          description={specError.description}
-        />
-      )}
       <Badge color={statusColor(entry)} variant="status">
         {statusLabel(entry)}
       </Badge>
@@ -482,6 +487,7 @@ export function NetworkEntry({
               >
                 <UrlScroll>{entry.url}</UrlScroll>
               </ScrollArea>
+              {specErrorBadge}
               {expandToggle}
             </Group>
           </Stack>
@@ -499,6 +505,7 @@ export function NetworkEntry({
                 <UrlText>{entry.url}</UrlText>
               </Group>
               <Group gap="sm" wrap="nowrap">
+                {specErrorBadge}
                 {metaBadges}
               </Group>
             </HeaderRow>
