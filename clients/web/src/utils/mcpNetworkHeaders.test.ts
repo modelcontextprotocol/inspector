@@ -200,11 +200,33 @@ describe("classifyMcpSpecError", () => {
 });
 
 describe("classifyProtocolSpecError", () => {
-  it("classifies by code alone (no HTTP status), incl. -32601", () => {
+  it("classifies by code alone when the HTTP status is unknown, incl. -32601", () => {
     expect(classifyProtocolSpecError(-32601)?.name).toBe("MethodNotFound");
     expect(classifyProtocolSpecError(HEADER_MISMATCH_ERROR_CODE)?.name).toBe(
       "HeaderMismatch",
     );
+  });
+
+  it("treats -32601 as MethodNotFound only on a genuine 404, not an in-band 200", () => {
+    // Thrown modern 404 → the transport taxonomy.
+    expect(classifyProtocolSpecError(-32601, undefined, 404)?.name).toBe(
+      "MethodNotFound",
+    );
+    // Ordinary in-band method-not-found on a 200 → not the modern taxonomy.
+    expect(classifyProtocolSpecError(-32601, undefined, 200)).toBeNull();
+  });
+
+  it("does not gate the 400-status spec errors on HTTP status", () => {
+    // -32020/-32021/-32022 are SEP-reserved and unambiguous, so a non-404 status
+    // (they arrive on 400) must not suppress them.
+    expect(
+      classifyProtocolSpecError(HEADER_MISMATCH_ERROR_CODE, undefined, 400)
+        ?.name,
+    ).toBe("HeaderMismatch");
+    expect(
+      classifyProtocolSpecError(-32022, { supported: ["2026-07-28"] }, 400)
+        ?.name,
+    ).toBe("UnsupportedProtocolVersion");
   });
 
   it("extracts supported versions for -32022", () => {

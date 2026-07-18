@@ -5,6 +5,7 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import {
   correlateFetchEntry,
+  correlatedFetchStatusById,
   enrichProtocolEntries,
   messageJsonRpcId,
   revealableMessageIds,
@@ -179,5 +180,40 @@ describe("revealableMessageIds", () => {
     };
     const fetches = [{ ...transportFetch(1, undefined), requestBody: "nope" }];
     expect(revealableMessageIds([note, requestEntry(1)], fetches).size).toBe(0);
+  });
+});
+
+describe("correlatedFetchStatusById", () => {
+  it("maps each message id to its correlated transport fetch's HTTP status", () => {
+    const messages = [requestEntry(1), requestEntry(2)];
+    const fetches = [
+      transportFetch(1, undefined, { responseStatus: 404 }),
+      transportFetch(2, undefined, { responseStatus: 200 }),
+    ];
+    const byId = correlatedFetchStatusById(messages, fetches);
+    expect(byId.get("msg-1")).toBe(404);
+    expect(byId.get("msg-2")).toBe(200);
+  });
+
+  it("skips non-transport fetches, statusless fetches, and uncorrelated messages", () => {
+    const messages = [requestEntry(1), requestEntry(2), requestEntry(3)];
+    const fetches = [
+      transportFetch(1, undefined, { category: "auth", responseStatus: 200 }),
+      transportFetch(2, undefined, { responseStatus: undefined }),
+      // id 3 has no fetch at all
+    ];
+    const byId = correlatedFetchStatusById(messages, fetches);
+    expect(byId.has("msg-1")).toBe(false); // auth category ignored
+    expect(byId.has("msg-2")).toBe(false); // no responseStatus recorded
+    expect(byId.has("msg-3")).toBe(false); // uncorrelated
+  });
+
+  it("keeps the most recent status when a JSON-RPC id repeats", () => {
+    const messages = [requestEntry(1)];
+    const fetches = [
+      transportFetch(1, undefined, { id: "fetch-a", responseStatus: 202 }),
+      transportFetch(1, undefined, { id: "fetch-b", responseStatus: 404 }),
+    ];
+    expect(correlatedFetchStatusById(messages, fetches).get("msg-1")).toBe(404);
   });
 });

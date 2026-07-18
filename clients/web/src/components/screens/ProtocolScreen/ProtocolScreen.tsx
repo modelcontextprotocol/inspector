@@ -34,6 +34,11 @@ export interface ProtocolScreenProps {
   onRevealInNetwork?: (id: string) => void;
   /** Message-entry ids that have a correlated Network entry (link is shown). */
   revealableIds?: Set<string>;
+  /**
+   * Message-entry id → correlated Network fetch HTTP status. Gates the generic
+   * `-32601` to a genuine modern 404 (see {@link ProtocolListPanel}).
+   */
+  correlatedStatusById?: Map<string, number>;
 }
 
 // Search text, method filter, and per-direction visibility — controlled by the
@@ -82,6 +87,7 @@ export function ProtocolScreen({
   embedded = false,
   onRevealInNetwork,
   revealableIds,
+  correlatedStatusById,
 }: ProtocolScreenProps) {
   const { search, methodFilter, visibleDirections } = ui;
 
@@ -156,6 +162,7 @@ export function ProtocolScreen({
         embedded={embedded}
         onRevealInNetwork={onRevealInNetwork}
         revealableIds={revealableIds}
+        correlatedStatusById={correlatedStatusById}
       />
     </ScreenLayout>
   );

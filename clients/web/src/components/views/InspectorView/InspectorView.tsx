@@ -94,6 +94,7 @@ import { getServerType } from "@inspector/core/mcp/config.js";
 import { INSPECTOR_SERVERS_TAB } from "../../../utils/inspectorTabs";
 import {
   correlateFetchEntry,
+  correlatedFetchStatusById,
   revealableMessageIds,
 } from "../../../utils/correlateTransportErrors";
 import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
@@ -1036,6 +1037,13 @@ export function InspectorView({
     () => revealableMessageIds(protocol, network),
     [protocol, network],
   );
+  // Correlated HTTP status per Protocol entry, so the Protocol view can gate the
+  // generic `-32601` to a genuine modern 404 (an in-band `-32601` on a 200 is an
+  // ordinary error, not the modern transport taxonomy).
+  const protocolStatusById = useMemo(
+    () => correlatedFetchStatusById(protocol, network),
+    [protocol, network],
+  );
 
   // Merge the parent's `serversInput` (static config) with the runtime
   // connection state owned by the parent — only the active server reflects
@@ -1118,6 +1126,7 @@ export function InspectorView({
     onToggleCompact: () => setProtocolCompact((c) => !c),
     onRevealInNetwork: handleRevealInNetwork,
     revealableIds: revealableProtocolIds,
+    correlatedStatusById: protocolStatusById,
   };
   const networkScreenProps = {
     entries: network,

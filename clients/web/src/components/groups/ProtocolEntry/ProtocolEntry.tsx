@@ -51,6 +51,13 @@ export interface ProtocolEntryProps {
    * the matching HTTP entry.
    */
   onRevealInNetwork?: () => void;
+  /**
+   * HTTP status of this entry's correlated Network fetch, when known. Used to
+   * gate the generic `-32601` to a genuine modern 404 (an in-band `-32601` on a
+   * 200 is an ordinary error, not the modern taxonomy). Omitted when there is no
+   * correlated HTTP record.
+   */
+  correlatedHttpStatus?: number;
 }
 
 const EntryContainer = Card.withProps({
@@ -209,7 +216,10 @@ function serializeMessage(value: unknown): string {
 // error (SEP-2243 / SEP-2575) or null. Protocol errors the SDK throws rather
 // than delivers (e.g. -32601) are folded onto the pending request upstream (see
 // `enrichProtocolEntries`), so they land here too.
-function extractSpecError(entry: MessageEntry): McpSpecError | null {
+function extractSpecError(
+  entry: MessageEntry,
+  httpStatus?: number,
+): McpSpecError | null {
   const error =
     entry.response && "error" in entry.response
       ? entry.response.error
@@ -217,7 +227,7 @@ function extractSpecError(entry: MessageEntry): McpSpecError | null {
         ? entry.message.error
         : undefined;
   if (!error || typeof error.code !== "number") return null;
-  return classifyProtocolSpecError(error.code, error.data);
+  return classifyProtocolSpecError(error.code, error.data, httpStatus);
 }
 
 // Friendly summary of a modern spec error, shown in the expanded detail. The
@@ -260,6 +270,7 @@ export function ProtocolEntry({
   onTogglePin,
   embedded = false,
   onRevealInNetwork,
+  correlatedHttpStatus,
 }: ProtocolEntryProps) {
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
   const method = extractMethod(entry);
@@ -283,7 +294,7 @@ export function ProtocolEntry({
   // Distinct chip for a modern spec error (SEP-2243 / SEP-2575). Shown only in
   // the wide layout (right after the method chip); the compact sidebar relies on
   // its ERROR status badge to keep the two-line row uncluttered.
-  const specError = extractSpecError(entry);
+  const specError = extractSpecError(entry, correlatedHttpStatus);
   const specErrorBadge = specError && (
     <McpErrorBadge
       code={specError.code}

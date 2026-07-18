@@ -248,18 +248,32 @@ export function classifyMcpSpecError(
 
 /**
  * Classify a JSON-RPC error *code* (e.g. from a Protocol message's
- * `response.error`) as one of the modern spec errors, or `null`. Unlike
- * {@link classifyMcpSpecError}, this works from the code alone — the Protocol
- * view carries no HTTP status (that lives on the correlated Network entry), so
- * `-32601` is recognised here whenever it appears as a JSON-RPC error, not only
- * on an HTTP 404.
+ * `response.error`) as one of the modern spec errors, or `null`.
+ *
+ * `-32020`/`-32021`/`-32022` are SEP-reserved and unambiguous, so they're
+ * recognised from the code alone. `-32601 MethodNotFound`, by contrast, is the
+ * most generic standard JSON-RPC error — any server can return it *in-band on an
+ * HTTP 200* for an unsupported method, which is not the modern transport
+ * taxonomy. So it's treated as the modern marker only when the correlated fetch
+ * was an actual 404 (`httpStatus === 404`), mirroring {@link classifyMcpSpecError}.
+ * When `httpStatus` is omitted the status is unknown and `-32601` falls back to
+ * code-only recognition — the thrown-404 path always carries a 404, so this only
+ * affects a `-32601` with no correlated HTTP record.
  */
 export function classifyProtocolSpecError(
   code: number,
   data?: unknown,
+  httpStatus?: number,
 ): McpSpecError | null {
   const meta = SPEC_ERROR_META[code];
   if (!meta) return null;
+  if (
+    code === ProtocolErrorCode.MethodNotFound &&
+    httpStatus !== undefined &&
+    httpStatus !== 404
+  ) {
+    return null;
+  }
   const result: McpSpecError = { code, ...meta };
   if (code === ProtocolErrorCode.UnsupportedProtocolVersion) {
     const supported = extractSupportedVersions(data);

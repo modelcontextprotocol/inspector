@@ -124,6 +124,35 @@ export function revealableMessageIds(
 }
 
 /**
+ * Map each Protocol `MessageEntry` id to the HTTP status of its correlated
+ * transport fetch (when the fetch recorded one; last match wins on repeated ids).
+ * This lets the Protocol view apply the HTTP-status-dependent classification it
+ * otherwise can't — notably gating the generic `-32601` to a genuine modern 404
+ * rather than an ordinary in-band error on a 200. O(messages + fetches).
+ */
+export function correlatedFetchStatusById(
+  messages: MessageEntry[],
+  fetchEntries: FetchRequestEntry[],
+): Map<string, number> {
+  const statusByRequestId = new Map<string, number>();
+  for (const fetchEntry of fetchEntries) {
+    if (fetchEntry.category !== "transport") continue;
+    if (fetchEntry.responseStatus === undefined) continue;
+    const requestId = parseJsonRpcId(fetchEntry.requestBody);
+    if (requestId !== null)
+      statusByRequestId.set(String(requestId), fetchEntry.responseStatus);
+  }
+  const byMessageId = new Map<string, number>();
+  for (const entry of messages) {
+    const id = messageJsonRpcId(entry);
+    if (id === undefined) continue;
+    const status = statusByRequestId.get(String(id));
+    if (status !== undefined) byMessageId.set(entry.id, status);
+  }
+  return byMessageId;
+}
+
+/**
  * Fold a synthetic error `response` into any still-pending request whose
  * correlated transport fetch carried a JSON-RPC error. This surfaces the errors
  * the SDK throws instead of delivering (notably `-32601` on HTTP 404) into the

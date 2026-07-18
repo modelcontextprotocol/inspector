@@ -560,22 +560,50 @@ describe("ProtocolEntry — modern vocabulary", () => {
       ).toBeInTheDocument();
     });
 
-    it("recognises a -32601 folded onto the request (SDK-thrown, surfaced)", () => {
+    const methodNotFoundEntry: MessageEntry = {
+      ...headerMismatchEntry,
+      id: "req-err-601",
+      response: {
+        jsonrpc: "2.0",
+        id: 20,
+        error: { code: -32601, message: "Method not found" },
+      },
+    };
+
+    it("recognises a -32601 folded onto the request when the correlated fetch is a 404", () => {
       // -32601 arrives as HTTP 404 and is folded onto the pending request by
-      // enrichProtocolEntries; ProtocolEntry classifies it from the code alone.
-      const entry: MessageEntry = {
-        ...headerMismatchEntry,
-        id: "req-err-601",
-        response: {
-          jsonrpc: "2.0",
-          id: 20,
-          error: { code: -32601, message: "Method not found" },
-        },
-      };
-      renderWithMantine(<ProtocolEntry {...baseProps} entry={entry} />);
+      // enrichProtocolEntries; the 404 status marks it as the modern taxonomy.
+      renderWithMantine(
+        <ProtocolEntry
+          {...baseProps}
+          entry={methodNotFoundEntry}
+          correlatedHttpStatus={404}
+        />,
+      );
       expect(
         screen.getAllByText("-32601 MethodNotFound").length,
       ).toBeGreaterThan(0);
+    });
+
+    it("does NOT dress up an ordinary in-band -32601 on a 200 as the modern spec error", () => {
+      // A server returning -32601 in-band on HTTP 200 for an unsupported method
+      // is a plain JSON-RPC error, not the modern 404 taxonomy — no spec chip,
+      // no 404-asserting alert, and no reveal link.
+      renderWithMantine(
+        <ProtocolEntry
+          {...baseProps}
+          entry={methodNotFoundEntry}
+          isListExpanded={true}
+          correlatedHttpStatus={200}
+          onRevealInNetwork={() => {}}
+        />,
+      );
+      expect(screen.queryByText("-32601 MethodNotFound")).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: /View the HTTP request/ }),
+      ).not.toBeInTheDocument();
+      // ...but it still renders as an ordinary Error.
+      expect(screen.getAllByText("Error").length).toBeGreaterThan(0);
     });
 
     it("does not chip an ordinary (non-spec) error like -32000", () => {

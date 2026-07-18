@@ -59,6 +59,11 @@ export interface ProtocolListPanelProps {
   onRevealInNetwork?: (id: string) => void;
   /** Message-entry ids that have a correlated Network entry (link is shown). */
   revealableIds?: Set<string>;
+  /**
+   * Message-entry id → correlated Network fetch HTTP status. Gates the generic
+   * `-32601` to a genuine modern 404 (see {@link ProtocolEntry}).
+   */
+  correlatedStatusById?: Map<string, number>;
 }
 
 const PanelContainer = Paper.withProps({
@@ -243,6 +248,7 @@ export function ProtocolListPanel({
   embedded = false,
   onRevealInNetwork,
   revealableIds,
+  correlatedStatusById,
 }: ProtocolListPanelProps) {
   const viewportRef = useScrollMemory("protocol-list");
   // Per-section expand/collapse, like the LogControls level toggles. Both start
@@ -321,6 +327,7 @@ export function ProtocolListPanel({
               ? () => onRevealInNetwork(row.entry.id)
               : undefined
           }
+          correlatedHttpStatus={correlatedStatusById?.get(row.entry.id)}
         />
       ),
     );
