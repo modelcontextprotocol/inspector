@@ -1129,6 +1129,12 @@ export function InspectorView({
     onSortChange: setNetworkSort,
     compact: networkCompact,
     onToggleCompact: () => setNetworkCompact((c) => !c),
+    // `revealId` is spread into both the pinned-sidebar monitor instance and the
+    // primary full-screen ScreenStage instance, and ScreenStage keeps inactive
+    // children mounted — so when the sidebar is pinned two NetworkEntry instances
+    // match this id. Both fire (the hidden one's scrollIntoView is a no-op) and
+    // both call onRevealComplete; the clear is idempotent, so the double-fire is
+    // expected and harmless.
     revealId: revealNetworkId,
     onRevealComplete: () => setRevealNetworkId(undefined),
   };

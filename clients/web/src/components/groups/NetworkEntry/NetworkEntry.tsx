@@ -388,14 +388,18 @@ export function NetworkEntry({
   // "Reveal in Network" one-shot: when targeted, force this entry open and
   // scroll it into view, then clear the signal. The scroll runs in a rAF so it
   // lands after `useScrollMemory`'s layout-effect restore (which would otherwise
-  // fight it) and after the force-expand has grown the row.
+  // fight it) and after the force-expand has grown the row. `onRevealComplete`
+  // clears the parent's `revealId`, which flips `revealed` back to false and re-
+  // runs this effect's cleanup — so it must fire *inside* the rAF, after the
+  // scroll, otherwise the cleanup's `cancelAnimationFrame` would race and could
+  // cancel the very frame doing the scroll.
   useEffect(() => {
     if (!revealed) return;
     setIsExpanded(true);
     const raf = requestAnimationFrame(() => {
       rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      onRevealComplete?.();
     });
-    onRevealComplete?.();
     return () => cancelAnimationFrame(raf);
   }, [revealed, onRevealComplete]);
 

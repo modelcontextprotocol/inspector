@@ -2,14 +2,17 @@ import { ProtocolErrorCode } from "@modelcontextprotocol/client";
 import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
 
 /**
- * SEP-2243 / modern Streamable HTTP transport awareness for the Network tab.
+ * SEP-2243 / modern Streamable HTTP transport awareness for the monitoring tabs.
  *
  * The modern (≥2026-07-28) transport mirrors key JSON-RPC body fields into HTTP
  * headers so intermediaries can route/police MCP traffic without parsing bodies
  * (`Mcp-Method`, `Mcp-Name`, `Mcp-Param-*`, `MCP-Protocol-Version`), and defines
  * a small family of spec error codes returned as JSON-RPC bodies over specific
- * HTTP statuses. This module is the pure logic the Network UI uses to recognise,
- * decode, and validate those — no rendering, fully unit-testable.
+ * HTTP statuses. This module is the pure logic those tabs use to recognise,
+ * decode, and validate them — no rendering, fully unit-testable. The header
+ * recognition/decoding/consistency helpers back the Network tab; the spec-error
+ * classification (`classifyProtocolSpecError`) backs the Protocol tab. Shared
+ * here because both are the same modern HTTP/spec vocabulary.
  *
  * Recorded header keys are lowercased (the fetch tracker reads them through the
  * `Headers` API, which normalises names), so every comparison here is

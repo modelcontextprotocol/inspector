@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
 import {
@@ -390,10 +391,32 @@ describe("NetworkEntry", () => {
       );
       // Force-expanded even though isListExpanded is false.
       expect(screen.getByText("Request Headers")).toBeInTheDocument();
-      // The one-shot signal is cleared synchronously.
-      expect(onRevealComplete).toHaveBeenCalledTimes(1);
-      // The scroll runs in a rAF.
+      // The scroll runs in a rAF, and the signal clears *after* it (inside the
+      // same frame) — not synchronously — so a re-render can't cancel the scroll.
       await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+      expect(onRevealComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it("still scrolls when clearing the signal flips `revealed` back to false", async () => {
+      // Reproduces the real integration: onRevealComplete clears the parent's
+      // revealId, which flips this entry's `revealed` prop true→false and runs
+      // the effect cleanup (cancelAnimationFrame). The scroll must survive.
+      const scrollIntoView = vi.fn();
+      Element.prototype.scrollIntoView = scrollIntoView;
+      const Harness = () => {
+        const [revealed, setRevealed] = useState(true);
+        return (
+          <NetworkEntry
+            entry={baseEntry}
+            isListExpanded={false}
+            revealed={revealed}
+            onRevealComplete={() => setRevealed(false)}
+          />
+        );
+      };
+      renderWithMantine(<Harness />);
+      // The scroll fired inside the rAF before the clear could cancel it.
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(1));
     });
 
     it("labels a cancelled request as an abort, not a hard error", () => {

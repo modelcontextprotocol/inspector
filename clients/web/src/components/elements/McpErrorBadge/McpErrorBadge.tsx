@@ -11,7 +11,7 @@ export interface McpErrorBadgeProps {
 }
 
 // Each modern spec error gets a distinct colour so the four are told apart at a
-// glance in a dense Network stream (SEP-2243 / SEP-2575). Falls back to red for
+// glance in a dense Protocol stream (SEP-2243 / SEP-2575). Falls back to red for
 // any other code routed here.
 const COLOR_BY_CODE: Record<number, string> = {
   [-32020]: "red", // HeaderMismatch
@@ -22,7 +22,7 @@ const COLOR_BY_CODE: Record<number, string> = {
 
 /**
  * Distinct badge for one of the modern Streamable HTTP spec error codes shown in
- * the Network tab. Labels the code and spec name (e.g. "-32020 HeaderMismatch")
+ * the Protocol tab. Labels the code and spec name (e.g. "-32020 HeaderMismatch")
  * and, when a description is supplied, explains it on hover.
  *
  * Uses the filled + `autoContrast` treatment (via {@link filledBadgeColor}) like
