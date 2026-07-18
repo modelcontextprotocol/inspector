@@ -33,12 +33,11 @@ export class ManagedResourcesState extends ManagedListState<
       changeEvent: "resourcesChange",
       listChangedEvent: "resourcesListChanged",
       capabilityKey: "resources",
-      itemLabel: "resources",
       supportsIndicator: true,
       debounceMs,
-      fetchPage: async (c, cursor, metadata) => {
-        const result = await c.listResources(cursor, metadata);
-        return { items: result.resources, nextCursor: result.nextCursor };
+      fetchAll: async (c, cacheMode, metadata) => {
+        const result = await c.listAllResources({ cacheMode, metadata });
+        return result.resources;
       },
     });
   }

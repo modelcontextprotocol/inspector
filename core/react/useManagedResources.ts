@@ -82,7 +82,10 @@ export function useManagedResources(
     // clearing afterward would wipe that genuinely-new signal and the user
     // would miss it. Clearing up front acknowledges only the change in hand.
     managedResourcesState.clearListChanged();
-    const next = await managedResourcesState.refresh();
+    // A user-initiated refresh forces a cache-bypassing round trip
+    // (`cacheMode: "refresh"`) so a modern server's `ttlMs`-cached list can't
+    // return stale — and re-stores the fresh aggregate.
+    const next = await managedResourcesState.refresh(undefined, "refresh");
     setResources(next);
     return next;
   }, [client, managedResourcesState]);

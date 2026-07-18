@@ -35,7 +35,7 @@ describe("ManagedPromptsState", () => {
 
   beforeEach(() => {
     // Default to a server that advertises `prompts` so the existing flow tests
-    // exercise the live `listPrompts` path; capability-absent tests below
+    // exercise the live `listAllPrompts` path; capability-absent tests below
     // override this.
     client = new FakeInspectorClient({ capabilities: { prompts: {} } });
     state = new ManagedPromptsState(client, 0);
@@ -51,13 +51,13 @@ describe("ManagedPromptsState", () => {
     expect(a).not.toBe(b);
   });
 
-  it("refresh returns early and does not call listPrompts when disconnected", async () => {
+  it("refresh returns early and does not call listAllPrompts when disconnected", async () => {
     const result = await state.refresh();
     expect(result).toEqual([]);
-    expect(client.listPrompts).not.toHaveBeenCalled();
+    expect(client.listAllPrompts).not.toHaveBeenCalled();
   });
 
-  it("refresh skips listPrompts when the server doesn't advertise prompts capability", async () => {
+  it("refresh skips listAllPrompts when the server doesn't advertise prompts capability", async () => {
     // Regression (#1350): a prompts-less server replied to prompts/list with
     // -32601 "Method not found", surfacing in the console on every connect.
     const promptless = new FakeInspectorClient({
@@ -68,10 +68,10 @@ describe("ManagedPromptsState", () => {
 
     const result = await promptlessState.refresh();
     expect(result).toEqual([]);
-    expect(promptless.listPrompts).not.toHaveBeenCalled();
+    expect(promptless.listAllPrompts).not.toHaveBeenCalled();
   });
 
-  it("connect against a prompts-less server doesn't fire listPrompts", async () => {
+  it("connect against a prompts-less server doesn't fire listAllPrompts", async () => {
     // The connect event runs refresh; the capability gate must also catch it
     // there, not only the publicly-callable refresh().
     const promptless = new FakeInspectorClient({ capabilities: { tools: {} } });
@@ -81,11 +81,11 @@ describe("ManagedPromptsState", () => {
     const changePromise = waitForPromptsChange(promptlessState);
     promptless.dispatchTypedEvent("connect");
     await changePromise;
-    expect(promptless.listPrompts).not.toHaveBeenCalled();
+    expect(promptless.listAllPrompts).not.toHaveBeenCalled();
     expect(promptlessState.getPrompts()).toEqual([]);
   });
 
-  it("refresh fetches a single page and dispatches promptsChange", async () => {
+  it("refresh fetches the full list and dispatches promptsChange", async () => {
     client.setStatus("connected");
     client.queuePromptPages({ prompts: [prompt("a"), prompt("b")] });
 
@@ -97,7 +97,9 @@ describe("ManagedPromptsState", () => {
     expect(state.getPrompts().map((p) => p.name)).toEqual(["a", "b"]);
   });
 
-  it("refresh accumulates across multiple paginated pages", async () => {
+  it("refresh delegates all-page aggregation to listAllPrompts (one call)", async () => {
+    // The SDK's high-level verb walks every page; the managed state makes a
+    // single `listAllPrompts` call rather than looping single pages itself.
     client.setStatus("connected");
     client.queuePromptPages(
       { prompts: [prompt("a")], nextCursor: "c1" },
@@ -107,15 +109,18 @@ describe("ManagedPromptsState", () => {
 
     const result = await state.refresh();
     expect(result.map((p) => p.name)).toEqual(["a", "b", "c"]);
-    expect(client.listPrompts).toHaveBeenCalledTimes(3);
+    expect(client.listAllPrompts).toHaveBeenCalledTimes(1);
   });
 
-  it("refresh passes setMetadata-supplied metadata to listPrompts", async () => {
+  it("refresh passes setMetadata-supplied metadata to listAllPrompts", async () => {
     client.setStatus("connected");
     state.setMetadata({ k: "v" });
     client.queuePromptPages({ prompts: [prompt("a")] });
     await state.refresh();
-    expect(client.listPrompts).toHaveBeenCalledWith(undefined, { k: "v" });
+    expect(client.listAllPrompts).toHaveBeenCalledWith({
+      cacheMode: undefined,
+      metadata: { k: "v" },
+    });
   });
 
   it("refresh argument overrides setMetadata", async () => {
@@ -123,8 +128,9 @@ describe("ManagedPromptsState", () => {
     state.setMetadata({ k: "default" });
     client.queuePromptPages({ prompts: [prompt("a")] });
     await state.refresh({ k: "override" });
-    expect(client.listPrompts).toHaveBeenCalledWith(undefined, {
-      k: "override",
+    expect(client.listAllPrompts).toHaveBeenCalledWith({
+      cacheMode: undefined,
+      metadata: { k: "override" },
     });
   });
 
@@ -144,11 +150,11 @@ describe("ManagedPromptsState", () => {
     const changed = waitForListChanged(state);
     client.dispatchTypedEvent("promptsListChanged");
     expect(await changed).toBe(true);
-    expect(client.listPrompts).not.toHaveBeenCalled(); // no automatic fetch
+    expect(client.listAllPrompts).not.toHaveBeenCalled(); // no automatic fetch
     expect(state.getPrompts()).toEqual([]); // displayed list untouched
   });
 
-  it("promptsListChanged auto-refreshes when the server opts in", async () => {
+  it("promptsListChanged auto-refreshes (cacheMode:refresh) when the server opts in", async () => {
     const autoClient = new FakeInspectorClient({
       capabilities: { prompts: {} },
       serverSettings: AUTO_REFRESH_SETTINGS,
@@ -159,7 +165,11 @@ describe("ManagedPromptsState", () => {
     const changed = waitForPromptsChange(autoState);
     autoClient.dispatchTypedEvent("promptsListChanged");
     expect((await changed).map((p) => p.name)).toEqual(["a"]);
-    expect(autoClient.listPrompts).toHaveBeenCalled();
+    // A list_changed means the prior list is stale → bypass the cache.
+    expect(autoClient.listAllPrompts).toHaveBeenCalledWith({
+      cacheMode: "refresh",
+      metadata: undefined,
+    });
   });
 
   it("statusChange to disconnected clears prompts and dispatches promptsChange", async () => {
@@ -196,13 +206,16 @@ describe("ManagedPromptsState", () => {
     expect(state.getPrompts().map((p) => p.name)).toEqual(["a"]);
   });
 
-  it("throws when pagination exceeds 100 pages", async () => {
+  it("refresh forwards an explicit cacheMode to listAllPrompts", async () => {
+    // A user-initiated refresh (via the hook) passes cacheMode:"refresh" to
+    // force a cache-bypassing round trip on modern servers (#1721).
     client.setStatus("connected");
-    client.listPrompts.mockImplementation(async () => ({
-      prompts: [prompt("a")],
-      nextCursor: "always",
-    }));
-    await expect(state.refresh()).rejects.toThrow(/Maximum pagination limit/);
+    client.queuePromptPages({ prompts: [prompt("a")] });
+    await state.refresh(undefined, "refresh");
+    expect(client.listAllPrompts).toHaveBeenCalledWith({
+      cacheMode: "refresh",
+      metadata: undefined,
+    });
   });
 
   it("destroy unsubscribes from client events and clears state", async () => {

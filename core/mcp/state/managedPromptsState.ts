@@ -33,12 +33,11 @@ export class ManagedPromptsState extends ManagedListState<
       changeEvent: "promptsChange",
       listChangedEvent: "promptsListChanged",
       capabilityKey: "prompts",
-      itemLabel: "prompts",
       supportsIndicator: true,
       debounceMs,
-      fetchPage: async (c, cursor, metadata) => {
-        const result = await c.listPrompts(cursor, metadata);
-        return { items: result.prompts, nextCursor: result.nextCursor };
+      fetchAll: async (c, cacheMode, metadata) => {
+        const result = await c.listAllPrompts({ cacheMode, metadata });
+        return result.prompts;
       },
     });
   }

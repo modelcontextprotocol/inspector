@@ -33,12 +33,11 @@ export class ManagedToolsState extends ManagedListState<
       changeEvent: "toolsChange",
       listChangedEvent: "toolsListChanged",
       capabilityKey: "tools",
-      itemLabel: "tools",
       supportsIndicator: true,
       debounceMs,
-      fetchPage: async (c, cursor, metadata) => {
-        const result = await c.listTools(cursor, metadata);
-        return { items: result.tools, nextCursor: result.nextCursor };
+      fetchAll: async (c, cacheMode, metadata) => {
+        const result = await c.listAllTools({ cacheMode, metadata });
+        return result.tools;
       },
     });
   }

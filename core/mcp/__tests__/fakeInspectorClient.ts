@@ -7,6 +7,7 @@
 
 import { vi } from "vitest";
 import type {
+  CacheMode,
   ClientCapabilities,
   DiscoverResult,
   Implementation,
@@ -39,6 +40,24 @@ import type { JsonValue } from "../../json/jsonUtils.js";
 type ListResult<TKey extends string, TItem> = {
   [K in TKey]: TItem[];
 } & { nextCursor?: string };
+
+/**
+ * Drain the entire queue of pre-canned pages for a list key and return the
+ * flattened items — the aggregate `listAll*` mocks consume every queued page in
+ * one call, mirroring the SDK's all-page walk (the single-page `list*` mocks
+ * shift one page per call instead).
+ */
+function drainPages<TKey extends string, TItem>(
+  pages: Array<ListResult<TKey, TItem>>,
+  key: TKey,
+): TItem[] {
+  const items: TItem[] = [];
+  while (pages.length > 0) {
+    const page = pages.shift();
+    if (page) items.push(...page[key]);
+  }
+  return items;
+}
 
 export interface FakeInspectorClientOptions {
   status?: ConnectionStatus;
@@ -91,6 +110,40 @@ export class FakeInspectorClient
   );
   listRequestorTasks = vi.fn(
     async () => this.taskPages.shift() ?? { tasks: [] },
+  );
+
+  // Aggregate variants used by the managed state stores on refresh: drain ALL
+  // queued pages (mimicking the SDK's all-page walk) and return the flattened
+  // list. The `options` (incl. `cacheMode`) is recorded by the `vi.fn` so tests
+  // can assert a user/auto refresh forwarded `cacheMode: "refresh"`.
+  listAllTools = vi.fn(
+    async (_options?: {
+      cacheMode?: CacheMode;
+      metadata?: Record<string, string>;
+    }) => ({ tools: drainPages(this.toolPages, "tools") }),
+  );
+  listAllPrompts = vi.fn(
+    async (_options?: {
+      cacheMode?: CacheMode;
+      metadata?: Record<string, string>;
+    }) => ({ prompts: drainPages(this.promptPages, "prompts") }),
+  );
+  listAllResources = vi.fn(
+    async (_options?: {
+      cacheMode?: CacheMode;
+      metadata?: Record<string, string>;
+    }) => ({ resources: drainPages(this.resourcePages, "resources") }),
+  );
+  listAllResourceTemplates = vi.fn(
+    async (_options?: {
+      cacheMode?: CacheMode;
+      metadata?: Record<string, string>;
+    }) => ({
+      resourceTemplates: drainPages(
+        this.resourceTemplatePages,
+        "resourceTemplates",
+      ),
+    }),
   );
 
   callTool = vi.fn(

@@ -84,6 +84,8 @@ import type {
 import type { Transport } from "@modelcontextprotocol/client";
 import type {
   RequestOptions,
+  CacheableRequestOptions,
+  CacheMode,
   ProgressCallback,
   VersionNegotiationOptions,
   ProtocolEra,
@@ -674,6 +676,38 @@ export class InspectorClient extends InspectorClientEventTarget {
       opts.onprogress = onprogress;
     }
     return opts;
+  }
+
+  /**
+   * {@link getRequestOptions} plus the per-call `cacheMode` for the SDK's
+   * cacheable verbs (the high-level `client.listTools()` / `listPrompts()` /
+   * `listResources()` / `listResourceTemplates()` used by the `listAll*`
+   * aggregate methods below). `cacheMode` is only honored by those wrappers —
+   * the single-page `client.request` path ignores it — so it lives here rather
+   * than in `getRequestOptions`. Omitted when unset so the SDK default
+   * (`'use'`) applies.
+   */
+  private getCacheableRequestOptions(
+    cacheMode?: CacheMode,
+  ): CacheableRequestOptions {
+    const opts: CacheableRequestOptions = this.getRequestOptions();
+    if (cacheMode !== undefined) {
+      opts.cacheMode = cacheMode;
+    }
+    return opts;
+  }
+
+  /**
+   * Build the `params` for the aggregate `listAll*` verbs: merge call metadata
+   * with `defaultMetadata` and wrap as `{ _meta }`, or `undefined` when empty
+   * (so the SDK skips an empty `_meta`). Shared by all four `listAll*` methods
+   * so the merge/omit branch is defined once.
+   */
+  private aggregateListParams(
+    metadata?: Record<string, string>,
+  ): { _meta: Record<string, string> } | undefined {
+    const effectiveMeta = this.mergeMeta(metadata);
+    return effectiveMeta ? { _meta: effectiveMeta } : undefined;
   }
 
   private isHttpOAuthConfig(): boolean {
@@ -2099,6 +2133,34 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Aggregate ALL pages of `tools/list` via the SDK's high-level
+   * `client.listTools()` — the cache-aware verb. Unlike the single-page
+   * {@link listTools} (raw `client.request`, for pagination debugging), this is
+   * the path the managed tool list uses on refresh: the SDK walks every page,
+   * applies the SEP-2243 `x-mcp-header` exclusion, and consults/writes its
+   * response cache. `cacheMode` selects the disposition (`'use'` serves a
+   * still-fresh cached list without a round trip; `'refresh'` always fetches
+   * and re-stores; `'bypass'` fetches without touching the cache) — only
+   * meaningful on modern servers that send `ttlMs` hints; a no-op on legacy
+   * (nothing is cached, so every call hits the wire regardless).
+   */
+  async listAllTools(options?: {
+    cacheMode?: CacheMode;
+    metadata?: Record<string, string>;
+  }): Promise<{ tools: Tool[] }> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    const response = await this.invokeMcpClient(() =>
+      this.client!.listTools(
+        this.aggregateListParams(options?.metadata),
+        this.getCacheableRequestOptions(options?.cacheMode),
+      ),
+    );
+    return { tools: [...response.tools] };
+  }
+
+  /**
    * Call a tool. Caller must provide the Tool (e.g. from a state manager).
    * @param tool The tool to call (use tool.name for the request)
    * @param args Tool arguments
@@ -2887,6 +2949,28 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Aggregate ALL pages of `resources/list` via the SDK's high-level
+   * cache-aware `client.listResources()`. See {@link listAllTools} for the
+   * `cacheMode` semantics; this is the path the managed resource list uses on
+   * refresh.
+   */
+  async listAllResources(options?: {
+    cacheMode?: CacheMode;
+    metadata?: Record<string, string>;
+  }): Promise<{ resources: Resource[] }> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    const response = await this.invokeMcpClient(() =>
+      this.client!.listResources(
+        this.aggregateListParams(options?.metadata),
+        this.getCacheableRequestOptions(options?.cacheMode),
+      ),
+    );
+    return { resources: [...response.resources] };
+  }
+
+  /**
    * Read a resource by URI
    * @param uri Resource URI
    * @param metadata Optional metadata to include in the request
@@ -3021,6 +3105,30 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Aggregate ALL pages of `resources/templates/list` via the SDK's high-level
+   * cache-aware `client.listResourceTemplates()`. See {@link listAllTools} for
+   * the `cacheMode` semantics; this is the path the managed resource-template
+   * list uses on refresh.
+   */
+  async listAllResourceTemplates(options?: {
+    cacheMode?: CacheMode;
+    metadata?: Record<string, string>;
+  }): Promise<{ resourceTemplates: ResourceTemplate[] }> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    const response = await this.invokeMcpClient(
+      () =>
+        this.client!.listResourceTemplates(
+          this.aggregateListParams(options?.metadata),
+          this.getCacheableRequestOptions(options?.cacheMode),
+        ),
+      { method: "resources/templates/list" },
+    );
+    return { resourceTemplates: [...response.resourceTemplates] };
+  }
+
+  /**
    * List available prompts with pagination support
    * @param cursor Optional cursor for pagination
    * @param metadata Optional metadata to include in the request
@@ -3049,6 +3157,28 @@ export class InspectorClient extends InspectorClientEventTarget {
       prompts: response.prompts || [],
       nextCursor: response.nextCursor,
     };
+  }
+
+  /**
+   * Aggregate ALL pages of `prompts/list` via the SDK's high-level
+   * cache-aware `client.listPrompts()`. See {@link listAllTools} for the
+   * `cacheMode` semantics; this is the path the managed prompt list uses on
+   * refresh.
+   */
+  async listAllPrompts(options?: {
+    cacheMode?: CacheMode;
+    metadata?: Record<string, string>;
+  }): Promise<{ prompts: Prompt[] }> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    const response = await this.invokeMcpClient(() =>
+      this.client!.listPrompts(
+        this.aggregateListParams(options?.metadata),
+        this.getCacheableRequestOptions(options?.cacheMode),
+      ),
+    );
+    return { prompts: [...response.prompts] };
   }
 
   /**

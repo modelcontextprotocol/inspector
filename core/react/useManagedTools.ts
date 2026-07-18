@@ -66,7 +66,10 @@ export function useManagedTools(
     // afterward would wipe that genuinely-new signal and the user would miss
     // it. Clearing up front acknowledges only the change in hand.
     managedToolsState.clearListChanged();
-    const next = await managedToolsState.refresh();
+    // A user-initiated refresh forces a cache-bypassing round trip
+    // (`cacheMode: "refresh"`) so a modern server's `ttlMs`-cached list can't
+    // return stale — and re-stores the fresh aggregate.
+    const next = await managedToolsState.refresh(undefined, "refresh");
     setTools(next);
     return next;
   }, [client, managedToolsState]);

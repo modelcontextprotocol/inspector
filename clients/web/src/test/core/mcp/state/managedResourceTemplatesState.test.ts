@@ -33,7 +33,7 @@ describe("ManagedResourceTemplatesState", () => {
 
   beforeEach(() => {
     // Default to a server that advertises `resources` so the existing flow
-    // tests exercise the live `listResourceTemplates` path; capability-absent
+    // tests exercise the live `listAllResourceTemplates` path; capability-absent
     // tests below override this. (Templates are gated on the `resources`
     // capability — the spec defines no separate `resourceTemplates` one.)
     client = new FakeInspectorClient({ capabilities: { resources: {} } });
@@ -50,13 +50,13 @@ describe("ManagedResourceTemplatesState", () => {
     expect(a).not.toBe(b);
   });
 
-  it("refresh returns early and does not call listResourceTemplates when disconnected", async () => {
+  it("refresh returns early and does not call listAllResourceTemplates when disconnected", async () => {
     const result = await state.refresh();
     expect(result).toEqual([]);
-    expect(client.listResourceTemplates).not.toHaveBeenCalled();
+    expect(client.listAllResourceTemplates).not.toHaveBeenCalled();
   });
 
-  it("refresh skips listResourceTemplates when the server doesn't advertise resources capability", async () => {
+  it("refresh skips listAllResourceTemplates when the server doesn't advertise resources capability", async () => {
     // Regression (#1350): templates are part of the resources surface, so a
     // resources-less server replied to resources/templates/list with -32601
     // "Method not found", surfacing in the console on every connect.
@@ -71,10 +71,10 @@ describe("ManagedResourceTemplatesState", () => {
 
     const result = await resourcelessState.refresh();
     expect(result).toEqual([]);
-    expect(resourceless.listResourceTemplates).not.toHaveBeenCalled();
+    expect(resourceless.listAllResourceTemplates).not.toHaveBeenCalled();
   });
 
-  it("connect against a resources-less server doesn't fire listResourceTemplates", async () => {
+  it("connect against a resources-less server doesn't fire listAllResourceTemplates", async () => {
     // The connect event runs refresh; the capability gate must also catch it
     // there, not only the publicly-callable refresh().
     const resourceless = new FakeInspectorClient({
@@ -89,11 +89,11 @@ describe("ManagedResourceTemplatesState", () => {
     const changePromise = waitForChange(resourcelessState);
     resourceless.dispatchTypedEvent("connect");
     await changePromise;
-    expect(resourceless.listResourceTemplates).not.toHaveBeenCalled();
+    expect(resourceless.listAllResourceTemplates).not.toHaveBeenCalled();
     expect(resourcelessState.getResourceTemplates()).toEqual([]);
   });
 
-  it("refresh fetches a single page and dispatches resourceTemplatesChange", async () => {
+  it("refresh fetches the full list and dispatches resourceTemplatesChange", async () => {
     client.setStatus("connected");
     client.queueResourceTemplatePages({
       resourceTemplates: [template("a"), template("b")],
@@ -107,7 +107,9 @@ describe("ManagedResourceTemplatesState", () => {
     expect(state.getResourceTemplates().map((t) => t.name)).toEqual(["a", "b"]);
   });
 
-  it("refresh accumulates across multiple paginated pages", async () => {
+  it("refresh delegates all-page aggregation to listAllResourceTemplates (one call)", async () => {
+    // The SDK's high-level verb walks every page; the managed state makes a
+    // single `listAllResourceTemplates` call rather than looping single pages itself.
     client.setStatus("connected");
     client.queueResourceTemplatePages(
       { resourceTemplates: [template("a")], nextCursor: "c1" },
@@ -117,7 +119,7 @@ describe("ManagedResourceTemplatesState", () => {
 
     const result = await state.refresh();
     expect(result.map((t) => t.name)).toEqual(["a", "b", "c"]);
-    expect(client.listResourceTemplates).toHaveBeenCalledTimes(3);
+    expect(client.listAllResourceTemplates).toHaveBeenCalledTimes(1);
   });
 
   it("refresh passes setMetadata-supplied metadata", async () => {
@@ -125,8 +127,9 @@ describe("ManagedResourceTemplatesState", () => {
     state.setMetadata({ k: "v" });
     client.queueResourceTemplatePages({ resourceTemplates: [template("a")] });
     await state.refresh();
-    expect(client.listResourceTemplates).toHaveBeenCalledWith(undefined, {
-      k: "v",
+    expect(client.listAllResourceTemplates).toHaveBeenCalledWith({
+      cacheMode: undefined,
+      metadata: { k: "v" },
     });
   });
 
@@ -135,8 +138,9 @@ describe("ManagedResourceTemplatesState", () => {
     state.setMetadata({ k: "default" });
     client.queueResourceTemplatePages({ resourceTemplates: [template("a")] });
     await state.refresh({ k: "override" });
-    expect(client.listResourceTemplates).toHaveBeenCalledWith(undefined, {
-      k: "override",
+    expect(client.listAllResourceTemplates).toHaveBeenCalledWith({
+      cacheMode: undefined,
+      metadata: { k: "override" },
     });
   });
 
@@ -158,11 +162,11 @@ describe("ManagedResourceTemplatesState", () => {
     // Yield so a stray refresh would have landed.
     await Promise.resolve();
     await Promise.resolve();
-    expect(client.listResourceTemplates).not.toHaveBeenCalled();
+    expect(client.listAllResourceTemplates).not.toHaveBeenCalled();
     expect(state.getResourceTemplates()).toEqual([]);
   });
 
-  it("resourceTemplatesListChanged auto-refreshes when the server opts in", async () => {
+  it("resourceTemplatesListChanged auto-refreshes (cacheMode:refresh) when the server opts in", async () => {
     const autoClient = new FakeInspectorClient({
       capabilities: { resources: {} },
       serverSettings: AUTO_REFRESH_SETTINGS,
@@ -175,7 +179,11 @@ describe("ManagedResourceTemplatesState", () => {
     const changed = waitForChange(autoState);
     autoClient.dispatchTypedEvent("resourceTemplatesListChanged");
     expect((await changed).map((t) => t.name)).toEqual(["a"]);
-    expect(autoClient.listResourceTemplates).toHaveBeenCalled();
+    // A list_changed means the prior list is stale → bypass the cache.
+    expect(autoClient.listAllResourceTemplates).toHaveBeenCalledWith({
+      cacheMode: "refresh",
+      metadata: undefined,
+    });
   });
 
   it("statusChange to disconnected clears templates and dispatches change", async () => {
@@ -212,13 +220,16 @@ describe("ManagedResourceTemplatesState", () => {
     expect(state.getResourceTemplates().map((t) => t.name)).toEqual(["a"]);
   });
 
-  it("throws when pagination exceeds 100 pages", async () => {
+  it("refresh forwards an explicit cacheMode to listAllResourceTemplates", async () => {
+    // A user-initiated refresh (via the hook) passes cacheMode:"refresh" to
+    // force a cache-bypassing round trip on modern servers (#1721).
     client.setStatus("connected");
-    client.listResourceTemplates.mockImplementation(async () => ({
-      resourceTemplates: [template("a")],
-      nextCursor: "always",
-    }));
-    await expect(state.refresh()).rejects.toThrow(/Maximum pagination limit/);
+    client.queueResourceTemplatePages({ resourceTemplates: [template("a")] });
+    await state.refresh(undefined, "refresh");
+    expect(client.listAllResourceTemplates).toHaveBeenCalledWith({
+      cacheMode: "refresh",
+      metadata: undefined,
+    });
   });
 
   it("destroy unsubscribes from client events and clears state", async () => {

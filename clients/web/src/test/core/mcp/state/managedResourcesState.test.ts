@@ -37,7 +37,7 @@ describe("ManagedResourcesState", () => {
 
   beforeEach(() => {
     // Default to a server that advertises `resources` so the existing flow
-    // tests exercise the live `listResources` path; capability-absent tests
+    // tests exercise the live `listAllResources` path; capability-absent tests
     // below override this.
     client = new FakeInspectorClient({ capabilities: { resources: {} } });
     state = new ManagedResourcesState(client, 0);
@@ -53,13 +53,13 @@ describe("ManagedResourcesState", () => {
     expect(a).not.toBe(b);
   });
 
-  it("refresh returns early and does not call listResources when disconnected", async () => {
+  it("refresh returns early and does not call listAllResources when disconnected", async () => {
     const result = await state.refresh();
     expect(result).toEqual([]);
-    expect(client.listResources).not.toHaveBeenCalled();
+    expect(client.listAllResources).not.toHaveBeenCalled();
   });
 
-  it("refresh skips listResources when the server doesn't advertise resources capability", async () => {
+  it("refresh skips listAllResources when the server doesn't advertise resources capability", async () => {
     // Regression (#1350): a resources-less server replied to resources/list
     // with -32601 "Method not found", surfacing in the console on every
     // connect.
@@ -71,10 +71,10 @@ describe("ManagedResourcesState", () => {
 
     const result = await resourcelessState.refresh();
     expect(result).toEqual([]);
-    expect(resourceless.listResources).not.toHaveBeenCalled();
+    expect(resourceless.listAllResources).not.toHaveBeenCalled();
   });
 
-  it("connect against a resources-less server doesn't fire listResources", async () => {
+  it("connect against a resources-less server doesn't fire listAllResources", async () => {
     // The connect event runs refresh; the capability gate must also catch it
     // there, not only the publicly-callable refresh().
     const resourceless = new FakeInspectorClient({
@@ -86,11 +86,11 @@ describe("ManagedResourcesState", () => {
     const changePromise = waitForResourcesChange(resourcelessState);
     resourceless.dispatchTypedEvent("connect");
     await changePromise;
-    expect(resourceless.listResources).not.toHaveBeenCalled();
+    expect(resourceless.listAllResources).not.toHaveBeenCalled();
     expect(resourcelessState.getResources()).toEqual([]);
   });
 
-  it("refresh fetches a single page and dispatches resourcesChange", async () => {
+  it("refresh fetches the full list and dispatches resourcesChange", async () => {
     client.setStatus("connected");
     client.queueResourcePages({
       resources: [resource("a://1"), resource("a://2")],
@@ -104,7 +104,9 @@ describe("ManagedResourcesState", () => {
     expect(state.getResources().map((r) => r.uri)).toEqual(["a://1", "a://2"]);
   });
 
-  it("refresh accumulates across multiple paginated pages", async () => {
+  it("refresh delegates all-page aggregation to listAllResources (one call)", async () => {
+    // The SDK's high-level verb walks every page; the managed state makes a
+    // single `listAllResources` call rather than looping single pages itself.
     client.setStatus("connected");
     client.queueResourcePages(
       { resources: [resource("a://1")], nextCursor: "c1" },
@@ -114,15 +116,18 @@ describe("ManagedResourcesState", () => {
 
     const result = await state.refresh();
     expect(result.map((r) => r.uri)).toEqual(["a://1", "a://2", "a://3"]);
-    expect(client.listResources).toHaveBeenCalledTimes(3);
+    expect(client.listAllResources).toHaveBeenCalledTimes(1);
   });
 
-  it("refresh passes setMetadata-supplied metadata to listResources", async () => {
+  it("refresh passes setMetadata-supplied metadata to listAllResources", async () => {
     client.setStatus("connected");
     state.setMetadata({ k: "v" });
     client.queueResourcePages({ resources: [resource("a://1")] });
     await state.refresh();
-    expect(client.listResources).toHaveBeenCalledWith(undefined, { k: "v" });
+    expect(client.listAllResources).toHaveBeenCalledWith({
+      cacheMode: undefined,
+      metadata: { k: "v" },
+    });
   });
 
   it("refresh argument overrides setMetadata", async () => {
@@ -130,8 +135,9 @@ describe("ManagedResourcesState", () => {
     state.setMetadata({ k: "default" });
     client.queueResourcePages({ resources: [resource("a://1")] });
     await state.refresh({ k: "override" });
-    expect(client.listResources).toHaveBeenCalledWith(undefined, {
-      k: "override",
+    expect(client.listAllResources).toHaveBeenCalledWith({
+      cacheMode: undefined,
+      metadata: { k: "override" },
     });
   });
 
@@ -151,11 +157,11 @@ describe("ManagedResourcesState", () => {
     const changed = waitForListChanged(state);
     client.dispatchTypedEvent("resourcesListChanged");
     expect(await changed).toBe(true);
-    expect(client.listResources).not.toHaveBeenCalled(); // no automatic fetch
+    expect(client.listAllResources).not.toHaveBeenCalled(); // no automatic fetch
     expect(state.getResources()).toEqual([]); // displayed list untouched
   });
 
-  it("resourcesListChanged auto-refreshes when the server opts in", async () => {
+  it("resourcesListChanged auto-refreshes (cacheMode:refresh) when the server opts in", async () => {
     const autoClient = new FakeInspectorClient({
       capabilities: { resources: {} },
       serverSettings: AUTO_REFRESH_SETTINGS,
@@ -166,7 +172,11 @@ describe("ManagedResourcesState", () => {
     const changed = waitForResourcesChange(autoState);
     autoClient.dispatchTypedEvent("resourcesListChanged");
     expect((await changed).map((r) => r.uri)).toEqual(["a://1"]);
-    expect(autoClient.listResources).toHaveBeenCalled();
+    // A list_changed means the prior list is stale → bypass the cache.
+    expect(autoClient.listAllResources).toHaveBeenCalledWith({
+      cacheMode: "refresh",
+      metadata: undefined,
+    });
   });
 
   it("statusChange to disconnected clears resources and dispatches resourcesChange", async () => {
@@ -203,13 +213,16 @@ describe("ManagedResourcesState", () => {
     expect(state.getResources().map((r) => r.uri)).toEqual(["a://1"]);
   });
 
-  it("throws when pagination exceeds 100 pages", async () => {
+  it("refresh forwards an explicit cacheMode to listAllResources", async () => {
+    // A user-initiated refresh (via the hook) passes cacheMode:"refresh" to
+    // force a cache-bypassing round trip on modern servers (#1721).
     client.setStatus("connected");
-    client.listResources.mockImplementation(async () => ({
-      resources: [resource("a://1")],
-      nextCursor: "always",
-    }));
-    await expect(state.refresh()).rejects.toThrow(/Maximum pagination limit/);
+    client.queueResourcePages({ resources: [resource("a://1")] });
+    await state.refresh(undefined, "refresh");
+    expect(client.listAllResources).toHaveBeenCalledWith({
+      cacheMode: "refresh",
+      metadata: undefined,
+    });
   });
 
   it("destroy unsubscribes from client events and clears state", async () => {

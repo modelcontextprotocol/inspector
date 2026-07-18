@@ -39,15 +39,11 @@ export class ManagedResourceTemplatesState extends ManagedListState<
       listChangedEvent: "resourceTemplatesListChanged",
       // Templates are gated on the broader `resources` capability.
       capabilityKey: "resources",
-      itemLabel: "resource templates",
       supportsIndicator: false,
       debounceMs,
-      fetchPage: async (c, cursor, metadata) => {
-        const result = await c.listResourceTemplates(cursor, metadata);
-        return {
-          items: result.resourceTemplates,
-          nextCursor: result.nextCursor,
-        };
+      fetchAll: async (c, cacheMode, metadata) => {
+        const result = await c.listAllResourceTemplates({ cacheMode, metadata });
+        return result.resourceTemplates;
       },
     });
   }

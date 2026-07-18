@@ -21,6 +21,7 @@ import type {
   ToolCallInvocation,
 } from "./types.js";
 import type {
+  CacheMode,
   ClientCapabilities,
   DiscoverResult,
   Implementation,
@@ -88,6 +89,29 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   listRequestorTasks(
     cursor?: string,
   ): Promise<{ tasks: Task[]; nextCursor?: string }>;
+
+  // Aggregate (all-page) list methods used by the managed state stores on
+  // refresh. Unlike the single-page methods above, these route through the
+  // SDK's cache-aware high-level verbs so `cacheMode` ('use' | 'refresh' |
+  // 'bypass') is honored — a manual refresh forces a cache-bypassing round trip
+  // on modern servers that send `ttlMs` hints. Options are optional; omitting
+  // `cacheMode` uses the SDK default ('use').
+  listAllTools(options?: {
+    cacheMode?: CacheMode;
+    metadata?: Record<string, string>;
+  }): Promise<{ tools: Tool[] }>;
+  listAllPrompts(options?: {
+    cacheMode?: CacheMode;
+    metadata?: Record<string, string>;
+  }): Promise<{ prompts: Prompt[] }>;
+  listAllResources(options?: {
+    cacheMode?: CacheMode;
+    metadata?: Record<string, string>;
+  }): Promise<{ resources: Resource[] }>;
+  listAllResourceTemplates(options?: {
+    cacheMode?: CacheMode;
+    metadata?: Record<string, string>;
+  }): Promise<{ resourceTemplates: ResourceTemplate[] }>;
 
   // Invocation methods used by paged result panels
   callTool(
