@@ -148,35 +148,59 @@ export interface McpSpecError {
    * as supported (from `error.data.supported`), when present.
    */
   supported?: string[];
+  /**
+   * Whether a "view in Network" link is worth offering on the Protocol alert.
+   * True when the error is EITHER thrown by the SDK (its real HTTP response
+   * lives only in the Network log — the Protocol entry is a synthetic fold from
+   * the correlated fetch) OR tied to the HTTP request/response headers. A
+   * delivered, protocol-only error (a missing capability, an unsupported version
+   * whose `supported` list is already in the alert) sets this false: the raw
+   * HTTP entry adds nothing.
+   */
+  httpRelevant: boolean;
 }
 
 const SPEC_ERROR_META: Record<
   number,
-  { name: string; description: string; expectedHttpStatus: number }
+  {
+    name: string;
+    description: string;
+    expectedHttpStatus: number;
+    httpRelevant: boolean;
+  }
 > = {
   [HEADER_MISMATCH_ERROR_CODE]: {
     name: "HeaderMismatch",
     description:
       "An Mcp-* header did not match the JSON-RPC body (SEP-2243). The server rejected the request pre-dispatch.",
     expectedHttpStatus: 400,
+    // The mirrored headers are the whole story — the Network entry shows them.
+    httpRelevant: true,
   },
   [ProtocolErrorCode.MissingRequiredClientCapability]: {
     name: "MissingRequiredClientCapability",
     description:
       "The server requires a client capability that was not declared (SEP-2575).",
     expectedHttpStatus: 400,
+    // Protocol-only: the capability requirement is in the error, not the HTTP.
+    httpRelevant: false,
   },
   [ProtocolErrorCode.UnsupportedProtocolVersion]: {
     name: "UnsupportedProtocolVersion",
     description:
       "The requested protocol version is not supported (SEP-2575). The error body lists the supported versions.",
     expectedHttpStatus: 400,
+    // Protocol-only: the supported-versions list is already shown in the alert.
+    httpRelevant: false,
   },
   [ProtocolErrorCode.MethodNotFound]: {
     name: "MethodNotFound",
     description:
       "Unknown method. A JSON-RPC error body on an HTTP 404 marks a modern server — a legacy HTTP+SSE server returns a bare 404 with no body.",
     expectedHttpStatus: 404,
+    // Thrown by the SDK (HTTP 404, not delivered as a frame) — the real
+    // response lives only in the Network log, so the link is essential.
+    httpRelevant: true,
   },
 };
 

@@ -617,6 +617,34 @@ describe("ProtocolEntry — modern vocabulary", () => {
       ).not.toBeInTheDocument();
     });
 
+    it("omits the reveal link for a protocol-only error even with a correlation", () => {
+      // -32021 MissingRequiredClientCapability is not header/HTTP related, so
+      // no link — even though a callback (correlated entry) is supplied.
+      const capabilityEntry: MessageEntry = {
+        ...headerMismatchEntry,
+        id: "req-err-21",
+        response: {
+          jsonrpc: "2.0",
+          id: 20,
+          error: { code: -32021, message: "missing capability" },
+        },
+      };
+      renderWithMantine(
+        <ProtocolEntry
+          {...baseProps}
+          entry={capabilityEntry}
+          isListExpanded={true}
+          onRevealInNetwork={() => {}}
+        />,
+      );
+      expect(
+        screen.getAllByText("-32021 MissingRequiredClientCapability").length,
+      ).toBeGreaterThan(0);
+      expect(
+        screen.queryByRole("button", { name: /View the HTTP request/ }),
+      ).not.toBeInTheDocument();
+    });
+
     it("shows the chip only in the wide layout, not the compact sidebar row", () => {
       // Compact: only the expanded-detail alert carries the label (1 match); no
       // row chip. Wide: the row chip AND the alert (2 matches).

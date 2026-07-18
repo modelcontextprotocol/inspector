@@ -417,7 +417,11 @@ export function ProtocolEntry({
             {specError && (
               <McpSpecErrorAlert
                 error={specError}
-                onReveal={onRevealInNetwork}
+                // Only header/HTTP-status errors gain from the raw HTTP entry;
+                // a protocol-only error (e.g. -32021) shows no link.
+                onReveal={
+                  specError.httpRelevant ? onRevealInNetwork : undefined
+                }
               />
             )}
             {"params" in entry.message && entry.message.params && (
