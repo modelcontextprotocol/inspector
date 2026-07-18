@@ -122,7 +122,7 @@ function formatTimestampCompact(date: Date): string {
 
 function statusColor(entry: FetchRequestEntry): string {
   // A cancelled request surfaces as a connection abort under the modern
-  // transport; render it neutrally rather than as a hard error (SEP §7.5).
+  // transport; render it neutrally rather than as a hard error (SEP-2575).
   if (isCancellationAbort(entry)) return "gray";
   if (entry.error) return "red";
   const status = entry.responseStatus;
@@ -505,7 +505,7 @@ export function NetworkEntry({
                   <Text span ff="monospace">
                     notifications/cancelled
                   </Text>{" "}
-                  frame (SEP §7.5).
+                  frame (SEP-2575).
                 </Text>
               </CancellationAlert>
             )}

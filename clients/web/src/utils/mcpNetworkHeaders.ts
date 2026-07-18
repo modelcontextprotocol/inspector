@@ -404,7 +404,7 @@ export function mismatchedHeaders(
 /**
  * Whether an entry's error is a cancellation surfaced as a connection abort.
  * Under the modern transport, cancelling an in-flight request aborts the
- * connection instead of sending a `notifications/cancelled` frame (SEP §7.5), so
+ * connection instead of sending a `notifications/cancelled` frame (SEP-2575), so
  * a cancelled request lands here as an `AbortError` rather than a tracked frame.
  */
 export function isCancellationAbort(
