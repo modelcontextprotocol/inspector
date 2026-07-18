@@ -427,10 +427,11 @@ export function NetworkEntry({
   );
   const aborted = isCancellationAbort(entry);
 
-  // The spec-error chip is rendered separately from `metaBadges` so the two
-  // layouts can place it where there's room: on the compact sidebar it would
-  // crowd and truncate the (already tight) top row, so it sits on the second
-  // row beside the URL; the full-width layout keeps it in the top-right cluster.
+  // The spec-error chip is rendered separately from `metaBadges` so each layout
+  // can keep it off the top row, where a long name (e.g.
+  // "MissingRequiredClientCapability") crowds and truncates the method / URL.
+  // Both layouts place it on the second row: beside the URL on the compact
+  // sidebar, and at the start of the toggle row in the full-width layout.
   const specErrorBadge = specError ? (
     <McpErrorBadge
       code={specError.code}
@@ -505,12 +506,19 @@ export function NetworkEntry({
                 <UrlText>{entry.url}</UrlText>
               </Group>
               <Group gap="sm" wrap="nowrap">
-                {specErrorBadge}
                 {metaBadges}
               </Group>
             </HeaderRow>
 
-            <Group gap="xs" justify="flex-end">
+            {/* Second row: the spec-error chip at the start (so a long name
+                never crowds/truncates the top row), the expand toggle at the
+                end. `space-between` only when the chip is present. */}
+            <Group
+              gap="xs"
+              wrap="nowrap"
+              justify={specErrorBadge ? "space-between" : "flex-end"}
+            >
+              {specErrorBadge}
               {expandToggle}
             </Group>
           </>
