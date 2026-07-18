@@ -50,6 +50,7 @@ jest.mock("../utils/configUtils", () => ({
     token: "",
     header: "X-MCP-Proxy-Auth",
   })),
+  getMCPTaskTtl: jest.fn(() => 30000),
   getInitialTransportType: jest.fn(() => "stdio"),
   getInitialSseUrl: jest.fn(() => "http://localhost:3001/sse"),
   getInitialCommand: jest.fn(() => "mcp-server-everything"),
@@ -155,6 +156,14 @@ jest.mock("../components/ToolsTab", () => ({
         }}
       >
         mock run app tool
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void callTool("weatherApp", { city: "Lisbon" }, undefined, true);
+        }}
+      >
+        mock run app task tool
       </button>
     </div>
   ),
@@ -279,6 +288,102 @@ describe("App - Tools to Apps prefilled handoff", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("apps-prefilled")).toHaveTextContent("null");
+    });
+  });
+
+  it("refreshes the AppsTab prefill with the final result when an app tool runs as a task", async () => {
+    const taskId = "weather-task-1";
+    let tasksGetCallCount = 0;
+
+    const makeRequest = jest.fn(async (request: { method: string }) => {
+      if (request.method === "tools/list") {
+        return {
+          tools: [
+            {
+              name: "weatherApp",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  city: { type: "string" },
+                },
+              },
+              _meta: {
+                "ui/resourceUri": "ui://weather-app",
+              },
+            },
+          ],
+          nextCursor: undefined,
+        };
+      }
+
+      if (request.method === "tools/call") {
+        return { task: { taskId, status: "working", pollInterval: 10 } };
+      }
+
+      if (request.method === "tasks/get") {
+        tasksGetCallCount++;
+        // Poll once as "working", then settle as "completed".
+        return tasksGetCallCount < 2
+          ? { taskId, status: "working" }
+          : { taskId, status: "completed" };
+      }
+
+      if (request.method === "tasks/result") {
+        return { content: [{ type: "text", text: "weather result" }] };
+      }
+
+      if (request.method === "tasks/list") {
+        return { tasks: [] };
+      }
+
+      throw new Error(`Unexpected method: ${request.method}`);
+    });
+
+    mockUseConnection.mockReturnValue({
+      connectionStatus: "connected",
+      serverCapabilities: { tools: { listChanged: true } },
+      serverImplementation: null,
+      mcpClient: {
+        request: jest.fn(),
+        notification: jest.fn(),
+        close: jest.fn(),
+      } as unknown as Client,
+      requestHistory: [],
+      clearRequestHistory: jest.fn(),
+      makeRequest,
+      cancelTask: jest.fn(),
+      listTasks: jest.fn(),
+      sendNotification: jest.fn(),
+      handleCompletion: jest.fn(),
+      completionsSupported: false,
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+    } as ReturnType<typeof useConnection>);
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: /mock list tools/i }));
+
+    await waitFor(() => {
+      const tools = JSON.parse(
+        screen.getByTestId("apps-tools").textContent || "[]",
+      );
+      expect(tools).toHaveLength(1);
+      expect(tools[0].name).toBe("weatherApp");
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /mock run app task tool/i }),
+    );
+
+    // callTool returns the "Task created... Polling" placeholder immediately,
+    // but the embedded app must end up with the final task result once the
+    // background poll completes — not the placeholder.
+    await waitFor(() => {
+      const prefilled = JSON.parse(
+        screen.getByTestId("apps-prefilled").textContent || "null",
+      );
+      expect(prefilled?.result?.content?.[0]?.text).toBe("weather result");
     });
   });
 });

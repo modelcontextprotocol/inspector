@@ -84,6 +84,21 @@ describe("ToolsTab", () => {
     );
   };
 
+  it("keeps the Run button enabled while a task polls in the background (#1077)", () => {
+    // Regression: task polling used to run inline and disable the Run button
+    // (labeled "Polling Task...") until the task finished, blocking concurrent
+    // tool calls. Polling now runs in the background, so isPollingTask must not
+    // gate the button.
+    renderToolsTab({
+      selectedTool: mockTools[0],
+      isPollingTask: true,
+    });
+
+    const runButton = screen.getByRole("button", { name: /run tool/i });
+    expect(runButton).toBeEnabled();
+    expect(screen.queryByText(/polling task/i)).not.toBeInTheDocument();
+  });
+
   it("should reset input values when switching tools", async () => {
     const { rerender } = renderToolsTab({
       selectedTool: mockTools[0],
