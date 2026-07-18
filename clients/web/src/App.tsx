@@ -3640,6 +3640,7 @@ function App() {
           kind: "sampling",
           id: activeSample.id,
           request: activeSample.request.params,
+          origin: activeSample.origin,
         };
       }
       const activeElicitation = pendingElicitations[0];
@@ -3651,12 +3652,14 @@ function App() {
             id: activeElicitation.id,
             message: params.message,
             url: params.url,
+            origin: activeElicitation.origin,
           };
         }
         return {
           kind: "elicitation-form",
           id: activeElicitation.id,
           request: params,
+          origin: activeElicitation.origin,
         };
       }
       return null;

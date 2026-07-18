@@ -3,11 +3,19 @@ import type {
   CreateMessageRequestParams,
   CreateMessageResult,
 } from "@modelcontextprotocol/client";
+import type { PendingRequestOrigin } from "@inspector/core/mcp/types.js";
+import { MrtrOriginNote } from "../../elements/MrtrOriginNote/MrtrOriginNote";
 
 export interface InlineSamplingRequestProps {
   request: CreateMessageRequestParams;
   queuePosition: string;
   draftResult?: CreateMessageResult;
+  /**
+   * How the request reached the Inspector — a legacy server→client request or a
+   * modern MRTR `input_required` round. Drives the era-accurate note; defaults
+   * to `"server-request"` (legacy, note hidden). (#1704)
+   */
+  origin?: PendingRequestOrigin;
   onAutoRespond: () => void;
   onEditAndSend: () => void;
   onReject: () => void;
@@ -94,6 +102,7 @@ export function InlineSamplingRequest({
   request,
   queuePosition,
   draftResult,
+  origin = "server-request",
   onAutoRespond,
   onEditAndSend,
   onReject,
@@ -110,6 +119,8 @@ export function InlineSamplingRequest({
           <Badge color="blue">sampling/createMessage</Badge>
           <QueueLabel>{queuePosition}</QueueLabel>
         </Group>
+
+        <MrtrOriginNote origin={origin} />
 
         {modelHints && <Text size="sm">{formatModelHints(modelHints)}</Text>}
 

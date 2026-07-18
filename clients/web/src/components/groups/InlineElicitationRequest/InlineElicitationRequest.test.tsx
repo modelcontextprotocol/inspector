@@ -41,6 +41,21 @@ describe("InlineElicitationRequest", () => {
     expect(screen.getByText("elicitation/create (form)")).toBeInTheDocument();
     expect(screen.getByText(formRequest.message)).toBeInTheDocument();
     expect(screen.getByText("1 of 1")).toBeInTheDocument();
+    // Default origin is a legacy server request — no MRTR note.
+    expect(screen.queryByText("input_required")).not.toBeInTheDocument();
+  });
+
+  it("shows the MRTR note for a modern input_required round", () => {
+    renderWithMantine(
+      <InlineElicitationRequest
+        {...baseProps}
+        request={formRequest}
+        values={{}}
+        origin="input-required"
+      />,
+    );
+    expect(screen.getByText("input_required")).toBeInTheDocument();
+    expect(screen.getByText(/sent back as a retry/i)).toBeInTheDocument();
   });
 
   it("renders schema fields and a Submit button in form mode", () => {

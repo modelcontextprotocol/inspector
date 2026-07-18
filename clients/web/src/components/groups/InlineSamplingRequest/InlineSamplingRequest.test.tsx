@@ -84,6 +84,20 @@ describe("InlineSamplingRequest", () => {
     expect(screen.getByText("sampling/createMessage")).toBeInTheDocument();
     expect(screen.getByText("1 of 1")).toBeInTheDocument();
     expect(screen.getByText("Please analyze this code.")).toBeInTheDocument();
+    // Default origin is a legacy server request — no MRTR note.
+    expect(screen.queryByText("input_required")).not.toBeInTheDocument();
+  });
+
+  it("shows the MRTR note for a modern input_required round", () => {
+    renderWithMantine(
+      <InlineSamplingRequest
+        {...baseProps}
+        request={textRequest}
+        origin="input-required"
+      />,
+    );
+    expect(screen.getByText("input_required")).toBeInTheDocument();
+    expect(screen.getByText(/sent back as a retry/i)).toBeInTheDocument();
   });
 
   it("renders model hints when provided", () => {

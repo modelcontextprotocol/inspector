@@ -6,6 +6,7 @@ import type {
   ElicitRequestFormParams,
   ElicitResult,
 } from "@modelcontextprotocol/client";
+import type { PendingRequestOrigin } from "@inspector/core/mcp/types.js";
 import { SamplingRequestPanel } from "../SamplingRequestPanel/SamplingRequestPanel";
 import { ElicitationFormPanel } from "../ElicitationFormPanel/ElicitationFormPanel";
 import { ElicitationUrlPanel } from "../ElicitationUrlPanel/ElicitationUrlPanel";
@@ -17,12 +18,30 @@ import {
 /**
  * The server-initiated request currently shown in the modal. `id` is the
  * client-side request id; it keys the modal body so per-request draft state
- * resets when the active request changes.
+ * resets when the active request changes. `origin` distinguishes a legacy
+ * server→client request from a modern MRTR `input_required` round so the panels
+ * can show era-accurate semantics (#1704).
  */
 export type PendingClientRequestContent =
-  | { kind: "sampling"; id: string; request: CreateMessageRequestParams }
-  | { kind: "elicitation-form"; id: string; request: ElicitRequestFormParams }
-  | { kind: "elicitation-url"; id: string; message: string; url: string };
+  | {
+      kind: "sampling";
+      id: string;
+      request: CreateMessageRequestParams;
+      origin: PendingRequestOrigin;
+    }
+  | {
+      kind: "elicitation-form";
+      id: string;
+      request: ElicitRequestFormParams;
+      origin: PendingRequestOrigin;
+    }
+  | {
+      kind: "elicitation-url";
+      id: string;
+      message: string;
+      url: string;
+      origin: PendingRequestOrigin;
+    };
 
 export interface PendingClientRequestModalProps {
   /** The active request to display, or null when nothing is pending. */
@@ -103,10 +122,12 @@ function useRespondOnce(): {
 
 function SamplingModalBody({
   request,
+  origin,
   onRespond,
   onReject,
 }: {
   request: CreateMessageRequestParams;
+  origin: PendingRequestOrigin;
   onRespond: (result: CreateMessageResult) => void;
   onReject: () => void;
 }) {
@@ -117,6 +138,7 @@ function SamplingModalBody({
   return (
     <SamplingRequestPanel
       request={request}
+      origin={origin}
       draftResult={draftResult}
       onResultChange={setDraftResult}
       onSend={once(() => onRespond(draftResult))}
@@ -129,10 +151,12 @@ function SamplingModalBody({
 function ElicitationFormModalBody({
   request,
   serverName,
+  origin,
   onRespond,
 }: {
   request: ElicitRequestFormParams;
   serverName: string;
+  origin: PendingRequestOrigin;
   onRespond: (result: ElicitResult) => void;
 }) {
   // Seed with the schema's defaults so default-only fields the user never
@@ -147,6 +171,7 @@ function ElicitationFormModalBody({
     <ElicitationFormPanel
       request={request}
       serverName={serverName}
+      origin={origin}
       values={values}
       onChange={setValues}
       onSubmit={once(() =>
@@ -166,11 +191,13 @@ function ElicitationUrlModalBody({
   id,
   message,
   url,
+  origin,
   onRespond,
 }: {
   id: string;
   message: string;
   url: string;
+  origin: PendingRequestOrigin;
   onRespond: (result: ElicitResult) => void;
 }) {
   const [isWaiting, setIsWaiting] = useState(false);
@@ -179,6 +206,7 @@ function ElicitationUrlModalBody({
     <ElicitationUrlPanel
       message={message}
       url={url}
+      origin={origin}
       requestId={id}
       isWaiting={isWaiting}
       onCopyUrl={() => {
@@ -237,6 +265,7 @@ export function PendingClientRequestModal({
         <SamplingModalBody
           key={request.id}
           request={request.request}
+          origin={request.origin}
           onRespond={onSamplingRespond}
           onReject={onSamplingReject}
         />
@@ -246,6 +275,7 @@ export function PendingClientRequestModal({
           key={request.id}
           request={request.request}
           serverName={serverName}
+          origin={request.origin}
           onRespond={onElicitationRespond}
         />
       )}
@@ -255,6 +285,7 @@ export function PendingClientRequestModal({
           id={request.id}
           message={request.message}
           url={request.url}
+          origin={request.origin}
           onRespond={onElicitationRespond}
         />
       )}

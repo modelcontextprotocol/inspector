@@ -1,0 +1,20 @@
+{
+  "serverInfo": {
+    "name": "composable-mrtr-showcase",
+    "version": "1.0.0"
+  },
+  "tools": [
+    { "preset": "echo" },
+    { "preset": "mrtr_confirm" },
+    { "preset": "mrtr_two_step" },
+    { "preset": "mrtr_sample" },
+    { "preset": "mrtr_roots" },
+    { "preset": "mrtr_edge" },
+    { "preset": "mrtr_loop" }
+  ],
+  "transport": {
+    "type": "streamable-http",
+    "port": 3111,
+    "modern": true
+  }
+}

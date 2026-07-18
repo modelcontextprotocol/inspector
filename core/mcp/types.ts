@@ -227,6 +227,17 @@ export interface StderrLogEntry {
 /** Who sent a tracked message: the inspector ("client") or the "server". */
 export type MessageOrigin = "client" | "server";
 
+/**
+ * How a pending sampling/elicitation request reached the Inspector, so the
+ * pending-request UI can show era-accurate semantics:
+ * - `"server-request"` — a legacy (≤2025-11-25) server→client JSON-RPC request
+ *   (`sampling/createMessage` / `elicitation/create`) delivered to our handler.
+ * - `"input-required"` — a modern (2026-07-28) MRTR round: the request was
+ *   embedded in a tool-call/prompt/resource `input_required` result, and the
+ *   user's answer is echoed back to the server as a retry (SEP-2322).
+ */
+export type PendingRequestOrigin = "server-request" | "input-required";
+
 export interface MessageEntry {
   id: string;
   timestamp: Date;

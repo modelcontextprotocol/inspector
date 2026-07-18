@@ -112,7 +112,12 @@ type Story = StoryObj<typeof PendingClientRequestModal>;
 
 export const Sampling: Story = {
   args: {
-    request: { kind: "sampling", id: "sampling-1", request: samplingRequest },
+    request: {
+      kind: "sampling",
+      id: "sampling-1",
+      request: samplingRequest,
+      origin: "server-request",
+    },
   },
   play: async ({ canvasElement, args }) => {
     const body = within(canvasElement.ownerDocument.body);
@@ -125,12 +130,32 @@ export const Sampling: Story = {
   },
 };
 
+// A modern MRTR round: the sampling request was embedded in a tool-call
+// `input_required` result, so the panel shows the era-accurate note.
+export const SamplingInputRequired: Story = {
+  args: {
+    request: {
+      kind: "sampling",
+      id: "sampling-mrtr",
+      request: samplingRequest,
+      origin: "input-required",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body);
+    await body.findByText("Sampling Request");
+    expect(body.getByText("input_required")).toBeInTheDocument();
+    expect(body.getByText(/sent back as a retry/i)).toBeInTheDocument();
+  },
+};
+
 export const SamplingTall: Story = {
   args: {
     request: {
       kind: "sampling",
       id: "sampling-tall",
       request: tallSamplingRequest,
+      origin: "server-request",
     },
   },
 };
@@ -141,6 +166,7 @@ export const ElicitationForm: Story = {
       kind: "elicitation-form",
       id: "elicitation-1",
       request: formRequest,
+      origin: "server-request",
     },
   },
   play: async ({ canvasElement, args }) => {
@@ -163,6 +189,7 @@ export const ElicitationFormTall: Story = {
       kind: "elicitation-form",
       id: "elicitation-tall",
       request: tallFormRequest,
+      origin: "server-request",
     },
   },
 };
@@ -174,6 +201,7 @@ export const ElicitationUrl: Story = {
       id: "elicitation-2",
       message: "Authorize access in your browser to continue.",
       url: "https://example.com/authorize?token=abc123",
+      origin: "server-request",
     },
   },
   play: async ({ canvasElement }) => {

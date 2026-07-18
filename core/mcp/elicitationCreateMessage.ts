@@ -1,5 +1,6 @@
 import type { ElicitRequest, ElicitResult } from "@modelcontextprotocol/client";
 import { RELATED_TASK_META_KEY } from "@modelcontextprotocol/client";
+import type { PendingRequestOrigin } from "./types.js";
 
 export type { ElicitRequest, ElicitResult };
 
@@ -13,6 +14,7 @@ export interface InspectorPendingElicitation {
   timestamp: Date;
   request: ElicitRequest;
   taskId?: string;
+  origin: PendingRequestOrigin;
 }
 
 /**
@@ -23,8 +25,19 @@ export class ElicitationCreateMessage {
   public readonly timestamp: Date;
   public readonly request: ElicitRequest;
   public readonly taskId?: string;
+  /**
+   * How this request reached the Inspector — a legacy server→client request or
+   * a modern MRTR `input_required` round. Drives era-accurate copy in the
+   * pending-request UI. Defaults to `"server-request"` so existing call sites
+   * (and stories) keep the legacy semantics unchanged.
+   */
+  public readonly origin: PendingRequestOrigin;
   private resolvePromise?: (result: ElicitResult) => void;
-  /** Set only for task-augmented elicit; used when user declines so server's tasks/result receives an error */
+  /**
+   * Rejects the originating call with an error. Set for task-augmented elicit
+   * (so the server's `tasks/result` receives the error on decline) and for
+   * MRTR-driven elicitations (so a genuine failure aborts the tool call).
+   */
   private rejectCallback?: (error: Error) => void;
   private onRemove: (id: string) => void;
 
@@ -33,6 +46,7 @@ export class ElicitationCreateMessage {
     resolve: (result: ElicitResult) => void,
     onRemove: (id: string) => void,
     reject?: (error: Error) => void,
+    origin: PendingRequestOrigin = "server-request",
   ) {
     this.onRemove = onRemove;
     this.id = `elicitation-${crypto.randomUUID()}`;
@@ -41,6 +55,7 @@ export class ElicitationCreateMessage {
     // Extract taskId from request params metadata if present
     const relatedTask = request.params?._meta?.[RELATED_TASK_META_KEY];
     this.taskId = relatedTask?.taskId;
+    this.origin = origin;
     this.resolvePromise = resolve;
     this.rejectCallback = reject;
   }

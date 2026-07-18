@@ -17,7 +17,9 @@ import type {
   CreateMessageRequestParams,
   CreateMessageResult,
 } from "@modelcontextprotocol/client";
+import type { PendingRequestOrigin } from "@inspector/core/mcp/types.js";
 import { MessageBubble } from "../../elements/MessageBubble/MessageBubble";
+import { MrtrOriginNote } from "../../elements/MrtrOriginNote/MrtrOriginNote";
 
 export interface SamplingRequestPanelProps {
   request: CreateMessageRequestParams;
@@ -25,6 +27,12 @@ export interface SamplingRequestPanelProps {
   onResultChange: (result: CreateMessageResult) => void;
   onSend: () => void;
   onReject: () => void;
+  /**
+   * How the request reached the Inspector — a legacy server→client request or a
+   * modern MRTR `input_required` round. Drives the era-accurate note; defaults
+   * to `"server-request"` (legacy, note hidden). (#1704)
+   */
+  origin?: PendingRequestOrigin;
   /**
    * A response has been dispatched; lock the actions so a second click can't
    * resolve the request twice (the underlying handler throws if called again).
@@ -90,6 +98,7 @@ export function SamplingRequestPanel({
   onResultChange,
   onSend,
   onReject,
+  origin = "server-request",
   busy = false,
 }: SamplingRequestPanelProps) {
   const {
@@ -110,6 +119,7 @@ export function SamplingRequestPanel({
       <ContentScroll>
         <ContentStack>
           <HintText>The server is requesting an LLM completion.</HintText>
+          <MrtrOriginNote origin={origin} />
 
           <SectionTitle>Messages:</SectionTitle>
           {messages.map((message, index) => (

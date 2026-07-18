@@ -3,6 +3,7 @@ import type {
   CreateMessageResult,
 } from "@modelcontextprotocol/client";
 import { RELATED_TASK_META_KEY } from "@modelcontextprotocol/client";
+import type { PendingRequestOrigin } from "./types.js";
 
 export type { CreateMessageRequest, CreateMessageResult };
 
@@ -16,6 +17,7 @@ export interface InspectorPendingSampling {
   timestamp: Date;
   request: CreateMessageRequest;
   taskId?: string;
+  origin: PendingRequestOrigin;
 }
 
 /**
@@ -26,6 +28,13 @@ export class SamplingCreateMessage {
   public readonly timestamp: Date;
   public readonly request: CreateMessageRequest;
   public readonly taskId?: string;
+  /**
+   * How this request reached the Inspector — a legacy server→client request or
+   * a modern MRTR `input_required` round. Drives era-accurate copy in the
+   * pending-request UI. Defaults to `"server-request"` so existing call sites
+   * (and stories) keep the legacy semantics unchanged.
+   */
+  public readonly origin: PendingRequestOrigin;
   private resolvePromise?: (result: CreateMessageResult) => void;
   private rejectPromise?: (error: Error) => void;
   private onRemove: (id: string) => void;
@@ -35,6 +44,7 @@ export class SamplingCreateMessage {
     resolve: (result: CreateMessageResult) => void,
     reject: (error: Error) => void,
     onRemove: (id: string) => void,
+    origin: PendingRequestOrigin = "server-request",
   ) {
     this.onRemove = onRemove;
     this.id = `sampling-${crypto.randomUUID()}`;
@@ -43,6 +53,7 @@ export class SamplingCreateMessage {
     // Extract taskId from request params metadata if present
     const relatedTask = request.params?._meta?.[RELATED_TASK_META_KEY];
     this.taskId = relatedTask?.taskId;
+    this.origin = origin;
     this.resolvePromise = resolve;
     this.rejectPromise = reject;
   }

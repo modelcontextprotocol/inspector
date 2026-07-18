@@ -443,6 +443,223 @@ export function createMrtrTool(): ToolDefinition {
 }
 
 /**
+ * A two-round MRTR tool: it asks for a first value, then (on the retry) a second
+ * value, then completes. Exercises the manual driver's loop across MORE than one
+ * `input_required` round.
+ *
+ * The modern leg is stateless and each retry carries only THAT round's
+ * `inputResponses` (spec-correct — the client does not accumulate prior
+ * answers). So the tool tracks which step it is on via the opaque `requestState`
+ * the client echoes back, not via accumulated responses. Used to verify the
+ * Inspector surfaces each embedded elicitation in turn and only completes after
+ * both are answered (#1704).
+ */
+export function createMrtrMultiRoundTool(): ToolDefinition {
+  return {
+    name: "mrtr_two_step",
+    description:
+      "Two-round MRTR tool: collects a first value, then a second value, then completes.",
+    inputSchema: {},
+    handler: async (
+      _params: Record<string, unknown>,
+      _context?: TestServerContext,
+      extra?: HandlerExtra,
+    ) => {
+      const step =
+        typeof extra?.requestState === "string" ? extra.requestState : "start";
+      if (step === "start") {
+        return inputRequired({
+          inputRequests: {
+            first: inputRequired.elicit({
+              message: "Step 1: enter the first value",
+              requestedSchema: {
+                type: "object",
+                properties: { value: { type: "string", title: "First" } },
+                required: ["value"],
+              },
+            }),
+          },
+          requestState: `mrtr-two:step2:${++mrtrMintCount}`,
+        });
+      }
+      if (step.startsWith("mrtr-two:step2")) {
+        return inputRequired({
+          inputRequests: {
+            second: inputRequired.elicit({
+              message: "Step 2: enter the second value",
+              requestedSchema: {
+                type: "object",
+                properties: { value: { type: "string", title: "Second" } },
+                required: ["value"],
+              },
+            }),
+          },
+          requestState: `mrtr-two:done:${++mrtrMintCount}`,
+        });
+      }
+      return toToolResult(
+        `MRTR two-step complete — final answer: ${JSON.stringify(
+          extra?.inputResponses?.second,
+        )}`,
+      );
+    },
+  };
+}
+
+/**
+ * An MRTR tool that embeds a `roots/list` request. The Inspector auto-answers it
+ * from the configured roots (no pending UX), so the retry carries the client's
+ * `{ roots }` result and the tool completes reporting how many roots it saw.
+ * Used to verify silent roots fulfilment mid-MRTR (#1704).
+ */
+export function createMrtrRootsTool(): ToolDefinition {
+  return {
+    name: "mrtr_roots",
+    description:
+      "MRTR tool that asks the client for its roots, then completes reporting the count.",
+    inputSchema: {},
+    handler: async (
+      _params: Record<string, unknown>,
+      _context?: TestServerContext,
+      extra?: HandlerExtra,
+    ) => {
+      const responses = extra?.inputResponses;
+      if (!responses || responses.roots === undefined) {
+        return inputRequired({
+          inputRequests: { roots: inputRequired.listRoots() },
+          requestState: `mrtr-roots:${++mrtrMintCount}`,
+        });
+      }
+      const rootsResult = responses.roots as { roots?: unknown[] };
+      const count = Array.isArray(rootsResult.roots)
+        ? rootsResult.roots.length
+        : 0;
+      return toToolResult(
+        `MRTR roots complete — client reported ${count} root(s)`,
+      );
+    },
+  };
+}
+
+/**
+ * An MRTR tool that embeds a `sampling/createMessage` request. On the retry the
+ * client's sampling result is echoed back and the tool completes. Verifies the
+ * driver surfaces an embedded sampling request through the pending-request UI
+ * the same way it does an elicitation (#1704).
+ */
+export function createMrtrSamplingTool(): ToolDefinition {
+  return {
+    name: "mrtr_sample",
+    description:
+      "MRTR tool that asks the client to sample an LLM completion, then completes.",
+    inputSchema: {},
+    handler: async (
+      _params: Record<string, unknown>,
+      _context?: TestServerContext,
+      extra?: HandlerExtra,
+    ) => {
+      const responses = extra?.inputResponses;
+      if (!responses || responses.sample === undefined) {
+        return inputRequired({
+          inputRequests: {
+            sample: inputRequired.createMessage({
+              messages: [
+                {
+                  role: "user",
+                  content: { type: "text", text: "Say hello." },
+                },
+              ],
+              maxTokens: 64,
+            }),
+          },
+          requestState: `mrtr-sample:${++mrtrMintCount}`,
+        });
+      }
+      return toToolResult(
+        `MRTR sample complete — echoed: ${JSON.stringify(responses.sample)}`,
+      );
+    },
+  };
+}
+
+/**
+ * A pathological MRTR tool that ALWAYS returns `input_required` and never
+ * completes. Used to verify the manual driver bounds the loop (its
+ * `MRTR_MAX_ROUNDS` cap) instead of spinning forever (#1704).
+ */
+export function createMrtrLoopTool(): ToolDefinition {
+  return {
+    name: "mrtr_loop",
+    description:
+      "Pathological MRTR tool that never completes — always returns input_required.",
+    inputSchema: {},
+    handler: async () => {
+      return inputRequired({
+        inputRequests: {
+          again: inputRequired.elicit({
+            message: "Answer again (this never completes)",
+            requestedSchema: {
+              type: "object",
+              properties: { value: { type: "string", title: "Value" } },
+            },
+          }),
+        },
+        requestState: `mrtr-loop:${++mrtrMintCount}`,
+      });
+    },
+  };
+}
+
+/**
+ * An MRTR tool exercising the driver's param-shaping edge cases (#1704):
+ *  - Round 1 embeds an elicitation but mints NO `requestState` (so the retry
+ *    carries `inputResponses` and no `requestState`).
+ *  - Round 2 is `requestState`-only: it carries a `requestState` and NO
+ *    `inputRequests` (so the retry carries `requestState` and no
+ *    `inputResponses`).
+ *  - Round 3 completes.
+ */
+export function createMrtrEdgeCaseTool(): ToolDefinition {
+  return {
+    name: "mrtr_edge",
+    description:
+      "MRTR tool covering the inputRequests-only and requestState-only round shapes.",
+    inputSchema: {},
+    handler: async (
+      _params: Record<string, unknown>,
+      _context?: TestServerContext,
+      extra?: HandlerExtra,
+    ) => {
+      const state =
+        typeof extra?.requestState === "string" ? extra.requestState : "";
+      // Round 2: the client answered round 1's elicitation. Bounce a
+      // requestState-only round (no embedded requests) to move to the final leg.
+      if (extra?.inputResponses?.note !== undefined) {
+        return inputRequired({
+          requestState: `mrtr-edge:final:${++mrtrMintCount}`,
+        });
+      }
+      // Round 3: the requestState-only round came back — complete.
+      if (state.startsWith("mrtr-edge:final")) {
+        return toToolResult("MRTR edge complete");
+      }
+      // Round 1: embed an elicitation with NO requestState.
+      return inputRequired({
+        inputRequests: {
+          note: inputRequired.elicit({
+            message: "Edge round 1: enter a note",
+            requestedSchema: {
+              type: "object",
+              properties: { value: { type: "string", title: "Note" } },
+            },
+          }),
+        },
+      });
+    },
+  };
+}
+
+/**
  * Create a "url_elicitation_form" tool that spins up a simple HTTP server on a dynamic
  * port with a form page, sends that URL via URL elicitation, and on form submit collects
  * the text input, includes it in the tool response, and closes the server.
@@ -1291,7 +1508,8 @@ export function createAddToolTool(): ToolDefinition {
         {
           description: params.description as string,
           inputSchema: params.inputSchema as
-            Record<string, z.ZodType> | undefined,
+            | Record<string, z.ZodType>
+            | undefined,
         },
         async () => {
           return {
@@ -1395,7 +1613,8 @@ export function createAddPromptTool(): ToolDefinition {
         {
           description: params.description as string | undefined,
           argsSchema: params.argsSchema as
-            Record<string, z.ZodType> | undefined,
+            | Record<string, z.ZodType>
+            | undefined,
         },
         async () => {
           return {
@@ -1539,7 +1758,9 @@ export function createSendProgressTool(
 
       // Extract progressToken from metadata
       const progressToken = extra?._meta?.progressToken as
-        string | number | undefined;
+        | string
+        | number
+        | undefined;
 
       // Send progress notifications
       let sent = 0;
@@ -1975,9 +2196,12 @@ export function createTaskTool(
     handler: {
       createTask: async (args, extra) => {
         const message = (args as Record<string, unknown>)?.message as
-          string | undefined;
+          | string
+          | undefined;
         const progressToken = extra._meta?.progressToken as
-          string | number | undefined;
+          | string
+          | number
+          | undefined;
         const task = await extra.taskStore.createTask({});
         runTaskExecution({
           task,
