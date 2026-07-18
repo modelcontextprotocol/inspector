@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   Badge,
-  Button,
   Card,
   Collapse,
   Divider,
@@ -128,11 +127,6 @@ function resultTypeColor(resultType: "complete" | "input_required"): string {
 function resultTypeLabel(resultType: "complete" | "input_required"): string {
   return resultType === "input_required" ? "input required" : "complete";
 }
-
-const SubtleButton = Button.withProps({
-  variant: "subtle",
-  size: "xs",
-});
 
 function formatDuration(ms: number): string {
   return `${ms}ms`;
@@ -331,19 +325,13 @@ export function ProtocolEntry({
               </Group>
             </HeaderRow>
 
-            <Group gap="xs" justify="space-between">
-              <Group gap="xs">
-                {canReplay && (
-                  <SubtleButton onClick={onReplay}>Replay</SubtleButton>
-                )}
-              </Group>
-              <Group gap="xs">
-                <PinToggle pinned={isPinned} onToggle={onTogglePin} />
-                <ExpandToggle
-                  expanded={isExpanded}
-                  onToggle={() => setIsExpanded((v) => !v)}
-                />
-              </Group>
+            <Group gap="xs" justify="flex-end">
+              {canReplay && <ReplayButton onReplay={onReplay} />}
+              <PinToggle pinned={isPinned} onToggle={onTogglePin} />
+              <ExpandToggle
+                expanded={isExpanded}
+                onToggle={() => setIsExpanded((v) => !v)}
+              />
             </Group>
           </>
         )}
