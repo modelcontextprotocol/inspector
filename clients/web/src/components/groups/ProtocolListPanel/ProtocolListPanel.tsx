@@ -9,19 +9,22 @@ import {
   Title,
   UnstyledButton,
 } from "@mantine/core";
+import type { ProtocolEra } from "@modelcontextprotocol/client";
 import type {
   MessageEntry,
   MessageMethod,
   MessageOrigin,
 } from "@inspector/core/mcp/types.js";
 import { ProtocolEntry } from "../ProtocolEntry/ProtocolEntry";
+import { MrtrConversation } from "../MrtrConversation/MrtrConversation";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
+import { EraBadge } from "../../elements/EraBadge/EraBadge";
 import {
   SortToggle,
   type SortDirection,
 } from "../../elements/SortToggle/SortToggle";
 import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
-import { extractMethod } from "../protocolUtils.js";
+import { extractMethod, groupProtocolEntries } from "../protocolUtils.js";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
 export interface ProtocolListPanelProps {
@@ -31,6 +34,13 @@ export interface ProtocolListPanelProps {
   methodFilter?: MessageMethod;
   /** Which message directions to show, keyed by entry origin. */
   visibleDirections: Record<MessageOrigin, boolean>;
+  /**
+   * The connection's negotiated protocol era (SEP §7.8), shown as a badge so
+   * captured traffic is labeled by era. Must come from connection state — never
+   * inferred from the frames (the modern probe carries a `_meta` envelope before
+   * the era is known; spec §8.3). Undefined hides the badge.
+   */
+  protocolEra?: ProtocolEra;
   onClearAll: () => void;
   onExport: () => void;
   /** Clear just one section's entries (pinned vs unpinned history). */
@@ -215,6 +225,7 @@ export function ProtocolListPanel({
   searchText,
   methodFilter,
   visibleDirections,
+  protocolEra,
   onClearAll,
   onExport,
   onClearSection,
@@ -273,10 +284,43 @@ export function ProtocolListPanel({
   // with a single section the panel-level Clear/Export already covers it.
   const bothSections = pinnedEntries.length > 0 && unpinnedEntries.length > 0;
 
+  // Render a section's entries, folding contiguous MRTR rounds (spec §7.3) into
+  // one MrtrConversation so an operation spanning several JSON-RPC ids reads as
+  // a single unit; everything else stays a plain ProtocolEntry. `sectionPinned`
+  // is the section's pin state (used for a lone entry's pin label).
+  const renderRows = (sectionEntries: MessageEntry[], sectionPinned: boolean) =>
+    groupProtocolEntries(sectionEntries).map((row) =>
+      row.kind === "mrtr" ? (
+        <MrtrConversation
+          key={`mrtr-${row.requestState}-${row.rounds[0].id}`}
+          requestState={row.requestState}
+          rounds={row.rounds}
+          pinnedIds={pinnedIds}
+          isListExpanded={!compact}
+          embedded={embedded}
+          onReplay={onReplay}
+          onTogglePin={onTogglePin}
+        />
+      ) : (
+        <ProtocolEntry
+          key={row.entry.id}
+          entry={row.entry}
+          isPinned={sectionPinned}
+          isListExpanded={!compact}
+          embedded={embedded}
+          onReplay={() => onReplay(row.entry.id)}
+          onTogglePin={() => onTogglePin(row.entry.id)}
+        />
+      ),
+    );
+
   return (
     <PanelContainer>
       <Group justify="space-between" mb="sm">
-        <Title order={4}>Messages</Title>
+        <Group gap="sm">
+          <Title order={4}>Messages</Title>
+          {protocolEra && <EraBadge era={protocolEra} />}
+        </Group>
         <Group gap="xs">
           <SortToggle
             value={sortDirection}
@@ -321,17 +365,7 @@ export function ProtocolListPanel({
                   ) : undefined
                 }
               >
-                {pinnedEntries.map((entry) => (
-                  <ProtocolEntry
-                    key={entry.id}
-                    entry={entry}
-                    isPinned={true}
-                    isListExpanded={!compact}
-                    embedded={embedded}
-                    onReplay={() => onReplay(entry.id)}
-                    onTogglePin={() => onTogglePin(entry.id)}
-                  />
-                ))}
+                {renderRows(pinnedEntries, true)}
               </CollapsibleSection>
             )}
 
@@ -353,17 +387,7 @@ export function ProtocolListPanel({
                   ) : undefined
                 }
               >
-                {unpinnedEntries.map((entry) => (
-                  <ProtocolEntry
-                    key={entry.id}
-                    entry={entry}
-                    isPinned={false}
-                    isListExpanded={!compact}
-                    embedded={embedded}
-                    onReplay={() => onReplay(entry.id)}
-                    onTogglePin={() => onTogglePin(entry.id)}
-                  />
-                ))}
+                {renderRows(unpinnedEntries, false)}
               </CollapsibleSection>
             )}
           </Stack>

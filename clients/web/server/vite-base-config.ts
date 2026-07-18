@@ -38,6 +38,14 @@ export function getViteBaseConfig() {
   return {
     optimizeDeps: {
       exclude: [...NODE_ONLY_OPTIMIZE_DEPS_EXCLUDE],
+      // Pre-bundle the browser-safe client barrel up front so Vitest's
+      // Storybook (browser) project doesn't discover it lazily and re-optimize
+      // mid-run — which reloads the worker and fails in-flight dynamic story
+      // imports with "Failed to fetch dynamically imported module". Several
+      // components import it at runtime (e.g. `protocolUtils`'s
+      // `isInputRequiredResult` / `SUBSCRIPTION_ID_META_KEY`), so listing it
+      // here keeps the dep graph stable across story files.
+      include: ["@modelcontextprotocol/client"],
     },
   };
 }

@@ -1,0 +1,12 @@
+{
+  "serverInfo": {
+    "name": "composable-modern-mrtr",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "echo" }, { "preset": "mrtr_confirm" }],
+  "transport": {
+    "type": "streamable-http",
+    "port": 3101,
+    "modern": true
+  }
+}

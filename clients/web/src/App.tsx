@@ -3869,6 +3869,7 @@ function App() {
           tasks={tasks}
           progressByTaskId={progressByTaskId}
           protocol={messages}
+          protocolEra={protocolEra}
           network={fetchRequests}
           stderrLogs={stderrLogs}
           toolCallState={toolCallState}

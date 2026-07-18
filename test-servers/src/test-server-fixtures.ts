@@ -8,6 +8,7 @@
 import * as z from "zod/v4";
 import {
   RELATED_TASK_META_KEY,
+  inputRequired,
   type Implementation,
   type ElicitRequestFormParams,
   type ElicitRequestURLParams,
@@ -364,6 +365,79 @@ export function createCollectFormElicitationTool(): ToolDefinition {
         );
         throw error;
       }
+    },
+  };
+}
+
+/**
+ * Create an "mrtr_confirm" tool exercising the modern (2026-07-28) multi
+ * round-trip request (MRTR) flow. On the first call it returns an
+ * `input_required` result embedding a form elicitation ("Confirm: <action>?");
+ * the client fulfils it and retries with `inputResponses`, on which the handler
+ * returns the final result. This is the modern replacement for a server→client
+ * `elicitation/create` request — `createCollectFormElicitationTool` (which calls
+ * `server.elicitInput`) is legacy-only and errors on the 2026-07-28 leg.
+ *
+ * Used by `test-servers/configs/modern-mrtr-http.json` so the Inspector's
+ * History view can render a real MRTR round-trip as one grouped conversation.
+ */
+// Process-wide counter so each original MRTR call mints a DISTINCT
+// `requestState`. It must live at MODULE scope, not inside `createMrtrTool` or
+// its handler closure: the modern (2026-07-28) leg is stateless — the SDK's
+// `createMcpHandler` rebuilds the server (and every tool closure) per request
+// (see `test-server-http.ts` `startModernHttp`), so a per-closure counter would
+// reset to 0 on every request and every token would end in `:1`, defeating the
+// point. A stable-per-action token would let two same-action calls (whose rounds
+// land adjacently in the History log) fold into a single `MrtrConversation`,
+// since grouping clusters contiguous entries sharing a token — confusing for a
+// demo whose whole point is eyeballing the grouping. Only bumped on the mint
+// (first) round; the retry echoes the token, it isn't re-minted. Real SDK tokens
+// are already unique per operation.
+let mrtrMintCount = 0;
+
+export function createMrtrTool(): ToolDefinition {
+  return {
+    name: "mrtr_confirm",
+    description:
+      "Multi round-trip tool: asks the client to confirm an action via an embedded elicitation, then completes.",
+    inputSchema: {
+      action: z
+        .string()
+        .describe("The action to confirm before the tool completes"),
+    },
+    handler: async (
+      params: Record<string, unknown>,
+      _context?: TestServerContext,
+      extra?: HandlerExtra,
+    ) => {
+      const action =
+        typeof params.action === "string" ? params.action : "the action";
+      const responses = extra?.inputResponses;
+
+      // First round: no answers yet — return input_required embedding a form
+      // elicitation and an opaque requestState the client echoes on retry.
+      if (!responses || responses.confirm === undefined) {
+        return inputRequired({
+          inputRequests: {
+            confirm: inputRequired.elicit({
+              message: `Confirm: ${action}?`,
+              requestedSchema: {
+                type: "object",
+                properties: {
+                  confirm: { type: "boolean", title: "Confirm" },
+                },
+                required: ["confirm"],
+              },
+            }),
+          },
+          requestState: `mrtr:${action}:${++mrtrMintCount}`,
+        });
+      }
+
+      // Retry round: the client fulfilled the elicitation and echoed the answer.
+      return toToolResult(
+        `MRTR complete — confirmation for "${action}": ${JSON.stringify(responses.confirm)}`,
+      );
     },
   };
 }
@@ -1217,8 +1291,7 @@ export function createAddToolTool(): ToolDefinition {
         {
           description: params.description as string,
           inputSchema: params.inputSchema as
-            | Record<string, z.ZodType>
-            | undefined,
+            Record<string, z.ZodType> | undefined,
         },
         async () => {
           return {
@@ -1322,8 +1395,7 @@ export function createAddPromptTool(): ToolDefinition {
         {
           description: params.description as string | undefined,
           argsSchema: params.argsSchema as
-            | Record<string, z.ZodType>
-            | undefined,
+            Record<string, z.ZodType> | undefined,
         },
         async () => {
           return {
@@ -1467,9 +1539,7 @@ export function createSendProgressTool(
 
       // Extract progressToken from metadata
       const progressToken = extra?._meta?.progressToken as
-        | string
-        | number
-        | undefined;
+        string | number | undefined;
 
       // Send progress notifications
       let sent = 0;
@@ -1905,12 +1975,9 @@ export function createTaskTool(
     handler: {
       createTask: async (args, extra) => {
         const message = (args as Record<string, unknown>)?.message as
-          | string
-          | undefined;
+          string | undefined;
         const progressToken = extra._meta?.progressToken as
-          | string
-          | number
-          | undefined;
+          string | number | undefined;
         const task = await extra.taskStore.createTask({});
         runTaskExecution({
           task,

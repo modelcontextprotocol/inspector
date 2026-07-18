@@ -447,4 +447,71 @@ describe("ProtocolListPanel", () => {
     await user.click(screen.getByRole("button", { name: "Expand all" }));
     expect(onToggleCompact).toHaveBeenCalledTimes(1);
   });
+
+  it("shows an era badge when a protocol era is provided", () => {
+    renderWithMantine(
+      <ProtocolListPanel
+        {...baseProps}
+        entries={sampleEntries}
+        protocolEra="modern"
+      />,
+    );
+    expect(screen.getByText("Modern")).toBeInTheDocument();
+  });
+
+  it("omits the era badge when no era is provided", () => {
+    renderWithMantine(
+      <ProtocolListPanel {...baseProps} entries={sampleEntries} />,
+    );
+    expect(screen.queryByText("Modern")).not.toBeInTheDocument();
+    expect(screen.queryByText("Legacy")).not.toBeInTheDocument();
+  });
+
+  it("groups contiguous MRTR rounds into one expandable conversation", () => {
+    const original: MessageEntry = {
+      id: "mrtr-orig",
+      timestamp: new Date("2026-07-28T10:00:00Z"),
+      direction: "request",
+      origin: "client",
+      message: {
+        jsonrpc: "2.0",
+        id: 10,
+        method: "tools/call",
+        params: { name: "book_flight" },
+      },
+      response: {
+        jsonrpc: "2.0",
+        id: 10,
+        result: { resultType: "input_required", requestState: "tok" },
+      },
+    };
+    const retry: MessageEntry = {
+      id: "mrtr-retry",
+      timestamp: new Date("2026-07-28T10:00:05Z"),
+      direction: "request",
+      origin: "client",
+      message: {
+        jsonrpc: "2.0",
+        id: 11,
+        method: "tools/call",
+        params: { name: "book_flight", requestState: "tok" },
+      },
+      response: {
+        jsonrpc: "2.0",
+        id: 11,
+        result: { resultType: "complete", content: [] },
+      },
+    };
+    renderWithMantine(
+      <ProtocolListPanel
+        {...baseProps}
+        entries={[original, retry]}
+        compact={false}
+      />,
+    );
+    // One MRTR conversation wrapper labeling the two rounds as a unit.
+    expect(screen.getByText("MRTR")).toBeInTheDocument();
+    expect(screen.getByText("2 rounds")).toBeInTheDocument();
+    expect(screen.getByTestId("mrtr-status")).toHaveTextContent("Complete");
+  });
 });

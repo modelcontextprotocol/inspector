@@ -369,3 +369,135 @@ describe("ProtocolEntry", () => {
     expect(screen.queryByText(/ms$/)).not.toBeInTheDocument();
   });
 });
+
+// --- Modern-era (2026-07-28) vocabulary rendering ---------------------------
+
+const inputRequiredEntry: MessageEntry = {
+  id: "mrtr-1",
+  timestamp: new Date("2026-07-28T10:00:00Z"),
+  direction: "request",
+  origin: "client",
+  message: {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: { name: "book_flight" },
+  },
+  response: {
+    jsonrpc: "2.0",
+    id: 1,
+    result: {
+      resultType: "input_required",
+      requestState: "opaque-token",
+      inputRequests: { "1": { method: "elicitation/create", params: {} } },
+    },
+  },
+};
+
+const completeEntry: MessageEntry = {
+  id: "mrtr-2",
+  timestamp: new Date("2026-07-28T10:00:02Z"),
+  direction: "request",
+  origin: "client",
+  message: {
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/call",
+    params: { name: "book_flight", requestState: "opaque-token" },
+  },
+  response: {
+    jsonrpc: "2.0",
+    id: 2,
+    result: { resultType: "complete", content: [{ type: "text", text: "ok" }] },
+  },
+};
+
+const discoverEntry: MessageEntry = {
+  id: "disc-1",
+  timestamp: new Date("2026-07-28T09:59:00Z"),
+  direction: "request",
+  origin: "client",
+  message: { jsonrpc: "2.0", id: 0, method: "server/discover" },
+  response: {
+    jsonrpc: "2.0",
+    id: 0,
+    result: { supportedVersions: ["2026-07-28"], capabilities: {} },
+  },
+};
+
+const subscriptionNotificationEntry: MessageEntry = {
+  id: "sub-1",
+  timestamp: new Date("2026-07-28T10:05:00Z"),
+  direction: "notification",
+  origin: "server",
+  message: {
+    jsonrpc: "2.0",
+    method: "notifications/resources/list_changed",
+    params: {
+      _meta: { "io.modelcontextprotocol/subscriptionId": "sub-abc" },
+    },
+  },
+};
+
+describe("ProtocolEntry — modern vocabulary", () => {
+  it("labels an input_required result", () => {
+    renderWithMantine(
+      <ProtocolEntry {...baseProps} entry={inputRequiredEntry} />,
+    );
+    expect(screen.getByText("input required")).toBeInTheDocument();
+  });
+
+  it("labels a modern complete result", () => {
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={completeEntry} />);
+    expect(screen.getByText("complete")).toBeInTheDocument();
+  });
+
+  it("suppresses the redundant OK status badge when a resultType badge shows", () => {
+    // A modern success carries both a green OK (transport-level) and a
+    // resultType badge; the resultType is the single signal, so OK is hidden.
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={completeEntry} />);
+    expect(screen.getByText("complete")).toBeInTheDocument();
+    expect(screen.queryByText("OK")).not.toBeInTheDocument();
+  });
+
+  it("still shows the OK status badge on a legacy result with no resultType", () => {
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={successEntry} />);
+    expect(screen.getByText("OK")).toBeInTheDocument();
+  });
+
+  it("does not label resultType on a legacy result", () => {
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={successEntry} />);
+    expect(screen.queryByText("input required")).not.toBeInTheDocument();
+    expect(screen.queryByText("complete")).not.toBeInTheDocument();
+  });
+
+  it("flags a modern-only frame with a 'modern' badge", () => {
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={discoverEntry} />);
+    expect(screen.getByText("server/discover")).toBeInTheDocument();
+    expect(screen.getByText("modern")).toBeInTheDocument();
+  });
+
+  it("does not flag an ordinary frame as modern", () => {
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={successEntry} />);
+    expect(screen.queryByText("modern")).not.toBeInTheDocument();
+  });
+
+  it("shows a copyable subscriptionId on a tagged notification", () => {
+    renderWithMantine(
+      <ProtocolEntry {...baseProps} entry={subscriptionNotificationEntry} />,
+    );
+    expect(screen.getByText("sub-abc")).toBeInTheDocument();
+    // One Copy button beside the subscription id (the notification carries no
+    // params ContentViewer copy affordance when collapsed).
+    expect(
+      screen.getAllByRole("button", { name: "Copy" }).length,
+    ).toBeGreaterThanOrEqual(1);
+  });
+
+  it("shows the modern badges in the embedded compact layout", () => {
+    renderWithMantine(
+      <ProtocolEntry {...baseProps} entry={inputRequiredEntry} embedded />,
+    );
+    expect(screen.getByText("input required")).toBeInTheDocument();
+  });
+});

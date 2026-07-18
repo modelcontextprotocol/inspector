@@ -19,6 +19,7 @@ import {
   createCollectSampleTool,
   createListRootsTool,
   createCollectFormElicitationTool,
+  createMrtrTool,
   createCollectUrlElicitationTool,
   createUrlElicitationFormTool,
   createSendNotificationTool,
@@ -96,6 +97,8 @@ function resolveToolPreset(
       return createListRootsTool();
     case "collect_elicitation":
       return createCollectFormElicitationTool();
+    case "mrtr_confirm":
+      return createMrtrTool();
     case "collect_url_elicitation":
       return createCollectUrlElicitationTool();
     case "url_elicitation_form":

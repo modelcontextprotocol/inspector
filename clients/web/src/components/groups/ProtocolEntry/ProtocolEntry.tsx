@@ -10,7 +10,7 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
-import type { MessageEntry } from "../../../../../../core/mcp/types.js";
+import type { MessageEntry } from "@inspector/core/mcp/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { MessageDirectionBadge } from "../../elements/MessageDirectionBadge/MessageDirectionBadge";
@@ -18,7 +18,13 @@ import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { PinToggle } from "../../elements/PinToggle/PinToggle";
 import { ReplayButton } from "../../elements/ReplayButton/ReplayButton";
-import { extractMethod, isReplayableProtocolMethod } from "../protocolUtils.js";
+import {
+  extractMethod,
+  extractResultType,
+  extractSubscriptionId,
+  isModernFrame,
+  isReplayableProtocolMethod,
+} from "../protocolUtils.js";
 
 export interface ProtocolEntryProps {
   entry: MessageEntry;
@@ -82,6 +88,46 @@ const DurationText = Text.withProps({
   size: "sm",
   c: "dimmed",
 });
+
+// Flags a frame whose method only exists in the modern (2026-07-28) era
+// (`server/discover`, `subscriptions/listen`, its acknowledgement). This labels
+// the *frame*, not the connection's negotiated era (see the transcript caveat in
+// protocolUtils) — those methods genuinely cannot occur on a legacy connection.
+const ModernFrameBadge = Badge.withProps({
+  color: "blue",
+  variant: "outline",
+});
+
+// The `subscriptionId` tag on a modern push notification (spec §7.4). Shown with
+// a copy button so the id can be correlated against the `subscriptions/listen`
+// stream that opened it.
+const SubscriptionLabel = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+const SubscriptionId = Text.withProps({
+  size: "sm",
+  ff: "monospace",
+});
+
+const SubscriptionCluster = Group.withProps({
+  gap: 4,
+  wrap: "nowrap",
+  miw: 0,
+});
+
+// `complete` is green — it's the success signal now that the redundant "OK"
+// status badge is suppressed, so a modern success keeps the same at-a-glance
+// green affordance a legacy success has. `input_required` is yellow (in
+// progress: awaiting input before the retry).
+function resultTypeColor(resultType: "complete" | "input_required"): string {
+  return resultType === "input_required" ? "yellow" : "green";
+}
+
+function resultTypeLabel(resultType: "complete" | "input_required"): string {
+  return resultType === "input_required" ? "input required" : "complete";
+}
 
 const SubtleButton = Button.withProps({
   variant: "subtle",
@@ -164,6 +210,9 @@ export function ProtocolEntry({
   const resourceUri = extractResourceUri(entry);
   const status = extractStatus(entry);
   const canReplay = isReplayableProtocolMethod(method);
+  const resultType = extractResultType(entry);
+  const subscriptionId = extractSubscriptionId(entry);
+  const isModern = isModernFrame(method);
 
   useEffect(() => {
     setIsExpanded(isListExpanded);
@@ -174,10 +223,32 @@ export function ProtocolEntry({
       direction={entry.origin === "client" ? "outgoing" : "incoming"}
     />
   );
-  const statusBadge = status !== "none" && (
+  // The modern `resultType` on the paired result (spec §7.3): `input_required`
+  // (the operation isn't done — it needs input and will be retried) vs the
+  // ordinary `complete`. Only present on modern results, so it doubles as a
+  // per-result modern signal without inferring the connection era.
+  const resultTypeBadge = resultType && (
+    <Badge color={resultTypeColor(resultType)} variant="status">
+      {resultTypeLabel(resultType)}
+    </Badge>
+  );
+  // Suppress the redundant green "OK" when a `resultType` badge already conveys
+  // the outcome (a modern success is `complete`/`input required`); errors and
+  // pending have no `resultType`, so their status badge still shows.
+  const statusBadge = status !== "none" && !resultType && (
     <Badge color={statusColor(status)} variant="status">
       {statusLabel(status)}
     </Badge>
+  );
+  const modernFrameBadge = isModern && (
+    <ModernFrameBadge>modern</ModernFrameBadge>
+  );
+  const subscriptionBadge = subscriptionId && (
+    <SubscriptionCluster>
+      <SubscriptionLabel>sub</SubscriptionLabel>
+      <CopyButton value={subscriptionId} />
+      <SubscriptionId>{subscriptionId}</SubscriptionId>
+    </SubscriptionCluster>
   );
   const durationText = entry.duration != null && (
     <DurationText>{formatDuration(entry.duration)}</DurationText>
@@ -198,12 +269,15 @@ export function ProtocolEntry({
               </HeaderCluster>
               <ControlsCluster>
                 {durationText}
+                {resultTypeBadge}
                 {statusBadge}
               </ControlsCluster>
             </HeaderRow>
             <HeaderRow>
               <HeaderCluster flex={1}>
                 <MethodBadge method={method} />
+                {modernFrameBadge}
+                {subscriptionBadge}
                 {target && (
                   <>
                     {resourceUri && <CopyButton value={resourceUri} />}
@@ -241,6 +315,8 @@ export function ProtocolEntry({
                 </TimestampText>
                 {directionBadge}
                 <MethodBadge method={method} />
+                {modernFrameBadge}
+                {subscriptionBadge}
                 {target && (
                   <>
                     {resourceUri && <CopyButton value={resourceUri} />}
@@ -250,6 +326,7 @@ export function ProtocolEntry({
               </Group>
               <Group gap="sm">
                 {durationText}
+                {resultTypeBadge}
                 {statusBadge}
               </Group>
             </HeaderRow>

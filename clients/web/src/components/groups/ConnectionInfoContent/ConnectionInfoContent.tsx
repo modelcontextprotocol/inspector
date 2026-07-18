@@ -22,6 +22,8 @@ import {
   type CapabilityKey,
 } from "../../elements/CapabilityItem/CapabilityItem";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { EraBadge } from "../../elements/EraBadge/EraBadge";
+import { isModernEra } from "../../elements/EraBadge/eraUtils";
 import { OAuthAccessTokenField } from "./OAuthAccessTokenField";
 
 export interface OAuthDetails {
@@ -111,16 +113,8 @@ function formatClientRegistrationKind(
   }
 }
 
-// The SDK reports the era for every connected era, including a plain legacy
-// connect (`"legacy"`); it's undefined only when not connected. Anything other
-// than `"modern"` renders as the legacy era.
-function isModernEra(era: ProtocolEra | undefined): boolean {
-  return era === "modern";
-}
-
-function formatEra(era: ProtocolEra | undefined): string {
-  return isModernEra(era) ? "Modern" : "Legacy";
-}
+// `isModernEra` / `formatEra` are shared with the Protocol view via the
+// EraBadge element (single source of truth for the legacy/modern distinction).
 
 // The session concept is HTTP-only: modern HTTP connections are sessionless (no
 // `Mcp-Session-Id`, nothing to DELETE on disconnect) while a legacy HTTP
@@ -209,12 +203,7 @@ export function ConnectionInfoContent({
           <Badge variant="outline">{transport}</Badge>
 
           <Text size="sm">Era</Text>
-          <Badge
-            variant="outline"
-            color={isModernEra(protocolEra) ? "blue" : "gray"}
-          >
-            {formatEra(protocolEra)}
-          </Badge>
+          <EraBadge era={protocolEra} />
 
           <Text size="sm">Session</Text>
           <ValueText>{formatSession(protocolEra, transport)}</ValueText>

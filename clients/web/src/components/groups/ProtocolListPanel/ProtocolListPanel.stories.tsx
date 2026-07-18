@@ -116,3 +116,77 @@ export const Empty: Story = {
     entries: [],
   },
 };
+
+// A modern (2026-07-28) connection: the era badge labels the traffic, and an
+// MRTR round-trip (original call → input_required → retry → complete) renders as
+// one grouped conversation.
+const mrtrEntries: MessageEntry[] = [
+  {
+    id: "mrtr-orig",
+    timestamp: new Date("2026-07-28T10:00:00Z"),
+    direction: "request",
+    origin: "client",
+    message: {
+      jsonrpc: "2.0",
+      id: 10,
+      method: "tools/call",
+      params: { name: "book_flight", arguments: { destination: "SFO" } },
+    },
+    response: {
+      jsonrpc: "2.0",
+      id: 10,
+      result: {
+        resultType: "input_required",
+        requestState: "opaque-token",
+        inputRequests: {
+          "1": { method: "elicitation/create", params: {} },
+        },
+      },
+    },
+  },
+  {
+    id: "mrtr-retry",
+    timestamp: new Date("2026-07-28T10:00:05Z"),
+    direction: "request",
+    origin: "client",
+    message: {
+      jsonrpc: "2.0",
+      id: 11,
+      method: "tools/call",
+      params: {
+        name: "book_flight",
+        requestState: "opaque-token",
+        inputResponses: { "1": { content: { name: "Ada" } } },
+      },
+    },
+    response: {
+      jsonrpc: "2.0",
+      id: 11,
+      result: {
+        resultType: "complete",
+        content: [{ type: "text", text: "Booked" }],
+      },
+    },
+  },
+  {
+    id: "disc-1",
+    timestamp: new Date("2026-07-28T09:59:00Z"),
+    direction: "request",
+    origin: "client",
+    message: { jsonrpc: "2.0", id: 0, method: "server/discover" },
+    response: {
+      jsonrpc: "2.0",
+      id: 0,
+      result: { supportedVersions: ["2026-07-28"], capabilities: {} },
+    },
+  },
+];
+
+export const ModernWithMrtr: Story = {
+  args: {
+    entries: mrtrEntries,
+    protocolEra: "modern",
+    visibleDirections: { client: true, server: true },
+    compact: false,
+  },
+};
