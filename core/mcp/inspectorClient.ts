@@ -1706,12 +1706,14 @@ export class InspectorClient extends InspectorClientEventTarget {
    * the user's answer. Shared by the inbound `sampling/createMessage` handler
    * (legacy server→client request) and the MRTR driver (a modern
    * `input_required` round embeds the request in a tool-call result). `origin`
-   * tags which of the two so the UI can show era-accurate semantics. A
-   * declined/cancelled sampling still resolves normally so the bare result is
-   * echoed back to the server; only a genuine failure or an `signal` abort
-   * rejects (so the MRTR driver can abort the originating call). `signal` is
-   * only passed by the MRTR driver (the tool call's abort signal) — while the
-   * driver awaits an answer there is no in-flight SDK request to carry it.
+   * tags which of the two so the UI can show era-accurate semantics.
+   *
+   * Sampling has no decline/cancel action (unlike elicitation): the panel
+   * either sends a `CreateMessageResult` (resolve — echoed to the server) or
+   * Rejects (reject — which fails the tool call). A `signal` abort likewise
+   * rejects so the MRTR driver can abort the originating call. `signal` is only
+   * passed by the MRTR driver (the tool call's abort signal) — while the driver
+   * awaits an answer there is no in-flight SDK request to carry it.
    */
   private enqueuePendingSample(
     request: CreateMessageRequest,
@@ -2178,10 +2180,16 @@ export class InspectorClient extends InspectorClientEventTarget {
         return await this.attemptToolCall(request, abortController.signal);
       } catch (error) {
         // The controller was aborted. A deliberate `cancelToolCall()` (matched
-        // by reason) means the SDK already sent `notifications/cancelled` — so
-        // surface a clean cancellation, not a generic failure, and don't record
-        // it in history. Any other abort (e.g. a disconnect, which aborts with a
-        // different reason) falls through to the normal error path (#1458).
+        // by reason) means the SDK already sent `notifications/cancelled` if the
+        // abort landed during a `client.request` leg — so surface a clean
+        // cancellation, not a generic failure, and don't record it in history.
+        // If instead the abort lands while an MRTR round is awaiting an embedded
+        // pending request (between `client.request` legs), there is no in-flight
+        // SDK request, so nothing is sent on the wire — `wirePendingAbort` just
+        // rejects the pending request and the driver abandons the retry; the
+        // outcome here is identical. Any other abort (e.g. a disconnect, which
+        // aborts with a different reason) falls through to the normal error path
+        // (#1458).
         if (
           abortController.signal.aborted &&
           abortController.signal.reason === TOOL_CALL_CANCELLED_REASON
