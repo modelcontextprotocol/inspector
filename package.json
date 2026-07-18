@@ -80,7 +80,8 @@
   "overrides": {
     "get-intrinsic": "1.3.0",
     "shell-quote": "^1.8.4",
-    "hono": "^4.12.25"
+    "hono": "^4.12.25",
+    "minimatch@<3.1.4": "3.1.5"
   },
   "engines": {
     "node": ">=22.7.5"
