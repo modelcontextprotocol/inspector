@@ -15,6 +15,8 @@ import {
   createGetEnvTool,
   createAddTool,
   createGetSumTool,
+  createGetWeatherTool,
+  createSpecErrorTriggerTool,
   createWriteToStderrTool,
   createCollectSampleTool,
   createListRootsTool,
@@ -94,6 +96,28 @@ function resolveToolPreset(
       return createAddTool();
     case "get_sum":
       return createGetSumTool();
+    case "get_weather":
+      return createGetWeatherTool();
+    case "trigger_header_mismatch":
+      return createSpecErrorTriggerTool(
+        "trigger_header_mismatch",
+        "Returns -32020 HeaderMismatch (HTTP 400)",
+      );
+    case "trigger_missing_capability":
+      return createSpecErrorTriggerTool(
+        "trigger_missing_capability",
+        "Returns -32021 MissingRequiredClientCapability (HTTP 400)",
+      );
+    case "trigger_unsupported_version":
+      return createSpecErrorTriggerTool(
+        "trigger_unsupported_version",
+        "Returns -32022 UnsupportedProtocolVersion (HTTP 400)",
+      );
+    case "trigger_method_not_found":
+      return createSpecErrorTriggerTool(
+        "trigger_method_not_found",
+        "Returns -32601 MethodNotFound (HTTP 404)",
+      );
     case "write_to_stderr":
       return createWriteToStderrTool();
     case "collect_sample":

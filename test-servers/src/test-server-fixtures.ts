@@ -219,6 +219,49 @@ export function createAddTool(): ToolDefinition {
 }
 
 /**
+ * Create a "get_weather" tool carrying a SEP-2243 `x-mcp-header` annotation on
+ * its `city` argument, so a modern client mirrors the value into a
+ * `Mcp-Param-City` header (Base64-sentinel-encoded when the value is non-ASCII).
+ * Used by the `modern-network-http` showcase to exercise the Network tab's
+ * `Mcp-Param-*` decode.
+ */
+export function createGetWeatherTool(): ToolDefinition {
+  return {
+    name: "get_weather",
+    description:
+      "Get the weather for a city (its `city` argument mirrors to Mcp-Param-City)",
+    inputSchema: {
+      city: z
+        .string()
+        .describe("City name")
+        .meta({ "x-mcp-header": "City" }),
+    },
+    handler: async (params: Record<string, unknown>) => {
+      return toToolResult(`Weather in ${params.city as string}: sunny, 24°C`);
+    },
+  };
+}
+
+/**
+ * Create a no-op "trigger" tool whose `tools/call` is intercepted by the modern
+ * leg's spec-error injector (`injectSpecErrors`) to return a crafted
+ * SEP-2243/SEP-2575 error. The handler is a harmless fallback for the
+ * (never-reached) case where the injector is off.
+ */
+export function createSpecErrorTriggerTool(
+  name: string,
+  description: string,
+): ToolDefinition {
+  return {
+    name,
+    description,
+    inputSchema: {},
+    handler: async () =>
+      toToolResult(`(${name}) injector disabled — no error returned`),
+  };
+}
+
+/**
  * Create a "get_sum" tool that returns the sum of two numbers (alias for add)
  */
 export function createGetSumTool(): ToolDefinition {

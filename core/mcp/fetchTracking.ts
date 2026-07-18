@@ -115,7 +115,16 @@ function redactJsonValue(value: unknown): unknown {
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(value)) {
-      out[key] = isSensitiveField(key) ? REDACTED_VALUE : redactJsonValue(val);
+      // Only STRING values of a sensitive-named field are masked. The secrets
+      // this targets (OAuth `code`, `access_token`, `client_secret`, …) are
+      // always strings; a non-string is never one of them. This is important
+      // for JSON-RPC bodies, whose numeric `error.code` (e.g. -32020) collides
+      // with the OAuth authorization-`code` name — masking it would destroy the
+      // very field the Network tab classifies the modern spec errors on.
+      out[key] =
+        isSensitiveField(key) && typeof val === "string"
+          ? REDACTED_VALUE
+          : redactJsonValue(val);
     }
     return out;
   }

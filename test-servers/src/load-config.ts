@@ -72,7 +72,9 @@ export interface ConfigFile {
      * is shorthand for dual-era stateless serving; the object form selects the
      * legacy-fallback posture. See {@link ServerConfig.modern}.
      */
-    modern?: boolean | { legacy?: "stateless" | "reject" };
+    modern?:
+      | boolean
+      | { legacy?: "stateless" | "reject"; injectSpecErrors?: boolean };
   };
 }
 
