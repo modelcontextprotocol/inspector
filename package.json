@@ -56,6 +56,7 @@
     "@modelcontextprotocol/inspector-client": "^1.0.0",
     "@modelcontextprotocol/inspector-server": "^1.0.0",
     "@modelcontextprotocol/sdk": "^1.25.2",
+    "commander": "^13.1.0",
     "concurrently": "^9.2.0",
     "node-fetch": "^3.3.2",
     "open": "^10.2.0",
