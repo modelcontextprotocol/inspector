@@ -252,13 +252,16 @@ export function classifyMcpSpecError(
  *
  * `-32020`/`-32021`/`-32022` are SEP-reserved and unambiguous, so they're
  * recognised from the code alone. `-32601 MethodNotFound`, by contrast, is the
- * most generic standard JSON-RPC error — any server can return it *in-band on an
- * HTTP 200* for an unsupported method, which is not the modern transport
- * taxonomy. So it's treated as the modern marker only when the correlated fetch
- * was an actual 404 (`httpStatus === 404`), mirroring {@link classifyMcpSpecError}.
- * When `httpStatus` is omitted the status is unknown and `-32601` falls back to
- * code-only recognition — the thrown-404 path always carries a 404, so this only
- * affects a `-32601` with no correlated HTTP record.
+ * most generic standard JSON-RPC error — any server can return it *in-band* for
+ * an unsupported method, which is not the modern transport taxonomy. So it's
+ * treated as the modern marker only when the correlated fetch was an actual 404
+ * (`httpStatus === 404`), mirroring {@link classifyMcpSpecError}. The genuine
+ * modern case is thrown by the SDK on a 404 and folded in by
+ * `enrichProtocolEntries`, which always carries that 404 — so requiring 404 loses
+ * nothing intended. An unknown status (`undefined`) is *not* a 404: that path is
+ * only reached by an ordinary in-band `-32601` with no correlated 404 (most
+ * commonly a **stdio** connection, which has no HTTP at all), so it must not get
+ * the modern framing.
  */
 export function classifyProtocolSpecError(
   code: number,
@@ -267,11 +270,7 @@ export function classifyProtocolSpecError(
 ): McpSpecError | null {
   const meta = SPEC_ERROR_META[code];
   if (!meta) return null;
-  if (
-    code === ProtocolErrorCode.MethodNotFound &&
-    httpStatus !== undefined &&
-    httpStatus !== 404
-  ) {
+  if (code === ProtocolErrorCode.MethodNotFound && httpStatus !== 404) {
     return null;
   }
   const result: McpSpecError = { code, ...meta };

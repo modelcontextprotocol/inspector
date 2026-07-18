@@ -339,7 +339,14 @@ export const UnsupportedVersion: Story = {
 };
 
 export const MethodNotFound: Story = {
-  args: { entry: methodNotFoundEntry, isListExpanded: false },
+  // `correlatedHttpStatus: 404` marks this as the genuine modern thrown-404
+  // taxonomy; an in-band -32601 on a 200 (or over stdio, with no HTTP at all)
+  // renders as an ordinary error instead.
+  args: {
+    entry: methodNotFoundEntry,
+    isListExpanded: false,
+    correlatedHttpStatus: 404,
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(

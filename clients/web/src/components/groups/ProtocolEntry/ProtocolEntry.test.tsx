@@ -606,6 +606,21 @@ describe("ProtocolEntry — modern vocabulary", () => {
       expect(screen.getAllByText("Error").length).toBeGreaterThan(0);
     });
 
+    it("does NOT modern-frame a -32601 with no correlated fetch (e.g. stdio)", () => {
+      // Over stdio there is no Network entry at all, so correlatedHttpStatus is
+      // undefined. An unknown status is not a 404, so an unsupported-method probe
+      // is a plain error — no modern badge, no 404-asserting copy.
+      renderWithMantine(
+        <ProtocolEntry
+          {...baseProps}
+          entry={methodNotFoundEntry}
+          isListExpanded={true}
+        />,
+      );
+      expect(screen.queryByText("-32601 MethodNotFound")).toBeNull();
+      expect(screen.getAllByText("Error").length).toBeGreaterThan(0);
+    });
+
     it("does not chip an ordinary (non-spec) error like -32000", () => {
       renderWithMantine(<ProtocolEntry {...baseProps} entry={errorEntry} />);
       // errorEntry carries -32000 (implementation-defined) → no spec chip.

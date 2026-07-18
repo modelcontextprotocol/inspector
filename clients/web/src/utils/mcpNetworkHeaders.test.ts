@@ -200,20 +200,24 @@ describe("classifyMcpSpecError", () => {
 });
 
 describe("classifyProtocolSpecError", () => {
-  it("classifies by code alone when the HTTP status is unknown, incl. -32601", () => {
-    expect(classifyProtocolSpecError(-32601)?.name).toBe("MethodNotFound");
+  it("classifies the 400-status spec errors from the code alone", () => {
+    // -32020/-32021/-32022 are SEP-reserved and unambiguous — no status needed.
     expect(classifyProtocolSpecError(HEADER_MISMATCH_ERROR_CODE)?.name).toBe(
       "HeaderMismatch",
     );
   });
 
-  it("treats -32601 as MethodNotFound only on a genuine 404, not an in-band 200", () => {
+  it("treats -32601 as MethodNotFound only on a genuine 404", () => {
     // Thrown modern 404 → the transport taxonomy.
     expect(classifyProtocolSpecError(-32601, undefined, 404)?.name).toBe(
       "MethodNotFound",
     );
     // Ordinary in-band method-not-found on a 200 → not the modern taxonomy.
     expect(classifyProtocolSpecError(-32601, undefined, 200)).toBeNull();
+    // Unknown status (e.g. a stdio connection with no HTTP at all) is not a 404,
+    // so it is likewise not the modern taxonomy.
+    expect(classifyProtocolSpecError(-32601)).toBeNull();
+    expect(classifyProtocolSpecError(-32601, undefined, undefined)).toBeNull();
   });
 
   it("does not gate the 400-status spec errors on HTTP status", () => {
