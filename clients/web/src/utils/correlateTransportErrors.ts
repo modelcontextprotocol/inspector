@@ -95,9 +95,14 @@ export function correlateFetchEntry(
 }
 
 /**
- * The set of Protocol `MessageEntry` ids that have a correlated transport fetch
- * — i.e. the entries for which a "reveal in Network" link makes sense. Indexes
- * the fetch log once by JSON-RPC id, so this is O(messages + fetches).
+ * The set of Protocol `MessageEntry` ids that have a correlated transport fetch.
+ * This is a **superset** of the entries that actually show a "reveal in Network"
+ * link — it includes any correlated message (even a successful `tools/call`), not
+ * just spec errors. The narrowing gate is applied downstream at render:
+ * `ProtocolListPanel` only wires `onRevealInNetwork` for ids in this set, and
+ * `ProtocolEntry` only renders the anchor when the entry's spec error is
+ * `httpRelevant` — so a non-error correlated message never produces a stray link.
+ * Indexes the fetch log once by JSON-RPC id, so this is O(messages + fetches).
  */
 export function revealableMessageIds(
   messages: MessageEntry[],
