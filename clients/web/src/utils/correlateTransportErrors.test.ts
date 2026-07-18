@@ -7,6 +7,7 @@ import {
   correlateFetchEntry,
   enrichProtocolEntries,
   messageJsonRpcId,
+  revealableMessageIds,
 } from "./correlateTransportErrors";
 
 function requestEntry(id: number, method = "tools/call"): MessageEntry {
@@ -153,5 +154,30 @@ describe("request-body id parsing edge cases", () => {
     expect((folded?.data as { supported: string[] }).supported).toEqual([
       "2026-07-28",
     ]);
+  });
+});
+
+describe("revealableMessageIds", () => {
+  it("returns message ids that have a correlated transport fetch", () => {
+    const messages = [requestEntry(1), requestEntry(2)];
+    // Only id 1 has a transport fetch; id 2 has only an auth fetch.
+    const fetches = [
+      transportFetch(1, undefined),
+      transportFetch(2, undefined, { category: "auth" }),
+    ];
+    const ids = revealableMessageIds(messages, fetches);
+    expect(ids.has("msg-1")).toBe(true);
+    expect(ids.has("msg-2")).toBe(false);
+  });
+
+  it("ignores notifications (no JSON-RPC id) and unparseable fetch bodies", () => {
+    const note: MessageEntry = {
+      id: "note",
+      timestamp: new Date(),
+      direction: "notification",
+      message: { jsonrpc: "2.0", method: "notifications/message" },
+    };
+    const fetches = [{ ...transportFetch(1, undefined), requestBody: "nope" }];
+    expect(revealableMessageIds([note, requestEntry(1)], fetches).size).toBe(0);
   });
 });

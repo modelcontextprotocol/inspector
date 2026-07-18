@@ -30,6 +30,10 @@ export interface ProtocolScreenProps {
   onToggleCompact: () => void;
   /** See LoggingScreen: fills the parent height and drops the filter sidebar. */
   embedded?: boolean;
+  /** Jump from a spec-error entry to its correlated Network HTTP entry. */
+  onRevealInNetwork?: (id: string) => void;
+  /** Message-entry ids that have a correlated Network entry (link is shown). */
+  revealableIds?: Set<string>;
 }
 
 // Search text, method filter, and per-direction visibility — controlled by the
@@ -76,6 +80,8 @@ export function ProtocolScreen({
   compact,
   onToggleCompact,
   embedded = false,
+  onRevealInNetwork,
+  revealableIds,
 }: ProtocolScreenProps) {
   const { search, methodFilter, visibleDirections } = ui;
 
@@ -148,6 +154,8 @@ export function ProtocolScreen({
         compact={compact}
         onToggleCompact={onToggleCompact}
         embedded={embedded}
+        onRevealInNetwork={onRevealInNetwork}
+        revealableIds={revealableIds}
       />
     </ScreenLayout>
   );

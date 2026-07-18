@@ -586,6 +586,37 @@ describe("ProtocolEntry — modern vocabulary", () => {
       expect(screen.getByText("Error")).toBeInTheDocument();
     });
 
+    it("shows a 'view in Network' link when onRevealInNetwork is provided, and calls it", async () => {
+      const user = userEvent.setup();
+      const onReveal = vi.fn();
+      renderWithMantine(
+        <ProtocolEntry
+          {...baseProps}
+          entry={headerMismatchEntry}
+          isListExpanded={true}
+          onRevealInNetwork={onReveal}
+        />,
+      );
+      const link = screen.getByRole("button", {
+        name: /View the HTTP request in the Network tab/,
+      });
+      await user.click(link);
+      expect(onReveal).toHaveBeenCalledTimes(1);
+    });
+
+    it("omits the reveal link when there is no correlated Network entry", () => {
+      renderWithMantine(
+        <ProtocolEntry
+          {...baseProps}
+          entry={headerMismatchEntry}
+          isListExpanded={true}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: /View the HTTP request/ }),
+      ).not.toBeInTheDocument();
+    });
+
     it("shows the chip only in the wide layout, not the compact sidebar row", () => {
       // Compact: only the expanded-detail alert carries the label (1 match); no
       // row chip. Wide: the row chip AND the alert (2 matches).

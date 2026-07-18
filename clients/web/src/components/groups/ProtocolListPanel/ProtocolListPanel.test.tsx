@@ -514,4 +514,36 @@ describe("ProtocolListPanel", () => {
     expect(screen.getByText("2 rounds")).toBeInTheDocument();
     expect(screen.getByTestId("mrtr-status")).toHaveTextContent("Complete");
   });
+
+  it("wires the reveal link for a revealable spec-error entry", async () => {
+    const user = userEvent.setup();
+    const onRevealInNetwork = vi.fn();
+    const errorEntry: MessageEntry = {
+      id: "err-1",
+      timestamp: new Date("2026-07-28T10:30:00Z"),
+      direction: "request",
+      origin: "client",
+      message: { jsonrpc: "2.0", id: 20, method: "tools/call" },
+      response: {
+        jsonrpc: "2.0",
+        id: 20,
+        error: { code: -32020, message: "Mcp-Method mismatch" },
+      },
+    };
+    renderWithMantine(
+      <ProtocolListPanel
+        {...baseProps}
+        compact={false}
+        entries={[errorEntry]}
+        revealableIds={new Set(["err-1"])}
+        onRevealInNetwork={onRevealInNetwork}
+      />,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: /View the HTTP request in the Network tab/,
+      }),
+    );
+    expect(onRevealInNetwork).toHaveBeenCalledWith("err-1");
+  });
 });

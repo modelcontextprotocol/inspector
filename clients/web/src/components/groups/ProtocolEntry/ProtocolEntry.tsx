@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Alert,
+  Anchor,
   Badge,
   Card,
   Collapse,
@@ -44,6 +45,12 @@ export interface ProtocolEntryProps {
    * the controls — Replay as an icon — on the right.
    */
   embedded?: boolean;
+  /**
+   * When provided (a spec-error entry with a correlated Network request), the
+   * expanded alert shows a "view in Network" link that jumps to, and expands,
+   * the matching HTTP entry.
+   */
+  onRevealInNetwork?: () => void;
 }
 
 const EntryContainer = Card.withProps({
@@ -215,8 +222,14 @@ function extractSpecError(entry: MessageEntry): McpSpecError | null {
 
 // Friendly summary of a modern spec error, shown in the expanded detail. The
 // HTTP-level facts (status, mirrored headers) live on the correlated Network
-// entry, reachable from the reveal link (added in the follow-up).
-function McpSpecErrorAlert({ error }: { error: McpSpecError }) {
+// entry, reachable via the "view in Network" link when one exists.
+function McpSpecErrorAlert({
+  error,
+  onReveal,
+}: {
+  error: McpSpecError;
+  onReveal?: () => void;
+}) {
   return (
     <Alert
       variant="light"
@@ -228,6 +241,11 @@ function McpSpecErrorAlert({ error }: { error: McpSpecError }) {
         <Text size="xs">{error.description}</Text>
         {error.supported && (
           <Text size="xs">Server supports: {error.supported.join(", ")}</Text>
+        )}
+        {onReveal && (
+          <Anchor component="button" type="button" size="xs" onClick={onReveal}>
+            View the HTTP request in the Network tab →
+          </Anchor>
         )}
       </Stack>
     </Alert>
@@ -241,6 +259,7 @@ export function ProtocolEntry({
   onReplay,
   onTogglePin,
   embedded = false,
+  onRevealInNetwork,
 }: ProtocolEntryProps) {
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
   const method = extractMethod(entry);
@@ -395,7 +414,12 @@ export function ProtocolEntry({
         <Collapse in={isExpanded}>
           <Stack gap="sm">
             <Divider />
-            {specError && <McpSpecErrorAlert error={specError} />}
+            {specError && (
+              <McpSpecErrorAlert
+                error={specError}
+                onReveal={onRevealInNetwork}
+              />
+            )}
             {"params" in entry.message && entry.message.params && (
               <Stack gap="xs">
                 <Text size="sm">Parameters:</Text>

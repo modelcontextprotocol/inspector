@@ -1,7 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
-import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import {
+  renderWithMantine,
+  screen,
+  waitFor,
+} from "../../../test/renderWithMantine";
 import { NetworkEntry } from "./NetworkEntry";
 
 const baseEntry: FetchRequestEntry = {
@@ -369,6 +373,27 @@ describe("NetworkEntry", () => {
         screen.queryByText("-32020 HeaderMismatch"),
       ).not.toBeInTheDocument();
       expect(screen.queryByText(/Server supports:/)).not.toBeInTheDocument();
+    });
+
+    it("when revealed, force-expands, scrolls into view, and clears the signal", async () => {
+      const scrollIntoView = vi.fn();
+      // happy-dom doesn't implement scrollIntoView; stub it on the prototype.
+      Element.prototype.scrollIntoView = scrollIntoView;
+      const onRevealComplete = vi.fn();
+      renderWithMantine(
+        <NetworkEntry
+          entry={baseEntry}
+          isListExpanded={false}
+          revealed
+          onRevealComplete={onRevealComplete}
+        />,
+      );
+      // Force-expanded even though isListExpanded is false.
+      expect(screen.getByText("Request Headers")).toBeInTheDocument();
+      // The one-shot signal is cleared synchronously.
+      expect(onRevealComplete).toHaveBeenCalledTimes(1);
+      // The scroll runs in a rAF.
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
     });
 
     it("labels a cancelled request as an abort, not a hard error", () => {

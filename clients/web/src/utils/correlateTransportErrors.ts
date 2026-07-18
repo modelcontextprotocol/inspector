@@ -95,6 +95,30 @@ export function correlateFetchEntry(
 }
 
 /**
+ * The set of Protocol `MessageEntry` ids that have a correlated transport fetch
+ * — i.e. the entries for which a "reveal in Network" link makes sense. Indexes
+ * the fetch log once by JSON-RPC id, so this is O(messages + fetches).
+ */
+export function revealableMessageIds(
+  messages: MessageEntry[],
+  fetchEntries: FetchRequestEntry[],
+): Set<string> {
+  const fetchIdByRequestId = new Set<string>();
+  for (const fetchEntry of fetchEntries) {
+    if (fetchEntry.category !== "transport") continue;
+    const requestId = parseJsonRpcId(fetchEntry.requestBody);
+    if (requestId !== null) fetchIdByRequestId.add(String(requestId));
+  }
+  const ids = new Set<string>();
+  for (const entry of messages) {
+    const id = messageJsonRpcId(entry);
+    if (id !== undefined && fetchIdByRequestId.has(String(id)))
+      ids.add(entry.id);
+  }
+  return ids;
+}
+
+/**
  * Fold a synthetic error `response` into any still-pending request whose
  * correlated transport fetch carried a JSON-RPC error. This surfaces the errors
  * the SDK throws instead of delivering (notably `-32601` on HTTP 404) into the

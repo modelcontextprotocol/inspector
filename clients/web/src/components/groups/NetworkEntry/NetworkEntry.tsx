@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Badge,
@@ -43,6 +43,13 @@ export interface NetworkEntryProps {
    * horizontal scroll area with the expand toggle on the right.
    */
   embedded?: boolean;
+  /**
+   * When true, this entry was targeted by a "reveal in Network" jump (from a
+   * correlated Protocol error): it scrolls itself into view and force-expands
+   * once, then calls {@link onRevealComplete} so the one-shot signal clears.
+   */
+  revealed?: boolean;
+  onRevealComplete?: () => void;
 }
 
 const EntryContainer = Card.withProps({
@@ -362,8 +369,11 @@ export function NetworkEntry({
   entry,
   isListExpanded,
   embedded = false,
+  revealed = false,
+  onRevealComplete,
 }: NetworkEntryProps) {
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   // The list-level Expand/Collapse toggle is authoritative: each time the
   // parent changes `isListExpanded`, every entry snaps to that state and
@@ -374,6 +384,20 @@ export function NetworkEntry({
   useEffect(() => {
     setIsExpanded(isListExpanded);
   }, [isListExpanded]);
+
+  // "Reveal in Network" one-shot: when targeted, force this entry open and
+  // scroll it into view, then clear the signal. The scroll runs in a rAF so it
+  // lands after `useScrollMemory`'s layout-effect restore (which would otherwise
+  // fight it) and after the force-expand has grown the row.
+  useEffect(() => {
+    if (!revealed) return;
+    setIsExpanded(true);
+    const raf = requestAnimationFrame(() => {
+      rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    onRevealComplete?.();
+    return () => cancelAnimationFrame(raf);
+  }, [revealed, onRevealComplete]);
 
   // OAuth flow phase for `auth`-category requests (discovery / registration /
   // authorize / token), so the Network tab labels the auth conversation.
@@ -414,7 +438,7 @@ export function NetworkEntry({
   );
 
   return (
-    <EntryContainer>
+    <EntryContainer ref={rootRef}>
       <Stack gap="sm">
         {embedded ? (
           // Compact two-line header for the narrow column.

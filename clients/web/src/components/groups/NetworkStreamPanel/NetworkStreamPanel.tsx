@@ -25,6 +25,10 @@ export interface NetworkStreamPanelProps {
   onToggleCompact: () => void;
   /** See LogStreamPanel: fills the flex parent instead of the viewport calc. */
   embedded?: boolean;
+  /** Fetch-entry id targeted by a "reveal in Network" jump — that entry scrolls
+   * into view and force-expands, then clears the signal via onRevealComplete. */
+  revealId?: string;
+  onRevealComplete?: () => void;
 }
 
 const PanelContainer = Paper.withProps({
@@ -101,6 +105,8 @@ export function NetworkStreamPanel({
   compact,
   onToggleCompact,
   embedded = false,
+  revealId,
+  onRevealComplete,
 }: NetworkStreamPanelProps) {
   const viewportRef = useScrollMemory("network-stream");
   const filteredEntries = useMemo(() => {
@@ -156,6 +162,8 @@ export function NetworkStreamPanel({
                 entry={entry}
                 isListExpanded={!compact}
                 embedded={embedded}
+                revealed={entry.id === revealId}
+                onRevealComplete={onRevealComplete}
               />
             ))}
           </Stack>

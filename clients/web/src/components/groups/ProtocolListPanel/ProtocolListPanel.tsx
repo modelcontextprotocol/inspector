@@ -55,6 +55,10 @@ export interface ProtocolListPanelProps {
   onToggleCompact: () => void;
   /** See LogStreamPanel: fills the flex parent instead of the viewport calc. */
   embedded?: boolean;
+  /** Jump from a spec-error entry to its correlated Network HTTP entry. */
+  onRevealInNetwork?: (id: string) => void;
+  /** Message-entry ids that have a correlated Network entry (link is shown). */
+  revealableIds?: Set<string>;
 }
 
 const PanelContainer = Paper.withProps({
@@ -237,6 +241,8 @@ export function ProtocolListPanel({
   compact,
   onToggleCompact,
   embedded = false,
+  onRevealInNetwork,
+  revealableIds,
 }: ProtocolListPanelProps) {
   const viewportRef = useScrollMemory("protocol-list");
   // Per-section expand/collapse, like the LogControls level toggles. Both start
@@ -310,6 +316,11 @@ export function ProtocolListPanel({
           embedded={embedded}
           onReplay={() => onReplay(row.entry.id)}
           onTogglePin={() => onTogglePin(row.entry.id)}
+          onRevealInNetwork={
+            onRevealInNetwork && revealableIds?.has(row.entry.id)
+              ? () => onRevealInNetwork(row.entry.id)
+              : undefined
+          }
         />
       ),
     );
