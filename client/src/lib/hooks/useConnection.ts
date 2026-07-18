@@ -77,6 +77,13 @@ import { InspectorConfig } from "../configurationTypes";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { CustomHeaders } from "../types/customHeaders";
 import { resolveRefsInMessage } from "@/utils/schemaUtils";
+import {
+  clearResourceMetadataUrlFromSessionStorage,
+  extractResourceMetadataUrlFromAuthError,
+  extractResourceMetadataUrlFromWWWAuthenticate,
+  getResourceMetadataUrlFromSessionStorage,
+  saveResourceMetadataUrlToSessionStorage,
+} from "../oauth-resource-metadata";
 
 interface UseConnectionOptions {
   transportType: "stdio" | "sse" | "streamable-http";
@@ -392,6 +399,12 @@ export function useConnection({
       let scope = oauthScope?.trim();
       const fetchFn =
         connectionType === "proxy" ? createProxyFetch(config) : undefined;
+      const resourceMetadataUrl =
+        extractResourceMetadataUrlFromAuthError(error) ??
+        getResourceMetadataUrlFromSessionStorage(sseUrl);
+      if (resourceMetadataUrl) {
+        saveResourceMetadataUrlToSessionStorage(sseUrl, resourceMetadataUrl);
+      }
 
       if (!scope) {
         // Only discover resource metadata when we need to discover scopes
@@ -399,7 +412,7 @@ export function useConnection({
         try {
           resourceMetadata = await discoverOAuthProtectedResourceMetadata(
             new URL("/", sseUrl),
-            {},
+            resourceMetadataUrl ? { resourceMetadataUrl } : {},
             fetchFn,
           );
         } catch {
@@ -415,6 +428,7 @@ export function useConnection({
         const result = await auth(serverAuthProvider, {
           serverUrl: sseUrl,
           scope,
+          ...(resourceMetadataUrl && { resourceMetadataUrl }),
           ...(fetchFn && { fetchFn }),
         });
         return result === "AUTHORIZED";
@@ -436,15 +450,28 @@ export function useConnection({
   const captureResponseHeaders = (response: Response): void => {
     const sessionId = response.headers.get("mcp-session-id");
     const protocolVersion = response.headers.get("mcp-protocol-version");
+    const resourceMetadataUrl =
+      response.status === 401 || response.status === 403
+        ? extractResourceMetadataUrlFromWWWAuthenticate(
+            response.headers.get("WWW-Authenticate") ?? undefined,
+          )
+        : undefined;
     if (sessionId && sessionId !== mcpSessionId) {
       setMcpSessionId(sessionId);
     }
     if (protocolVersion && protocolVersion !== mcpProtocolVersion) {
       setMcpProtocolVersion(protocolVersion);
     }
+    if (resourceMetadataUrl) {
+      saveResourceMetadataUrlToSessionStorage(sseUrl, resourceMetadataUrl);
+    }
   };
 
   const connect = async (_e?: unknown, retryCount: number = 0) => {
+    if (retryCount === 0) {
+      clearResourceMetadataUrlFromSessionStorage(sseUrl);
+    }
+
     const clientCapabilities = {
       capabilities: {
         sampling: {},
@@ -662,16 +689,18 @@ export function useConnection({
               );
             }
             transportOptions = {
-              authProvider: serverAuthProvider,
               eventSourceInit: {
-                fetch: (
+                fetch: async (
                   url: string | URL | globalThis.Request,
                   init?: RequestInit,
-                ) =>
-                  fetch(url, {
+                ) => {
+                  const response = await fetch(url, {
                     ...init,
                     headers: { ...headers, ...proxyHeaders },
-                  }),
+                  });
+                  captureResponseHeaders(response);
+                  return response;
+                },
               },
               requestInit: {
                 headers: { ...headers, ...proxyHeaders },
@@ -693,16 +722,18 @@ export function useConnection({
               );
             }
             transportOptions = {
-              authProvider: serverAuthProvider,
               eventSourceInit: {
-                fetch: (
+                fetch: async (
                   url: string | URL | globalThis.Request,
                   init?: RequestInit,
-                ) =>
-                  fetch(url, {
+                ) => {
+                  const response = await fetch(url, {
                     ...init,
                     headers: { ...headers, ...proxyHeaders },
-                  }),
+                  });
+                  captureResponseHeaders(response);
+                  return response;
+                },
               },
               requestInit: {
                 headers: { ...headers, ...proxyHeaders },
@@ -715,16 +746,25 @@ export function useConnection({
             mcpProxyServerUrl = new URL(`${getMCPProxyAddress(config)}/mcp`);
             mcpProxyServerUrl.searchParams.append("url", sseUrl);
             transportOptions = {
-              authProvider: serverAuthProvider,
-              eventSourceInit: {
-                fetch: (
-                  url: string | URL | globalThis.Request,
-                  init?: RequestInit,
-                ) =>
-                  fetch(url, {
-                    ...init,
-                    headers: { ...headers, ...proxyHeaders },
-                  }),
+              fetch: async (
+                url: string | URL | globalThis.Request,
+                init?: RequestInit,
+              ) => {
+                const requestHeaders = new Headers(init?.headers);
+                Object.entries(headers).forEach(([headerName, headerValue]) => {
+                  requestHeaders.set(headerName, headerValue);
+                });
+                Object.entries(proxyHeaders).forEach(
+                  ([headerName, headerValue]) => {
+                    requestHeaders.set(headerName, String(headerValue));
+                  },
+                );
+                const response = await fetch(url, {
+                  ...init,
+                  headers: requestHeaders,
+                });
+                captureResponseHeaders(response);
+                return response;
               },
               requestInit: {
                 headers: { ...headers, ...proxyHeaders },
