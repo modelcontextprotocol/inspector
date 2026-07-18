@@ -309,4 +309,126 @@ describe("NetworkEntry", () => {
     expect(screen.queryByText("Token")).not.toBeInTheDocument();
     expect(screen.queryByText("Discovery")).not.toBeInTheDocument();
   });
+
+  describe("modern Streamable HTTP awareness (SEP-2243 / SEP-2575)", () => {
+    /** Mirror of the SDK's sentinel encoding, for building test inputs. */
+    function encodeSentinel(value: string): string {
+      const bytes = new TextEncoder().encode(value);
+      let bin = "";
+      for (const b of bytes) bin += String.fromCharCode(b);
+      return `=?base64?${btoa(bin)}?=`;
+    }
+
+    it("decodes a sentinel-encoded Mcp-Name header and flags it as base64", () => {
+      const entry: FetchRequestEntry = {
+        ...baseEntry,
+        requestHeaders: {
+          "mcp-method": "tools/call",
+          "mcp-name": encodeSentinel("get weather ☀"),
+        },
+        requestBody: JSON.stringify({
+          method: "tools/call",
+          params: { name: "get weather ☀" },
+        }),
+      };
+      renderWithMantine(<NetworkEntry entry={entry} isListExpanded={true} />);
+      expect(screen.getByText("get weather ☀")).toBeInTheDocument();
+      expect(screen.getByText("base64")).toBeInTheDocument();
+    });
+
+    it("marks a header that disagrees with the request body", () => {
+      const entry: FetchRequestEntry = {
+        ...baseEntry,
+        requestHeaders: { "mcp-method": "tools/list" },
+        requestBody: JSON.stringify({ method: "tools/call", params: {} }),
+      };
+      renderWithMantine(<NetworkEntry entry={entry} isListExpanded={true} />);
+      expect(
+        screen.getByLabelText(
+          /Header does not match body; expected tools\/call/,
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it("badges a -32020 HeaderMismatch and summarises it in an alert", () => {
+      const entry: FetchRequestEntry = {
+        ...baseEntry,
+        responseStatus: 400,
+        responseStatusText: "Bad Request",
+        responseBody: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          error: { code: -32020, message: "Mcp-Method mismatch" },
+        }),
+      };
+      renderWithMantine(<NetworkEntry entry={entry} isListExpanded={true} />);
+      expect(
+        screen.getAllByText("-32020 HeaderMismatch").length,
+      ).toBeGreaterThan(0);
+    });
+
+    it("lists the supported versions for a -32022 UnsupportedProtocolVersion", () => {
+      const entry: FetchRequestEntry = {
+        ...baseEntry,
+        responseStatus: 400,
+        responseStatusText: "Bad Request",
+        responseBody: JSON.stringify({
+          error: {
+            code: -32022,
+            message: "unsupported",
+            data: { supported: ["2025-11-25", "2026-07-28"] },
+          },
+        }),
+      };
+      renderWithMantine(<NetworkEntry entry={entry} isListExpanded={true} />);
+      expect(
+        screen.getByText(/Server supports: 2025-11-25, 2026-07-28/),
+      ).toBeInTheDocument();
+    });
+
+    it("badges a modern -32601 on an HTTP 404 but not an in-band -32601 on 200", () => {
+      const modern404: FetchRequestEntry = {
+        ...baseEntry,
+        id: "n-404",
+        responseStatus: 404,
+        responseStatusText: "Not Found",
+        responseBody: JSON.stringify({ error: { code: -32601 } }),
+      };
+      const { unmount } = renderWithMantine(
+        <NetworkEntry entry={modern404} isListExpanded={false} />,
+      );
+      expect(
+        screen.getAllByText("-32601 MethodNotFound").length,
+      ).toBeGreaterThan(0);
+      unmount();
+
+      const inBand: FetchRequestEntry = {
+        ...baseEntry,
+        id: "n-200",
+        responseStatus: 200,
+        responseBody: JSON.stringify({ error: { code: -32601 } }),
+      };
+      renderWithMantine(<NetworkEntry entry={inBand} isListExpanded={false} />);
+      expect(
+        screen.queryByText("-32601 MethodNotFound"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("labels a cancelled request as an abort, not a hard error", () => {
+      const cancelled: FetchRequestEntry = {
+        ...baseEntry,
+        responseStatus: undefined,
+        responseStatusText: undefined,
+        responseHeaders: undefined,
+        responseBody: undefined,
+        error: "The operation was aborted",
+      };
+      renderWithMantine(
+        <NetworkEntry entry={cancelled} isListExpanded={true} />,
+      );
+      expect(screen.getByText("Cancelled")).toBeInTheDocument();
+      expect(screen.getByText("Request cancelled")).toBeInTheDocument();
+      expect(screen.getByText(/notifications\/cancelled/)).toBeInTheDocument();
+    });
+  });
 });

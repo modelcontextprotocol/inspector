@@ -1,6 +1,16 @@
 /**
  * Creates a fetch implementation that POSTs requests to the remote /api/fetch endpoint.
  * Use in the browser to bypass CORS for OAuth and MCP HTTP requests.
+ *
+ * SEP-2243 header mirroring note: the modern Streamable HTTP client builds the
+ * mirrored `Mcp-Method` / `Mcp-Name` / `Mcp-Param-*` / `MCP-Protocol-Version`
+ * headers *before* it calls this fetch, so they are already present in `init`
+ * (or the `Request`). `serializeRequest` copies every request header verbatim
+ * into the JSON payload, and the Node `/api/fetch` handler re-sends them with
+ * `new Headers(headers)` — so mirroring is preserved on the browser path even
+ * though the actual cross-origin request happens Node-side. (The often-cited
+ * "custom headers are skipped in browsers to avoid CORS preflight" caveat does
+ * not apply here: the browser only talks to the same-origin inspector backend.)
  */
 
 export interface RemoteFetchOptions {

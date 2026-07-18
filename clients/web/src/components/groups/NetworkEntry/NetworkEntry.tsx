@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Badge,
   Button,
   Card,
@@ -10,7 +11,9 @@ import {
   Stack,
   Table,
   Text,
+  Tooltip,
 } from "@mantine/core";
+import { RiErrorWarningLine } from "react-icons/ri";
 import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
 import { isLongLivedStreamResponse } from "@inspector/core/mcp/fetchTracking.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
@@ -18,11 +21,21 @@ import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
 import { CategoryBadge } from "../../elements/CategoryBadge/CategoryBadge";
+import { McpErrorBadge } from "../../elements/McpErrorBadge/McpErrorBadge";
 import { maskSecretsInBody } from "../../../utils/maskSecrets";
 import {
   oauthNetworkPhase,
   oauthNetworkPhaseLabel,
 } from "../../../utils/oauthNetworkPhase";
+import {
+  checkHeaderConsistency,
+  classifyMcpSpecError,
+  decodeMcpParamValue,
+  isCancellationAbort,
+  isMcpHeader,
+  type HeaderConsistency,
+  type McpSpecError,
+} from "../../../utils/mcpNetworkHeaders";
 
 export interface NetworkEntryProps {
   entry: FetchRequestEntry;
@@ -104,6 +117,9 @@ function formatTimestampCompact(date: Date): string {
 }
 
 function statusColor(entry: FetchRequestEntry): string {
+  // A cancelled request surfaces as a connection abort under the modern
+  // transport; render it neutrally rather than as a hard error (SEP §7.5).
+  if (isCancellationAbort(entry)) return "gray";
   if (entry.error) return "red";
   const status = entry.responseStatus;
   if (status === undefined) return "gray";
@@ -115,6 +131,7 @@ function statusColor(entry: FetchRequestEntry): string {
 }
 
 function statusLabel(entry: FetchRequestEntry): string {
+  if (isCancellationAbort(entry)) return "Cancelled";
   if (entry.error) return "Error";
   if (entry.responseStatus === undefined) return "Pending";
   return entry.responseStatusText
@@ -129,7 +146,105 @@ function isLongLivedStream(entry: FetchRequestEntry): boolean {
   );
 }
 
-function HeadersTable({ headers }: { headers: Record<string, string> }) {
+// Header-table cell text. A modern MCP-mirrored header name gets a violet accent
+// so the spec headers (Mcp-Method / Mcp-Name / Mcp-Param-* / MCP-Protocol-Version)
+// stand out from ordinary ones; a value that disagrees with the request body is
+// shown in the danger colour.
+const HeaderNameText = Text.withProps({
+  size: "xs",
+  ff: "monospace",
+  fw: 500,
+});
+
+const McpHeaderNameText = Text.withProps({
+  size: "xs",
+  ff: "monospace",
+  fw: 600,
+  c: "var(--inspector-mcp-header-accent)",
+});
+
+const HeaderValueText = Text.withProps({
+  size: "xs",
+  ff: "monospace",
+  variant: "monoBreak",
+});
+
+const MismatchValueText = Text.withProps({
+  size: "xs",
+  ff: "monospace",
+  variant: "monoBreak",
+  c: "var(--inspector-danger-text)",
+});
+
+const MismatchMarker = Text.withProps({
+  component: "span",
+  // role="img" makes the aria-label permitted on the span (it wraps a decorative
+  // icon) and announces the mismatch to assistive tech.
+  role: "img",
+  c: "var(--inspector-danger-text)",
+});
+
+function HeaderValueCell({
+  name,
+  value,
+  consistency,
+}: {
+  name: string;
+  value: string;
+  consistency?: HeaderConsistency;
+}) {
+  // Only modern MCP headers carry sentinel-encoded values; a plain header is
+  // shown verbatim (never re-interpreted as base64).
+  const decoded = isMcpHeader(name)
+    ? decodeMcpParamValue(value)
+    : { value, encoded: false, raw: value };
+  const mismatch = consistency !== undefined && !consistency.ok;
+
+  return (
+    <Group gap="xs" wrap="nowrap" align="center">
+      {mismatch ? (
+        <MismatchValueText>{decoded.value}</MismatchValueText>
+      ) : (
+        <HeaderValueText>{decoded.value}</HeaderValueText>
+      )}
+      {decoded.encoded && (
+        <Tooltip
+          label={`base64 sentinel — raw: ${decoded.raw}`}
+          withArrow
+          multiline
+          w={280}
+        >
+          <Badge size="xs" color="gray" variant="light">
+            base64
+          </Badge>
+        </Tooltip>
+      )}
+      {mismatch && (
+        <Tooltip
+          label={`Expected: ${consistency.expected}`}
+          withArrow
+          multiline
+          w={280}
+        >
+          <MismatchMarker
+            aria-label={`Header does not match body; expected ${consistency.expected}`}
+          >
+            <RiErrorWarningLine />
+          </MismatchMarker>
+        </Tooltip>
+      )}
+    </Group>
+  );
+}
+
+function HeadersTable({
+  headers,
+  consistency,
+}: {
+  headers: Record<string, string>;
+  /** Header/body cross-checks (request side only) to flag mismatches. */
+  consistency?: HeaderConsistency[];
+}) {
   const rows = Object.entries(headers);
   if (rows.length === 0) {
     return (
@@ -138,20 +253,25 @@ function HeadersTable({ headers }: { headers: Record<string, string> }) {
       </Text>
     );
   }
+  const byHeader = new Map((consistency ?? []).map((row) => [row.header, row]));
   return (
     <Table striped withColumnBorders fz="xs">
       <Table.Tbody>
         {rows.map(([name, value]) => (
           <Table.Tr key={name}>
             <Table.Td>
-              <Text size="xs" ff="monospace" fw={500}>
-                {name}
-              </Text>
+              {isMcpHeader(name) ? (
+                <McpHeaderNameText>{name}</McpHeaderNameText>
+              ) : (
+                <HeaderNameText>{name}</HeaderNameText>
+              )}
             </Table.Td>
             <Table.Td>
-              <Text size="xs" ff="monospace" variant="monoBreak">
-                {value}
-              </Text>
+              <HeaderValueCell
+                name={name}
+                value={value}
+                consistency={byHeader.get(name.toLowerCase())}
+              />
             </Table.Td>
           </Table.Tr>
         ))}
@@ -159,6 +279,41 @@ function HeadersTable({ headers }: { headers: Record<string, string> }) {
     </Table>
   );
 }
+
+// Friendly summary of a modern spec error (SEP-2243 / SEP-2575) above the raw
+// response body — names the code, explains it, and for -32022 lists the
+// server-supported protocol versions.
+function McpSpecErrorAlert({ error }: { error: McpSpecError }) {
+  // A single AA-safe severity accent — the per-code colour distinction lives in
+  // the McpErrorBadge; the Alert names the code in its title text.
+  return (
+    <Alert
+      variant="light"
+      color="red"
+      title={`${error.code} ${error.name}`}
+      icon={<RiErrorWarningLine />}
+    >
+      <Stack gap="xs">
+        <Text size="xs">{error.description}</Text>
+        <Text size="xs" c="dimmed">
+          {error.actualHttpStatus != null
+            ? `HTTP ${error.actualHttpStatus} (spec: ${error.expectedHttpStatus}).`
+            : `Spec HTTP status: ${error.expectedHttpStatus}.`}
+        </Text>
+        {error.supported && (
+          <Text size="xs">Server supports: {error.supported.join(", ")}</Text>
+        )}
+      </Stack>
+    </Alert>
+  );
+}
+
+const CancellationAlert = Alert.withProps({
+  variant: "light",
+  color: "gray",
+  title: "Request cancelled",
+  icon: <RiErrorWarningLine />,
+});
 
 const RevealButton = Button.withProps({
   variant: "subtle",
@@ -261,12 +416,30 @@ export function NetworkEntry({
     </Badge>
   ) : null;
 
+  // Modern Streamable HTTP awareness (SEP-2243 / SEP-2575): a recognised spec
+  // error to badge distinctly, and request header/body cross-checks so a
+  // HeaderMismatch is visible before the server even rejects it. Both are pure
+  // functions of the (immutable) entry, so memoise on it.
+  const specError = useMemo(() => classifyMcpSpecError(entry), [entry]);
+  const headerConsistency = useMemo(
+    () => checkHeaderConsistency(entry),
+    [entry],
+  );
+  const aborted = isCancellationAbort(entry);
+
   const metaBadges = (
     <>
       {entry.duration != null && (
         <DurationText>{formatDuration(entry.duration)}</DurationText>
       )}
       {isLongLivedStream(entry) && <Badge color="orange">SSE</Badge>}
+      {specError && (
+        <McpErrorBadge
+          code={specError.code}
+          name={specError.name}
+          description={specError.description}
+        />
+      )}
       <Badge color={statusColor(entry)} variant="status">
         {statusLabel(entry)}
       </Badge>
@@ -339,11 +512,27 @@ export function NetworkEntry({
         <Collapse in={isExpanded}>
           <Stack gap="sm">
             <Divider />
+            {specError && <McpSpecErrorAlert error={specError} />}
+            {aborted && (
+              <CancellationAlert>
+                <Text size="xs">
+                  Cancellation appears as a connection abort — the modern
+                  transport aborts the request stream instead of sending a{" "}
+                  <Text span ff="monospace">
+                    notifications/cancelled
+                  </Text>{" "}
+                  frame (SEP §7.5).
+                </Text>
+              </CancellationAlert>
+            )}
             <Stack gap="xs">
               <Text size="sm" fw={500}>
                 Request Headers
               </Text>
-              <HeadersTable headers={entry.requestHeaders} />
+              <HeadersTable
+                headers={entry.requestHeaders}
+                consistency={headerConsistency}
+              />
             </Stack>
             {entry.requestBody && (
               <Stack gap="xs">
