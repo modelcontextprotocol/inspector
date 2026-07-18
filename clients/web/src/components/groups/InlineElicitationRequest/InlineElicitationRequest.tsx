@@ -12,14 +12,22 @@ import type {
   ElicitRequest,
   ElicitRequestFormParams,
 } from "@modelcontextprotocol/client";
+import type { PendingRequestOrigin } from "@inspector/core/mcp/types.js";
 import type { InspectorFormSchema } from "../../../utils/jsonUtils";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
+import { MrtrOriginNote } from "../../elements/MrtrOriginNote/MrtrOriginNote";
 
 export interface InlineElicitationRequestProps {
   request: ElicitRequest["params"];
   queuePosition: string;
   values?: Record<string, unknown>;
   isWaiting?: boolean;
+  /**
+   * How the request reached the Inspector — a legacy server→client request or a
+   * modern MRTR `input_required` round. Drives the era-accurate note; defaults
+   * to `"server-request"` (legacy, note hidden). (#1704)
+   */
+  origin?: PendingRequestOrigin;
   onChange: (values: Record<string, unknown>) => void;
   onSubmit: () => void;
   onCancel: () => void;
@@ -73,6 +81,7 @@ export function InlineElicitationRequest({
   queuePosition,
   values,
   isWaiting,
+  origin = "server-request",
   onChange,
   onSubmit,
   onCancel,
@@ -86,6 +95,7 @@ export function InlineElicitationRequest({
         </Group>
 
         <ItalicMessage>{request.message}</ItalicMessage>
+        <MrtrOriginNote origin={origin} />
 
         {isFormMode(request) && (
           <SchemaForm

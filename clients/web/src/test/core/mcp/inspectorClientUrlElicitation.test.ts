@@ -42,6 +42,10 @@ type FakeClient = {
  * we can drive `callTool` through the URL-elicitation error path without a live
  * server. The client is never connected; `callTool` only needs the injected
  * `callTool`/`request` methods plus the (connection-independent) helpers.
+ *
+ * The tool-call path issues `client.request({ method: "tools/call", … })`
+ * (through the MRTR driver, #1704), so these fakes drive the error path from
+ * `request`; `callTool` is left as an unused stub.
  */
 function makeClient(fake: FakeClient): InspectorClient {
   const client = new InspectorClient(
@@ -72,14 +76,14 @@ describe("InspectorClient URL-elicitation error path", () => {
   it("surfaces the URL elicitation, then retries the call on accept", async () => {
     let attempt = 0;
     const fake: FakeClient = {
-      callTool: vi.fn(async () => {
+      callTool: vi.fn(),
+      request: vi.fn(async () => {
         attempt += 1;
         if (attempt === 1) {
           throw new UrlElicitationRequiredError([elicitation]);
         }
         return okResult;
       }),
-      request: vi.fn(),
     };
     const client = makeClient(fake);
 
@@ -99,7 +103,7 @@ describe("InspectorClient URL-elicitation error path", () => {
 
     const invocation = await pending;
     expect(invocation.success).toBe(true);
-    expect(fake.callTool).toHaveBeenCalledTimes(2);
+    expect(fake.request).toHaveBeenCalledTimes(2);
     expect(client.getPendingElicitations()).toHaveLength(0);
   });
 
@@ -111,14 +115,14 @@ describe("InspectorClient URL-elicitation error path", () => {
     };
     let attempt = 0;
     const fake: FakeClient = {
-      callTool: vi.fn(async () => {
+      callTool: vi.fn(),
+      request: vi.fn(async () => {
         attempt += 1;
         if (attempt === 1) {
           throw new UrlElicitationRequiredError([elicitation, second]);
         }
         return okResult;
       }),
-      request: vi.fn(),
     };
     const client = makeClient(fake);
 
@@ -143,15 +147,15 @@ describe("InspectorClient URL-elicitation error path", () => {
 
     const invocation = await pending;
     expect(invocation.success).toBe(true);
-    expect(fake.callTool).toHaveBeenCalledTimes(2);
+    expect(fake.request).toHaveBeenCalledTimes(2);
   });
 
   it("aborts the call (no retry) when the user cancels a required elicitation", async () => {
     const fake: FakeClient = {
-      callTool: vi.fn(async () => {
+      callTool: vi.fn(),
+      request: vi.fn(async () => {
         throw new UrlElicitationRequiredError([elicitation]);
       }),
-      request: vi.fn(),
     };
     const client = makeClient(fake);
     const failedDispatches = trackFailedDispatches(client);
@@ -163,7 +167,7 @@ describe("InspectorClient URL-elicitation error path", () => {
     await client.getPendingElicitations()[0].respond({ action: "cancel" });
 
     await expect(pending).rejects.toThrow(/cancelled/i);
-    expect(fake.callTool).toHaveBeenCalledTimes(1);
+    expect(fake.request).toHaveBeenCalledTimes(1);
     // The abort records exactly one failed history entry — not zero, not a
     // duplicate from the generic catch.
     expect(failedDispatches()).toBe(1);
@@ -172,10 +176,10 @@ describe("InspectorClient URL-elicitation error path", () => {
   it("aborts with a loop error when the server re-requests a completed URL", async () => {
     // The server keeps returning the same URL after the user completes it.
     const fake: FakeClient = {
-      callTool: vi.fn(async () => {
+      callTool: vi.fn(),
+      request: vi.fn(async () => {
         throw new UrlElicitationRequiredError([elicitation]);
       }),
-      request: vi.fn(),
     };
     const client = makeClient(fake);
     const failedDispatches = trackFailedDispatches(client);
@@ -192,7 +196,7 @@ describe("InspectorClient URL-elicitation error path", () => {
     await expect(pending).rejects.toBeInstanceOf(UrlElicitationLoopError);
     await expect(pending).rejects.toMatchObject({ url: elicitation.url });
     // Only the initial call + one retry ran; the URL was presented just once.
-    expect(fake.callTool).toHaveBeenCalledTimes(2);
+    expect(fake.request).toHaveBeenCalledTimes(2);
     expect(client.getPendingElicitations()).toHaveLength(0);
     // The loop abort records exactly one failed history entry (the accepted
     // first round records nothing).
@@ -201,10 +205,10 @@ describe("InspectorClient URL-elicitation error path", () => {
 
   it("settles a pending error-path elicitation as cancelled on disconnect (no hang)", async () => {
     const fake: FakeClient = {
-      callTool: vi.fn(async () => {
+      callTool: vi.fn(),
+      request: vi.fn(async () => {
         throw new UrlElicitationRequiredError([elicitation]);
       }),
-      request: vi.fn(),
     };
     const client = makeClient(fake);
 
@@ -223,13 +227,13 @@ describe("InspectorClient URL-elicitation error path", () => {
 
   it("rethrows a -32042 error with no elicitations without queuing anything", async () => {
     const fake: FakeClient = {
-      callTool: vi.fn(async () => {
+      callTool: vi.fn(),
+      request: vi.fn(async () => {
         throw new ProtocolError(
           ProtocolErrorCode.UrlElicitationRequired,
           "This request requires browser-based authorization.",
         );
       }),
-      request: vi.fn(),
     };
     const client = makeClient(fake);
 
@@ -237,15 +241,15 @@ describe("InspectorClient URL-elicitation error path", () => {
       code: ProtocolErrorCode.UrlElicitationRequired,
     });
     expect(client.getPendingElicitations()).toHaveLength(0);
-    expect(fake.callTool).toHaveBeenCalledTimes(1);
+    expect(fake.request).toHaveBeenCalledTimes(1);
   });
 
   it("rethrows an ordinary error unchanged", async () => {
     const fake: FakeClient = {
-      callTool: vi.fn(async () => {
+      callTool: vi.fn(),
+      request: vi.fn(async () => {
         throw new Error("boom");
       }),
-      request: vi.fn(),
     };
     const client = makeClient(fake);
     const failed = vi.fn();

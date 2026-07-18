@@ -8,11 +8,13 @@ import {
   Text,
 } from "@mantine/core";
 import type { ElicitRequestFormParams } from "@modelcontextprotocol/client";
+import type { PendingRequestOrigin } from "@inspector/core/mcp/types.js";
 import {
   hasMissingRequiredFields,
   type InspectorFormSchema,
 } from "../../../utils/jsonUtils";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
+import { MrtrOriginNote } from "../../elements/MrtrOriginNote/MrtrOriginNote";
 
 export interface ElicitationFormPanelProps {
   request: ElicitRequestFormParams;
@@ -24,6 +26,12 @@ export interface ElicitationFormPanelProps {
   onDecline: () => void;
   /** Dismissal without an explicit choice (maps to the spec's `cancel`). */
   onCancel: () => void;
+  /**
+   * How the request reached the Inspector — a legacy server→client request or a
+   * modern MRTR `input_required` round. Drives the era-accurate note; defaults
+   * to `"server-request"` (legacy, note hidden). (#1704)
+   */
+  origin?: PendingRequestOrigin;
   /**
    * A response has been dispatched; lock the actions so a second click can't
    * resolve the request twice (the underlying handler throws if called again).
@@ -66,6 +74,7 @@ export function ElicitationFormPanel({
   onSubmit,
   onDecline,
   onCancel,
+  origin = "server-request",
   busy = false,
 }: ElicitationFormPanelProps) {
   const requestedSchema = request.requestedSchema as InspectorFormSchema;
@@ -74,6 +83,7 @@ export function ElicitationFormPanel({
   return (
     <Stack gap="md">
       <QuotedMessage>{formatQuoted(request.message)}</QuotedMessage>
+      <MrtrOriginNote origin={origin} />
       <Divider />
       <FieldScroll>
         <SchemaForm

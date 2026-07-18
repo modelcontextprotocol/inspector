@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
+import { ToolCallCancelledError } from "@inspector/core/mcp/toolCallCancelledError.js";
 import {
   eraToVersionNegotiation,
   MODERN_PROTOCOL_VERSION,
@@ -11,9 +12,17 @@ import {
   createTestServerInfo,
   createEchoTool,
   createMrtrTool,
+  createMrtrMultiRoundTool,
+  createMrtrRootsTool,
+  createMrtrSamplingTool,
+  createMrtrLoopTool,
+  createMrtrEdgeCaseTool,
 } from "@modelcontextprotocol/inspector-test-server";
 import type { ServerConfig } from "@modelcontextprotocol/inspector-test-server";
-import type { ContentBlock } from "@modelcontextprotocol/client";
+import type {
+  ContentBlock,
+  JSONRPCRequest,
+} from "@modelcontextprotocol/client";
 
 /**
  * Live coverage of the modern (2026-07-28) connection path (#1700). The bundled
@@ -126,25 +135,55 @@ describe("modern-era negotiation (2026-07-28)", () => {
     expect("text" in content[0] && content[0].text).toContain("hi");
   });
 
-  it("completes an MRTR round-trip (input_required elicitation → retry → final result)", async () => {
-    // The modern (2026-07-28) leg has no server→client requests; a tool that
-    // needs input returns `input_required` embedding the request, and the client
-    // fulfils it and retries with a new id. `createMrtrTool` returns
-    // `inputRequired({ inputRequests: { confirm: elicit(...) } })` on the first
-    // call and the final result once the answer is echoed back.
+  // Collect every outbound `tools/call` request frame the transport captured,
+  // so a test can assert what the MRTR retry actually put on the wire.
+  function collectToolCallRequests(
+    connected: InspectorClient,
+  ): JSONRPCRequest[] {
+    const frames: JSONRPCRequest[] = [];
+    connected.addEventListener("message", (event) => {
+      const entry = event.detail;
+      if (
+        entry.direction === "request" &&
+        "method" in entry.message &&
+        entry.message.method === "tools/call"
+      ) {
+        frames.push(entry.message as JSONRPCRequest);
+      }
+    });
+    return frames;
+  }
+
+  async function startMrtrServer(
+    tool: ReturnType<typeof createMrtrTool>,
+  ): Promise<TestServerHttp> {
     const started = createTestServerHttp({
       serverInfo: createTestServerInfo("modern-mrtr-test", "1.0.0"),
-      tools: [createMrtrTool()],
+      tools: [tool],
       modern: {},
     });
     await started.start();
     server = started;
+    return started;
+  }
 
+  it("drives an MRTR round-trip manually (pauses at the pending UI, retries with inputResponses + requestState on a new id)", async () => {
+    // The modern (2026-07-28) leg has no server→client requests; a tool that
+    // needs input returns `input_required` embedding the request. With the SDK's
+    // auto-fulfil disabled, InspectorClient drives the loop itself: it surfaces
+    // the embedded elicitation through the pending-request UI, then retries the
+    // original call with the answer.
+    const started = await startMrtrServer(createMrtrTool());
     const connected = await connectWithEra(started.url, "modern");
+    const toolCallFrames = collectToolCallRequests(connected);
 
-    // Auto-fulfil the embedded elicitation the MRTR tool requests, the same way
-    // the UI's pending-request panel would — which drives the SDK's retry.
+    // Prove the pending UX actually paused: record that an elicitation was
+    // surfaced BEFORE we answer it (the manual driver enqueued it), then answer.
+    let pausedAtPendingUi = false;
     connected.addEventListener("newPendingElicitation", (event) => {
+      pausedAtPendingUi = true;
+      // The manual driver tags an MRTR round's request "input-required".
+      expect(event.detail.origin).toBe("input-required");
       void event.detail.respond({
         action: "accept",
         content: { confirm: true },
@@ -157,12 +196,213 @@ describe("modern-era negotiation (2026-07-28)", () => {
 
     const result = await connected.callTool(mrtr!, { action: "deploy" });
     expect(result.success).toBe(true);
+    expect(pausedAtPendingUi).toBe(true);
+
     const content = result.result!.content as ContentBlock[];
     const text = content[0] && "text" in content[0] ? content[0].text : "";
     // The final result is only reachable after the input_required round was
     // fulfilled and the original call retried — i.e. the full MRTR loop ran.
     expect(text).toContain("MRTR complete");
     expect(text).toContain("confirm");
+
+    // Two tools/call frames: the original and the retry. The retry has a
+    // DIFFERENT json-rpc id and carries inputResponses + the echoed requestState.
+    expect(toolCallFrames.length).toBe(2);
+    const [original, retry] = toolCallFrames;
+    expect(retry.id).not.toBe(original.id);
+    const retryParams = retry.params as {
+      inputResponses?: Record<string, unknown>;
+      requestState?: unknown;
+    };
+    expect(retryParams.inputResponses?.confirm).toEqual({
+      action: "accept",
+      content: { confirm: true },
+    });
+    // The original call carries no requestState; the retry echoes the opaque
+    // server-minted token verbatim (shape: `mrtr:<action>:<n>`).
+    expect(
+      (original.params as { requestState?: unknown }).requestState,
+    ).toBeUndefined();
+    expect(retryParams.requestState).toMatch(/^mrtr:deploy:/);
+  });
+
+  it("drives a multi-round MRTR (two embedded elicitations in sequence, then completes)", async () => {
+    const started = await startMrtrServer(createMrtrMultiRoundTool());
+    const connected = await connectWithEra(started.url, "modern");
+
+    const seenMessages: string[] = [];
+    connected.addEventListener("newPendingElicitation", (event) => {
+      seenMessages.push(event.detail.request.params.message ?? "");
+      void event.detail.respond({
+        action: "accept",
+        content: { value: `answer-${seenMessages.length}` },
+      });
+    });
+
+    const { tools } = await connected.listTools();
+    const tool = tools.find((t) => t.name === "mrtr_two_step");
+    const result = await connected.callTool(tool!, {});
+    expect(result.success).toBe(true);
+
+    // Both rounds surfaced, in order.
+    expect(seenMessages).toEqual([
+      "Step 1: enter the first value",
+      "Step 2: enter the second value",
+    ]);
+    const content = result.result!.content as ContentBlock[];
+    const text = content[0] && "text" in content[0] ? content[0].text : "";
+    expect(text).toContain("MRTR two-step complete");
+  });
+
+  it("auto-answers an embedded roots/list request from configured roots (no pending UI)", async () => {
+    const started = await startMrtrServer(createMrtrRootsTool());
+    const connected = new InspectorClient(
+      { type: "streamable-http", url: started.url },
+      {
+        environment: { transport: createTransportNode },
+        versionNegotiation: eraToVersionNegotiation("modern"),
+        roots: [{ uri: "file:///workspace", name: "workspace" }],
+      },
+    );
+    client = connected;
+    await connected.connect();
+
+    let surfacedPending = false;
+    connected.addEventListener("newPendingElicitation", () => {
+      surfacedPending = true;
+    });
+    connected.addEventListener("newPendingSample", () => {
+      surfacedPending = true;
+    });
+
+    const { tools } = await connected.listTools();
+    const tool = tools.find((t) => t.name === "mrtr_roots");
+    const result = await connected.callTool(tool!, {});
+    expect(result.success).toBe(true);
+    // roots is answered silently — nothing pauses at the pending UI.
+    expect(surfacedPending).toBe(false);
+    const content = result.result!.content as ContentBlock[];
+    const text = content[0] && "text" in content[0] ? content[0].text : "";
+    expect(text).toContain("client reported 1 root");
+  });
+
+  it("surfaces an embedded sampling request through the pending-sample UI", async () => {
+    const started = await startMrtrServer(createMrtrSamplingTool());
+    const connected = await connectWithEra(started.url, "modern");
+
+    let sampleOrigin: string | undefined;
+    connected.addEventListener("newPendingSample", (event) => {
+      sampleOrigin = event.detail.origin;
+      void event.detail.respond({
+        model: "test-model",
+        stopReason: "endTurn",
+        role: "assistant",
+        content: { type: "text", text: "hello" },
+      });
+    });
+
+    const { tools } = await connected.listTools();
+    const tool = tools.find((t) => t.name === "mrtr_sample");
+    const result = await connected.callTool(tool!, {});
+    expect(result.success).toBe(true);
+    expect(sampleOrigin).toBe("input-required");
+    const content = result.result!.content as ContentBlock[];
+    const text = content[0] && "text" in content[0] ? content[0].text : "";
+    expect(text).toContain("MRTR sample complete");
+  });
+
+  it("echoes a declined elicitation back to the server (decline is not an abort)", async () => {
+    const started = await startMrtrServer(createMrtrTool());
+    const connected = await connectWithEra(started.url, "modern");
+
+    connected.addEventListener("newPendingElicitation", (event) => {
+      void event.detail.respond({ action: "decline" });
+    });
+
+    const { tools } = await connected.listTools();
+    const tool = tools.find((t) => t.name === "mrtr_confirm");
+    // The tool still completes — the declined result is echoed back, and the
+    // server returns its final result citing the declined answer.
+    const result = await connected.callTool(tool!, { action: "deploy" });
+    expect(result.success).toBe(true);
+    const content = result.result!.content as ContentBlock[];
+    const text = content[0] && "text" in content[0] ? content[0].text : "";
+    expect(text).toContain("MRTR complete");
+    expect(text).toContain("decline");
+  });
+
+  it("bounds a pathological MRTR that never completes (MRTR_MAX_ROUNDS)", async () => {
+    const started = await startMrtrServer(createMrtrLoopTool());
+    const connected = await connectWithEra(started.url, "modern");
+
+    // Auto-answer every round; the server never completes, so the driver's cap
+    // must stop the loop rather than spin forever.
+    connected.addEventListener("newPendingElicitation", (event) => {
+      void event.detail.respond({ action: "accept", content: { value: "x" } });
+    });
+
+    const { tools } = await connected.listTools();
+    const tool = tools.find((t) => t.name === "mrtr_loop");
+    await expect(connected.callTool(tool!, {})).rejects.toThrow(
+      /exceeded .* input_required rounds/,
+    );
+  });
+
+  it("handles requestState-only and inputRequests-only rounds (param shaping)", async () => {
+    const started = await startMrtrServer(createMrtrEdgeCaseTool());
+    const connected = await connectWithEra(started.url, "modern");
+    const toolCallFrames = collectToolCallRequests(connected);
+
+    connected.addEventListener("newPendingElicitation", (event) => {
+      void event.detail.respond({ action: "accept", content: { value: "n" } });
+    });
+
+    const { tools } = await connected.listTools();
+    const tool = tools.find((t) => t.name === "mrtr_edge");
+    const result = await connected.callTool(tool!, {});
+    expect(result.success).toBe(true);
+    const content = result.result!.content as ContentBlock[];
+    const text = content[0] && "text" in content[0] ? content[0].text : "";
+    expect(text).toContain("MRTR edge complete");
+
+    // Three rounds: original + two retries.
+    expect(toolCallFrames.length).toBe(3);
+    // Round-1 retry carries inputResponses but NO requestState (round 1 minted
+    // none).
+    const retry1 = toolCallFrames[1].params as {
+      inputResponses?: unknown;
+      requestState?: unknown;
+    };
+    expect(retry1.inputResponses).toBeDefined();
+    expect(retry1.requestState).toBeUndefined();
+    // Round-2 retry carries requestState and no meaningful inputResponses (round
+    // 2 was requestState-only; the driver adds none — the modern SDK codec may
+    // serialize an empty `{}` on the wire).
+    const retry2 = toolCallFrames[2].params as {
+      inputResponses?: Record<string, unknown>;
+      requestState?: unknown;
+    };
+    expect(retry2.requestState).toBeDefined();
+    expect(Object.keys(retry2.inputResponses ?? {})).toHaveLength(0);
+  });
+
+  it("cancels an in-flight MRTR call while its embedded request is pending", async () => {
+    const started = await startMrtrServer(createMrtrTool());
+    const connected = await connectWithEra(started.url, "modern");
+
+    // Cancel the tool call the moment its embedded elicitation is surfaced,
+    // instead of answering it.
+    connected.addEventListener("newPendingElicitation", () => {
+      connected.cancelToolCall();
+    });
+
+    const { tools } = await connected.listTools();
+    const tool = tools.find((t) => t.name === "mrtr_confirm");
+    await expect(
+      connected.callTool(tool!, { action: "deploy" }),
+    ).rejects.toThrow(ToolCallCancelledError);
+    // The pending elicitation was removed when the call aborted.
+    expect(connected.getPendingElicitations()).toHaveLength(0);
   });
 
   it("rejects a legacy client against a strict modern-only server", async () => {

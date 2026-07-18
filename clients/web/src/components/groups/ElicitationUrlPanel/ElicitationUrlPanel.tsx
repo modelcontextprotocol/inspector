@@ -8,11 +8,19 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
+import type { PendingRequestOrigin } from "@inspector/core/mcp/types.js";
+import { MrtrOriginNote } from "../../elements/MrtrOriginNote/MrtrOriginNote";
 
 export interface ElicitationUrlPanelProps {
   message: string;
   url: string;
   requestId: string;
+  /**
+   * How the request reached the Inspector — a legacy server→client request or a
+   * modern MRTR `input_required` round. Drives the era-accurate note; defaults
+   * to `"server-request"` (legacy, note hidden). (#1704)
+   */
+  origin?: PendingRequestOrigin;
   /**
    * The URL has been opened and we're waiting for the user to confirm they
    * finished the external flow. Reveals the "I've completed it" action; opening
@@ -65,11 +73,13 @@ export function ElicitationUrlPanel({
   onOpenInBrowser,
   onComplete,
   onCancel,
+  origin = "server-request",
   busy = false,
 }: ElicitationUrlPanelProps) {
   return (
     <Stack gap="md">
       <ItalicMessage>{message}</ItalicMessage>
+      <MrtrOriginNote origin={origin} />
       <Divider />
       <Text size="sm">The server is requesting you visit:</Text>
       <WrappingCode>{url}</WrappingCode>

@@ -32,12 +32,14 @@ const samplingContent: PendingClientRequestContent = {
   kind: "sampling",
   id: "sampling-1",
   request: samplingRequest,
+  origin: "server-request",
 };
 
 const formContent: PendingClientRequestContent = {
   kind: "elicitation-form",
   id: "elicitation-1",
   request: formRequest,
+  origin: "server-request",
 };
 
 const urlContent: PendingClientRequestContent = {
@@ -45,6 +47,7 @@ const urlContent: PendingClientRequestContent = {
   id: "elicitation-2",
   message: "Authorize access in your browser.",
   url: "https://example.com/authorize",
+  origin: "server-request",
 };
 
 const baseProps = {
@@ -77,6 +80,19 @@ describe("PendingClientRequestModal", () => {
     expect(
       screen.getByText("The server is requesting an LLM completion."),
     ).toBeInTheDocument();
+    // Legacy server-request origin: no MRTR note.
+    expect(screen.queryByText("input_required")).not.toBeInTheDocument();
+  });
+
+  it("shows the MRTR note when the request is a modern input_required round", () => {
+    renderWithMantine(
+      <PendingClientRequestModal
+        {...baseProps}
+        request={{ ...samplingContent, origin: "input-required" }}
+      />,
+    );
+    expect(screen.getByText("input_required")).toBeInTheDocument();
+    expect(screen.getByText(/sent back as a retry/i)).toBeInTheDocument();
   });
 
   it("sends the default stub sampling result when the draft is untouched", async () => {
@@ -176,6 +192,7 @@ describe("PendingClientRequestModal", () => {
           },
         },
       },
+      origin: "server-request",
     };
     renderWithMantine(
       <PendingClientRequestModal {...baseProps} request={formWithDefaults} />,

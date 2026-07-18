@@ -14,6 +14,7 @@ import type {
   ToolCallInvocation,
   AppRendererClient,
   InspectorClientOptions,
+  PendingRequestOrigin,
 } from "./types.js";
 // Re-export so v1.5 tests that do `import { InspectorClientOptions } from
 // "@inspector/core/mcp/inspectorClient.js"` keep resolving.
@@ -78,6 +79,7 @@ import type {
   ReadResourceRequest,
   GetPromptRequest,
   CompleteRequest,
+  ListRootsRequest,
 } from "@modelcontextprotocol/client";
 import type { Transport } from "@modelcontextprotocol/client";
 import type {
@@ -86,11 +88,20 @@ import type {
   VersionNegotiationOptions,
   ProtocolEra,
   DiscoverResult,
+  InputRequests,
+  InputRequiredOptions,
+  StandardSchemaV1,
 } from "@modelcontextprotocol/client";
 import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/client";
 import {
+  isInputRequiredResult,
+  withInputRequired,
+} from "@modelcontextprotocol/client";
+import {
   EmptyResultSchema,
   CallToolResultSchema,
+  GetPromptResultSchema,
+  ReadResourceResultSchema,
   // Task request schemas — used for `.shape.params` in the 3-arg custom
   // `setRequestHandler` form (tasks/* are excluded from v2's spec-method set).
   ListTasksRequestSchema,
@@ -174,6 +185,17 @@ interface ReceiverTaskRecord {
 const MAX_URL_ELICITATION_RETRIES = 5;
 
 /**
+ * Error used to reject a pending sampling/elicitation request when the tool
+ * call driving its MRTR round is aborted (e.g. the user hits Cancel). Its
+ * message is not surfaced directly — `callToolWithRetries` maps the abort to a
+ * {@link ToolCallCancelledError} by inspecting the controller's reason — but a
+ * concrete error is needed to reject the awaiting driver promise.
+ */
+function createPendingAbortError(): Error {
+  return new Error("Pending request aborted");
+}
+
+/**
  * The abort reason used by `cancelToolCall()`. It rides along on the
  * `notifications/cancelled` sent to the server and lets `callToolWithRetries`
  * tell a deliberate user cancel apart from other aborts of the same controller
@@ -229,6 +251,14 @@ interface ToolCallRequest {
  * - Access to client functionality (prompts, resources, tools)
  */
 export class InspectorClient extends InspectorClientEventTarget {
+  /**
+   * Upper bound on MRTR (`input_required`) rounds for a single logical request
+   * before {@link requestWithInputRequired} gives up. We drive the loop
+   * ourselves (`inputRequired: { autoFulfill: false }`), so this is the manual
+   * counterpart to the SDK auto-driver's default `maxRounds` (10) and guards
+   * against a server that keeps returning `input_required` forever.
+   */
+  private static readonly MRTR_MAX_ROUNDS = 10;
   private client: Client | null = null;
   private appRendererClientProxy: AppRendererClient | null = null;
   // Lazily-built validator used only on the skipOutputValidation path to detect
@@ -403,12 +433,21 @@ export class InspectorClient extends InspectorClientEventTarget {
     const clientOptions: {
       capabilities?: ClientCapabilities;
       versionNegotiation?: VersionNegotiationOptions;
+      inputRequired?: InputRequiredOptions;
     } = {
       // Per-server protocol era (SEP §7.8), threaded from config via
       // `eraToVersionNegotiation` and defaulted to `{ mode: "legacy" }` in the
       // constructor. "legacy" keeps the wire byte-identical to a 2025 client;
       // "auto"/"modern" opt into 2026-era negotiation (#1626).
       versionNegotiation: this.versionNegotiation,
+      // Drive MRTR (SEP-2322) manually instead of letting the SDK auto-fulfil
+      // and hide the retry loop (#1704). Unconditional and safe on every era:
+      // legacy servers never return `input_required`, so this is a no-op there;
+      // on modern connections the three multi-round-trip methods opt in via
+      // `allowInputRequired` in `requestWithInputRequired`, and no other method
+      // can receive an `input_required` result. The negotiated era is unknown
+      // at construction time, so gating here is impossible anyway.
+      inputRequired: { autoFulfill: false },
     };
     const capabilities: ClientCapabilities = {};
     if (this.sample) {
@@ -1078,19 +1117,7 @@ export class InspectorClient extends InspectorClientEventTarget {
               taskResult as unknown as CreateMessageResult,
             );
           }
-          return new Promise<CreateMessageResult>((resolve, reject) => {
-            const samplingRequest = new SamplingCreateMessage(
-              request,
-              (result) => {
-                resolve(result);
-              },
-              (error) => {
-                reject(error);
-              },
-              (id) => this.removePendingSample(id),
-            );
-            this.addPendingSample(samplingRequest);
-          });
+          return this.enqueuePendingSample(request, "server-request");
         };
         this.client.setRequestHandler(
           "sampling/createMessage",
@@ -1158,16 +1185,7 @@ export class InspectorClient extends InspectorClientEventTarget {
             const taskResult: CreateTaskResult = { task: record.task };
             return Promise.resolve(taskResult as unknown as ElicitResult);
           }
-          return new Promise<ElicitResult>((resolve) => {
-            const elicitationRequest = new ElicitationCreateMessage(
-              request,
-              (result) => {
-                resolve(result);
-              },
-              (id) => this.removePendingElicitation(id),
-            );
-            this.addPendingElicitation(elicitationRequest);
-          });
+          return this.enqueuePendingElicitation(request, "server-request");
         };
         this.client.setRequestHandler("elicitation/create", elicitHandler);
         if (this.receiverTasks) {
@@ -1684,6 +1702,215 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Surface a sampling request through the pending-request UI and resolve with
+   * the user's answer. Shared by the inbound `sampling/createMessage` handler
+   * (legacy server→client request) and the MRTR driver (a modern
+   * `input_required` round embeds the request in a tool-call result). `origin`
+   * tags which of the two so the UI can show era-accurate semantics. A
+   * declined/cancelled sampling still resolves normally so the bare result is
+   * echoed back to the server; only a genuine failure or an `signal` abort
+   * rejects (so the MRTR driver can abort the originating call). `signal` is
+   * only passed by the MRTR driver (the tool call's abort signal) — while the
+   * driver awaits an answer there is no in-flight SDK request to carry it.
+   */
+  private enqueuePendingSample(
+    request: CreateMessageRequest,
+    origin: PendingRequestOrigin,
+    signal?: AbortSignal,
+  ): Promise<CreateMessageResult> {
+    // A Promise's resolve/reject is idempotent (first settle wins, later ones
+    // no-op), so the respond/reject/abort paths need no extra guard against a
+    // double settle.
+    return new Promise<CreateMessageResult>((resolvePromise, rejectPromise) => {
+      const sample = new SamplingCreateMessage(
+        request,
+        resolvePromise,
+        rejectPromise,
+        (id) => this.removePendingSample(id),
+        origin,
+      );
+      this.addPendingSample(sample);
+      this.wirePendingAbort(signal, () => {
+        this.removePendingSample(sample.id);
+        rejectPromise(createPendingAbortError());
+      });
+    });
+  }
+
+  /**
+   * Surface an elicitation request through the pending-request UI and resolve
+   * with the user's answer. Shared by the inbound `elicitation/create` handler
+   * and the MRTR driver — see {@link enqueuePendingSample} for the `origin` /
+   * `signal` semantics. A declined/cancelled elicitation resolves with the
+   * corresponding `ElicitResult` (echoed to the server on retry); only a
+   * genuine failure or a `signal` abort rejects.
+   */
+  private enqueuePendingElicitation(
+    request: ElicitRequest,
+    origin: PendingRequestOrigin,
+    signal?: AbortSignal,
+  ): Promise<ElicitResult> {
+    // See {@link enqueuePendingSample} — Promise settle is idempotent.
+    return new Promise<ElicitResult>((resolvePromise, rejectPromise) => {
+      const elicitation = new ElicitationCreateMessage(
+        request,
+        resolvePromise,
+        (id) => this.removePendingElicitation(id),
+        rejectPromise,
+        origin,
+      );
+      this.addPendingElicitation(elicitation);
+      this.wirePendingAbort(signal, () => {
+        this.removePendingElicitation(elicitation.id);
+        rejectPromise(createPendingAbortError());
+      });
+    });
+  }
+
+  /**
+   * Reject a still-pending request when `signal` aborts (e.g. the user cancels
+   * the tool call while its MRTR round is awaiting an answer). No-op when
+   * `signal` is absent — the legacy inbound-handler path passes none.
+   */
+  private wirePendingAbort(
+    signal: AbortSignal | undefined,
+    onAbort: () => void,
+  ): void {
+    if (!signal) return;
+    /* v8 ignore next 4 -- unreachable in the MRTR flow: an abort during the
+       SDK request leg rejects `client.request` before we reach the pending
+       enqueue, so the signal is never already-aborted here; kept as a defensive
+       guard because addEventListener("abort") would not fire on a pre-aborted
+       signal. */
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+  }
+
+  /**
+   * Drive a multi-round-trip request (SEP-2322 "MRTR") for one of the modern
+   * multi-round-trip methods (`tools/call`, `prompts/get`, `resources/read`).
+   *
+   * The client is constructed with `inputRequired: { autoFulfill: false }`, so
+   * an `input_required` result is handed back here (via `allowInputRequired`)
+   * instead of the SDK silently fulfilling and retrying. We surface each
+   * embedded request through the SAME pending-request UI the legacy
+   * server→client path uses (`fulfilInputRequests`), gather the bare results,
+   * and retry the ORIGINAL request with `inputResponses` + the echoed
+   * `requestState` on a fresh JSON-RPC id (`client.request` mints it). The loop
+   * runs until the server returns a complete result, bounded by
+   * {@link MRTR_MAX_ROUNDS}.
+   *
+   * On legacy connections a server never returns `input_required`, so the first
+   * response is always complete and this is a single `client.request` call.
+   */
+  private async requestWithInputRequired<TSchema extends StandardSchemaV1>(
+    method: "tools/call" | "prompts/get" | "resources/read",
+    params: Record<string, unknown>,
+    resultSchema: TSchema,
+    requestOptions: RequestOptions,
+  ): Promise<StandardSchemaV1.InferOutput<TSchema>> {
+    const client = this.client;
+    /* v8 ignore next 3 -- defensive: every caller (callTool/getPrompt/
+       readResource) already verified this.client is non-null before reaching
+       here, so this guard cannot trip in practice. */
+    if (!client) {
+      throw new Error("Client is not connected");
+    }
+    const wrapped = withInputRequired(resultSchema);
+    const signal = requestOptions.signal;
+    let round = 0;
+    let nextParams = params;
+    while (true) {
+      const outcome = await client.request(
+        { method, params: nextParams },
+        wrapped,
+        {
+          ...requestOptions,
+          allowInputRequired: true,
+        },
+      );
+      if (!isInputRequiredResult(outcome)) {
+        return outcome;
+      }
+      round += 1;
+      if (round > InspectorClient.MRTR_MAX_ROUNDS) {
+        throw new Error(
+          `Multi-round-trip "${method}" exceeded ${InspectorClient.MRTR_MAX_ROUNDS} input_required rounds without completing.`,
+        );
+      }
+      const inputResponses = await this.fulfilInputRequests(
+        outcome.inputRequests,
+        signal,
+      );
+      // Retry re-issues the ORIGINAL params plus THIS round's answers and the
+      // server's opaque state token; the SDK assigns a fresh JSON-RPC id.
+      nextParams = {
+        ...params,
+        ...(inputResponses ? { inputResponses } : {}),
+        ...(outcome.requestState !== undefined
+          ? { requestState: outcome.requestState }
+          : {}),
+      };
+    }
+  }
+
+  /**
+   * Fulfil the embedded requests of one MRTR `input_required` round, keyed by
+   * the server-assigned identifiers echoed back in `inputResponses`. Sequential
+   * (one modal at a time) to keep the single-slot pending UI coherent. Returns
+   * `undefined` for a `requestState`-only round (no embedded requests); an empty
+   * `inputRequests` map yields an empty `{}`, which the retry echoes harmlessly.
+   */
+  private async fulfilInputRequests(
+    inputRequests: InputRequests | undefined,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown> | undefined> {
+    if (!inputRequests) return undefined;
+    const responses: Record<string, unknown> = {};
+    for (const [key, embedded] of Object.entries(inputRequests)) {
+      responses[key] = await this.fulfilEmbeddedInputRequest(embedded, signal);
+    }
+    return responses;
+  }
+
+  /**
+   * Fulfil a single embedded MRTR request. `roots/list` is auto-answered from
+   * the configured roots (consistent with the legacy `roots/list` handler — no
+   * pending UX); `elicitation/create` and `sampling/createMessage` surface
+   * through the pending-request UI tagged `"input-required"`.
+   */
+  private async fulfilEmbeddedInputRequest(
+    request: CreateMessageRequest | ElicitRequest | ListRootsRequest,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    switch (request.method) {
+      case "roots/list":
+        return { roots: this.roots ?? [] };
+      case "elicitation/create":
+        return this.enqueuePendingElicitation(
+          request,
+          "input-required",
+          signal,
+        );
+      case "sampling/createMessage":
+        return this.enqueuePendingSample(request, "input-required", signal);
+      /* v8 ignore next 6 -- defensive: an SDK server rejects an unknown embedded
+         method before it reaches the wire, so this only guards against a
+         non-conformant hand-rolled server; not reproducible against the
+         SDK-based test servers. */
+      default:
+        throw new Error(
+          `Unsupported embedded input_required request method: ${
+            (request as { method: string }).method
+          }`,
+        );
+    }
+  }
+
+  /**
    * Get all pending sampling requests
    */
   getPendingSamples(): SamplingCreateMessage[] {
@@ -2092,29 +2319,28 @@ export class InspectorClient extends InspectorClientEventTarget {
       callParams.task = { ttl: taskOptions.ttl };
     }
 
-    // MCP Apps forward the server's CallToolResult straight to the running
-    // view, which is the real consumer. The SDK's callTool() validates
-    // structuredContent against the tool's outputSchema and THROWS on a
-    // mismatch — which would deny the app a result the server actually
-    // returned (and that legacy hosts render fine). For those passthrough
-    // calls go through request() directly, which skips that host-side
-    // validation. Regular Tools-screen calls keep validating.
     const requestOptions = this.getRequestOptions(
       metadata?.progressToken,
       signal,
     );
-    // Both branches yield a CallToolResult: request() parsed it with
-    // CallToolResultSchema above, callTool() returns the same shape — so the
-    // `as CallToolResult` casts below are safe.
+    // Route through the MRTR driver (`requestWithInputRequired`) so a modern
+    // `input_required` result pauses at the pending-request UI and retries with
+    // the user's answer (#1704). Both eras use `client.request` with
+    // `CallToolResultSchema`; on legacy this is a single round. We deliberately
+    // do NOT use `client.callTool` (which would auto-fulfil / reject on an
+    // `input_required` result) — its only extra behavior over `request` is
+    // structuredContent output validation, which we already re-implement below
+    // via `validateToolOutput`. MCP Apps passthrough (skipOutputValidation)
+    // simply skips that check; both paths yield a CallToolResult once the
+    // driver returns a complete (non-`input_required`) result.
     const result = await this.invokeMcpClient(
       () =>
-        options?.skipOutputValidation
-          ? client.request(
-              { method: "tools/call", params: callParams },
-              CallToolResultSchema,
-              requestOptions,
-            )
-          : client.callTool(callParams, requestOptions),
+        this.requestWithInputRequired(
+          "tools/call",
+          callParams,
+          CallToolResultSchema,
+          requestOptions,
+        ),
       { method: "tools/call", toolName: tool.name },
     );
 
@@ -2126,10 +2352,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     //    what a strict host would do), so the caller sees the error.
     //  - skipOutputValidation (MCP Apps passthrough): non-fatal — surface it as
     //    an advisory so a schema-violating-but-real result still reaches the app.
-    const outputValidationError = this.validateToolOutput(
-      tool,
-      result as CallToolResult,
-    );
+    const outputValidationError = this.validateToolOutput(tool, result);
     if (outputValidationError && !options?.skipOutputValidation) {
       // Match the prior contract: on v1 a strict output-schema violation
       // surfaced as the SDK's typed `McpError`/`ProtocolError` (code
@@ -2144,7 +2367,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     const invocation: ToolCallInvocation = {
       toolName: tool.name,
       params: args,
-      result: result as CallToolResult,
+      result,
       timestamp,
       success: true,
       metadata,
@@ -2295,6 +2518,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     // synchronously (or for which the tool forbids/ignores task augmentation)
     // may return an immediate `CallToolResult` instead — accept either with a
     // union schema and branch on the presence of `task`.
+    //
+    // NOTE: this task path does NOT opt into `allowInputRequired`, so a
+    // task-augmented tool that returns `input_required` is not MRTR-driven here.
+    // Driving MRTR over the tasks extension is out of scope for #1704.
     const requestPromise = client.request(
       { method: "tools/call", params },
       CreateTaskResultSchema.or(CallToolResultSchema),
@@ -2669,10 +2896,15 @@ export class InspectorClient extends InspectorClientEventTarget {
       uri,
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
     };
+    // MRTR-driven (#1704): a modern `resources/read` can return `input_required`
+    // (embedding an elicitation/sampling request); the driver pauses at the
+    // pending-request UI and retries with the answer. Legacy is a single round.
     const result = await this.invokeMcpClient(
       () =>
-        this.client!.readResource(
+        this.requestWithInputRequired(
+          "resources/read",
           params,
+          ReadResourceResultSchema,
           this.getRequestOptions(metadata?.progressToken),
         ),
       { method: "resources/read" },
@@ -2836,10 +3068,15 @@ export class InspectorClient extends InspectorClientEventTarget {
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
     };
 
+    // MRTR-driven (#1704): a modern `prompts/get` can return `input_required`;
+    // the driver pauses at the pending-request UI and retries with the answer.
+    // Legacy is a single round.
     const result = await this.invokeMcpClient(
       () =>
-        this.client!.getPrompt(
+        this.requestWithInputRequired(
+          "prompts/get",
           params,
+          GetPromptResultSchema,
           this.getRequestOptions(metadata?.progressToken),
         ),
       { method: "prompts/get", toolName: name },

@@ -20,6 +20,11 @@ import {
   createListRootsTool,
   createCollectFormElicitationTool,
   createMrtrTool,
+  createMrtrMultiRoundTool,
+  createMrtrRootsTool,
+  createMrtrSamplingTool,
+  createMrtrLoopTool,
+  createMrtrEdgeCaseTool,
   createCollectUrlElicitationTool,
   createUrlElicitationFormTool,
   createSendNotificationTool,
@@ -99,6 +104,16 @@ function resolveToolPreset(
       return createCollectFormElicitationTool();
     case "mrtr_confirm":
       return createMrtrTool();
+    case "mrtr_two_step":
+      return createMrtrMultiRoundTool();
+    case "mrtr_roots":
+      return createMrtrRootsTool();
+    case "mrtr_sample":
+      return createMrtrSamplingTool();
+    case "mrtr_loop":
+      return createMrtrLoopTool();
+    case "mrtr_edge":
+      return createMrtrEdgeCaseTool();
     case "collect_url_elicitation":
       return createCollectUrlElicitationTool();
     case "url_elicitation_form":

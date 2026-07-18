@@ -567,12 +567,14 @@ describe("InspectorClient coverage backfill", () => {
     it("callTool error path covers general-only, tool-specific-only, and both metadata", async () => {
       client = stdioClient();
       await client.connect();
-      // Force the underlying SDK callTool to throw so the dispatchFailedToolCall
-      // error path runs for each metadata combination.
+      // Force the underlying SDK request to throw so the dispatchFailedToolCall
+      // error path runs for each metadata combination. The tool-call path issues
+      // `client.request({ method: "tools/call", … })` through the MRTR driver
+      // (#1704), so the throw is injected on `request`.
       const c = client as unknown as {
-        client: { callTool: () => Promise<never> };
+        client: { request: () => Promise<never> };
       };
-      c.client.callTool = async () => {
+      c.client.request = async () => {
         throw new Error("forced-call-failure");
       };
 
