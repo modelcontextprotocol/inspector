@@ -52,6 +52,9 @@ import {
 import { ManagedToolsState } from "@inspector/core/mcp/state/managedToolsState.js";
 import { ManagedPromptsState } from "@inspector/core/mcp/state/managedPromptsState.js";
 import { ManagedResourcesState } from "@inspector/core/mcp/state/managedResourcesState.js";
+import { PagedToolsState } from "@inspector/core/mcp/state/pagedToolsState.js";
+import { PagedPromptsState } from "@inspector/core/mcp/state/pagedPromptsState.js";
+import { PagedResourcesState } from "@inspector/core/mcp/state/pagedResourcesState.js";
 import { ManagedResourceTemplatesState } from "@inspector/core/mcp/state/managedResourceTemplatesState.js";
 import { ManagedRequestorTasksState } from "@inspector/core/mcp/state/managedRequestorTasksState.js";
 import { ResourceSubscriptionsState } from "@inspector/core/mcp/state/resourceSubscriptionsState.js";
@@ -91,6 +94,11 @@ import { getWebRemoteOAuthStorage } from "./lib/remoteOAuthStorage";
 import { useManagedTools } from "@inspector/core/react/useManagedTools.js";
 import { useManagedPrompts } from "@inspector/core/react/useManagedPrompts.js";
 import { useManagedResources } from "@inspector/core/react/useManagedResources.js";
+import { usePagedTools } from "@inspector/core/react/usePagedTools.js";
+import { usePagedPrompts } from "@inspector/core/react/usePagedPrompts.js";
+import { usePagedResources } from "@inspector/core/react/usePagedResources.js";
+import { usePaginatedList } from "./hooks/usePaginatedList";
+import type { ListPaginationControlsProps } from "./components/elements/ListPaginationControls/ListPaginationControls";
 import { useManagedResourceTemplates } from "@inspector/core/react/useManagedResourceTemplates.js";
 import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
 import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubscriptions.js";
@@ -361,6 +369,7 @@ const EMPTY_SETTINGS: InspectorServerSettings = {
   requestTimeout: 0,
   taskTtl: DEFAULT_TASK_TTL_MS,
   autoRefreshOnListChanged: false,
+  singlePageLists: false,
   maxFetchRequests: DEFAULT_MAX_FETCH_REQUESTS,
   roots: [],
 };
@@ -745,6 +754,14 @@ function App() {
     useState<ManagedPromptsState | null>(null);
   const [managedResourcesState, setManagedResourcesState] =
     useState<ManagedResourcesState | null>(null);
+  // Paged (single-page) counterparts, used when the `singlePageLists` setting
+  // is on (#1721). Created/destroyed alongside the managed states.
+  const [pagedToolsState, setPagedToolsState] =
+    useState<PagedToolsState | null>(null);
+  const [pagedPromptsState, setPagedPromptsState] =
+    useState<PagedPromptsState | null>(null);
+  const [pagedResourcesState, setPagedResourcesState] =
+    useState<PagedResourcesState | null>(null);
   const [managedResourceTemplatesState, setManagedResourceTemplatesState] =
     useState<ManagedResourceTemplatesState | null>(null);
   const [managedRequestorTasksState, setManagedRequestorTasksState] =
@@ -912,22 +929,90 @@ function App() {
     lastError,
   } = useInspectorClient(inspectorClient);
   const {
-    tools,
+    tools: managedTools,
     listChanged: toolsListChanged,
     refresh: refreshTools,
   } = useManagedTools(inspectorClient, managedToolsState);
   const {
-    prompts,
+    prompts: managedPrompts,
     listChanged: promptsListChanged,
     refresh: refreshPrompts,
   } = useManagedPrompts(inspectorClient, managedPromptsState);
   const {
-    resources,
+    resources: managedResources,
     listChanged: resourcesListChanged,
     refresh: refreshResources,
   } = useManagedResources(inspectorClient, managedResourcesState);
   const { resourceTemplates, refresh: refreshResourceTemplates } =
     useManagedResourceTemplates(inspectorClient, managedResourceTemplatesState);
+  // Paged (single-page) list sources. When `singlePageLists` is on the managed
+  // states skip their all-page walk and these drive the sidebar instead (#1721).
+  const {
+    tools: pagedTools,
+    nextCursor: pagedToolsCursor,
+    pageCount: pagedToolsPageCount,
+    loadPage: loadToolsPage,
+  } = usePagedTools(inspectorClient, pagedToolsState);
+  const {
+    prompts: pagedPrompts,
+    nextCursor: pagedPromptsCursor,
+    pageCount: pagedPromptsPageCount,
+    loadPage: loadPromptsPage,
+  } = usePagedPrompts(inspectorClient, pagedPromptsState);
+  const {
+    resources: pagedResources,
+    nextCursor: pagedResourcesCursor,
+    pageCount: pagedResourcesPageCount,
+    loadPage: loadResourcesPage,
+  } = usePagedResources(inspectorClient, pagedResourcesState);
+  // The active server's persisted single-page setting drives the display mode.
+  // The sidebar toggle edits it (optimistically, below) and persists it.
+  const persistedSinglePageLists =
+    servers.find((s) => s.id === activeServerId)?.settings?.singlePageLists ??
+    false;
+  const [singlePageListsOverride, setSinglePageListsOverride] = useState<
+    boolean | null
+  >(null);
+  // Drop the optimistic override once the persisted value catches up (or the
+  // active server changes), so the persisted setting is the resting source.
+  useEffect(() => {
+    setSinglePageListsOverride(null);
+  }, [persistedSinglePageLists, activeServerId]);
+  const singlePageLists = singlePageListsOverride ?? persistedSinglePageLists;
+  const connected = connectionStatus === "connected";
+  const toolsPagination = usePaginatedList({
+    connected,
+    singlePage: singlePageLists,
+    managedItems: managedTools,
+    managedRefresh: refreshTools,
+    pagedItems: pagedTools,
+    pagedNextCursor: pagedToolsCursor,
+    pagedPageCount: pagedToolsPageCount,
+    loadPage: loadToolsPage,
+  });
+  const promptsPagination = usePaginatedList({
+    connected,
+    singlePage: singlePageLists,
+    managedItems: managedPrompts,
+    managedRefresh: refreshPrompts,
+    pagedItems: pagedPrompts,
+    pagedNextCursor: pagedPromptsCursor,
+    pagedPageCount: pagedPromptsPageCount,
+    loadPage: loadPromptsPage,
+  });
+  const resourcesPagination = usePaginatedList({
+    connected,
+    singlePage: singlePageLists,
+    managedItems: managedResources,
+    managedRefresh: refreshResources,
+    pagedItems: pagedResources,
+    pagedNextCursor: pagedResourcesCursor,
+    pagedPageCount: pagedResourcesPageCount,
+    loadPage: loadResourcesPage,
+  });
+  const tools = toolsPagination.items;
+  const prompts = promptsPagination.items;
+  const resources = resourcesPagination.items;
   const {
     tasks,
     refresh: refreshTasks,
@@ -2067,6 +2152,9 @@ function App() {
       managedToolsState?.destroy();
       managedPromptsState?.destroy();
       managedResourcesState?.destroy();
+      pagedToolsState?.destroy();
+      pagedPromptsState?.destroy();
+      pagedResourcesState?.destroy();
       managedResourceTemplatesState?.destroy();
       managedRequestorTasksState?.destroy();
       resourceSubscriptionsState?.destroy();
@@ -2166,6 +2254,9 @@ function App() {
 
       setInspectorClient(client);
       setManagedToolsState(new ManagedToolsState(client));
+      setPagedToolsState(new PagedToolsState(client));
+      setPagedPromptsState(new PagedPromptsState(client));
+      setPagedResourcesState(new PagedResourcesState(client));
       setManagedPromptsState(new ManagedPromptsState(client));
       const nextResourcesState = new ManagedResourcesState(client);
       setManagedResourcesState(nextResourcesState);
@@ -2204,6 +2295,9 @@ function App() {
       managedToolsState,
       managedPromptsState,
       managedResourcesState,
+      pagedToolsState,
+      pagedPromptsState,
+      pagedResourcesState,
       managedResourceTemplatesState,
       managedRequestorTasksState,
       resourceSubscriptionsState,
@@ -3146,18 +3240,125 @@ function App() {
     [inspectorClient, runWithCommandAuthRecovery],
   );
 
+  // Refresh acts per pagination mode: in single-page mode reload page 1 (the
+  // paged state); in all-pages mode re-fetch the whole aggregate with auth
+  // recovery (the pre-existing path). See usePaginatedList / #1721.
   const onRefreshTools = useCallback(() => {
-    void runWithCommandAuthRecovery(() => refreshTools(), "ambient");
-  }, [refreshTools, runWithCommandAuthRecovery]);
+    if (singlePageLists) {
+      toolsPagination.onRefresh();
+    } else {
+      void runWithCommandAuthRecovery(() => refreshTools(), "ambient");
+    }
+  }, [
+    singlePageLists,
+    toolsPagination,
+    refreshTools,
+    runWithCommandAuthRecovery,
+  ]);
   const onRefreshPrompts = useCallback(() => {
-    void runWithCommandAuthRecovery(() => refreshPrompts(), "ambient");
-  }, [refreshPrompts, runWithCommandAuthRecovery]);
+    if (singlePageLists) {
+      promptsPagination.onRefresh();
+    } else {
+      void runWithCommandAuthRecovery(() => refreshPrompts(), "ambient");
+    }
+  }, [
+    singlePageLists,
+    promptsPagination,
+    refreshPrompts,
+    runWithCommandAuthRecovery,
+  ]);
   const onRefreshResources = useCallback(() => {
-    void runWithCommandAuthRecovery(async () => {
-      await refreshResources();
-      await refreshResourceTemplates();
-    }, "ambient");
-  }, [refreshResources, refreshResourceTemplates, runWithCommandAuthRecovery]);
+    if (singlePageLists) {
+      resourcesPagination.onRefresh();
+      // Resource templates always use the managed (aggregate) path.
+      void runWithCommandAuthRecovery(
+        () => refreshResourceTemplates(),
+        "ambient",
+      );
+    } else {
+      void runWithCommandAuthRecovery(async () => {
+        await refreshResources();
+        await refreshResourceTemplates();
+      }, "ambient");
+    }
+  }, [
+    singlePageLists,
+    resourcesPagination,
+    refreshResources,
+    refreshResourceTemplates,
+    runWithCommandAuthRecovery,
+  ]);
+  // The per-list sidebar toggle edits the server-wide `singlePageLists` setting:
+  // optimistic override for an instant flip, live push so the managed state's
+  // gating reads it now, and a persisted PUT so it survives reconnects (#1721).
+  const onToggleSinglePageLists = useCallback(
+    (value: boolean) => {
+      setSinglePageListsOverride(value);
+      const current = servers.find((s) => s.id === activeServerId);
+      if (!current || activeServerId === undefined) return;
+      const next: InspectorServerSettings = {
+        ...(current.settings ?? EMPTY_SETTINGS),
+        singlePageLists: value,
+      };
+      inspectorClient?.setServerSettings(next);
+      // Drive the load that the mode change implies (data-loading stays out of
+      // React effects; the paged stores own only the connect-time load). To
+      // single-page: pull page 1 into each paged store. To all-pages: refetch
+      // each managed aggregate that was gated off. Only when connected.
+      if (connected) {
+        if (value) {
+          void loadToolsPage(undefined);
+          void loadPromptsPage(undefined);
+          void loadResourcesPage(undefined);
+        } else {
+          void refreshTools();
+          void refreshPrompts();
+          void refreshResources();
+        }
+      }
+      void updateServerSettings(activeServerId, next).catch((err: unknown) => {
+        notifications.show({
+          title: "Failed to save pagination setting",
+          message: err instanceof Error ? err.message : String(err),
+          color: "red",
+        });
+      });
+    },
+    [
+      servers,
+      activeServerId,
+      inspectorClient,
+      updateServerSettings,
+      connected,
+      loadToolsPage,
+      loadPromptsPage,
+      loadResourcesPage,
+      refreshTools,
+      refreshPrompts,
+      refreshResources,
+    ],
+  );
+  const toolsPaginationControls: ListPaginationControlsProps = {
+    singlePage: toolsPagination.singlePage,
+    onSinglePageChange: onToggleSinglePageLists,
+    canLoadMore: toolsPagination.canLoadMore,
+    loadedPages: toolsPagination.loadedPages,
+    onLoadMore: toolsPagination.onLoadMore,
+  };
+  const promptsPaginationControls: ListPaginationControlsProps = {
+    singlePage: promptsPagination.singlePage,
+    onSinglePageChange: onToggleSinglePageLists,
+    canLoadMore: promptsPagination.canLoadMore,
+    loadedPages: promptsPagination.loadedPages,
+    onLoadMore: promptsPagination.onLoadMore,
+  };
+  const resourcesPaginationControls: ListPaginationControlsProps = {
+    singlePage: resourcesPagination.singlePage,
+    onSinglePageChange: onToggleSinglePageLists,
+    canLoadMore: resourcesPagination.canLoadMore,
+    loadedPages: resourcesPagination.loadedPages,
+    onLoadMore: resourcesPagination.onLoadMore,
+  };
   const onRefreshTasks = useCallback(() => {
     void runWithCommandAuthRecovery(() => refreshTasks(), "ambient")?.catch(
       (err: unknown) => {
@@ -3339,6 +3540,9 @@ function App() {
       managedToolsState?.destroy();
       managedPromptsState?.destroy();
       managedResourcesState?.destroy();
+      pagedToolsState?.destroy();
+      pagedPromptsState?.destroy();
+      pagedResourcesState?.destroy();
       managedResourceTemplatesState?.destroy();
       managedRequestorTasksState?.destroy();
       resourceSubscriptionsState?.destroy();
@@ -3349,6 +3553,9 @@ function App() {
       setManagedToolsState(null);
       setManagedPromptsState(null);
       setManagedResourcesState(null);
+      setPagedToolsState(null);
+      setPagedPromptsState(null);
+      setPagedResourcesState(null);
       setManagedResourceTemplatesState(null);
       setManagedRequestorTasksState(null);
       setResourceSubscriptionsState(null);
@@ -3366,6 +3573,9 @@ function App() {
     managedToolsState,
     managedPromptsState,
     managedResourcesState,
+    pagedToolsState,
+    pagedPromptsState,
+    pagedResourcesState,
     managedResourceTemplatesState,
     managedRequestorTasksState,
     resourceSubscriptionsState,
@@ -3962,6 +4172,9 @@ function App() {
           onClearToolResult={onClearToolResult}
           onReadResourceContents={onReadResourceContents}
           onRefreshTools={onRefreshTools}
+          toolsPagination={toolsPaginationControls}
+          promptsPagination={promptsPaginationControls}
+          resourcesPagination={resourcesPaginationControls}
           onPromptsUiChange={setPromptsUi}
           onGetPrompt={(name, args) => {
             void onGetPrompt(name, args);

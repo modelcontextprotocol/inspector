@@ -66,6 +66,28 @@ describe("usePagedTools", () => {
     });
   });
 
+  it("exposes nextCursor and pageCount from paginationChange", async () => {
+    const { result } = renderHook(() => usePagedTools(client, state));
+    expect(result.current.nextCursor).toBeUndefined();
+    expect(result.current.pageCount).toBe(0);
+    client.queueToolPages({ tools: [tool("a")], nextCursor: "c1" });
+    await act(async () => {
+      await result.current.loadPage();
+    });
+    await waitFor(() => {
+      expect(result.current.nextCursor).toBe("c1");
+      expect(result.current.pageCount).toBe(1);
+    });
+  });
+
+  it("seeds pagination from the state's initial snapshot", async () => {
+    client.queueToolPages({ tools: [tool("a")], nextCursor: "c1" });
+    await state.loadPage();
+    const { result } = renderHook(() => usePagedTools(client, state));
+    expect(result.current.nextCursor).toBe("c1");
+    expect(result.current.pageCount).toBe(1);
+  });
+
   it("clear() proxies to the state", async () => {
     client.queueToolPages({ tools: [tool("a")] });
     await state.loadPage();

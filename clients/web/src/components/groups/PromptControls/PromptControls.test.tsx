@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import type { Prompt } from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { PromptControls, type PromptControlsProps } from "./PromptControls";
+import { noopPagination } from "../../../test/fixtures/pagination";
 
 const samplePrompts: Prompt[] = [
   {
@@ -25,6 +26,7 @@ const baseProps = {
   onRefreshList: vi.fn(),
   onSelectPrompt: vi.fn(),
   onSearchChange: vi.fn(),
+  pagination: noopPagination,
 };
 
 // The search box is controlled: typing fires onSearchChange but does not

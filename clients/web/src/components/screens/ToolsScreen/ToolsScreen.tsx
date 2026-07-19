@@ -5,6 +5,7 @@ import type {
   Tool,
 } from "@modelcontextprotocol/client";
 import { ToolControls } from "../../groups/ToolControls/ToolControls";
+import type { ListPaginationControlsProps } from "../../elements/ListPaginationControls/ListPaginationControls";
 import {
   ToolDetailPanel,
   type ToolProgress,
@@ -44,6 +45,8 @@ export interface ToolsScreenProps {
   serverSupportsTaskToolCalls: boolean;
   onUiChange: (next: ToolsUiState) => void;
   onRefreshList: () => void;
+  /** Single-page pagination controls rendered in the sidebar (#1721). */
+  pagination: ListPaginationControlsProps;
   onCallTool: (
     name: string,
     args: Record<string, unknown>,
@@ -76,7 +79,9 @@ const ScreenLayout = Flex.withProps({
 });
 
 const Sidebar = Stack.withProps({
-  w: 340,
+  // Widened from 340 to comfortably fit the single-page pagination controls
+  // (Load-next-page button + status) without cramping list entries (#1721).
+  w: 360,
   flex: "0 0 auto",
 });
 
@@ -130,6 +135,7 @@ export function ToolsScreen({
   serverSupportsTaskToolCalls,
   onUiChange,
   onRefreshList,
+  pagination,
   onCallTool,
   onCancelCall,
   onClearResult,
@@ -151,6 +157,7 @@ export function ToolsScreen({
             searchText={search}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
+            pagination={pagination}
             onSearchChange={(value) => onUiChange({ ...ui, search: value })}
             onSelectTool={(name) => {
               // Seed the form with the tool's schema defaults so default-only

@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { Tool } from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import { noopPagination } from "../../../test/fixtures/pagination";
 import {
   ToolsScreen,
   type ToolsScreenProps,
@@ -34,6 +35,7 @@ const baseProps = {
   ui: EMPTY_TOOLS_UI,
   onUiChange: vi.fn(),
   onRefreshList: vi.fn(),
+  pagination: noopPagination,
   onCallTool: vi.fn(),
 };
 

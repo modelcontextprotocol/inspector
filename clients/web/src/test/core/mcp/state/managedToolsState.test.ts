@@ -21,6 +21,13 @@ const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
   roots: [],
 };
 
+// Single-page mode on, plus auto-refresh on — single-page must win so the
+// aggregate walk never runs (#1721).
+const SINGLE_PAGE_SETTINGS: InspectorServerSettings = {
+  ...AUTO_REFRESH_SETTINGS,
+  singlePageLists: true,
+};
+
 function waitForToolsChange(state: ManagedToolsState): Promise<Tool[]> {
   return waitForChangeEvent(state, "toolsChange");
 }
@@ -144,6 +151,39 @@ describe("ManagedToolsState", () => {
       cacheMode: "refresh",
       metadata: undefined,
     });
+  });
+
+  it("connect does NOT fetch in single-page mode (#1721)", async () => {
+    // The aggregate list isn't the display source in single-page mode, so the
+    // connect-time all-page walk is skipped (the defensive point of the setting).
+    const spClient = new FakeInspectorClient({
+      capabilities: { tools: {} },
+      serverSettings: SINGLE_PAGE_SETTINGS,
+    });
+    spClient.setStatus("connected");
+    const spState = new ManagedToolsState(spClient, 0);
+    spClient.queueToolPages({ tools: [tool("a")] });
+    spClient.dispatchTypedEvent("connect");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(spClient.listAllTools).not.toHaveBeenCalled();
+    expect(spState.getTools()).toEqual([]);
+    spState.destroy();
+  });
+
+  it("list_changed only lights the indicator in single-page mode, never aggregates (#1721)", async () => {
+    // Single-page wins over autoRefreshOnListChanged: the indicator lights but
+    // the aggregate walk never runs.
+    const spClient = new FakeInspectorClient({
+      capabilities: { tools: {} },
+      serverSettings: SINGLE_PAGE_SETTINGS,
+    });
+    spClient.setStatus("connected");
+    const spState = new ManagedToolsState(spClient, 0);
+    const changed = waitForListChanged(spState);
+    spClient.dispatchTypedEvent("toolsListChanged");
+    expect(await changed).toBe(true);
+    expect(spClient.listAllTools).not.toHaveBeenCalled();
+    spState.destroy();
   });
 
   it("connect event triggers a refresh", async () => {

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { noopPagination } from "../../../test/fixtures/pagination";
 import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn, userEvent, within } from "storybook/test";
@@ -23,6 +24,7 @@ const meta: Meta<typeof ToolControls> = {
   title: "Groups/ToolControls",
   component: ToolControls,
   args: {
+    pagination: noopPagination,
     onRefreshList: fn(),
     onSelectTool: fn(),
     onSearchChange: fn(),

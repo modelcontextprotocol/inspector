@@ -58,6 +58,7 @@ export interface ServerSettingsFormProps {
     value: number,
   ) => void;
   onAutoRefreshChange: (value: boolean) => void;
+  onSinglePageListsChange: (value: boolean) => void;
   onMaxFetchRequestsChange: (value: number) => void;
   onProtocolEraChange: (value: ServerProtocolEra) => void;
   onOAuthChange: (oauth: OAuthSettings) => void;
@@ -239,6 +240,7 @@ export function ServerSettingsForm({
   onMetadataChange,
   onTimeoutChange,
   onAutoRefreshChange,
+  onSinglePageListsChange,
   onMaxFetchRequestsChange,
   onProtocolEraChange,
   onOAuthChange,
@@ -313,6 +315,12 @@ export function ServerSettingsForm({
               description="When checked, tool/prompt/resource lists refresh automatically when the server sends a */list_changed notification. When unchecked, the list-changed indicator appears and you refresh on demand."
               checked={settings.autoRefreshOnListChanged ?? false}
               onChange={(e) => onAutoRefreshChange(e.currentTarget.checked)}
+            />
+            <Checkbox
+              label="Fetch Lists One Page at a Time"
+              description="When checked, the Tools, Resources, and Prompts lists load a single page and reveal a “Load next page” control instead of auto-loading every page. Useful defensively for servers with very large lists. The per-list sidebar toggle sets this too."
+              checked={settings.singlePageLists ?? false}
+              onChange={(e) => onSinglePageListsChange(e.currentTarget.checked)}
             />
             <NumberInput
               label="Network Log Size"

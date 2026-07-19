@@ -444,6 +444,14 @@ describe("server.ts supplemental coverage", () => {
       expect((await res.json()).error).toMatch(/autoRefreshOnListChanged/);
     });
 
+    it("rejects a non-boolean singlePageLists", async () => {
+      const res = await postSettings({
+        ...base,
+        singlePageLists: "yes",
+      });
+      expect((await res.json()).error).toMatch(/singlePageLists/);
+    });
+
     it("rejects a negative maxFetchRequests", async () => {
       const res = await postSettings({ ...base, maxFetchRequests: -2 });
       expect((await res.json()).error).toMatch(/maxFetchRequests/);
@@ -476,6 +484,7 @@ describe("server.ts supplemental coverage", () => {
         cwd: "/tmp",
         taskTtl: 1000,
         autoRefreshOnListChanged: true,
+        singlePageLists: true,
         maxFetchRequests: 5,
         protocolEra: "modern",
         oauthClientId: "cid",

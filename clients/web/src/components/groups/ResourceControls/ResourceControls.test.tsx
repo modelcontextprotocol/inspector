@@ -11,6 +11,7 @@ import {
   ResourceControls,
   type ResourceControlsProps,
 } from "./ResourceControls";
+import { noopPagination } from "../../../test/fixtures/pagination";
 
 const sampleResources: Resource[] = [
   { name: "config.json", uri: "file:///config.json" },
@@ -41,6 +42,7 @@ const baseProps = {
   onUnsubscribeResource: vi.fn(),
   compact: false,
   onCompactChange: vi.fn(),
+  pagination: noopPagination,
 };
 
 // ResourceControls is controlled: search text + accordion open-sections live in

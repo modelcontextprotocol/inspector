@@ -1,11 +1,24 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { Tool } from "@modelcontextprotocol/client";
+import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { PagedToolsState } from "@inspector/core/mcp/state/pagedToolsState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 
 function tool(name: string): Tool {
   return { name, inputSchema: { type: "object" } };
 }
+
+const SINGLE_PAGE_SETTINGS: InspectorServerSettings = {
+  headers: [],
+  env: [],
+  metadata: [],
+  connectionTimeout: 0,
+  requestTimeout: 0,
+  taskTtl: 60000,
+  maxFetchRequests: 1000,
+  roots: [],
+  singlePageLists: true,
+};
 
 function waitForChange(state: PagedToolsState): Promise<Tool[]> {
   return new Promise((resolve) => {
@@ -119,5 +132,89 @@ describe("PagedToolsState", () => {
   it("destroy is idempotent", () => {
     state.destroy();
     expect(() => state.destroy()).not.toThrow();
+  });
+
+  describe("pagination progress (#1721)", () => {
+    it("tracks nextCursor and page count across loads", async () => {
+      client.setStatus("connected");
+      client.queueToolPages(
+        { tools: [tool("a")], nextCursor: "c1" },
+        { tools: [tool("b")] },
+      );
+      expect(state.getPagination()).toEqual({
+        nextCursor: undefined,
+        pageCount: 0,
+      });
+      await state.loadPage();
+      expect(state.getPagination()).toEqual({ nextCursor: "c1", pageCount: 1 });
+      await state.loadPage("c1");
+      expect(state.getPagination()).toEqual({
+        nextCursor: undefined,
+        pageCount: 2,
+      });
+    });
+
+    it("dispatches paginationChange on load and reset", async () => {
+      client.setStatus("connected");
+      client.queueToolPages({ tools: [tool("a")], nextCursor: "c1" });
+      const onLoad = new Promise<{ nextCursor?: string; pageCount: number }>(
+        (resolve) => {
+          state.addEventListener("paginationChange", (e) => resolve(e.detail), {
+            once: true,
+          });
+        },
+      );
+      await state.loadPage();
+      expect(await onLoad).toEqual({ nextCursor: "c1", pageCount: 1 });
+
+      const onClear = new Promise<{ nextCursor?: string; pageCount: number }>(
+        (resolve) => {
+          state.addEventListener("paginationChange", (e) => resolve(e.detail), {
+            once: true,
+          });
+        },
+      );
+      state.clear();
+      expect(await onClear).toEqual({ nextCursor: undefined, pageCount: 0 });
+    });
+
+    it("resets pagination when the connection goes terminal", async () => {
+      client.setStatus("connected");
+      client.queueToolPages({ tools: [tool("a")], nextCursor: "c1" });
+      await state.loadPage();
+      client.setStatus("disconnected");
+      expect(state.getPagination()).toEqual({
+        nextCursor: undefined,
+        pageCount: 0,
+      });
+    });
+  });
+
+  describe("connect auto-load (#1721)", () => {
+    it("loads page 1 on connect in single-page mode", async () => {
+      const spClient = new FakeInspectorClient({
+        serverSettings: SINGLE_PAGE_SETTINGS,
+      });
+      spClient.setStatus("connected");
+      const spState = new PagedToolsState(spClient);
+      spClient.queueToolPages({ tools: [tool("a")], nextCursor: "c1" });
+      const changed = waitForChange(spState);
+      spClient.dispatchTypedEvent("connect");
+      expect((await changed).map((t) => t.name)).toEqual(["a"]);
+      expect(spState.getPagination()).toEqual({
+        nextCursor: "c1",
+        pageCount: 1,
+      });
+      spState.destroy();
+    });
+
+    it("does NOT load on connect when single-page mode is off", async () => {
+      client.setStatus("connected");
+      client.queueToolPages({ tools: [tool("a")] });
+      client.dispatchTypedEvent("connect");
+      await Promise.resolve();
+      expect(client.listTools).not.toHaveBeenCalled();
+      expect(state.getTools()).toEqual([]);
+    });
   });
 });

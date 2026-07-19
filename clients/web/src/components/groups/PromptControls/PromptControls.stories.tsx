@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { noopPagination } from "../../../test/fixtures/pagination";
 import type { Prompt } from "@modelcontextprotocol/client";
 import { fn } from "storybook/test";
 import { PromptControls } from "./PromptControls";
@@ -7,6 +8,7 @@ const meta: Meta<typeof PromptControls> = {
   title: "Groups/PromptControls",
   component: PromptControls,
   args: {
+    pagination: noopPagination,
     onRefreshList: fn(),
     onSelectPrompt: fn(),
     onSearchChange: fn(),

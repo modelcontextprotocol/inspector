@@ -88,6 +88,12 @@ export abstract class ManagedListState<
     this.client = client;
     this.config = config;
     const onConnect = (): void => {
+      // In single-page mode the aggregate list is not the display source (the
+      // paged state drives the sidebar), so skip the connect-time all-page
+      // walk — the whole point of the setting is to avoid pulling every page
+      // for servers with very large lists (#1721). Switching back to
+      // all-pages mode triggers a refresh from the UI.
+      if (this.client?.getServerSettings()?.singlePageLists) return;
       void this.refresh();
     };
     const onListChanged = (): void => {
@@ -149,11 +155,17 @@ export abstract class ManagedListState<
     try {
       do {
         this.runQueued = false;
-        // Read the setting at fire time so a `setServerSettings` toggle that
-        // lands mid-burst is honored on the settled action. A `list_changed`
-        // means the prior list is stale, so bypass any cached entry
-        // (`cacheMode: "refresh"`) and re-store the fresh aggregate.
-        if (this.client?.getServerSettings()?.autoRefreshOnListChanged) {
+        // Read the settings at fire time so a `setServerSettings` toggle that
+        // lands mid-burst is honored on the settled action.
+        const settings = this.client?.getServerSettings();
+        // In single-page mode the aggregate list is not the display source, so
+        // never auto-aggregate on `list_changed` — only light the indicator so
+        // the user can pull page 1 fresh via Refresh (#1721). This wins over
+        // `autoRefreshOnListChanged`, which would otherwise pull every page.
+        if (!settings?.singlePageLists && settings?.autoRefreshOnListChanged) {
+          // A `list_changed` means the prior list is stale, so bypass any
+          // cached entry (`cacheMode: "refresh"`) and re-store the fresh
+          // aggregate.
           await this.refresh(undefined, "refresh");
         } else if (this.config.supportsIndicator) {
           this.setListChanged(true);

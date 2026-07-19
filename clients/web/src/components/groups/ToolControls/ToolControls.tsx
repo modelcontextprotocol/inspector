@@ -2,6 +2,10 @@ import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { Tool } from "@modelcontextprotocol/client";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
+import {
+  ListPaginationControls,
+  type ListPaginationControlsProps,
+} from "../../elements/ListPaginationControls/ListPaginationControls";
 import { ToolListItem } from "../ToolListItem/ToolListItem";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
@@ -13,6 +17,8 @@ export interface ToolControlsProps {
   searchText?: string;
   listChanged: boolean;
   onRefreshList: () => void;
+  /** Single-page pagination controls (#1721). */
+  pagination: ListPaginationControlsProps;
   onSearchChange: (value: string) => void;
   onSelectTool: (name: string) => void;
 }
@@ -23,6 +29,7 @@ export function ToolControls({
   searchText = "",
   listChanged,
   onRefreshList,
+  pagination,
   onSearchChange,
   onSelectTool,
 }: ToolControlsProps) {
@@ -61,6 +68,7 @@ export function ToolControls({
           searchText ? <ClearButton onClick={() => onSearchChange("")} /> : null
         }
       />
+      <ListPaginationControls {...pagination} />
       <ScrollArea viewportRef={viewportRef} flex={1} mih={0}>
         <Stack gap="xs">
           {filteredTools.map((tool) => (

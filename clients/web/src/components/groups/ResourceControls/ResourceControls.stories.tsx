@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { noopPagination } from "../../../test/fixtures/pagination";
 import type {
   Resource,
   ResourceTemplateType as ResourceTemplate,
@@ -26,6 +27,7 @@ const meta: Meta<typeof ResourceControls> = {
   title: "Groups/ResourceControls",
   component: ResourceControls,
   args: {
+    pagination: noopPagination,
     onRefreshList: fn(),
     onSelectUri: fn(),
     onSelectTemplate: fn(),

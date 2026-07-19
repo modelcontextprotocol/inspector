@@ -40,6 +40,7 @@ import { isAppTool } from "@inspector/core/mcp/apps.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
 import { VersionBadge } from "../../elements/VersionBadge/VersionBadge";
 import { CopyrightBadge } from "../../elements/CopyrightBadge/CopyrightBadge";
+import type { ListPaginationControlsProps } from "../../elements/ListPaginationControls/ListPaginationControls";
 import { ServerListScreen } from "../../screens/ServerListScreen/ServerListScreen";
 import {
   ToolsScreen,
@@ -491,6 +492,12 @@ export interface InspectorViewProps {
   onCancelToolCall?: () => void;
   onClearToolResult?: () => void;
   onRefreshTools: () => void;
+  /** Single-page pagination controls for the Tools list (#1721). */
+  toolsPagination: ListPaginationControlsProps;
+  /** Single-page pagination controls for the Prompts list (#1721). */
+  promptsPagination: ListPaginationControlsProps;
+  /** Single-page pagination controls for the Resources list (#1721). */
+  resourcesPagination: ListPaginationControlsProps;
   /**
    * Read-on-demand handler for `resource_link` blocks in a tool result.
    * Returns the linked resource's contents so the result panel can inline them.
@@ -625,6 +632,9 @@ export function InspectorView({
   onClearToolResult,
   onReadResourceContents,
   onRefreshTools,
+  toolsPagination,
+  promptsPagination,
+  resourcesPagination,
   onPromptsUiChange,
   onGetPrompt,
   onCopyPromptMessages,
@@ -1285,6 +1295,7 @@ export function InspectorView({
                 serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
                 onUiChange={onToolsUiChange}
                 onRefreshList={onRefreshTools}
+                pagination={toolsPagination}
                 onCallTool={onCallTool}
                 onCancelCall={onCancelToolCall}
                 onClearResult={onClearToolResult}
@@ -1317,6 +1328,7 @@ export function InspectorView({
                 completionsSupported={completionsSupported}
                 onUiChange={onPromptsUiChange}
                 onRefreshList={onRefreshPrompts}
+                pagination={promptsPagination}
                 onGetPrompt={onGetPrompt}
                 onCopyMessages={onCopyPromptMessages}
                 onCompleteArgument={onCompleteArgument}
@@ -1334,6 +1346,7 @@ export function InspectorView({
                 subscriptionsSupported={subscriptionsSupported}
                 onUiChange={onResourcesUiChange}
                 onRefreshList={onRefreshResources}
+                pagination={resourcesPagination}
                 onReadResource={onReadResource}
                 onSubscribeResource={onSubscribeResource}
                 onUnsubscribeResource={onUnsubscribeResource}

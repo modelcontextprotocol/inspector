@@ -19,6 +19,7 @@ import {
   fireEvent,
 } from "../../../test/renderWithMantine";
 import { InspectorView, type InspectorViewProps } from "./InspectorView";
+import { noopPagination } from "../../../test/fixtures/pagination";
 
 // happy-dom's viewport is 1024px, narrower than the app's 1280px floor, so any
 // viewport media query would read "narrow". Force every `useMediaQuery` "wide"
@@ -115,6 +116,9 @@ function makeProps(
     onToolsUiChange: vi.fn(),
     onCallTool: vi.fn(),
     onRefreshTools: vi.fn(),
+    toolsPagination: noopPagination,
+    promptsPagination: noopPagination,
+    resourcesPagination: noopPagination,
     onPromptsUiChange: vi.fn(),
     onGetPrompt: vi.fn(),
     onRefreshPrompts: vi.fn(),

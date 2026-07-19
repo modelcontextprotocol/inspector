@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { noopPagination } from "../../../test/fixtures/pagination";
 import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type {
@@ -26,6 +27,7 @@ const meta: Meta<typeof ResourcesScreen> = {
   component: ResourcesScreen,
   parameters: { layout: "fullscreen" },
   args: {
+    pagination: noopPagination,
     ui: EMPTY_RESOURCES_UI,
     onUiChange: fn(),
     onRefreshList: fn(),

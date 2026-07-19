@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import type { Tool } from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { ToolControls, type ToolControlsProps } from "./ToolControls";
+import { noopPagination } from "../../../test/fixtures/pagination";
 
 const sampleTools: Tool[] = [
   { name: "list_files", title: "List Files", inputSchema: { type: "object" } },
@@ -22,6 +23,7 @@ const baseProps = {
   onRefreshList: vi.fn(),
   onSelectTool: vi.fn(),
   onSearchChange: vi.fn(),
+  pagination: noopPagination,
 };
 
 // The search box is controlled: typing fires onSearchChange but does not

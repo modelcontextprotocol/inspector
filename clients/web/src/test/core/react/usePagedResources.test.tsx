@@ -68,6 +68,23 @@ describe("usePagedResources", () => {
     });
   });
 
+  it("exposes nextCursor and pageCount from paginationChange", async () => {
+    const { result } = renderHook(() => usePagedResources(client, state));
+    expect(result.current.nextCursor).toBeUndefined();
+    expect(result.current.pageCount).toBe(0);
+    client.queueResourcePages({
+      resources: [resource("a://1")],
+      nextCursor: "c1",
+    });
+    await act(async () => {
+      await result.current.loadPage();
+    });
+    await waitFor(() => {
+      expect(result.current.nextCursor).toBe("c1");
+      expect(result.current.pageCount).toBe(1);
+    });
+  });
+
   it("clear() proxies to the state", async () => {
     client.queueResourcePages({ resources: [resource("a://1")] });
     await state.loadPage();

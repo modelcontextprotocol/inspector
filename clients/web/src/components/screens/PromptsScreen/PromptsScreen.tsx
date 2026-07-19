@@ -10,6 +10,7 @@ import {
 } from "@mantine/core";
 import type { GetPromptResult, Prompt } from "@modelcontextprotocol/client";
 import { PromptControls } from "../../groups/PromptControls/PromptControls";
+import type { ListPaginationControlsProps } from "../../elements/ListPaginationControls/ListPaginationControls";
 import { PromptArgumentsForm } from "../../groups/PromptArgumentsForm/PromptArgumentsForm";
 import { PromptMessagesDisplay } from "../../groups/PromptMessagesDisplay/PromptMessagesDisplay";
 
@@ -32,6 +33,8 @@ export interface PromptsScreenProps {
   completionsSupported?: boolean;
   onUiChange: (next: PromptsUiState) => void;
   onRefreshList: () => void;
+  /** Single-page pagination controls rendered in the sidebar (#1721). */
+  pagination: ListPaginationControlsProps;
   onGetPrompt: (name: string, args: Record<string, string>) => void;
   onCopyMessages?: () => void;
   onCompleteArgument?: (
@@ -62,7 +65,9 @@ const ScreenLayout = Flex.withProps({
 });
 
 const Sidebar = Stack.withProps({
-  w: 340,
+  // Widened from 340 to comfortably fit the single-page pagination controls
+  // (Load-next-page button + status) without cramping list entries (#1721).
+  w: 360,
   flex: "0 0 auto",
 });
 
@@ -119,6 +124,7 @@ export function PromptsScreen({
   completionsSupported,
   onUiChange,
   onRefreshList,
+  pagination,
   onGetPrompt,
   onCopyMessages,
   onCompleteArgument,
@@ -255,6 +261,7 @@ export function PromptsScreen({
             searchText={search}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
+            pagination={pagination}
             onSearchChange={(value) => onUiChange({ ...ui, search: value })}
             onSelectPrompt={handleSelectPrompt}
           />
