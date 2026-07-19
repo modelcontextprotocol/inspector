@@ -11,6 +11,7 @@ import {
   type TestServerHttp,
   createTestServerInfo,
   createEchoTool,
+  createSendNotificationTool,
   createMrtrTool,
   createMrtrMultiRoundTool,
   createMrtrRootsTool,
@@ -24,6 +25,7 @@ import type {
   JSONRPCRequest,
 } from "@modelcontextprotocol/client";
 import { LOG_LEVEL_META_KEY } from "@modelcontextprotocol/client";
+import type { MessageEntry } from "@inspector/core/mcp/types.js";
 
 /**
  * Live coverage of the modern (2026-07-28) connection path (#1700). The bundled
@@ -505,6 +507,110 @@ describe("modern-era negotiation (2026-07-28)", () => {
     )!;
     await offClient.callTool(echo2, { message: "off" });
     expect(metaOf(offFrames[0])[LOG_LEVEL_META_KEY]).toBeUndefined();
+  });
+
+  // A modern server that actually emits logs: the `send_notification` tool routes
+  // through the SDK's request-scoped `ctx.mcpReq.log`, which on the modern leg
+  // gates on the per-request `logLevel` opt-in and streams the admitted log on
+  // the originating request's SSE response.
+  async function startLoggingServer(): Promise<TestServerHttp> {
+    const started = createTestServerHttp({
+      serverInfo: createTestServerInfo("modern-logging-test", "1.0.0"),
+      tools: [createEchoTool(), createSendNotificationTool()],
+      logging: true,
+      modern: {},
+    });
+    await started.start();
+    server = started;
+    return started;
+  }
+
+  // Connect a modern client, seeding the per-request log level from a server
+  // setting (like the app does). Collect every received `notifications/message`.
+  async function connectLoggingClient(
+    url: string,
+    modernLogLevel: "off" | "debug" | "info" | "warning",
+  ): Promise<{ client: InspectorClient; logs: MessageEntry[] }> {
+    const connected = new InspectorClient(
+      { type: "streamable-http", url },
+      {
+        environment: { transport: createTransportNode },
+        versionNegotiation: eraToVersionNegotiation("modern"),
+        serverSettings: {
+          headers: [],
+          metadata: [],
+          env: [],
+          connectionTimeout: 0,
+          requestTimeout: 0,
+          taskTtl: 60000,
+          maxFetchRequests: 1000,
+          roots: [],
+          modernLogLevel,
+        },
+      },
+    );
+    const logs: MessageEntry[] = [];
+    connected.addEventListener("message", (event) => {
+      const entry = event.detail;
+      if (
+        entry.direction === "notification" &&
+        "method" in entry.message &&
+        entry.message.method === "notifications/message"
+      ) {
+        logs.push(entry);
+      }
+    });
+    await connected.connect();
+    client = connected;
+    return { client: connected, logs };
+  }
+
+  it("delivers a server log over the request stream when opted in (#1629)", async () => {
+    const started = await startLoggingServer();
+    const { client: connected, logs } = await connectLoggingClient(
+      started.url,
+      "info",
+    );
+
+    const send = (await connected.listTools()).tools.find(
+      (t) => t.name === "send_notification",
+    )!;
+    await connected.callTool(send, {
+      message: "modern log delivered",
+      level: "warning",
+    });
+
+    // The opted-in request's SSE response carried the notifications/message.
+    expect(logs).toHaveLength(1);
+    const params = (logs[0].message as { params?: Record<string, unknown> })
+      .params!;
+    expect((params.data as { message: string }).message).toBe(
+      "modern log delivered",
+    );
+    expect(params.level).toBe("warning");
+    expect(params.logger).toBe("test-server");
+  });
+
+  it("gates the server log when not opted in (setting 'off') (#1629)", async () => {
+    const started = await startLoggingServer();
+    const { client: connected, logs } = await connectLoggingClient(
+      started.url,
+      "off",
+    );
+    expect(connected.getModernLogLevel()).toBeUndefined();
+
+    const send = (await connected.listTools()).tools.find(
+      (t) => t.name === "send_notification",
+    )!;
+    // The tool still returns a result, but with no logLevel opt-in on the
+    // request the modern server suppresses the notifications/message (plain
+    // JSON response, nothing on an SSE stream).
+    const result = await connected.callTool(send, {
+      message: "should be gated",
+      level: "warning",
+    });
+    expect(result.success).toBe(true);
+    expect(logs).toHaveLength(0);
   });
 
   it("rejects a legacy client against a strict modern-only server", async () => {
