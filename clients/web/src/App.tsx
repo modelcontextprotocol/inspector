@@ -369,7 +369,7 @@ const EMPTY_SETTINGS: InspectorServerSettings = {
   requestTimeout: 0,
   taskTtl: DEFAULT_TASK_TTL_MS,
   autoRefreshOnListChanged: false,
-  singlePageLists: false,
+  paginatedLists: false,
   maxFetchRequests: DEFAULT_MAX_FETCH_REQUESTS,
   roots: [],
 };
@@ -754,7 +754,7 @@ function App() {
     useState<ManagedPromptsState | null>(null);
   const [managedResourcesState, setManagedResourcesState] =
     useState<ManagedResourcesState | null>(null);
-  // Paged (single-page) counterparts, used when the `singlePageLists` setting
+  // Paged (paginated) counterparts, used when the `paginatedLists` setting
   // is on (#1721). Created/destroyed alongside the managed states.
   const [pagedToolsState, setPagedToolsState] =
     useState<PagedToolsState | null>(null);
@@ -948,7 +948,7 @@ function App() {
   } = useManagedResources(inspectorClient, managedResourcesState);
   const { resourceTemplates, refresh: refreshResourceTemplates } =
     useManagedResourceTemplates(inspectorClient, managedResourceTemplatesState);
-  // Paged (single-page) list sources. When `singlePageLists` is on the managed
+  // Paged (paginated) list sources. When `paginatedLists` is on the managed
   // states skip their all-page walk and these drive the sidebar instead (#1721).
   const {
     tools: pagedTools,
@@ -968,24 +968,24 @@ function App() {
     pageCount: pagedResourcesPageCount,
     loadPage: loadResourcesPage,
   } = usePagedResources(inspectorClient, pagedResourcesState);
-  // The active server's persisted single-page setting drives the display mode.
+  // The active server's persisted paginated setting drives the display mode.
   // The sidebar toggle edits it (optimistically, below) and persists it.
-  const persistedSinglePageLists =
-    servers.find((s) => s.id === activeServerId)?.settings?.singlePageLists ??
+  const persistedPaginatedLists =
+    servers.find((s) => s.id === activeServerId)?.settings?.paginatedLists ??
     false;
-  const [singlePageListsOverride, setSinglePageListsOverride] = useState<
+  const [paginatedListsOverride, setPaginatedListsOverride] = useState<
     boolean | null
   >(null);
   // Drop the optimistic override once the persisted value catches up (or the
   // active server changes), so the persisted setting is the resting source.
   useEffect(() => {
-    setSinglePageListsOverride(null);
-  }, [persistedSinglePageLists, activeServerId]);
-  const singlePageLists = singlePageListsOverride ?? persistedSinglePageLists;
+    setPaginatedListsOverride(null);
+  }, [persistedPaginatedLists, activeServerId]);
+  const paginatedLists = paginatedListsOverride ?? persistedPaginatedLists;
   const connected = connectionStatus === "connected";
   const toolsPagination = usePaginatedList({
     connected,
-    singlePage: singlePageLists,
+    paginated: paginatedLists,
     managedItems: managedTools,
     managedRefresh: refreshTools,
     pagedItems: pagedTools,
@@ -995,7 +995,7 @@ function App() {
   });
   const promptsPagination = usePaginatedList({
     connected,
-    singlePage: singlePageLists,
+    paginated: paginatedLists,
     managedItems: managedPrompts,
     managedRefresh: refreshPrompts,
     pagedItems: pagedPrompts,
@@ -1005,7 +1005,7 @@ function App() {
   });
   const resourcesPagination = usePaginatedList({
     connected,
-    singlePage: singlePageLists,
+    paginated: paginatedLists,
     managedItems: managedResources,
     managedRefresh: refreshResources,
     pagedItems: pagedResources,
@@ -3243,15 +3243,15 @@ function App() {
     [inspectorClient, runWithCommandAuthRecovery],
   );
 
-  // Refresh acts per pagination mode: in single-page mode reload page 1 (the
+  // Refresh acts per pagination mode: in paginated mode reload page 1 (the
   // paged state); in all-pages mode re-fetch the whole aggregate with auth
   // recovery (the pre-existing path). See usePaginatedList / #1721.
   const onRefreshTools = useCallback(() => {
-    if (singlePageLists) {
-      // Single-page refresh reloads page 1 of the paged store, bypassing the
+    if (paginatedLists) {
+      // Paginated refresh reloads page 1 of the paged store, bypassing the
       // managed hook's refresh — so acknowledge the list-changed indicator here
       // (the managed state lit it on `list_changed`; nothing else clears it in
-      // single-page mode) (#1721).
+      // paginated mode) (#1721).
       clearToolsListChanged();
       void runWithCommandAuthRecovery(
         () => toolsPagination.onRefresh(),
@@ -3261,14 +3261,14 @@ function App() {
       void runWithCommandAuthRecovery(() => refreshTools(), "ambient");
     }
   }, [
-    singlePageLists,
+    paginatedLists,
     toolsPagination,
     refreshTools,
     clearToolsListChanged,
     runWithCommandAuthRecovery,
   ]);
   const onRefreshPrompts = useCallback(() => {
-    if (singlePageLists) {
+    if (paginatedLists) {
       clearPromptsListChanged();
       void runWithCommandAuthRecovery(
         () => promptsPagination.onRefresh(),
@@ -3278,14 +3278,14 @@ function App() {
       void runWithCommandAuthRecovery(() => refreshPrompts(), "ambient");
     }
   }, [
-    singlePageLists,
+    paginatedLists,
     promptsPagination,
     refreshPrompts,
     clearPromptsListChanged,
     runWithCommandAuthRecovery,
   ]);
   const onRefreshResources = useCallback(() => {
-    if (singlePageLists) {
+    if (paginatedLists) {
       clearResourcesListChanged();
       void runWithCommandAuthRecovery(
         () => resourcesPagination.onRefresh(),
@@ -3303,30 +3303,30 @@ function App() {
       }, "ambient");
     }
   }, [
-    singlePageLists,
+    paginatedLists,
     resourcesPagination,
     refreshResources,
     refreshResourceTemplates,
     clearResourcesListChanged,
     runWithCommandAuthRecovery,
   ]);
-  // The per-list sidebar toggle edits the server-wide `singlePageLists` setting:
+  // The per-list sidebar toggle edits the server-wide `paginatedLists` setting:
   // optimistic override for an instant flip, live push so the managed state's
   // gating reads it now, and a persisted PUT so it survives reconnects (#1721).
-  const onToggleSinglePageLists = useCallback(
+  const onTogglePaginatedLists = useCallback(
     (value: boolean) => {
-      setSinglePageListsOverride(value);
+      setPaginatedListsOverride(value);
       const current = servers.find((s) => s.id === activeServerId);
       if (!current || activeServerId === undefined) return;
       const prevSettings = current.settings ?? EMPTY_SETTINGS;
       const next: InspectorServerSettings = {
         ...prevSettings,
-        singlePageLists: value,
+        paginatedLists: value,
       };
       inspectorClient?.setServerSettings(next);
       // Drive the load that the mode change implies (data-loading stays out of
       // React effects; the paged stores own only the connect-time load). To
-      // single-page: pull page 1 into each paged store. To all-pages: refetch
+      // paginated: pull page 1 into each paged store. To all-pages: refetch
       // each managed aggregate that was gated off. Only when connected.
       if (connected) {
         // Wrap in ambient auth recovery so a mid-session 401 triggers re-auth
@@ -3355,7 +3355,7 @@ function App() {
         // clears it when the persisted value changes, which won't happen here)
         // and roll the live client setting back, so the UI and client reflect
         // the value that's actually on disk rather than the failed edit (#1721).
-        setSinglePageListsOverride(null);
+        setPaginatedListsOverride(null);
         inspectorClient?.setServerSettings(prevSettings);
         notifications.show({
           title: "Failed to save pagination setting",
@@ -3379,7 +3379,7 @@ function App() {
       runWithCommandAuthRecovery,
     ],
   );
-  // Wrap Load-next-page in ambient auth recovery too, so a single-page
+  // Wrap Load-next-page in ambient auth recovery too, so a paginated
   // paginated fetch that hits a 401 recovers like the all-pages path (#1721).
   const onLoadMoreTools = useCallback(
     () =>
@@ -3406,22 +3406,22 @@ function App() {
     [resourcesPagination, runWithCommandAuthRecovery],
   );
   const toolsPaginationControls: ListPaginationControlsProps = {
-    singlePage: toolsPagination.singlePage,
-    onSinglePageChange: onToggleSinglePageLists,
+    paginated: toolsPagination.paginated,
+    onPaginatedChange: onTogglePaginatedLists,
     canLoadMore: toolsPagination.canLoadMore,
     loadedPages: toolsPagination.loadedPages,
     onLoadMore: onLoadMoreTools,
   };
   const promptsPaginationControls: ListPaginationControlsProps = {
-    singlePage: promptsPagination.singlePage,
-    onSinglePageChange: onToggleSinglePageLists,
+    paginated: promptsPagination.paginated,
+    onPaginatedChange: onTogglePaginatedLists,
     canLoadMore: promptsPagination.canLoadMore,
     loadedPages: promptsPagination.loadedPages,
     onLoadMore: onLoadMorePrompts,
   };
   const resourcesPaginationControls: ListPaginationControlsProps = {
-    singlePage: resourcesPagination.singlePage,
-    onSinglePageChange: onToggleSinglePageLists,
+    paginated: resourcesPagination.paginated,
+    onPaginatedChange: onTogglePaginatedLists,
     canLoadMore: resourcesPagination.canLoadMore,
     loadedPages: resourcesPagination.loadedPages,
     onLoadMore: onLoadMoreResources,

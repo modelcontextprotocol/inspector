@@ -1,6 +1,6 @@
 /**
  * PagedToolsState: holds the tools accumulated so far, loaded one page at a time
- * via loadPage(cursor). Backs single-page mode (the `singlePageLists` setting,
+ * via loadPage(cursor). Backs paginated mode (the `paginatedLists` setting,
  * #1721): auto-loads page 1 on connect when the setting is on, and tracks the
  * server's `nextCursor` + a running page count as observable state so the
  * sidebar can surface a "Load next page" control. Clears on disconnect.
@@ -52,9 +52,9 @@ export class PagedToolsState extends TypedEventTarget<PagedToolsStateEventMap> {
     super();
     this.client = client;
     const onConnect = (): void => {
-      // Auto-load page 1 only in single-page mode — otherwise the managed
+      // Auto-load page 1 only in paginated mode — otherwise the managed
       // (aggregate) state is the display source and this stays idle (#1721).
-      if (this.client?.getServerSettings()?.singlePageLists) {
+      if (this.client?.getServerSettings()?.paginatedLists) {
         void this.loadPage(undefined);
       }
     };

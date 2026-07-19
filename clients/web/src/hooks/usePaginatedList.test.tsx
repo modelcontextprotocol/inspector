@@ -4,7 +4,7 @@ import { usePaginatedList } from "./usePaginatedList";
 
 interface Params {
   connected: boolean;
-  singlePage: boolean;
+  paginated: boolean;
   managedItems: string[];
   managedRefresh: () => Promise<unknown>;
   pagedItems: string[];
@@ -16,7 +16,7 @@ interface Params {
 function makeParams(over: Partial<Params> = {}): Params {
   return {
     connected: true,
-    singlePage: false,
+    paginated: false,
     managedItems: ["m1", "m2"],
     managedRefresh: vi.fn(async () => []),
     pagedItems: ["p1"],
@@ -32,13 +32,13 @@ describe("usePaginatedList", () => {
     const params = makeParams();
     const { result } = renderHook(() => usePaginatedList(params));
     expect(result.current.items).toEqual(["m1", "m2"]);
-    expect(result.current.singlePage).toBe(false);
+    expect(result.current.paginated).toBe(false);
     expect(result.current.canLoadMore).toBe(false);
   });
 
-  it("shows the paged list and derives paging in single-page mode", () => {
+  it("shows the paged list and derives paging in paginated mode", () => {
     const params = makeParams({
-      singlePage: true,
+      paginated: true,
       pagedNextCursor: "c1",
       pagedPageCount: 2,
     });
@@ -51,7 +51,7 @@ describe("usePaginatedList", () => {
   it("masks paging progress while disconnected", () => {
     const params = makeParams({
       connected: false,
-      singlePage: true,
+      paginated: true,
       pagedNextCursor: "c1",
       pagedPageCount: 2,
     });
@@ -63,7 +63,7 @@ describe("usePaginatedList", () => {
   it("onLoadMore fetches the next page from the current cursor", () => {
     const loadPage = vi.fn(async () => ({}));
     const params = makeParams({
-      singlePage: true,
+      paginated: true,
       pagedNextCursor: "c1",
       loadPage,
     });
@@ -74,15 +74,15 @@ describe("usePaginatedList", () => {
 
   it("onLoadMore is a no-op with no next cursor", () => {
     const loadPage = vi.fn(async () => ({}));
-    const params = makeParams({ singlePage: true, loadPage });
+    const params = makeParams({ paginated: true, loadPage });
     const { result } = renderHook(() => usePaginatedList(params));
     void result.current.onLoadMore();
     expect(loadPage).not.toHaveBeenCalled();
   });
 
-  it("onRefresh reloads page 1 in single-page mode", () => {
+  it("onRefresh reloads page 1 in paginated mode", () => {
     const loadPage = vi.fn(async () => ({}));
-    const params = makeParams({ singlePage: true, loadPage });
+    const params = makeParams({ paginated: true, loadPage });
     const { result } = renderHook(() => usePaginatedList(params));
     void result.current.onRefresh();
     expect(loadPage).toHaveBeenCalledWith(undefined);

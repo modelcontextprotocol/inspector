@@ -3,16 +3,16 @@ import { Button, Group, Stack, Switch, Text } from "@mantine/core";
 export interface ListPaginationControlsProps {
   /**
    * True when the list is fetched one page at a time (backed by the server's
-   * `singlePageLists` setting). False = auto-aggregate every page on load.
+   * `paginatedLists` setting). False = auto-aggregate every page on load.
    */
-  singlePage: boolean;
-  /** Toggle single-page mode. Wired to write the `singlePageLists` setting. */
-  onSinglePageChange: (singlePage: boolean) => void;
-  /** Single-page mode only: the server returned a `nextCursor` to load. */
+  paginated: boolean;
+  /** Toggle paginated mode. Wired to write the `paginatedLists` setting. */
+  onPaginatedChange: (paginated: boolean) => void;
+  /** Paginated mode only: the server returned a `nextCursor` to load. */
   canLoadMore: boolean;
-  /** Single-page mode only: number of pages loaded so far (status label). */
+  /** Paginated mode only: number of pages loaded so far (status label). */
   loadedPages: number;
-  /** Single-page mode only: fetch the next page. */
+  /** Paginated mode only: fetch the next page. */
   onLoadMore: () => void;
 }
 
@@ -44,14 +44,14 @@ const StatusText = Text.withProps({
 /**
  * Sidebar control for a paginated list (Tools/Resources/Prompts). A "Paginated"
  * switch toggles between auto-aggregating every page and fetching one page at a
- * time; in single-page mode a "Load next page" button (to the right of the
+ * time; in paginated mode a "Load next page" button (to the right of the
  * switch) surfaces the server's `nextCursor` and a status shows how many pages
  * are loaded. Hidden entirely once the list is known to be a single page, since
  * there's nothing to paginate.
  */
 export function ListPaginationControls({
-  singlePage,
-  onSinglePageChange,
+  paginated,
+  onPaginatedChange,
   canLoadMore,
   loadedPages,
   onLoadMore,
@@ -59,23 +59,23 @@ export function ListPaginationControls({
   // The list turned out to be a single page (loaded page 1, no `nextCursor`):
   // pagination is moot, so hide the whole control rather than show a useless
   // toggle + disabled button (#1721).
-  if (singlePage && !canLoadMore && loadedPages === 1) return null;
+  if (paginated && !canLoadMore && loadedPages === 1) return null;
 
   return (
     <Stack gap={4}>
       <ControlsRow>
         <ModeSwitch
           label="Paginated"
-          checked={singlePage}
-          onChange={(e) => onSinglePageChange(e.currentTarget.checked)}
+          checked={paginated}
+          onChange={(e) => onPaginatedChange(e.currentTarget.checked)}
         />
-        {singlePage ? (
+        {paginated ? (
           <LoadMoreButton disabled={!canLoadMore} onClick={onLoadMore}>
             Load next page
           </LoadMoreButton>
         ) : null}
       </ControlsRow>
-      {singlePage ? (
+      {paginated ? (
         <StatusText>
           {loadedPages} {loadedPages === 1 ? "page" : "pages"} loaded
           {canLoadMore ? "" : " · end"}

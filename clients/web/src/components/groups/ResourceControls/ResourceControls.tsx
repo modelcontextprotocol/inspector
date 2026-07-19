@@ -36,7 +36,7 @@ export interface ResourceControlsProps {
   openSections?: string[];
   listChanged: boolean;
   onRefreshList: () => void;
-  /** Single-page pagination controls for the Resources list (#1721). */
+  /** Pagination controls for the Resources list (#1721). */
   pagination: ListPaginationControlsProps;
   onSearchChange: (value: string) => void;
   onOpenSectionsChange: (value: string[]) => void;

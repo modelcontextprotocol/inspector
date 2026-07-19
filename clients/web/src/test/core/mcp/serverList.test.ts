@@ -251,23 +251,23 @@ describe("serverEntriesToMcpConfig", () => {
     expect(round).toEqual(original);
   });
 
-  it("round-trips singlePageLists: lifts true to settings and back to disk", () => {
+  it("round-trips paginatedLists: lifts true to settings and back to disk", () => {
     const original: MCPConfig = {
       mcpServers: {
         delta: {
           type: "streamable-http",
           url: "https://x.test/mcp",
-          singlePageLists: true,
+          paginatedLists: true,
         },
       },
     };
     const [entry] = mcpConfigToServerEntries(original);
-    expect(entry?.settings?.singlePageLists).toBe(true);
+    expect(entry?.settings?.paginatedLists).toBe(true);
     const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
     expect(round).toEqual(original);
   });
 
-  it("omits singlePageLists from disk when false (the default)", () => {
+  it("omits paginatedLists from disk when false (the default)", () => {
     const original: MCPConfig = {
       mcpServers: {
         epsilon: {
@@ -278,9 +278,9 @@ describe("serverEntriesToMcpConfig", () => {
       },
     };
     const [entry] = mcpConfigToServerEntries(original);
-    expect(entry?.settings?.singlePageLists).toBe(false);
+    expect(entry?.settings?.paginatedLists).toBe(false);
     const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
-    expect("singlePageLists" in (round.mcpServers.epsilon ?? {})).toBe(false);
+    expect("paginatedLists" in (round.mcpServers.epsilon ?? {})).toBe(false);
     expect(round).toEqual(original);
   });
 
@@ -430,8 +430,8 @@ describe("serverEntriesToMcpConfig", () => {
       taskTtl: 60000,
       // Absent autoRefreshOnListChanged on disk → false in memory (for the form)
       autoRefreshOnListChanged: false,
-      // Absent singlePageLists on disk → false in memory (for the form)
-      singlePageLists: false,
+      // Absent paginatedLists on disk → false in memory (for the form)
+      paginatedLists: false,
       // Absent maxFetchRequests on disk → product default in memory (for the form)
       maxFetchRequests: 1000,
       // Absent roots on disk → empty list in memory (for the form)

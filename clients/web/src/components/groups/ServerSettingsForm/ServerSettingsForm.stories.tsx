@@ -131,10 +131,10 @@ function InteractiveRender(args: ServerSettingsFormProps) {
           settings: { ...args.settings, autoRefreshOnListChanged: value },
         });
       }}
-      onSinglePageListsChange={(value) => {
-        args.onSinglePageListsChange(value);
+      onPaginatedListsChange={(value) => {
+        args.onPaginatedListsChange(value);
         updateArgs({
-          settings: { ...args.settings, singlePageLists: value },
+          settings: { ...args.settings, paginatedLists: value },
         });
       }}
       onMaxFetchRequestsChange={(value) => {
@@ -184,7 +184,7 @@ const meta: Meta<typeof ServerSettingsForm> = {
     onMetadataChange: fn(),
     onTimeoutChange: fn(),
     onAutoRefreshChange: fn(),
-    onSinglePageListsChange: fn(),
+    onPaginatedListsChange: fn(),
     onMaxFetchRequestsChange: fn(),
     onProtocolEraChange: fn(),
     onOAuthChange: fn(),

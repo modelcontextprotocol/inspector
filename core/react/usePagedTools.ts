@@ -21,7 +21,7 @@ export interface UsePagedToolsResult {
 /**
  * React hook that subscribes to PagedToolsState and returns tools + pagination
  * progress + loadPage. The state store owns loading (incl. the connect-time
- * page-1 load in single-page mode); this hook just mirrors its observable
+ * page-1 load in paginated mode); this hook just mirrors its observable
  * state.
  */
 export function usePagedTools(

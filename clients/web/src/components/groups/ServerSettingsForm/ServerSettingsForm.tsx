@@ -58,7 +58,7 @@ export interface ServerSettingsFormProps {
     value: number,
   ) => void;
   onAutoRefreshChange: (value: boolean) => void;
-  onSinglePageListsChange: (value: boolean) => void;
+  onPaginatedListsChange: (value: boolean) => void;
   onMaxFetchRequestsChange: (value: number) => void;
   onProtocolEraChange: (value: ServerProtocolEra) => void;
   onOAuthChange: (oauth: OAuthSettings) => void;
@@ -240,7 +240,7 @@ export function ServerSettingsForm({
   onMetadataChange,
   onTimeoutChange,
   onAutoRefreshChange,
-  onSinglePageListsChange,
+  onPaginatedListsChange,
   onMaxFetchRequestsChange,
   onProtocolEraChange,
   onOAuthChange,
@@ -319,8 +319,8 @@ export function ServerSettingsForm({
             <Checkbox
               label="Fetch Lists One Page at a Time"
               description="When checked, the Tools, Resources, and Prompts lists load a single page and reveal a “Load next page” control instead of auto-loading every page. Useful defensively for servers with very large lists. The per-list sidebar toggle sets this too."
-              checked={settings.singlePageLists ?? false}
-              onChange={(e) => onSinglePageListsChange(e.currentTarget.checked)}
+              checked={settings.paginatedLists ?? false}
+              onChange={(e) => onPaginatedListsChange(e.currentTarget.checked)}
             />
             <NumberInput
               label="Network Log Size"

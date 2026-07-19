@@ -1,6 +1,6 @@
 /**
  * PagedResourcesState: holds the resources accumulated so far, loaded one page
- * at a time via loadPage(cursor). Backs single-page mode (`singlePageLists`,
+ * at a time via loadPage(cursor). Backs paginated mode (`paginatedLists`,
  * #1721): auto-loads page 1 on connect when the setting is on, and tracks the
  * server's `nextCursor` + a running page count as observable state. Clears on
  * disconnect.
@@ -43,7 +43,7 @@ export class PagedResourcesState extends TypedEventTarget<PagedResourcesStateEve
     super();
     this.client = client;
     const onConnect = (): void => {
-      if (this.client?.getServerSettings()?.singlePageLists) {
+      if (this.client?.getServerSettings()?.paginatedLists) {
         void this.loadPage(undefined);
       }
     };

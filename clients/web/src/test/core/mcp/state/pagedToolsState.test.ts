@@ -8,7 +8,7 @@ function tool(name: string): Tool {
   return { name, inputSchema: { type: "object" } };
 }
 
-const SINGLE_PAGE_SETTINGS: InspectorServerSettings = {
+const PAGINATED_SETTINGS: InspectorServerSettings = {
   headers: [],
   env: [],
   metadata: [],
@@ -17,7 +17,7 @@ const SINGLE_PAGE_SETTINGS: InspectorServerSettings = {
   taskTtl: 60000,
   maxFetchRequests: 1000,
   roots: [],
-  singlePageLists: true,
+  paginatedLists: true,
 };
 
 function waitForChange(state: PagedToolsState): Promise<Tool[]> {
@@ -212,9 +212,9 @@ describe("PagedToolsState", () => {
   });
 
   describe("connect auto-load (#1721)", () => {
-    it("loads page 1 on connect in single-page mode", async () => {
+    it("loads page 1 on connect in paginated mode", async () => {
       const spClient = new FakeInspectorClient({
-        serverSettings: SINGLE_PAGE_SETTINGS,
+        serverSettings: PAGINATED_SETTINGS,
       });
       spClient.setStatus("connected");
       const spState = new PagedToolsState(spClient);
@@ -229,7 +229,7 @@ describe("PagedToolsState", () => {
       spState.destroy();
     });
 
-    it("does NOT load on connect when single-page mode is off", async () => {
+    it("does NOT load on connect when paginated mode is off", async () => {
       client.setStatus("connected");
       client.queueToolPages({ tools: [tool("a")] });
       client.dispatchTypedEvent("connect");

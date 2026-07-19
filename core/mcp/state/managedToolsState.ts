@@ -33,7 +33,7 @@ export class ManagedToolsState extends ManagedListState<
       changeEvent: "toolsChange",
       listChangedEvent: "toolsListChanged",
       capabilityKey: "tools",
-      deferInSinglePage: true,
+      deferWhenPaginated: true,
       supportsIndicator: true,
       debounceMs,
       fetchAll: async (c, cacheMode, metadata) => {

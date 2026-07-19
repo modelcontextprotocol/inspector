@@ -21,11 +21,11 @@ const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
   roots: [],
 };
 
-// Single-page mode on, plus auto-refresh on — single-page must win so the
+// Paginated mode on, plus auto-refresh on — paginated must win so the
 // aggregate walk never runs (#1721).
-const SINGLE_PAGE_SETTINGS: InspectorServerSettings = {
+const PAGINATED_SETTINGS: InspectorServerSettings = {
   ...AUTO_REFRESH_SETTINGS,
-  singlePageLists: true,
+  paginatedLists: true,
 };
 
 function waitForToolsChange(state: ManagedToolsState): Promise<Tool[]> {
@@ -153,12 +153,12 @@ describe("ManagedToolsState", () => {
     });
   });
 
-  it("connect does NOT fetch in single-page mode (#1721)", async () => {
-    // The aggregate list isn't the display source in single-page mode, so the
+  it("connect does NOT fetch in paginated mode (#1721)", async () => {
+    // The aggregate list isn't the display source in paginated mode, so the
     // connect-time all-page walk is skipped (the defensive point of the setting).
     const spClient = new FakeInspectorClient({
       capabilities: { tools: {} },
-      serverSettings: SINGLE_PAGE_SETTINGS,
+      serverSettings: PAGINATED_SETTINGS,
     });
     spClient.setStatus("connected");
     const spState = new ManagedToolsState(spClient, 0);
@@ -170,12 +170,12 @@ describe("ManagedToolsState", () => {
     spState.destroy();
   });
 
-  it("list_changed only lights the indicator in single-page mode, never aggregates (#1721)", async () => {
-    // Single-page wins over autoRefreshOnListChanged: the indicator lights but
+  it("list_changed only lights the indicator in paginated mode, never aggregates (#1721)", async () => {
+    // Paginated wins over autoRefreshOnListChanged: the indicator lights but
     // the aggregate walk never runs.
     const spClient = new FakeInspectorClient({
       capabilities: { tools: {} },
-      serverSettings: SINGLE_PAGE_SETTINGS,
+      serverSettings: PAGINATED_SETTINGS,
     });
     spClient.setStatus("connected");
     const spState = new ManagedToolsState(spClient, 0);

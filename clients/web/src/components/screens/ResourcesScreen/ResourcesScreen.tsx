@@ -45,7 +45,7 @@ export interface ResourcesScreenProps {
   subscriptionsSupported?: boolean;
   onUiChange: (next: ResourcesUiState) => void;
   onRefreshList: () => void;
-  /** Single-page pagination controls rendered in the sidebar (#1721). */
+  /** Pagination controls rendered in the sidebar (#1721). */
   pagination: ListPaginationControlsProps;
   onReadResource: (uri: string) => void;
   onSubscribeResource: (uri: string) => void;
@@ -83,7 +83,7 @@ const ScreenLayout = Flex.withProps({
 });
 
 const Sidebar = Stack.withProps({
-  // Widened from 340 to comfortably fit the single-page pagination controls
+  // Widened from 340 to comfortably fit the pagination controls
   // (Load-next-page button + status) without cramping list entries (#1721).
   w: 360,
   flex: "0 0 auto",

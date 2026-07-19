@@ -17,7 +17,7 @@ export interface PromptControlsProps {
   searchText?: string;
   listChanged: boolean;
   onRefreshList: () => void;
-  /** Single-page pagination controls (#1721). */
+  /** Pagination controls (#1721). */
   pagination: ListPaginationControlsProps;
   onSearchChange: (value: string) => void;
   onSelectPrompt: (name: string) => void;

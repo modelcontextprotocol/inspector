@@ -431,7 +431,7 @@ describe("useServers", () => {
         taskTtl: 30000,
         maxFetchRequests: 1000,
         autoRefreshOnListChanged: false,
-        singlePageLists: false,
+        paginatedLists: false,
         roots: [],
       });
     });
@@ -519,7 +519,7 @@ describe("useServers", () => {
       maxFetchRequests: 1000,
       // Absent autoRefreshOnListChanged on disk reads back as false.
       autoRefreshOnListChanged: false,
-      singlePageLists: false,
+      paginatedLists: false,
       // Absent roots on disk reads back as an empty list for the form.
       roots: [],
     });

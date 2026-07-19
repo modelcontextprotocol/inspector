@@ -492,11 +492,11 @@ export interface InspectorViewProps {
   onCancelToolCall?: () => void;
   onClearToolResult?: () => void;
   onRefreshTools: () => void;
-  /** Single-page pagination controls for the Tools list (#1721). */
+  /** Pagination controls for the Tools list (#1721). */
   toolsPagination: ListPaginationControlsProps;
-  /** Single-page pagination controls for the Prompts list (#1721). */
+  /** Pagination controls for the Prompts list (#1721). */
   promptsPagination: ListPaginationControlsProps;
-  /** Single-page pagination controls for the Resources list (#1721). */
+  /** Pagination controls for the Resources list (#1721). */
   resourcesPagination: ListPaginationControlsProps;
   /**
    * Read-on-demand handler for `resource_link` blocks in a tool result.

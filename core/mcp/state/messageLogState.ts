@@ -130,9 +130,7 @@ export class MessageLogState extends TypedEventTarget<MessageLogStateEventMap> {
    */
   clearMessages(predicate?: (entry: MessageEntry) => boolean): void {
     const before = this.messages.length;
-    this.messages = predicate
-      ? this.messages.filter((m) => !predicate(m))
-      : [];
+    this.messages = predicate ? this.messages.filter((m) => !predicate(m)) : [];
     // Drop pending-request bookkeeping for any entry that was just removed.
     // Without this, a later response matching an evicted request id would
     // mutate a Map-only entry that is no longer reachable from `messages`,

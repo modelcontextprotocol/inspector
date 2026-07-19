@@ -120,7 +120,7 @@ type StoredInspectorFields = Pick<
   | "requestTimeout"
   | "taskTtl"
   | "autoRefreshOnListChanged"
-  | "singlePageLists"
+  | "paginatedLists"
   | "maxFetchRequests"
   | "oauth"
   | "roots"
@@ -187,7 +187,7 @@ export function storedFieldsToInspectorSettings(
     stored.requestTimeout !== undefined ||
     stored.taskTtl !== undefined ||
     stored.autoRefreshOnListChanged !== undefined ||
-    stored.singlePageLists !== undefined ||
+    stored.paginatedLists !== undefined ||
     stored.maxFetchRequests !== undefined ||
     stored.oauth !== undefined ||
     stored.roots !== undefined ||
@@ -210,7 +210,7 @@ export function storedFieldsToInspectorSettings(
     // default so the form shows it and "Run as task" has a value to send.
     taskTtl: stored.taskTtl ?? DEFAULT_TASK_TTL_MS,
     autoRefreshOnListChanged: stored.autoRefreshOnListChanged ?? false,
-    singlePageLists: stored.singlePageLists ?? false,
+    paginatedLists: stored.paginatedLists ?? false,
     // Concrete default like taskTtl (not a 0-sentinel): the form needs a value
     // to render and the log state needs one to size its buffer. An absent
     // on-disk field reads back as the default, which the write side then omits.
@@ -297,8 +297,8 @@ export function inspectorSettingsToStoredFields(
   }
 
   // Persist only when enabled — absent reads back as false (above).
-  if (settings.singlePageLists) {
-    out.singlePageLists = true;
+  if (settings.paginatedLists) {
+    out.paginatedLists = true;
   }
 
   // Persist only when it differs from the default era. Absent reads back as
@@ -367,7 +367,7 @@ const INSPECTOR_FIELD_KEY_MAP = {
   requestTimeout: true,
   taskTtl: true,
   autoRefreshOnListChanged: true,
-  singlePageLists: true,
+  paginatedLists: true,
   maxFetchRequests: true,
   oauth: true,
   roots: true,

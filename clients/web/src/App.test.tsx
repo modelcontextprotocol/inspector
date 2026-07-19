@@ -187,14 +187,14 @@ const SERVER_A = {
   connection: { status: "disconnected" },
 };
 
-// Stable spy so tests can assert the sidebar single-page toggle persisted the
-// `singlePageLists` setting (#1721). `vi.hoisted` so it exists when the hoisted
+// Stable spy so tests can assert the sidebar paginated toggle persisted the
+// `paginatedLists` setting (#1721). `vi.hoisted` so it exists when the hoisted
 // `vi.mock` factory closes over it.
 const { updateServerSettingsSpy } = vi.hoisted(() => ({
   updateServerSettingsSpy: vi.fn(() => Promise.resolve()),
 }));
 // Stable spy for the tools list-changed acknowledgement, so a test can assert
-// the single-page Refresh clears the indicator (#1721).
+// the paginated Refresh clears the indicator (#1721).
 const { clearToolsListChangedSpy } = vi.hoisted(() => ({
   clearToolsListChangedSpy: vi.fn(),
 }));
@@ -245,7 +245,7 @@ vi.mock("@inspector/core/react/useManagedResourceTemplates.js", () => ({
     refresh: vi.fn(),
   })),
 }));
-// Paged (single-page) hooks + state managers (#1721). Mirrors the managed
+// Paged (paginated) hooks + state managers (#1721). Mirrors the managed
 // mocks: the hooks return an empty accumulated list and a resolving loadPage so
 // usePaginatedList runs without a real transport; the state classes are no-op
 // constructors App still instantiates/destroys per connect.
@@ -387,10 +387,10 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
     pinnedProtocolIds?: Set<string>;
     onRefreshTools: () => void;
     toolsPagination: {
-      singlePage: boolean;
+      paginated: boolean;
       canLoadMore: boolean;
       loadedPages: number;
-      onSinglePageChange: (v: boolean) => void;
+      onPaginatedChange: (v: boolean) => void;
       onLoadMore: () => void;
     };
   }) => (
@@ -508,17 +508,17 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
         replay-history
       </button>
       <button onClick={() => props.onClearProtocol()}>clear-history</button>
-      <span data-testid="tools-single-page">
-        {String(props.toolsPagination.singlePage)}
+      <span data-testid="tools-paginated">
+        {String(props.toolsPagination.paginated)}
       </span>
       <span data-testid="tools-loaded-pages">
         {props.toolsPagination.loadedPages}
       </span>
-      <button onClick={() => props.toolsPagination.onSinglePageChange(true)}>
-        single-page-on
+      <button onClick={() => props.toolsPagination.onPaginatedChange(true)}>
+        paginated-on
       </button>
-      <button onClick={() => props.toolsPagination.onSinglePageChange(false)}>
-        single-page-off
+      <button onClick={() => props.toolsPagination.onPaginatedChange(false)}>
+        paginated-off
       </button>
       <button onClick={() => props.toolsPagination.onLoadMore()}>
         load-more-tools
@@ -1995,66 +1995,66 @@ describe("App OAuth resume lifecycle", () => {
   });
 });
 
-describe("App single-page list pagination toggle (#1721)", () => {
+describe("App paginated list pagination toggle (#1721)", () => {
   beforeEach(() => {
     clientInstances.length = 0;
     updateServerSettingsSpy.mockClear();
   });
 
-  it("persists and live-pushes singlePageLists when the sidebar toggle flips", async () => {
+  it("persists and live-pushes paginatedLists when the sidebar toggle flips", async () => {
     const user = userEvent.setup();
     renderWithMantine(<App />);
     await user.click(screen.getByText("connect"));
     await waitFor(() => expect(clientInstances).toHaveLength(1));
 
-    expect(screen.getByTestId("tools-single-page")).toHaveTextContent("false");
+    expect(screen.getByTestId("tools-paginated")).toHaveTextContent("false");
 
-    await user.click(screen.getByText("single-page-on"));
+    await user.click(screen.getByText("paginated-on"));
 
     // Optimistic UI flip is immediate.
     await waitFor(() =>
-      expect(screen.getByTestId("tools-single-page")).toHaveTextContent("true"),
+      expect(screen.getByTestId("tools-paginated")).toHaveTextContent("true"),
     );
     // Persisted to the server settings (survives reconnects).
     expect(updateServerSettingsSpy).toHaveBeenCalledWith(
       "A",
-      expect.objectContaining({ singlePageLists: true }),
+      expect.objectContaining({ paginatedLists: true }),
     );
     // Live-pushed to the client so the managed state's gating reads it now.
     const client = clientInstances[0] as unknown as {
       setServerSettings: ReturnType<typeof vi.fn>;
     };
     expect(client.setServerSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ singlePageLists: true }),
+      expect.objectContaining({ paginatedLists: true }),
     );
 
     // Toggling back off persists false.
-    await user.click(screen.getByText("single-page-off"));
+    await user.click(screen.getByText("paginated-off"));
     await waitFor(() =>
       expect(updateServerSettingsSpy).toHaveBeenCalledWith(
         "A",
-        expect.objectContaining({ singlePageLists: false }),
+        expect.objectContaining({ paginatedLists: false }),
       ),
     );
   });
 
-  it("routes Refresh and Load-next-page in single-page mode and clears the indicator", async () => {
+  it("routes Refresh and Load-next-page in paginated mode and clears the indicator", async () => {
     const user = userEvent.setup();
     clearToolsListChangedSpy.mockClear();
     renderWithMantine(<App />);
     await user.click(screen.getByText("connect"));
     await waitFor(() => expect(clientInstances).toHaveLength(1));
 
-    await user.click(screen.getByText("single-page-on"));
+    await user.click(screen.getByText("paginated-on"));
     await waitFor(() =>
-      expect(screen.getByTestId("tools-single-page")).toHaveTextContent("true"),
+      expect(screen.getByTestId("tools-paginated")).toHaveTextContent("true"),
     );
-    // Exercise the mode-aware Refresh (single-page → reload page 1) and the
+    // Exercise the mode-aware Refresh (paginated → reload page 1) and the
     // Load-next-page control; both should run without error.
     await user.click(screen.getByText("refresh-tools"));
     await user.click(screen.getByText("load-more-tools"));
-    expect(screen.getByTestId("tools-single-page")).toHaveTextContent("true");
-    // The single-page Refresh must acknowledge the managed list-changed
+    expect(screen.getByTestId("tools-paginated")).toHaveTextContent("true");
+    // The paginated Refresh must acknowledge the managed list-changed
     // indicator (the paged reload bypasses the managed hook's refresh) (#1721).
     expect(clearToolsListChangedSpy).toHaveBeenCalled();
   });
@@ -2066,11 +2066,11 @@ describe("App single-page list pagination toggle (#1721)", () => {
     await user.click(screen.getByText("connect"));
     await waitFor(() => expect(clientInstances).toHaveLength(1));
 
-    await user.click(screen.getByText("single-page-on"));
+    await user.click(screen.getByText("paginated-on"));
     // The optimistic flip is rolled back once the persist rejects, so the UI
     // reflects the (unchanged) persisted value rather than the failed edit.
     await waitFor(() =>
-      expect(screen.getByTestId("tools-single-page")).toHaveTextContent(
+      expect(screen.getByTestId("tools-paginated")).toHaveTextContent(
         "false",
       ),
     );
@@ -2079,8 +2079,8 @@ describe("App single-page list pagination toggle (#1721)", () => {
       setServerSettings: ReturnType<typeof vi.fn>;
     };
     const lastPush = client.setServerSettings.mock.calls.at(-1)?.[0] as {
-      singlePageLists?: boolean;
+      paginatedLists?: boolean;
     };
-    expect(lastPush?.singlePageLists).toBeFalsy();
+    expect(lastPush?.paginatedLists).toBeFalsy();
   });
 });

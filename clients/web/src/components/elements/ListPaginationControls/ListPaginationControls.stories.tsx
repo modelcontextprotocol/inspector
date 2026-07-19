@@ -6,7 +6,7 @@ const meta: Meta<typeof ListPaginationControls> = {
   title: "Elements/ListPaginationControls",
   component: ListPaginationControls,
   args: {
-    onSinglePageChange: fn(),
+    onPaginatedChange: fn(),
     onLoadMore: fn(),
   },
 };
@@ -16,7 +16,7 @@ type Story = StoryObj<typeof ListPaginationControls>;
 
 export const AllPages: Story = {
   args: {
-    singlePage: false,
+    paginated: false,
     canLoadMore: false,
     loadedPages: 0,
   },
@@ -24,7 +24,7 @@ export const AllPages: Story = {
 
 export const SinglePageWithMore: Story = {
   args: {
-    singlePage: true,
+    paginated: true,
     canLoadMore: true,
     loadedPages: 2,
   },
@@ -32,7 +32,7 @@ export const SinglePageWithMore: Story = {
 
 export const SinglePageAtEnd: Story = {
   args: {
-    singlePage: true,
+    paginated: true,
     canLoadMore: false,
     loadedPages: 3,
   },
@@ -40,7 +40,7 @@ export const SinglePageAtEnd: Story = {
 
 export const SinglePageFirstPage: Story = {
   args: {
-    singlePage: true,
+    paginated: true,
     canLoadMore: true,
     loadedPages: 1,
   },

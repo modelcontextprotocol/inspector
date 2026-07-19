@@ -1395,12 +1395,12 @@ export function createRemoteApp(
     }
     // Optional on the wire; boolean when present, else defaults to false below.
     if (
-      obj.singlePageLists !== undefined &&
-      typeof obj.singlePageLists !== "boolean"
+      obj.paginatedLists !== undefined &&
+      typeof obj.paginatedLists !== "boolean"
     ) {
       return {
         ok: false,
-        error: "settings.singlePageLists must be a boolean",
+        error: "settings.paginatedLists must be a boolean",
       };
     }
     // maxFetchRequests is optional on the wire (older clients won't send it);
@@ -1488,7 +1488,7 @@ export function createRemoteApp(
       // in inspectorSettingsToStoredFields, so a false value writes nothing.
       autoRefreshOnListChanged: obj.autoRefreshOnListChanged === true,
       // Absent → false, matching the read side (omit-on-false on the write side).
-      singlePageLists: obj.singlePageLists === true,
+      paginatedLists: obj.paginatedLists === true,
       // Absent → product default, matching the read side. The default is the
       // omit-sentinel in inspectorSettingsToStoredFields, so a client that
       // didn't send one writes no spurious maxFetchRequests to disk.

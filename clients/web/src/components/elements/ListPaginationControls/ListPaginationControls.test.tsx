@@ -4,8 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { ListPaginationControls } from "./ListPaginationControls";
 
 const baseProps = {
-  singlePage: false,
-  onSinglePageChange: () => {},
+  paginated: false,
+  onPaginatedChange: () => {},
   canLoadMore: false,
   loadedPages: 0,
   onLoadMore: () => {},
@@ -22,24 +22,24 @@ describe("ListPaginationControls", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("toggles single-page mode via the switch", async () => {
+  it("toggles paginated mode via the switch", async () => {
     const user = userEvent.setup();
-    const onSinglePageChange = vi.fn();
+    const onPaginatedChange = vi.fn();
     renderWithMantine(
       <ListPaginationControls
         {...baseProps}
-        onSinglePageChange={onSinglePageChange}
+        onPaginatedChange={onPaginatedChange}
       />,
     );
     await user.click(screen.getByRole("switch"));
-    expect(onSinglePageChange).toHaveBeenCalledWith(true);
+    expect(onPaginatedChange).toHaveBeenCalledWith(true);
   });
 
-  it("shows the load-more button and page count in single-page mode", () => {
+  it("shows the load-more button and page count in paginated mode", () => {
     renderWithMantine(
       <ListPaginationControls
         {...baseProps}
-        singlePage
+        paginated
         canLoadMore
         loadedPages={2}
       />,
@@ -55,7 +55,7 @@ describe("ListPaginationControls", () => {
     renderWithMantine(
       <ListPaginationControls
         {...baseProps}
-        singlePage
+        paginated
         canLoadMore
         loadedPages={1}
       />,
@@ -64,11 +64,11 @@ describe("ListPaginationControls", () => {
   });
 
   it("hides the whole control when the list is a single page", () => {
-    // Single-page mode, page 1 loaded, no next cursor → nothing to paginate.
+    // Paginated mode, page 1 loaded, no next cursor → nothing to paginate.
     renderWithMantine(
       <ListPaginationControls
         {...baseProps}
-        singlePage
+        paginated
         canLoadMore={false}
         loadedPages={1}
       />,
@@ -79,12 +79,12 @@ describe("ListPaginationControls", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("still shows the switch while a single-page load is pending (0 pages)", () => {
-    // loadedPages 0 (page 1 not yet loaded) must not trip the single-page hide.
+  it("still shows the switch while a paginated load is pending (0 pages)", () => {
+    // loadedPages 0 (page 1 not yet loaded) must not trip the paginated hide.
     renderWithMantine(
       <ListPaginationControls
         {...baseProps}
-        singlePage
+        paginated
         canLoadMore={false}
         loadedPages={0}
       />,
@@ -96,7 +96,7 @@ describe("ListPaginationControls", () => {
     renderWithMantine(
       <ListPaginationControls
         {...baseProps}
-        singlePage
+        paginated
         canLoadMore={false}
         loadedPages={3}
       />,
@@ -113,7 +113,7 @@ describe("ListPaginationControls", () => {
     renderWithMantine(
       <ListPaginationControls
         {...baseProps}
-        singlePage
+        paginated
         canLoadMore
         loadedPages={1}
         onLoadMore={onLoadMore}

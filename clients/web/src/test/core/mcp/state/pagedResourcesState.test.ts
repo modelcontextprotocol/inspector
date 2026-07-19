@@ -8,7 +8,7 @@ function resource(uri: string): Resource {
   return { uri, name: uri };
 }
 
-const SINGLE_PAGE_SETTINGS: InspectorServerSettings = {
+const PAGINATED_SETTINGS: InspectorServerSettings = {
   headers: [],
   env: [],
   metadata: [],
@@ -17,7 +17,7 @@ const SINGLE_PAGE_SETTINGS: InspectorServerSettings = {
   taskTtl: 60000,
   maxFetchRequests: 1000,
   roots: [],
-  singlePageLists: true,
+  paginatedLists: true,
 };
 
 function waitForChange(state: PagedResourcesState): Promise<Resource[]> {
@@ -188,9 +188,9 @@ describe("PagedResourcesState", () => {
       });
     });
 
-    it("loads page 1 on connect in single-page mode, not otherwise", async () => {
+    it("loads page 1 on connect in paginated mode, not otherwise", async () => {
       const spClient = new FakeInspectorClient({
-        serverSettings: SINGLE_PAGE_SETTINGS,
+        serverSettings: PAGINATED_SETTINGS,
       });
       spClient.setStatus("connected");
       const spState = new PagedResourcesState(spClient);

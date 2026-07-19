@@ -56,7 +56,7 @@ export function headersToServerSettings(
     taskTtl: DEFAULT_TASK_TTL_MS,
     maxFetchRequests: DEFAULT_MAX_FETCH_REQUESTS,
     autoRefreshOnListChanged: false,
-    singlePageLists: false,
+    paginatedLists: false,
     roots: [],
   };
 }

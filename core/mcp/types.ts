@@ -130,7 +130,7 @@ export type StoredMCPServer = MCPServerConfig & {
    * servers with very large lists. Inspector-specific. Omitted on disk when
    * false (the default). (#1721)
    */
-  singlePageLists?: boolean;
+  paginatedLists?: boolean;
   /**
    * Maximum number of HTTP fetch requests retained in the Network log for this
    * server (oldest rotate out past the cap). Inspector-specific. Omitted on
@@ -558,7 +558,7 @@ export interface InspectorServerSettings {
    * manual "Load next page" control) instead of auto-aggregating all pages.
    * Default false. Server-wide; the per-list sidebar toggle edits this. (#1721)
    */
-  singlePageLists?: boolean;
+  paginatedLists?: boolean;
   /**
    * Maximum number of HTTP fetch requests retained in the Network log for this
    * server. When exceeded, the oldest entries rotate out (and any deferred

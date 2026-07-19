@@ -33,7 +33,7 @@ export class ManagedResourcesState extends ManagedListState<
       changeEvent: "resourcesChange",
       listChangedEvent: "resourcesListChanged",
       capabilityKey: "resources",
-      deferInSinglePage: true,
+      deferWhenPaginated: true,
       supportsIndicator: true,
       debounceMs,
       fetchAll: async (c, cacheMode, metadata) => {

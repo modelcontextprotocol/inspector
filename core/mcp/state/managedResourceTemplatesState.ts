@@ -40,8 +40,8 @@ export class ManagedResourceTemplatesState extends ManagedListState<
       // Templates are gated on the broader `resources` capability.
       capabilityKey: "resources",
       // No paged counterpart (templates aren't paginated in the UI), so they
-      // must still aggregate on connect even in single-page mode (#1721).
-      deferInSinglePage: false,
+      // must still aggregate on connect even in paginated mode (#1721).
+      deferWhenPaginated: false,
       supportsIndicator: false,
       debounceMs,
       fetchAll: async (c, cacheMode, metadata) => {
