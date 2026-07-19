@@ -69,6 +69,7 @@ import type {
   ContentBlock,
 } from "@modelcontextprotocol/client";
 import {
+  LOG_LEVEL_META_KEY,
   RELATED_TASK_META_KEY,
   SdkError,
   SdkErrorCode,
@@ -2542,6 +2543,41 @@ describe("InspectorClient", () => {
       if (capabilities?.logging) {
         await client.setLoggingLevel("info");
       }
+    });
+
+    it("does not stamp the modern per-request log level on a legacy connection (#1629)", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        { environment: { transport: createTransportNode } },
+      );
+      const messageLogState = new MessageLogState(client);
+      await client.connect();
+
+      // Setting the modern level is a no-op on a legacy server: the era gate in
+      // mergeMeta means the `logLevel` `_meta` key is never stamped there.
+      client.setModernLogLevel("debug");
+      expect(client.getModernLogLevel()).toBe("debug");
+
+      const tool = await getTool(client, "echo");
+      await client.callTool(tool, { message: "hi" });
+
+      const callToolReq = messageLogState
+        .getMessages()
+        .find(
+          (m) =>
+            m.direction === "request" &&
+            (m.message as { method?: string }).method === "tools/call",
+        );
+      expect(callToolReq).toBeDefined();
+      const params = (callToolReq!.message as { params?: { _meta?: unknown } })
+        .params;
+      const meta = (params?._meta as Record<string, unknown>) ?? {};
+      expect(meta[LOG_LEVEL_META_KEY]).toBeUndefined();
+      messageLogState.destroy();
     });
 
     it("should track stderr logs for stdio transport", async () => {

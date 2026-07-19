@@ -12,13 +12,19 @@ import {
   TextInput,
 } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
+import type { ProtocolEra } from "@modelcontextprotocol/client";
 import type {
   InspectorServerSettings,
+  ModernLogLevel,
   OAuthSettings,
   ServerProtocolEra,
   ServerType,
 } from "@inspector/core/mcp/types.js";
-import { DEFAULT_PROTOCOL_ERA } from "@inspector/core/mcp/types.js";
+import {
+  DEFAULT_MODERN_LOG_LEVEL,
+  DEFAULT_PROTOCOL_ERA,
+  MODERN_LOG_LEVELS,
+} from "@inspector/core/mcp/types.js";
 import { isOAuthCapableServerType } from "@inspector/core/mcp/config.js";
 import type { Root } from "@modelcontextprotocol/client";
 
@@ -61,6 +67,15 @@ export interface ServerSettingsFormProps {
   onPaginatedListsChange: (value: boolean) => void;
   onMaxFetchRequestsChange: (value: number) => void;
   onProtocolEraChange: (value: ServerProtocolEra) => void;
+  onModernLogLevelChange: (value: ModernLogLevel) => void;
+  /**
+   * The era this server actually negotiated, when it is the live connection —
+   * `undefined` when this server isn't the connected one. Used to hide the
+   * modern-only "Log Level per Request" control once an `auto` server resolves
+   * to legacy at connect time (#1629). A pinned `legacy` era hides it
+   * regardless (no connection needed).
+   */
+  negotiatedEra?: ProtocolEra;
   onOAuthChange: (oauth: OAuthSettings) => void;
   onClearStoredOAuth?: () => void;
   onAddRoot: () => void;
@@ -83,6 +98,22 @@ const PROTOCOL_ERA_VALUES: ReadonlySet<ServerProtocolEra> = new Set(
 
 function isProtocolEra(value: string | null): value is ServerProtocolEra {
   return value !== null && PROTOCOL_ERA_VALUES.has(value as ServerProtocolEra);
+}
+
+// Modern per-request log-level options (#1629): "Off" plus the eight levels.
+// Only meaningful on the modern era; labeled so the "Off" state reads clearly.
+const MODERN_LOG_LEVEL_OPTIONS: { value: ModernLogLevel; label: string }[] =
+  MODERN_LOG_LEVELS.map((level) => ({
+    value: level,
+    label: level === "off" ? "Off (no logs)" : level,
+  }));
+
+const MODERN_LOG_LEVEL_VALUES: ReadonlySet<ModernLogLevel> = new Set(
+  MODERN_LOG_LEVELS,
+);
+
+function isModernLogLevelValue(value: string | null): value is ModernLogLevel {
+  return value !== null && MODERN_LOG_LEVEL_VALUES.has(value as ModernLogLevel);
 }
 
 const RemoveIcon = ActionIcon.withProps({
@@ -243,6 +274,8 @@ export function ServerSettingsForm({
   onPaginatedListsChange,
   onMaxFetchRequestsChange,
   onProtocolEraChange,
+  onModernLogLevelChange,
+  negotiatedEra,
   onOAuthChange,
   onClearStoredOAuth,
   onAddRoot,
@@ -250,6 +283,15 @@ export function ServerSettingsForm({
   onRootChange,
 }: ServerSettingsFormProps) {
   const oauthCapable = isOAuthCapableServerType(serverType);
+  // The modern per-request "Log Level per Request" control is meaningless on a
+  // legacy connection (#1629). Hide it when legacy is pinned, or when an `auto`
+  // server negotiated legacy at connect time. A pinned `modern` server, and an
+  // `auto` server that is either not yet connected or resolved to modern, keep
+  // it visible.
+  const configuredEra = settings.protocolEra ?? DEFAULT_PROTOCOL_ERA;
+  const showModernLogLevel =
+    configuredEra === "modern" ||
+    (configuredEra === "auto" && negotiatedEra !== "legacy");
   const handleMaxFetchRequestsChange = (value: number | string) => {
     if (typeof value === "number") {
       onMaxFetchRequestsChange(value);
@@ -310,6 +352,22 @@ export function ServerSettingsForm({
               }}
               allowDeselect={false}
             />
+            {showModernLogLevel && (
+              <Select
+                label="Log Level per Request"
+                description="Modern-era only. On 2026-07-28 servers there is no logging/setLevel — the client opts into logs per request by stamping this level in each request's _meta, and logs arrive on the originating request's stream. Off requests no logs. Defaults to Debug so a modern connection surfaces server logs out of the box. Legacy servers ignore this and use Set Active Level."
+                data={MODERN_LOG_LEVEL_OPTIONS}
+                value={settings.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL}
+                onChange={(value) => {
+                  // Select emits `string | null`; not clearable, so the value
+                  // always resolves to a known option.
+                  /* v8 ignore next -- Select never emits an out-of-range value */
+                  if (isModernLogLevelValue(value))
+                    onModernLogLevelChange(value);
+                }}
+                allowDeselect={false}
+              />
+            )}
             <Checkbox
               label="Auto Refresh on List Changed Notifications"
               description="When checked, tool/prompt/resource lists refresh automatically when the server sends a */list_changed notification. When unchecked, the list-changed indicator appears and you refresh on demand."

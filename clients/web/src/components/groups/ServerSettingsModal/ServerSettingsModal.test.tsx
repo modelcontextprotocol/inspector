@@ -139,6 +139,44 @@ describe("ServerSettingsModal", () => {
     );
   });
 
+  it("maps the selected modern log level into settings (#1629)", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        // The modern log-level control only shows for a modern-capable era.
+        settings={{ ...emptySettings, protocolEra: "modern" }}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    // The Options section (with Log Level per Request) is expanded by default;
+    // it defaults to "debug".
+    await user.click(screen.getAllByDisplayValue("debug")[0]);
+    await user.click(screen.getByText("Off (no logs)"));
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({ modernLogLevel: "off" }),
+    );
+  });
+
+  it("hides the modern log-level control when this server negotiated legacy under 'auto' (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={{ ...emptySettings, protocolEra: "auto" }}
+        serverType="streamable-http"
+        isStdio={false}
+        negotiatedEra="legacy"
+        onClose={vi.fn()}
+        onSettingsChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Log Level per Request")).toBeNull();
+  });
+
   it("calls onSettingsChange when adding a header after expanding the section", async () => {
     const user = userEvent.setup();
     const onSettingsChange = vi.fn();

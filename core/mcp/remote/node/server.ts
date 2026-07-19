@@ -36,6 +36,7 @@ import { AuthChallengeError } from "../../../auth/challenge.js";
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
   DEFAULT_TASK_TTL_MS,
+  isModernLogLevel,
 } from "../../types.js";
 import type {
   InspectorServerSettings,
@@ -1186,6 +1187,16 @@ export function createRemoteApp(
         );
         delete valObj.protocolEra;
       }
+      if (
+        "modernLogLevel" in valObj &&
+        !isModernLogLevel(valObj.modernLogLevel)
+      ) {
+        logWarn(
+          { route: "/api/servers", id, droppedKey: "modernLogLevel" },
+          "Dropping malformed `modernLogLevel` field — expected 'off' or a logging level.",
+        );
+        delete valObj.modernLogLevel;
+      }
 
       out[id] = normalizeServerType(
         valObj as Record<string, unknown> & { type?: string },
@@ -1463,6 +1474,18 @@ export function createRemoteApp(
         error: "settings.protocolEra must be 'legacy', 'auto', or 'modern'",
       };
     }
+    // modernLogLevel is optional on the wire; when present it must be "off" or
+    // one of the eight logging levels, otherwise it defaults to absent below.
+    if (
+      obj.modernLogLevel !== undefined &&
+      !isModernLogLevel(obj.modernLogLevel)
+    ) {
+      return {
+        ok: false,
+        error:
+          "settings.modernLogLevel must be 'off' or a logging level (debug…emergency)",
+      };
+    }
     // Build the validated value from explicitly named fields rather than
     // casting the raw object through. Unknown keys silently drop so a
     // misconfigured client can't smuggle stowaways onto disk, and consumers
@@ -1527,6 +1550,11 @@ export function createRemoteApp(
     // default era downstream (eraToVersionNegotiation is not called for absent).
     if (isProtocolEra(obj.protocolEra)) {
       value.protocolEra = obj.protocolEra;
+    }
+    // Optional; carry a valid modern log level. Absence reads back as the
+    // default (DEFAULT_MODERN_LOG_LEVEL) downstream.
+    if (isModernLogLevel(obj.modernLogLevel)) {
+      value.modernLogLevel = obj.modernLogLevel;
     }
     // Empty cwd coerces to absent on the value (matching the read side); the
     // write-through distinguishes "sent cwd: '' " (clear) from "cwd omitted"

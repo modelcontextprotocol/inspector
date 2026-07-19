@@ -406,6 +406,56 @@ describe("serverEntriesToMcpConfig", () => {
     expect("protocolEra" in (round.mcpServers["era-legacy"] ?? {})).toBe(false);
   });
 
+  it("round-trips modernLogLevel: lifts a non-default value to settings and back to disk (#1629)", () => {
+    const original: MCPConfig = {
+      mcpServers: {
+        "log-off": {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          modernLogLevel: "off",
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.modernLogLevel).toBe("off");
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect(round).toEqual(original);
+  });
+
+  it("drops an unknown modernLogLevel literal on read (hand-edited file) (#1629)", () => {
+    const badLevel: object = { modernLogLevel: "verbose" };
+    const original: MCPConfig = {
+      mcpServers: {
+        "log-bad": {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          ...badLevel,
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.modernLogLevel).toBeUndefined();
+  });
+
+  it("omits modernLogLevel from disk when it equals the default (debug) (#1629)", () => {
+    const original: MCPConfig = {
+      mcpServers: {
+        "log-default": {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          modernLogLevel: "debug",
+          connectionTimeout: 5000,
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.modernLogLevel).toBe("debug");
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect("modernLogLevel" in (round.mcpServers["log-default"] ?? {})).toBe(
+      false,
+    );
+  });
+
   it("lifts top-level Inspector-extension fields onto ServerEntry.settings (form shape)", () => {
     const cfg: MCPConfig = {
       mcpServers: {

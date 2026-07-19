@@ -68,6 +68,7 @@ const baseHandlers = {
   onPaginatedListsChange: vi.fn(),
   onMaxFetchRequestsChange: vi.fn(),
   onProtocolEraChange: vi.fn(),
+  onModernLogLevelChange: vi.fn(),
   onOAuthChange: vi.fn(),
   onAddRoot: vi.fn(),
   onRemoveRoot: vi.fn(),
@@ -128,6 +129,110 @@ describe("ServerSettingsForm", () => {
     expect(
       screen.getByDisplayValue("Auto (probe, fall back to legacy)"),
     ).toBeInTheDocument();
+  });
+
+  // The modern per-request control only shows for a modern-capable era. Base
+  // these tests on a modern-pinned settings object so the Select renders.
+  const modernSettings = { ...emptySettings, protocolEra: "modern" as const };
+
+  it("defaults the Log Level per Request select to Debug when unset (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={modernSettings}
+        expandedSections={["options"]}
+      />,
+    );
+    // Two selects can display "debug" (the value plus its hidden input), so
+    // assert at least one and that the control's label is present.
+    expect(screen.getByText("Log Level per Request")).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue("debug").length).toBeGreaterThan(0);
+  });
+
+  it("invokes onModernLogLevelChange with the selected level (#1629)", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={modernSettings}
+        expandedSections={["options"]}
+      />,
+    );
+    await user.click(screen.getAllByDisplayValue("debug")[0]);
+    await user.click(screen.getByText("warning"));
+    expect(baseHandlers.onModernLogLevelChange).toHaveBeenCalledWith("warning");
+  });
+
+  it("selects Off to opt out of per-request logs (#1629)", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={modernSettings}
+        expandedSections={["options"]}
+      />,
+    );
+    await user.click(screen.getAllByDisplayValue("debug")[0]);
+    await user.click(screen.getByText("Off (no logs)"));
+    expect(baseHandlers.onModernLogLevelChange).toHaveBeenCalledWith("off");
+  });
+
+  it("reflects the configured modernLogLevel in the select value (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...modernSettings, modernLogLevel: "off" }}
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.getByDisplayValue("Off (no logs)")).toBeInTheDocument();
+  });
+
+  it("hides the Log Level per Request control when the era is legacy (#1629)", () => {
+    // emptySettings has no protocolEra → defaults to legacy → control hidden.
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.queryByText("Log Level per Request")).toBeNull();
+  });
+
+  it("hides the control for an 'auto' server that negotiated legacy (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, protocolEra: "auto" }}
+        negotiatedEra="legacy"
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.queryByText("Log Level per Request")).toBeNull();
+  });
+
+  it("shows the control for an 'auto' server not yet connected (era unknown) (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, protocolEra: "auto" }}
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.getByText("Log Level per Request")).toBeInTheDocument();
+  });
+
+  it("shows the control for an 'auto' server that negotiated modern (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, protocolEra: "auto" }}
+        negotiatedEra="modern"
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.getByText("Log Level per Request")).toBeInTheDocument();
   });
 
   it("shows empty hints for headers and metadata when no entries exist", () => {

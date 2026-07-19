@@ -22,6 +22,7 @@ const meta: Meta<typeof LogControls> = {
     onFilterChange: fn(),
     onToggleLevel: fn(),
     onToggleAllLevels: fn(),
+    onSetModernLogLevel: fn(),
   },
 };
 
@@ -66,5 +67,28 @@ export const DebugLevel: Story = {
     currentLevel: "debug",
     filterText: "",
     visibleLevels: allLevelsVisible,
+  },
+};
+
+// Modern era (#1629): the session-scoped `Set` selector is replaced by the
+// per-request opt-in control. Not opted in yet, so the level reads "Off".
+export const ModernNotOptedIn: Story = {
+  args: {
+    currentLevel: "info",
+    filterText: "",
+    visibleLevels: allLevelsVisible,
+    protocolEra: "modern",
+    modernLogLevel: null,
+  },
+};
+
+// Modern era with a level chosen — stamped on every request's `_meta`.
+export const ModernOptedIn: Story = {
+  args: {
+    currentLevel: "info",
+    filterText: "",
+    visibleLevels: allLevelsVisible,
+    protocolEra: "modern",
+    modernLogLevel: "debug",
   },
 };

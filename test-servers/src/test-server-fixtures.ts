@@ -231,10 +231,7 @@ export function createGetWeatherTool(): ToolDefinition {
     description:
       "Get the weather for a city (its `city` argument mirrors to Mcp-Param-City)",
     inputSchema: {
-      city: z
-        .string()
-        .describe("City name")
-        .meta({ "x-mcp-header": "City" }),
+      city: z.string().describe("City name").meta({ "x-mcp-header": "City" }),
     },
     handler: async (params: Record<string, unknown>) => {
       return toToolResult(`Weather in ${params.city as string}: sunny, 24°C`);
@@ -912,29 +909,33 @@ export function createSendNotificationTool(): ToolDefinition {
     handler: async (
       params: Record<string, unknown>,
       context?: TestServerContext,
+      extra?: HandlerExtra,
     ): Promise<CallToolResult> => {
       if (!context) {
         throw new Error("Server context not available");
       }
-      const server = context.server;
 
       const message = params.message as string;
       const level = (params.level as string) || "info";
 
-      // Send a notification from the server
-      // Notifications don't have an id and use the jsonrpc format
+      // Emit the log through the SDK's request-scoped, threshold-gated
+      // `extra.log` (`ctx.mcpReq.log`) when available. It applies the era-correct
+      // gating for us: on the modern (2026-07-28) leg it drops the message unless
+      // the client opted in via the per-request `logLevel` `_meta` (and honors
+      // that level's severity), and streams the admitted log on THIS request's
+      // SSE response; on legacy it honors the session level from
+      // `logging/setLevel`. The global `server.server.notification()` fallback is
+      // for any caller without per-request context (older/in-process paths) and
+      // emits unconditionally on the session transport.
       try {
-        await server.server.notification({
-          method: "notifications/message",
-          params: {
-            level,
-            logger: "test-server",
-            data: {
-              message,
-            },
-          },
-        });
-
+        if (extra?.log) {
+          await extra.log(level, { message }, "test-server");
+        } else {
+          await context.server.server.notification({
+            method: "notifications/message",
+            params: { level, logger: "test-server", data: { message } },
+          });
+        }
         return toToolResult(`Notification sent: ${message}`);
       } catch (error) {
         console.error("[send_notification] Error sending notification:", error);
@@ -1551,8 +1552,7 @@ export function createAddToolTool(): ToolDefinition {
         {
           description: params.description as string,
           inputSchema: params.inputSchema as
-            | Record<string, z.ZodType>
-            | undefined,
+            Record<string, z.ZodType> | undefined,
         },
         async () => {
           return {
@@ -1656,8 +1656,7 @@ export function createAddPromptTool(): ToolDefinition {
         {
           description: params.description as string | undefined,
           argsSchema: params.argsSchema as
-            | Record<string, z.ZodType>
-            | undefined,
+            Record<string, z.ZodType> | undefined,
         },
         async () => {
           return {
@@ -1801,9 +1800,7 @@ export function createSendProgressTool(
 
       // Extract progressToken from metadata
       const progressToken = extra?._meta?.progressToken as
-        | string
-        | number
-        | undefined;
+        string | number | undefined;
 
       // Send progress notifications
       let sent = 0;
@@ -2239,12 +2236,9 @@ export function createTaskTool(
     handler: {
       createTask: async (args, extra) => {
         const message = (args as Record<string, unknown>)?.message as
-          | string
-          | undefined;
+          string | undefined;
         const progressToken = extra._meta?.progressToken as
-          | string
-          | number
-          | undefined;
+          string | number | undefined;
         const task = await extra.taskStore.createTask({});
         runTaskExecution({
           task,

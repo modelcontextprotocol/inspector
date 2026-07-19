@@ -1,5 +1,5 @@
 import { Card, Flex, Stack } from "@mantine/core";
-import type { LoggingLevel } from "@modelcontextprotocol/client";
+import type { LoggingLevel, ProtocolEra } from "@modelcontextprotocol/client";
 import { LogControls } from "../../groups/LogControls/LogControls";
 import { LogStreamPanel } from "../../groups/LogStreamPanel/LogStreamPanel";
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
@@ -12,6 +12,15 @@ export interface LoggingScreenProps {
   ui: LogsUiState;
   onUiChange: (next: LogsUiState) => void;
   onSetLevel: (level: LoggingLevel) => void;
+  /**
+   * Negotiated protocol era (#1629). On the modern era the level selector is
+   * replaced by the per-request opt-in control; legacy keeps `logging/setLevel`.
+   */
+  protocolEra?: ProtocolEra;
+  /** Modern per-request log level currently stamped, or `null` when opted out. */
+  modernLogLevel?: LoggingLevel | null;
+  /** Set (or clear, with `null`) the modern per-request log level. */
+  onSetModernLogLevel?: (level: LoggingLevel | null) => void;
   onClear: () => void;
   onExport: () => void;
   sortDirection: SortDirection;
@@ -54,6 +63,9 @@ export function LoggingScreen({
   ui,
   onUiChange,
   onSetLevel,
+  protocolEra,
+  modernLogLevel = null,
+  onSetModernLogLevel,
   onClear,
   onExport,
   sortDirection,
@@ -93,6 +105,9 @@ export function LoggingScreen({
               filterText={filterText}
               visibleLevels={visibleLevels}
               onSetLevel={onSetLevel}
+              protocolEra={protocolEra}
+              modernLogLevel={modernLogLevel}
+              onSetModernLogLevel={onSetModernLogLevel}
               onFilterChange={(value) =>
                 onUiChange({ ...ui, filterText: value })
               }

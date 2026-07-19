@@ -27,6 +27,7 @@ export type {
   AppRendererClient,
 } from "./types.js";
 import { getServerType as getServerTypeFromConfig } from "./config.js";
+import { DEFAULT_MODERN_LOG_LEVEL } from "./types.js";
 // Fallback client identity, used ONLY when a caller doesn't pass
 // `clientIdentity`. Real clients supply their own: the Node clients (CLI, TUI)
 // read the single-source version from the root package.json via
@@ -98,6 +99,7 @@ import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/client";
 import {
   isInputRequiredResult,
   withInputRequired,
+  LOG_LEVEL_META_KEY,
 } from "@modelcontextprotocol/client";
 import {
   EmptyResultSchema,
@@ -274,6 +276,13 @@ export class InspectorClient extends InspectorClientEventTarget {
   private ambientAuthChallengeInFlight = new Map<string, Promise<void>>();
   private pipeStderr: boolean;
   private initialLoggingLevel?: LoggingLevel;
+  // Modern-era per-request log level (#1629). On 2026-07-28 servers
+  // `logging/setLevel` is gone; the client opts into logs per request via the
+  // `io.modelcontextprotocol/logLevel` `_meta` key, and the SDK does not attach
+  // it automatically. When set, `mergeMeta` stamps this level on every outgoing
+  // request so server logs arrive on each request's stream; `undefined` means
+  // "don't opt in" (logs stay silently absent). Only honored on the modern era.
+  private modernLogLevel?: LoggingLevel;
   private sample: boolean;
   private elicit: boolean | { form?: boolean; url?: boolean };
   private progress: boolean;
@@ -382,6 +391,14 @@ export class InspectorClient extends InspectorClientEventTarget {
         ? options.defaultMetadata
         : undefined;
     this.serverSettings = options.serverSettings;
+    // Seed the modern per-request log level from the server setting (#1629), so
+    // a modern connection opts into logs by default without the user touching
+    // the Logs-tab control. Absence means DEFAULT_MODERN_LOG_LEVEL; `"off"`
+    // clears the opt-in. Only stamped on modern connections (see mergeMeta) —
+    // legacy uses `logging/setLevel`.
+    const settingLevel =
+      options.serverSettings?.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL;
+    this.modernLogLevel = settingLevel === "off" ? undefined : settingLevel;
     // Default to the legacy 2025-11-25 era when the caller doesn't pin one, per
     // the SDK guidance that a debugging tool must not auto-probe (#1626).
     this.versionNegotiation = options.versionNegotiation ?? { mode: "legacy" };
@@ -643,10 +660,21 @@ export class InspectorClient extends InspectorClientEventTarget {
     callMetadata?: Record<string, string>,
   ): Record<string, string> | undefined {
     const defaults = this.defaultMetadata;
-    const hasDefaults = defaults && Object.keys(defaults).length > 0;
-    const hasCall = callMetadata && Object.keys(callMetadata).length > 0;
-    if (!hasDefaults && !hasCall) return undefined;
-    return { ...(defaults ?? {}), ...(callMetadata ?? {}) };
+    // Modern-era per-request log level (#1629): stamp the opt-in `_meta` key on
+    // every request so the server emits `notifications/message` on this
+    // request's stream. Gated on the negotiated era — legacy servers use
+    // `logging/setLevel` instead, so we never stamp it there. Placed before the
+    // call-time keys so an explicit per-call `logLevel` (if ever passed) wins.
+    const logMeta =
+      this.protocolEra === "modern" && this.modernLogLevel
+        ? { [LOG_LEVEL_META_KEY]: this.modernLogLevel }
+        : undefined;
+    const merged = {
+      ...(defaults ?? {}),
+      ...(logMeta ?? {}),
+      ...(callMetadata ?? {}),
+    };
+    return Object.keys(merged).length > 0 ? merged : undefined;
   }
 
   private getRequestOptions(
@@ -1517,6 +1545,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.protocolVersion = undefined;
     this.protocolEra = undefined;
     this.discoverResult = undefined;
+    // Drop the modern per-request log-level opt-in so it doesn't leak into the
+    // next connection's `_meta` (#1629).
+    this.modernLogLevel = undefined;
     this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
     this.dispatchTypedEvent(
       "pendingElicitationsChange",
@@ -2092,7 +2123,12 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Set the logging level for the MCP server
+   * Set the logging level for the MCP server (legacy era only).
+   *
+   * On legacy servers logging is session-scoped: one `logging/setLevel` request
+   * sets the level for all subsequent `notifications/message`. Modern servers
+   * removed this method — use {@link setModernLogLevel} there instead.
+   *
    * @param level Logging level to set
    * @throws Error if client is not connected or server doesn't support logging
    */
@@ -2104,6 +2140,28 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Server does not support logging");
     }
     await this.client.setLoggingLevel(level, this.getRequestOptions());
+  }
+
+  /**
+   * Set (or clear) the modern-era per-request log level (#1629).
+   *
+   * On 2026-07-28 servers `logging/setLevel` is gone and there is no
+   * session-scoped level: the client opts into logs per request by stamping the
+   * `io.modelcontextprotocol/logLevel` `_meta` key, and the server MUST NOT emit
+   * `notifications/message` for requests that omit it. This stores the level so
+   * {@link mergeMeta} stamps it on every subsequent request; pass `undefined` to
+   * stop opting in (logs then stay silently absent). Takes effect immediately —
+   * no request is sent, and it is a no-op on the wire until the next request.
+   *
+   * @param level Level to stamp on every request, or `undefined` to opt out.
+   */
+  setModernLogLevel(level: LoggingLevel | undefined): void {
+    this.modernLogLevel = level;
+  }
+
+  /** The modern-era per-request log level, or `undefined` when not opted in. */
+  getModernLogLevel(): LoggingLevel | undefined {
+    return this.modernLogLevel;
   }
 
   /**

@@ -83,6 +83,14 @@ export interface HandlerExtra {
     params?: Record<string, unknown>;
   }) => Promise<void>;
   /**
+   * Request-scoped, threshold-gated logging (the SDK's `ctx.mcpReq.log`). Emits
+   * a `notifications/message` only when the connection's negotiated level admits
+   * it — the modern per-request `logLevel` opt-in, or the legacy session level —
+   * and streams it on this request's response. Prefer over {@link sendNotification}
+   * for server logs so the era-correct gating is applied for you.
+   */
+  log?: (level: string, data: unknown, logger?: string) => Promise<void> | void;
+  /**
    * MRTR (2026-07-28): the bare input responses a retried request echoes back,
    * keyed by the identifiers the server assigned in `inputRequests`. Present
    * only on the retry round, so an MRTR tool branches on it to distinguish the
@@ -102,6 +110,17 @@ interface McpReqContext {
     signal?: AbortSignal;
     send?: HandlerExtra["sendRequest"];
     notify?: HandlerExtra["sendNotification"];
+    /**
+     * Request-scoped logging helper the SDK adds in `McpServer.buildContext`.
+     * It applies the era-correct threshold gating for us: on the modern
+     * (2026-07-28) leg it reads the per-request `logLevel` opt-in from the
+     * request envelope and drops the message when the client didn't opt in or
+     * the level is below the requested severity; on legacy it honors the
+     * session level from `logging/setLevel`. Emits through `notify`, so on the
+     * modern leg the response upgrades to SSE and the log rides this request's
+     * stream. Prefer this over a raw `notify`/`notification` for logs.
+     */
+    log?: HandlerExtra["log"];
     /** MRTR input responses on a retried request (2026-07-28). */
     inputResponses?: Record<string, unknown>;
     /** MRTR request-state accessor (resolves the echoed opaque token). */
@@ -118,6 +137,7 @@ function toHandlerExtra(ctx: ServerContext | undefined): HandlerExtra {
     signal: mcpReq?.signal,
     sendRequest: mcpReq?.send,
     sendNotification: mcpReq?.notify,
+    log: mcpReq?.log?.bind(mcpReq),
     inputResponses: mcpReq?.inputResponses,
     requestState: mcpReq?.requestState?.(),
   };

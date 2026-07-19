@@ -149,6 +149,12 @@ function InteractiveRender(args: ServerSettingsFormProps) {
           settings: { ...args.settings, protocolEra: value },
         });
       }}
+      onModernLogLevelChange={(value) => {
+        args.onModernLogLevelChange(value);
+        updateArgs({
+          settings: { ...args.settings, modernLogLevel: value },
+        });
+      }}
       onOAuthChange={(oauth) => {
         args.onOAuthChange(oauth);
         updateArgs({
@@ -187,6 +193,7 @@ const meta: Meta<typeof ServerSettingsForm> = {
     onPaginatedListsChange: fn(),
     onMaxFetchRequestsChange: fn(),
     onProtocolEraChange: fn(),
+    onModernLogLevelChange: fn(),
     onOAuthChange: fn(),
   },
 };

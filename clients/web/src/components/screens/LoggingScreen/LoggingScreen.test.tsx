@@ -132,6 +132,32 @@ describe("LoggingScreen", () => {
     expect(onSetLevel).toHaveBeenCalledWith("info");
   });
 
+  it("shows the per-request control instead of the Set button on the modern era (#1629)", () => {
+    renderWithMantine(<LoggingScreen {...baseProps} protocolEra="modern" />);
+    expect(screen.queryByRole("button", { name: "Set" })).toBeNull();
+    expect(screen.getByText("Log Level per Request")).toBeInTheDocument();
+  });
+
+  it("forwards the chosen modern level via onSetModernLogLevel", async () => {
+    const user = userEvent.setup();
+    const onSetModernLogLevel = vi.fn();
+    renderWithMantine(
+      <LoggingScreen
+        {...baseProps}
+        protocolEra="modern"
+        modernLogLevel={null}
+        onSetModernLogLevel={onSetModernLogLevel}
+      />,
+    );
+    await user.click(screen.getAllByDisplayValue("Off (no logs)")[0]);
+    const debugOption = await screen.findByRole("option", {
+      name: "debug",
+      hidden: true,
+    });
+    await user.click(debugOption);
+    expect(onSetModernLogLevel).toHaveBeenCalledWith("debug");
+  });
+
   it("drops the filter sidebar when embedded, keeping the stream", () => {
     renderWithMantine(<LoggingScreen {...baseProps} embedded />);
     expect(screen.getByText("Log Stream")).toBeInTheDocument();
