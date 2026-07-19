@@ -909,6 +909,34 @@ describe("ToolsTab", () => {
     });
   });
 
+  it("should submit the latest JSON value without waiting for the debounce", async () => {
+    const jsonTool: Tool = {
+      name: "jsonTool",
+      inputSchema: {
+        type: "object",
+        properties: {
+          config: { type: "object", additionalProperties: true },
+        },
+      },
+    };
+    const callToolMock = jest.fn(async () => {});
+
+    renderToolsTab({ selectedTool: jsonTool, callTool: callToolMock });
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: '{"key":"updated"}' },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /run tool/i }));
+
+    await act(async () => {});
+    expect(callToolMock).toHaveBeenCalledWith(
+      "jsonTool",
+      { config: { key: "updated" } },
+      undefined,
+      false,
+    );
+  });
+
   describe("Reserved metadata keys", () => {
     test.each`
       description                             | value                             | message

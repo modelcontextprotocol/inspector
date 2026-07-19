@@ -127,9 +127,29 @@ const AppsTab = ({
   }, []);
 
   // Function to check if any form has validation errors
+  const validateJsonParams = useCallback(() => {
+    const validatedParams = { ...params };
+    let hasErrors = false;
+
+    for (const [key, ref] of Object.entries(formRefs.current)) {
+      if (!ref) continue;
+
+      const result = ref.validateJson();
+      if (!result.isValid) {
+        hasErrors = true;
+      } else if (result.value !== undefined) {
+        validatedParams[key] = result.value;
+      }
+    }
+
+    setHasValidationErrors(hasErrors);
+    if (!hasErrors) setParams(validatedParams);
+    return { hasErrors, validatedParams };
+  }, [params]);
+
   const checkValidationErrors = useCallback(() => {
     const errors = Object.values(formRefs.current).some(
-      (ref) => ref && !ref.validateJson().isValid,
+      (ref) => ref && ref.hasJsonError(),
     );
     setHasValidationErrors(errors);
     return errors;
@@ -249,12 +269,15 @@ const AppsTab = ({
   }, []);
 
   const handleOpenApp = useCallback(async () => {
-    if (!selectedTool || checkValidationErrors()) {
+    if (!selectedTool) {
       return;
     }
 
-    await executeToolAndOpenApp(selectedTool, params);
-  }, [checkValidationErrors, executeToolAndOpenApp, params, selectedTool]);
+    const { hasErrors, validatedParams } = validateJsonParams();
+    if (hasErrors) return;
+
+    await executeToolAndOpenApp(selectedTool, validatedParams);
+  }, [executeToolAndOpenApp, selectedTool, validateJsonParams]);
 
   const handleSelectTool = useCallback(
     (tool: Tool) => {
