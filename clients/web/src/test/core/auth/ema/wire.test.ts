@@ -34,11 +34,25 @@ const ID_TOKEN = "header.idpayload.sig";
 const ID_JAG = "mock-id-jag-token";
 const ACCESS_TOKEN = "mock-resource-access-token";
 
+function idpMetadata() {
+  return minimalOAuthAsMetadata(IDP_ISSUER);
+}
+
 function asMetadata() {
   return {
     ...minimalOAuthAsMetadata(AS_ISSUER),
     jwks_uri: `${AS_ISSUER}/jwks`,
   };
+}
+
+/** Route the mock through the real SDK helper (canaries for message-map drift). */
+async function useRealDiscoverAndRequestJwtAuthGrant() {
+  const actual = await vi.importActual<
+    typeof import("@modelcontextprotocol/client")
+  >("@modelcontextprotocol/client");
+  mockDiscoverAndRequestJwtAuthGrant.mockImplementation((options) =>
+    actual.discoverAndRequestJwtAuthGrant(options),
+  );
 }
 
 describe("ema wire", () => {
@@ -78,9 +92,18 @@ describe("ema wire", () => {
       });
     });
 
-    it("throws when IdP metadata is missing a token_endpoint", async () => {
-      mockDiscoverAndRequestJwtAuthGrant.mockRejectedValueOnce(
-        new Error("Failed to discover token endpoint"),
+    // Canaries: call the real `discoverAndRequestJwtAuthGrant` so
+    // `wire.ts` regex remaps stay tied to actual SDK error wording. Fabricating
+    // those strings in mocks would hide SDK message drift (mapping would fall
+    // through to the generic EMA leg 2 wrapper while tests still passed).
+    it("maps real SDK missing-token-endpoint errors (canary)", async () => {
+      await useRealDiscoverAndRequestJwtAuthGrant();
+      const errorSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      // All discovery endpoints 404 → SDK throws "Failed to discover token endpoint…".
+      const fetchFn = vi.fn(
+        async () => new Response("not found", { status: 404 }),
       );
 
       await expect(
@@ -93,13 +116,29 @@ describe("ema wire", () => {
           idToken: ID_TOKEN,
           audience: AS_ISSUER,
           resource: MCP_RESOURCE,
+          fetchFn,
         }),
       ).rejects.toThrow(/IdP metadata missing token_endpoint/);
+      errorSpy.mockRestore();
     });
 
-    it("sets resource and scope params and throws when no ID-JAG is returned", async () => {
-      mockDiscoverAndRequestJwtAuthGrant.mockRejectedValueOnce(
-        new Error("Invalid token exchange response"),
+    it("maps real SDK invalid token-exchange responses (canary)", async () => {
+      await useRealDiscoverAndRequestJwtAuthGrant();
+      const fetchFn = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url.includes("/.well-known/oauth-authorization-server")) {
+            return new Response(JSON.stringify(idpMetadata()));
+          }
+          if (url === `${IDP_ISSUER}/token`) {
+            const body = new URLSearchParams(init?.body as string);
+            expect(body.get("resource")).toBe(MCP_RESOURCE);
+            expect(body.get("scope")).toBe("mcp profile");
+            // 200 OK but invalid ID-JAG shape → SDK "Invalid token exchange response…".
+            return new Response(JSON.stringify({ issued_token_type: "x" }));
+          }
+          throw new Error(`unexpected fetch: ${url}`);
+        },
       );
 
       await expect(
@@ -113,15 +152,9 @@ describe("ema wire", () => {
           audience: AS_ISSUER,
           resource: MCP_RESOURCE,
           scope: "mcp profile",
+          fetchFn,
         }),
       ).rejects.toThrow(/did not return an ID-JAG/);
-
-      expect(mockDiscoverAndRequestJwtAuthGrant).toHaveBeenCalledWith(
-        expect.objectContaining({
-          resource: MCP_RESOURCE,
-          scope: "mcp profile",
-        }),
-      );
     });
 
     it("throws when IdP token exchange fails", async () => {

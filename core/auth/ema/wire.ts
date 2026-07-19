@@ -50,6 +50,11 @@ export async function exchangeIdJag(params: {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // Drift-sensitive: `@modelcontextprotocol/client` currently throws plain
+    // `Error`s (not typed SdkError codes) for these failure modes. Remap to
+    // stable Inspector UX strings by matching SDK wording. Prefer typed errors
+    // when the SDK grows them. Canaries in `wire.test.ts` call the real helper
+    // so a wording change fails CI instead of silently falling through.
     if (/Failed to discover token endpoint/i.test(message)) {
       throw new Error("IdP metadata missing token_endpoint", { cause: err });
     }
