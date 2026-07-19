@@ -23,6 +23,7 @@ import type {
   ContentBlock,
   JSONRPCRequest,
 } from "@modelcontextprotocol/client";
+import { LOG_LEVEL_META_KEY } from "@modelcontextprotocol/client";
 
 /**
  * Live coverage of the modern (2026-07-28) connection path (#1700). The bundled
@@ -403,6 +404,43 @@ describe("modern-era negotiation (2026-07-28)", () => {
     ).rejects.toThrow(ToolCallCancelledError);
     // The pending elicitation was removed when the call aborted.
     expect(connected.getPendingElicitations()).toHaveLength(0);
+  });
+
+  // #1629: modern per-request log level. `logging/setLevel` is gone on the
+  // modern leg; the client opts into logs by stamping the
+  // `io.modelcontextprotocol/logLevel` `_meta` key on each request.
+  function metaOf(frame: JSONRPCRequest): Record<string, unknown> {
+    const params = frame.params as { _meta?: Record<string, unknown> };
+    return params?._meta ?? {};
+  }
+
+  it("stamps the per-request log level on outgoing requests once set, and stops when cleared", async () => {
+    const started = await startServer();
+    const connected = await connectWithEra(started.url, "modern");
+    const frames = collectToolCallRequests(connected);
+
+    const { tools } = await connected.listTools();
+    const echo = tools.find((t) => t.name === "echo")!;
+
+    // Before opting in, nothing is stamped.
+    expect(connected.getModernLogLevel()).toBeUndefined();
+    await connected.callTool(echo, { message: "a" });
+
+    // Opt in — every subsequent request carries the level.
+    connected.setModernLogLevel("debug");
+    expect(connected.getModernLogLevel()).toBe("debug");
+    await connected.callTool(echo, { message: "b" });
+
+    // Opt back out — the stamp disappears again.
+    connected.setModernLogLevel(undefined);
+    expect(connected.getModernLogLevel()).toBeUndefined();
+    await connected.callTool(echo, { message: "c" });
+
+    expect(frames).toHaveLength(3);
+    const [before, opted, after] = frames;
+    expect(metaOf(before)[LOG_LEVEL_META_KEY]).toBeUndefined();
+    expect(metaOf(opted)[LOG_LEVEL_META_KEY]).toBe("debug");
+    expect(metaOf(after)[LOG_LEVEL_META_KEY]).toBeUndefined();
   });
 
   it("rejects a legacy client against a strict modern-only server", async () => {

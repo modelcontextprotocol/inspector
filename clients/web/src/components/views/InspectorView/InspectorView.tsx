@@ -536,6 +536,14 @@ export interface InspectorViewProps {
   onRefreshTasks: () => void;
 
   onSetLogLevel: (level: LoggingLevel) => void;
+  /**
+   * Modern-era per-request log level currently stamped, or `null` when opted
+   * out (#1629). On modern connections the Logs sidebar shows a per-request
+   * opt-in control instead of the legacy `logging/setLevel` selector.
+   */
+  modernLogLevel?: LoggingLevel | null;
+  /** Set (or clear, with `null`) the modern per-request log level. */
+  onSetModernLogLevel?: (level: LoggingLevel | null) => void;
   onLogsUiChange: (next: LogsUiState) => void;
   onClearLogs: () => void;
   onExportLogs: () => void;
@@ -652,6 +660,8 @@ export function InspectorView({
   onClearCompletedTasks,
   onRefreshTasks,
   onSetLogLevel,
+  modernLogLevel = null,
+  onSetModernLogLevel,
   onLogsUiChange,
   onClearLogs,
   onExportLogs,
@@ -1113,6 +1123,9 @@ export function InspectorView({
     ui: logsUi,
     onUiChange: onLogsUiChange,
     onSetLevel: onSetLogLevel,
+    protocolEra,
+    modernLogLevel,
+    onSetModernLogLevel,
     onClear: onClearLogs,
     onExport: onExportLogs,
     sortDirection: logsSort,

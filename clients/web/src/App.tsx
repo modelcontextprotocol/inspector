@@ -780,6 +780,14 @@ function App() {
   // the parent keeps the current value locally.
   const [currentLogLevel, setCurrentLogLevel] = useState<LoggingLevel>("info");
 
+  // Modern-era per-request log level (#1629). `null` = not opted in (the modern
+  // default: logs stay absent until the user picks a level, which the client
+  // then stamps on every request's `_meta`). Separate from `currentLogLevel`
+  // because the modern control has an "off" state legacy doesn't.
+  const [modernLogLevel, setModernLogLevel] = useState<LoggingLevel | null>(
+    null,
+  );
+
   // In-flight call panel state. Tracked here (rather than inside the
   // respective screens) so the panels can reflect pending → ok/error
   // transitions and so `onClear*` handlers can reset the panel without
@@ -1170,6 +1178,7 @@ function App() {
     setConsoleUi(EMPTY_CONSOLE_UI);
     setProgressByTaskId({});
     setCurrentLogLevel("info");
+    setModernLogLevel(null);
     setPendingStepUp(null);
     setPendingReauth(null);
     setReAuthBanner(null);
@@ -3243,6 +3252,16 @@ function App() {
     [inspectorClient, runWithCommandAuthRecovery],
   );
 
+  // Modern era (#1629): no request is sent — the client stores the level and
+  // stamps it on every subsequent request's `_meta`. `null` opts back out.
+  const onSetModernLogLevel = useCallback(
+    (level: LoggingLevel | null) => {
+      setModernLogLevel(level);
+      inspectorClient?.setModernLogLevel(level ?? undefined);
+    },
+    [inspectorClient],
+  );
+
   // Refresh acts per pagination mode: in paginated mode reload page 1 (the
   // paged state); in all-pages mode re-fetch the whole aggregate with auth
   // recovery (the pre-existing path). See usePaginatedList / #1721.
@@ -4264,6 +4283,8 @@ function App() {
           onClearCompletedTasks={onClearCompletedTasks}
           onRefreshTasks={onRefreshTasks}
           onSetLogLevel={onSetLogLevel}
+          modernLogLevel={modernLogLevel}
+          onSetModernLogLevel={onSetModernLogLevel}
           onLogsUiChange={setLogsUi}
           onClearLogs={onClearLogs}
           onExportLogs={onExportLogs}

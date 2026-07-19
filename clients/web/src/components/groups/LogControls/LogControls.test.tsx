@@ -202,4 +202,84 @@ describe("LogControls", () => {
     await user.click(screen.getByRole("button", { name: "debug" }));
     expect(onToggleLevel).toHaveBeenCalledWith("debug", true);
   });
+
+  describe("modern era (#1629)", () => {
+    it("replaces the legacy Set selector with the per-request control", () => {
+      renderWithMantine(<LogControls {...baseProps} protocolEra="modern" />);
+      // Legacy affordances are gone...
+      expect(screen.queryByText("Set Active Level")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Set" })).toBeNull();
+      // ...replaced by the per-request opt-in control + its explanation.
+      expect(screen.getByText("Log Level per Request")).toBeInTheDocument();
+      expect(
+        screen.getByText(/logs arrive on the originating request/i),
+      ).toBeInTheDocument();
+      // Filter-by-level survives the era fork.
+      expect(screen.getByText("Filter by Level")).toBeInTheDocument();
+    });
+
+    it("shows Off when not opted in", () => {
+      renderWithMantine(
+        <LogControls
+          {...baseProps}
+          protocolEra="modern"
+          modernLogLevel={null}
+        />,
+      );
+      expect(
+        screen.getAllByDisplayValue("Off (no logs)").length,
+      ).toBeGreaterThan(0);
+    });
+
+    it("shows the stamped level when opted in", () => {
+      renderWithMantine(
+        <LogControls
+          {...baseProps}
+          protocolEra="modern"
+          modernLogLevel="warning"
+        />,
+      );
+      expect(screen.getAllByDisplayValue("warning").length).toBeGreaterThan(0);
+    });
+
+    it("invokes onSetModernLogLevel with the chosen level", async () => {
+      const user = userEvent.setup();
+      const onSetModernLogLevel = vi.fn();
+      renderWithMantine(
+        <LogControls
+          {...baseProps}
+          protocolEra="modern"
+          modernLogLevel={null}
+          onSetModernLogLevel={onSetModernLogLevel}
+        />,
+      );
+      await user.click(screen.getAllByDisplayValue("Off (no logs)")[0]);
+      const errorOption = await screen.findByRole("option", {
+        name: "error",
+        hidden: true,
+      });
+      await user.click(errorOption);
+      expect(onSetModernLogLevel).toHaveBeenCalledWith("error");
+    });
+
+    it("invokes onSetModernLogLevel with null when Off is chosen", async () => {
+      const user = userEvent.setup();
+      const onSetModernLogLevel = vi.fn();
+      renderWithMantine(
+        <LogControls
+          {...baseProps}
+          protocolEra="modern"
+          modernLogLevel="debug"
+          onSetModernLogLevel={onSetModernLogLevel}
+        />,
+      );
+      await user.click(screen.getAllByDisplayValue("debug")[0]);
+      const offOption = await screen.findByRole("option", {
+        name: "Off (no logs)",
+        hidden: true,
+      });
+      await user.click(offOption);
+      expect(onSetModernLogLevel).toHaveBeenCalledWith(null);
+    });
+  });
 });
