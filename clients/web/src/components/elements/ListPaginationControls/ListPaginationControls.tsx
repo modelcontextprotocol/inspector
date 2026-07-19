@@ -16,15 +16,18 @@ export interface ListPaginationControlsProps {
   onLoadMore: () => void;
 }
 
+// Switch fully left, "Load next page" fully right; the page-count sits on its
+// own line under the row.
+const ControlsRow = Group.withProps({
+  gap: "sm",
+  align: "center",
+  justify: "space-between",
+  wrap: "nowrap",
+});
+
 const ModeSwitch = Switch.withProps({
   size: "sm",
   "aria-label": "Fetch lists one page at a time",
-});
-
-const LoadMoreRow = Group.withProps({
-  justify: "space-between",
-  gap: "xs",
-  wrap: "nowrap",
 });
 
 const LoadMoreButton = Button.withProps({
@@ -34,14 +37,17 @@ const LoadMoreButton = Button.withProps({
 
 const StatusText = Text.withProps({
   size: "xs",
+  ta: "center",
   c: "var(--inspector-text-secondary)",
 });
 
 /**
- * Sidebar control for a paginated list (Tools/Resources/Prompts). A "Single
- * page" switch toggles between auto-aggregating every page and fetching one
- * page at a time; in single-page mode a "Load next page" button surfaces the
- * server's `nextCursor` and a status line shows how many pages are loaded.
+ * Sidebar control for a paginated list (Tools/Resources/Prompts). A "Paginated"
+ * switch toggles between auto-aggregating every page and fetching one page at a
+ * time; in single-page mode a "Load next page" button (to the right of the
+ * switch) surfaces the server's `nextCursor` and a status shows how many pages
+ * are loaded. Hidden entirely once the list is known to be a single page, since
+ * there's nothing to paginate.
  */
 export function ListPaginationControls({
   singlePage,
@@ -50,23 +56,30 @@ export function ListPaginationControls({
   loadedPages,
   onLoadMore,
 }: ListPaginationControlsProps) {
+  // The list turned out to be a single page (loaded page 1, no `nextCursor`):
+  // pagination is moot, so hide the whole control rather than show a useless
+  // toggle + disabled button (#1721).
+  if (singlePage && !canLoadMore && loadedPages === 1) return null;
+
   return (
-    <Stack gap="xs">
-      <ModeSwitch
-        label="Single page"
-        checked={singlePage}
-        onChange={(e) => onSinglePageChange(e.currentTarget.checked)}
-      />
-      {singlePage ? (
-        <LoadMoreRow>
+    <Stack gap={4}>
+      <ControlsRow>
+        <ModeSwitch
+          label="Paginated"
+          checked={singlePage}
+          onChange={(e) => onSinglePageChange(e.currentTarget.checked)}
+        />
+        {singlePage ? (
           <LoadMoreButton disabled={!canLoadMore} onClick={onLoadMore}>
             Load next page
           </LoadMoreButton>
-          <StatusText>
-            {loadedPages} {loadedPages === 1 ? "page" : "pages"} loaded
-            {canLoadMore ? "" : " · end"}
-          </StatusText>
-        </LoadMoreRow>
+        ) : null}
+      </ControlsRow>
+      {singlePage ? (
+        <StatusText>
+          {loadedPages} {loadedPages === 1 ? "page" : "pages"} loaded
+          {canLoadMore ? "" : " · end"}
+        </StatusText>
       ) : null}
     </Stack>
   );

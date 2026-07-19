@@ -14,6 +14,8 @@ export interface UseManagedResourcesResult {
    */
   listChanged: boolean;
   refresh: () => Promise<Resource[]>;
+  /** Acknowledge the list-changed indicator without fetching (#1721). */
+  clearListChanged: () => void;
 }
 
 /**
@@ -90,5 +92,9 @@ export function useManagedResources(
     return next;
   }, [client, managedResourcesState]);
 
-  return { resources, listChanged, refresh };
+  const clearListChanged = useCallback(() => {
+    managedResourcesState?.clearListChanged();
+  }, [managedResourcesState]);
+
+  return { resources, listChanged, refresh, clearListChanged };
 }

@@ -193,6 +193,11 @@ const SERVER_A = {
 const { updateServerSettingsSpy } = vi.hoisted(() => ({
   updateServerSettingsSpy: vi.fn(() => Promise.resolve()),
 }));
+// Stable spy for the tools list-changed acknowledgement, so a test can assert
+// the single-page Refresh clears the indicator (#1721).
+const { clearToolsListChangedSpy } = vi.hoisted(() => ({
+  clearToolsListChangedSpy: vi.fn(),
+}));
 vi.mock("@inspector/core/react/useServers.js", () => ({
   useServers: vi.fn(() => ({
     servers: [SERVER_A],
@@ -217,13 +222,22 @@ vi.mock("@inspector/core/react/useManagedTools.js", () => ({
   useManagedTools: vi.fn(() => ({
     tools: [{ name: "get_acts", inputSchema: { type: "object" } }],
     refresh: vi.fn(),
+    clearListChanged: clearToolsListChangedSpy,
   })),
 }));
 vi.mock("@inspector/core/react/useManagedPrompts.js", () => ({
-  useManagedPrompts: vi.fn(() => ({ prompts: [], refresh: vi.fn() })),
+  useManagedPrompts: vi.fn(() => ({
+    prompts: [],
+    refresh: vi.fn(),
+    clearListChanged: vi.fn(),
+  })),
 }));
 vi.mock("@inspector/core/react/useManagedResources.js", () => ({
-  useManagedResources: vi.fn(() => ({ resources: [], refresh: vi.fn() })),
+  useManagedResources: vi.fn(() => ({
+    resources: [],
+    refresh: vi.fn(),
+    clearListChanged: vi.fn(),
+  })),
 }));
 vi.mock("@inspector/core/react/useManagedResourceTemplates.js", () => ({
   useManagedResourceTemplates: vi.fn(() => ({
@@ -2024,8 +2038,9 @@ describe("App single-page list pagination toggle (#1721)", () => {
     );
   });
 
-  it("routes Refresh and Load-next-page without throwing in single-page mode", async () => {
+  it("routes Refresh and Load-next-page in single-page mode and clears the indicator", async () => {
     const user = userEvent.setup();
+    clearToolsListChangedSpy.mockClear();
     renderWithMantine(<App />);
     await user.click(screen.getByText("connect"));
     await waitFor(() => expect(clientInstances).toHaveLength(1));
@@ -2039,6 +2054,9 @@ describe("App single-page list pagination toggle (#1721)", () => {
     await user.click(screen.getByText("refresh-tools"));
     await user.click(screen.getByText("load-more-tools"));
     expect(screen.getByTestId("tools-single-page")).toHaveTextContent("true");
+    // The single-page Refresh must acknowledge the managed list-changed
+    // indicator (the paged reload bypasses the managed hook's refresh) (#1721).
+    expect(clearToolsListChangedSpy).toHaveBeenCalled();
   });
 
   it("reverts the optimistic toggle when persisting the setting fails (#1721)", async () => {

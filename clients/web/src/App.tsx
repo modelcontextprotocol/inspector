@@ -932,16 +932,19 @@ function App() {
     tools: managedTools,
     listChanged: toolsListChanged,
     refresh: refreshTools,
+    clearListChanged: clearToolsListChanged,
   } = useManagedTools(inspectorClient, managedToolsState);
   const {
     prompts: managedPrompts,
     listChanged: promptsListChanged,
     refresh: refreshPrompts,
+    clearListChanged: clearPromptsListChanged,
   } = useManagedPrompts(inspectorClient, managedPromptsState);
   const {
     resources: managedResources,
     listChanged: resourcesListChanged,
     refresh: refreshResources,
+    clearListChanged: clearResourcesListChanged,
   } = useManagedResources(inspectorClient, managedResourcesState);
   const { resourceTemplates, refresh: refreshResourceTemplates } =
     useManagedResourceTemplates(inspectorClient, managedResourceTemplatesState);
@@ -3245,6 +3248,11 @@ function App() {
   // recovery (the pre-existing path). See usePaginatedList / #1721.
   const onRefreshTools = useCallback(() => {
     if (singlePageLists) {
+      // Single-page refresh reloads page 1 of the paged store, bypassing the
+      // managed hook's refresh — so acknowledge the list-changed indicator here
+      // (the managed state lit it on `list_changed`; nothing else clears it in
+      // single-page mode) (#1721).
+      clearToolsListChanged();
       void runWithCommandAuthRecovery(
         () => toolsPagination.onRefresh(),
         "ambient",
@@ -3256,10 +3264,12 @@ function App() {
     singlePageLists,
     toolsPagination,
     refreshTools,
+    clearToolsListChanged,
     runWithCommandAuthRecovery,
   ]);
   const onRefreshPrompts = useCallback(() => {
     if (singlePageLists) {
+      clearPromptsListChanged();
       void runWithCommandAuthRecovery(
         () => promptsPagination.onRefresh(),
         "ambient",
@@ -3271,10 +3281,12 @@ function App() {
     singlePageLists,
     promptsPagination,
     refreshPrompts,
+    clearPromptsListChanged,
     runWithCommandAuthRecovery,
   ]);
   const onRefreshResources = useCallback(() => {
     if (singlePageLists) {
+      clearResourcesListChanged();
       void runWithCommandAuthRecovery(
         () => resourcesPagination.onRefresh(),
         "ambient",
@@ -3295,6 +3307,7 @@ function App() {
     resourcesPagination,
     refreshResources,
     refreshResourceTemplates,
+    clearResourcesListChanged,
     runWithCommandAuthRecovery,
   ]);
   // The per-list sidebar toggle edits the server-wide `singlePageLists` setting:

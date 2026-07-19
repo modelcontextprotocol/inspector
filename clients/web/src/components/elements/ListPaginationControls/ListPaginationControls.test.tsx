@@ -12,9 +12,11 @@ const baseProps = {
 };
 
 describe("ListPaginationControls", () => {
-  it("renders only the switch in all-pages mode (no load-more)", () => {
+  it("renders only the 'Paginated' switch in all-pages mode (no load-more)", () => {
     renderWithMantine(<ListPaginationControls {...baseProps} />);
-    expect(screen.getByRole("switch")).not.toBeChecked();
+    const toggle = screen.getByRole("switch");
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByText("Paginated")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Load next page" }),
     ).not.toBeInTheDocument();
@@ -49,7 +51,7 @@ describe("ListPaginationControls", () => {
     expect(screen.getByText("2 pages loaded")).toBeInTheDocument();
   });
 
-  it("uses the singular label for one page", () => {
+  it("uses the singular label for one page (while more remain)", () => {
     renderWithMantine(
       <ListPaginationControls
         {...baseProps}
@@ -61,7 +63,36 @@ describe("ListPaginationControls", () => {
     expect(screen.getByText("1 page loaded")).toBeInTheDocument();
   });
 
-  it("disables the button and marks the end when no next cursor", () => {
+  it("hides the whole control when the list is a single page", () => {
+    // Single-page mode, page 1 loaded, no next cursor → nothing to paginate.
+    renderWithMantine(
+      <ListPaginationControls
+        {...baseProps}
+        singlePage
+        canLoadMore={false}
+        loadedPages={1}
+      />,
+    );
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Load next page" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("still shows the switch while a single-page load is pending (0 pages)", () => {
+    // loadedPages 0 (page 1 not yet loaded) must not trip the single-page hide.
+    renderWithMantine(
+      <ListPaginationControls
+        {...baseProps}
+        singlePage
+        canLoadMore={false}
+        loadedPages={0}
+      />,
+    );
+    expect(screen.getByRole("switch")).toBeInTheDocument();
+  });
+
+  it("marks the end when there are multiple pages and no more to load", () => {
     renderWithMantine(
       <ListPaginationControls
         {...baseProps}

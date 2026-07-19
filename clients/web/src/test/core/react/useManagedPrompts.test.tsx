@@ -138,5 +138,23 @@ describe("useManagedPrompts", () => {
       const { result } = renderHook(() => useManagedPrompts(client, null));
       expect(result.current.listChanged).toBe(false);
     });
+
+    it("clearListChanged() acknowledges the indicator without fetching (#1721)", async () => {
+      const { result } = renderHook(() => useManagedPrompts(client, state));
+      act(() => {
+        client.dispatchTypedEvent("promptsListChanged");
+      });
+      await waitFor(() => expect(result.current.listChanged).toBe(true));
+      act(() => {
+        result.current.clearListChanged();
+      });
+      await waitFor(() => expect(result.current.listChanged).toBe(false));
+      expect(client.listAllPrompts).not.toHaveBeenCalled();
+    });
+
+    it("clearListChanged() is a no-op when state is null", () => {
+      const { result } = renderHook(() => useManagedPrompts(client, null));
+      expect(() => result.current.clearListChanged()).not.toThrow();
+    });
   });
 });

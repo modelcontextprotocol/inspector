@@ -10,6 +10,13 @@ export interface UseManagedToolsResult {
   /** True when a `tools/list_changed` arrived since the last user refresh. */
   listChanged: boolean;
   refresh: () => Promise<Tool[]>;
+  /**
+   * Acknowledge the list-changed indicator without fetching the aggregate.
+   * Used by the single-page Refresh path, which reloads page 1 of the paged
+   * store (bypassing this hook's `refresh`) but must still clear the indicator
+   * the managed state lit on `list_changed` (#1721).
+   */
+  clearListChanged: () => void;
 }
 
 /**
@@ -74,5 +81,9 @@ export function useManagedTools(
     return next;
   }, [client, managedToolsState]);
 
-  return { tools, listChanged, refresh };
+  const clearListChanged = useCallback(() => {
+    managedToolsState?.clearListChanged();
+  }, [managedToolsState]);
+
+  return { tools, listChanged, refresh, clearListChanged };
 }

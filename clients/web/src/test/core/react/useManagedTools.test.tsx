@@ -138,6 +138,26 @@ describe("useManagedTools", () => {
       expect(result.current.listChanged).toBe(false);
     });
 
+    it("clearListChanged() acknowledges the indicator without fetching (#1721)", async () => {
+      const { result } = renderHook(() => useManagedTools(client, state));
+      act(() => {
+        client.dispatchTypedEvent("toolsListChanged");
+      });
+      await waitFor(() => expect(result.current.listChanged).toBe(true));
+
+      act(() => {
+        result.current.clearListChanged();
+      });
+      await waitFor(() => expect(result.current.listChanged).toBe(false));
+      // No list fetch happened — only the flag was cleared.
+      expect(client.listAllTools).not.toHaveBeenCalled();
+    });
+
+    it("clearListChanged() is a no-op when state is null", () => {
+      const { result } = renderHook(() => useManagedTools(client, null));
+      expect(() => result.current.clearListChanged()).not.toThrow();
+    });
+
     it("keeps a change that fires during the awaited refresh (race regression)", async () => {
       const { result } = renderHook(() => useManagedTools(client, state));
 

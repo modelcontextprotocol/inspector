@@ -12,6 +12,8 @@ export interface UseManagedPromptsResult {
   /** True when a `prompts/list_changed` arrived since the last user refresh. */
   listChanged: boolean;
   refresh: () => Promise<Prompt[]>;
+  /** Acknowledge the list-changed indicator without fetching (#1721). */
+  clearListChanged: () => void;
 }
 
 /**
@@ -79,5 +81,9 @@ export function useManagedPrompts(
     return next;
   }, [client, managedPromptsState]);
 
-  return { prompts, listChanged, refresh };
+  const clearListChanged = useCallback(() => {
+    managedPromptsState?.clearListChanged();
+  }, [managedPromptsState]);
+
+  return { prompts, listChanged, refresh, clearListChanged };
 }
