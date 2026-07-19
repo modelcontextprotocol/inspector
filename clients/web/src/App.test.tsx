@@ -2070,9 +2070,7 @@ describe("App paginated list pagination toggle (#1721)", () => {
     // The optimistic flip is rolled back once the persist rejects, so the UI
     // reflects the (unchanged) persisted value rather than the failed edit.
     await waitFor(() =>
-      expect(screen.getByTestId("tools-paginated")).toHaveTextContent(
-        "false",
-      ),
+      expect(screen.getByTestId("tools-paginated")).toHaveTextContent("false"),
     );
     // The live client setting was rolled back too (last call reverts it).
     const client = clientInstances[0] as unknown as {
