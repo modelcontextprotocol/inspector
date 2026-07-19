@@ -67,11 +67,13 @@ export async function mintEmaResourceTokens(
   }
 
   const audience = ctx.resourceAsUrl.href.replace(/\/$/, "");
+  // SDK leg-2 helper requires `resource` on the wire; fall back to PRM `resource`.
+  const resource = ctx.resourceUrl?.href ?? ctx.resourceMetadata.resource;
   const idJag = await exchangeIdJag({
     idp: config.idp,
     idToken,
     audience,
-    resource: ctx.resourceUrl?.href,
+    resource,
     scope: ctx.scope,
     fetchFn: config.fetchFn,
   });

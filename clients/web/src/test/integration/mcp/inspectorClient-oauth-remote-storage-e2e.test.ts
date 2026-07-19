@@ -248,8 +248,9 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
         if (!authUrl) throw new Error("Expected authorization URL");
         expect(authUrl.href).toContain("/oauth/authorize");
 
-        const authCode = await completeOAuthAuthorization(authUrl);
-        await client.completeOAuthFlow(authCode);
+        const { code: authCode, iss: authCodeIss } =
+          await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode, authCodeIss);
         await client.connect();
 
         // Verify tokens are stored
@@ -337,8 +338,9 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
 
         const authUrl = await client1.authenticate();
         if (!authUrl) throw new Error("Expected authorization URL");
-        const authCode = await completeOAuthAuthorization(authUrl);
-        await client1.completeOAuthFlow(authCode);
+        const { code: authCode, iss: authCodeIss } =
+          await completeOAuthAuthorization(authUrl);
+        await client1.completeOAuthFlow(authCode, authCodeIss);
         await client1.connect();
 
         const tokens1 = await client1.getOAuthTokens();
@@ -504,8 +506,9 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
         if (!authUrl) throw new Error("Expected authorization URL");
         expect(authUrl.href).toContain("/oauth/authorize");
 
-        const authCode = await completeOAuthAuthorization(authUrl);
-        await client.completeOAuthFlow(authCode);
+        const { code: authCode, iss: authCodeIss } =
+          await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode, authCodeIss);
         await client.connect();
 
         // Verify tokens are stored

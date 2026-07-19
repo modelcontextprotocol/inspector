@@ -136,16 +136,23 @@ export async function createClientMetadataServer(
   });
 }
 
+/** Result of approving consent on the local composable test AS. */
+export interface CompletedOAuthAuthorization {
+  code: string;
+  /** RFC 9207 `iss` from the redirect when the AS returns it. */
+  iss?: string;
+}
+
 /**
  * Programmatically complete OAuth against the local composable test AS.
  * GET shows an HTML consent page; approve via POST (same as CLI test helper).
  *
  * @param authorizationUrl - The authorization URL from oauthAuthorizationRequired event
- * @returns Authorization code extracted from redirect URL
+ * @returns Authorization code and optional RFC 9207 `iss` from the redirect
  */
 export async function completeOAuthAuthorization(
   authorizationUrl: URL,
-): Promise<string> {
+): Promise<CompletedOAuthAuthorization> {
   let response = await fetch(authorizationUrl.toString(), {
     redirect: "manual",
   });
@@ -180,5 +187,6 @@ export async function completeOAuthAuthorization(
     throw new Error(`No authorization code in redirect URL: ${redirectUrl}`);
   }
 
-  return code;
+  const iss = redirectUrlObj.searchParams.get("iss") ?? undefined;
+  return iss ? { code, iss } : { code };
 }

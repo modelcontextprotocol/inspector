@@ -1,11 +1,12 @@
 # Inspector V2 Authorization - Specification
 
 ### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_web_client.md) | [V2 UX](v2_ux.md) | V2 Auth | [V2 New Spec Impact](v2_new_spec_impact.md)
-#### Overview | [EMA / XAA](v2_auth_ema.md) | [Hardening](v2_auth_hardening.md) | [Mid-session](v2_auth_mid_session.md) | [Smoke testing](v2_auth_smoke_testing.md)
+
+#### Overview | [EMA / XAA](v2_auth_ema.md) | [Hardening](v2_auth_hardening.md) | [Mid-session](v2_auth_mid_session.md) | [Smoke testing](v2_auth_smoke_testing.md) | [SDK consolidation](v2_auth_sdk_consolidation.md)
 
 Inspector v2's authorization support spans OAuth 2.1 connect-time flows, Enterprise-Managed Authorization (EMA / XAA), mid-session credential recovery, and the hardening required by the MCP `2026-07-28` specification. This page is the landing point for that work; each area has its own spec below.
 
-Inspector already ships connect-time OAuth and EMA infrastructure (`core/auth/`, `core/mcp/oauthManager.ts`, per-server OAuth fields in `~/.mcp-inspector/mcp.json` — see [Servers file](v2_servers_file.md)). The specs here cover extending that foundation across web, TUI, and CLI.
+Inspector already ships connect-time OAuth and EMA infrastructure (`core/auth/`, `core/mcp/oauthManager.ts`, per-server OAuth fields in `~/.mcp-inspector/mcp.json` — see [Servers file](v2_servers_file.md)). The specs here cover extending that foundation across web, TUI, and CLI. How that stack maps onto `@modelcontextprotocol/client` after the v2 upgrade is recorded in [SDK consolidation](v2_auth_sdk_consolidation.md).
 
 ## Authorization specs
 
@@ -15,7 +16,7 @@ Support for [Enterprise-Managed Authorization](https://modelcontextprotocol.io/e
 
 ### [Hardening](v2_auth_hardening.md)
 
-Aligns Inspector with the six authorization SEPs in the MCP `2026-07-28` release candidate — all OAuth client requirements (`iss` validation per RFC 9207, `application_type` in DCR, credentials bound to AS issuer, and more). Strategy: upgrade to the v2 TypeScript SDK (`@modelcontextprotocol/client`) and wire the gaps rather than reimplementing SDK OAuth logic. Covers connect-time and storage hardening that mid-session builds on.
+As-built status for the six MCP `2026-07-28` authorization SEPs ([#1527](https://github.com/modelcontextprotocol/inspector/issues/1527)): what is done (and how), per-SEP automated coverage, and remaining test/era-aware follow-ups.
 
 ### [Mid-session](v2_auth_mid_session.md)
 
@@ -24,3 +25,7 @@ Detecting when in-flight MCP traffic needs new or elevated credentials, respondi
 ### [Smoke testing](v2_auth_smoke_testing.md)
 
 Manual smoke procedures for exercising Inspector OAuth against **hosted** MCP servers, complementing the automated integration coverage. Records known-good real endpoints, which client-ID mechanism each server supports, and how to configure Inspector (web, TUI, or CLI) via install-level `client.json`.
+
+### [SDK consolidation](v2_auth_sdk_consolidation.md)
+
+As-built: what auth logic moved onto the v2 SDK, what stayed Inspector-owned (and why), and which small SDK helper gaps would unlock further deletions.

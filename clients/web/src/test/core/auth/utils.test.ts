@@ -8,6 +8,11 @@ import {
   formatOAuthFailureDetail,
   isUnauthorizedError,
 } from "@inspector/core/auth/utils.js";
+import {
+  SdkError,
+  SdkErrorCode,
+  UnauthorizedError,
+} from "@modelcontextprotocol/client";
 import { z, ZodError } from "zod";
 
 describe("parseHttpUrl", () => {
@@ -262,6 +267,36 @@ describe("isUnauthorizedError", () => {
 
   it("returns false for null", () => {
     expect(isUnauthorizedError(null)).toBe(false);
+  });
+
+  it("returns true for SDK UnauthorizedError", () => {
+    expect(isUnauthorizedError(new UnauthorizedError("Unauthorized"))).toBe(
+      true,
+    );
+  });
+
+  it("returns true when EraNegotiationFailed wraps UnauthorizedError in data.cause", () => {
+    const wrapped = new SdkError(
+      SdkErrorCode.EraNegotiationFailed,
+      "Version negotiation probe failed",
+      { cause: new UnauthorizedError("Unauthorized") },
+    );
+    expect(isUnauthorizedError(wrapped)).toBe(true);
+  });
+
+  it("returns true when UnauthorizedError is on native Error.cause", () => {
+    const wrapped = new Error("probe failed", {
+      cause: new UnauthorizedError("Unauthorized"),
+    });
+    expect(isUnauthorizedError(wrapped)).toBe(true);
+  });
+
+  it("returns false for unrelated SdkError", () => {
+    expect(
+      isUnauthorizedError(
+        new SdkError(SdkErrorCode.RequestTimeout, "timed out"),
+      ),
+    ).toBe(false);
   });
 });
 

@@ -31,8 +31,10 @@
      * start-vite-dev-server.ts) live in src/ and import from @inspector/core/*;
      * tsc follows those transitive imports while type-checking vite.config.ts,
      * so this tsconfig needs the same alias tsconfig.app.json has.
+     *
+     * Paths are relative to this config file (no `baseUrl` — deprecated in
+     * TypeScript 6 / removed in 7).
      */
-    "baseUrl": ".",
     "paths": {
       "@inspector/core/*": ["../../core/*"],
       "pino": ["./node_modules/pino"],

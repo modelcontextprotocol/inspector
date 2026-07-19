@@ -1,14 +1,9 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   exchangeIdJag,
   redeemIdJagForAccessToken,
 } from "@inspector/core/auth/ema/wire.js";
-import {
-  GRANT_TYPE_JWT_BEARER,
-  GRANT_TYPE_TOKEN_EXCHANGE,
-  TOKEN_TYPE_ID_JAG,
-  TOKEN_TYPE_ID_TOKEN,
-} from "@inspector/core/auth/ema/constants.js";
+import { GRANT_TYPE_JWT_BEARER } from "@inspector/core/auth/ema/constants.js";
 import {
   EMA_MOCK_IDP_CLIENT_ID,
   EMA_MOCK_IDP_CLIENT_SECRET,
@@ -17,15 +12,27 @@ import {
   minimalOAuthAsMetadata,
 } from "../../../integration/mcp/ema-mock-servers.js";
 
+const { mockDiscoverAndRequestJwtAuthGrant } = vi.hoisted(() => ({
+  mockDiscoverAndRequestJwtAuthGrant: vi.fn(),
+}));
+
+vi.mock("@modelcontextprotocol/client", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@modelcontextprotocol/client")>();
+  return {
+    ...actual,
+    discoverAndRequestJwtAuthGrant: (
+      ...args: Parameters<typeof actual.discoverAndRequestJwtAuthGrant>
+    ) => mockDiscoverAndRequestJwtAuthGrant(...args),
+  };
+});
+
 const IDP_ISSUER = "https://mock-idp.test";
 const AS_ISSUER = "https://mock-as.test";
+const MCP_RESOURCE = "https://mcp.test/resource";
 const ID_TOKEN = "header.idpayload.sig";
 const ID_JAG = "mock-id-jag-token";
 const ACCESS_TOKEN = "mock-resource-access-token";
-
-function idpMetadata() {
-  return minimalOAuthAsMetadata(IDP_ISSUER);
-}
 
 function asMetadata() {
   return {
@@ -35,33 +42,16 @@ function asMetadata() {
 }
 
 describe("ema wire", () => {
+  beforeEach(() => {
+    mockDiscoverAndRequestJwtAuthGrant.mockReset();
+  });
+
   describe("exchangeIdJag", () => {
-    it("posts RFC 8693 token exchange and returns ID-JAG", async () => {
-      const fetchFn = vi.fn(
-        async (input: RequestInfo | URL, init?: RequestInit) => {
-          const url = String(input);
-          if (url.includes("/.well-known/oauth-authorization-server")) {
-            return new Response(JSON.stringify(idpMetadata()));
-          }
-          if (url === `${IDP_ISSUER}/token`) {
-            const body = new URLSearchParams(init?.body as string);
-            expect(body.get("grant_type")).toBe(GRANT_TYPE_TOKEN_EXCHANGE);
-            expect(body.get("subject_token")).toBe(ID_TOKEN);
-            expect(body.get("subject_token_type")).toBe(TOKEN_TYPE_ID_TOKEN);
-            expect(body.get("requested_token_type")).toBe(TOKEN_TYPE_ID_JAG);
-            expect(body.get("audience")).toBe(AS_ISSUER);
-            expect(body.get("client_id")).toBe(EMA_MOCK_IDP_CLIENT_ID);
-            expect(body.get("client_secret")).toBe(EMA_MOCK_IDP_CLIENT_SECRET);
-            return new Response(
-              JSON.stringify({
-                access_token: ID_JAG,
-                issued_token_type: TOKEN_TYPE_ID_JAG,
-              }),
-            );
-          }
-          throw new Error(`unexpected fetch: ${url}`);
-        },
-      );
+    it("delegates to the SDK ID-JAG helper and returns the grant", async () => {
+      mockDiscoverAndRequestJwtAuthGrant.mockResolvedValueOnce({
+        jwtAuthGrant: ID_JAG,
+        authorizationServerUrl: IDP_ISSUER,
+      });
 
       const idJag = await exchangeIdJag({
         idp: {
@@ -71,19 +61,26 @@ describe("ema wire", () => {
         },
         idToken: ID_TOKEN,
         audience: AS_ISSUER,
-        fetchFn,
+        resource: MCP_RESOURCE,
+        scope: "mcp",
       });
 
       expect(idJag).toBe(ID_JAG);
+      expect(mockDiscoverAndRequestJwtAuthGrant).toHaveBeenCalledWith({
+        idpUrl: IDP_ISSUER,
+        audience: AS_ISSUER,
+        resource: MCP_RESOURCE,
+        idToken: ID_TOKEN,
+        clientId: EMA_MOCK_IDP_CLIENT_ID,
+        clientSecret: EMA_MOCK_IDP_CLIENT_SECRET,
+        scope: "mcp",
+        fetchFn: undefined,
+      });
     });
 
     it("throws when IdP metadata is missing a token_endpoint", async () => {
-      const errorSpy = vi
-        .spyOn(console, "error")
-        .mockImplementation(() => undefined);
-      // All discovery endpoints 404 → SDK returns undefined metadata.
-      const fetchFn = vi.fn(
-        async () => new Response("not found", { status: 404 }),
+      mockDiscoverAndRequestJwtAuthGrant.mockRejectedValueOnce(
+        new Error("Failed to discover token endpoint"),
       );
 
       await expect(
@@ -95,28 +92,14 @@ describe("ema wire", () => {
           },
           idToken: ID_TOKEN,
           audience: AS_ISSUER,
-          fetchFn,
+          resource: MCP_RESOURCE,
         }),
       ).rejects.toThrow(/IdP metadata missing token_endpoint/);
-      errorSpy.mockRestore();
     });
 
     it("sets resource and scope params and throws when no ID-JAG is returned", async () => {
-      const fetchFn = vi.fn(
-        async (input: RequestInfo | URL, init?: RequestInit) => {
-          const url = String(input);
-          if (url.includes("/.well-known/oauth-authorization-server")) {
-            return new Response(JSON.stringify(idpMetadata()));
-          }
-          if (url === `${IDP_ISSUER}/token`) {
-            const body = new URLSearchParams(init?.body as string);
-            expect(body.get("resource")).toBe("https://mcp.test/resource");
-            expect(body.get("scope")).toBe("mcp profile");
-            // 200 OK but empty access_token → ID-JAG missing branch.
-            return new Response(JSON.stringify({ issued_token_type: "x" }));
-          }
-          throw new Error(`unexpected fetch: ${url}`);
-        },
+      mockDiscoverAndRequestJwtAuthGrant.mockRejectedValueOnce(
+        new Error("Invalid token exchange response"),
       );
 
       await expect(
@@ -128,25 +111,75 @@ describe("ema wire", () => {
           },
           idToken: ID_TOKEN,
           audience: AS_ISSUER,
-          resource: "https://mcp.test/resource",
+          resource: MCP_RESOURCE,
           scope: "mcp profile",
-          fetchFn,
         }),
       ).rejects.toThrow(/did not return an ID-JAG/);
+
+      expect(mockDiscoverAndRequestJwtAuthGrant).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resource: MCP_RESOURCE,
+          scope: "mcp profile",
+        }),
+      );
     });
 
     it("throws when IdP token exchange fails", async () => {
-      const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/.well-known/oauth-authorization-server")) {
-          return new Response(JSON.stringify(idpMetadata()));
-        }
-        if (url === `${IDP_ISSUER}/token`) {
-          return new Response(JSON.stringify({ error: "invalid_grant" }), {
-            status: 400,
-          });
-        }
-        throw new Error(`unexpected fetch: ${url}`);
+      mockDiscoverAndRequestJwtAuthGrant.mockRejectedValueOnce(
+        new Error("invalid_grant"),
+      );
+
+      await expect(
+        exchangeIdJag({
+          idp: {
+            issuer: IDP_ISSUER,
+            clientId: EMA_MOCK_IDP_CLIENT_ID,
+            clientSecret: EMA_MOCK_IDP_CLIENT_SECRET,
+          },
+          idToken: ID_TOKEN,
+          audience: AS_ISSUER,
+          resource: MCP_RESOURCE,
+        }),
+      ).rejects.toThrow(/EMA leg 2/);
+    });
+
+    it("rejects an empty resource identifier before calling the SDK", async () => {
+      await expect(
+        exchangeIdJag({
+          idp: {
+            issuer: IDP_ISSUER,
+            clientId: EMA_MOCK_IDP_CLIENT_ID,
+            clientSecret: EMA_MOCK_IDP_CLIENT_SECRET,
+          },
+          idToken: ID_TOKEN,
+          audience: AS_ISSUER,
+          resource: "   ",
+        }),
+      ).rejects.toThrow(/EMA leg 2 requires a resource identifier/);
+      expect(mockDiscoverAndRequestJwtAuthGrant).not.toHaveBeenCalled();
+    });
+
+    it("maps non-Error SDK failures through the generic EMA leg 2 wrapper", async () => {
+      mockDiscoverAndRequestJwtAuthGrant.mockRejectedValueOnce("boom");
+
+      await expect(
+        exchangeIdJag({
+          idp: {
+            issuer: IDP_ISSUER,
+            clientId: EMA_MOCK_IDP_CLIENT_ID,
+            clientSecret: EMA_MOCK_IDP_CLIENT_SECRET,
+          },
+          idToken: ID_TOKEN,
+          audience: AS_ISSUER,
+          resource: MCP_RESOURCE,
+        }),
+      ).rejects.toThrow(/EMA leg 2 \(IdP token exchange for ID-JAG\): boom/);
+    });
+
+    it("throws when the SDK returns success without a jwtAuthGrant", async () => {
+      mockDiscoverAndRequestJwtAuthGrant.mockResolvedValueOnce({
+        jwtAuthGrant: "",
+        authorizationServerUrl: IDP_ISSUER,
       });
 
       await expect(
@@ -158,9 +191,9 @@ describe("ema wire", () => {
           },
           idToken: ID_TOKEN,
           audience: AS_ISSUER,
-          fetchFn,
+          resource: MCP_RESOURCE,
         }),
-      ).rejects.toThrow(/EMA leg 2/);
+      ).rejects.toThrow(/did not return an ID-JAG/);
     });
   });
 
