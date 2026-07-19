@@ -13,7 +13,10 @@
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { InspectorClientEventMap } from "../inspectorClientEventTarget.js";
-import type { CacheMode, ServerCapabilities } from "@modelcontextprotocol/client";
+import type {
+  CacheMode,
+  ServerCapabilities,
+} from "@modelcontextprotocol/client";
 import { isTerminalStatus } from "../types.js";
 import { TypedEventTarget } from "../typedEventTarget.js";
 
@@ -56,6 +59,15 @@ export interface ManagedListConfig<T, M extends ManagedListEventMap> {
    * pulled via the screen's Refresh instead.
    */
   supportsIndicator: boolean;
+  /**
+   * Whether this list has a paged (single-page) counterpart that drives the
+   * display when `singlePageLists` is on. Only such lists defer their
+   * connect-time / `list_changed` aggregate walk in single-page mode (tools,
+   * prompts, resources). Lists with no paged counterpart (resource templates)
+   * set this `false` so they still aggregate on connect regardless of the
+   * setting — otherwise they'd never load in single-page mode (#1721).
+   */
+  deferInSinglePage: boolean;
   /** Debounce delay (ms) for `list_changed` bursts. */
   debounceMs: number;
 }
@@ -92,8 +104,14 @@ export abstract class ManagedListState<
       // paged state drives the sidebar), so skip the connect-time all-page
       // walk — the whole point of the setting is to avoid pulling every page
       // for servers with very large lists (#1721). Switching back to
-      // all-pages mode triggers a refresh from the UI.
-      if (this.client?.getServerSettings()?.singlePageLists) return;
+      // all-pages mode triggers a refresh from the UI. Only lists with a paged
+      // counterpart defer here; resource templates (none) still aggregate.
+      if (
+        this.config.deferInSinglePage &&
+        this.client?.getServerSettings()?.singlePageLists
+      ) {
+        return;
+      }
       void this.refresh();
     };
     const onListChanged = (): void => {
@@ -158,11 +176,15 @@ export abstract class ManagedListState<
         // Read the settings at fire time so a `setServerSettings` toggle that
         // lands mid-burst is honored on the settled action.
         const settings = this.client?.getServerSettings();
-        // In single-page mode the aggregate list is not the display source, so
-        // never auto-aggregate on `list_changed` — only light the indicator so
-        // the user can pull page 1 fresh via Refresh (#1721). This wins over
+        // In single-page mode the aggregate list is not the display source for
+        // lists with a paged counterpart, so never auto-aggregate on
+        // `list_changed` there — only light the indicator so the user can pull
+        // page 1 fresh via Refresh (#1721). This wins over
         // `autoRefreshOnListChanged`, which would otherwise pull every page.
-        if (!settings?.singlePageLists && settings?.autoRefreshOnListChanged) {
+        // Lists with no paged counterpart (resource templates) still aggregate.
+        const skipAggregate =
+          this.config.deferInSinglePage && settings?.singlePageLists;
+        if (!skipAggregate && settings?.autoRefreshOnListChanged) {
           // A `list_changed` means the prior list is stale, so bypass any
           // cached entry (`cacheMode: "refresh"`) and re-store the fresh
           // aggregate.

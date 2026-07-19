@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { renderHook } from "@testing-library/react";
 import { usePaginatedList } from "./usePaginatedList";
 
 interface Params {
@@ -68,7 +68,7 @@ describe("usePaginatedList", () => {
       loadPage,
     });
     const { result } = renderHook(() => usePaginatedList(params));
-    act(() => result.current.onLoadMore());
+    void result.current.onLoadMore();
     expect(loadPage).toHaveBeenCalledWith("c1");
   });
 
@@ -76,7 +76,7 @@ describe("usePaginatedList", () => {
     const loadPage = vi.fn(async () => ({}));
     const params = makeParams({ singlePage: true, loadPage });
     const { result } = renderHook(() => usePaginatedList(params));
-    act(() => result.current.onLoadMore());
+    void result.current.onLoadMore();
     expect(loadPage).not.toHaveBeenCalled();
   });
 
@@ -84,7 +84,7 @@ describe("usePaginatedList", () => {
     const loadPage = vi.fn(async () => ({}));
     const params = makeParams({ singlePage: true, loadPage });
     const { result } = renderHook(() => usePaginatedList(params));
-    act(() => result.current.onRefresh());
+    void result.current.onRefresh();
     expect(loadPage).toHaveBeenCalledWith(undefined);
   });
 
@@ -92,7 +92,7 @@ describe("usePaginatedList", () => {
     const managedRefresh = vi.fn(async () => []);
     const params = makeParams({ managedRefresh });
     const { result } = renderHook(() => usePaginatedList(params));
-    act(() => result.current.onRefresh());
+    void result.current.onRefresh();
     expect(managedRefresh).toHaveBeenCalledTimes(1);
   });
 });

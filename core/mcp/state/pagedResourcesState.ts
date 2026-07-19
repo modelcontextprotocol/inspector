@@ -1,6 +1,6 @@
 /**
- * PagedResourcesState: holds an aggregated list of resources loaded one page at
- * a time via loadPage(cursor). Backs single-page mode (`singlePageLists`,
+ * PagedResourcesState: holds the resources accumulated so far, loaded one page
+ * at a time via loadPage(cursor). Backs single-page mode (`singlePageLists`,
  * #1721): auto-loads page 1 on connect when the setting is on, and tracks the
  * server's `nextCursor` + a running page count as observable state. Clears on
  * disconnect.
@@ -33,6 +33,9 @@ export class PagedResourcesState extends TypedEventTarget<PagedResourcesStateEve
   private resources: Resource[] = [];
   private nextCursor: string | undefined = undefined;
   private pageCount = 0;
+  // Double-click guard: a load in flight makes the next `loadPage` a no-op so
+  // the same page can't be appended twice (#1721).
+  private loading = false;
   private client: InspectorClientProtocol | null = null;
   private unsubscribe: (() => void) | null = null;
 
@@ -88,16 +91,24 @@ export class PagedResourcesState extends TypedEventTarget<PagedResourcesStateEve
     if (!c || c.getStatus() !== "connected") {
       return { resources: [], nextCursor: undefined };
     }
-    const result = await c.listResources(cursor, metadata);
-    this.resources =
-      cursor === undefined
-        ? [...result.resources]
-        : [...this.resources, ...result.resources];
-    this.pageCount = cursor === undefined ? 1 : this.pageCount + 1;
-    this.nextCursor = result.nextCursor;
-    this.dispatchTypedEvent("resourcesChange", this.resources);
-    this.dispatchTypedEvent("paginationChange", this.getPagination());
-    return { resources: result.resources, nextCursor: result.nextCursor };
+    if (this.loading) {
+      return { resources: [], nextCursor: this.nextCursor };
+    }
+    this.loading = true;
+    try {
+      const result = await c.listResources(cursor, metadata);
+      this.resources =
+        cursor === undefined
+          ? [...result.resources]
+          : [...this.resources, ...result.resources];
+      this.pageCount = cursor === undefined ? 1 : this.pageCount + 1;
+      this.nextCursor = result.nextCursor;
+      this.dispatchTypedEvent("resourcesChange", this.resources);
+      this.dispatchTypedEvent("paginationChange", this.getPagination());
+      return { resources: result.resources, nextCursor: result.nextCursor };
+    } finally {
+      this.loading = false;
+    }
   }
 
   destroy(): void {

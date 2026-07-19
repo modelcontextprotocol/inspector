@@ -1,5 +1,5 @@
 /**
- * PagedPromptsState: holds an aggregated list of prompts loaded one page at a
+ * PagedPromptsState: holds the prompts accumulated so far, loaded one page at a
  * time via loadPage(cursor). Backs single-page mode (`singlePageLists`, #1721):
  * auto-loads page 1 on connect when the setting is on, and tracks the server's
  * `nextCursor` + a running page count as observable state. Clears on disconnect.
@@ -32,6 +32,9 @@ export class PagedPromptsState extends TypedEventTarget<PagedPromptsStateEventMa
   private prompts: Prompt[] = [];
   private nextCursor: string | undefined = undefined;
   private pageCount = 0;
+  // Double-click guard: a load in flight makes the next `loadPage` a no-op so
+  // the same page can't be appended twice (#1721).
+  private loading = false;
   private client: InspectorClientProtocol | null = null;
   private unsubscribe: (() => void) | null = null;
 
@@ -87,16 +90,24 @@ export class PagedPromptsState extends TypedEventTarget<PagedPromptsStateEventMa
     if (!c || c.getStatus() !== "connected") {
       return { prompts: [], nextCursor: undefined };
     }
-    const result = await c.listPrompts(cursor, metadata);
-    this.prompts =
-      cursor === undefined
-        ? [...result.prompts]
-        : [...this.prompts, ...result.prompts];
-    this.pageCount = cursor === undefined ? 1 : this.pageCount + 1;
-    this.nextCursor = result.nextCursor;
-    this.dispatchTypedEvent("promptsChange", this.prompts);
-    this.dispatchTypedEvent("paginationChange", this.getPagination());
-    return { prompts: result.prompts, nextCursor: result.nextCursor };
+    if (this.loading) {
+      return { prompts: [], nextCursor: this.nextCursor };
+    }
+    this.loading = true;
+    try {
+      const result = await c.listPrompts(cursor, metadata);
+      this.prompts =
+        cursor === undefined
+          ? [...result.prompts]
+          : [...this.prompts, ...result.prompts];
+      this.pageCount = cursor === undefined ? 1 : this.pageCount + 1;
+      this.nextCursor = result.nextCursor;
+      this.dispatchTypedEvent("promptsChange", this.prompts);
+      this.dispatchTypedEvent("paginationChange", this.getPagination());
+      return { prompts: result.prompts, nextCursor: result.nextCursor };
+    } finally {
+      this.loading = false;
+    }
   }
 
   destroy(): void {

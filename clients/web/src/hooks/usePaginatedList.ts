@@ -14,14 +14,18 @@ export interface PaginatedListModel<T> {
   canLoadMore: boolean;
   /** Single-page mode: pages loaded so far. */
   loadedPages: number;
-  /** Single-page mode: fetch the next page. No-op otherwise. */
-  onLoadMore: () => void;
+  /**
+   * Single-page mode: fetch the next page (no-op otherwise). Returns the load
+   * promise so the caller can wrap it in auth recovery.
+   */
+  onLoadMore: () => Promise<unknown>;
   /**
    * Refresh the list: reload page 1 in single-page mode, or re-fetch the whole
    * aggregate in all-pages mode. This is what the list-changed indicator's
-   * Refresh button calls.
+   * Refresh button calls. Returns the underlying promise so the caller can wrap
+   * it in auth recovery.
    */
-  onRefresh: () => void;
+  onRefresh: () => Promise<unknown>;
 }
 
 export interface UsePaginatedListParams<T> {
@@ -65,14 +69,13 @@ export function usePaginatedList<T>({
   pagedPageCount,
   loadPage,
 }: UsePaginatedListParams<T>): PaginatedListModel<T> {
-  const onLoadMore = useCallback(() => {
-    if (pagedNextCursor === undefined) return;
-    void loadPage(pagedNextCursor);
+  const onLoadMore = useCallback((): Promise<unknown> => {
+    if (pagedNextCursor === undefined) return Promise.resolve();
+    return loadPage(pagedNextCursor);
   }, [pagedNextCursor, loadPage]);
 
-  const onRefresh = useCallback(() => {
-    if (singlePage) void loadPage(undefined);
-    else void managedRefresh();
+  const onRefresh = useCallback((): Promise<unknown> => {
+    return singlePage ? loadPage(undefined) : managedRefresh();
   }, [singlePage, loadPage, managedRefresh]);
 
   return {

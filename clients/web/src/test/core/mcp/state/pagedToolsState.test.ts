@@ -190,6 +190,27 @@ describe("PagedToolsState", () => {
     });
   });
 
+  it("ignores a concurrent loadPage (double-click guard, #1721)", async () => {
+    // Two overlapping loadPage(cursor) calls must not both append the same
+    // page. The second (while the first is in flight) is a no-op that returns
+    // the current cursor.
+    client.setStatus("connected");
+    client.queueToolPages(
+      { tools: [tool("a")], nextCursor: "c1" },
+      { tools: [tool("b")], nextCursor: "c2" },
+    );
+    await state.loadPage(); // page 1 → cursor c1
+    const first = state.loadPage("c1");
+    const second = state.loadPage("c1"); // concurrent — should be dropped
+    const [r1, r2] = await Promise.all([first, second]);
+    expect(r1.tools.map((t) => t.name)).toEqual(["b"]);
+    expect(r2.tools).toEqual([]); // guarded no-op
+    expect(r2.nextCursor).toBe("c1"); // preserves the in-flight cursor
+    // Page appended exactly once.
+    expect(state.getTools().map((t) => t.name)).toEqual(["a", "b"]);
+    expect(state.getPagination().pageCount).toBe(2);
+  });
+
   describe("connect auto-load (#1721)", () => {
     it("loads page 1 on connect in single-page mode", async () => {
       const spClient = new FakeInspectorClient({

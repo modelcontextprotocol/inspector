@@ -39,10 +39,16 @@ export class ManagedResourceTemplatesState extends ManagedListState<
       listChangedEvent: "resourceTemplatesListChanged",
       // Templates are gated on the broader `resources` capability.
       capabilityKey: "resources",
+      // No paged counterpart (templates aren't paginated in the UI), so they
+      // must still aggregate on connect even in single-page mode (#1721).
+      deferInSinglePage: false,
       supportsIndicator: false,
       debounceMs,
       fetchAll: async (c, cacheMode, metadata) => {
-        const result = await c.listAllResourceTemplates({ cacheMode, metadata });
+        const result = await c.listAllResourceTemplates({
+          cacheMode,
+          metadata,
+        });
         return result.resourceTemplates;
       },
     });

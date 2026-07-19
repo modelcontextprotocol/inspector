@@ -33,6 +33,7 @@ export class ManagedPromptsState extends ManagedListState<
       changeEvent: "promptsChange",
       listChangedEvent: "promptsListChanged",
       capabilityKey: "prompts",
+      deferInSinglePage: true,
       supportsIndicator: true,
       debounceMs,
       fetchAll: async (c, cacheMode, metadata) => {

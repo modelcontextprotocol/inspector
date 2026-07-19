@@ -153,6 +153,25 @@ describe("ManagedResourceTemplatesState", () => {
     expect(next.map((t) => t.name)).toEqual(["a"]);
   });
 
+  it("STILL loads on connect in single-page mode (no paged counterpart, #1721)", async () => {
+    // Unlike tools/prompts/resources, resource templates have no paged
+    // counterpart, so they must aggregate on connect even when
+    // `singlePageLists` is on — otherwise the list would be empty until a
+    // manual refresh (deferInSinglePage: false).
+    const spClient = new FakeInspectorClient({
+      capabilities: { resources: {} },
+      serverSettings: { ...AUTO_REFRESH_SETTINGS, singlePageLists: true },
+    });
+    spClient.setStatus("connected");
+    const spState = new ManagedResourceTemplatesState(spClient, 0);
+    spClient.queueResourceTemplatePages({ resourceTemplates: [template("a")] });
+    const changePromise = waitForChange(spState);
+    spClient.dispatchTypedEvent("connect");
+    expect((await changePromise).map((t) => t.name)).toEqual(["a"]);
+    expect(spClient.listAllResourceTemplates).toHaveBeenCalled();
+    spState.destroy();
+  });
+
   it("resourceTemplatesListChanged does NOT auto-refresh by default (refreshed via the Resources Refresh)", async () => {
     client.setStatus("connected");
     client.queueResourceTemplatePages({

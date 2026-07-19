@@ -1,5 +1,5 @@
 /**
- * PagedToolsState: holds an aggregated list of tools loaded one page at a time
+ * PagedToolsState: holds the tools accumulated so far, loaded one page at a time
  * via loadPage(cursor). Backs single-page mode (the `singlePageLists` setting,
  * #1721): auto-loads page 1 on connect when the setting is on, and tracks the
  * server's `nextCursor` + a running page count as observable state so the
@@ -41,6 +41,10 @@ export class PagedToolsState extends TypedEventTarget<PagedToolsStateEventMap> {
   private tools: Tool[] = [];
   private nextCursor: string | undefined = undefined;
   private pageCount = 0;
+  // Guards against a concurrent load (e.g. a fast double-click on "Load next
+  // page"): both calls would otherwise read the same cursor and append the
+  // same page twice. A load in flight makes the next `loadPage` a no-op (#1721).
+  private loading = false;
   private client: InspectorClientProtocol | null = null;
   private unsubscribe: (() => void) | null = null;
 
@@ -96,18 +100,28 @@ export class PagedToolsState extends TypedEventTarget<PagedToolsStateEventMap> {
     if (!c || c.getStatus() !== "connected") {
       return { tools: [], nextCursor: undefined };
     }
-    const result = await c.listTools(cursor, undefined);
-    // An undefined cursor is page 1 — replace the list and reset the count;
-    // a cursor appends the next page.
-    this.tools =
-      cursor === undefined
-        ? [...result.tools]
-        : [...this.tools, ...result.tools];
-    this.pageCount = cursor === undefined ? 1 : this.pageCount + 1;
-    this.nextCursor = result.nextCursor;
-    this.dispatchTypedEvent("toolsChange", this.tools);
-    this.dispatchTypedEvent("paginationChange", this.getPagination());
-    return { tools: result.tools, nextCursor: result.nextCursor };
+    // Drop a concurrent load (double-click guard) — the in-flight one owns the
+    // current cursor; return it so callers don't misread this as "the end".
+    if (this.loading) {
+      return { tools: [], nextCursor: this.nextCursor };
+    }
+    this.loading = true;
+    try {
+      const result = await c.listTools(cursor, undefined);
+      // An undefined cursor is page 1 — replace the list and reset the count;
+      // a cursor appends the next page.
+      this.tools =
+        cursor === undefined
+          ? [...result.tools]
+          : [...this.tools, ...result.tools];
+      this.pageCount = cursor === undefined ? 1 : this.pageCount + 1;
+      this.nextCursor = result.nextCursor;
+      this.dispatchTypedEvent("toolsChange", this.tools);
+      this.dispatchTypedEvent("paginationChange", this.getPagination());
+      return { tools: result.tools, nextCursor: result.nextCursor };
+    } finally {
+      this.loading = false;
+    }
   }
 
   destroy(): void {

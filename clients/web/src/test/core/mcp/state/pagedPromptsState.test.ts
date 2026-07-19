@@ -125,6 +125,24 @@ describe("PagedPromptsState", () => {
     expect(() => state.destroy()).not.toThrow();
   });
 
+  it("ignores a concurrent loadPage (double-click guard, #1721)", async () => {
+    client.setStatus("connected");
+    client.queuePromptPages(
+      { prompts: [prompt("a")], nextCursor: "c1" },
+      { prompts: [prompt("b")], nextCursor: "c2" },
+    );
+    await state.loadPage();
+    const [r1, r2] = await Promise.all([
+      state.loadPage("c1"),
+      state.loadPage("c1"),
+    ]);
+    expect(r1.prompts.map((p) => p.name)).toEqual(["b"]);
+    expect(r2.prompts).toEqual([]);
+    expect(r2.nextCursor).toBe("c1");
+    expect(state.getPrompts().map((p) => p.name)).toEqual(["a", "b"]);
+    expect(state.getPagination().pageCount).toBe(2);
+  });
+
   describe("pagination progress + connect auto-load (#1721)", () => {
     it("tracks nextCursor/page count and dispatches paginationChange", async () => {
       client.setStatus("connected");

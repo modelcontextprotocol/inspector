@@ -3245,7 +3245,10 @@ function App() {
   // recovery (the pre-existing path). See usePaginatedList / #1721.
   const onRefreshTools = useCallback(() => {
     if (singlePageLists) {
-      toolsPagination.onRefresh();
+      void runWithCommandAuthRecovery(
+        () => toolsPagination.onRefresh(),
+        "ambient",
+      );
     } else {
       void runWithCommandAuthRecovery(() => refreshTools(), "ambient");
     }
@@ -3257,7 +3260,10 @@ function App() {
   ]);
   const onRefreshPrompts = useCallback(() => {
     if (singlePageLists) {
-      promptsPagination.onRefresh();
+      void runWithCommandAuthRecovery(
+        () => promptsPagination.onRefresh(),
+        "ambient",
+      );
     } else {
       void runWithCommandAuthRecovery(() => refreshPrompts(), "ambient");
     }
@@ -3269,7 +3275,10 @@ function App() {
   ]);
   const onRefreshResources = useCallback(() => {
     if (singlePageLists) {
-      resourcesPagination.onRefresh();
+      void runWithCommandAuthRecovery(
+        () => resourcesPagination.onRefresh(),
+        "ambient",
+      );
       // Resource templates always use the managed (aggregate) path.
       void runWithCommandAuthRecovery(
         () => refreshResourceTemplates(),
@@ -3306,14 +3315,25 @@ function App() {
       // single-page: pull page 1 into each paged store. To all-pages: refetch
       // each managed aggregate that was gated off. Only when connected.
       if (connected) {
+        // Wrap in ambient auth recovery so a mid-session 401 triggers re-auth
+        // rather than surfacing raw, matching the all-pages refresh path.
         if (value) {
-          void loadToolsPage(undefined);
-          void loadPromptsPage(undefined);
-          void loadResourcesPage(undefined);
+          void runWithCommandAuthRecovery(
+            () => loadToolsPage(undefined),
+            "ambient",
+          );
+          void runWithCommandAuthRecovery(
+            () => loadPromptsPage(undefined),
+            "ambient",
+          );
+          void runWithCommandAuthRecovery(
+            () => loadResourcesPage(undefined),
+            "ambient",
+          );
         } else {
-          void refreshTools();
-          void refreshPrompts();
-          void refreshResources();
+          void runWithCommandAuthRecovery(() => refreshTools(), "ambient");
+          void runWithCommandAuthRecovery(() => refreshPrompts(), "ambient");
+          void runWithCommandAuthRecovery(() => refreshResources(), "ambient");
         }
       }
       void updateServerSettings(activeServerId, next).catch((err: unknown) => {
@@ -3336,28 +3356,55 @@ function App() {
       refreshTools,
       refreshPrompts,
       refreshResources,
+      runWithCommandAuthRecovery,
     ],
+  );
+  // Wrap Load-next-page in ambient auth recovery too, so a single-page
+  // paginated fetch that hits a 401 recovers like the all-pages path (#1721).
+  const onLoadMoreTools = useCallback(
+    () =>
+      void runWithCommandAuthRecovery(
+        () => toolsPagination.onLoadMore(),
+        "ambient",
+      ),
+    [toolsPagination, runWithCommandAuthRecovery],
+  );
+  const onLoadMorePrompts = useCallback(
+    () =>
+      void runWithCommandAuthRecovery(
+        () => promptsPagination.onLoadMore(),
+        "ambient",
+      ),
+    [promptsPagination, runWithCommandAuthRecovery],
+  );
+  const onLoadMoreResources = useCallback(
+    () =>
+      void runWithCommandAuthRecovery(
+        () => resourcesPagination.onLoadMore(),
+        "ambient",
+      ),
+    [resourcesPagination, runWithCommandAuthRecovery],
   );
   const toolsPaginationControls: ListPaginationControlsProps = {
     singlePage: toolsPagination.singlePage,
     onSinglePageChange: onToggleSinglePageLists,
     canLoadMore: toolsPagination.canLoadMore,
     loadedPages: toolsPagination.loadedPages,
-    onLoadMore: toolsPagination.onLoadMore,
+    onLoadMore: onLoadMoreTools,
   };
   const promptsPaginationControls: ListPaginationControlsProps = {
     singlePage: promptsPagination.singlePage,
     onSinglePageChange: onToggleSinglePageLists,
     canLoadMore: promptsPagination.canLoadMore,
     loadedPages: promptsPagination.loadedPages,
-    onLoadMore: promptsPagination.onLoadMore,
+    onLoadMore: onLoadMorePrompts,
   };
   const resourcesPaginationControls: ListPaginationControlsProps = {
     singlePage: resourcesPagination.singlePage,
     onSinglePageChange: onToggleSinglePageLists,
     canLoadMore: resourcesPagination.canLoadMore,
     loadedPages: resourcesPagination.loadedPages,
-    onLoadMore: resourcesPagination.onLoadMore,
+    onLoadMore: onLoadMoreResources,
   };
   const onRefreshTasks = useCallback(() => {
     void runWithCommandAuthRecovery(() => refreshTasks(), "ambient")?.catch(

@@ -127,6 +127,24 @@ describe("PagedResourcesState", () => {
     expect(() => state.destroy()).not.toThrow();
   });
 
+  it("ignores a concurrent loadPage (double-click guard, #1721)", async () => {
+    client.setStatus("connected");
+    client.queueResourcePages(
+      { resources: [resource("a://1")], nextCursor: "c1" },
+      { resources: [resource("a://2")], nextCursor: "c2" },
+    );
+    await state.loadPage();
+    const [r1, r2] = await Promise.all([
+      state.loadPage("c1"),
+      state.loadPage("c1"),
+    ]);
+    expect(r1.resources.map((r) => r.uri)).toEqual(["a://2"]);
+    expect(r2.resources).toEqual([]);
+    expect(r2.nextCursor).toBe("c1");
+    expect(state.getResources().map((r) => r.uri)).toEqual(["a://1", "a://2"]);
+    expect(state.getPagination().pageCount).toBe(2);
+  });
+
   describe("pagination progress + connect auto-load (#1721)", () => {
     it("tracks nextCursor/page count and dispatches paginationChange", async () => {
       client.setStatus("connected");
