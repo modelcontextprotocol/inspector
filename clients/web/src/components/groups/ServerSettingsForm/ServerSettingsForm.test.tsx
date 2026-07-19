@@ -131,11 +131,15 @@ describe("ServerSettingsForm", () => {
     ).toBeInTheDocument();
   });
 
+  // The modern per-request control only shows for a modern-capable era. Base
+  // these tests on a modern-pinned settings object so the Select renders.
+  const modernSettings = { ...emptySettings, protocolEra: "modern" as const };
+
   it("defaults the Log Level per Request select to Debug when unset (#1629)", () => {
     renderWithMantine(
       <ServerSettingsForm
         {...baseHandlers}
-        settings={emptySettings}
+        settings={modernSettings}
         expandedSections={["options"]}
       />,
     );
@@ -150,7 +154,7 @@ describe("ServerSettingsForm", () => {
     renderWithMantine(
       <ServerSettingsForm
         {...baseHandlers}
-        settings={emptySettings}
+        settings={modernSettings}
         expandedSections={["options"]}
       />,
     );
@@ -164,7 +168,7 @@ describe("ServerSettingsForm", () => {
     renderWithMantine(
       <ServerSettingsForm
         {...baseHandlers}
-        settings={emptySettings}
+        settings={modernSettings}
         expandedSections={["options"]}
       />,
     );
@@ -177,11 +181,58 @@ describe("ServerSettingsForm", () => {
     renderWithMantine(
       <ServerSettingsForm
         {...baseHandlers}
-        settings={{ ...emptySettings, modernLogLevel: "off" }}
+        settings={{ ...modernSettings, modernLogLevel: "off" }}
         expandedSections={["options"]}
       />,
     );
     expect(screen.getByDisplayValue("Off (no logs)")).toBeInTheDocument();
+  });
+
+  it("hides the Log Level per Request control when the era is legacy (#1629)", () => {
+    // emptySettings has no protocolEra → defaults to legacy → control hidden.
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.queryByText("Log Level per Request")).toBeNull();
+  });
+
+  it("hides the control for an 'auto' server that negotiated legacy (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, protocolEra: "auto" }}
+        negotiatedEra="legacy"
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.queryByText("Log Level per Request")).toBeNull();
+  });
+
+  it("shows the control for an 'auto' server not yet connected (era unknown) (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, protocolEra: "auto" }}
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.getByText("Log Level per Request")).toBeInTheDocument();
+  });
+
+  it("shows the control for an 'auto' server that negotiated modern (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, protocolEra: "auto" }}
+        negotiatedEra="modern"
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.getByText("Log Level per Request")).toBeInTheDocument();
   });
 
   it("shows empty hints for headers and metadata when no entries exist", () => {

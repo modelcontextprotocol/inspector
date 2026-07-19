@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CloseButton, Group, Modal, Stack } from "@mantine/core";
+import type { ProtocolEra } from "@modelcontextprotocol/client";
 import type {
   InspectorServerSettings,
   ModernLogLevel,
@@ -43,6 +44,13 @@ export interface ServerSettingsModalProps {
    * section.
    */
   isStdio: boolean;
+  /**
+   * The era this server actually negotiated, when it is the live connection.
+   * Forwarded to the form to hide the modern "Log Level per Request" control on
+   * an `auto` server that resolved to legacy (#1629). Undefined when this server
+   * isn't the connected one.
+   */
+  negotiatedEra?: ProtocolEra;
   onClose: () => void;
   onSettingsChange: (settings: InspectorServerSettings) => void;
   onClearStoredOAuth?: () => void;
@@ -53,6 +61,7 @@ export function ServerSettingsModal({
   settings,
   serverType,
   isStdio,
+  negotiatedEra,
   onClose,
   onSettingsChange,
   onClearStoredOAuth,
@@ -245,6 +254,7 @@ export function ServerSettingsModal({
           onMaxFetchRequestsChange={handleMaxFetchRequestsChange}
           onProtocolEraChange={handleProtocolEraChange}
           onModernLogLevelChange={handleModernLogLevelChange}
+          negotiatedEra={negotiatedEra}
           onOAuthChange={handleOAuthChange}
           onClearStoredOAuth={onClearStoredOAuth}
           onAddRoot={handleAddRoot}

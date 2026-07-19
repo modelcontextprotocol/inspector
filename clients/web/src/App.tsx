@@ -4352,6 +4352,16 @@ function App() {
         settings={settingsModalValue}
         serverType={settingsModalServerType}
         isStdio={settingsModalIsStdio}
+        // The negotiated era only applies when this settings modal targets the
+        // live-connected server; otherwise the server isn't connected and the
+        // era is unknown (#1629). Lets the form hide the modern log-level control
+        // once an `auto` server resolves to legacy.
+        negotiatedEra={
+          connectionStatus === "connected" &&
+          settingsModalTargetId === activeServerId
+            ? protocolEra
+            : undefined
+        }
         onClose={onSettingsModalClose}
         onSettingsChange={onSettingsChange}
         onClearStoredOAuth={

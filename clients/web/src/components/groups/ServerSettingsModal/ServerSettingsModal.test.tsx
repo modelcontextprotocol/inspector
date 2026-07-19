@@ -145,7 +145,8 @@ describe("ServerSettingsModal", () => {
     renderWithMantine(
       <ServerSettingsModal
         opened
-        settings={emptySettings}
+        // The modern log-level control only shows for a modern-capable era.
+        settings={{ ...emptySettings, protocolEra: "modern" }}
         serverType="streamable-http"
         isStdio={false}
         onClose={vi.fn()}
@@ -159,6 +160,21 @@ describe("ServerSettingsModal", () => {
     expect(onSettingsChange).toHaveBeenCalledWith(
       expect.objectContaining({ modernLogLevel: "off" }),
     );
+  });
+
+  it("hides the modern log-level control when this server negotiated legacy under 'auto' (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={{ ...emptySettings, protocolEra: "auto" }}
+        serverType="streamable-http"
+        isStdio={false}
+        negotiatedEra="legacy"
+        onClose={vi.fn()}
+        onSettingsChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Log Level per Request")).toBeNull();
   });
 
   it("calls onSettingsChange when adding a header after expanding the section", async () => {
