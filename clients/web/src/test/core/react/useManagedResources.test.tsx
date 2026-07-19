@@ -143,5 +143,23 @@ describe("useManagedResources", () => {
       const { result } = renderHook(() => useManagedResources(client, null));
       expect(result.current.listChanged).toBe(false);
     });
+
+    it("clearListChanged() acknowledges the indicator without fetching (#1721)", async () => {
+      const { result } = renderHook(() => useManagedResources(client, state));
+      act(() => {
+        client.dispatchTypedEvent("resourcesListChanged");
+      });
+      await waitFor(() => expect(result.current.listChanged).toBe(true));
+      act(() => {
+        result.current.clearListChanged();
+      });
+      await waitFor(() => expect(result.current.listChanged).toBe(false));
+      expect(client.listAllResources).not.toHaveBeenCalled();
+    });
+
+    it("clearListChanged() is a no-op when state is null", () => {
+      const { result } = renderHook(() => useManagedResources(client, null));
+      expect(() => result.current.clearListChanged()).not.toThrow();
+    });
   });
 });

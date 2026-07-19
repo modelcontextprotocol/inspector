@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { noopPagination } from "../../../test/fixtures/pagination";
 import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { Prompt } from "@modelcontextprotocol/client";
@@ -21,6 +22,7 @@ const meta: Meta<typeof PromptsScreen> = {
   component: PromptsScreen,
   parameters: { layout: "fullscreen" },
   args: {
+    pagination: noopPagination,
     ui: EMPTY_PROMPTS_UI,
     onUiChange: fn(),
     onRefreshList: fn(),

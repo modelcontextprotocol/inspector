@@ -18,6 +18,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { expect, fn } from "storybook/test";
 import { InspectorView } from "./InspectorView";
+import { noopPagination } from "../../../test/fixtures/pagination";
 import {
   EMPTY_TOOLS_UI,
   EMPTY_APPS_UI,
@@ -385,6 +386,9 @@ const meta: Meta<typeof InspectorView> = {
     onToolsUiChange: fn(),
     onCallTool: fn(),
     onRefreshTools: fn(),
+    toolsPagination: noopPagination,
+    promptsPagination: noopPagination,
+    resourcesPagination: noopPagination,
     onPromptsUiChange: fn(),
     onGetPrompt: fn(),
     onRefreshPrompts: fn(),

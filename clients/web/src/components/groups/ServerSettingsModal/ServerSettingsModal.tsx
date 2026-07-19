@@ -162,6 +162,10 @@ export function ServerSettingsModal({
     onSettingsChange({ ...settings, autoRefreshOnListChanged: value });
   }
 
+  function handlePaginatedListsChange(value: boolean) {
+    onSettingsChange({ ...settings, paginatedLists: value });
+  }
+
   function handleMaxFetchRequestsChange(value: number) {
     onSettingsChange({ ...settings, maxFetchRequests: value });
   }
@@ -232,6 +236,7 @@ export function ServerSettingsModal({
           onMetadataChange={handleMetadataChange}
           onTimeoutChange={handleTimeoutChange}
           onAutoRefreshChange={handleAutoRefreshChange}
+          onPaginatedListsChange={handlePaginatedListsChange}
           onMaxFetchRequestsChange={handleMaxFetchRequestsChange}
           onProtocolEraChange={handleProtocolEraChange}
           onOAuthChange={handleOAuthChange}

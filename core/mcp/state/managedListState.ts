@@ -13,11 +13,12 @@
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { InspectorClientEventMap } from "../inspectorClientEventTarget.js";
-import type { ServerCapabilities } from "@modelcontextprotocol/client";
+import type {
+  CacheMode,
+  ServerCapabilities,
+} from "@modelcontextprotocol/client";
 import { isTerminalStatus } from "../types.js";
 import { TypedEventTarget } from "../typedEventTarget.js";
-
-const MAX_PAGES = 100;
 
 /**
  * Default delay (ms) for debouncing `list_changed` notifications. Servers
@@ -33,12 +34,6 @@ export interface ManagedListEventMap {
   listChangedChange: boolean;
 }
 
-/** A single page of a list result, normalized across the SDK list methods. */
-export interface ListPage<T> {
-  items: T[];
-  nextCursor?: string;
-}
-
 export interface ManagedListConfig<T, M extends ManagedListEventMap> {
   /** The `*Change` event this manager dispatches (e.g. "toolsChange"). */
   changeEvent: keyof M;
@@ -46,14 +41,16 @@ export interface ManagedListConfig<T, M extends ManagedListEventMap> {
   listChangedEvent: keyof InspectorClientEventMap;
   /** Server capability gating the list call (empty list when absent). */
   capabilityKey: keyof ServerCapabilities;
-  /** Human label used in the pagination-cap error message. */
-  itemLabel: string;
-  /** Fetch a single page from the client. */
-  fetchPage: (
+  /**
+   * Fetch the complete (all-page) list from the client. Delegates page walking
+   * to the SDK's cache-aware high-level verb (via the client's `listAll*`
+   * methods), which also lets `cacheMode` select the cache disposition.
+   */
+  fetchAll: (
     client: InspectorClientProtocol,
-    cursor: string | undefined,
+    cacheMode: CacheMode | undefined,
     metadata: Record<string, string> | undefined,
-  ) => Promise<ListPage<T>>;
+  ) => Promise<T[]>;
   /**
    * Whether this list drives a list-changed indicator. When true, a
    * `list_changed` in non-auto-refresh mode lights the indicator blindly (no
@@ -62,6 +59,15 @@ export interface ManagedListConfig<T, M extends ManagedListEventMap> {
    * pulled via the screen's Refresh instead.
    */
   supportsIndicator: boolean;
+  /**
+   * Whether this list has a paged (paginated) counterpart that drives the
+   * display when `paginatedLists` is on. Only such lists defer their
+   * connect-time / `list_changed` aggregate walk in paginated mode (tools,
+   * prompts, resources). Lists with no paged counterpart (resource templates)
+   * set this `false` so they still aggregate on connect regardless of the
+   * setting — otherwise they'd never load in paginated mode (#1721).
+   */
+  deferWhenPaginated: boolean;
   /** Debounce delay (ms) for `list_changed` bursts. */
   debounceMs: number;
 }
@@ -94,6 +100,18 @@ export abstract class ManagedListState<
     this.client = client;
     this.config = config;
     const onConnect = (): void => {
+      // In paginated mode the aggregate list is not the display source (the
+      // paged state drives the sidebar), so skip the connect-time all-page
+      // walk — the whole point of the setting is to avoid pulling every page
+      // for servers with very large lists (#1721). Switching back to
+      // all-pages mode triggers a refresh from the UI. Only lists with a paged
+      // counterpart defer here; resource templates (none) still aggregate.
+      if (
+        this.config.deferWhenPaginated &&
+        this.client?.getServerSettings()?.paginatedLists
+      ) {
+        return;
+      }
       void this.refresh();
     };
     const onListChanged = (): void => {
@@ -155,10 +173,22 @@ export abstract class ManagedListState<
     try {
       do {
         this.runQueued = false;
-        // Read the setting at fire time so a `setServerSettings` toggle that
+        // Read the settings at fire time so a `setServerSettings` toggle that
         // lands mid-burst is honored on the settled action.
-        if (this.client?.getServerSettings()?.autoRefreshOnListChanged) {
-          await this.refresh();
+        const settings = this.client?.getServerSettings();
+        // In paginated mode the aggregate list is not the display source for
+        // lists with a paged counterpart, so never auto-aggregate on
+        // `list_changed` there — only light the indicator so the user can pull
+        // page 1 fresh via Refresh (#1721). This wins over
+        // `autoRefreshOnListChanged`, which would otherwise pull every page.
+        // Lists with no paged counterpart (resource templates) still aggregate.
+        const skipAggregate =
+          this.config.deferWhenPaginated && settings?.paginatedLists;
+        if (!skipAggregate && settings?.autoRefreshOnListChanged) {
+          // A `list_changed` means the prior list is stale, so bypass any
+          // cached entry (`cacheMode: "refresh"`) and re-store the fresh
+          // aggregate.
+          await this.refresh(undefined, "refresh");
         } else if (this.config.supportsIndicator) {
           this.setListChanged(true);
         }
@@ -210,8 +240,17 @@ export abstract class ManagedListState<
     this._metadata = metadata;
   }
 
-  async refresh(metadata?: Record<string, string>): Promise<T[]> {
-    const next = await this.fetchAll(metadata);
+  /**
+   * Refresh the full list. `cacheMode` selects the SDK cache disposition for
+   * this fetch: `undefined` (the connect-time load) uses the default `'use'`;
+   * a user-initiated or auto refresh passes `'refresh'` to force a
+   * cache-bypassing round trip and re-store the fresh aggregate.
+   */
+  async refresh(
+    metadata?: Record<string, string>,
+    cacheMode?: CacheMode,
+  ): Promise<T[]> {
+    const next = await this.fetchItems(metadata, cacheMode);
     // `null` means not connected — leave the current list untouched.
     if (next === null) return this.getItems();
     this.applyItems(next);
@@ -219,38 +258,21 @@ export abstract class ManagedListState<
   }
 
   /**
-   * Fetch all pages, then `applyItems` commits them (see `refresh`). Returns
-   * `null` when not connected, or
-   * `[]` when the server doesn't advertise the gating capability (calling the
-   * list method there returns -32601 "Method not found", which would spam the
-   * console; empty list is the right semantics).
+   * Fetch the complete list (all pages, via the SDK's cache-aware verb), then
+   * `applyItems` commits it (see `refresh`). Returns `null` when not connected,
+   * or `[]` when the server doesn't advertise the gating capability (calling
+   * the list method there returns -32601 "Method not found", which would spam
+   * the console; empty list is the right semantics).
    */
-  private async fetchAll(
-    metadata?: Record<string, string>,
+  private async fetchItems(
+    metadata: Record<string, string> | undefined,
+    cacheMode: CacheMode | undefined,
   ): Promise<T[] | null> {
     const client = this.client;
     if (!client || client.getStatus() !== "connected") return null;
     if (!client.getCapabilities()?.[this.config.capabilityKey]) return [];
     const effectiveMetadata = metadata ?? this._metadata;
-    let items: T[] = [];
-    let cursor: string | undefined;
-    let pageCount = 0;
-    do {
-      const page = await this.config.fetchPage(
-        client,
-        cursor,
-        effectiveMetadata,
-      );
-      items = cursor ? [...items, ...page.items] : page.items;
-      cursor = page.nextCursor;
-      pageCount++;
-      if (pageCount >= MAX_PAGES) {
-        throw new Error(
-          `Maximum pagination limit (${MAX_PAGES} pages) reached while listing ${this.config.itemLabel}`,
-        );
-      }
-    } while (cursor);
-    return items;
+    return this.config.fetchAll(client, cacheMode, effectiveMetadata);
   }
 
   /** Commit a fetched list as the current one and notify subscribers. */

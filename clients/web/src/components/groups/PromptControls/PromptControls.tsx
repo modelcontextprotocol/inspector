@@ -2,6 +2,10 @@ import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { Prompt } from "@modelcontextprotocol/client";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
+import {
+  ListPaginationControls,
+  type ListPaginationControlsProps,
+} from "../../elements/ListPaginationControls/ListPaginationControls";
 import { PromptListItem } from "../PromptListItem/PromptListItem";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
@@ -13,6 +17,8 @@ export interface PromptControlsProps {
   searchText?: string;
   listChanged: boolean;
   onRefreshList: () => void;
+  /** Pagination controls (#1721). */
+  pagination: ListPaginationControlsProps;
   onSearchChange: (value: string) => void;
   onSelectPrompt: (name: string) => void;
 }
@@ -23,6 +29,7 @@ export function PromptControls({
   searchText = "",
   listChanged,
   onRefreshList,
+  pagination,
   onSearchChange,
   onSelectPrompt,
 }: PromptControlsProps) {
@@ -53,6 +60,7 @@ export function PromptControls({
           searchText ? <ClearButton onClick={() => onSearchChange("")} /> : null
         }
       />
+      <ListPaginationControls {...pagination} />
       <ScrollArea viewportRef={viewportRef} flex={1} mih={0}>
         <Stack gap="xs">
           {filteredPrompts.map((prompt) => (

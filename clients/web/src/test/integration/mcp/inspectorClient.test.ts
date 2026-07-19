@@ -1147,6 +1147,70 @@ describe("InspectorClient", () => {
       expect(page4.nextCursor).toBeUndefined();
       expect(page4.tools[0]?.name).toBe("tool_10");
     });
+
+    it("listAllTools aggregates every page via the SDK's cache-aware verb (#1721)", async () => {
+      // Disconnect and create a new server with pagination
+      await client!.disconnect();
+      if (server) {
+        await server.stop();
+      }
+
+      // 10 tools, page size 3 → 4 wire pages the SDK walks internally.
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: createNumberedTools(10),
+        maxPageSize: { tools: 3 },
+      });
+      await server.start();
+
+      client = new InspectorClient(
+        { type: "streamable-http", url: server.url },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+        },
+      );
+      await client.connect();
+
+      // One call returns the fully-aggregated list (no per-page cursor
+      // surfaced), unlike the single-page listTools() above. `cacheMode:
+      // "refresh"` forces a wire fetch — a no-op here (no ttlMs hints) but the
+      // path the managed refresh uses.
+      const all = await client.listAllTools({ cacheMode: "refresh" });
+      expect(all.tools.map((t) => t.name)).toEqual(
+        Array.from({ length: 10 }, (_, i) => `tool_${i + 1}`),
+      );
+    });
+
+    it("listAllResources / listAllPrompts / listAllResourceTemplates aggregate too (#1721)", async () => {
+      await client!.disconnect();
+      if (server) {
+        await server.stop();
+      }
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: createNumberedTools(2),
+      });
+      await server.start();
+      client = new InspectorClient(
+        { type: "streamable-http", url: server.url },
+        {
+          environment: { transport: createTransportNode },
+          clientIdentity: { name: "test", version: "1.0.0" },
+        },
+      );
+      await client.connect();
+
+      // Exercises the remaining three aggregate methods (empty is fine — the
+      // point is the SDK verb runs and returns a well-formed shape). Default
+      // cacheMode ('use') for these.
+      const resources = await client.listAllResources();
+      const prompts = await client.listAllPrompts({ metadata: { k: "v" } });
+      const templates = await client.listAllResourceTemplates();
+      expect(Array.isArray(resources.resources)).toBe(true);
+      expect(Array.isArray(prompts.prompts)).toBe(true);
+      expect(Array.isArray(templates.resourceTemplates)).toBe(true);
+    });
   });
 
   describe("Default metadata (server-wide _meta)", () => {
@@ -5540,6 +5604,12 @@ describe("InspectorClient", () => {
         await expectThrow(() => c.listResources());
         await expectThrow(() => c.listResourceTemplates());
         await expectThrow(() => c.listPrompts());
+
+        // aggregate (all-page, cache-aware) listing (#1721)
+        await expectThrow(() => c.listAllTools());
+        await expectThrow(() => c.listAllResources());
+        await expectThrow(() => c.listAllResourceTemplates());
+        await expectThrow(() => c.listAllPrompts());
 
         // single-item fetch
         await expectThrow(() =>

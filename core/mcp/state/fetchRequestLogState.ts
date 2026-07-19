@@ -239,9 +239,7 @@ export class FetchRequestLogState extends TypedEventTarget<FetchRequestLogStateE
     if (restored.length === 0) return;
     const merged = [...restored, ...this.fetchRequests];
     this.fetchRequests =
-      this.maxFetchRequests > 0
-        ? merged.slice(-this.maxFetchRequests)
-        : merged;
+      this.maxFetchRequests > 0 ? merged.slice(-this.maxFetchRequests) : merged;
     this.dispatchTypedEvent("fetchRequestsChange", this.getFetchRequests());
   }
 

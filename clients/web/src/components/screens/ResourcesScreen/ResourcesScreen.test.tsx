@@ -7,6 +7,7 @@ import type {
   ReadResourceResult,
 } from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import { noopPagination } from "../../../test/fixtures/pagination";
 import {
   ResourcesScreen,
   type ResourcesScreenProps,
@@ -31,6 +32,7 @@ const baseProps = {
   ui: EMPTY_RESOURCES_UI,
   onUiChange: vi.fn(),
   onRefreshList: vi.fn(),
+  pagination: noopPagination,
   onReadResource: vi.fn(),
   onSubscribeResource: vi.fn(),
   onUnsubscribeResource: vi.fn(),

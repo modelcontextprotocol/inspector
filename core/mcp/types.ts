@@ -124,6 +124,14 @@ export type StoredMCPServer = MCPServerConfig & {
    */
   autoRefreshOnListChanged?: boolean;
   /**
+   * When true, the tools/resources/prompts lists are fetched one page at a time
+   * (a manual "Load next page" control surfaces the server's `nextCursor`)
+   * instead of auto-aggregating every page on load. A defensive default for
+   * servers with very large lists. Inspector-specific. Omitted on disk when
+   * false (the default). (#1721)
+   */
+  paginatedLists?: boolean;
+  /**
    * Maximum number of HTTP fetch requests retained in the Network log for this
    * server (oldest rotate out past the cap). Inspector-specific. Omitted on
    * disk when it equals `DEFAULT_MAX_FETCH_REQUESTS` (the default), keeping the
@@ -545,6 +553,12 @@ export interface InspectorServerSettings {
    * and the user pulls the new list via Refresh. (#1402)
    */
   autoRefreshOnListChanged?: boolean;
+  /**
+   * When true, the tools/resources/prompts lists fetch one page at a time (a
+   * manual "Load next page" control) instead of auto-aggregating all pages.
+   * Default false. Server-wide; the per-list sidebar toggle edits this. (#1721)
+   */
+  paginatedLists?: boolean;
   /**
    * Maximum number of HTTP fetch requests retained in the Network log for this
    * server. When exceeded, the oldest entries rotate out (and any deferred

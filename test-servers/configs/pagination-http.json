@@ -1,0 +1,18 @@
+{
+  "serverInfo": {
+    "name": "pagination-showcase",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "numbered_tools", "params": { "count": 12 } }],
+  "resources": [{ "preset": "numbered_resources", "params": { "count": 12 } }],
+  "prompts": [{ "preset": "numbered_prompts", "params": { "count": 12 } }],
+  "maxPageSize": {
+    "tools": 4,
+    "resources": 4,
+    "prompts": 4
+  },
+  "transport": {
+    "type": "streamable-http",
+    "port": 6600
+  }
+}

@@ -52,7 +52,13 @@ export function useManagedResourceTemplates(
 
   const refresh = useCallback(async (): Promise<ResourceTemplate[]> => {
     if (!managedResourceTemplatesState || !client) return [];
-    const next = await managedResourceTemplatesState.refresh();
+    // A user-initiated refresh forces a cache-bypassing round trip
+    // (`cacheMode: "refresh"`) so a modern server's `ttlMs`-cached list can't
+    // return stale — and re-stores the fresh aggregate.
+    const next = await managedResourceTemplatesState.refresh(
+      undefined,
+      "refresh",
+    );
     setResourceTemplates(next);
     return next;
   }, [client, managedResourceTemplatesState]);

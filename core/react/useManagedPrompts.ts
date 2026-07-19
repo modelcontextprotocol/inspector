@@ -12,6 +12,8 @@ export interface UseManagedPromptsResult {
   /** True when a `prompts/list_changed` arrived since the last user refresh. */
   listChanged: boolean;
   refresh: () => Promise<Prompt[]>;
+  /** Acknowledge the list-changed indicator without fetching (#1721). */
+  clearListChanged: () => void;
 }
 
 /**
@@ -71,10 +73,17 @@ export function useManagedPrompts(
     // afterward would wipe that genuinely-new signal and the user would miss
     // it. Clearing up front acknowledges only the change in hand.
     managedPromptsState.clearListChanged();
-    const next = await managedPromptsState.refresh();
+    // A user-initiated refresh forces a cache-bypassing round trip
+    // (`cacheMode: "refresh"`) so a modern server's `ttlMs`-cached list can't
+    // return stale — and re-stores the fresh aggregate.
+    const next = await managedPromptsState.refresh(undefined, "refresh");
     setPrompts(next);
     return next;
   }, [client, managedPromptsState]);
 
-  return { prompts, listChanged, refresh };
+  const clearListChanged = useCallback(() => {
+    managedPromptsState?.clearListChanged();
+  }, [managedPromptsState]);
+
+  return { prompts, listChanged, refresh, clearListChanged };
 }

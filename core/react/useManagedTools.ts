@@ -10,6 +10,13 @@ export interface UseManagedToolsResult {
   /** True when a `tools/list_changed` arrived since the last user refresh. */
   listChanged: boolean;
   refresh: () => Promise<Tool[]>;
+  /**
+   * Acknowledge the list-changed indicator without fetching the aggregate.
+   * Used by the paginated Refresh path, which reloads page 1 of the paged
+   * store (bypassing this hook's `refresh`) but must still clear the indicator
+   * the managed state lit on `list_changed` (#1721).
+   */
+  clearListChanged: () => void;
 }
 
 /**
@@ -66,10 +73,17 @@ export function useManagedTools(
     // afterward would wipe that genuinely-new signal and the user would miss
     // it. Clearing up front acknowledges only the change in hand.
     managedToolsState.clearListChanged();
-    const next = await managedToolsState.refresh();
+    // A user-initiated refresh forces a cache-bypassing round trip
+    // (`cacheMode: "refresh"`) so a modern server's `ttlMs`-cached list can't
+    // return stale — and re-stores the fresh aggregate.
+    const next = await managedToolsState.refresh(undefined, "refresh");
     setTools(next);
     return next;
   }, [client, managedToolsState]);
 
-  return { tools, listChanged, refresh };
+  const clearListChanged = useCallback(() => {
+    managedToolsState?.clearListChanged();
+  }, [managedToolsState]);
+
+  return { tools, listChanged, refresh, clearListChanged };
 }

@@ -7,6 +7,10 @@ import type {
 } from "@modelcontextprotocol/client";
 import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
+import {
+  ListPaginationControls,
+  type ListPaginationControlsProps,
+} from "../../elements/ListPaginationControls/ListPaginationControls";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { ResourceListItem } from "../ResourceListItem/ResourceListItem";
 import { ResourceSubscribedItem } from "../ResourceSubscribedItem/ResourceSubscribedItem";
@@ -32,6 +36,8 @@ export interface ResourceControlsProps {
   openSections?: string[];
   listChanged: boolean;
   onRefreshList: () => void;
+  /** Pagination controls for the Resources list (#1721). */
+  pagination: ListPaginationControlsProps;
   onSearchChange: (value: string) => void;
   onOpenSectionsChange: (value: string[]) => void;
   onSelectUri: (uri: string) => void;
@@ -71,6 +77,7 @@ export function ResourceControls({
   openSections: controlledOpenSections,
   listChanged,
   onRefreshList,
+  pagination,
   onSearchChange,
   onOpenSectionsChange,
   onSelectUri,
@@ -186,6 +193,7 @@ export function ResourceControls({
         />
         <ListToggle compact={!allExpanded} onToggle={handleToggleList} />
       </Group>
+      <ListPaginationControls {...pagination} />
       <Accordion
         multiple
         variant="disclosure"

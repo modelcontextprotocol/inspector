@@ -187,12 +187,23 @@ const SERVER_A = {
   connection: { status: "disconnected" },
 };
 
+// Stable spy so tests can assert the sidebar paginated toggle persisted the
+// `paginatedLists` setting (#1721). `vi.hoisted` so it exists when the hoisted
+// `vi.mock` factory closes over it.
+const { updateServerSettingsSpy } = vi.hoisted(() => ({
+  updateServerSettingsSpy: vi.fn(() => Promise.resolve()),
+}));
+// Stable spy for the tools list-changed acknowledgement, so a test can assert
+// the paginated Refresh clears the indicator (#1721).
+const { clearToolsListChangedSpy } = vi.hoisted(() => ({
+  clearToolsListChangedSpy: vi.fn(),
+}));
 vi.mock("@inspector/core/react/useServers.js", () => ({
   useServers: vi.fn(() => ({
     servers: [SERVER_A],
     addServer: vi.fn(),
     updateServer: vi.fn(),
-    updateServerSettings: vi.fn(),
+    updateServerSettings: updateServerSettingsSpy,
     removeServer: vi.fn(),
   })),
 }));
@@ -211,19 +222,80 @@ vi.mock("@inspector/core/react/useManagedTools.js", () => ({
   useManagedTools: vi.fn(() => ({
     tools: [{ name: "get_acts", inputSchema: { type: "object" } }],
     refresh: vi.fn(),
+    clearListChanged: clearToolsListChangedSpy,
   })),
 }));
 vi.mock("@inspector/core/react/useManagedPrompts.js", () => ({
-  useManagedPrompts: vi.fn(() => ({ prompts: [], refresh: vi.fn() })),
+  useManagedPrompts: vi.fn(() => ({
+    prompts: [],
+    refresh: vi.fn(),
+    clearListChanged: vi.fn(),
+  })),
 }));
 vi.mock("@inspector/core/react/useManagedResources.js", () => ({
-  useManagedResources: vi.fn(() => ({ resources: [], refresh: vi.fn() })),
+  useManagedResources: vi.fn(() => ({
+    resources: [],
+    refresh: vi.fn(),
+    clearListChanged: vi.fn(),
+  })),
 }));
 vi.mock("@inspector/core/react/useManagedResourceTemplates.js", () => ({
   useManagedResourceTemplates: vi.fn(() => ({
     resourceTemplates: [],
     refresh: vi.fn(),
   })),
+}));
+// Paged (paginated) hooks + state managers (#1721). Mirrors the managed
+// mocks: the hooks return an empty accumulated list and a resolving loadPage so
+// usePaginatedList runs without a real transport; the state classes are no-op
+// constructors App still instantiates/destroys per connect.
+vi.mock("@inspector/core/react/usePagedTools.js", () => ({
+  usePagedTools: vi.fn(() => ({
+    tools: [],
+    nextCursor: undefined,
+    pageCount: 0,
+    loadPage: vi.fn(() =>
+      Promise.resolve({ tools: [], nextCursor: undefined }),
+    ),
+    clear: vi.fn(),
+  })),
+}));
+vi.mock("@inspector/core/react/usePagedPrompts.js", () => ({
+  usePagedPrompts: vi.fn(() => ({
+    prompts: [],
+    nextCursor: undefined,
+    pageCount: 0,
+    loadPage: vi.fn(() =>
+      Promise.resolve({ prompts: [], nextCursor: undefined }),
+    ),
+    clear: vi.fn(),
+  })),
+}));
+vi.mock("@inspector/core/react/usePagedResources.js", () => ({
+  usePagedResources: vi.fn(() => ({
+    resources: [],
+    nextCursor: undefined,
+    pageCount: 0,
+    loadPage: vi.fn(() =>
+      Promise.resolve({ resources: [], nextCursor: undefined }),
+    ),
+    clear: vi.fn(),
+  })),
+}));
+vi.mock("@inspector/core/mcp/state/pagedToolsState.js", () => ({
+  PagedToolsState: vi.fn(function () {
+    return { destroy: vi.fn() };
+  }),
+}));
+vi.mock("@inspector/core/mcp/state/pagedPromptsState.js", () => ({
+  PagedPromptsState: vi.fn(function () {
+    return { destroy: vi.fn() };
+  }),
+}));
+vi.mock("@inspector/core/mcp/state/pagedResourcesState.js", () => ({
+  PagedResourcesState: vi.fn(function () {
+    return { destroy: vi.fn() };
+  }),
 }));
 vi.mock("@inspector/core/react/useManagedRequestorTasks.js", () => ({
   useManagedRequestorTasks: vi.fn(() => ({
@@ -313,6 +385,14 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
     onReplayProtocol: (id: string) => void;
     onTogglePinProtocol: (id: string) => void;
     pinnedProtocolIds?: Set<string>;
+    onRefreshTools: () => void;
+    toolsPagination: {
+      paginated: boolean;
+      canLoadMore: boolean;
+      loadedPages: number;
+      onPaginatedChange: (v: boolean) => void;
+      onLoadMore: () => void;
+    };
   }) => (
     <div>
       <span data-testid="tool-status">
@@ -428,6 +508,22 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
         replay-history
       </button>
       <button onClick={() => props.onClearProtocol()}>clear-history</button>
+      <span data-testid="tools-paginated">
+        {String(props.toolsPagination.paginated)}
+      </span>
+      <span data-testid="tools-loaded-pages">
+        {props.toolsPagination.loadedPages}
+      </span>
+      <button onClick={() => props.toolsPagination.onPaginatedChange(true)}>
+        paginated-on
+      </button>
+      <button onClick={() => props.toolsPagination.onPaginatedChange(false)}>
+        paginated-off
+      </button>
+      <button onClick={() => props.toolsPagination.onLoadMore()}>
+        load-more-tools
+      </button>
+      <button onClick={() => props.onRefreshTools()}>refresh-tools</button>
     </div>
   ),
 }));
@@ -1889,5 +1985,100 @@ describe("App OAuth resume lifecycle", () => {
         INSPECTOR_SERVERS_TAB,
       ),
     );
+
+    await user.click(screen.getByText("connect"));
+    await waitFor(() =>
+      expect(screen.getByTestId("active-tab")).toHaveTextContent(
+        INSPECTOR_SERVERS_TAB,
+      ),
+    );
+  });
+});
+
+describe("App paginated list pagination toggle (#1721)", () => {
+  beforeEach(() => {
+    clientInstances.length = 0;
+    updateServerSettingsSpy.mockClear();
+  });
+
+  it("persists and live-pushes paginatedLists when the sidebar toggle flips", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    expect(screen.getByTestId("tools-paginated")).toHaveTextContent("false");
+
+    await user.click(screen.getByText("paginated-on"));
+
+    // Optimistic UI flip is immediate.
+    await waitFor(() =>
+      expect(screen.getByTestId("tools-paginated")).toHaveTextContent("true"),
+    );
+    // Persisted to the server settings (survives reconnects).
+    expect(updateServerSettingsSpy).toHaveBeenCalledWith(
+      "A",
+      expect.objectContaining({ paginatedLists: true }),
+    );
+    // Live-pushed to the client so the managed state's gating reads it now.
+    const client = clientInstances[0] as unknown as {
+      setServerSettings: ReturnType<typeof vi.fn>;
+    };
+    expect(client.setServerSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ paginatedLists: true }),
+    );
+
+    // Toggling back off persists false.
+    await user.click(screen.getByText("paginated-off"));
+    await waitFor(() =>
+      expect(updateServerSettingsSpy).toHaveBeenCalledWith(
+        "A",
+        expect.objectContaining({ paginatedLists: false }),
+      ),
+    );
+  });
+
+  it("routes Refresh and Load-next-page in paginated mode and clears the indicator", async () => {
+    const user = userEvent.setup();
+    clearToolsListChangedSpy.mockClear();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("paginated-on"));
+    await waitFor(() =>
+      expect(screen.getByTestId("tools-paginated")).toHaveTextContent("true"),
+    );
+    // Exercise the mode-aware Refresh (paginated → reload page 1) and the
+    // Load-next-page control; both should run without error.
+    await user.click(screen.getByText("refresh-tools"));
+    await user.click(screen.getByText("load-more-tools"));
+    expect(screen.getByTestId("tools-paginated")).toHaveTextContent("true");
+    // The paginated Refresh must acknowledge the managed list-changed
+    // indicator (the paged reload bypasses the managed hook's refresh) (#1721).
+    expect(clearToolsListChangedSpy).toHaveBeenCalled();
+  });
+
+  it("reverts the optimistic toggle when persisting the setting fails (#1721)", async () => {
+    const user = userEvent.setup();
+    updateServerSettingsSpy.mockRejectedValueOnce(new Error("disk full"));
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("paginated-on"));
+    // The optimistic flip is rolled back once the persist rejects, so the UI
+    // reflects the (unchanged) persisted value rather than the failed edit.
+    await waitFor(() =>
+      expect(screen.getByTestId("tools-paginated")).toHaveTextContent("false"),
+    );
+    // The live client setting was rolled back too (last call reverts it).
+    const client = clientInstances[0] as unknown as {
+      setServerSettings: ReturnType<typeof vi.fn>;
+    };
+    const lastPush = client.setServerSettings.mock.calls.at(-1)?.[0] as {
+      paginatedLists?: boolean;
+    };
+    expect(lastPush?.paginatedLists).toBeFalsy();
   });
 });

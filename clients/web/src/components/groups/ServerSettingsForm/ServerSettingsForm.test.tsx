@@ -65,6 +65,7 @@ const baseHandlers = {
   onMetadataChange: vi.fn(),
   onTimeoutChange: vi.fn(),
   onAutoRefreshChange: vi.fn(),
+  onPaginatedListsChange: vi.fn(),
   onMaxFetchRequestsChange: vi.fn(),
   onProtocolEraChange: vi.fn(),
   onOAuthChange: vi.fn(),

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { noopPagination } from "../../../test/fixtures/pagination";
 import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ElicitRequest, Tool } from "@modelcontextprotocol/client";
@@ -27,6 +28,7 @@ const meta: Meta<typeof ToolsScreen> = {
   component: ToolsScreen,
   parameters: { layout: "fullscreen" },
   args: {
+    pagination: noopPagination,
     listChanged: false,
     serverSupportsTaskToolCalls: false,
     ui: EMPTY_TOOLS_UI,

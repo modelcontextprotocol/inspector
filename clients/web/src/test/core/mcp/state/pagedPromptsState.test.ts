@@ -1,11 +1,24 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { Prompt } from "@modelcontextprotocol/client";
+import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { PagedPromptsState } from "@inspector/core/mcp/state/pagedPromptsState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 
 function prompt(name: string): Prompt {
   return { name };
 }
+
+const PAGINATED_SETTINGS: InspectorServerSettings = {
+  headers: [],
+  env: [],
+  metadata: [],
+  connectionTimeout: 0,
+  requestTimeout: 0,
+  taskTtl: 60000,
+  maxFetchRequests: 1000,
+  roots: [],
+  paginatedLists: true,
+};
 
 function waitForChange(state: PagedPromptsState): Promise<Prompt[]> {
   return new Promise((resolve) => {
@@ -110,5 +123,82 @@ describe("PagedPromptsState", () => {
   it("destroy is idempotent", () => {
     state.destroy();
     expect(() => state.destroy()).not.toThrow();
+  });
+
+  it("ignores a concurrent loadPage (double-click guard, #1721)", async () => {
+    client.setStatus("connected");
+    client.queuePromptPages(
+      { prompts: [prompt("a")], nextCursor: "c1" },
+      { prompts: [prompt("b")], nextCursor: "c2" },
+    );
+    await state.loadPage();
+    const [r1, r2] = await Promise.all([
+      state.loadPage("c1"),
+      state.loadPage("c1"),
+    ]);
+    expect(r1.prompts.map((p) => p.name)).toEqual(["b"]);
+    expect(r2.prompts).toEqual([]);
+    expect(r2.nextCursor).toBe("c1");
+    expect(state.getPrompts().map((p) => p.name)).toEqual(["a", "b"]);
+    expect(state.getPagination().pageCount).toBe(2);
+  });
+
+  describe("pagination progress + connect auto-load (#1721)", () => {
+    it("tracks nextCursor/page count and dispatches paginationChange", async () => {
+      client.setStatus("connected");
+      client.queuePromptPages(
+        { prompts: [prompt("a")], nextCursor: "c1" },
+        { prompts: [prompt("b")] },
+      );
+      const onLoad = new Promise<{ nextCursor?: string; pageCount: number }>(
+        (resolve) => {
+          state.addEventListener("paginationChange", (e) => resolve(e.detail), {
+            once: true,
+          });
+        },
+      );
+      await state.loadPage();
+      expect(await onLoad).toEqual({ nextCursor: "c1", pageCount: 1 });
+      await state.loadPage("c1");
+      expect(state.getPagination()).toEqual({
+        nextCursor: undefined,
+        pageCount: 2,
+      });
+    });
+
+    it("resets pagination on disconnect and clear", async () => {
+      client.setStatus("connected");
+      client.queuePromptPages({ prompts: [prompt("a")], nextCursor: "c1" });
+      await state.loadPage();
+      state.clear();
+      expect(state.getPagination()).toEqual({
+        nextCursor: undefined,
+        pageCount: 0,
+      });
+      await state.loadPage();
+      client.setStatus("disconnected");
+      expect(state.getPagination()).toEqual({
+        nextCursor: undefined,
+        pageCount: 0,
+      });
+    });
+
+    it("loads page 1 on connect in paginated mode, not otherwise", async () => {
+      const spClient = new FakeInspectorClient({
+        serverSettings: PAGINATED_SETTINGS,
+      });
+      spClient.setStatus("connected");
+      const spState = new PagedPromptsState(spClient);
+      spClient.queuePromptPages({ prompts: [prompt("a")] });
+      const changed = waitForChange(spState);
+      spClient.dispatchTypedEvent("connect");
+      expect((await changed).map((p) => p.name)).toEqual(["a"]);
+      spState.destroy();
+
+      client.setStatus("connected");
+      client.dispatchTypedEvent("connect");
+      await Promise.resolve();
+      expect(client.listPrompts).not.toHaveBeenCalled();
+    });
   });
 });

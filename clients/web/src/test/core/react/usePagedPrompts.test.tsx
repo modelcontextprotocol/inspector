@@ -65,6 +65,20 @@ describe("usePagedPrompts", () => {
     });
   });
 
+  it("exposes nextCursor and pageCount from paginationChange", async () => {
+    const { result } = renderHook(() => usePagedPrompts(client, state));
+    expect(result.current.nextCursor).toBeUndefined();
+    expect(result.current.pageCount).toBe(0);
+    client.queuePromptPages({ prompts: [prompt("a")], nextCursor: "c1" });
+    await act(async () => {
+      await result.current.loadPage();
+    });
+    await waitFor(() => {
+      expect(result.current.nextCursor).toBe("c1");
+      expect(result.current.pageCount).toBe(1);
+    });
+  });
+
   it("clear() proxies to the state", async () => {
     client.queuePromptPages({ prompts: [prompt("a")] });
     await state.loadPage();

@@ -21,6 +21,13 @@ const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
   roots: [],
 };
 
+// Paginated mode on, plus auto-refresh on — paginated must win so the
+// aggregate walk never runs (#1721).
+const PAGINATED_SETTINGS: InspectorServerSettings = {
+  ...AUTO_REFRESH_SETTINGS,
+  paginatedLists: true,
+};
+
 function waitForToolsChange(state: ManagedToolsState): Promise<Tool[]> {
   return waitForChangeEvent(state, "toolsChange");
 }
@@ -35,7 +42,7 @@ describe("ManagedToolsState", () => {
 
   beforeEach(() => {
     // Default to a server that advertises `tools` so the existing flow tests
-    // exercise the live `listTools` path; capability-absent tests below
+    // exercise the live `listAllTools` path; capability-absent tests below
     // override this.
     client = new FakeInspectorClient({ capabilities: { tools: {} } });
     state = new ManagedToolsState(client, 0);
@@ -51,13 +58,13 @@ describe("ManagedToolsState", () => {
     expect(a).not.toBe(b);
   });
 
-  it("refresh returns early and does not call listTools when disconnected", async () => {
+  it("refresh returns early and does not call listAllTools when disconnected", async () => {
     const result = await state.refresh();
     expect(result).toEqual([]);
-    expect(client.listTools).not.toHaveBeenCalled();
+    expect(client.listAllTools).not.toHaveBeenCalled();
   });
 
-  it("refresh skips listTools when the server doesn't advertise tools capability", async () => {
+  it("refresh skips listAllTools when the server doesn't advertise tools capability", async () => {
     // Regression (#1350): a tools-less server replied to tools/list with
     // -32601 "Method not found", surfacing in the console on every connect.
     const toolless = new FakeInspectorClient({
@@ -68,10 +75,10 @@ describe("ManagedToolsState", () => {
 
     const result = await toollessState.refresh();
     expect(result).toEqual([]);
-    expect(toolless.listTools).not.toHaveBeenCalled();
+    expect(toolless.listAllTools).not.toHaveBeenCalled();
   });
 
-  it("connect against a tools-less server doesn't fire listTools", async () => {
+  it("connect against a tools-less server doesn't fire listAllTools", async () => {
     // The connect event runs refresh; the capability gate must also catch it
     // there, not only the publicly-callable refresh().
     const toolless = new FakeInspectorClient({ capabilities: { prompts: {} } });
@@ -81,11 +88,11 @@ describe("ManagedToolsState", () => {
     const changePromise = waitForToolsChange(toollessState);
     toolless.dispatchTypedEvent("connect");
     await changePromise;
-    expect(toolless.listTools).not.toHaveBeenCalled();
+    expect(toolless.listAllTools).not.toHaveBeenCalled();
     expect(toollessState.getTools()).toEqual([]);
   });
 
-  it("refresh fetches a single page and dispatches toolsChange", async () => {
+  it("refresh fetches the full list and dispatches toolsChange", async () => {
     client.setStatus("connected");
     client.queueToolPages({ tools: [tool("a"), tool("b")] });
 
@@ -97,7 +104,9 @@ describe("ManagedToolsState", () => {
     expect(state.getTools().map((t) => t.name)).toEqual(["a", "b"]);
   });
 
-  it("refresh accumulates across multiple paginated pages", async () => {
+  it("refresh delegates all-page aggregation to listAllTools (one call)", async () => {
+    // The SDK's high-level verb walks every page; the managed state makes a
+    // single `listAllTools` call rather than looping single pages itself.
     client.setStatus("connected");
     client.queueToolPages(
       { tools: [tool("a")], nextCursor: "c1" },
@@ -107,15 +116,18 @@ describe("ManagedToolsState", () => {
 
     const result = await state.refresh();
     expect(result.map((t) => t.name)).toEqual(["a", "b", "c"]);
-    expect(client.listTools).toHaveBeenCalledTimes(3);
+    expect(client.listAllTools).toHaveBeenCalledTimes(1);
   });
 
-  it("refresh passes setMetadata-supplied metadata to listTools", async () => {
+  it("refresh passes setMetadata-supplied metadata to listAllTools", async () => {
     client.setStatus("connected");
     state.setMetadata({ k: "v" });
     client.queueToolPages({ tools: [tool("a")] });
     await state.refresh();
-    expect(client.listTools).toHaveBeenCalledWith(undefined, { k: "v" });
+    expect(client.listAllTools).toHaveBeenCalledWith({
+      cacheMode: undefined,
+      metadata: { k: "v" },
+    });
   });
 
   it("refresh argument overrides setMetadata", async () => {
@@ -123,7 +135,55 @@ describe("ManagedToolsState", () => {
     state.setMetadata({ k: "default" });
     client.queueToolPages({ tools: [tool("a")] });
     await state.refresh({ k: "override" });
-    expect(client.listTools).toHaveBeenCalledWith(undefined, { k: "override" });
+    expect(client.listAllTools).toHaveBeenCalledWith({
+      cacheMode: undefined,
+      metadata: { k: "override" },
+    });
+  });
+
+  it("refresh forwards an explicit cacheMode to listAllTools", async () => {
+    // A user-initiated refresh (via the hook) passes cacheMode:"refresh" to
+    // force a cache-bypassing round trip on modern servers (#1721).
+    client.setStatus("connected");
+    client.queueToolPages({ tools: [tool("a")] });
+    await state.refresh(undefined, "refresh");
+    expect(client.listAllTools).toHaveBeenCalledWith({
+      cacheMode: "refresh",
+      metadata: undefined,
+    });
+  });
+
+  it("connect does NOT fetch in paginated mode (#1721)", async () => {
+    // The aggregate list isn't the display source in paginated mode, so the
+    // connect-time all-page walk is skipped (the defensive point of the setting).
+    const spClient = new FakeInspectorClient({
+      capabilities: { tools: {} },
+      serverSettings: PAGINATED_SETTINGS,
+    });
+    spClient.setStatus("connected");
+    const spState = new ManagedToolsState(spClient, 0);
+    spClient.queueToolPages({ tools: [tool("a")] });
+    spClient.dispatchTypedEvent("connect");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(spClient.listAllTools).not.toHaveBeenCalled();
+    expect(spState.getTools()).toEqual([]);
+    spState.destroy();
+  });
+
+  it("list_changed only lights the indicator in paginated mode, never aggregates (#1721)", async () => {
+    // Paginated wins over autoRefreshOnListChanged: the indicator lights but
+    // the aggregate walk never runs.
+    const spClient = new FakeInspectorClient({
+      capabilities: { tools: {} },
+      serverSettings: PAGINATED_SETTINGS,
+    });
+    spClient.setStatus("connected");
+    const spState = new ManagedToolsState(spClient, 0);
+    const changed = waitForListChanged(spState);
+    spClient.dispatchTypedEvent("toolsListChanged");
+    expect(await changed).toBe(true);
+    expect(spClient.listAllTools).not.toHaveBeenCalled();
+    spState.destroy();
   });
 
   it("connect event triggers a refresh", async () => {
@@ -142,7 +202,7 @@ describe("ManagedToolsState", () => {
     const changed = waitForListChanged(state);
     client.dispatchTypedEvent("toolsListChanged");
     expect(await changed).toBe(true);
-    expect(client.listTools).not.toHaveBeenCalled(); // no automatic fetch
+    expect(client.listAllTools).not.toHaveBeenCalled(); // no automatic fetch
     expect(state.getTools()).toEqual([]); // displayed list untouched
   });
 
@@ -160,7 +220,7 @@ describe("ManagedToolsState", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(fired).toBe(1); // one debounced flip
     expect(state.getListChanged()).toBe(true);
-    expect(client.listTools).not.toHaveBeenCalled();
+    expect(client.listAllTools).not.toHaveBeenCalled();
   });
 
   it("coalesces an auto-refresh that fires while an earlier one is still fetching (#1444)", async () => {
@@ -173,7 +233,7 @@ describe("ManagedToolsState", () => {
     autoClient.setStatus("connected");
     const autoState = new ManagedToolsState(autoClient, 0);
     let release: (value: { tools: Tool[] }) => void = () => {};
-    autoClient.listTools.mockImplementationOnce(
+    autoClient.listAllTools.mockImplementationOnce(
       () =>
         new Promise<{ tools: Tool[] }>((resolve) => {
           release = resolve;
@@ -183,20 +243,20 @@ describe("ManagedToolsState", () => {
 
     autoClient.dispatchTypedEvent("toolsListChanged");
     await new Promise((r) => setTimeout(r, 0));
-    expect(autoClient.listTools).toHaveBeenCalledTimes(1);
+    expect(autoClient.listAllTools).toHaveBeenCalledTimes(1);
 
     autoClient.dispatchTypedEvent("toolsListChanged");
     await new Promise((r) => setTimeout(r, 0));
-    expect(autoClient.listTools).toHaveBeenCalledTimes(1); // coalesced
+    expect(autoClient.listAllTools).toHaveBeenCalledTimes(1); // coalesced
 
     release({ tools: [tool("a")] });
     await new Promise((r) => setTimeout(r, 0));
-    expect(autoClient.listTools).toHaveBeenCalledTimes(2);
+    expect(autoClient.listAllTools).toHaveBeenCalledTimes(2);
     // The (coalesced) auto-refresh applied the new list.
     expect(autoState.getTools().map((t) => t.name)).toEqual(["a"]);
   });
 
-  it("toolsListChanged auto-refreshes when the server opts in", async () => {
+  it("toolsListChanged auto-refreshes (cacheMode:refresh) when the server opts in", async () => {
     const autoClient = new FakeInspectorClient({
       capabilities: { tools: {} },
       serverSettings: AUTO_REFRESH_SETTINGS,
@@ -207,7 +267,11 @@ describe("ManagedToolsState", () => {
     const changed = waitForToolsChange(autoState);
     autoClient.dispatchTypedEvent("toolsListChanged");
     expect((await changed).map((t) => t.name)).toEqual(["a"]);
-    expect(autoClient.listTools).toHaveBeenCalled();
+    // A list_changed means the prior list is stale → bypass the cache.
+    expect(autoClient.listAllTools).toHaveBeenCalledWith({
+      cacheMode: "refresh",
+      metadata: undefined,
+    });
   });
 
   it("honors a live setServerSettings toggle without a reconnect (#1444)", async () => {
@@ -256,14 +320,27 @@ describe("ManagedToolsState", () => {
     expect(state.getTools().map((t) => t.name)).toEqual(["a"]);
   });
 
-  it("throws when pagination exceeds 100 pages", async () => {
+  it("clears a pending list_changed debounce timer when the connection goes terminal", async () => {
+    // A non-zero debounce leaves the timer pending; a terminal statusChange must
+    // clear it so no stale indicator/fetch fires after disconnect.
     client.setStatus("connected");
-    // Always returns a non-terminal cursor; refresh should bail out at the cap.
-    client.listTools.mockImplementation(async () => ({
-      tools: [tool("a")],
-      nextCursor: "always",
-    }));
-    await expect(state.refresh()).rejects.toThrow(/Maximum pagination limit/);
+    const debounced = new ManagedToolsState(client, 1000);
+    client.dispatchTypedEvent("toolsListChanged"); // schedules the debounce timer
+    client.setStatus("disconnected"); // terminal → clears the pending timer
+    await new Promise((r) => setTimeout(r, 5));
+    expect(debounced.getListChanged()).toBe(false);
+    debounced.destroy();
+  });
+
+  it("clears a pending list_changed debounce timer on destroy", async () => {
+    client.setStatus("connected");
+    const debounced = new ManagedToolsState(client, 1000);
+    client.dispatchTypedEvent("toolsListChanged"); // schedules the debounce timer
+    debounced.destroy(); // unsubscribe clears the pending timer
+    await new Promise((r) => setTimeout(r, 5));
+    // No indicator lit and the list stays empty — the timer never fired.
+    expect(debounced.getListChanged()).toBe(false);
+    expect(debounced.getTools()).toEqual([]);
   });
 
   it("destroy unsubscribes from client events and clears state", async () => {

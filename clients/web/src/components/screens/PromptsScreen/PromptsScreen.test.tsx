@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { Prompt } from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import { noopPagination } from "../../../test/fixtures/pagination";
 import {
   PromptsScreen,
   type PromptsScreenProps,
@@ -34,6 +35,7 @@ const baseProps = {
   ui: EMPTY_PROMPTS_UI,
   onUiChange: vi.fn(),
   onRefreshList: vi.fn(),
+  pagination: noopPagination,
   onGetPrompt: vi.fn(),
 };
 

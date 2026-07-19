@@ -15,6 +15,7 @@ import type {
 } from "@modelcontextprotocol/client";
 import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
 import { ResourceControls } from "../../groups/ResourceControls/ResourceControls";
+import type { ListPaginationControlsProps } from "../../elements/ListPaginationControls/ListPaginationControls";
 import { ResourcePreviewPanel } from "../../groups/ResourcePreviewPanel/ResourcePreviewPanel";
 import { ResourceTemplatePanel } from "../../groups/ResourceTemplatePanel/ResourceTemplatePanel";
 
@@ -44,6 +45,8 @@ export interface ResourcesScreenProps {
   subscriptionsSupported?: boolean;
   onUiChange: (next: ResourcesUiState) => void;
   onRefreshList: () => void;
+  /** Pagination controls rendered in the sidebar (#1721). */
+  pagination: ListPaginationControlsProps;
   onReadResource: (uri: string) => void;
   onSubscribeResource: (uri: string) => void;
   onUnsubscribeResource: (uri: string) => void;
@@ -80,7 +83,9 @@ const ScreenLayout = Flex.withProps({
 });
 
 const Sidebar = Stack.withProps({
-  w: 340,
+  // Widened from 340 to comfortably fit the pagination controls
+  // (Load-next-page button + status) without cramping list entries (#1721).
+  w: 360,
   flex: "0 0 auto",
 });
 
@@ -139,6 +144,7 @@ export function ResourcesScreen({
   subscriptionsSupported = true,
   onUiChange,
   onRefreshList,
+  pagination,
   onReadResource,
   onSubscribeResource,
   onUnsubscribeResource,
@@ -291,6 +297,7 @@ export function ResourcesScreen({
             openSections={openSections}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
+            pagination={pagination}
             onSearchChange={(value) => onUiChange({ ...ui, search: value })}
             onOpenSectionsChange={(value) =>
               onUiChange({ ...ui, openSections: value })

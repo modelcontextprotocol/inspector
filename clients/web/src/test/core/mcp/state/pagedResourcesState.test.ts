@@ -1,11 +1,24 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { Resource } from "@modelcontextprotocol/client";
+import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { PagedResourcesState } from "@inspector/core/mcp/state/pagedResourcesState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 
 function resource(uri: string): Resource {
   return { uri, name: uri };
 }
+
+const PAGINATED_SETTINGS: InspectorServerSettings = {
+  headers: [],
+  env: [],
+  metadata: [],
+  connectionTimeout: 0,
+  requestTimeout: 0,
+  taskTtl: 60000,
+  maxFetchRequests: 1000,
+  roots: [],
+  paginatedLists: true,
+};
 
 function waitForChange(state: PagedResourcesState): Promise<Resource[]> {
   return new Promise((resolve) => {
@@ -112,5 +125,85 @@ describe("PagedResourcesState", () => {
   it("destroy is idempotent", () => {
     state.destroy();
     expect(() => state.destroy()).not.toThrow();
+  });
+
+  it("ignores a concurrent loadPage (double-click guard, #1721)", async () => {
+    client.setStatus("connected");
+    client.queueResourcePages(
+      { resources: [resource("a://1")], nextCursor: "c1" },
+      { resources: [resource("a://2")], nextCursor: "c2" },
+    );
+    await state.loadPage();
+    const [r1, r2] = await Promise.all([
+      state.loadPage("c1"),
+      state.loadPage("c1"),
+    ]);
+    expect(r1.resources.map((r) => r.uri)).toEqual(["a://2"]);
+    expect(r2.resources).toEqual([]);
+    expect(r2.nextCursor).toBe("c1");
+    expect(state.getResources().map((r) => r.uri)).toEqual(["a://1", "a://2"]);
+    expect(state.getPagination().pageCount).toBe(2);
+  });
+
+  describe("pagination progress + connect auto-load (#1721)", () => {
+    it("tracks nextCursor/page count and dispatches paginationChange", async () => {
+      client.setStatus("connected");
+      client.queueResourcePages(
+        { resources: [resource("a://1")], nextCursor: "c1" },
+        { resources: [resource("a://2")] },
+      );
+      const onLoad = new Promise<{ nextCursor?: string; pageCount: number }>(
+        (resolve) => {
+          state.addEventListener("paginationChange", (e) => resolve(e.detail), {
+            once: true,
+          });
+        },
+      );
+      await state.loadPage();
+      expect(await onLoad).toEqual({ nextCursor: "c1", pageCount: 1 });
+      await state.loadPage("c1");
+      expect(state.getPagination()).toEqual({
+        nextCursor: undefined,
+        pageCount: 2,
+      });
+    });
+
+    it("resets pagination on disconnect and clear", async () => {
+      client.setStatus("connected");
+      client.queueResourcePages({
+        resources: [resource("a://1")],
+        nextCursor: "c1",
+      });
+      await state.loadPage();
+      state.clear();
+      expect(state.getPagination()).toEqual({
+        nextCursor: undefined,
+        pageCount: 0,
+      });
+      await state.loadPage();
+      client.setStatus("disconnected");
+      expect(state.getPagination()).toEqual({
+        nextCursor: undefined,
+        pageCount: 0,
+      });
+    });
+
+    it("loads page 1 on connect in paginated mode, not otherwise", async () => {
+      const spClient = new FakeInspectorClient({
+        serverSettings: PAGINATED_SETTINGS,
+      });
+      spClient.setStatus("connected");
+      const spState = new PagedResourcesState(spClient);
+      spClient.queueResourcePages({ resources: [resource("a://1")] });
+      const changed = waitForChange(spState);
+      spClient.dispatchTypedEvent("connect");
+      expect((await changed).map((r) => r.uri)).toEqual(["a://1"]);
+      spState.destroy();
+
+      client.setStatus("connected");
+      client.dispatchTypedEvent("connect");
+      await Promise.resolve();
+      expect(client.listResources).not.toHaveBeenCalled();
+    });
   });
 });

@@ -10,6 +10,10 @@ import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
 
 export interface UsePagedPromptsResult {
   prompts: Prompt[];
+  /** The server's `nextCursor` from the last page (undefined = at the end). */
+  nextCursor?: string;
+  /** Pages loaded since the last reset (page 1 = 1). */
+  pageCount: number;
   loadPage: (
     cursor?: string,
     metadata?: Record<string, string>,
@@ -18,7 +22,9 @@ export interface UsePagedPromptsResult {
 }
 
 /**
- * React hook that subscribes to PagedPromptsState and returns prompts + loadPage.
+ * React hook that subscribes to PagedPromptsState and returns prompts +
+ * pagination progress + loadPage. The state store owns loading; this mirrors
+ * its observable state.
  */
 export function usePagedPrompts(
   client: InspectorClientProtocol | null,
@@ -27,21 +33,42 @@ export function usePagedPrompts(
   const [prompts, setPrompts] = useState<Prompt[]>(
     pagedPromptsState?.getPrompts() ?? [],
   );
+  const [nextCursor, setNextCursor] = useState<string | undefined>(
+    pagedPromptsState?.getPagination().nextCursor,
+  );
+  const [pageCount, setPageCount] = useState<number>(
+    pagedPromptsState?.getPagination().pageCount ?? 0,
+  );
 
   useEffect(() => {
     if (!pagedPromptsState) {
       setPrompts([]);
+      setNextCursor(undefined);
+      setPageCount(0);
       return;
     }
     setPrompts(pagedPromptsState.getPrompts());
+    setNextCursor(pagedPromptsState.getPagination().nextCursor);
+    setPageCount(pagedPromptsState.getPagination().pageCount);
     const onPromptsChange = (
       event: TypedEventGeneric<PagedPromptsStateEventMap, "promptsChange">,
     ) => {
       setPrompts(event.detail);
     };
+    const onPaginationChange = (
+      event: TypedEventGeneric<PagedPromptsStateEventMap, "paginationChange">,
+    ) => {
+      setNextCursor(event.detail.nextCursor);
+      setPageCount(event.detail.pageCount);
+    };
     pagedPromptsState.addEventListener("promptsChange", onPromptsChange);
+    pagedPromptsState.addEventListener("paginationChange", onPaginationChange);
     return () => {
       pagedPromptsState.removeEventListener("promptsChange", onPromptsChange);
+      pagedPromptsState.removeEventListener(
+        "paginationChange",
+        onPaginationChange,
+      );
     };
   }, [pagedPromptsState]);
 
@@ -53,9 +80,7 @@ export function usePagedPrompts(
       if (!pagedPromptsState || !client) {
         return { prompts: [], nextCursor: undefined };
       }
-      const result = await pagedPromptsState.loadPage(cursor, metadata);
-      setPrompts(pagedPromptsState.getPrompts());
-      return result;
+      return pagedPromptsState.loadPage(cursor, metadata);
     },
     [client, pagedPromptsState],
   );
@@ -64,5 +89,5 @@ export function usePagedPrompts(
     pagedPromptsState?.clear();
   }, [pagedPromptsState]);
 
-  return { prompts, loadPage, clear };
+  return { prompts, nextCursor, pageCount, loadPage, clear };
 }
