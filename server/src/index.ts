@@ -438,7 +438,14 @@ const createTransport = async (
 
   if (transportType === "stdio") {
     const command = (query.command as string).trim();
-    const origArgs = shellParseArgs(query.args as string) as string[];
+    // shell-quote's default escape character `\` strips backslashes from Windows
+    // paths (C:\Users\app.jar -> C:Usersapp.jar), so on Windows parse with
+    // cmd.exe's escape character `^` instead.
+    const origArgs = shellParseArgs(
+      query.args as string,
+      undefined,
+      process.platform === "win32" ? { escape: "^" } : undefined,
+    ) as string[];
     const queryEnv = query.env ? JSON.parse(query.env as string) : {};
     const env = { ...defaultEnvironment, ...process.env, ...queryEnv };
 
