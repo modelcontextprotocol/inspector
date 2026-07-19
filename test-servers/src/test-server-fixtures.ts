@@ -918,29 +918,23 @@ export function createSendNotificationTool(): ToolDefinition {
       const message = params.message as string;
       const level = (params.level as string) || "info";
 
-      const notification = {
-        method: "notifications/message",
-        params: {
-          level,
-          logger: "test-server",
-          data: {
-            message,
-          },
-        },
-      };
-
-      // Emit the log. Prefer the per-request `extra.sendNotification` (rebuilt
-      // from `ctx.mcpReq.notify`): on the modern (2026-07-28) stateless leg it
-      // is scoped to the in-flight request, so the SDK upgrades the response to
-      // SSE and streams the log back on THIS request's stream. The global
-      // `server.server.notification()` fallback is the legacy path — there the
-      // session transport carries it — and covers any caller without per-request
-      // context.
+      // Emit the log through the SDK's request-scoped, threshold-gated
+      // `extra.log` (`ctx.mcpReq.log`) when available. It applies the era-correct
+      // gating for us: on the modern (2026-07-28) leg it drops the message unless
+      // the client opted in via the per-request `logLevel` `_meta` (and honors
+      // that level's severity), and streams the admitted log on THIS request's
+      // SSE response; on legacy it honors the session level from
+      // `logging/setLevel`. The global `server.server.notification()` fallback is
+      // for any caller without per-request context (older/in-process paths) and
+      // emits unconditionally on the session transport.
       try {
-        if (extra?.sendNotification) {
-          await extra.sendNotification(notification);
+        if (extra?.log) {
+          await extra.log(level, { message }, "test-server");
         } else {
-          await context.server.server.notification(notification);
+          await context.server.server.notification({
+            method: "notifications/message",
+            params: { level, logger: "test-server", data: { message } },
+          });
         }
         return toToolResult(`Notification sent: ${message}`);
       } catch (error) {
