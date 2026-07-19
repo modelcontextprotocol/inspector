@@ -662,6 +662,39 @@ describe("AppsTab", () => {
     expect(toolInput.query).toBe("first value");
   });
 
+  it("should open an app with the latest JSON value", async () => {
+    const jsonApp: Tool = {
+      name: "jsonApp",
+      inputSchema: {
+        type: "object",
+        properties: {
+          config: { type: "object", additionalProperties: true },
+        },
+      },
+      _meta: { ui: { resourceUri: "ui://json" } },
+    } as Tool & { _meta?: { ui?: { resourceUri?: string } } };
+    const mockCallTool = jest.fn(
+      async () =>
+        ({
+          content: [{ type: "text", text: "done" }],
+        }) as CompatibilityCallToolResult,
+    );
+
+    renderAppsTab({ tools: [jsonApp], callTool: mockCallTool });
+
+    fireEvent.click(screen.getByText("jsonApp"));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: '{"key":"updated"}' },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /open app/i }));
+
+    await waitFor(() => {
+      expect(mockCallTool).toHaveBeenCalledWith("jsonApp", {
+        config: { key: "updated" },
+      });
+    });
+  });
+
   it("should keep input view when opening fails and recover button state", async () => {
     const toolWithFields: Tool = {
       name: "failingApp",

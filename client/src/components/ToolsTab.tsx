@@ -224,6 +224,26 @@ const ToolsTab = ({
     return errors;
   };
 
+  const validateJsonParams = () => {
+    const validatedParams = { ...params };
+    let hasErrors = false;
+
+    for (const [key, ref] of Object.entries(formRefs.current)) {
+      if (!ref) continue;
+
+      const result = ref.validateJson();
+      if (!result.isValid) {
+        hasErrors = true;
+      } else if (result.value !== undefined) {
+        validatedParams[key] = result.value;
+      }
+    }
+
+    setHasValidationErrors(hasErrors);
+    if (!hasErrors) setParams(validatedParams);
+    return { hasErrors, validatedParams };
+  };
+
   useEffect(() => {
     const params = Object.entries(
       selectedTool?.inputSchema.properties ?? [],
@@ -808,7 +828,8 @@ const ToolsTab = ({
                 <Button
                   onClick={async () => {
                     // Validate JSON inputs before calling tool
-                    if (checkValidationErrors(true)) return;
+                    const { hasErrors, validatedParams } = validateJsonParams();
+                    if (hasErrors) return;
 
                     try {
                       setIsToolRunning(true);
@@ -828,7 +849,7 @@ const ToolsTab = ({
                       }, {});
                       await callTool(
                         selectedTool.name,
-                        params,
+                        validatedParams,
                         Object.keys(metadata).length ? metadata : undefined,
                         runAsTask,
                       );
