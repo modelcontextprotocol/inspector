@@ -139,6 +139,28 @@ describe("ServerSettingsModal", () => {
     );
   });
 
+  it("maps the selected modern log level into settings (#1629)", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={emptySettings}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    // The Options section (with Log Level per Request) is expanded by default;
+    // it defaults to "debug".
+    await user.click(screen.getAllByDisplayValue("debug")[0]);
+    await user.click(screen.getByText("Off (no logs)"));
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({ modernLogLevel: "off" }),
+    );
+  });
+
   it("calls onSettingsChange when adding a header after expanding the section", async () => {
     const user = userEvent.setup();
     const onSettingsChange = vi.fn();

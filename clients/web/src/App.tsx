@@ -42,6 +42,7 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
+  DEFAULT_MODERN_LOG_LEVEL,
   DEFAULT_TASK_TTL_MS,
   eraToVersionNegotiation,
 } from "@inspector/core/mcp/types.js";
@@ -2265,6 +2266,13 @@ function App() {
       });
 
       setInspectorClient(client);
+      // #1629: seed the live modern per-request log level from the server
+      // setting so the Logs-tab control reflects what the client stamps by
+      // default (the client was seeded the same way in its constructor). "off"
+      // means not opted in (null). Only affects modern connections.
+      const seededModernLevel =
+        savedSettings?.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL;
+      setModernLogLevel(seededModernLevel === "off" ? null : seededModernLevel);
       setManagedToolsState(new ManagedToolsState(client));
       setPagedToolsState(new PagedToolsState(client));
       setPagedPromptsState(new PagedPromptsState(client));

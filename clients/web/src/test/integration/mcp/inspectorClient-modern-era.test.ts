@@ -414,7 +414,7 @@ describe("modern-era negotiation (2026-07-28)", () => {
     return params?._meta ?? {};
   }
 
-  it("stamps the per-request log level on outgoing requests once set, and stops when cleared", async () => {
+  it("stamps the per-request log level on outgoing requests, tracks changes, and stops when cleared", async () => {
     const started = await startServer();
     const connected = await connectWithEra(started.url, "modern");
     const frames = collectToolCallRequests(connected);
@@ -422,25 +422,89 @@ describe("modern-era negotiation (2026-07-28)", () => {
     const { tools } = await connected.listTools();
     const echo = tools.find((t) => t.name === "echo")!;
 
-    // Before opting in, nothing is stamped.
-    expect(connected.getModernLogLevel()).toBeUndefined();
+    // No server setting was passed, so the client seeds the default modern log
+    // level (DEFAULT_MODERN_LOG_LEVEL = "debug") — opted in from the start.
+    expect(connected.getModernLogLevel()).toBe("debug");
     await connected.callTool(echo, { message: "a" });
 
-    // Opt in — every subsequent request carries the level.
-    connected.setModernLogLevel("debug");
-    expect(connected.getModernLogLevel()).toBe("debug");
+    // Change the level — subsequent requests carry the new one.
+    connected.setModernLogLevel("warning");
+    expect(connected.getModernLogLevel()).toBe("warning");
     await connected.callTool(echo, { message: "b" });
 
-    // Opt back out — the stamp disappears again.
+    // Opt back out — the stamp disappears.
     connected.setModernLogLevel(undefined);
     expect(connected.getModernLogLevel()).toBeUndefined();
     await connected.callTool(echo, { message: "c" });
 
     expect(frames).toHaveLength(3);
-    const [before, opted, after] = frames;
-    expect(metaOf(before)[LOG_LEVEL_META_KEY]).toBeUndefined();
-    expect(metaOf(opted)[LOG_LEVEL_META_KEY]).toBe("debug");
-    expect(metaOf(after)[LOG_LEVEL_META_KEY]).toBeUndefined();
+    const [seeded, changed, cleared] = frames;
+    expect(metaOf(seeded)[LOG_LEVEL_META_KEY]).toBe("debug");
+    expect(metaOf(changed)[LOG_LEVEL_META_KEY]).toBe("warning");
+    expect(metaOf(cleared)[LOG_LEVEL_META_KEY]).toBeUndefined();
+  });
+
+  it("seeds the per-request log level from the server setting (defaults opted-in), and 'off' opts out (#1629)", async () => {
+    const started = await startServer();
+
+    // A server setting of "info" seeds the client opted-in from the start — the
+    // first tools/call stamps it without any UI interaction.
+    const seeded = new InspectorClient(
+      { type: "streamable-http", url: started.url },
+      {
+        environment: { transport: createTransportNode },
+        versionNegotiation: eraToVersionNegotiation("modern"),
+        serverSettings: {
+          headers: [],
+          metadata: [],
+          env: [],
+          connectionTimeout: 0,
+          requestTimeout: 0,
+          taskTtl: 60000,
+          maxFetchRequests: 1000,
+          roots: [],
+          modernLogLevel: "info",
+        },
+      },
+    );
+    client = seeded;
+    const seededFrames = collectToolCallRequests(seeded);
+    await seeded.connect();
+    expect(seeded.getModernLogLevel()).toBe("info");
+    const { tools } = await seeded.listTools();
+    const echo = tools.find((t) => t.name === "echo")!;
+    await seeded.callTool(echo, { message: "seeded" });
+    expect(metaOf(seededFrames[0])[LOG_LEVEL_META_KEY]).toBe("info");
+    await seeded.disconnect();
+
+    // A server setting of "off" seeds not-opted-in: no stamp.
+    const offClient = new InspectorClient(
+      { type: "streamable-http", url: started.url },
+      {
+        environment: { transport: createTransportNode },
+        versionNegotiation: eraToVersionNegotiation("modern"),
+        serverSettings: {
+          headers: [],
+          metadata: [],
+          env: [],
+          connectionTimeout: 0,
+          requestTimeout: 0,
+          taskTtl: 60000,
+          maxFetchRequests: 1000,
+          roots: [],
+          modernLogLevel: "off",
+        },
+      },
+    );
+    client = offClient;
+    const offFrames = collectToolCallRequests(offClient);
+    await offClient.connect();
+    expect(offClient.getModernLogLevel()).toBeUndefined();
+    const echo2 = (await offClient.listTools()).tools.find(
+      (t) => t.name === "echo",
+    )!;
+    await offClient.callTool(echo2, { message: "off" });
+    expect(metaOf(offFrames[0])[LOG_LEVEL_META_KEY]).toBeUndefined();
   });
 
   it("rejects a legacy client against a strict modern-only server", async () => {

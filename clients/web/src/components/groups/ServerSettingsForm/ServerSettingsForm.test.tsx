@@ -68,6 +68,7 @@ const baseHandlers = {
   onPaginatedListsChange: vi.fn(),
   onMaxFetchRequestsChange: vi.fn(),
   onProtocolEraChange: vi.fn(),
+  onModernLogLevelChange: vi.fn(),
   onOAuthChange: vi.fn(),
   onAddRoot: vi.fn(),
   onRemoveRoot: vi.fn(),
@@ -128,6 +129,59 @@ describe("ServerSettingsForm", () => {
     expect(
       screen.getByDisplayValue("Auto (probe, fall back to legacy)"),
     ).toBeInTheDocument();
+  });
+
+  it("defaults the Log Level per Request select to Debug when unset (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["options"]}
+      />,
+    );
+    // Two selects can display "debug" (the value plus its hidden input), so
+    // assert at least one and that the control's label is present.
+    expect(screen.getByText("Log Level per Request")).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue("debug").length).toBeGreaterThan(0);
+  });
+
+  it("invokes onModernLogLevelChange with the selected level (#1629)", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["options"]}
+      />,
+    );
+    await user.click(screen.getAllByDisplayValue("debug")[0]);
+    await user.click(screen.getByText("warning"));
+    expect(baseHandlers.onModernLogLevelChange).toHaveBeenCalledWith("warning");
+  });
+
+  it("selects Off to opt out of per-request logs (#1629)", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["options"]}
+      />,
+    );
+    await user.click(screen.getAllByDisplayValue("debug")[0]);
+    await user.click(screen.getByText("Off (no logs)"));
+    expect(baseHandlers.onModernLogLevelChange).toHaveBeenCalledWith("off");
+  });
+
+  it("reflects the configured modernLogLevel in the select value (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, modernLogLevel: "off" }}
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.getByDisplayValue("Off (no logs)")).toBeInTheDocument();
   });
 
   it("shows empty hints for headers and metadata when no entries exist", () => {

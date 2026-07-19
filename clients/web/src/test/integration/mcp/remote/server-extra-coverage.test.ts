@@ -477,6 +477,11 @@ describe("server.ts supplemental coverage", () => {
       expect((await res.json()).error).toMatch(/protocolEra/);
     });
 
+    it("rejects an unknown modernLogLevel (#1629)", async () => {
+      const res = await postSettings({ ...base, modernLogLevel: "verbose" });
+      expect((await res.json()).error).toMatch(/modernLogLevel/);
+    });
+
     it("accepts a fully-populated valid settings payload", async () => {
       const res = await postSettings({
         ...base,
@@ -487,6 +492,7 @@ describe("server.ts supplemental coverage", () => {
         paginatedLists: true,
         maxFetchRequests: 5,
         protocolEra: "modern",
+        modernLogLevel: "off",
         oauthClientId: "cid",
         oauthScopes: "a b",
         enterpriseManaged: true,
@@ -524,6 +530,8 @@ describe("server.ts supplemental coverage", () => {
               maxFetchRequests: -1,
               // unknown era literal → isProtocolEra branch
               protocolEra: "future",
+              // unknown modern log level → isModernLogLevel branch (#1629)
+              modernLogLevel: "verbose",
               // enterpriseManaged non-boolean → isOauthObject inner branch
               oauth: { enterpriseManaged: "yes" },
               // a non-string `name` → isRootArray inner branch
@@ -552,6 +560,7 @@ describe("server.ts supplemental coverage", () => {
           "taskTtl",
           "maxFetchRequests",
           "protocolEra",
+          "modernLogLevel",
           "oauth",
           "roots",
         ]) {

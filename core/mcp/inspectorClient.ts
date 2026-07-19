@@ -27,6 +27,7 @@ export type {
   AppRendererClient,
 } from "./types.js";
 import { getServerType as getServerTypeFromConfig } from "./config.js";
+import { DEFAULT_MODERN_LOG_LEVEL } from "./types.js";
 // Fallback client identity, used ONLY when a caller doesn't pass
 // `clientIdentity`. Real clients supply their own: the Node clients (CLI, TUI)
 // read the single-source version from the root package.json via
@@ -390,6 +391,14 @@ export class InspectorClient extends InspectorClientEventTarget {
         ? options.defaultMetadata
         : undefined;
     this.serverSettings = options.serverSettings;
+    // Seed the modern per-request log level from the server setting (#1629), so
+    // a modern connection opts into logs by default without the user touching
+    // the Logs-tab control. Absence means DEFAULT_MODERN_LOG_LEVEL; `"off"`
+    // clears the opt-in. Only stamped on modern connections (see mergeMeta) —
+    // legacy uses `logging/setLevel`.
+    const settingLevel =
+      options.serverSettings?.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL;
+    this.modernLogLevel = settingLevel === "off" ? undefined : settingLevel;
     // Default to the legacy 2025-11-25 era when the caller doesn't pin one, per
     // the SDK guidance that a debugging tool must not auto-probe (#1626).
     this.versionNegotiation = options.versionNegotiation ?? { mode: "legacy" };

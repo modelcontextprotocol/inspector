@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CloseButton, Group, Modal, Stack } from "@mantine/core";
 import type {
   InspectorServerSettings,
+  ModernLogLevel,
   OAuthSettings,
   ServerProtocolEra,
   ServerType,
@@ -174,6 +175,10 @@ export function ServerSettingsModal({
     onSettingsChange({ ...settings, protocolEra: value });
   }
 
+  function handleModernLogLevelChange(value: ModernLogLevel) {
+    onSettingsChange({ ...settings, modernLogLevel: value });
+  }
+
   function handleAddRoot() {
     onSettingsChange({
       ...settings,
@@ -239,6 +244,7 @@ export function ServerSettingsModal({
           onPaginatedListsChange={handlePaginatedListsChange}
           onMaxFetchRequestsChange={handleMaxFetchRequestsChange}
           onProtocolEraChange={handleProtocolEraChange}
+          onModernLogLevelChange={handleModernLogLevelChange}
           onOAuthChange={handleOAuthChange}
           onClearStoredOAuth={onClearStoredOAuth}
           onAddRoot={handleAddRoot}

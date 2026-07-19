@@ -7,8 +7,10 @@
 
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
+  DEFAULT_MODERN_LOG_LEVEL,
   DEFAULT_PROTOCOL_ERA,
   DEFAULT_TASK_TTL_MS,
+  isModernLogLevel,
 } from "./types.js";
 import type { Root } from "@modelcontextprotocol/client";
 import type {
@@ -116,6 +118,7 @@ type StoredInspectorFields = Pick<
   | "headers"
   | "metadata"
   | "protocolEra"
+  | "modernLogLevel"
   | "connectionTimeout"
   | "requestTimeout"
   | "taskTtl"
@@ -192,6 +195,7 @@ export function storedFieldsToInspectorSettings(
     stored.oauth !== undefined ||
     stored.roots !== undefined ||
     stored.protocolEra !== undefined ||
+    stored.modernLogLevel !== undefined ||
     stored.env !== undefined ||
     stored.cwd !== undefined;
   if (!hasAny) return undefined;
@@ -226,6 +230,12 @@ export function storedFieldsToInspectorSettings(
   // (→ default legacy) rather than passed through to `eraToVersionNegotiation`.
   if (isProtocolEra(stored.protocolEra)) {
     settings.protocolEra = stored.protocolEra;
+  }
+  // Like `protocolEra`: absent reads back as the default modern log level (the
+  // form defaults via `?? DEFAULT_MODERN_LOG_LEVEL`), and an unknown literal from
+  // a hand-edited file is dropped rather than surfaced.
+  if (isModernLogLevel(stored.modernLogLevel)) {
+    settings.modernLogLevel = stored.modernLogLevel;
   }
   // Truthiness drops empty-string OAuth fields — mirrors the write-side
   // coercion in `validateSettings` (server.ts) so a round-trip can't
@@ -311,6 +321,16 @@ export function inspectorSettingsToStoredFields(
     out.protocolEra = settings.protocolEra;
   }
 
+  // Persist only when it differs from the default modern log level; absent reads
+  // back as DEFAULT_MODERN_LOG_LEVEL, so writing the default would inject the
+  // field into files that never set it and break byte-stable round-trips.
+  if (
+    settings.modernLogLevel !== undefined &&
+    settings.modernLogLevel !== DEFAULT_MODERN_LOG_LEVEL
+  ) {
+    out.modernLogLevel = settings.modernLogLevel;
+  }
+
   // Persist only when it differs from the default. Unlike the timeouts, 0 is a
   // meaningful value here (unlimited), so the omit-sentinel is the default
   // itself rather than 0 — writing the default would inject the field into
@@ -363,6 +383,7 @@ const INSPECTOR_FIELD_KEY_MAP = {
   headers: true,
   metadata: true,
   protocolEra: true,
+  modernLogLevel: true,
   connectionTimeout: true,
   requestTimeout: true,
   taskTtl: true,

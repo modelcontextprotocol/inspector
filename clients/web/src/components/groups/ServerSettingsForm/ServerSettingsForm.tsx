@@ -14,11 +14,16 @@ import {
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type {
   InspectorServerSettings,
+  ModernLogLevel,
   OAuthSettings,
   ServerProtocolEra,
   ServerType,
 } from "@inspector/core/mcp/types.js";
-import { DEFAULT_PROTOCOL_ERA } from "@inspector/core/mcp/types.js";
+import {
+  DEFAULT_MODERN_LOG_LEVEL,
+  DEFAULT_PROTOCOL_ERA,
+  MODERN_LOG_LEVELS,
+} from "@inspector/core/mcp/types.js";
 import { isOAuthCapableServerType } from "@inspector/core/mcp/config.js";
 import type { Root } from "@modelcontextprotocol/client";
 
@@ -61,6 +66,7 @@ export interface ServerSettingsFormProps {
   onPaginatedListsChange: (value: boolean) => void;
   onMaxFetchRequestsChange: (value: number) => void;
   onProtocolEraChange: (value: ServerProtocolEra) => void;
+  onModernLogLevelChange: (value: ModernLogLevel) => void;
   onOAuthChange: (oauth: OAuthSettings) => void;
   onClearStoredOAuth?: () => void;
   onAddRoot: () => void;
@@ -83,6 +89,24 @@ const PROTOCOL_ERA_VALUES: ReadonlySet<ServerProtocolEra> = new Set(
 
 function isProtocolEra(value: string | null): value is ServerProtocolEra {
   return value !== null && PROTOCOL_ERA_VALUES.has(value as ServerProtocolEra);
+}
+
+// Modern per-request log-level options (#1629): "Off" plus the eight levels.
+// Only meaningful on the modern era; labeled so the "Off" state reads clearly.
+const MODERN_LOG_LEVEL_OPTIONS: { value: ModernLogLevel; label: string }[] =
+  MODERN_LOG_LEVELS.map((level) => ({
+    value: level,
+    label: level === "off" ? "Off (no logs)" : level,
+  }));
+
+const MODERN_LOG_LEVEL_VALUES: ReadonlySet<ModernLogLevel> = new Set(
+  MODERN_LOG_LEVELS,
+);
+
+function isModernLogLevelValue(
+  value: string | null,
+): value is ModernLogLevel {
+  return value !== null && MODERN_LOG_LEVEL_VALUES.has(value as ModernLogLevel);
 }
 
 const RemoveIcon = ActionIcon.withProps({
@@ -243,6 +267,7 @@ export function ServerSettingsForm({
   onPaginatedListsChange,
   onMaxFetchRequestsChange,
   onProtocolEraChange,
+  onModernLogLevelChange,
   onOAuthChange,
   onClearStoredOAuth,
   onAddRoot,
@@ -307,6 +332,19 @@ export function ServerSettingsForm({
                 // always resolves to a known era.
                 /* v8 ignore next -- Select never emits an out-of-range value */
                 if (isProtocolEra(value)) onProtocolEraChange(value);
+              }}
+              allowDeselect={false}
+            />
+            <Select
+              label="Log Level per Request"
+              description="Modern-era only. On 2026-07-28 servers there is no logging/setLevel — the client opts into logs per request by stamping this level in each request's _meta, and logs arrive on the originating request's stream. Off requests no logs. Defaults to Debug so a modern connection surfaces server logs out of the box. Legacy servers ignore this and use Set Active Level."
+              data={MODERN_LOG_LEVEL_OPTIONS}
+              value={settings.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL}
+              onChange={(value) => {
+                // Select emits `string | null`; not clearable, so the value
+                // always resolves to a known option.
+                /* v8 ignore next -- Select never emits an out-of-range value */
+                if (isModernLogLevelValue(value)) onModernLogLevelChange(value);
               }}
               allowDeselect={false}
             />

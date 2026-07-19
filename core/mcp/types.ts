@@ -110,6 +110,13 @@ export type StoredMCPServer = MCPServerConfig & {
    * (`"legacy"`). (#1626)
    */
   protocolEra?: ServerProtocolEra;
+  /**
+   * Modern-era per-request log level stamped by default (`"off"` or one of the
+   * eight logging levels). Inspector-specific. Omitted on disk when it equals
+   * `DEFAULT_MODERN_LOG_LEVEL` (`"debug"`). Only affects modern connections.
+   * (#1629)
+   */
+  modernLogLevel?: ModernLogLevel;
   /** Inspector-specific connect-time timeout (ms). */
   connectionTimeout?: number;
   /** Inspector-specific request timeout (ms). */
@@ -481,6 +488,45 @@ export type ServerProtocolEra = "legacy" | "auto" | "modern";
 export const DEFAULT_PROTOCOL_ERA: ServerProtocolEra = "legacy";
 
 /**
+ * Per-server modern (2026-07-28) per-request log level (#1629). `logging/setLevel`
+ * is gone on the modern era; instead the client opts into logs by stamping
+ * `_meta["io.modelcontextprotocol/logLevel"]` on each request. This setting is
+ * the level stamped by default on a modern connection — one of the eight logging
+ * levels, or `"off"` to not opt in (no server logs). Legacy connections ignore
+ * it (they use the session-scoped `logging/setLevel` instead).
+ */
+export type ModernLogLevel = LoggingLevel | "off";
+
+/**
+ * The default modern per-request log level when none is configured. Defaults to
+ * opted-in at the most verbose level so a modern connection surfaces server logs
+ * out of the box (the Inspector is a debugging tool); set `"off"` per server to
+ * opt back out.
+ */
+export const DEFAULT_MODERN_LOG_LEVEL: ModernLogLevel = "debug";
+
+/** All modern-log-level values, for form options and the runtime guard. */
+export const MODERN_LOG_LEVELS: ModernLogLevel[] = [
+  "off",
+  "debug",
+  "info",
+  "notice",
+  "warning",
+  "error",
+  "critical",
+  "alert",
+  "emergency",
+];
+
+/** Runtime guard for the {@link ModernLogLevel} literal (hand-edited files). */
+export function isModernLogLevel(value: unknown): value is ModernLogLevel {
+  return (
+    typeof value === "string" &&
+    (MODERN_LOG_LEVELS as string[]).includes(value)
+  );
+}
+
+/**
  * The modern protocol revision `"modern"` era pins to. The successor to
  * 2025-11-25; the first revision with the per-request-metadata / sessionless
  * model (SEP §7.1).
@@ -582,6 +628,14 @@ export interface InspectorServerSettings {
    * omitted when it equals the default, keeping the file diff minimal.
    */
   protocolEra?: ServerProtocolEra;
+  /**
+   * Modern-era per-request log level stamped by default on this server's
+   * connections (#1629). One of the eight logging levels, or `"off"` to not opt
+   * in. Absence means {@link DEFAULT_MODERN_LOG_LEVEL} (`"debug"`). Only affects
+   * modern (2026-07-28) connections; legacy uses `logging/setLevel`. Persisted
+   * on disk as `modernLogLevel` and omitted when it equals the default.
+   */
+  modernLogLevel?: ModernLogLevel;
 }
 
 /**
