@@ -17,5 +17,6 @@ test-servers/build
 # Should never be part of the source tree.
 /*.png
 /inspector-history-*.json
+/inspector-network-*.json
 /*.server.json
 /configs/

@@ -103,9 +103,7 @@ const MODERN_LOG_LEVEL_VALUES: ReadonlySet<ModernLogLevel> = new Set(
   MODERN_LOG_LEVELS,
 );
 
-function isModernLogLevelValue(
-  value: string | null,
-): value is ModernLogLevel {
+function isModernLogLevelValue(value: string | null): value is ModernLogLevel {
   return value !== null && MODERN_LOG_LEVEL_VALUES.has(value as ModernLogLevel);
 }
 
