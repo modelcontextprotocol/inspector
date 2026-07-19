@@ -231,10 +231,7 @@ export function createGetWeatherTool(): ToolDefinition {
     description:
       "Get the weather for a city (its `city` argument mirrors to Mcp-Param-City)",
     inputSchema: {
-      city: z
-        .string()
-        .describe("City name")
-        .meta({ "x-mcp-header": "City" }),
+      city: z.string().describe("City name").meta({ "x-mcp-header": "City" }),
     },
     handler: async (params: Record<string, unknown>) => {
       return toToolResult(`Weather in ${params.city as string}: sunny, 24°C`);
@@ -912,29 +909,39 @@ export function createSendNotificationTool(): ToolDefinition {
     handler: async (
       params: Record<string, unknown>,
       context?: TestServerContext,
+      extra?: HandlerExtra,
     ): Promise<CallToolResult> => {
       if (!context) {
         throw new Error("Server context not available");
       }
-      const server = context.server;
 
       const message = params.message as string;
       const level = (params.level as string) || "info";
 
-      // Send a notification from the server
-      // Notifications don't have an id and use the jsonrpc format
-      try {
-        await server.server.notification({
-          method: "notifications/message",
-          params: {
-            level,
-            logger: "test-server",
-            data: {
-              message,
-            },
+      const notification = {
+        method: "notifications/message",
+        params: {
+          level,
+          logger: "test-server",
+          data: {
+            message,
           },
-        });
+        },
+      };
 
+      // Emit the log. Prefer the per-request `extra.sendNotification` (rebuilt
+      // from `ctx.mcpReq.notify`): on the modern (2026-07-28) stateless leg it
+      // is scoped to the in-flight request, so the SDK upgrades the response to
+      // SSE and streams the log back on THIS request's stream. The global
+      // `server.server.notification()` fallback is the legacy path — there the
+      // session transport carries it — and covers any caller without per-request
+      // context.
+      try {
+        if (extra?.sendNotification) {
+          await extra.sendNotification(notification);
+        } else {
+          await context.server.server.notification(notification);
+        }
         return toToolResult(`Notification sent: ${message}`);
       } catch (error) {
         console.error("[send_notification] Error sending notification:", error);
@@ -1551,8 +1558,7 @@ export function createAddToolTool(): ToolDefinition {
         {
           description: params.description as string,
           inputSchema: params.inputSchema as
-            | Record<string, z.ZodType>
-            | undefined,
+            Record<string, z.ZodType> | undefined,
         },
         async () => {
           return {
@@ -1656,8 +1662,7 @@ export function createAddPromptTool(): ToolDefinition {
         {
           description: params.description as string | undefined,
           argsSchema: params.argsSchema as
-            | Record<string, z.ZodType>
-            | undefined,
+            Record<string, z.ZodType> | undefined,
         },
         async () => {
           return {
@@ -1801,9 +1806,7 @@ export function createSendProgressTool(
 
       // Extract progressToken from metadata
       const progressToken = extra?._meta?.progressToken as
-        | string
-        | number
-        | undefined;
+        string | number | undefined;
 
       // Send progress notifications
       let sent = 0;
@@ -2239,12 +2242,9 @@ export function createTaskTool(
     handler: {
       createTask: async (args, extra) => {
         const message = (args as Record<string, unknown>)?.message as
-          | string
-          | undefined;
+          string | undefined;
         const progressToken = extra._meta?.progressToken as
-          | string
-          | number
-          | undefined;
+          string | number | undefined;
         const task = await extra.taskStore.createTask({});
         runTaskExecution({
           task,
