@@ -2040,4 +2040,29 @@ describe("App single-page list pagination toggle (#1721)", () => {
     await user.click(screen.getByText("load-more-tools"));
     expect(screen.getByTestId("tools-single-page")).toHaveTextContent("true");
   });
+
+  it("reverts the optimistic toggle when persisting the setting fails (#1721)", async () => {
+    const user = userEvent.setup();
+    updateServerSettingsSpy.mockRejectedValueOnce(new Error("disk full"));
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    await user.click(screen.getByText("single-page-on"));
+    // The optimistic flip is rolled back once the persist rejects, so the UI
+    // reflects the (unchanged) persisted value rather than the failed edit.
+    await waitFor(() =>
+      expect(screen.getByTestId("tools-single-page")).toHaveTextContent(
+        "false",
+      ),
+    );
+    // The live client setting was rolled back too (last call reverts it).
+    const client = clientInstances[0] as unknown as {
+      setServerSettings: ReturnType<typeof vi.fn>;
+    };
+    const lastPush = client.setServerSettings.mock.calls.at(-1)?.[0] as {
+      singlePageLists?: boolean;
+    };
+    expect(lastPush?.singlePageLists).toBeFalsy();
+  });
 });

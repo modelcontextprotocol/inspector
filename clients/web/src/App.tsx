@@ -3305,8 +3305,9 @@ function App() {
       setSinglePageListsOverride(value);
       const current = servers.find((s) => s.id === activeServerId);
       if (!current || activeServerId === undefined) return;
+      const prevSettings = current.settings ?? EMPTY_SETTINGS;
       const next: InspectorServerSettings = {
-        ...(current.settings ?? EMPTY_SETTINGS),
+        ...prevSettings,
         singlePageLists: value,
       };
       inspectorClient?.setServerSettings(next);
@@ -3337,6 +3338,12 @@ function App() {
         }
       }
       void updateServerSettings(activeServerId, next).catch((err: unknown) => {
+        // Persist failed: revert the optimistic override (the effect only
+        // clears it when the persisted value changes, which won't happen here)
+        // and roll the live client setting back, so the UI and client reflect
+        // the value that's actually on disk rather than the failed edit (#1721).
+        setSinglePageListsOverride(null);
+        inspectorClient?.setServerSettings(prevSettings);
         notifications.show({
           title: "Failed to save pagination setting",
           message: err instanceof Error ? err.message : String(err),
