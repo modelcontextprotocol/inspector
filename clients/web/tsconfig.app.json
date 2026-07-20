@@ -29,8 +29,10 @@
      * during `tsc -b`. We point at the @types declaration packages so the
      * imports type-check; Vite's `dedupe` handles the runtime resolution —
      * see vite.config.ts.
+     *
+     * Paths are relative to this config file (no `baseUrl` — deprecated in
+     * TypeScript 6 / removed in 7).
      */
-    "baseUrl": ".",
     "paths": {
       "@inspector/core/*": ["../../core/*"],
       "react": ["./node_modules/@types/react"],

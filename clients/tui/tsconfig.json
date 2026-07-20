@@ -4,7 +4,6 @@
     "jsx": "react-jsx",
     "outDir": "./build",
     "rootDir": ".",
-    "baseUrl": ".",
     "paths": {
       "@inspector/core/*": ["../../core/*"]
     }

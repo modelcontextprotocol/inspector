@@ -9,9 +9,8 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "noUncheckedIndexedAccess": true,
-    "baseUrl": ".",
     "paths": {
-      "@inspector/core/*": ["core/*"]
+      "@inspector/core/*": ["./core/*"]
     }
   }
 }
