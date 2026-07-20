@@ -23,6 +23,7 @@ import type {
   PromptGetInvocation,
   ResourceReadInvocation,
   ResourceTemplateReadInvocation,
+  ResourceSubscriptionStreamState,
 } from "./types.js";
 import type {
   Tool,
@@ -114,6 +115,13 @@ export interface InspectorClientEventMap {
   newPendingElicitation: ElicitationCreateMessage;
   rootsChange: Root[];
   resourceSubscriptionsChange: string[];
+  /**
+   * Fired when the modern-era `subscriptions/listen` stream that backs resource
+   * subscriptions changes lifecycle state (#1630): opened+acknowledged, dropped
+   * and reconnecting, or ended. Legacy connections never dispatch an `active`
+   * state (they have no persistent stream).
+   */
+  resourceSubscriptionStreamChange: ResourceSubscriptionStreamState;
   // Task events
   /** Fired only from server notification notifications/tasks/status. */
   taskStatusChange: { taskId: string; task: Task };

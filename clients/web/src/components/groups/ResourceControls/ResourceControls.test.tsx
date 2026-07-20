@@ -333,4 +333,50 @@ describe("ResourceControls", () => {
     await user.type(screen.getByPlaceholderText("Search..."), "special");
     expect(screen.getByText("URIs (1)")).toBeInTheDocument();
   });
+
+  describe("modern listen-stream chrome (#1630)", () => {
+    const activeAck = {
+      active: true as const,
+      status: "acknowledged" as const,
+      honoredUris: ["file:///config.json"],
+    };
+
+    it("shows the stream badge and header dot on the modern era", () => {
+      renderWithMantine(
+        <ControlledResourceControls
+          protocolEra="modern"
+          subscriptionStreamState={activeAck}
+        />,
+      );
+      // Panel badge (labelled) + header dot (aria-label only).
+      expect(screen.getByText("Listening")).toBeInTheDocument();
+      expect(
+        screen.getByLabelText("Listen stream: Listening"),
+      ).toBeInTheDocument();
+    });
+
+    it("renders no stream chrome on the legacy era even when a stream is active", () => {
+      renderWithMantine(
+        <ControlledResourceControls subscriptionStreamState={activeAck} />,
+      );
+      expect(screen.queryByText("Listening")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/Listen stream:/)).not.toBeInTheDocument();
+    });
+
+    it("renders no stream chrome on the modern era when the stream is inactive", () => {
+      renderWithMantine(
+        <ControlledResourceControls
+          protocolEra="modern"
+          subscriptionStreamState={{
+            active: false,
+            status: "ended",
+            honoredUris: [],
+          }}
+        />,
+      );
+      expect(
+        screen.queryByText(/Listening|Stream ended/),
+      ).not.toBeInTheDocument();
+    });
+  });
 });

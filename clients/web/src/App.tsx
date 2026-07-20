@@ -1030,9 +1030,8 @@ function App() {
     refresh: refreshTasks,
     clearCompleted: clearCompletedTasks,
   } = useManagedRequestorTasks(inspectorClient, managedRequestorTasksState);
-  const { subscriptions } = useResourceSubscriptions(
-    resourceSubscriptionsState,
-  );
+  const { subscriptions, streamState: subscriptionStreamState } =
+    useResourceSubscriptions(resourceSubscriptionsState);
   const { messages } = useMessageLog(messageLogState);
   const { fetchRequests } = useFetchRequestLog(fetchRequestLogState);
   const { stderrLogs } = useStderrLog(stderrLogState);
@@ -4182,6 +4181,7 @@ function App() {
           promptsListChanged={promptsListChanged}
           resourcesListChanged={resourcesListChanged}
           subscriptions={subscriptions}
+          subscriptionStreamState={subscriptionStreamState}
           logs={logs}
           tasks={tasks}
           progressByTaskId={progressByTaskId}

@@ -33,8 +33,10 @@ import type {
   PromptGetInvocation,
   ResourceReadInvocation,
   ResourceTemplateReadInvocation,
+  ResourceSubscriptionStreamState,
   ToolCallInvocation,
 } from "../types.js";
+import { INACTIVE_SUBSCRIPTION_STREAM_STATE } from "../types.js";
 import type { JsonValue } from "../../json/jsonUtils.js";
 
 type ListResult<TKey extends string, TItem> = {
@@ -247,6 +249,13 @@ export class FakeInspectorClient
 
   getDiscoverResult(): DiscoverResult | undefined {
     return this.discoverResult;
+  }
+
+  resourceSubscriptionStreamState: ResourceSubscriptionStreamState =
+    INACTIVE_SUBSCRIPTION_STREAM_STATE;
+
+  getResourceSubscriptionStreamState(): ResourceSubscriptionStreamState {
+    return this.resourceSubscriptionStreamState;
   }
 
   getServerSettings(): InspectorServerSettings | undefined {

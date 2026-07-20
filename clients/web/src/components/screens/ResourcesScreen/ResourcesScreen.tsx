@@ -9,11 +9,15 @@ import {
   Text,
 } from "@mantine/core";
 import type {
+  ProtocolEra,
   ReadResourceResult,
   Resource,
   ResourceTemplateType as ResourceTemplate,
 } from "@modelcontextprotocol/client";
-import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
+import type {
+  InspectorResourceSubscription,
+  ResourceSubscriptionStreamState,
+} from "../../../../../../core/mcp/types.js";
 import { ResourceControls } from "../../groups/ResourceControls/ResourceControls";
 import type { ListPaginationControlsProps } from "../../elements/ListPaginationControls/ListPaginationControls";
 import { ResourcePreviewPanel } from "../../groups/ResourcePreviewPanel/ResourcePreviewPanel";
@@ -32,6 +36,14 @@ export interface ResourcesScreenProps {
   resources: Resource[];
   templates: ResourceTemplate[];
   subscriptions: InspectorResourceSubscription[];
+  /**
+   * Modern-era `subscriptions/listen` stream state (#1630). On the modern era
+   * the Subscriptions section shows a stream-status badge and a header dot;
+   * `active: false` (the legacy default) renders neither.
+   */
+  subscriptionStreamState?: ResourceSubscriptionStreamState;
+  /** Negotiated protocol era; gates the modern subscription stream chrome. */
+  protocolEra?: ProtocolEra;
   readState?: ReadResourceState;
   ui: ResourcesUiState;
   listChanged: boolean;
@@ -137,6 +149,8 @@ export function ResourcesScreen({
   resources,
   templates,
   subscriptions,
+  subscriptionStreamState,
+  protocolEra,
   readState,
   ui,
   listChanged,
@@ -291,6 +305,8 @@ export function ResourcesScreen({
             templates={templates}
             subscriptions={subscriptions}
             subscriptionsSupported={subscriptionsSupported}
+            subscriptionStreamState={subscriptionStreamState}
+            protocolEra={protocolEra}
             selectedUri={selectedResourceUri}
             selectedTemplateUri={selectedTemplateUri}
             searchText={search}

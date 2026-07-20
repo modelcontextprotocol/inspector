@@ -19,6 +19,7 @@ import type {
   ResourceTemplateReadInvocation,
   PromptGetInvocation,
   ToolCallInvocation,
+  ResourceSubscriptionStreamState,
 } from "./types.js";
 import type {
   CacheMode,
@@ -60,6 +61,7 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   getInstructions(): string | undefined;
   getProtocolVersion(): string | undefined;
   getProtocolEra(): ProtocolEra | undefined;
+  getResourceSubscriptionStreamState(): ResourceSubscriptionStreamState;
   getDiscoverResult(): DiscoverResult | undefined;
   getServerSettings(): InspectorServerSettings | undefined;
   setServerSettings(settings: InspectorServerSettings): void;

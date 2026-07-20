@@ -1,11 +1,17 @@
-import { Accordion, Group, Stack, TextInput, Title } from "@mantine/core";
+import { Accordion, Group, Stack, Text, TextInput, Title } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import { RiArrowRightSLine } from "react-icons/ri";
 import type {
+  ProtocolEra,
   Resource,
   ResourceTemplateType as ResourceTemplate,
 } from "@modelcontextprotocol/client";
-import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
+import type {
+  InspectorResourceSubscription,
+  ResourceSubscriptionStreamState,
+} from "../../../../../../core/mcp/types.js";
+import { isModernEra } from "../../elements/EraBadge/eraUtils";
+import { SubscriptionStreamBadge } from "../../elements/SubscriptionStreamBadge/SubscriptionStreamBadge";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import {
   ListPaginationControls,
@@ -26,6 +32,15 @@ export interface ResourceControlsProps {
    * explicitly marks subscriptions unsupported.
    */
   subscriptionsSupported?: boolean;
+  /**
+   * Modern-era `subscriptions/listen` stream state (#1630). When `active`
+   * (modern era with at least one subscription) the Subscriptions section shows
+   * a stream-status badge in its panel and a status dot in its header. Legacy
+   * connections pass `active: false` (or omit it) and see neither.
+   */
+  subscriptionStreamState?: ResourceSubscriptionStreamState;
+  /** Negotiated protocol era; gates the modern subscription stream chrome. */
+  protocolEra?: ProtocolEra;
   selectedUri?: string;
   selectedTemplateUri?: string;
   // Search text + accordion open-sections are controlled by the parent (App,
@@ -71,6 +86,8 @@ export function ResourceControls({
   templates,
   subscriptions,
   subscriptionsSupported = true,
+  subscriptionStreamState,
+  protocolEra,
   selectedUri,
   selectedTemplateUri,
   searchText = "",
@@ -105,6 +122,15 @@ export function ResourceControls({
       (s.resource.title?.toLowerCase().includes(query) ?? false) ||
       s.resource.uri.toLowerCase().includes(query),
   );
+
+  // Modern-era chrome for the single `subscriptions/listen` stream (#1630):
+  // a status dot in the section header and a status badge atop its panel. Only
+  // shown on the modern era while the stream is active (≥1 subscription); the
+  // legacy per-URI `resources/subscribe` model has no persistent stream.
+  const streamStatus =
+    isModernEra(protocolEra) && subscriptionStreamState?.active === true
+      ? subscriptionStreamState.status
+      : undefined;
 
   // Subscriptions are only meaningful when the server advertises the
   // `resources.subscribe` capability; otherwise the section is omitted
@@ -271,13 +297,28 @@ export function ResourceControls({
             )}
           >
             <Accordion.Control disabled={filteredSubscriptions.length === 0}>
-              {formatSectionCount(
-                "Subscriptions",
-                filteredSubscriptions.length,
-              )}
+              <Group gap="xs" wrap="nowrap">
+                <Text span>
+                  {formatSectionCount(
+                    "Subscriptions",
+                    filteredSubscriptions.length,
+                  )}
+                </Text>
+                {streamStatus && (
+                  <SubscriptionStreamBadge
+                    status={streamStatus}
+                    variant="dot"
+                  />
+                )}
+              </Group>
             </Accordion.Control>
             <Accordion.Panel>
               <Stack gap="xs">
+                {streamStatus && (
+                  <Group justify="flex-start">
+                    <SubscriptionStreamBadge status={streamStatus} />
+                  </Group>
+                )}
                 {filteredSubscriptions.map((sub) => (
                   <ResourceSubscribedItem
                     key={sub.resource.uri}
