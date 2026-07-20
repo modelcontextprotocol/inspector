@@ -1,16 +1,62 @@
 # MCP Inspector CLI Client
 
-The CLI mode enables programmatic interaction with MCP servers from the command line. It is ideal for scripting, automation, continuous integration, and establishing an efficient feedback loop with AI coding assistants.
+The CLI package provides two entrypoints:
 
-## Running the CLI
+- **One-shot** — `mcp-inspector --cli` (frozen contract): connect → one `--method` → disconnect.
+- **Session** — `mcp` (new): connect once, then run many commands against a named session.
 
-You can run the CLI client directly via `npx`:
+## Session CLI (`mcp`)
+
+```bash
+# From a built tree / published package:
+mcp servers/list --config path/to/mcp.json   # marks entries with a live session (@name / MRU)
+mcp servers/show test-stdio --config path/to/mcp.json
+mcp connect test-stdio --config path/to/mcp.json
+mcp connect test-stdio --config path/to/mcp.json --relogin   # ignore stored OAuth; fresh login if required
+mcp auth/list
+mcp auth/clear https://example.com/mcp
+mcp auth/clear --all --yes
+mcp tools/list
+mcp tools/call echo message:=hi
+mcp tools/call echo '{"message":"hi"}'   # or --tool-arg / --tool-args-json
+mcp @test-stdio resources/list          # explicit session via @name
+mcp initialize --session test-stdio
+mcp logging/setLevel info
+mcp logging/tail                        # long-lived; Ctrl-C to stop
+mcp sessions/list
+mcp disconnect --session test-stdio
+mcp daemon status
+mcp daemon stop
+
+# Optional: private daemon for this shell only (ssh-agent style)
+eval "$(mcp private)"
+mcp connect test-stdio --config path/to/mcp.json
+mcp tools/list
+```
+
+Slash methods match one-shot `--method` names (`tools/*`, `resources/*`, `prompts/*`, `logging/*`, `tasks/*`, `roots/*`, `initialize`). Streams (`logging/tail`, `resources/subscribe`) stay attached until Ctrl-C and honour `--format` (human lines or pretty JSON per event). Auth uses the shared `oauth.json` store. On connect, the daemon reuses stored tokens when it can; if auth is still required (or stored credentials cannot complete a silent refresh), `mcp` runs interactive OAuth then retries (pass `--stored-auth-only` to refuse interactive login — also available on one-shot). Use `connect --relogin` (or one-shot `--relogin`) to ignore stored credentials for that connect and run a fresh interactive login when the server requires auth (new tokens are saved). Manage the store with `auth/list` and `auth/clear <url>` / `auth/clear --all` (`--yes` required for `--all` when non-interactive). On a TTY, the CLI prints a clickable authorization URL (OSC 8) and opens the default browser; non-TTY / CI only prints the plain URL. On the session CLI, authentication is handled at **connect** time only; mid-session re-login / step-up during a later command is available on one-shot `--cli`, not on `mcp`.
+
+Sessions are kept by a background process under `~/.mcp-inspector/` by default (shared across terminals). Set `MCP_STORAGE_DIR` to isolate parallel runs (daemon + OAuth store). For a daemon that only this shell can use, run `eval "$(mcp private)"` once — later `mcp` commands in that shell inherit the private binding.
+
+**Output (session only — different from one-shot):**
+
+| Flag | Behaviour |
+| ---- | --------- |
+| `--format text` (default) | Human-readable views (tool lists, call results, sessions, …). On a TTY, uses ANSI styling (color, bold/dim, OSC 8 links). |
+| `--format json` | Pretty-printed JSON of the payload (no `{ "result" }` envelope; never ANSI) |
+| `--plain` | Disable ANSI styling in human text (also honours `NO_COLOR`) |
+
+Put global flags before the subcommand: `mcp --format json tools/list`, `mcp --plain tools/list`. Isolate parallel runs with `MCP_STORAGE_DIR` (scopes the daemon socket + OAuth store). One-shot `--cli` keeps its own format contract (`text` = pretty JSON, `json` = `{ result }` envelope).
+
+## One-shot CLI (`mcp-inspector --cli`)
+
+You can run the one-shot CLI via `npx`:
 
 ```bash
 npx @modelcontextprotocol/inspector --cli node build/index.js
 ```
 
-The CLI mode supports operations across tools, resources, and prompts, returning structured JSON output.
+Supports tools, resources, and prompts (plus `--method servers/list` / `servers/show` for catalog entries without connecting).
 
 ### Examples
 
@@ -140,13 +186,17 @@ A `tools/call` that returns `isError:true` still prints its payload but exits `5
 
 ### CLI-specific (OAuth for HTTP servers)
 
-The CLI runs the same loopback callback server as the TUI (`http://127.0.0.1:6276/oauth/callback` by default). On connect **401** or mid-session interactive auth (re-login / step-up), it:
+The CLI runs the same loopback callback server as the TUI (`http://127.0.0.1:6276/oauth/callback` by default).
+
+**One-shot (`mcp-inspector --cli`):** on connect **401** or mid-session interactive auth (re-login / step-up), it:
 
 1. Starts the callback listener on `--callback-url` (or `MCP_OAUTH_CALLBACK_URL`)
 2. Prints the authorization URL to the console (`ConsoleNavigation`)
 3. Waits for the browser redirect, exchanges the code, and retries connect or the failed RPC
 
-**Step-up (standard OAuth):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues; **N** exits with an error. EMA step-up re-mints silently (no prompt).
+**Step-up (standard OAuth, one-shot only):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues; **N** exits with an error. EMA step-up re-mints silently (no prompt).
+
+**Session (`mcp`):** if connect requires auth, interactive OAuth runs and connect is retried. Mid-session step-up during a later command (for example `tools/call`) is not available on the session CLI — use one-shot `--cli` when you need that, or disconnect and connect again after refreshing tokens.
 
 **Shared OAuth storage:** the CLI **reuses** tokens from `~/.mcp-inspector/storage/oauth.json` when they already exist (same file as other Inspector clients). That is passive file sharing, not launching another app.
 
@@ -256,18 +306,17 @@ While the Web Client provides a rich visual interface, the CLI is designed for:
 Like the other clients, the CLI self-validates from its own folder:
 
 ```bash
-npm run validate       # format:check && lint && test:coverage
+npm run validate       # format:check && lint && test  (fast; no coverage gate)
 npm test               # build test-servers + binary, then run all tests
-npm run test:coverage  # build + tests under the per-file coverage gate
+npm run test:coverage  # build + tests under the per-file ≥90 coverage gate
 ```
 
-The CLI's `test:coverage` **builds the binary first** (its out-of-process
-`e2e.test.ts` spawns it, so it must run against a fresh build). `validate`
-therefore folds the build into `test:coverage` rather than repeating it — it is
-`format:check && lint && test:coverage`, with no separate `build` step (the
-other clients, whose tests don't spawn their bundle, keep an explicit `build`).
-The repo-root `validate:cli` just delegates here.
+The CLI's `test` / `test:coverage` **build the binary first** (out-of-process
+`e2e.test.ts` spawns it). `validate` is `format:check && lint && test` with no
+separate `build` step (`pretest` builds). Repo-root `validate:cli` delegates
+here; the coverage gate is `npm run coverage` / `coverage:cli` (also in
+`npm run ci`), matching AGENTS.md.
 
-Tests run the CLI **in-process** (importing `runCli()`) so `src/` is measured
-under coverage, with a thin out-of-process spawn layer for the real binary. See
-[`__tests__/README.md`](./__tests__/README.md) for details.
+Tests run the CLI **in-process** (importing `runCli()` / `runMcp()`) so `src/`
+is measured under coverage, with a thin out-of-process spawn layer for the real
+binary. See [`__tests__/README.md`](./__tests__/README.md) for details.

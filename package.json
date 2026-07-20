@@ -18,7 +18,8 @@
   "author": "The MCP Maintainers and Community",
   "type": "module",
   "bin": {
-    "mcp-inspector": "./clients/launcher/build/index.js"
+    "mcp-inspector": "./clients/launcher/build/index.js",
+    "mcp": "./clients/cli/build/mcp-bin.js"
   },
   "files": [
     "clients/launcher/build",

@@ -1,0 +1,4 @@
+#!/bin/sh
+ROOT="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+exec node "$ROOT/clients/cli/build/mcp-bin.js" \
+    "$@"

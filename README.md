@@ -6,12 +6,13 @@ A developer tool for inspecting [Model Context Protocol](https://modelcontextpro
 - **CLI** — a scriptable command-line client for automation, CI, and fast agent feedback loops.
 - **TUI** — an interactive terminal UI built with [Ink](https://github.com/vadimdemedes/ink).
 
-All three run through one global `mcp-inspector` binary:
+All three run through one global `mcp-inspector` binary. The package also ships a session-oriented `mcp` binary (connect once, many commands):
 
 ```bash
 npx @modelcontextprotocol/inspector          # web UI (default)
-npx @modelcontextprotocol/inspector --cli    # CLI
+npx @modelcontextprotocol/inspector --cli    # one-shot CLI
 npx @modelcontextprotocol/inspector --tui    # TUI
+npx --package=@modelcontextprotocol/inspector mcp servers/list   # session CLI
 ```
 
 > **Repo status.** This is the **v2** line of the Inspector (branch `v2/main`). The `main` branch is the legacy v1 implementation (bug fixes only). v2 will eventually replace `main`. See [`AGENTS.md`](./AGENTS.md) for branch/board conventions.
@@ -24,7 +25,7 @@ v2 is **not** an npm workspace. Each client under `clients/*` keeps its own `pac
 inspector/
 ├── clients/
 │   ├── web/          # Web client (Vite + React + Mantine). src/ = browser app; server/ = Node dev/prod backend
-│   ├── cli/          # CLI client (tsup bundle, @inspector/core alias)
+│   ├── cli/          # CLI client — one-shot (`cli.ts`) + session (`session/`, `daemon/`, `handlers/`)
 │   ├── tui/          # TUI client (Ink + React, tsup bundle)
 │   └── launcher/     # Shared launcher — provides the `mcp-inspector` bin, dispatches to web/cli/tui
 ├── core/             # Shared code consumed via the `@inspector/core` alias (no package.json)

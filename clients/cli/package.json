@@ -9,7 +9,8 @@
     ".": "./build/index.js"
   },
   "bin": {
-    "mcp-inspector-cli": "./build/index.js"
+    "mcp-inspector-cli": "./build/index.js",
+    "mcp": "./build/mcp-bin.js"
   },
   "files": [
     "build"
@@ -39,6 +40,7 @@
     "ajv": "^8.17.1",
     "atomically": "^2.1.1",
     "commander": "^13.1.0",
+    "open": "^10.2.0",
     "pino": "^9.14.0",
     "undici": "^8.5.0",
     "zod": "^4.3.6"

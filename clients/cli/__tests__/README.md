@@ -47,12 +47,15 @@ root provides a further end-to-end check of the binary.)
 - `cliOAuth.test.ts` - Unit tests for `cliOAuth.ts` (step-up confirm, helper wiring, retry)
 - `oauth-interactive.test.ts` - **Integration** smoke parity for CLI interactive OAuth: connect-time callback server + step-up **y/N** against composable `TestServerHttp` (auto-completes authorize URL programmatically; not a subprocess binary e2e)
 - `e2e.test.ts` - Out-of-process spawn of the built binary (exit codes + boot; no OAuth)
+- `mcp-session.test.ts` / `mcp-coverage.test.ts` / `mcp-auth-coverage.test.ts` - Session CLI (`runMcp`) against the daemon
+- `daemon-*.test.ts` / `daemon-private.test.ts` / `dispatch.test.ts` / `format-session.test.ts` / `parse-tool-args.test.ts` / `style.test.ts` - Session daemon (incl. `mcp private` IPC token), dispatch, and formatting
 
 ## Helpers
 
 The `helpers/` directory contains shared utilities:
 
 - `cli-runner.ts` - Invokes `runCli()` in-process and captures stdout/stderr + exit code
+- `mcp-runner.ts` - Invokes `runMcp()` in-process for the session CLI
 - `assertions.ts` - Custom assertion helpers for CLI output validation
 - `fixtures.ts` - Test config/catalog file generators and temporary directory management
 
@@ -67,7 +70,7 @@ and the bundled stdio server is launched via `getTestMcpServerCommand()`.
   a file run sequentially
 - Config files use `crypto.randomUUID()` for uniqueness
 - HTTP/SSE servers use dynamic port allocation to avoid conflicts
-- Coverage is enforced per-file (lines ≥ 90, statements ≥ 85, functions ≥ 80,
-  branches ≥ 50). `src/index.ts` (the binary bootstrap) is excluded because it
-  only runs in the spawned binary, which coverage can't instrument
+- Coverage is enforced per-file at ≥90 on lines, statements, functions, and
+  branches. Exclusions: `src/index.ts`, `src/mcp-bin.ts`, `src/daemon/run.ts`,
+  `src/daemon/ipc-glue.ts`, `src/daemon/stream-client.ts` (see `vitest.config.ts`)
 - All tests use the built-in MCP test servers — no external/registry dependencies

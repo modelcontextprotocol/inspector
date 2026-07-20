@@ -6,7 +6,11 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(dirname, '../..');
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: {
+    index: 'src/index.ts',
+    'mcp-bin': 'src/mcp-bin.ts',
+    daemon: 'src/daemon/run.ts',
+  },
   format: ['esm'],
   outDir: 'build',
   clean: true,
