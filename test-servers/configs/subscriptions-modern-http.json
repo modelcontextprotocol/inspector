@@ -1,0 +1,15 @@
+{
+  "serverInfo": {
+    "name": "subscriptions-modern",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "update_resource" }],
+  "resources": [{ "preset": "numbered_resources", "params": { "count": 3 } }],
+  "subscriptions": true,
+  "listChanged": { "resources": true },
+  "transport": {
+    "type": "streamable-http",
+    "port": 3220,
+    "modern": true
+  }
+}
