@@ -170,13 +170,30 @@ describe("resource subscriptions era fork (#1630)", () => {
       expect(filter?.resourcesListChanged).toBe(true);
     });
 
-    it("is idempotent when re-subscribing an already-subscribed URI", async () => {
+    it("skips a redundant re-list when re-subscribing an already-subscribed URI", async () => {
       const started = await startServer({});
-      const { connected } = await connect(started.url, "modern");
+      const { connected, messages } = await connect(started.url, "modern");
       await connected.subscribeToResource(RESOURCE_URI);
+
+      // A second subscribe of the same URI leaves the filter unchanged, so it
+      // must not re-list (which would needlessly churn the server stream).
+      messages.length = 0;
       await connected.subscribeToResource(RESOURCE_URI);
+      expect(methodsSent(messages)).not.toContain("subscriptions/listen");
       expect(connected.getSubscribedResources()).toEqual([RESOURCE_URI]);
       expect(connected.getResourceSubscriptionStreamState().active).toBe(true);
+    });
+
+    it("skips a re-list when unsubscribing a URI that isn't subscribed", async () => {
+      const started = await startServer({});
+      const { connected, messages } = await connect(started.url, "modern");
+      await connected.subscribeToResource(RESOURCE_URI);
+
+      messages.length = 0;
+      await connected.unsubscribeFromResource("test://not-subscribed");
+      expect(methodsSent(messages)).not.toContain("subscriptions/listen");
+      // The real subscription is untouched.
+      expect(connected.getSubscribedResources()).toEqual([RESOURCE_URI]);
     });
   });
 
@@ -232,6 +249,8 @@ describe("resource subscriptions era fork (#1630)", () => {
       client: { listen: (...args: unknown[]) => Promise<McpSubscription> };
       modernSubscription: McpSubscription | null;
       modernListenGeneration: number;
+      modernReconnectAttempts: number;
+      subscribedResources: Set<string>;
       onModernSubscriptionClosed(
         subscription: McpSubscription,
         reason: "local" | "graceful" | "remote",
@@ -241,6 +260,23 @@ describe("resource subscriptions era fork (#1630)", () => {
 
     function internals(c: InspectorClient): StreamInternals {
       return c as unknown as StreamInternals;
+    }
+
+    /** A controllable fake `McpSubscription` whose `closed` we resolve on demand. */
+    function makeFakeSub(): {
+      sub: McpSubscription;
+      drop: (reason: "local" | "graceful" | "remote") => void;
+    } {
+      let drop: (reason: "local" | "graceful" | "remote") => void = () => {};
+      const closed = new Promise<"local" | "graceful" | "remote">((resolve) => {
+        drop = resolve;
+      });
+      const sub = {
+        honoredFilter: { resourceSubscriptions: [RESOURCE_URI] },
+        close: async () => {},
+        closed,
+      } as McpSubscription;
+      return { sub, drop };
     }
 
     it("rolls back the optimistic add when listen() fails", async () => {
@@ -305,6 +341,116 @@ describe("resource subscriptions era fork (#1630)", () => {
         // but the intent to subscribe remains).
         expect(s.active).toBe(true);
       });
+    });
+
+    it("backs off and gives up after a burst of rapid reconnects", async () => {
+      const started = await startServer({});
+      const { connected } = await connect(started.url, "modern");
+      await connected.subscribeToResource(RESOURCE_URI);
+      const int = internals(connected);
+
+      vi.useFakeTimers();
+      try {
+        // Each re-listen resolves to a controllable fake stream we can drop.
+        const subs: ReturnType<typeof makeFakeSub>[] = [];
+        int.client.listen = () => {
+          const next = makeFakeSub();
+          subs.push(next);
+          return Promise.resolve(next.sub);
+        };
+
+        // First drop from the real subscription starts the reconnect run.
+        int.onModernSubscriptionClosed(
+          int.modernSubscription as McpSubscription,
+          "remote",
+          int.modernListenGeneration,
+        );
+
+        // Drive rapid reconnect cycles: advancing past the max backoff fires the
+        // pending re-listen (a fresh fake stream), which we immediately drop
+        // again. The gap stays under the reset window, so attempts accumulate.
+        for (let i = 0; i < 12; i++) {
+          await vi.advanceTimersByTimeAsync(20_000);
+          if (connected.getResourceSubscriptionStreamState().status === "ended")
+            break;
+          const last = subs.at(-1);
+          expect(last).toBeDefined();
+          last?.drop("remote");
+          await Promise.resolve();
+        }
+
+        // Past the attempt cap it stops reconnecting and marks the stream ended
+        // (subscriptions remain, so it stays active).
+        const state = connected.getResourceSubscriptionStreamState();
+        expect(state.status).toBe("ended");
+        expect(state.active).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("resets the backoff run after an isolated drop", async () => {
+      const started = await startServer({});
+      const { connected } = await connect(started.url, "modern");
+      await connected.subscribeToResource(RESOURCE_URI);
+      const int = internals(connected);
+
+      vi.useFakeTimers();
+      try {
+        const subs: ReturnType<typeof makeFakeSub>[] = [];
+        int.client.listen = () => {
+          const next = makeFakeSub();
+          subs.push(next);
+          return Promise.resolve(next.sub);
+        };
+
+        int.onModernSubscriptionClosed(
+          int.modernSubscription as McpSubscription,
+          "remote",
+          int.modernListenGeneration,
+        );
+        await vi.advanceTimersByTimeAsync(1_000); // reconnect #1 acknowledges
+        expect(int.modernReconnectAttempts).toBe(1);
+
+        // A drop that lands well after the reset window resets the run rather
+        // than escalating, so attempts stays at 1.
+        await vi.advanceTimersByTimeAsync(40_000);
+        subs.at(-1)?.drop("remote");
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(int.modernReconnectAttempts).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not reconnect when the subscription set empties before the timer fires", async () => {
+      const started = await startServer({});
+      const { connected } = await connect(started.url, "modern");
+      await connected.subscribeToResource(RESOURCE_URI);
+      const int = internals(connected);
+
+      vi.useFakeTimers();
+      try {
+        int.client.listen = () => {
+          throw new Error("re-listen should not run once the set is empty");
+        };
+        int.onModernSubscriptionClosed(
+          int.modernSubscription as McpSubscription,
+          "remote",
+          int.modernListenGeneration,
+        );
+        expect(connected.getResourceSubscriptionStreamState().status).toBe(
+          "reconnecting",
+        );
+        // Empty the set without going through unsubscribe (which would clear the
+        // timer), then fire it: the guard bails instead of re-listing.
+        int.subscribedResources.clear();
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(int.modernSubscription).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("ignores a close callback from a superseded generation", async () => {

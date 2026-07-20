@@ -254,6 +254,17 @@ interface ToolCallRequest {
   options?: { skipOutputValidation?: boolean };
 }
 
+// Backoff for reconnect-by-re-listen on the modern `subscriptions/listen` stream
+// (#1630). A `"remote"` drop schedules a re-listen after a capped exponential
+// delay so a flapping server can't spin a tight zero-delay reconnect loop; after
+// a run of rapid drops we give up (mark the stream ended) rather than reconnect
+// forever. A drop that lands more than the reset window after the previous one
+// is treated as isolated and starts the backoff over.
+const MODERN_RECONNECT_BASE_MS = 500;
+const MODERN_RECONNECT_MAX_MS = 15_000;
+const MODERN_RECONNECT_MAX_ATTEMPTS = 8;
+const MODERN_RECONNECT_RESET_MS = 30_000;
+
 /**
  * InspectorClient wraps an MCP Client and provides:
  * - Message tracking and storage
@@ -353,6 +364,12 @@ export class InspectorClient extends InspectorClientEventTarget {
   // Last dispatched modern stream state; `active: false` on the legacy era.
   private modernStreamState: ResourceSubscriptionStreamState =
     INACTIVE_SUBSCRIPTION_STREAM_STATE;
+  // Reconnect-by-re-listen backoff state (#1630): consecutive rapid reconnect
+  // attempts, the timestamp of the last one (to reset the run once drops space
+  // out), and the pending re-listen timer.
+  private modernReconnectAttempts = 0;
+  private modernLastReconnectMs = 0;
+  private modernReconnectTimer: ReturnType<typeof setTimeout> | undefined;
   // Task ids the user explicitly cancelled. A cancel makes the in-flight
   // `callToolStream` reject with a generic -32603 error, which the stream's
   // error path would otherwise report as a *failed* task — flashing "failed"
@@ -1554,6 +1571,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     // generation so any in-flight re-listen/reconnect bails (#1630).
     this.subscribedResources.clear();
     this.modernListenGeneration++;
+    this.clearModernReconnectTimer();
+    this.modernReconnectAttempts = 0;
     const closingSubscription = this.modernSubscription;
     this.modernSubscription = null;
     closingSubscription?.close().catch(() => {});
@@ -3633,8 +3652,25 @@ export class InspectorClient extends InspectorClientEventTarget {
    * while this one awaits its acknowledgement, the just-opened stream is
    * discarded rather than overwriting the newer one.
    */
-  private async refreshModernSubscription(): Promise<void> {
+  /** Cancel a pending reconnect re-listen, if any (#1630). */
+  private clearModernReconnectTimer(): void {
+    if (this.modernReconnectTimer !== undefined) {
+      clearTimeout(this.modernReconnectTimer);
+      this.modernReconnectTimer = undefined;
+    }
+  }
+
+  private async refreshModernSubscription(
+    fromReconnect = false,
+  ): Promise<void> {
     if (!this.client) return;
+    // A user-initiated (subscribe/unsubscribe) refresh is a clean slate: clear
+    // any pending reconnect and reset the backoff run so the next drop starts
+    // from the base delay.
+    if (!fromReconnect) {
+      this.clearModernReconnectTimer();
+      this.modernReconnectAttempts = 0;
+    }
     const generation = ++this.modernListenGeneration;
 
     // Tear down the current stream before opening a replacement (re-listen).
@@ -3698,13 +3734,54 @@ export class InspectorClient extends InspectorClientEventTarget {
       reason === "remote" &&
       !isTerminalStatus(this.status) &&
       this.subscribedResources.size > 0;
-    if (shouldReconnect) {
+    if (!shouldReconnect) {
       this.setModernStreamState({
-        active: true,
-        status: "reconnecting",
+        active: false,
+        status: "ended",
         honoredUris: [],
       });
-      this.refreshModernSubscription().catch(() => {
+      return;
+    }
+
+    // Reconnect-by-re-listen with capped exponential backoff (#1630). A drop
+    // long after the previous one starts the run over; a burst of rapid drops
+    // escalates the delay and, past the cap, gives up rather than loop forever.
+    const now = Date.now();
+    if (now - this.modernLastReconnectMs > MODERN_RECONNECT_RESET_MS) {
+      this.modernReconnectAttempts = 0;
+    }
+    this.modernLastReconnectMs = now;
+    this.modernReconnectAttempts += 1;
+
+    if (this.modernReconnectAttempts > MODERN_RECONNECT_MAX_ATTEMPTS) {
+      // Too many rapid reconnects — stop and mark ended. Re-subscribing (a user
+      // action) resets the backoff and re-establishes the stream.
+      this.setModernStreamState({
+        active: this.subscribedResources.size > 0,
+        status: "ended",
+        honoredUris: [],
+      });
+      return;
+    }
+
+    this.setModernStreamState({
+      active: true,
+      status: "reconnecting",
+      honoredUris: [],
+    });
+    const delay = Math.min(
+      MODERN_RECONNECT_BASE_MS * 2 ** (this.modernReconnectAttempts - 1),
+      MODERN_RECONNECT_MAX_MS,
+    );
+    this.clearModernReconnectTimer();
+    this.modernReconnectTimer = setTimeout(() => {
+      this.modernReconnectTimer = undefined;
+      // Disconnect/unsubscribe may have raced the timer — bail if the reconnect
+      // is no longer wanted.
+      if (isTerminalStatus(this.status) || this.subscribedResources.size === 0) {
+        return;
+      }
+      this.refreshModernSubscription(true).catch(() => {
         // Re-listen failed; leave the stream ended so the UI stops showing
         // "reconnecting" for a stream that isn't coming back on its own.
         this.setModernStreamState({
@@ -3713,14 +3790,7 @@ export class InspectorClient extends InspectorClientEventTarget {
           honoredUris: [],
         });
       });
-      return;
-    }
-
-    this.setModernStreamState({
-      active: false,
-      status: "ended",
-      honoredUris: [],
-    });
+    }, delay);
   }
 
   /**
@@ -3742,14 +3812,16 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
     try {
       if (this.isModernEra()) {
-        const alreadySubscribed = this.subscribedResources.has(uri);
+        // Already subscribed → the filter is unchanged, so skip the re-listen
+        // (which would needlessly tear down and reopen the server stream).
+        if (this.subscribedResources.has(uri)) return;
         this.subscribedResources.add(uri);
         try {
           await this.refreshModernSubscription();
         } catch (error) {
           // Roll back the optimistic add so the set stays consistent with the
           // (unchanged) stream filter.
-          if (!alreadySubscribed) this.subscribedResources.delete(uri);
+          this.subscribedResources.delete(uri);
           throw error;
         }
       } else {
@@ -3780,9 +3852,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
     try {
       if (this.isModernEra()) {
+        // Not subscribed → the filter is unchanged, so skip the re-listen.
+        if (!this.subscribedResources.delete(uri)) return;
         // The removal is the user's intent; keep it even if the re-listen fails
         // (the stale URI simply lingers in the server's honored filter).
-        this.subscribedResources.delete(uri);
         this.dispatchSubscriptionsChange();
         await this.refreshModernSubscription();
       } else {
