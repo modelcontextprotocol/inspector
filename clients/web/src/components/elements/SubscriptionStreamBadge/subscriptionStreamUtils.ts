@@ -32,7 +32,7 @@ const PRESENTATION: Record<
   ended: {
     color: "gray",
     label: "Stream ended",
-    tooltip: `${STREAM_INTRO} The server ended the stream deliberately (for example, on shutdown); it will not reconnect on its own.`,
+    tooltip: `${STREAM_INTRO} The stream is closed and won't reconnect on its own — either the server ended it (for example, on shutdown) or reconnection was abandoned after repeated failures. Re-subscribe to try again.`,
   },
 };
 
