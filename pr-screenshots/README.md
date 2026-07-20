@@ -6,23 +6,24 @@ End-to-end verification of the era fork against two real test servers
 
 ## Modern era (2026-07-28)
 
+![Modern header badge](subscriptions-modern-header-badge.png)
+
+**`subscriptions-modern-header-badge.png`** — on the modern era the Subscriptions
+section shows a single **stream-status badge in its accordion header** (next to the
+count, so it stays visible while the section is collapsed): `● Listening` when the
+`subscriptions/listen` stream is acknowledged, `● Reconnecting…` while it re-lists
+after a drop, `● Stream ended` on graceful close — each explained in a tooltip.
+Legacy connections show no badge.
+
 ![Modern listen + acknowledged](subscriptions-modern-listen-acknowledged.png)
 
-**`subscriptions-modern-listen-acknowledged.png`** — after subscribing to
-`test://resource_1` on a **Modern**-negotiated connection, the Protocol view shows
-the client sent **`subscriptions/listen`** (MODERN, long-lived → `PENDING`) and the
-server answered with **`notifications/subscriptions/acknowledged`**. No
-`resources/subscribe` is sent — the defining era-fork behavior.
-
-![Modern badge + reconnect](subscriptions-modern-badge-and-reconnect.png)
-
-**`subscriptions-modern-badge-and-reconnect.png`** — the Subscriptions section on
-the modern era shows the new stream-status **badge** in its panel and the status
-**dot** in its header (both tooltip-explained), with `resource_1` subscribed. This
-frame caught the **`RECONNECTING…`** state: the Protocol view on the right shows the
-listen stream being re-established (`listen:1`, `listen:2`, `listen:3`, …) — the
-**reconnect-by-re-listen** behavior firing live as the long-lived stream drops and
-is re-listed.
+**`subscriptions-modern-listen-acknowledged.png`** — subscribing on a
+**Modern**-negotiated connection sends **`subscriptions/listen`** (long-lived →
+`PENDING`) and the server answers with **`notifications/subscriptions/acknowledged`**
+(the repeated `listen:0` / `listen:1` pairs are the stream being re-listed). No
+`resources/subscribe` is sent — the defining era-fork behavior. The connection era
+is shown once in the panel header (`Messages · MODERN`); individual entries carry no
+per-frame era badge.
 
 ## Legacy era (contrast)
 

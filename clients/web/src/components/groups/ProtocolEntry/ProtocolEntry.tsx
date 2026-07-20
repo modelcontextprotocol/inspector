@@ -29,7 +29,6 @@ import {
   extractMethod,
   extractResultType,
   extractSubscriptionId,
-  isModernFrame,
   isReplayableProtocolMethod,
 } from "../protocolUtils.js";
 
@@ -107,15 +106,6 @@ const TargetScroll = Text.withProps({
 const DurationText = Text.withProps({
   size: "sm",
   c: "dimmed",
-});
-
-// Flags a frame whose method only exists in the modern (2026-07-28) era
-// (`server/discover`, `subscriptions/listen`, its acknowledgement). This labels
-// the *frame*, not the connection's negotiated era (see the transcript caveat in
-// protocolUtils) — those methods genuinely cannot occur on a legacy connection.
-const ModernFrameBadge = Badge.withProps({
-  color: "blue",
-  variant: "outline",
 });
 
 // The `subscriptionId` tag on a modern push notification (spec §7.4). Shown with
@@ -280,7 +270,6 @@ export function ProtocolEntry({
   const canReplay = isReplayableProtocolMethod(method);
   const resultType = extractResultType(entry);
   const subscriptionId = extractSubscriptionId(entry);
-  const isModern = isModernFrame(method);
 
   useEffect(() => {
     setIsExpanded(isListExpanded);
@@ -319,9 +308,6 @@ export function ProtocolEntry({
       {statusLabel(status)}
     </Badge>
   );
-  const modernFrameBadge = isModern && (
-    <ModernFrameBadge>modern</ModernFrameBadge>
-  );
   const subscriptionBadge = subscriptionId && (
     <SubscriptionCluster>
       <SubscriptionLabel>sub</SubscriptionLabel>
@@ -355,7 +341,6 @@ export function ProtocolEntry({
             <HeaderRow>
               <HeaderCluster flex={1}>
                 <MethodBadge method={method} />
-                {modernFrameBadge}
                 {subscriptionBadge}
                 {target && (
                   <>
@@ -395,7 +380,6 @@ export function ProtocolEntry({
                 {directionBadge}
                 <MethodBadge method={method} />
                 {specErrorBadge}
-                {modernFrameBadge}
                 {subscriptionBadge}
                 {target && (
                   <>

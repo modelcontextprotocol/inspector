@@ -20,7 +20,3 @@ export const Reconnecting: Story = {
 export const Ended: Story = {
   args: { status: "ended" },
 };
-
-export const HeaderDot: Story = {
-  args: { status: "acknowledged", variant: "dot" },
-};

@@ -39,11 +39,8 @@ describe("SubscriptionStreamBadge", () => {
     expect(screen.getByText("Reconnecting…")).toBeInTheDocument();
   });
 
-  it("renders a bare dot with an accessible label in dot mode", () => {
-    renderWithMantine(<SubscriptionStreamBadge status="ended" variant="dot" />);
-    expect(screen.queryByText("Stream ended")).not.toBeInTheDocument();
-    expect(
-      screen.getByLabelText("Listen stream: Stream ended"),
-    ).toBeInTheDocument();
+  it("renders a labelled ended badge", () => {
+    renderWithMantine(<SubscriptionStreamBadge status="ended" />);
+    expect(screen.getByText("Stream ended")).toBeInTheDocument();
   });
 });

@@ -471,14 +471,10 @@ describe("ProtocolEntry — modern vocabulary", () => {
     expect(screen.queryByText("complete")).not.toBeInTheDocument();
   });
 
-  it("flags a modern-only frame with a 'modern' badge", () => {
+  it("renders a modern-only frame's method (no per-frame era badge)", () => {
     renderWithMantine(<ProtocolEntry {...baseProps} entry={discoverEntry} />);
     expect(screen.getByText("server/discover")).toBeInTheDocument();
-    expect(screen.getByText("modern")).toBeInTheDocument();
-  });
-
-  it("does not flag an ordinary frame as modern", () => {
-    renderWithMantine(<ProtocolEntry {...baseProps} entry={successEntry} />);
+    // The connection era is shown once in the panel header, not per entry.
     expect(screen.queryByText("modern")).not.toBeInTheDocument();
   });
 

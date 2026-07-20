@@ -231,7 +231,8 @@ export const ModernInputRequired: Story = {
   },
 };
 
-// Modern-era: a `server/discover` probe, flagged with the "modern" frame badge.
+// Modern-era: a `server/discover` probe (a modern-only method). The connection
+// era is shown once in the panel header, not per entry.
 export const ModernDiscoverFrame: Story = {
   args: {
     entry: discoverEntry,

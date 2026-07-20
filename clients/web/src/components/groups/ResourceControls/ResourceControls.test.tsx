@@ -341,18 +341,15 @@ describe("ResourceControls", () => {
       honoredUris: ["file:///config.json"],
     };
 
-    it("shows the stream badge and header dot on the modern era", () => {
+    it("shows the stream badge in the section header on the modern era", () => {
       renderWithMantine(
         <ControlledResourceControls
           protocolEra="modern"
           subscriptionStreamState={activeAck}
         />,
       );
-      // Panel badge (labelled) + header dot (aria-label only).
+      // The labelled badge sits in the accordion header (next to the count).
       expect(screen.getByText("Listening")).toBeInTheDocument();
-      expect(
-        screen.getByLabelText("Listen stream: Listening"),
-      ).toBeInTheDocument();
     });
 
     it("renders no stream chrome on the legacy era even when a stream is active", () => {
@@ -360,7 +357,6 @@ describe("ResourceControls", () => {
         <ControlledResourceControls subscriptionStreamState={activeAck} />,
       );
       expect(screen.queryByText("Listening")).not.toBeInTheDocument();
-      expect(screen.queryByLabelText(/Listen stream:/)).not.toBeInTheDocument();
     });
 
     it("renders no stream chrome on the modern era when the stream is inactive", () => {

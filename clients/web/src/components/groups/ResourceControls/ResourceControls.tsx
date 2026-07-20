@@ -124,9 +124,10 @@ export function ResourceControls({
   );
 
   // Modern-era chrome for the single `subscriptions/listen` stream (#1630):
-  // a status dot in the section header and a status badge atop its panel. Only
-  // shown on the modern era while the stream is active (≥1 subscription); the
-  // legacy per-URI `resources/subscribe` model has no persistent stream.
+  // a status badge in the section header (so it stays visible while the section
+  // is collapsed). Only shown on the modern era while the stream is active
+  // (≥1 subscription); the legacy per-URI `resources/subscribe` model has no
+  // persistent stream.
   const streamStatus =
     isModernEra(protocolEra) && subscriptionStreamState?.active === true
       ? subscriptionStreamState.status
@@ -305,20 +306,12 @@ export function ResourceControls({
                   )}
                 </Text>
                 {streamStatus && (
-                  <SubscriptionStreamBadge
-                    status={streamStatus}
-                    variant="dot"
-                  />
+                  <SubscriptionStreamBadge status={streamStatus} />
                 )}
               </Group>
             </Accordion.Control>
             <Accordion.Panel>
               <Stack gap="xs">
-                {streamStatus && (
-                  <Group justify="flex-start">
-                    <SubscriptionStreamBadge status={streamStatus} />
-                  </Group>
-                )}
                 {filteredSubscriptions.map((sub) => (
                   <ResourceSubscribedItem
                     key={sub.resource.uri}
