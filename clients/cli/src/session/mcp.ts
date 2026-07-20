@@ -84,7 +84,7 @@ function outOpts(opts: GlobalOpts) {
 const validLogLevels: LoggingLevel[] = Object.values(LoggingLevelSchema.enum);
 
 /**
- * Session-first CLI entry (`mcp`). Talks to the implicit session daemon over
+ * Session-first CLI entry (`mcpi`). Talks to the implicit session daemon over
  * IPC for connect/disconnect/sessions and MCP RPCs; `servers/list` and
  * `servers/show` are local (no daemon).
  */
@@ -96,14 +96,14 @@ export async function runMcp(argv?: string[]): Promise<void> {
   program.exitOverride((err) => {
     // Help/version already printed. Always throw so Commander does not
     // process.exit (which would tear down in-process tests); runMcp treats
-    // these as success. Bare `mcp` uses code `commander.help` with exitCode 1
+    // these as success. Bare `mcpi` uses code `commander.help` with exitCode 1
     // — must not reach handleError as an ErrorEnvelope.
     if (isCommanderDisplayOnly(err)) throw err;
     if (err.exitCode !== 0) throw err;
   });
 
   program
-    .name("mcp")
+    .name("mcpi")
     .description(
       "MCP Inspector session CLI — connect once, run many commands against a named session.",
     )
@@ -254,7 +254,7 @@ function registerConnect(program: CommandType): void {
     )
     .option(
       "--relogin",
-      "Ignore stored OAuth credentials for this connect; run interactive login if the server requires auth, then save new tokens",
+      "Ignore stored OAuth for this connect (HTTP/SSE URL keys only); interactive login runs only if the server requires auth. No-op for stdio / servers with no stored entry",
     )
     .action(async (target: string[], cmdOpts) => {
       const opts = program.opts<GlobalOpts>();
@@ -576,8 +576,8 @@ function registerPrivateCommand(program: CommandType): void {
   program
     .command("private")
     .description(
-      'Print shell exports for a private daemon (eval "$(mcp private)"). ' +
-        "Later mcp commands in that shell use an isolated, token-gated daemon.",
+      'Print shell exports for a private daemon (eval "$(mcpi private)"). ' +
+        "Later mcpi commands in that shell use an isolated, token-gated daemon.",
     )
     .action(async () => {
       const binding = createPrivateBinding();
@@ -801,8 +801,14 @@ function stringifyMeta(
 ): Record<string, string> | undefined {
   if (!meta || Object.keys(meta).length === 0) return undefined;
   return Object.fromEntries(
-    Object.entries(meta).map(([k, v]) => [k, String(v)]),
+    Object.entries(meta).map(([k, v]) => [k, metaValueToString(v)]),
   );
+}
+
+/** Preserve structured metadata (objects/arrays) instead of String → "[object Object]". */
+function metaValueToString(value: JsonValue): string {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
 }
 
 function looksLikeUrl(value: string): boolean {

@@ -31,7 +31,7 @@ export type SessionListRef = {
 
 /**
  * Mark catalog entries that have a live session with the same name
- * (`mcp connect <entry>` default). Does not mutate `entries`.
+ * (`mcpi connect <entry>` default). Does not mutate `entries`.
  */
 export function annotateServerEntriesWithSessions(
   entries: ServerListEntry[],
@@ -78,7 +78,7 @@ export function summarizeServerConfig(config: MCPServerConfig): {
 
 /**
  * Load catalog/config entries and return a sorted name + summary list.
- * Shared by one-shot `--method servers/list` and `mcp servers/list`.
+ * Shared by one-shot `--method servers/list` and `mcpi servers/list`.
  */
 export async function listServerEntries(
   serverOptions: ServerLoadOptions = {},

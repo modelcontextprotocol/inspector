@@ -10,7 +10,7 @@
   },
   "bin": {
     "mcp-inspector-cli": "./build/index.js",
-    "mcp": "./build/mcp-bin.js"
+    "mcpi": "./build/mcp-bin.js"
   },
   "files": [
     "build"

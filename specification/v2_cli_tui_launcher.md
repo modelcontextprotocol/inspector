@@ -20,7 +20,7 @@ This document describes how those clients are built, wired, and tested today, an
 
 ## Non-goals
 
-- **CLI v2 sessions** (connect once, many subcommands) — as-built in [v2_cli_v2.md](v2_cli_v2.md) (`mcp` bin session-first; `mcp-inspector --cli` stays one-shot); tracked by [#1432](https://github.com/modelcontextprotocol/inspector/issues/1432).
+- **CLI v2 sessions** (connect once, many subcommands) — as-built in [v2_cli_v2.md](v2_cli_v2.md) (`mcpi` bin session-first; `mcp-inspector --cli` stays one-shot); tracked by [#1432](https://github.com/modelcontextprotocol/inspector/issues/1432).
 - **npm workspaces** — v2 uses a fat root package plus per-client `package.json` for dev dependencies; the launcher resolves sibling `build/` outputs via relative paths, not workspace hoisting.
   - _Why not workspaces:_ `core/` is consumed by **bundling** — a Vite alias for the browser, tsup inlining for the Node clients — not by symlinked package resolution, so workspaces' main benefit (cross-package linking) does not apply. Each client also pins `react` / `@modelcontextprotocol/sdk` to its own `node_modules` (see `vitest.shared.mts`) to avoid dual-package-instance hazards, which hoisting works against. And the published `@modelcontextprotocol/inspector` is a single flat fat package that workspaces would complicate rather than simplify.
   - _Cost (from-source dev only):_ there is no hoisting, so each client keeps its own `node_modules`. A root `postinstall` (`scripts/install-clients.mjs`) cascades `npm install` into every client, so a single `npm install` at the repo root populates them all — re-run it after a pull that changes a client's dependencies. The cascade no-ops outside a source checkout (it exits early when running from `node_modules`, and the published tarball ships only each client's `build/`, no client `package.json`), so end users of the published package are unaffected. Set `INSPECTOR_SKIP_CLIENT_INSTALL=1` to skip the cascade (e.g. CI that installs each client itself).
@@ -94,7 +94,7 @@ All three clients import from `@inspector/core/...` (mapped to `../../core/` sou
 
 ## CLI
 
-**Model:** one-shot — each invocation connects, runs a single `--method`, prints a result to stdout, disconnects, exits. Same surface as v1.5. Session-oriented CLI v2 (`mcp`) is documented as-built in [v2_cli_v2.md](v2_cli_v2.md) ([#1432](https://github.com/modelcontextprotocol/inspector/issues/1432)).
+**Model:** one-shot — each invocation connects, runs a single `--method`, prints a result to stdout, disconnects, exits. Same surface as v1.5. Session-oriented CLI v2 (`mcpi`) is documented as-built in [v2_cli_v2.md](v2_cli_v2.md) ([#1432](https://github.com/modelcontextprotocol/inspector/issues/1432)).
 
 **Entry:** `clients/cli/src/index.ts` exports `runCli(argv)`; `src/cli.ts` owns Commander parsing and `InspectorClient` orchestration.
 

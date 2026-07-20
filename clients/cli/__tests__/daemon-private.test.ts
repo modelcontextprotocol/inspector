@@ -39,7 +39,7 @@ describe("daemon IPC token", () => {
   });
 });
 
-describe("mcp private", () => {
+describe("mcpi private", () => {
   let home: string | undefined;
   let prevHome: string | undefined;
 

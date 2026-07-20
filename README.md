@@ -6,13 +6,13 @@ A developer tool for inspecting [Model Context Protocol](https://modelcontextpro
 - **CLI** — a scriptable command-line client for automation, CI, and fast agent feedback loops.
 - **TUI** — an interactive terminal UI built with [Ink](https://github.com/vadimdemedes/ink).
 
-All three run through one global `mcp-inspector` binary. The package also ships a session-oriented `mcp` binary (connect once, many commands):
+All three run through one global `mcp-inspector` binary. The package also ships a session-oriented `mcpi` binary (connect once, many commands):
 
 ```bash
 npx @modelcontextprotocol/inspector          # web UI (default)
 npx @modelcontextprotocol/inspector --cli    # one-shot CLI
 npx @modelcontextprotocol/inspector --tui    # TUI
-npx --package=@modelcontextprotocol/inspector mcp servers/list   # session CLI
+npx --package=@modelcontextprotocol/inspector mcpi servers/list   # session CLI
 ```
 
 > **Repo status.** This is the **v2** line of the Inspector (branch `v2/main`). The `main` branch is the legacy v1 implementation (bug fixes only). v2 will eventually replace `main`. See [`AGENTS.md`](./AGENTS.md) for branch/board conventions.

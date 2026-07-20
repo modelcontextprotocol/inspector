@@ -92,6 +92,10 @@ export class DaemonServer {
     } catch {
       // Unsupported on some platforms (e.g. Windows named pipes).
     }
+
+    // Session-less spawn (e.g. ensureDaemon from tools/list with no sessions)
+    // must still self-reap — idle was previously only armed after disconnect.
+    this.registry.armIdleTimerIfEmpty();
   }
 
   async stop(reason: "idle" | "stop" | "signal" = "stop"): Promise<void> {

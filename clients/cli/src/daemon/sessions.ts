@@ -64,6 +64,17 @@ export class SessionRegistry {
     this.onIdle = handler;
   }
 
+  /**
+   * Arm the idle shutdown timer when there are no sessions.
+   * Called at daemon start so a spawn that never connects still self-reaps,
+   * and after a failed connect that left the registry empty.
+   */
+  armIdleTimerIfEmpty(): void {
+    if (this.sessions.size === 0) {
+      this.armIdleTimer();
+    }
+  }
+
   list(): SessionInfo[] {
     return [...this.sessions.values()]
       .map((s) => ({
@@ -103,7 +114,7 @@ export class SessionRegistry {
       if (!this.mruName) {
         throw new CliExitCodeError(
           EXIT_CODES.USAGE,
-          "No open sessions. Connect first (e.g. mcp servers/list, mcp connect <entry>).",
+          "No open sessions. Connect first (e.g. mcpi servers/list, mcpi connect <entry>).",
           { code: "no_session" },
         );
       }
@@ -113,7 +124,7 @@ export class SessionRegistry {
     if (!session) {
       throw new CliExitCodeError(
         EXIT_CODES.USAGE,
-        `Session '${name}' not found. Use mcp sessions/list.`,
+        `Session '${name}' not found. Use mcpi sessions/list.`,
         { code: "session_not_found" },
       );
     }
@@ -178,6 +189,7 @@ export class SessionRegistry {
       await client.connect();
     } catch (error) {
       await safeDisconnect(client);
+      this.armIdleTimerIfEmpty();
       if (isSessionAuthRequiredError(error)) {
         throw new CliExitCodeError(
           EXIT_CODES.AUTH_REQUIRED,

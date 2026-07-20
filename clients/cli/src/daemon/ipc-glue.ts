@@ -96,7 +96,7 @@ export async function removeStaleDaemonSocket(
   const live = await canConnect(socketPath);
   if (live) {
     throw new Error(
-      `Daemon already running at ${socketPath}. Use mcp daemon stop first.`,
+      `Daemon already running at ${socketPath}. Use mcpi daemon stop first.`,
     );
   }
   try {

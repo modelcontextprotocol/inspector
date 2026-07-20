@@ -57,12 +57,12 @@ export async function runMcp(
     stderr += text;
   }) as typeof process.stderr.write;
 
-  const argv = ["node", "mcp", ...args];
+  const argv = ["node", "mcpi", ...args];
   const timeoutMs = options.timeout ?? 15000;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`mcp command timed out after ${timeoutMs}ms`)),
+      () => reject(new Error(`mcpi command timed out after ${timeoutMs}ms`)),
       timeoutMs,
     );
   });

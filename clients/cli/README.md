@@ -3,40 +3,40 @@
 The CLI package provides two entrypoints:
 
 - **One-shot** — `mcp-inspector --cli` (frozen contract): connect → one `--method` → disconnect.
-- **Session** — `mcp` (new): connect once, then run many commands against a named session.
+- **Session** — `mcpi` (MCP Inspector session CLI): connect once, then run many commands against a named session.
 
-## Session CLI (`mcp`)
+## Session CLI (`mcpi`)
 
 ```bash
 # From a built tree / published package:
-mcp servers/list --config path/to/mcp.json   # marks entries with a live session (@name / MRU)
-mcp servers/show test-stdio --config path/to/mcp.json
-mcp connect test-stdio --config path/to/mcp.json
-mcp connect test-stdio --config path/to/mcp.json --relogin   # ignore stored OAuth; fresh login if required
-mcp auth/list
-mcp auth/clear https://example.com/mcp
-mcp auth/clear --all --yes
-mcp tools/list
-mcp tools/call echo message:=hi
-mcp tools/call echo '{"message":"hi"}'   # or --tool-arg / --tool-args-json
-mcp @test-stdio resources/list          # explicit session via @name
-mcp initialize --session test-stdio
-mcp logging/setLevel info
-mcp logging/tail                        # long-lived; Ctrl-C to stop
-mcp sessions/list
-mcp disconnect --session test-stdio
-mcp daemon status
-mcp daemon stop
+mcpi servers/list --config path/to/mcp.json   # marks entries with a live session (@name / MRU)
+mcpi servers/show test-stdio --config path/to/mcp.json
+mcpi connect test-stdio --config path/to/mcp.json
+mcpi connect my-http --config path/to/mcp.json --relogin   # ignore stored OAuth; login only if auth required
+mcpi auth/list
+mcpi auth/clear https://example.com/mcp
+mcpi auth/clear --all --yes
+mcpi tools/list
+mcpi tools/call echo message:=hi
+mcpi tools/call echo '{"message":"hi"}'   # or --tool-arg / --tool-args-json
+mcpi @test-stdio resources/list          # explicit session via @name
+mcpi initialize --session test-stdio
+mcpi logging/setLevel info
+mcpi logging/tail                        # long-lived; Ctrl-C to stop
+mcpi sessions/list
+mcpi disconnect --session test-stdio
+mcpi daemon status
+mcpi daemon stop
 
 # Optional: private daemon for this shell only (ssh-agent style)
-eval "$(mcp private)"
-mcp connect test-stdio --config path/to/mcp.json
-mcp tools/list
+eval "$(mcpi private)"
+mcpi connect test-stdio --config path/to/mcp.json
+mcpi tools/list
 ```
 
-Slash methods match one-shot `--method` names (`tools/*`, `resources/*`, `prompts/*`, `logging/*`, `tasks/*`, `roots/*`, `initialize`). Streams (`logging/tail`, `resources/subscribe`) stay attached until Ctrl-C and honour `--format` (human lines or pretty JSON per event). Auth uses the shared `oauth.json` store. On connect, the daemon reuses stored tokens when it can; if auth is still required (or stored credentials cannot complete a silent refresh), `mcp` runs interactive OAuth then retries (pass `--stored-auth-only` to refuse interactive login — also available on one-shot). Use `connect --relogin` (or one-shot `--relogin`) to ignore stored credentials for that connect and run a fresh interactive login when the server requires auth (new tokens are saved). Manage the store with `auth/list` and `auth/clear <url>` / `auth/clear --all` (`--yes` required for `--all` when non-interactive). On a TTY, the CLI prints a clickable authorization URL (OSC 8) and opens the default browser; non-TTY / CI only prints the plain URL. On the session CLI, authentication is handled at **connect** time only; mid-session re-login / step-up during a later command is available on one-shot `--cli`, not on `mcp`.
+Slash methods match one-shot `--method` names (`tools/*`, `resources/*`, `prompts/*`, `logging/*`, `tasks/*`, `roots/*`, `initialize`). Streams (`logging/tail`, `resources/subscribe`) stay attached until Ctrl-C and honour `--format` (human lines or pretty JSON per event). Auth uses the shared `oauth.json` store. On connect, the daemon reuses stored tokens when it can; if auth is still required (or stored credentials cannot complete a silent refresh), `mcpi` runs interactive OAuth then retries (pass `--stored-auth-only` to refuse interactive login — also available on one-shot). Use `connect --relogin` (or one-shot `--relogin`) to ignore stored OAuth for that connect: it clears any `oauth.json` entry for the server URL, then connects; interactive login runs only if the server still requires auth (new tokens are saved). For stdio (or any target with no URL-keyed store entry) the flag is a no-op — there is nothing to clear and OAuth does not apply. Manage the store with `auth/list` and `auth/clear <url>` / `auth/clear --all` (`--yes` required for `--all` when non-interactive). On a TTY, the CLI prints a clickable authorization URL (OSC 8) and opens the default browser; non-TTY / CI only prints the plain URL. On the session CLI, authentication is handled at **connect** time only; mid-session re-login / step-up during a later command is available on one-shot `--cli`, not on `mcpi`.
 
-Sessions are kept by a background process under `~/.mcp-inspector/` by default (shared across terminals). Set `MCP_STORAGE_DIR` to isolate parallel runs (daemon + OAuth store). For a daemon that only this shell can use, run `eval "$(mcp private)"` once — later `mcp` commands in that shell inherit the private binding.
+Sessions are kept by a background process under `~/.mcp-inspector/` by default (shared across terminals). Set `MCP_STORAGE_DIR` to isolate parallel runs (daemon + OAuth store). For a daemon that only this shell can use, run `eval "$(mcpi private)"` once — later `mcpi` commands in that shell inherit the private binding.
 
 **Output (session only — different from one-shot):**
 
@@ -46,7 +46,7 @@ Sessions are kept by a background process under `~/.mcp-inspector/` by default (
 | `--format json` | Pretty-printed JSON of the payload (no `{ "result" }` envelope; never ANSI) |
 | `--plain` | Disable ANSI styling in human text (also honours `NO_COLOR`) |
 
-Put global flags before the subcommand: `mcp --format json tools/list`, `mcp --plain tools/list`. Isolate parallel runs with `MCP_STORAGE_DIR` (scopes the daemon socket + OAuth store). One-shot `--cli` keeps its own format contract (`text` = pretty JSON, `json` = `{ result }` envelope).
+Put global flags before the subcommand: `mcpi --format json tools/list`, `mcpi --plain tools/list`. Isolate parallel runs with `MCP_STORAGE_DIR` (scopes the daemon socket + OAuth store). One-shot `--cli` keeps its own format contract (`text` = pretty JSON, `json` = `{ result }` envelope).
 
 ## One-shot CLI (`mcp-inspector --cli`)
 
@@ -196,7 +196,7 @@ The CLI runs the same loopback callback server as the TUI (`http://127.0.0.1:627
 
 **Step-up (standard OAuth, one-shot only):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues; **N** exits with an error. EMA step-up re-mints silently (no prompt).
 
-**Session (`mcp`):** if connect requires auth, interactive OAuth runs and connect is retried. Mid-session step-up during a later command (for example `tools/call`) is not available on the session CLI — use one-shot `--cli` when you need that, or disconnect and connect again after refreshing tokens.
+**Session (`mcpi`):** if connect requires auth, interactive OAuth runs and connect is retried. Mid-session step-up during a later command (for example `tools/call`) is not available on the session CLI — use one-shot `--cli` when you need that, or disconnect and connect again after refreshing tokens.
 
 **Shared OAuth storage:** the CLI **reuses** tokens from `~/.mcp-inspector/storage/oauth.json` when they already exist (same file as other Inspector clients). That is passive file sharing, not launching another app.
 

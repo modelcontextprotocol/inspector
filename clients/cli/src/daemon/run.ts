@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Session daemon entrypoint. Spawned detached by {@link ensureDaemon}.
- * Optional foreground `mcp daemon run` is not shipped yet (see v2_cli_v2.md).
+ * Optional foreground `mcpi daemon run` is not shipped yet (see v2_cli_v2.md).
  */
 import { DaemonServer } from "./server.js";
 
@@ -24,6 +24,6 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`mcp daemon: ${message}\n`);
+  process.stderr.write(`mcpi daemon: ${message}\n`);
   process.exit(1);
 });

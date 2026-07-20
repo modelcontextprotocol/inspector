@@ -48,7 +48,7 @@ root provides a further end-to-end check of the binary.)
 - `oauth-interactive.test.ts` - **Integration** smoke parity for CLI interactive OAuth: connect-time callback server + step-up **y/N** against composable `TestServerHttp` (auto-completes authorize URL programmatically; not a subprocess binary e2e)
 - `e2e.test.ts` - Out-of-process spawn of the built binary (exit codes + boot; no OAuth)
 - `mcp-session.test.ts` / `mcp-coverage.test.ts` / `mcp-auth-coverage.test.ts` - Session CLI (`runMcp`) against the daemon
-- `daemon-*.test.ts` / `daemon-private.test.ts` / `dispatch.test.ts` / `format-session.test.ts` / `parse-tool-args.test.ts` / `style.test.ts` - Session daemon (incl. `mcp private` IPC token), dispatch, and formatting
+- `daemon-*.test.ts` / `daemon-private.test.ts` / `dispatch.test.ts` / `format-session.test.ts` / `parse-tool-args.test.ts` / `style.test.ts` - Session daemon (incl. `mcpi private` IPC token), dispatch, and formatting
 
 ## Helpers
 

@@ -428,6 +428,43 @@ describe("Metadata Tests", () => {
       }
     });
 
+    it("JSON.stringifies object/array metadata (not String → [object Object])", async () => {
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+      });
+
+      try {
+        await server.start();
+        const result = await runCli([
+          server.url,
+          "--cli",
+          "--method",
+          "tools/list",
+          "--metadata",
+          'nested={"key":"value"}',
+          "list=[1,2,3]",
+          "flag=true",
+          "--transport",
+          "http",
+        ]);
+
+        expectCliSuccess(result);
+
+        const recordedRequests = server.getRecordedRequests();
+        const toolsListRequest = recordedRequests.find(
+          (r) => r.method === "tools/list",
+        );
+        expect(toolsListRequest?.metadata).toEqual({
+          nested: '{"key":"value"}',
+          list: "[1,2,3]",
+          flag: "true",
+        });
+      } finally {
+        await server.stop();
+      }
+    });
+
     it("should handle special characters", async () => {
       const server = createTestServerHttp({
         serverInfo: createTestServerInfo(),

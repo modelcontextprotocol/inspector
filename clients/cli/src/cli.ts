@@ -452,6 +452,12 @@ function parseKeyValuePair(
   return { ...previous, [key as string]: parsedValue };
 }
 
+/** Preserve structured metadata (objects/arrays) instead of String → "[object Object]". */
+function metaValueToString(value: JsonValue): string {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
+
 type ParseResult =
   | {
       shortCircuit?: undefined;
@@ -653,7 +659,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     )
     .option(
       "--relogin",
-      "Ignore stored OAuth credentials for this run; run interactive login if the server requires auth, then save new tokens",
+      "Ignore stored OAuth for this run (HTTP/SSE URL keys only); interactive login runs only if the server requires auth. No-op for stdio / servers with no stored entry",
     )
     .option(
       "--wait-for-auth <sec>",
@@ -938,7 +944,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       ? Object.fromEntries(
           Object.entries(options.metadata).map(([key, value]) => [
             key,
-            String(value),
+            metaValueToString(value),
           ]),
         )
       : undefined,
@@ -946,7 +952,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       ? Object.fromEntries(
           Object.entries(options.toolMetadata).map(([key, value]) => [
             key,
-            String(value),
+            metaValueToString(value),
           ]),
         )
       : undefined,

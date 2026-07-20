@@ -5,18 +5,18 @@ describe("hoistAtSession", () => {
   it("lifts a leading @name into sessionFromAt", () => {
     const { argv, sessionFromAt } = hoistAtSession([
       "node",
-      "mcp",
+      "mcpi",
       "@alpha",
       "tools/list",
       "--format",
       "json",
     ]);
     expect(sessionFromAt).toBe("alpha");
-    expect(argv).toEqual(["node", "mcp", "tools/list", "--format", "json"]);
+    expect(argv).toEqual(["node", "mcpi", "tools/list", "--format", "json"]);
   });
 
   it("leaves argv unchanged when there is no @name", () => {
-    const input = ["node", "mcp", "tools/list"];
+    const input = ["node", "mcpi", "tools/list"];
     expect(hoistAtSession(input)).toEqual({ argv: input });
   });
 });

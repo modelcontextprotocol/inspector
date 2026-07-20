@@ -19,7 +19,7 @@
   "type": "module",
   "bin": {
     "mcp-inspector": "./clients/launcher/build/index.js",
-    "mcp": "./clients/cli/build/mcp-bin.js"
+    "mcpi": "./clients/cli/build/mcp-bin.js"
   },
   "files": [
     "clients/launcher/build",

@@ -20,7 +20,7 @@ inspector/
 │   │   └── static/                     # sandbox_proxy.html (served by sandbox-controller for MCP Apps tab)
 │   ├── cli/                            # CLI client (tsup bundle, @inspector/core alias)
 │   │   ├── src/cli.ts                  # One-shot entry (`mcp-inspector --cli`)
-│   │   ├── src/session/                # Session front-end (`mcp` → mcp-bin.ts)
+│   │   ├── src/session/                # Session front-end (`mcpi` → mcp-bin.ts)
 │   │   ├── src/daemon/                 # Implicit Unix-socket session daemon
 │   │   └── src/handlers/               # Shared runMethod + method types (one-shot + daemon)
 │   ├── tui/                            # TUI client (Ink + React, tsup bundle)

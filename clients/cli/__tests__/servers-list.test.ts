@@ -188,7 +188,7 @@ describe("showServerEntry / servers/show", () => {
     expect(entry.config.env).toEqual({ HELLO: "[redacted]" });
   });
 
-  it("works via session mcp servers/show", async () => {
+  it("works via session mcpi servers/show", async () => {
     configPath = createSampleTestConfig();
     const result = await runMcp([
       "servers/show",

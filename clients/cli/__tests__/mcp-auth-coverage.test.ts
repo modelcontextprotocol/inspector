@@ -78,7 +78,7 @@ describe("mcp.ts auth / daemon error paths", () => {
     const { runMcp } = await import("../src/session/mcp.js");
     await runMcp([
       "node",
-      "mcp",
+      "mcpi",
       "connect",
       "test-stdio",
       "--config",
@@ -98,7 +98,7 @@ describe("mcp.ts auth / daemon error paths", () => {
     await expect(
       runMcp([
         "node",
-        "mcp",
+        "mcpi",
         "--stored-auth-only",
         "connect",
         "test-stdio",
@@ -144,7 +144,7 @@ describe("mcp.ts auth / daemon error paths", () => {
       const { runMcp } = await import("../src/session/mcp.js");
       await runMcp([
         "node",
-        "mcp",
+        "mcpi",
         "connect",
         "--session",
         "relogin-http",
@@ -181,7 +181,7 @@ describe("mcp.ts auth / daemon error paths", () => {
     await expect(
       runMcp([
         "node",
-        "mcp",
+        "mcpi",
         "connect",
         "test-stdio",
         "--config",
@@ -204,7 +204,7 @@ describe("mcp.ts auth / daemon error paths", () => {
 
     const { runMcp } = await import("../src/session/mcp.js");
     await expect(
-      runMcp(["node", "mcp", "daemon", "stop", "--format", "json"]),
+      runMcp(["node", "mcpi", "daemon", "stop", "--format", "json"]),
     ).rejects.toMatchObject({
       exitCode: EXIT_CODES.USAGE,
       envelope: { code: "usage" },

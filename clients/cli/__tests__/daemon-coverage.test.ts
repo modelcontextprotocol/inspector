@@ -470,39 +470,30 @@ describe("daemon coverage", () => {
     }
   });
 
-  it("idle timeout invokes onShutdown", async () => {
+  it("session-less start arms idle and self-reaps", async () => {
     const d = freshDir();
     let shut = false;
     server = new DaemonServer({
       dir: d,
-      idleMs: 30,
+      idleMs: 40,
       onShutdown: () => {
         shut = true;
       },
     });
     await server.start();
-    const { command, args } = getTestMcpServerCommand();
-    await callDaemon(
-      "connect",
-      {
-        name: "s",
-        serverConfig: { type: "stdio", command, args },
-        serverIdentity: "s",
-      },
-      { socketPath: server.socketPath, timeoutMs: 15000 },
-    );
-    await callDaemon(
-      "disconnect",
-      { name: "s" },
-      { socketPath: server.socketPath },
-    );
-    await new Promise((r) => setTimeout(r, 80));
+    // ensureDaemon from tools/list with no sessions must not leak forever.
+    expect(server.registry.idleRemainingMs()).not.toBeNull();
+    await new Promise((r) => setTimeout(r, 100));
     expect(shut).toBe(true);
     server = undefined;
   });
 
-  it("connect failure for a dead stdio command is surfaced", async () => {
-    const registry = new SessionRegistry(0);
+  it("connect failure for a dead stdio command is surfaced and re-arms idle", async () => {
+    const registry = new SessionRegistry(5_000);
+    let idle = false;
+    registry.setIdleHandler(() => {
+      idle = true;
+    });
     await expect(
       registry.connect({
         name: "dead",
@@ -514,6 +505,8 @@ describe("daemon coverage", () => {
         serverIdentity: "dead",
       }),
     ).rejects.toThrow();
+    expect(registry.idleRemainingMs()).not.toBeNull();
+    expect(idle).toBe(false);
   });
 
   it("sessions/use via handle and blank IPC lines", async () => {

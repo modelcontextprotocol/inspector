@@ -4,7 +4,7 @@
 
 #### [CLI, TUI, Launcher](v2_cli_tui_launcher.md) | CLI v2 | [Catalog / launch config](v2_catalog_launch_config.md)
 
-Documentation of the session-oriented Inspector CLI (`mcp`) and how it relates to the frozen one-shot path (`mcp-inspector --cli`). Tracked by [#1432](https://github.com/modelcontextprotocol/inspector/issues/1432).
+Documentation of the session-oriented Inspector CLI (`mcpi`) and how it relates to the frozen one-shot path (`mcp-inspector --cli`). Tracked by [#1432](https://github.com/modelcontextprotocol/inspector/issues/1432).
 
 **Related:** [CLI, TUI, and Launcher](v2_cli_tui_launcher.md), [Catalog and Launch Configuration](v2_catalog_launch_config.md), [Storage](v2_storage.md), [Auth](v2_auth.md), [`clients/cli/README.md`](../clients/cli/README.md) (end-user reference).
 
@@ -14,29 +14,29 @@ Documentation of the session-oriented Inspector CLI (`mcp`) and how it relates t
 
 | | **One-shot** | **Session** |
 | --- | --- | --- |
-| Entrypoint | `mcp-inspector --cli` | `mcp` |
+| Entrypoint | `mcp-inspector --cli` | `mcpi` |
 | Lifecycle | Connect → one `--method` → disconnect | Connect once → many subcommands → disconnect |
 | Process | In-process only | Short-lived front-end + implicit session daemon (IPC) |
-| Package | `clients/cli` (shared with session) | Same; root `bin.mcp` → `clients/cli/build/mcp-bin.js` |
+| Package | `clients/cli` (shared with session) | Same; root `bin.mcpi` → `clients/cli/build/mcp-bin.js` |
 
-Both use `@inspector/core` `InspectorClient` and shared `handlers/run-method.ts`. One-shot never starts the daemon. `mcp` does not accept `--method`.
+Both use `@inspector/core` `InspectorClient` and shared `handlers/run-method.ts`. One-shot never starts the daemon. `mcpi` does not accept `--method`.
 
 ```bash
-mcp servers/list --config mcp.json
-mcp servers/show my-server --config mcp.json
-mcp connect myserver --config mcp.json
-mcp tools/list
-mcp tools/call search query:=hello
-mcp @other resources/list
-mcp disconnect
+mcpi servers/list --config mcp.json
+mcpi servers/show my-server --config mcp.json
+mcpi connect myserver --config mcp.json
+mcpi tools/list
+mcpi tools/call search query:=hello
+mcpi @other resources/list
+mcpi disconnect
 ```
 
 Optional private daemon for one shell (`ssh-agent` style):
 
 ```bash
-eval "$(mcp private)"
-mcp connect myserver --config mcp.json
-mcp tools/list
+eval "$(mcpi private)"
+mcpi connect myserver --config mcp.json
+mcpi tools/list
 ```
 
 ---
@@ -53,7 +53,7 @@ mcp tools/list
 | Shared handlers | `clients/cli/src/handlers/` (`run-method.ts`, `method-types.ts`, `servers-list.ts`, `emit-result.ts`, …) |
 
 ```
-mcp-inspector --cli …          mcp …
+mcp-inspector --cli …          mcpi …
         │                        │
         ▼                        ▼
      cli.ts                 session/mcp.ts
@@ -77,7 +77,7 @@ Frozen automation contract. Each invocation: resolve server → connect → `run
 
 **Auth:** Interactive OAuth + mid-session recovery in-process (`cliOAuth.ts`); `--stored-auth-only`, `--use-stored-auth`, handoff flags. See [clients/cli/README.md](../clients/cli/README.md).
 
-### Session CLI (`mcp`)
+### Session CLI (`mcpi`)
 
 #### Commands
 
@@ -114,7 +114,7 @@ Frozen automation contract. Each invocation: resolve server → connect → `run
 
 **IPC ops:** `ping`, `connect`, `disconnect`, `sessions/list`, `sessions/use`, `daemon/status`, `daemon/stop`, `rpc`, `stream`.
 
-- One `InspectorClient` per named session; auto-spawn on first need; idle exit ~60s after last disconnect; `daemon stop` tears down immediately.
+- One `InspectorClient` per named session; auto-spawn on first need; idle exit ~60s after last disconnect **or** after a session-less spawn with no successful connect; `daemon stop` tears down immediately.
 - Socket/lock mode `0600` (best-effort). Config (incl. secrets) over IPC after listen — not on daemon argv.
 - Errors that are not already `CliExitCodeError` go through `classifyError` (exit-code parity with one-shot).
 
@@ -123,17 +123,18 @@ Frozen automation contract. Each invocation: resolve server → connect → `run
 | Shared default | `~/.mcp-inspector/daemon.sock` (+ lock) |
 | `MCP_STORAGE_DIR` | Socket/lock under that dir (CI isolation; same family as `oauth.json`) |
 | `MCP_INSPECTOR_DAEMON_DIR` | Wins over storage dir when set (spawn pin / private) |
-| Private | `~/.mcp-inspector/private/<uuid>/` from `mcp private` |
+| Private | `~/.mcp-inspector/private/<uuid>/` from `mcpi private` |
 
 | Mode | Trust |
 | --- | --- |
 | **Shared (default)** | No token. Same-UID peer that can open the socket can drive sessions (intentional cross-terminal share). |
-| **Private** | `eval "$(mcp private)"` exports `MCP_INSPECTOR_DAEMON_DIR` + `MCP_INSPECTOR_DAEMON_TOKEN`. Daemon requires the token on every request. OAuth store remains shared unless the user also sets `MCP_STORAGE_DIR`. Daemon starts lazily on first IPC. |
+| **Private** | `eval "$(mcpi private)"` exports `MCP_INSPECTOR_DAEMON_DIR` + `MCP_INSPECTOR_DAEMON_TOKEN`. Daemon requires the token on every request. OAuth store remains shared unless the user also sets `MCP_STORAGE_DIR`. Daemon starts lazily on first IPC. |
 
 #### Auth (session)
 
 - Same `oauth.json` store as other Inspector clients.
 - **Connect-time:** daemon connect → on `auth_required`, front-end `authorizeInFrontend()` (unless `--stored-auth-only`) → retry connect.
+- **`--relogin`:** clear any stored OAuth for the server URL before connect; interactive login still runs only if auth is required afterward. No-op for stdio / targets with no URL-keyed store entry (do not reject — same semantics, nothing to clear).
 - **Mid-session** step-up during `rpc` / `stream`: **not implemented** (see To-do). Use one-shot, or disconnect / re-auth / reconnect.
 - Session `connect` does not expose one-shot OAuth flags (`--client-id`, `--callback-url`, …); env / defaults / `MCP_OAUTH_CALLBACK_URL` only.
 
@@ -141,10 +142,10 @@ Frozen automation contract. Each invocation: resolve server → connect → `run
 
 | One-shot | Session |
 | --- | --- |
-| `… --catalog mcp.json --server s --method tools/list` | `mcp connect --catalog mcp.json s` then `mcp tools/list` |
-| `… --method tools/call --tool-name X --tool-args-json '…'` | `mcp tools/call X key:=val` / `'{"…"}'` |
-| `… --method servers/list` | `mcp servers/list` |
-| `… --method servers/show --server <name>` | `mcp servers/show <name>` |
+| `… --catalog mcp.json --server s --method tools/list` | `mcpi connect --catalog mcp.json s` then `mcpi tools/list` |
+| `… --method tools/call --tool-name X --tool-args-json '…'` | `mcpi tools/call X key:=val` / `'{"…"}'` |
+| `… --method servers/list` | `mcpi servers/list` |
+| `… --method servers/show --server <name>` | `mcpi servers/show <name>` |
 
 ### Testing
 
@@ -158,21 +159,21 @@ Frozen automation contract. Each invocation: resolve server → connect → `run
 
 | Item | Notes |
 | --- | --- |
-| **Mid-session auth over IPC** | Challenge + step-up UX on the invoking `mcp` during `rpc`/`stream`. Connect-time only today. |
+| **Mid-session auth over IPC** | Challenge + step-up UX on the invoking `mcpi` during `rpc`/`stream`. Connect-time only today. |
 | **Daemon singleton / exclusive lock** | `daemon.lock` writes a PID but does not enforce exclusive spawn or stale-PID reclaim. Concurrent `ensureDaemon` can race. |
 | **Windows daemon transport** | Unix-domain sockets only; named pipes on `win32` when needed. |
 | **Per-socket request serialization** | Accept handler is unbounded per NDJSON line; safe while clients use one request per connection. |
-| **Per-session RPC mutex** | Parallel `mcp` processes against one session can interleave on one `InspectorClient`. |
+| **Per-session RPC mutex** | Parallel `mcpi` processes against one session can interleave on one `InspectorClient`. |
 | **`streamDaemon` post-open errors** | Socket errors after the initial ok frame are treated as soft end. |
 | **Coverage gate for `ipc-glue` / `stream-client`** | Behavioral tests exist; files excluded until the race matrix is stably ≥90. |
 | **Shared `createCliInspectorClient`** | Daemon / authorize / one-shot construct clients separately. |
 | **Split `registerRpcCommands`** | Large Commander switch in `session/mcp.ts`. |
-| **`mcp daemon run`** | Optional foreground debug (not a Commander subcommand; `build/daemon.js` works today). |
-| **Launcher help polish** | Make `mcp` vs `--cli` unmistakable in launcher `--help` / docs. |
+| **`mcpi daemon run`** | Optional foreground debug (not a Commander subcommand; `build/daemon.js` works today). |
+| **Launcher help polish** | Make `mcpi` vs `--cli` unmistakable in launcher `--help` / docs. |
 | **Session `connect` OAuth flag parity** | One-shot has `--client-id` / `--callback-url` / handoff; session authorize uses defaults / env only. |
 | **Peer-cred / stronger private IPC** | Private mode uses bearer token; optional OS peer checks beyond that. |
-| **Stream fan-out / `mcp attach`** | One consumer per stream invocation today. |
+| **Stream fan-out / `mcpi attach`** | One consumer per stream invocation today. |
 | **Sampling / elicitation CLI** | Still TUI/web. |
-| **Ephemeral no-`connect` shortcuts on `mcp`** | Out of scope (keep two mental models). |
+| **Ephemeral no-`connect` shortcuts on `mcpi`** | Out of scope (keep two mental models). |
 | **`MCP_SESSION` env** | Superseded by require-explicit-on-non-TTY + `MCP_ALLOW_DEFAULT_SESSION=1`. |
 | **Human `--full` schema dumps** | Optional formatter polish. |

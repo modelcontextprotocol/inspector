@@ -95,7 +95,7 @@ export function requireExplicitSession(): boolean {
 }
 
 /**
- * Hoist a leading `@name` from argv so `mcp @alpha tools/list` works.
+ * Hoist a leading `@name` from argv so `mcpi @alpha tools/list` works.
  */
 export function hoistAtSession(argv: string[]): {
   argv: string[];

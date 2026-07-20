@@ -137,7 +137,8 @@ export async function clearAllStoredAuth(): Promise<{ cleared: number }> {
 
 /**
  * Drop stored OAuth state for an HTTP(S) server URL so the next connect cannot
- * silently reuse tokens (`--relogin`). No-op when `serverUrl` is missing.
+ * silently reuse tokens (`--relogin`). No-op when `serverUrl` is missing
+ * (stdio / no URL-keyed entry) — interactive login still only runs if auth is required.
  */
 export async function clearStoredAuthForRelogin(
   serverUrl: string | undefined,

@@ -21,7 +21,7 @@ export function createPrivateBinding(): PrivateEnvBinding {
 }
 
 /**
- * Shell exports for `eval "$(mcp private)"` (POSIX sh / bash / zsh).
+ * Shell exports for `eval "$(mcpi private)"` (POSIX sh / bash / zsh).
  */
 export function formatPrivateEnvExports(binding: PrivateEnvBinding): string {
   return [

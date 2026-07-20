@@ -69,6 +69,9 @@ describe("mcp.ts coverage", () => {
         "client=session-cov",
         "--metadata",
         "count=1",
+        // Object value must JSON.stringify (not String → "[object Object]").
+        "--metadata",
+        'nested={"a":1}',
         "--plain",
         "--format",
         "json",
@@ -308,7 +311,7 @@ describe("mcp.ts coverage", () => {
     await runMcp(["daemon", "stop", "--format", "json"], { env: e });
   });
 
-  it("bare mcp / --help print usage without an ErrorEnvelope", async () => {
+  it("bare mcpi / --help print usage without an ErrorEnvelope", async () => {
     // Bare invocation: Commander writes help to stderr (help-after-error).
     const bare = await runMcp([]);
     expectCliSuccess(bare);
@@ -330,7 +333,7 @@ describe("mcp.ts coverage", () => {
     const originalArgv = process.argv;
     process.argv = [
       "node",
-      "mcp",
+      "mcpi",
       "servers/list",
       "--config",
       configPath,
