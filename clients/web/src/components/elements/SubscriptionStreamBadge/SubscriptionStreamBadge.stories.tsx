@@ -9,6 +9,10 @@ const meta: Meta<typeof SubscriptionStreamBadge> = {
 export default meta;
 type Story = StoryObj<typeof SubscriptionStreamBadge>;
 
+export const Connecting: Story = {
+  args: { status: "connecting" },
+};
+
 export const Acknowledged: Story = {
   args: { status: "acknowledged" },
 };

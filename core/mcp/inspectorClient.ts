@@ -3830,18 +3830,32 @@ export class InspectorClient extends InspectorClientEventTarget {
         // (which would needlessly tear down and reopen the server stream).
         if (this.subscribedResources.has(uri)) return;
         this.subscribedResources.add(uri);
+        // Reflect the subscription optimistically so the UI responds to the
+        // click immediately, and show the stream as "connecting" until the
+        // `listen()` acknowledgement lands (which can be a visible round-trip on
+        // the modern era, unlike the single-shot legacy `resources/subscribe`).
+        this.dispatchSubscriptionsChange();
+        this.setModernStreamState({
+          active: true,
+          status: "connecting",
+          honoredUris: this.modernStreamState.honoredUris,
+        });
         try {
           await this.refreshModernSubscription();
         } catch (error) {
-          // Roll back the optimistic add so the set stays consistent with the
-          // (unchanged) stream filter.
+          // Roll back the optimistic add + stream state so both stay consistent
+          // with the (unchanged) server filter.
           this.subscribedResources.delete(uri);
+          this.dispatchSubscriptionsChange();
+          if (this.subscribedResources.size === 0) {
+            this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
+          }
           throw error;
         }
-      } else {
-        await this.client.subscribeResource({ uri }, this.getRequestOptions());
-        this.subscribedResources.add(uri);
+        return;
       }
+      await this.client.subscribeResource({ uri }, this.getRequestOptions());
+      this.subscribedResources.add(uri);
       this.dispatchSubscriptionsChange();
     } catch (error) {
       throw new Error(

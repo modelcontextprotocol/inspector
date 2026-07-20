@@ -5,6 +5,10 @@ import { subscriptionStreamPresentation } from "./subscriptionStreamUtils";
 
 describe("subscriptionStreamPresentation", () => {
   it("maps each status to a color and label", () => {
+    expect(subscriptionStreamPresentation("connecting")).toMatchObject({
+      color: "blue",
+      label: "Connecting…",
+    });
     expect(subscriptionStreamPresentation("acknowledged")).toMatchObject({
       color: "green",
       label: "Listening",
@@ -20,7 +24,12 @@ describe("subscriptionStreamPresentation", () => {
   });
 
   it("explains the listen stream in every tooltip", () => {
-    for (const status of ["acknowledged", "reconnecting", "ended"] as const) {
+    for (const status of [
+      "connecting",
+      "acknowledged",
+      "reconnecting",
+      "ended",
+    ] as const) {
       expect(subscriptionStreamPresentation(status).tooltip).toContain(
         "subscriptions/listen stream",
       );

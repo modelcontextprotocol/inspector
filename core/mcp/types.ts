@@ -388,6 +388,9 @@ export interface InspectorResourceSubscription {
  * Lifecycle status of the single modern-era `subscriptions/listen` stream that
  * backs every resource subscription on a 2026-07-28 server (#1630).
  *
+ * - `"connecting"` — a `listen()` request is in flight and hasn't been
+ *   acknowledged yet (the optimistic state shown the moment the user subscribes,
+ *   so the UI responds to the click without waiting for the ack round-trip).
  * - `"acknowledged"` — the `listen()` request resolved and the server sent
  *   `notifications/subscriptions/acknowledged`; the stream is open and carrying
  *   updates.
@@ -395,9 +398,11 @@ export interface InspectorResourceSubscription {
  *   `"remote"`) and a re-listen is in flight (reconnect-by-re-listen; there is
  *   no resumability, so the re-listen re-establishes the full filter).
  * - `"ended"` — the server tore the stream down deliberately (`closed` resolved
- *   `"graceful"`, e.g. on shutdown); no automatic re-listen.
+ *   `"graceful"`, e.g. on shutdown) or reconnection was abandoned; no automatic
+ *   re-listen.
  */
 export type ResourceSubscriptionStreamStatus =
+  | "connecting"
   | "acknowledged"
   | "reconnecting"
   | "ended";

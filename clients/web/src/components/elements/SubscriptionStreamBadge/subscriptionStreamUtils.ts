@@ -19,6 +19,11 @@ const PRESENTATION: Record<
   ResourceSubscriptionStreamStatus,
   StreamPresentation
 > = {
+  connecting: {
+    color: "blue",
+    label: "Connecting…",
+    tooltip: `${STREAM_INTRO} Opening the stream — waiting for the server to acknowledge the subscription.`,
+  },
   acknowledged: {
     color: "green",
     label: "Listening",

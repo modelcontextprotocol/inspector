@@ -313,6 +313,34 @@ describe("resource subscriptions era fork (#1630)", () => {
       internals(connected).client.listen = real;
     });
 
+    it("reflects the subscription optimistically as 'connecting' before the ack", async () => {
+      const started = await startServer({});
+      const { connected } = await connect(started.url, "modern");
+      const int = internals(connected);
+
+      // Hold the listen ack so we can observe the pre-ack (optimistic) state.
+      let ack: (sub: McpSubscription) => void = () => {};
+      int.client.listen = () =>
+        new Promise<McpSubscription>((resolve) => {
+          ack = resolve;
+        });
+
+      const pending = connected.subscribeToResource(RESOURCE_URI);
+      // The URI and a "connecting" stream state are visible immediately, without
+      // waiting for the round-trip.
+      expect(connected.getSubscribedResources()).toEqual([RESOURCE_URI]);
+      const connecting = connected.getResourceSubscriptionStreamState();
+      expect(connecting.active).toBe(true);
+      expect(connecting.status).toBe("connecting");
+
+      // The ack lands → acknowledged.
+      ack(makeFakeSub().sub);
+      await pending;
+      expect(connected.getResourceSubscriptionStreamState().status).toBe(
+        "acknowledged",
+      );
+    });
+
     it("reconnects by re-listing after an unexpected 'remote' drop", async () => {
       const started = await startServer({});
       const { connected } = await connect(started.url, "modern");
