@@ -256,14 +256,13 @@ interface ToolCallRequest {
 
 // Backoff for reconnect-by-re-listen on the modern `subscriptions/listen` stream
 // (#1630). A `"remote"` drop schedules a re-listen after a capped exponential
-// delay so a flapping server can't spin a tight zero-delay reconnect loop; after
-// a run of rapid drops we give up (mark the stream ended) rather than reconnect
-// forever. A drop that lands more than the reset window after the previous one
-// is treated as isolated and starts the backoff over.
+// delay (based on the count of *consecutive failed* re-lists) so a flapping
+// server can't spin a tight zero-delay loop; a successful acknowledgement resets
+// the count, and past the cap we give up (mark the stream ended) rather than
+// retry a persistently-failing re-list forever.
 const MODERN_RECONNECT_BASE_MS = 500;
 const MODERN_RECONNECT_MAX_MS = 15_000;
 const MODERN_RECONNECT_MAX_ATTEMPTS = 8;
-const MODERN_RECONNECT_RESET_MS = 30_000;
 
 /**
  * InspectorClient wraps an MCP Client and provides:
@@ -364,11 +363,10 @@ export class InspectorClient extends InspectorClientEventTarget {
   // Last dispatched modern stream state; `active: false` on the legacy era.
   private modernStreamState: ResourceSubscriptionStreamState =
     INACTIVE_SUBSCRIPTION_STREAM_STATE;
-  // Reconnect-by-re-listen backoff state (#1630): consecutive rapid reconnect
-  // attempts, the timestamp of the last one (to reset the run once drops space
-  // out), and the pending re-listen timer.
+  // Reconnect-by-re-listen backoff state (#1630): the count of consecutive
+  // *failed* re-lists (reset to 0 on any successful acknowledgement) and the
+  // pending re-listen timer.
   private modernReconnectAttempts = 0;
-  private modernLastReconnectMs = 0;
   private modernReconnectTimer: ReturnType<typeof setTimeout> | undefined;
   // Task ids the user explicitly cancelled. A cancel makes the in-flight
   // `callToolStream` reject with a generic -32603 error, which the stream's
@@ -3698,6 +3696,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
 
     this.modernSubscription = subscription;
+    // A successful acknowledgement ends any reconnect run: the backoff counts
+    // only *consecutive* failed re-lists, so a stream that recovers and holds
+    // starts fresh next time (#1630).
+    this.modernReconnectAttempts = 0;
     this.setModernStreamState({
       active: true,
       status: "acknowledged",
@@ -3736,7 +3738,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.subscribedResources.size > 0;
     if (!shouldReconnect) {
       // "stream gone but subscriptions remain" renders the same whether we gave
-      // up after reconnects (below) or the server closed it gracefully: keep the
+      // up after failed reconnects or the server closed it gracefully: keep the
       // ended badge while URIs are still subscribed. (On a terminal-status drop
       // the disconnect reset clears the set and forces the inactive state.)
       this.setModernStreamState({
@@ -3747,34 +3749,26 @@ export class InspectorClient extends InspectorClientEventTarget {
       return;
     }
 
-    // Reconnect-by-re-listen with capped exponential backoff (#1630). A drop
-    // long after the previous one starts the run over; a burst of rapid drops
-    // escalates the delay and, past the cap, gives up rather than loop forever.
-    const now = Date.now();
-    if (now - this.modernLastReconnectMs > MODERN_RECONNECT_RESET_MS) {
-      this.modernReconnectAttempts = 0;
-    }
-    this.modernLastReconnectMs = now;
-    this.modernReconnectAttempts += 1;
+    // A drop of an established stream is not itself a failure — schedule a
+    // re-listen at the current backoff (0 after a healthy stream, so the base
+    // delay). The counter only advances when a re-listen actually fails.
+    this.scheduleModernReconnect();
+  }
 
-    if (this.modernReconnectAttempts > MODERN_RECONNECT_MAX_ATTEMPTS) {
-      // Too many rapid reconnects — stop and mark ended. Re-subscribing (a user
-      // action) resets the backoff and re-establishes the stream.
-      this.setModernStreamState({
-        active: this.subscribedResources.size > 0,
-        status: "ended",
-        honoredUris: [],
-      });
-      return;
-    }
-
+  /**
+   * Schedule a reconnect re-listen after the current backoff delay (#1630).
+   * `modernReconnectAttempts` reflects the number of *consecutive failed*
+   * re-lists (reset to 0 on any successful acknowledgement), so the delay grows
+   * only while re-listing keeps failing.
+   */
+  private scheduleModernReconnect(): void {
     this.setModernStreamState({
       active: true,
       status: "reconnecting",
       honoredUris: [],
     });
     const delay = Math.min(
-      MODERN_RECONNECT_BASE_MS * 2 ** (this.modernReconnectAttempts - 1),
+      MODERN_RECONNECT_BASE_MS * 2 ** this.modernReconnectAttempts,
       MODERN_RECONNECT_MAX_MS,
     );
     this.clearModernReconnectTimer();
@@ -3785,16 +3779,32 @@ export class InspectorClient extends InspectorClientEventTarget {
       if (isTerminalStatus(this.status) || this.subscribedResources.size === 0) {
         return;
       }
-      this.refreshModernSubscription(true).catch(() => {
-        // Re-listen failed; leave the stream ended so the UI stops showing
-        // "reconnecting" for a stream that isn't coming back on its own.
-        this.setModernStreamState({
-          active: this.subscribedResources.size > 0,
-          status: "ended",
-          honoredUris: [],
-        });
-      });
+      this.refreshModernSubscription(true).catch(() =>
+        this.onModernReconnectFailed(),
+      );
     }, delay);
+  }
+
+  /**
+   * A reconnect re-listen failed (#1630). Count it and either retry with a
+   * longer backoff or, past the consecutive-failure cap, give up and mark the
+   * stream ended (re-subscribing resets the run and tries again).
+   */
+  private onModernReconnectFailed(): void {
+    this.modernReconnectAttempts += 1;
+    if (
+      this.modernReconnectAttempts > MODERN_RECONNECT_MAX_ATTEMPTS ||
+      isTerminalStatus(this.status) ||
+      this.subscribedResources.size === 0
+    ) {
+      this.setModernStreamState({
+        active: this.subscribedResources.size > 0,
+        status: "ended",
+        honoredUris: [],
+      });
+      return;
+    }
+    this.scheduleModernReconnect();
   }
 
   /**

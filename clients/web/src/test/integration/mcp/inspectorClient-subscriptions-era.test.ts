@@ -337,107 +337,77 @@ describe("resource subscriptions era fork (#1630)", () => {
       });
     });
 
-    it("marks the stream ended when the reconnect re-listen also fails", async () => {
+    it("retries a failing re-listen with backoff and gives up past the cap", async () => {
       const started = await startServer({});
       const { connected } = await connect(started.url, "modern");
       await connected.subscribeToResource(RESOURCE_URI);
-
       const int = internals(connected);
       const fake = await installFakeSubscription(int);
-      int.client.listen = () => Promise.reject(new Error("re-listen boom"));
-      int.onModernSubscriptionClosed(
-        fake.sub,
-        "remote",
-        int.modernListenGeneration,
-      );
-
-      await vi.waitFor(() => {
-        const s = connected.getResourceSubscriptionStreamState();
-        expect(s.status).toBe("ended");
-        // Still had a subscription, so `active` stays true (the stream is gone,
-        // but the intent to subscribe remains).
-        expect(s.active).toBe(true);
-      });
-    });
-
-    it("backs off and gives up after a burst of rapid reconnects", async () => {
-      const started = await startServer({});
-      const { connected } = await connect(started.url, "modern");
-      await connected.subscribeToResource(RESOURCE_URI);
-      const int = internals(connected);
-      const initial = await installFakeSubscription(int);
 
       vi.useFakeTimers();
       try {
-        // Each re-listen resolves to a controllable fake stream we can drop.
-        const subs: ReturnType<typeof makeFakeSub>[] = [];
-        int.client.listen = () => {
-          const next = makeFakeSub();
-          subs.push(next);
-          return Promise.resolve(next.sub);
-        };
+        // Every re-listen fails, so the failure count climbs each retry.
+        int.client.listen = () => Promise.reject(new Error("re-listen boom"));
 
-        // First drop starts the reconnect run.
         int.onModernSubscriptionClosed(
-          initial.sub,
+          fake.sub,
           "remote",
           int.modernListenGeneration,
         );
+        // A single failure retries (not ended yet).
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(connected.getResourceSubscriptionStreamState().status).toBe(
+          "reconnecting",
+        );
 
-        // Drive rapid reconnect cycles: advancing past the max backoff fires the
-        // pending re-listen (a fresh fake stream), which we immediately drop
-        // again. The gap stays under the reset window, so attempts accumulate.
+        // Keep failing until the consecutive-failure cap gives up.
         for (let i = 0; i < 12; i++) {
-          await vi.advanceTimersByTimeAsync(20_000);
           if (connected.getResourceSubscriptionStreamState().status === "ended")
             break;
-          const last = subs.at(-1);
-          expect(last).toBeDefined();
-          last?.drop("remote");
-          await Promise.resolve();
+          await vi.advanceTimersByTimeAsync(20_000);
         }
-
-        // Past the attempt cap it stops reconnecting and marks the stream ended
-        // (subscriptions remain, so it stays active).
         const state = connected.getResourceSubscriptionStreamState();
         expect(state.status).toBe("ended");
+        // Subscriptions remain, so the ended badge stays visible.
         expect(state.active).toBe(true);
       } finally {
         vi.useRealTimers();
       }
     });
 
-    it("resets the backoff run after an isolated drop", async () => {
+    it("resets the failure count after a successful reconnect", async () => {
       const started = await startServer({});
       const { connected } = await connect(started.url, "modern");
       await connected.subscribeToResource(RESOURCE_URI);
       const int = internals(connected);
-      const initial = await installFakeSubscription(int);
+      const fake = await installFakeSubscription(int);
 
       vi.useFakeTimers();
       try {
-        const subs: ReturnType<typeof makeFakeSub>[] = [];
+        // The first two re-lists fail (count climbs), the third acknowledges.
+        let failures = 0;
         int.client.listen = () => {
-          const next = makeFakeSub();
-          subs.push(next);
-          return Promise.resolve(next.sub);
+          if (failures < 2) {
+            failures += 1;
+            return Promise.reject(new Error("re-listen boom"));
+          }
+          return Promise.resolve(makeFakeSub().sub);
         };
 
         int.onModernSubscriptionClosed(
-          initial.sub,
+          fake.sub,
           "remote",
           int.modernListenGeneration,
         );
-        await vi.advanceTimersByTimeAsync(1_000); // reconnect #1 acknowledges
-        expect(int.modernReconnectAttempts).toBe(1);
-
-        // A drop that lands well after the reset window resets the run rather
-        // than escalating, so attempts stays at 1.
-        await vi.advanceTimersByTimeAsync(40_000);
-        subs.at(-1)?.drop("remote");
-        await Promise.resolve();
-        await vi.advanceTimersByTimeAsync(1_000);
-        expect(int.modernReconnectAttempts).toBe(1);
+        // Advance through the two failures and the successful ack.
+        for (let i = 0; i < 4; i++) {
+          await vi.advanceTimersByTimeAsync(20_000);
+        }
+        // A successful ack resets the run, so a subsequent drop starts fresh.
+        expect(int.modernReconnectAttempts).toBe(0);
+        expect(connected.getResourceSubscriptionStreamState().status).toBe(
+          "acknowledged",
+        );
       } finally {
         vi.useRealTimers();
       }
