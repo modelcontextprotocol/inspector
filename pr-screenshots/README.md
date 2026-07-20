@@ -44,11 +44,14 @@ full subscribe → update → notify round-trip on the legacy era.
 
 ## Notes
 
-- The modern subscribe/badge is timing-sensitive **in the browser** because the
-  long-lived `subscriptions/listen` SSE stream is proxied through the web backend
-  and churns (drops/reconnects ~every 60s), so the badge oscillates between
-  `Listening` and `Reconnecting…`. The client-side era-fork logic itself is proven
-  deterministically by the integration suite over a direct (Node) transport.
+- Modern subscribe in the browser is now prompt (`Connecting…` → `Listening`) and
+  stable: the web backend's `/api/mcp/send` and the browser remote transport used
+  to hold the `subscriptions/listen` request waiting for a JSON-RPC response that a
+  long-lived stream never sends, blocking `listen()` ~60s and then spuriously
+  driving the reconnect loop. Both sides now exempt `subscriptions/listen` from the
+  response-wait (its ack + notifications ride the SSE event channel), so the badge
+  no longer oscillates. (Some of the older screenshots here were captured before
+  that fix and show the transient `Reconnecting…`/`RECONNECTING…` state.)
 - A tool-triggered `resources/updated` does **not** reach the modern
   `subscriptions/listen` stream on the SDK's stateless modern leg (a tool call and
   the listen stream are separate connections; `server.notification()` rides the
