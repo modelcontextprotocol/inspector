@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import "@testing-library/jest-dom";
 import App from "../App";
 import { useConnection } from "../lib/hooks/useConnection";
@@ -332,5 +338,97 @@ describe("App - task polling with input_required status", () => {
       ([req]) => (req as { method: string }).method === "tasks/result",
     );
     expect(resultCalls).toHaveLength(1);
+  });
+
+  it("wakes task polling immediately when a terminal task status notification arrives", async () => {
+    const taskId = "task-notified-789";
+    let capturedOnNotification:
+      | ((notification: { method: string; params?: unknown }) => void)
+      | undefined;
+
+    const makeRequest = jest.fn(async (request: { method: string }) => {
+      if (request.method === "tools/list") {
+        return {
+          tools: [
+            {
+              name: "myTool",
+              inputSchema: { type: "object", properties: {} },
+            },
+          ],
+          nextCursor: undefined,
+        };
+      }
+
+      if (request.method === "tools/call") {
+        return {
+          task: { taskId, status: "working", pollInterval: 30000 },
+        };
+      }
+
+      if (request.method === "tasks/get") {
+        return { taskId, status: "completed" };
+      }
+
+      if (request.method === "tasks/result") {
+        return {
+          content: [{ type: "text", text: "notified task result" }],
+        };
+      }
+
+      if (request.method === "tasks/list") {
+        return { tasks: [] };
+      }
+
+      throw new Error(`Unexpected method: ${request.method}`);
+    });
+
+    mockUseConnection.mockImplementation((options) => {
+      capturedOnNotification =
+        options.onNotification as typeof capturedOnNotification;
+      return {
+        connectionStatus: "connected",
+        serverCapabilities: { tools: { listChanged: true } },
+        serverImplementation: null,
+        mcpClient: {
+          request: jest.fn(),
+          notification: jest.fn(),
+          close: jest.fn(),
+        } as unknown as Client,
+        requestHistory: [],
+        clearRequestHistory: jest.fn(),
+        makeRequest,
+        cancelTask: jest.fn(),
+        listTasks: jest.fn(),
+        sendNotification: jest.fn(),
+        handleCompletion: jest.fn(),
+        completionsSupported: false,
+        connect: jest.fn(),
+        disconnect: jest.fn(),
+      } as ReturnType<typeof useConnection>;
+    });
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: /run task tool/i }));
+
+    await waitFor(() => {
+      expect(capturedOnNotification).toBeDefined();
+    });
+
+    act(() => {
+      capturedOnNotification?.({
+        method: "notifications/tasks/status",
+        params: { taskId, status: "completed" },
+      });
+    });
+
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("tool-result")).toHaveTextContent(
+          "notified task result",
+        );
+      },
+      { timeout: 500 },
+    );
   });
 });

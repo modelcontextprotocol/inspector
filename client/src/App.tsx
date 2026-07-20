@@ -102,6 +102,11 @@ import {
 import MetadataTab from "./components/MetadataTab";
 
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
+const TERMINAL_TASK_STATUSES: Task["status"][] = [
+  "completed",
+  "failed",
+  "cancelled",
+];
 
 type PrefilledAppsToolCall = {
   id: number;
@@ -370,6 +375,11 @@ const App = () => {
   } = useDraggableSidebar(320);
 
   const selectedTaskRef = useRef<Task | null>(null);
+  const latestTaskStatusRef = useRef<Map<string, Task["status"]>>(new Map());
+  const taskPollingWakeRef = useRef<{
+    taskId: string;
+    resolve: () => void;
+  } | null>(null);
   useEffect(() => {
     selectedTaskRef.current = selectedTask;
   }, [selectedTask]);
@@ -410,6 +420,7 @@ const App = () => {
 
       if (notification.method === "notifications/tasks/status") {
         const task = notification.params as unknown as Task;
+        latestTaskStatusRef.current.set(task.taskId, task.status);
         setTasks((prev) => {
           const exists = prev.some((t) => t.taskId === task.taskId);
           if (exists) {
@@ -420,6 +431,13 @@ const App = () => {
         });
         if (selectedTaskRef.current?.taskId === task.taskId) {
           setSelectedTask(task);
+        }
+        if (
+          TERMINAL_TASK_STATUSES.includes(task.status) &&
+          taskPollingWakeRef.current?.taskId === task.taskId
+        ) {
+          taskPollingWakeRef.current.resolve();
+          taskPollingWakeRef.current = null;
         }
       }
     },
@@ -1133,8 +1151,22 @@ const App = () => {
         let taskCompleted = false;
         while (!taskCompleted) {
           try {
-            // Wait for 1 second before polling
-            await new Promise((resolve) => setTimeout(resolve, pollInterval));
+            const latestNotifiedStatus =
+              latestTaskStatusRef.current.get(taskId);
+            if (
+              !latestNotifiedStatus ||
+              !TERMINAL_TASK_STATUSES.includes(latestNotifiedStatus)
+            ) {
+              await Promise.race([
+                new Promise((resolve) => setTimeout(resolve, pollInterval)),
+                new Promise<void>((resolve) => {
+                  taskPollingWakeRef.current = { taskId, resolve };
+                }),
+              ]);
+            }
+            if (taskPollingWakeRef.current?.taskId === taskId) {
+              taskPollingWakeRef.current = null;
+            }
 
             const taskStatus = await sendMCPRequest(
               {
