@@ -7,12 +7,20 @@ import {
   generateOAuthErrorDescription,
   parseOAuthCallbackParams,
 } from "@/utils/oauthUtils.ts";
+import { createProxyFetch } from "@/lib/proxyFetch";
+import type { InspectorConfig } from "@/lib/configurationTypes";
 
 interface OAuthCallbackProps {
   onConnect: (serverUrl: string) => void;
+  connectionType?: "direct" | "proxy";
+  config?: InspectorConfig;
 }
 
-const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
+const OAuthCallback = ({
+  onConnect,
+  connectionType,
+  config,
+}: OAuthCallbackProps) => {
   const { toast } = useToast();
   const hasProcessedRef = useRef(false);
 
@@ -46,9 +54,15 @@ const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
         // Create an auth provider with the current server URL
         const serverAuthProvider = new InspectorOAuthClientProvider(serverUrl);
 
+        const fetchFn =
+          connectionType === "proxy" && config
+            ? createProxyFetch(config)
+            : undefined;
+
         result = await auth(serverAuthProvider, {
           serverUrl,
           authorizationCode: params.code,
+          ...(fetchFn ? { fetchFn } : {}),
         });
       } catch (error) {
         console.error("OAuth callback error:", error);

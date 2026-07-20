@@ -603,7 +603,7 @@ const App = () => {
     (serverUrl: string) => {
       setSseUrl(serverUrl);
       setIsAuthDebuggerVisible(false);
-      void connectMcpServer();
+      void connectMcpServer(undefined, 0, serverUrl);
     },
     [connectMcpServer],
   );
@@ -1350,7 +1350,11 @@ const App = () => {
     );
     return (
       <Suspense fallback={<div>Loading...</div>}>
-        <OAuthCallback onConnect={onOAuthConnect} />
+        <OAuthCallback
+          onConnect={onOAuthConnect}
+          connectionType={connectionType}
+          config={config}
+        />
       </Suspense>
     );
   }
