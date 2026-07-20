@@ -119,6 +119,9 @@ jest.mock("../components/ToolsTab", () => ({
   default: ({
     callTool,
     toolResult,
+    isPollingTask,
+    pollingTaskId,
+    cancelTaskPolling,
   }: {
     callTool: (
       name: string,
@@ -127,6 +130,9 @@ jest.mock("../components/ToolsTab", () => ({
       runAsTask?: boolean,
     ) => Promise<unknown>;
     toolResult: { content: Array<{ type: string; text: string }> } | null;
+    isPollingTask?: boolean;
+    pollingTaskId?: string | null;
+    cancelTaskPolling?: () => Promise<void>;
   }) => (
     <div data-testid="tools-tab">
       <button
@@ -137,6 +143,16 @@ jest.mock("../components/ToolsTab", () => ({
       >
         run task tool
       </button>
+      {isPollingTask && pollingTaskId && cancelTaskPolling && (
+        <button
+          type="button"
+          onClick={() => {
+            void cancelTaskPolling();
+          }}
+        >
+          cancel polling task
+        </button>
+      )}
       {toolResult && (
         <div data-testid="tool-result">
           {toolResult.content.map((c, i) => (
@@ -332,5 +348,187 @@ describe("App - task polling with input_required status", () => {
       ([req]) => (req as { method: string }).method === "tasks/result",
     );
     expect(resultCalls).toHaveLength(1);
+  });
+
+  it("lets users cancel the active polling task from the Tools tab", async () => {
+    const taskId = "task-cancel-789";
+    const cancelTask = jest.fn(async () => ({
+      taskId,
+      status: "cancelled",
+      statusMessage: "Cancelled by user",
+    }));
+    const makeRequest = jest.fn(async (request: { method: string }) => {
+      if (request.method === "tools/list") {
+        return {
+          tools: [
+            {
+              name: "myTool",
+              inputSchema: { type: "object", properties: {} },
+            },
+          ],
+          nextCursor: undefined,
+        };
+      }
+
+      if (request.method === "tools/call") {
+        return {
+          task: { taskId, status: "working", pollInterval: 50 },
+        };
+      }
+
+      if (request.method === "tasks/list") {
+        return { tasks: [] };
+      }
+
+      throw new Error(
+        `Unexpected method after cancellation: ${request.method}`,
+      );
+    });
+
+    mockUseConnection.mockReturnValue({
+      connectionStatus: "connected",
+      serverCapabilities: { tools: { listChanged: true } },
+      serverImplementation: null,
+      mcpClient: {
+        request: jest.fn(),
+        notification: jest.fn(),
+        close: jest.fn(),
+      } as unknown as Client,
+      requestHistory: [],
+      clearRequestHistory: jest.fn(),
+      makeRequest,
+      cancelTask,
+      listTasks: jest.fn(),
+      sendNotification: jest.fn(),
+      handleCompletion: jest.fn(),
+      completionsSupported: false,
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+    } as ReturnType<typeof useConnection>);
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: /run task tool/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /cancel polling task/i }),
+    );
+
+    await waitFor(() => {
+      expect(cancelTask).toHaveBeenCalledWith(taskId);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("tool-result")).toHaveTextContent(
+        "Task cancelled: Cancelled by user",
+      );
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    const taskGetCalls = makeRequest.mock.calls.filter(
+      ([req]) => (req as { method: string }).method === "tasks/get",
+    );
+    expect(taskGetCalls).toHaveLength(0);
+  });
+
+  it("does not let an in-flight polling response overwrite a cancelled task", async () => {
+    const taskId = "task-cancel-in-flight";
+    let resolveTaskGet:
+      ((value: { taskId: string; status: string }) => void) | undefined;
+    const taskGetResponse = new Promise<{ taskId: string; status: string }>(
+      (resolve) => {
+        resolveTaskGet = resolve;
+      },
+    );
+    const cancelTask = jest.fn(async () => ({
+      taskId,
+      status: "cancelled",
+      statusMessage: "Cancelled by user",
+    }));
+    const makeRequest = jest.fn(async (request: { method: string }) => {
+      if (request.method === "tools/list") {
+        return {
+          tools: [
+            {
+              name: "myTool",
+              inputSchema: { type: "object", properties: {} },
+            },
+          ],
+          nextCursor: undefined,
+        };
+      }
+
+      if (request.method === "tools/call") {
+        return {
+          task: { taskId, status: "working", pollInterval: 0 },
+        };
+      }
+
+      if (request.method === "tasks/get") {
+        return taskGetResponse;
+      }
+
+      if (request.method === "tasks/result") {
+        return {
+          content: [{ type: "text", text: "late final result" }],
+        };
+      }
+
+      if (request.method === "tasks/list") {
+        return { tasks: [] };
+      }
+
+      throw new Error(`Unexpected method: ${request.method}`);
+    });
+
+    mockUseConnection.mockReturnValue({
+      connectionStatus: "connected",
+      serverCapabilities: { tools: { listChanged: true } },
+      serverImplementation: null,
+      mcpClient: {
+        request: jest.fn(),
+        notification: jest.fn(),
+        close: jest.fn(),
+      } as unknown as Client,
+      requestHistory: [],
+      clearRequestHistory: jest.fn(),
+      makeRequest,
+      cancelTask,
+      listTasks: jest.fn(),
+      sendNotification: jest.fn(),
+      handleCompletion: jest.fn(),
+      completionsSupported: false,
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+    } as ReturnType<typeof useConnection>);
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: /run task tool/i }));
+    const cancelButton = await screen.findByRole("button", {
+      name: /cancel polling task/i,
+    });
+    await waitFor(() => {
+      const taskGetCalls = makeRequest.mock.calls.filter(
+        ([req]) => (req as { method: string }).method === "tasks/get",
+      );
+      expect(taskGetCalls).toHaveLength(1);
+    });
+    fireEvent.click(cancelButton);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("tool-result")).toHaveTextContent(
+        "Task cancelled: Cancelled by user",
+      );
+    });
+
+    resolveTaskGet?.({ taskId, status: "completed" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.getByTestId("tool-result")).toHaveTextContent(
+      "Task cancelled: Cancelled by user",
+    );
+    const resultCalls = makeRequest.mock.calls.filter(
+      ([req]) => (req as { method: string }).method === "tasks/result",
+    );
+    expect(resultCalls).toHaveLength(0);
   });
 });
