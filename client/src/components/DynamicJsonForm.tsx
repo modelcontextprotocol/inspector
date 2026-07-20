@@ -8,9 +8,10 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import JsonEditor from "./JsonEditor";
 import { updateValueAtPath } from "@/utils/jsonUtils";
-import { generateDefaultValue } from "@/utils/schemaUtils";
+import { generateDefaultValue, normalizeUnionType } from "@/utils/schemaUtils";
 import type {
   JsonValue,
   JsonSchemaType,
@@ -71,7 +72,7 @@ const getArrayItemDefault = (schema: JsonSchemaType): JsonValue => {
     case "array":
       return [];
     case "object":
-      return {};
+      return generateDefaultValue(schema) ?? {};
     case "null":
       return null;
     default:
@@ -87,6 +88,9 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
     // - Arrays with defined items are form-capable
     // - Primitive types are form-capable
     const canRenderTopLevelForm = (s: JsonSchemaType): boolean => {
+      // Unwrap Optional[X] at the top level so anyOf:[X,null] is treated as X
+      s = normalizeUnionType(s);
+
       const primitiveTypes = ["string", "number", "integer", "boolean", "null"];
 
       const hasType = Array.isArray(s.type) ? s.type.length > 0 : !!s.type;
@@ -222,9 +226,23 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
         }
       } else {
         // Update raw JSON value when switching to JSON mode
-        setRawJsonValue(
-          JSON.stringify(value ?? generateDefaultValue(schema), null, 2),
-        );
+        let valueToShow: JsonValue = value ?? generateDefaultValue(schema);
+        // For an empty structured array, seed one template item so the user can
+        // see the expected field structure instead of a bare [].
+        if (
+          schema.type === "array" &&
+          schema.items &&
+          Array.isArray(valueToShow) &&
+          valueToShow.length === 0
+        ) {
+          const itemDefault = getArrayItemDefault(
+            normalizeUnionType(schema.items as JsonSchemaType),
+          );
+          if (typeof itemDefault === "object" && itemDefault !== null) {
+            valueToShow = [itemDefault];
+          }
+        }
+        setRawJsonValue(JSON.stringify(valueToShow, null, 2));
         setIsJsonMode(true);
       }
     };
@@ -296,13 +314,26 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
     }));
 
     const renderFormFields = (
-      propSchema: JsonSchemaType,
+      rawSchema: JsonSchemaType,
       currentValue: JsonValue,
       path: string[] = [],
       depth: number = 0,
       parentSchema?: JsonSchemaType,
       propertyName?: string,
     ) => {
+      // Unwrap Optional[X] / nullable unions (anyOf: [X, null]) before ANY type checks
+      // so that maxDepth enforcement and the type switch both see the real type.
+      let propSchema = normalizeUnionType(rawSchema);
+
+      // Trim description to remove leading/trailing whitespace from multi-line
+      // Python triple-quoted strings (e.g. """\n            - text\n            """)
+      if (propSchema.description) {
+        propSchema = {
+          ...propSchema,
+          description: propSchema.description.trim(),
+        };
+      }
+
       if (
         depth >= maxDepth &&
         (propSchema.type === "object" || propSchema.type === "array")
@@ -421,39 +452,56 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
             );
           }
 
-          let inputType = "text";
-          switch (propSchema.format) {
-            case "email":
-              inputType = "email";
-              break;
-            case "uri":
-              inputType = "url";
-              break;
-            case "date":
-              inputType = "date";
-              break;
-            case "date-time":
-              inputType = "datetime-local";
-              break;
-            default:
-              inputType = "text";
-              break;
+          // Special formats keep a typed <Input>; plain text uses <Textarea> to
+          // match the height and style of direct-parameter string inputs.
+          type SpecialFormat = "email" | "uri" | "date" | "date-time";
+          const specialFormatMap: Record<SpecialFormat, string> = {
+            email: "email",
+            uri: "url",
+            date: "date",
+            "date-time": "datetime-local",
+          };
+          const specialInputType =
+            specialFormatMap[propSchema.format as SpecialFormat];
+
+          if (specialInputType) {
+            return (
+              <Input
+                type={specialInputType}
+                value={(currentValue as string) ?? ""}
+                onChange={(e) => handleFieldChange(path, e.target.value)}
+                placeholder={propSchema.description}
+                required={isRequired}
+                minLength={propSchema.minLength}
+                maxLength={propSchema.maxLength}
+                pattern={propSchema.pattern}
+              />
+            );
+          }
+
+          if (propSchema.pattern) {
+            return (
+              <Input
+                type="text"
+                value={(currentValue as string) ?? ""}
+                onChange={(e) => handleFieldChange(path, e.target.value)}
+                placeholder={propSchema.description}
+                required={isRequired}
+                minLength={propSchema.minLength}
+                maxLength={propSchema.maxLength}
+                pattern={propSchema.pattern}
+              />
+            );
           }
 
           return (
-            <Input
-              type={inputType}
+            <Textarea
               value={(currentValue as string) ?? ""}
-              onChange={(e) => {
-                const val = e.target.value;
-                // Always allow setting string values, including empty strings
-                handleFieldChange(path, val);
-              }}
+              onChange={(e) => handleFieldChange(path, e.target.value)}
               placeholder={propSchema.description}
               required={isRequired}
               minLength={propSchema.minLength}
               maxLength={propSchema.maxLength}
-              pattern={propSchema.pattern}
             />
           );
         }
@@ -600,7 +648,10 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
           if (!propSchema.items) return null;
 
           // Special handling: array of enums -> render multi-select control
-          const itemSchema = propSchema.items as JsonSchemaType;
+          // Normalize items so Optional[X] (anyOf:[X,null]) is unwrapped correctly.
+          const itemSchema = normalizeUnionType(
+            propSchema.items as JsonSchemaType,
+          );
           let multiOptions: { value: string; label: string }[] | null = null;
 
           const titledMulti = (
@@ -664,8 +715,11 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
             );
           }
 
-          // If the array items are simple, render as form fields, otherwise use JSON editor
-          if (isSimpleObject(propSchema.items)) {
+          // Typed object items → structured form with Add/Remove; untyped → JSON fallback
+          const itemIsObject =
+            itemSchema.type === "object" && !!itemSchema.properties;
+
+          if (isSimpleObject(itemSchema) || itemIsObject) {
             return (
               <div className="space-y-4">
                 {propSchema.description && (
@@ -673,47 +727,67 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
                     {propSchema.description}
                   </p>
                 )}
-
                 {propSchema.items?.description && (
                   <p className="text-sm text-gray-500">
                     Items: {propSchema.items.description}
                   </p>
                 )}
-
                 <div className="space-y-2">
-                  {arrayValue.map((item, index) => (
-                    <div key={index} className="flex items-center gap-2">
-                      {renderFormFields(
-                        propSchema.items as JsonSchemaType,
-                        item,
-                        [...path, index.toString()],
-                        depth + 1,
-                      )}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          const newArray = [...arrayValue];
-                          newArray.splice(index, 1);
-                          handleFieldChange(path, newArray);
-                        }}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  ))}
+                  {arrayValue.map((item, index) =>
+                    itemIsObject ? (
+                      <div key={index} className="space-y-2">
+                        {renderFormFields(
+                          itemSchema,
+                          item,
+                          [...path, index.toString()],
+                          depth + 1,
+                        )}
+                        <div className="flex justify-end">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const newArray = [...arrayValue];
+                              newArray.splice(index, 1);
+                              handleFieldChange(path, newArray);
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div key={index} className="flex items-center gap-2">
+                        {renderFormFields(
+                          itemSchema,
+                          item,
+                          [...path, index.toString()],
+                          depth + 1,
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const newArray = [...arrayValue];
+                            newArray.splice(index, 1);
+                            handleFieldChange(path, newArray);
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ),
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      const defaultValue = getArrayItemDefault(
-                        propSchema.items as JsonSchemaType,
-                      );
+                      const defaultValue = getArrayItemDefault(itemSchema);
                       handleFieldChange(path, [...arrayValue, defaultValue]);
                     }}
                     title={
-                      propSchema.items?.description
-                        ? `Add new ${propSchema.items.description}`
+                      itemSchema.description
+                        ? `Add new ${itemSchema.description}`
                         : "Add new item"
                     }
                   >
@@ -724,7 +798,7 @@ const DynamicJsonForm = forwardRef<DynamicJsonFormRef, DynamicJsonFormProps>(
             );
           }
 
-          // For complex arrays, fall back to JSON editor
+          // For truly unstructured arrays (no type or no properties), fall back to JSON editor
           return (
             <JsonEditor
               value={JSON.stringify(currentValue ?? [], null, 2)}

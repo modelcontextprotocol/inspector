@@ -31,10 +31,10 @@ describe("DynamicJsonForm String Fields", () => {
       expect(typeof onChange.mock.calls[0][0]).toBe("string");
     });
 
-    it("should render as text input, not number input", () => {
+    it("should render as textarea, not number input", () => {
       renderForm();
       const input = screen.getByRole("textbox");
-      expect(input).toHaveProperty("type", "text");
+      expect(input).toHaveProperty("type", "textarea");
     });
 
     it("should handle a union type of string and null", () => {
@@ -46,7 +46,7 @@ describe("DynamicJsonForm String Fields", () => {
         <DynamicJsonForm schema={schema} value={null} onChange={jest.fn()} />,
       );
       const input = screen.getByRole("textbox");
-      expect(input).toHaveProperty("type", "text");
+      expect(input).toHaveProperty("type", "textarea");
     });
   });
 
@@ -268,16 +268,20 @@ describe("DynamicJsonForm String Fields", () => {
       expect(input).toHaveProperty("maxLength", 10);
     });
 
-    it("should apply pattern validation", () => {
+    // pattern is an <input>-only attribute; a string field that declares a
+    // pattern must therefore fall back to <input type="text"> (not <textarea>)
+    // so the constraint is preserved client-side.
+    it("should render <input> with pattern attribute (not textarea) when pattern is set", () => {
       const schema: JsonSchemaType = {
         type: "string",
-        pattern: "^[A-Za-z]+$",
-        description: "Letters only",
+        pattern: "^[a-z]+$",
+        description: "Lowercase only",
       };
       render(<DynamicJsonForm schema={schema} value="" onChange={jest.fn()} />);
 
       const input = screen.getByRole("textbox");
-      expect(input).toHaveProperty("pattern", "^[A-Za-z]+$");
+      expect(input).toHaveProperty("type", "text");
+      expect(input).toHaveProperty("pattern", "^[a-z]+$");
     });
   });
 });
@@ -507,8 +511,8 @@ describe("DynamicJsonForm Object Fields", () => {
       const numberInput = screen.getByRole("spinbutton");
 
       expect(textInputs).toHaveLength(2);
-      expect(textInputs[0]).toHaveProperty("type", "text");
-      expect(textInputs[1]).toHaveProperty("type", "email");
+      expect(textInputs[0]).toHaveProperty("type", "textarea"); // plain text → <textarea>
+      expect(textInputs[1]).toHaveProperty("type", "email"); // email format → <input type="email">
       expect(numberInput).toHaveProperty("type", "number");
       expect(numberInput).toHaveProperty("min", "18");
     });
@@ -610,10 +614,10 @@ describe("DynamicJsonForm Object Fields", () => {
       const nameLabel = screen.getByText("Name");
       const optionalLabel = screen.getByText("Optional");
 
-      const nameInput = nameLabel.closest("div")?.querySelector("input");
+      const nameInput = nameLabel.closest("div")?.querySelector("textarea");
       const optionalInput = optionalLabel
         .closest("div")
-        ?.querySelector("input");
+        ?.querySelector("textarea");
 
       expect(nameInput).toHaveProperty("required", true);
       expect(optionalInput).toHaveProperty("required", false);
