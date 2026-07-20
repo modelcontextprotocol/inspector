@@ -490,6 +490,17 @@ describe("ProtocolEntry — modern vocabulary", () => {
     ).toBeGreaterThanOrEqual(1);
   });
 
+  it("shows the subscriptionId in the embedded compact layout", () => {
+    renderWithMantine(
+      <ProtocolEntry
+        {...baseProps}
+        entry={subscriptionNotificationEntry}
+        embedded
+      />,
+    );
+    expect(screen.getByText("sub-abc")).toBeInTheDocument();
+  });
+
   it("shows the modern badges in the embedded compact layout", () => {
     renderWithMantine(
       <ProtocolEntry {...baseProps} entry={inputRequiredEntry} embedded />,

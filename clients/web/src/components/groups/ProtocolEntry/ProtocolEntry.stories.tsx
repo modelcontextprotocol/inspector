@@ -176,7 +176,7 @@ const subscriptionNotificationEntry: MessageEntry = {
     jsonrpc: "2.0",
     method: "notifications/resources/list_changed",
     params: {
-      _meta: { "io.modelcontextprotocol/subscriptionId": "sub-abc123" },
+      _meta: { "io.modelcontextprotocol/subscriptionId": "listen:0" },
     },
   },
 };
@@ -248,6 +248,25 @@ export const ModernSubscriptionNotification: Story = {
     isPinned: false,
     isListExpanded: false,
   },
+};
+
+// Embedded (monitoring-sidebar) layout of a subscription notification: the
+// `sub … listen-id` tag rides the top line (beside the direction) so the method
+// badge on the line below gets the full narrow-column width (#1630).
+export const EmbeddedSubscriptionNotification: Story = {
+  args: {
+    entry: subscriptionNotificationEntry,
+    isPinned: false,
+    isListExpanded: false,
+    embedded: true,
+  },
+  decorators: [
+    (Story) => (
+      <Box w={340}>
+        <Story />
+      </Box>
+    ),
+  ],
 };
 
 // Embedded (monitoring-sidebar) layout with a long resource URI: the target sits

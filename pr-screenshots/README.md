@@ -19,11 +19,12 @@ Legacy connections show no badge.
 
 **`subscriptions-modern-listen-acknowledged.png`** — subscribing on a
 **Modern**-negotiated connection sends **`subscriptions/listen`** (long-lived →
-`PENDING`) and the server answers with **`notifications/subscriptions/acknowledged`**
-(the repeated `listen:0` / `listen:1` pairs are the stream being re-listed). No
-`resources/subscribe` is sent — the defining era-fork behavior. The connection era
-is shown once in the panel header (`Messages · MODERN`); individual entries carry no
-per-frame era badge.
+`PENDING`) and the server answers with **`notifications/subscriptions/acknowledged`**.
+No `resources/subscribe` is sent — the defining era-fork behavior. Two other
+details: the connection era is shown once in the panel header (`Messages · MODERN`),
+not per entry; and the `sub ⧉ listen:0` subscription-id tag rides the notification's
+top line (beside the direction) so the method badge below gets the full column width
+instead of truncating against the pin control.
 
 ## Legacy era (contrast)
 

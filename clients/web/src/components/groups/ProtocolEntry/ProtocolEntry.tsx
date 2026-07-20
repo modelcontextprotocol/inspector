@@ -336,12 +336,16 @@ export function ProtocolEntry({
                 {durationText}
                 {resultTypeBadge}
                 {statusBadge}
+                {/* The subscription-id tag rides the top line's trailing edge
+                    (a notification row's duration/status slots are empty) so the
+                    method badge on the line below gets the full column width and
+                    doesn't truncate against the pin control (#1630). */}
+                {subscriptionBadge}
               </ControlsCluster>
             </HeaderRow>
             <HeaderRow>
               <HeaderCluster flex={1}>
                 <MethodBadge method={method} />
-                {subscriptionBadge}
                 {target && (
                   <>
                     {resourceUri && <CopyButton value={resourceUri} />}
