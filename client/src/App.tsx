@@ -110,6 +110,13 @@ type PrefilledAppsToolCall = {
   result: CompatibilityCallToolResult;
 };
 
+type ActivePollingTask = {
+  taskId: string;
+  runId: number;
+  cancelled: boolean;
+  wakePollingDelay?: () => void;
+};
+
 const hasAppResourceUri = (tool: Tool): boolean => {
   return Boolean(getToolUiResourceUri(tool));
 };
@@ -307,6 +314,7 @@ const App = () => {
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isPollingTask, setIsPollingTask] = useState(false);
+  const [pollingTaskId, setPollingTaskId] = useState<string | null>(null);
   const [nextResourceCursor, setNextResourceCursor] = useState<
     string | undefined
   >();
@@ -320,6 +328,8 @@ const App = () => {
   const [nextTaskCursor, setNextTaskCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
   const prefilledAppsToolCallIdRef = useRef(0);
+  const activePollingTaskRef = useRef<ActivePollingTask | null>(null);
+  const pollingRunIdRef = useRef(0);
 
   const [activeTab, setActiveTab] = useState<string>(() => {
     const hash = window.location.hash.slice(1);
@@ -1106,8 +1116,15 @@ const App = () => {
       if (runAsTask && isTaskResult(response)) {
         const taskId = response.task.taskId;
         const pollInterval = response.task.pollInterval;
+        const pollingRunId = ++pollingRunIdRef.current;
+        activePollingTaskRef.current = {
+          taskId,
+          runId: pollingRunId,
+          cancelled: false,
+        };
         // Set polling state BEFORE setting tool result for proper UI update
         setIsPollingTask(true);
+        setPollingTaskId(taskId);
         // Safely extract any _meta from the original response (if present)
         const initialResponseMeta =
           response &&
@@ -1129,12 +1146,41 @@ const App = () => {
         };
         setToolResult(latestToolResult);
 
+        const isPollingCancelled = () =>
+          activePollingTaskRef.current?.runId !== pollingRunId ||
+          activePollingTaskRef.current.cancelled;
+
+        const waitForNextPoll = () =>
+          new Promise<void>((resolve) => {
+            const timeoutId = setTimeout(() => {
+              const activePollingTask = activePollingTaskRef.current;
+              if (activePollingTask?.runId === pollingRunId) {
+                activePollingTask.wakePollingDelay = undefined;
+              }
+              resolve();
+            }, pollInterval);
+
+            const activePollingTask = activePollingTaskRef.current;
+            if (activePollingTask?.runId === pollingRunId) {
+              activePollingTask.wakePollingDelay = () => {
+                clearTimeout(timeoutId);
+                activePollingTask.wakePollingDelay = undefined;
+                resolve();
+              };
+            }
+          });
+
         // Polling loop
         let taskCompleted = false;
         while (!taskCompleted) {
           try {
-            // Wait for 1 second before polling
-            await new Promise((resolve) => setTimeout(resolve, pollInterval));
+            // Wait for the server-provided poll interval before polling.
+            await waitForNextPoll();
+
+            if (isPollingCancelled()) {
+              taskCompleted = true;
+              break;
+            }
 
             const taskStatus = await sendMCPRequest(
               {
@@ -1143,6 +1189,11 @@ const App = () => {
               },
               GetTaskResultSchema,
             );
+
+            if (isPollingCancelled()) {
+              taskCompleted = true;
+              break;
+            }
 
             if (
               taskStatus.status === "completed" ||
@@ -1163,6 +1214,10 @@ const App = () => {
                   },
                   CompatibilityCallToolResultSchema,
                 );
+                if (isPollingCancelled()) {
+                  taskCompleted = true;
+                  break;
+                }
                 console.log(`Result received for task ${taskId}:`, result);
                 latestToolResult = result as CompatibilityCallToolResult;
                 setToolResult(latestToolResult);
@@ -1219,6 +1274,10 @@ const App = () => {
                   },
                   CompatibilityCallToolResultSchema,
                 );
+                if (isPollingCancelled()) {
+                  taskCompleted = true;
+                  break;
+                }
                 void listTasks();
               } else {
                 latestToolResult = {
@@ -1239,6 +1298,10 @@ const App = () => {
               }
             }
           } catch (pollingError) {
+            if (isPollingCancelled()) {
+              taskCompleted = true;
+              break;
+            }
             console.error("Error polling task status:", pollingError);
             latestToolResult = {
               content: [
@@ -1253,9 +1316,13 @@ const App = () => {
             taskCompleted = true;
           }
         }
-        setIsPollingTask(false);
-        // Clear any validation errors since tool execution completed
-        setErrors((prev) => ({ ...prev, tools: null }));
+        if (activePollingTaskRef.current?.runId === pollingRunId) {
+          activePollingTaskRef.current = null;
+          setIsPollingTask(false);
+          setPollingTaskId(null);
+          // Clear any validation errors since tool execution completed
+          setErrors((prev) => ({ ...prev, tools: null }));
+        }
         return latestToolResult;
       } else {
         const directResult = response as CompatibilityCallToolResult;
@@ -1311,6 +1378,70 @@ const App = () => {
       }));
     }
   };
+
+  const cancelTaskPolling = useCallback(async () => {
+    const activePollingTask = activePollingTaskRef.current;
+    if (!activePollingTask) return;
+
+    try {
+      const response = await cancelMcpTask(activePollingTask.taskId);
+      const currentActivePollingTask = activePollingTaskRef.current;
+      if (currentActivePollingTask?.runId !== activePollingTask.runId) {
+        return;
+      }
+
+      currentActivePollingTask.cancelled = true;
+      currentActivePollingTask.wakePollingDelay?.();
+      activePollingTaskRef.current = null;
+      setIsPollingTask(false);
+      setPollingTaskId(null);
+      setTasks((prev) => {
+        const exists = prev.some((t) => t.taskId === response.taskId);
+        return exists
+          ? prev.map((t) => (t.taskId === response.taskId ? response : t))
+          : [response, ...prev];
+      });
+      if (selectedTaskRef.current?.taskId === response.taskId) {
+        setSelectedTask(response);
+      }
+      setToolResult({
+        content: [
+          {
+            type: "text",
+            text: `Task cancelled: ${response.statusMessage || response.taskId}`,
+          },
+        ],
+        isError: true,
+        _meta: {
+          "io.modelcontextprotocol/related-task": {
+            taskId: response.taskId,
+          },
+        },
+      });
+      setErrors((prev) => ({ ...prev, tools: null }));
+      void listTasks();
+    } catch (e) {
+      const message = (e as Error).message ?? String(e);
+      setErrors((prev) => ({
+        ...prev,
+        tools: message,
+      }));
+      setToolResult({
+        content: [
+          {
+            type: "text",
+            text: `Error cancelling task: ${message}`,
+          },
+        ],
+        isError: true,
+        _meta: {
+          "io.modelcontextprotocol/related-task": {
+            taskId: activePollingTask.taskId,
+          },
+        },
+      });
+    }
+  }, [cancelMcpTask, listTasks]);
 
   const handleRootsChange = async () => {
     await sendNotification({ method: "notifications/roots/list_changed" });
@@ -1652,6 +1783,8 @@ const App = () => {
                       }}
                       toolResult={toolResult}
                       isPollingTask={isPollingTask}
+                      pollingTaskId={pollingTaskId}
+                      cancelTaskPolling={cancelTaskPolling}
                       nextCursor={nextToolCursor}
                       error={errors.tools}
                       resourceContent={resourceContentMap}

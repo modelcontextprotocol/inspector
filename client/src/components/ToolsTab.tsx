@@ -173,6 +173,8 @@ const ToolsTab = ({
   setSelectedTool,
   toolResult,
   isPollingTask,
+  pollingTaskId,
+  cancelTaskPolling,
   nextCursor,
   error,
   resourceContent,
@@ -193,6 +195,8 @@ const ToolsTab = ({
   setSelectedTool: (tool: Tool | null) => void;
   toolResult: CompatibilityCallToolResult | null;
   isPollingTask?: boolean;
+  pollingTaskId?: string | null;
+  cancelTaskPolling?: () => Promise<void>;
   nextCursor: ListToolsResult["nextCursor"];
   error: string | null;
   resourceContent: Record<string, string>;
@@ -203,6 +207,7 @@ const ToolsTab = ({
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [runAsTask, setRunAsTask] = useState(false);
   const [isToolRunning, setIsToolRunning] = useState(false);
+  const [isCancellingPollingTask, setIsCancellingPollingTask] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
   const [isMetadataExpanded, setIsMetadataExpanded] = useState(false);
   const [metadataEntries, setMetadataEntries] = useState<
@@ -805,58 +810,85 @@ const ToolsTab = ({
                     </Label>
                   </div>
                 )}
-                <Button
-                  onClick={async () => {
-                    // Validate JSON inputs before calling tool
-                    if (checkValidationErrors(true)) return;
+                <div className="flex gap-2">
+                  <Button
+                    onClick={async () => {
+                      // Validate JSON inputs before calling tool
+                      if (checkValidationErrors(true)) return;
 
-                    try {
-                      setIsToolRunning(true);
-                      const metadata = metadataEntries.reduce<
-                        Record<string, unknown>
-                      >((acc, { key, value }) => {
-                        const trimmedKey = key.trim();
-                        if (
-                          trimmedKey !== "" &&
-                          hasValidMetaPrefix(trimmedKey) &&
-                          !isReservedMetaKey(trimmedKey) &&
-                          hasValidMetaName(trimmedKey)
-                        ) {
-                          acc[trimmedKey] = value;
-                        }
-                        return acc;
-                      }, {});
-                      await callTool(
-                        selectedTool.name,
-                        params,
-                        Object.keys(metadata).length ? metadata : undefined,
-                        runAsTask,
-                      );
-                    } finally {
-                      setIsToolRunning(false);
+                      try {
+                        setIsToolRunning(true);
+                        const metadata = metadataEntries.reduce<
+                          Record<string, unknown>
+                        >((acc, { key, value }) => {
+                          const trimmedKey = key.trim();
+                          if (
+                            trimmedKey !== "" &&
+                            hasValidMetaPrefix(trimmedKey) &&
+                            !isReservedMetaKey(trimmedKey) &&
+                            hasValidMetaName(trimmedKey)
+                          ) {
+                            acc[trimmedKey] = value;
+                          }
+                          return acc;
+                        }, {});
+                        await callTool(
+                          selectedTool.name,
+                          params,
+                          Object.keys(metadata).length ? metadata : undefined,
+                          runAsTask,
+                        );
+                      } finally {
+                        setIsToolRunning(false);
+                      }
+                    }}
+                    disabled={
+                      isToolRunning ||
+                      isPollingTask ||
+                      hasValidationErrors ||
+                      hasReservedMetadataEntry ||
+                      hasInvalidMetaPrefixEntry ||
+                      hasInvalidMetaNameEntry
                     }
-                  }}
-                  disabled={
-                    isToolRunning ||
-                    isPollingTask ||
-                    hasValidationErrors ||
-                    hasReservedMetadataEntry ||
-                    hasInvalidMetaPrefixEntry ||
-                    hasInvalidMetaNameEntry
-                  }
-                >
-                  {isToolRunning || isPollingTask ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      {isPollingTask ? "Polling Task..." : "Running..."}
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4 mr-2" />
-                      Run Tool
-                    </>
+                  >
+                    {isToolRunning || isPollingTask ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        {isPollingTask ? "Polling Task..." : "Running..."}
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4 mr-2" />
+                        Run Tool
+                      </>
+                    )}
+                  </Button>
+                  {isPollingTask && pollingTaskId && cancelTaskPolling && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      aria-label={`Cancel polling task ${pollingTaskId}`}
+                      disabled={isCancellingPollingTask}
+                      onClick={async () => {
+                        try {
+                          setIsCancellingPollingTask(true);
+                          await cancelTaskPolling();
+                        } finally {
+                          setIsCancellingPollingTask(false);
+                        }
+                      }}
+                    >
+                      {isCancellingPollingTask ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Cancelling...
+                        </>
+                      ) : (
+                        "Cancel Task"
+                      )}
+                    </Button>
                   )}
-                </Button>
+                </div>
                 <div className="flex gap-2">
                   <Button
                     onClick={async () => {
