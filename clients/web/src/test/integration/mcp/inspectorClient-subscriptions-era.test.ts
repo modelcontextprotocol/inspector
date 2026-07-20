@@ -279,6 +279,24 @@ describe("resource subscriptions era fork (#1630)", () => {
       return { sub, drop };
     }
 
+    /**
+     * Replace the client's live listen stream with a controllable fake and close
+     * the real one, so tests that drive `onModernSubscriptionClosed` by hand
+     * don't leave a real stream open (which would reject "Connection closed" on
+     * teardown). Returns the installed fake.
+     */
+    async function installFakeSubscription(
+      int: StreamInternals,
+    ): Promise<ReturnType<typeof makeFakeSub>> {
+      const real = int.modernSubscription;
+      const fake = makeFakeSub();
+      int.modernSubscription = fake.sub;
+      // real.closed fires onModernSubscriptionClosed, but modernSubscription is
+      // now the fake, so it's a no-op guard-wise; this just tears down the wire.
+      await real?.close().catch(() => {});
+      return fake;
+    }
+
     it("rolls back the optimistic add when listen() fails", async () => {
       const started = await startServer({});
       const { connected } = await connect(started.url, "modern");
@@ -301,10 +319,9 @@ describe("resource subscriptions era fork (#1630)", () => {
       await connected.subscribeToResource(RESOURCE_URI);
 
       const int = internals(connected);
-      const dropped = int.modernSubscription;
-      expect(dropped).not.toBeNull();
+      const fake = await installFakeSubscription(int);
       int.onModernSubscriptionClosed(
-        dropped as McpSubscription,
+        fake.sub,
         "remote",
         int.modernListenGeneration,
       );
@@ -326,10 +343,10 @@ describe("resource subscriptions era fork (#1630)", () => {
       await connected.subscribeToResource(RESOURCE_URI);
 
       const int = internals(connected);
-      const dropped = int.modernSubscription as McpSubscription;
+      const fake = await installFakeSubscription(int);
       int.client.listen = () => Promise.reject(new Error("re-listen boom"));
       int.onModernSubscriptionClosed(
-        dropped,
+        fake.sub,
         "remote",
         int.modernListenGeneration,
       );
@@ -348,6 +365,7 @@ describe("resource subscriptions era fork (#1630)", () => {
       const { connected } = await connect(started.url, "modern");
       await connected.subscribeToResource(RESOURCE_URI);
       const int = internals(connected);
+      const initial = await installFakeSubscription(int);
 
       vi.useFakeTimers();
       try {
@@ -359,9 +377,9 @@ describe("resource subscriptions era fork (#1630)", () => {
           return Promise.resolve(next.sub);
         };
 
-        // First drop from the real subscription starts the reconnect run.
+        // First drop starts the reconnect run.
         int.onModernSubscriptionClosed(
-          int.modernSubscription as McpSubscription,
+          initial.sub,
           "remote",
           int.modernListenGeneration,
         );
@@ -394,6 +412,7 @@ describe("resource subscriptions era fork (#1630)", () => {
       const { connected } = await connect(started.url, "modern");
       await connected.subscribeToResource(RESOURCE_URI);
       const int = internals(connected);
+      const initial = await installFakeSubscription(int);
 
       vi.useFakeTimers();
       try {
@@ -405,7 +424,7 @@ describe("resource subscriptions era fork (#1630)", () => {
         };
 
         int.onModernSubscriptionClosed(
-          int.modernSubscription as McpSubscription,
+          initial.sub,
           "remote",
           int.modernListenGeneration,
         );
@@ -429,6 +448,7 @@ describe("resource subscriptions era fork (#1630)", () => {
       const { connected } = await connect(started.url, "modern");
       await connected.subscribeToResource(RESOURCE_URI);
       const int = internals(connected);
+      const fake = await installFakeSubscription(int);
 
       vi.useFakeTimers();
       try {
@@ -436,7 +456,7 @@ describe("resource subscriptions era fork (#1630)", () => {
           throw new Error("re-listen should not run once the set is empty");
         };
         int.onModernSubscriptionClosed(
-          int.modernSubscription as McpSubscription,
+          fake.sub,
           "remote",
           int.modernListenGeneration,
         );
@@ -453,17 +473,53 @@ describe("resource subscriptions era fork (#1630)", () => {
       }
     });
 
+    it("keeps the ended badge active on a graceful close while subscriptions remain", async () => {
+      const started = await startServer({});
+      const { connected } = await connect(started.url, "modern");
+      await connected.subscribeToResource(RESOURCE_URI);
+
+      const int = internals(connected);
+      const fake = await installFakeSubscription(int);
+      int.onModernSubscriptionClosed(
+        fake.sub,
+        "graceful",
+        int.modernListenGeneration,
+      );
+      const state = connected.getResourceSubscriptionStreamState();
+      expect(state.status).toBe("ended");
+      // Subscriptions remain, so the ended badge stays visible (parity with the
+      // reconnect give-up state).
+      expect(state.active).toBe(true);
+    });
+
+    it("goes inactive on a graceful close once no subscriptions remain", async () => {
+      const started = await startServer({});
+      const { connected } = await connect(started.url, "modern");
+      await connected.subscribeToResource(RESOURCE_URI);
+
+      const int = internals(connected);
+      const fake = await installFakeSubscription(int);
+      // No URIs left → the ended state is inactive (no badge).
+      int.subscribedResources.clear();
+      int.onModernSubscriptionClosed(
+        fake.sub,
+        "graceful",
+        int.modernListenGeneration,
+      );
+      expect(connected.getResourceSubscriptionStreamState().active).toBe(false);
+    });
+
     it("ignores a close callback from a superseded generation", async () => {
       const started = await startServer({});
       const { connected } = await connect(started.url, "modern");
       await connected.subscribeToResource(RESOURCE_URI);
 
       const int = internals(connected);
-      const sub = int.modernSubscription as McpSubscription;
+      const fake = await installFakeSubscription(int);
       const before = connected.getResourceSubscriptionStreamState();
       // A stale generation → the callback is a no-op (no reconnect, no change).
       int.onModernSubscriptionClosed(
-        sub,
+        fake.sub,
         "remote",
         int.modernListenGeneration - 1,
       );

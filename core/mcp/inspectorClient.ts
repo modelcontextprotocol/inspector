@@ -3735,8 +3735,12 @@ export class InspectorClient extends InspectorClientEventTarget {
       !isTerminalStatus(this.status) &&
       this.subscribedResources.size > 0;
     if (!shouldReconnect) {
+      // "stream gone but subscriptions remain" renders the same whether we gave
+      // up after reconnects (below) or the server closed it gracefully: keep the
+      // ended badge while URIs are still subscribed. (On a terminal-status drop
+      // the disconnect reset clears the set and forces the inactive state.)
       this.setModernStreamState({
-        active: false,
+        active: this.subscribedResources.size > 0,
         status: "ended",
         honoredUris: [],
       });
