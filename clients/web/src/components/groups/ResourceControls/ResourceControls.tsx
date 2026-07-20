@@ -127,9 +127,13 @@ export function ResourceControls({
   // a status badge in the section header (so it stays visible while the section
   // is collapsed). Only shown on the modern era while the stream is active
   // (≥1 subscription); the legacy per-URI `resources/subscribe` model has no
-  // persistent stream.
+  // persistent stream. Also gated on the *filtered* count so the badge hides
+  // alongside the section when a search matches none of the live subscriptions
+  // (rather than sitting next to a disabled "Subscriptions (0)" header).
   const streamStatus =
-    isModernEra(protocolEra) && subscriptionStreamState?.active === true
+    isModernEra(protocolEra) &&
+    subscriptionStreamState?.active === true &&
+    filteredSubscriptions.length > 0
       ? subscriptionStreamState.status
       : undefined;
 

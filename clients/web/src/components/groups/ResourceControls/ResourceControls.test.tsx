@@ -374,5 +374,25 @@ describe("ResourceControls", () => {
         screen.queryByText(/Listening|Stream ended/),
       ).not.toBeInTheDocument();
     });
+
+    it("hides the stream badge when a search filters out all subscriptions", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ControlledResourceControls
+          protocolEra="modern"
+          subscriptionStreamState={activeAck}
+        />,
+      );
+      expect(screen.getByText("Listening")).toBeInTheDocument();
+
+      // A query matching none of the (live) subscriptions empties the section;
+      // the badge hides with it rather than sitting next to "Subscriptions (0)".
+      await user.type(
+        screen.getByPlaceholderText("Search..."),
+        "no-such-resource",
+      );
+      expect(screen.getByText("Subscriptions (0)")).toBeInTheDocument();
+      expect(screen.queryByText("Listening")).not.toBeInTheDocument();
+    });
   });
 });
