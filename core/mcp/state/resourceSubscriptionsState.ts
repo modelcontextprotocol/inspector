@@ -21,8 +21,11 @@ import type {
   ManagedResourcesState,
   ManagedResourcesStateEventMap,
 } from "./managedResourcesState.js";
-import type { InspectorResourceSubscription } from "../types.js";
-import { isTerminalStatus } from "../types.js";
+import type {
+  InspectorResourceSubscription,
+  ResourceSubscriptionStreamState,
+} from "../types.js";
+import { isTerminalStatus, INACTIVE_SUBSCRIPTION_STREAM_STATE } from "../types.js";
 import type { Resource } from "@modelcontextprotocol/client";
 import {
   TypedEventTarget,
@@ -31,6 +34,12 @@ import {
 
 export interface ResourceSubscriptionsStateEventMap {
   subscriptionsChange: InspectorResourceSubscription[];
+  /**
+   * Modern-era (2026-07-28) `subscriptions/listen` stream lifecycle (#1630).
+   * Mirrors the client's `resourceSubscriptionStreamChange`; `active: false` on
+   * the legacy era.
+   */
+  streamStateChange: ResourceSubscriptionStreamState;
 }
 
 /**
@@ -42,6 +51,8 @@ export class ResourceSubscriptionsState extends TypedEventTarget<ResourceSubscri
   private subscribedUris: string[] = [];
   private lastUpdatedByUri: Map<string, Date> = new Map();
   private subscriptions: InspectorResourceSubscription[] = [];
+  private streamState: ResourceSubscriptionStreamState =
+    INACTIVE_SUBSCRIPTION_STREAM_STATE;
   private client: InspectorClientProtocol | null = null;
   private resourcesState: ManagedResourcesState | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -53,6 +64,17 @@ export class ResourceSubscriptionsState extends TypedEventTarget<ResourceSubscri
     super();
     this.client = client;
     this.resourcesState = resourcesState;
+    this.streamState = client.getResourceSubscriptionStreamState();
+
+    const onStreamStateChange = (
+      event: TypedEventGeneric<
+        InspectorClientEventMap,
+        "resourceSubscriptionStreamChange"
+      >,
+    ): void => {
+      this.streamState = event.detail;
+      this.dispatchTypedEvent("streamStateChange", this.streamState);
+    };
 
     const onSubscriptionsChange = (
       event: TypedEventGeneric<
@@ -87,7 +109,9 @@ export class ResourceSubscriptionsState extends TypedEventTarget<ResourceSubscri
         this.subscribedUris = [];
         this.lastUpdatedByUri.clear();
         this.subscriptions = [];
+        this.streamState = INACTIVE_SUBSCRIPTION_STREAM_STATE;
         this.dispatchTypedEvent("subscriptionsChange", this.getSubscriptions());
+        this.dispatchTypedEvent("streamStateChange", this.streamState);
       }
     };
 
@@ -105,6 +129,10 @@ export class ResourceSubscriptionsState extends TypedEventTarget<ResourceSubscri
       "resourceSubscriptionsChange",
       onSubscriptionsChange,
     );
+    client.addEventListener(
+      "resourceSubscriptionStreamChange",
+      onStreamStateChange,
+    );
     client.addEventListener("resourceUpdated", onResourceUpdated);
     client.addEventListener("statusChange", onStatusChange);
     resourcesState?.addEventListener("resourcesChange", onResourcesChange);
@@ -113,6 +141,10 @@ export class ResourceSubscriptionsState extends TypedEventTarget<ResourceSubscri
       this.client?.removeEventListener(
         "resourceSubscriptionsChange",
         onSubscriptionsChange,
+      );
+      this.client?.removeEventListener(
+        "resourceSubscriptionStreamChange",
+        onStreamStateChange,
       );
       this.client?.removeEventListener("resourceUpdated", onResourceUpdated);
       this.client?.removeEventListener("statusChange", onStatusChange);
@@ -127,6 +159,14 @@ export class ResourceSubscriptionsState extends TypedEventTarget<ResourceSubscri
 
   getSubscriptions(): InspectorResourceSubscription[] {
     return [...this.subscriptions];
+  }
+
+  /**
+   * Current modern-era listen-stream state (#1630). `active: false` on the
+   * legacy era, so the Resources screen can show/hide the stream chrome.
+   */
+  getStreamState(): ResourceSubscriptionStreamState {
+    return this.streamState;
   }
 
   private rebuild(): void {
@@ -146,5 +186,6 @@ export class ResourceSubscriptionsState extends TypedEventTarget<ResourceSubscri
     this.subscribedUris = [];
     this.lastUpdatedByUri.clear();
     this.subscriptions = [];
+    this.streamState = INACTIVE_SUBSCRIPTION_STREAM_STATE;
   }
 }

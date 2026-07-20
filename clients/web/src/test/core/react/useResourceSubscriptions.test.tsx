@@ -66,4 +66,57 @@ describe("useResourceSubscriptions", () => {
     client.dispatchTypedEvent("resourceSubscriptionsChange", ["file:///a"]);
     expect(result.current.subscriptions).toEqual([]);
   });
+
+  it("returns an inactive stream state by default and when null", () => {
+    const { result: nullResult } = renderHook(() =>
+      useResourceSubscriptions(null),
+    );
+    expect(nullResult.current.streamState.active).toBe(false);
+
+    const { result } = renderHook(() => useResourceSubscriptions(state));
+    expect(result.current.streamState.active).toBe(false);
+  });
+
+  it("updates streamState when the store dispatches streamStateChange", async () => {
+    const { result } = renderHook(() => useResourceSubscriptions(state));
+
+    act(() => {
+      client.dispatchTypedEvent("resourceSubscriptionStreamChange", {
+        active: true,
+        status: "acknowledged",
+        honoredUris: ["file:///a"],
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.streamState).toEqual({
+        active: true,
+        status: "acknowledged",
+        honoredUris: ["file:///a"],
+      });
+    });
+  });
+
+  it("resets streamState when the state prop becomes null", async () => {
+    const { result, rerender } = renderHook(
+      ({ s }: { s: ResourceSubscriptionsState | null }) =>
+        useResourceSubscriptions(s),
+      { initialProps: { s: state as ResourceSubscriptionsState | null } },
+    );
+    act(() => {
+      client.dispatchTypedEvent("resourceSubscriptionStreamChange", {
+        active: true,
+        status: "acknowledged",
+        honoredUris: [],
+      });
+    });
+    await waitFor(() => {
+      expect(result.current.streamState.active).toBe(true);
+    });
+
+    rerender({ s: null });
+    await waitFor(() => {
+      expect(result.current.streamState.active).toBe(false);
+    });
+  });
 });

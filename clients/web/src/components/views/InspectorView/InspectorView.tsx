@@ -32,6 +32,7 @@ import type {
   FetchRequestEntry,
   InspectorResourceSubscription,
   MessageEntry,
+  ResourceSubscriptionStreamState,
   ServerEntry,
   StderrLogEntry,
 } from "@inspector/core/mcp/types.js";
@@ -394,6 +395,12 @@ export interface InspectorViewProps {
   resources: Resource[];
   resourceTemplates: ResourceTemplate[];
   subscriptions: InspectorResourceSubscription[];
+  /**
+   * Modern-era `subscriptions/listen` stream state (#1630). Drives the
+   * Resources screen's stream badge/dot; `active: false` (or omitted) on the
+   * legacy era.
+   */
+  subscriptionStreamState?: ResourceSubscriptionStreamState;
 
   // "List changed since last refresh" flags, sourced from the managed-state
   // layer (#1402). They light the per-screen list-changed indicator. Apps is a
@@ -593,6 +600,7 @@ export function InspectorView({
   promptsListChanged,
   resourcesListChanged,
   subscriptions,
+  subscriptionStreamState,
   logs,
   tasks,
   progressByTaskId,
@@ -1352,6 +1360,8 @@ export function InspectorView({
                 resources={resources}
                 templates={resourceTemplates}
                 subscriptions={subscriptions}
+                subscriptionStreamState={subscriptionStreamState}
+                protocolEra={protocolEra}
                 readState={readResourceState}
                 ui={resourcesUi}
                 listChanged={resourcesListChanged}

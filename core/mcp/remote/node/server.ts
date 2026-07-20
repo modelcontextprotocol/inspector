@@ -335,7 +335,8 @@ function forwardLogEvent(
   }
 }
 
-function requestIdForSendWait(
+// Exported for unit coverage of the `subscriptions/listen` exemption (#1630).
+export function requestIdForSendWait(
   message: JSONRPCMessage,
 ): string | number | undefined {
   if (
@@ -344,6 +345,17 @@ function requestIdForSendWait(
     message.id !== null &&
     message.id !== undefined
   ) {
+    // `subscriptions/listen` (modern era, #1630) is a long-lived stream request:
+    // it never produces a JSON-RPC response — it's answered by a
+    // `notifications/subscriptions/acknowledged` and, only on graceful close, an
+    // empty result. Waiting for a response would block `/api/mcp/send` for the
+    // full timeout, delaying the client's `listen()` (which awaits `send()`) and
+    // then tearing the stream down (`closed`) when the wait finally rejects,
+    // which spuriously drives the reconnect loop. Don't wait: the ack and all
+    // stream notifications reach the client over the SSE event channel.
+    if (message.method === "subscriptions/listen") {
+      return undefined;
+    }
     return message.id;
   }
   return undefined;

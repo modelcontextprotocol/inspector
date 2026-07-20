@@ -7,7 +7,6 @@ import {
   extractResultType,
   extractSubscriptionId,
   groupProtocolEntries,
-  isModernFrame,
 } from "./protocolUtils";
 
 // A tools/call request entry whose paired response is the given result. `at`
@@ -83,22 +82,6 @@ describe("extractMethod", () => {
       },
     };
     expect(extractMethod(entry)).toBe("response");
-  });
-});
-
-describe("isModernFrame", () => {
-  it.each([
-    "server/discover",
-    "subscriptions/listen",
-    "notifications/subscriptions/acknowledged",
-  ])("recognizes the modern frame %s", (method) => {
-    expect(isModernFrame(method)).toBe(true);
-  });
-
-  it("returns false for legacy/ordinary methods", () => {
-    expect(isModernFrame("tools/call")).toBe(false);
-    expect(isModernFrame("notifications/initialized")).toBe(false);
-    expect(isModernFrame("response")).toBe(false);
   });
 });
 

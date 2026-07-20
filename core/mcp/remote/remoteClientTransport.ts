@@ -96,6 +96,15 @@ function requestIdForMessage(
     message.id !== null &&
     message.id !== undefined
   ) {
+    // `subscriptions/listen` (modern era, #1630) is a long-lived stream request
+    // with no JSON-RPC response — it's answered by a
+    // `notifications/subscriptions/acknowledged` (delivered over the SSE event
+    // channel) and, only on graceful close, an empty result. Waiting on a
+    // response here would time out `send()` and, via the SDK's `listen()`,
+    // spuriously drive the stream's `closed`/reconnect. Don't wait.
+    if (message.method === "subscriptions/listen") {
+      return undefined;
+    }
     return message.id;
   }
   return undefined;

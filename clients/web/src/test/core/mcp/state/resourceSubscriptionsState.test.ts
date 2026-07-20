@@ -236,4 +236,71 @@ describe("ResourceSubscriptionsState", () => {
     state.destroy();
     expect(() => state.destroy()).not.toThrow();
   });
+
+  describe("modern listen-stream state (#1630)", () => {
+    it("starts inactive and seeds from the client", () => {
+      const state = new ResourceSubscriptionsState(client);
+      expect(state.getStreamState()).toEqual({
+        active: false,
+        status: "ended",
+        honoredUris: [],
+      });
+
+      client.resourceSubscriptionStreamState = {
+        active: true,
+        status: "acknowledged",
+        honoredUris: ["file:///a"],
+      };
+      const seeded = new ResourceSubscriptionsState(client);
+      expect(seeded.getStreamState().active).toBe(true);
+      expect(seeded.getStreamState().honoredUris).toEqual(["file:///a"]);
+    });
+
+    it("forwards resourceSubscriptionStreamChange as streamStateChange", async () => {
+      const state = new ResourceSubscriptionsState(client);
+      const next = await new Promise((resolve) => {
+        state.addEventListener("streamStateChange", (e) => resolve(e.detail), {
+          once: true,
+        });
+        client.dispatchTypedEvent("resourceSubscriptionStreamChange", {
+          active: true,
+          status: "reconnecting",
+          honoredUris: [],
+        });
+      });
+      expect(next).toEqual({
+        active: true,
+        status: "reconnecting",
+        honoredUris: [],
+      });
+      expect(state.getStreamState().status).toBe("reconnecting");
+    });
+
+    it("resets stream state to inactive on a terminal status change", () => {
+      const state = new ResourceSubscriptionsState(client);
+      client.dispatchTypedEvent("resourceSubscriptionStreamChange", {
+        active: true,
+        status: "acknowledged",
+        honoredUris: ["file:///a"],
+      });
+      expect(state.getStreamState().active).toBe(true);
+
+      const handler = vi.fn();
+      state.addEventListener("streamStateChange", handler);
+      client.setStatus("disconnected");
+      expect(state.getStreamState().active).toBe(false);
+      expect(handler).toHaveBeenCalled();
+    });
+
+    it("resets stream state on destroy", () => {
+      const state = new ResourceSubscriptionsState(client);
+      client.dispatchTypedEvent("resourceSubscriptionStreamChange", {
+        active: true,
+        status: "acknowledged",
+        honoredUris: ["file:///a"],
+      });
+      state.destroy();
+      expect(state.getStreamState().active).toBe(false);
+    });
+  });
 });

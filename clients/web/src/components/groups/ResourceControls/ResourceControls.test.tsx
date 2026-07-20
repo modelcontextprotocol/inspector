@@ -333,4 +333,66 @@ describe("ResourceControls", () => {
     await user.type(screen.getByPlaceholderText("Search..."), "special");
     expect(screen.getByText("URIs (1)")).toBeInTheDocument();
   });
+
+  describe("modern listen-stream chrome (#1630)", () => {
+    const activeAck = {
+      active: true as const,
+      status: "acknowledged" as const,
+      honoredUris: ["file:///config.json"],
+    };
+
+    it("shows the stream badge in the section header on the modern era", () => {
+      renderWithMantine(
+        <ControlledResourceControls
+          protocolEra="modern"
+          subscriptionStreamState={activeAck}
+        />,
+      );
+      // The labelled badge sits in the accordion header (next to the count).
+      expect(screen.getByText("Listening")).toBeInTheDocument();
+    });
+
+    it("renders no stream chrome on the legacy era even when a stream is active", () => {
+      renderWithMantine(
+        <ControlledResourceControls subscriptionStreamState={activeAck} />,
+      );
+      expect(screen.queryByText("Listening")).not.toBeInTheDocument();
+    });
+
+    it("renders no stream chrome on the modern era when the stream is inactive", () => {
+      renderWithMantine(
+        <ControlledResourceControls
+          protocolEra="modern"
+          subscriptionStreamState={{
+            active: false,
+            status: "ended",
+            honoredUris: [],
+          }}
+        />,
+      );
+      expect(
+        screen.queryByText(/Listening|Stream ended/),
+      ).not.toBeInTheDocument();
+    });
+
+    it("hides the stream badge when a search filters out all subscriptions", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ControlledResourceControls
+          protocolEra="modern"
+          subscriptionStreamState={activeAck}
+        />,
+      );
+      expect(screen.getByText("Listening")).toBeInTheDocument();
+
+      // A query matching none of the (live) subscriptions empties the section;
+      // the badge hides with it rather than sitting next to "Subscriptions (0)".
+      await user.type(
+        screen.getByPlaceholderText("Search..."),
+        "no-such-resource",
+      );
+      expect(screen.getByText("Subscriptions (0)")).toBeInTheDocument();
+      expect(screen.queryByText("Listening")).not.toBeInTheDocument();
+    });
+  });
 });

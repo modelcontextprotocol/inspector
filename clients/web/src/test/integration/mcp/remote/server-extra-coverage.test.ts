@@ -19,7 +19,10 @@ import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import type pinoType from "pino";
-import { createRemoteApp } from "@inspector/core/mcp/remote/node/server.js";
+import {
+  createRemoteApp,
+  requestIdForSendWait,
+} from "@inspector/core/mcp/remote/node/server.js";
 import {
   InMemorySecretStore,
   KeychainUnavailableError,
@@ -108,6 +111,34 @@ function makeCapturingLogger(): {
 }
 
 describe("server.ts supplemental coverage", () => {
+  describe("requestIdForSendWait (#1630)", () => {
+    it("returns the id for an ordinary request", () => {
+      expect(
+        requestIdForSendWait({ jsonrpc: "2.0", id: 7, method: "tools/list" }),
+      ).toBe(7);
+    });
+
+    it("does not wait for a response on subscriptions/listen (long-lived stream)", () => {
+      expect(
+        requestIdForSendWait({
+          jsonrpc: "2.0",
+          id: "listen:0",
+          method: "subscriptions/listen",
+          params: {},
+        }),
+      ).toBeUndefined();
+    });
+
+    it("returns undefined for a notification (no id)", () => {
+      expect(
+        requestIdForSendWait({
+          jsonrpc: "2.0",
+          method: "notifications/initialized",
+        }),
+      ).toBeUndefined();
+    });
+  });
+
   describe("/api/log forwardLogEvent shapes", () => {
     let h: Harness;
     let records: Array<{ level: string; args: unknown[] }>;

@@ -385,6 +385,54 @@ export interface InspectorResourceSubscription {
 }
 
 /**
+ * Lifecycle status of the single modern-era `subscriptions/listen` stream that
+ * backs every resource subscription on a 2026-07-28 server (#1630).
+ *
+ * - `"connecting"` — a `listen()` request is in flight and hasn't been
+ *   acknowledged yet (the optimistic state shown the moment the user subscribes,
+ *   so the UI responds to the click without waiting for the ack round-trip).
+ * - `"acknowledged"` — the `listen()` request resolved and the server sent
+ *   `notifications/subscriptions/acknowledged`; the stream is open and carrying
+ *   updates.
+ * - `"reconnecting"` — the stream dropped unexpectedly (`closed` resolved
+ *   `"remote"`) and a re-listen is in flight (reconnect-by-re-listen; there is
+ *   no resumability, so the re-listen re-establishes the full filter).
+ * - `"ended"` — the server tore the stream down deliberately (`closed` resolved
+ *   `"graceful"`, e.g. on shutdown) or reconnection was abandoned; no automatic
+ *   re-listen.
+ */
+export type ResourceSubscriptionStreamStatus =
+  | "connecting"
+  | "acknowledged"
+  | "reconnecting"
+  | "ended";
+
+/**
+ * State of the modern-era resource-subscription listen stream (#1630).
+ *
+ * On the legacy era each `resources/subscribe` is an independent request with no
+ * persistent stream, so `active` is `false` and the UI surfaces no stream chrome.
+ * On the modern era all subscriptions are a filter over one long-lived
+ * `subscriptions/listen` stream; `active` is `true` whenever that stream is being
+ * managed (i.e. at least one URI is subscribed), and `honoredUris` is the subset
+ * of requested URIs the server acknowledged in its `honoredFilter` (may be a
+ * strict subset — a server is allowed to decline some).
+ */
+export interface ResourceSubscriptionStreamState {
+  active: boolean;
+  status: ResourceSubscriptionStreamStatus;
+  honoredUris: string[];
+}
+
+/** The stream state reported on the legacy era (or before any subscription). */
+export const INACTIVE_SUBSCRIPTION_STREAM_STATE: ResourceSubscriptionStreamState =
+  {
+    active: false,
+    status: "ended",
+    honoredUris: [],
+  };
+
+/**
  * Wraps a URL-based elicit request from the server. v1.5 only supports
  * form elicitation; v2 introduces URL elicitation as a discriminated variant
  * of the inline elicitation panel. The wrapper carries the request payload

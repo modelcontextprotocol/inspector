@@ -50,21 +50,6 @@ export function isReplayableProtocolMethod(method: string): boolean {
 // envelope/resultType" ≠ "modern negotiated" (spec §8.3). Era labeling comes
 // from the negotiated `protocolEra` connection state, threaded in as a prop.
 
-/**
- * Frame methods that only exist in the modern era: the discovery probe, the
- * push-notification listen stream, and its acknowledgement. Generic viewers
- * already display them; this set drives the small "modern frame" affordance.
- */
-export const MODERN_METHODS: ReadonlySet<string> = new Set([
-  "server/discover",
-  "subscriptions/listen",
-  "notifications/subscriptions/acknowledged",
-]);
-
-export function isModernFrame(method: string): boolean {
-  return MODERN_METHODS.has(method);
-}
-
 // The successful `result` object of a request entry's paired response, or
 // undefined when there is no response or it was an error. (messageLogState folds
 // a request's response onto the request entry by JSON-RPC id.)

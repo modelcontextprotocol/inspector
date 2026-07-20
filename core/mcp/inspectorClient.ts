@@ -15,6 +15,7 @@ import type {
   AppRendererClient,
   InspectorClientOptions,
   PendingRequestOrigin,
+  ResourceSubscriptionStreamState,
 } from "./types.js";
 // Re-export so v1.5 tests that do `import { InspectorClientOptions } from
 // "@inspector/core/mcp/inspectorClient.js"` keep resolving.
@@ -27,7 +28,11 @@ export type {
   AppRendererClient,
 } from "./types.js";
 import { getServerType as getServerTypeFromConfig } from "./config.js";
-import { DEFAULT_MODERN_LOG_LEVEL } from "./types.js";
+import {
+  DEFAULT_MODERN_LOG_LEVEL,
+  INACTIVE_SUBSCRIPTION_STREAM_STATE,
+  isTerminalStatus,
+} from "./types.js";
 // Fallback client identity, used ONLY when a caller doesn't pass
 // `clientIdentity`. Real clients supply their own: the Node clients (CLI, TUI)
 // read the single-source version from the root package.json via
@@ -94,6 +99,8 @@ import type {
   InputRequests,
   InputRequiredOptions,
   StandardSchemaV1,
+  McpSubscription,
+  SubscriptionFilter,
 } from "@modelcontextprotocol/client";
 import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/client";
 import {
@@ -247,6 +254,16 @@ interface ToolCallRequest {
   options?: { skipOutputValidation?: boolean };
 }
 
+// Backoff for reconnect-by-re-listen on the modern `subscriptions/listen` stream
+// (#1630). A `"remote"` drop schedules a re-listen after a capped exponential
+// delay (based on the count of *consecutive failed* re-lists) so a flapping
+// server can't spin a tight zero-delay loop; a successful acknowledgement resets
+// the count, and past the cap we give up (mark the stream ended) rather than
+// retry a persistently-failing re-list forever.
+const MODERN_RECONNECT_BASE_MS = 500;
+const MODERN_RECONNECT_MAX_MS = 15_000;
+const MODERN_RECONNECT_MAX_ATTEMPTS = 8;
+
 /**
  * InspectorClient wraps an MCP Client and provides:
  * - Message tracking and storage
@@ -326,8 +343,31 @@ export class InspectorClient extends InspectorClientEventTarget {
     resources: boolean;
     prompts: boolean;
   };
-  // Resource subscriptions
+  // Resource subscriptions. The set of subscribed URIs is the era-agnostic
+  // source of truth for the UI (the `resourceSubscriptionsChange` list). How a
+  // subscription reaches the wire forks by era: legacy sends one
+  // `resources/subscribe` per URI; modern (2026-07-28) has no such method — all
+  // subscriptions are a filter over one long-lived `subscriptions/listen` stream
+  // (#1630, SEP §7.4).
   private subscribedResources: Set<string> = new Set();
+  // Modern-era listen stream backing the subscriptions above. A single
+  // `McpSubscription` whose filter's `resourceSubscriptions` mirrors
+  // `subscribedResources`; mutating the set re-lists (close old, open new), and
+  // an unexpected `"remote"` close re-lists (reconnect-by-re-listen — the stream
+  // is not resumable). `null` when no URI is subscribed or on the legacy era.
+  private modernSubscription: McpSubscription | null = null;
+  // Monotonic guard so a stale re-list/reconnect (whose `listen()` or `closed`
+  // resolves after a newer refresh already started) can detect it lost the race
+  // and bail without clobbering the current stream.
+  private modernListenGeneration = 0;
+  // Last dispatched modern stream state; `active: false` on the legacy era.
+  private modernStreamState: ResourceSubscriptionStreamState =
+    INACTIVE_SUBSCRIPTION_STREAM_STATE;
+  // Reconnect-by-re-listen backoff state (#1630): the count of consecutive
+  // *failed* re-lists (reset to 0 on any successful acknowledgement) and the
+  // pending re-listen timer.
+  private modernReconnectAttempts = 0;
+  private modernReconnectTimer: ReturnType<typeof setTimeout> | undefined;
   // Task ids the user explicitly cancelled. A cancel makes the in-flight
   // `callToolStream` reject with a generic -32603 error, which the stream's
   // error path would otherwise report as a *failed* task — flashing "failed"
@@ -1524,8 +1564,21 @@ export class InspectorClient extends InspectorClientEventTarget {
       elicitation.cancel();
     }
     this.pendingElicitations = [];
-    // Clear resource subscriptions on disconnect
+    // Clear resource subscriptions on disconnect. Tear down the modern listen
+    // stream (best-effort — the transport is already going away) and bump the
+    // generation so any in-flight re-listen/reconnect bails (#1630).
     this.subscribedResources.clear();
+    this.modernListenGeneration++;
+    this.clearModernReconnectTimer();
+    this.modernReconnectAttempts = 0;
+    const closingSubscription = this.modernSubscription;
+    this.modernSubscription = null;
+    closingSubscription?.close().catch(() => {});
+    this.modernStreamState = INACTIVE_SUBSCRIPTION_STREAM_STATE;
+    this.dispatchTypedEvent(
+      "resourceSubscriptionStreamChange",
+      INACTIVE_SUBSCRIPTION_STREAM_STATE,
+    );
     this.cancelledTaskIds.clear();
     // Abort any in-flight ordinary tool call so its promise settles instead of
     // hanging past teardown; drop the controller reference either way.
@@ -3527,7 +3580,240 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Subscribe to a resource to receive update notifications
+   * The negotiated protocol era once connected (SEP §7.8). Modern (2026-07-28)
+   * connections manage resource subscriptions through a `subscriptions/listen`
+   * stream instead of `resources/subscribe`; every other era is legacy.
+   */
+  private isModernEra(): boolean {
+    return this.protocolEra === "modern";
+  }
+
+  /**
+   * Current state of the modern-era `subscriptions/listen` stream (#1630).
+   * `active: false` on the legacy era (there is no persistent stream).
+   */
+  getResourceSubscriptionStreamState(): ResourceSubscriptionStreamState {
+    return this.modernStreamState;
+  }
+
+  private setModernStreamState(next: ResourceSubscriptionStreamState): void {
+    this.modernStreamState = next;
+    this.dispatchTypedEvent("resourceSubscriptionStreamChange", next);
+  }
+
+  private dispatchSubscriptionsChange(): void {
+    this.dispatchTypedEvent(
+      "resourceSubscriptionsChange",
+      Array.from(this.subscribedResources),
+    );
+  }
+
+  /**
+   * The `subscriptions/listen` filter for the current modern subscriptions:
+   * the subscribed URIs, plus the list-change opt-ins the Inspector already
+   * tracks (config ∩ server capability) so the single stream also carries
+   * list-change notifications — the spec models one listen stream for every
+   * opted-in notification type (SEP §7.4).
+   */
+  private buildSubscriptionFilter(): SubscriptionFilter {
+    const filter: SubscriptionFilter = {
+      resourceSubscriptions: Array.from(this.subscribedResources),
+    };
+    if (
+      this.listChangedNotifications.tools &&
+      this.capabilities?.tools?.listChanged
+    ) {
+      filter.toolsListChanged = true;
+    }
+    if (
+      this.listChangedNotifications.resources &&
+      this.capabilities?.resources?.listChanged
+    ) {
+      filter.resourcesListChanged = true;
+    }
+    if (
+      this.listChangedNotifications.prompts &&
+      this.capabilities?.prompts?.listChanged
+    ) {
+      filter.promptsListChanged = true;
+    }
+    return filter;
+  }
+
+  /**
+   * (Re-)establish the modern `subscriptions/listen` stream to match the current
+   * `subscribedResources` set (#1630). Because the stream is not resumable,
+   * every filter change re-lists: the existing stream is closed and a fresh
+   * `listen()` opened. With no subscribed URIs the stream is left closed.
+   *
+   * `modernListenGeneration` guards against races — if a newer refresh starts
+   * while this one awaits its acknowledgement, the just-opened stream is
+   * discarded rather than overwriting the newer one.
+   */
+  /** Cancel a pending reconnect re-listen, if any (#1630). */
+  private clearModernReconnectTimer(): void {
+    if (this.modernReconnectTimer !== undefined) {
+      clearTimeout(this.modernReconnectTimer);
+      this.modernReconnectTimer = undefined;
+    }
+  }
+
+  private async refreshModernSubscription(
+    fromReconnect = false,
+  ): Promise<void> {
+    if (!this.client) return;
+    // A user-initiated (subscribe/unsubscribe) refresh is a clean slate: clear
+    // any pending reconnect and reset the backoff run so the next drop starts
+    // from the base delay.
+    if (!fromReconnect) {
+      this.clearModernReconnectTimer();
+      this.modernReconnectAttempts = 0;
+    }
+    const generation = ++this.modernListenGeneration;
+
+    // Tear down the current stream before opening a replacement (re-listen).
+    const previous = this.modernSubscription;
+    this.modernSubscription = null;
+    if (previous) {
+      await previous.close().catch(() => {});
+    }
+
+    // Nothing subscribed → keep the stream closed.
+    if (this.subscribedResources.size === 0) {
+      this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
+      return;
+    }
+
+    const subscription = await this.client.listen(
+      this.buildSubscriptionFilter(),
+      this.getRequestOptions(),
+    );
+
+    // A newer refresh superseded us while awaiting the ack — discard this one.
+    if (generation !== this.modernListenGeneration) {
+      await subscription.close().catch(() => {});
+      return;
+    }
+
+    this.modernSubscription = subscription;
+    // A successful acknowledgement ends any reconnect run: the backoff counts
+    // only *consecutive* failed re-lists, so a stream that recovers and holds
+    // starts fresh next time (#1630).
+    this.modernReconnectAttempts = 0;
+    this.setModernStreamState({
+      active: true,
+      status: "acknowledged",
+      honoredUris: subscription.honoredFilter.resourceSubscriptions ?? [],
+    });
+
+    // Observe termination; an unexpected drop reconnects by re-listing.
+    void subscription.closed.then((reason) =>
+      this.onModernSubscriptionClosed(subscription, reason, generation),
+    );
+  }
+
+  /**
+   * Handle termination of a modern listen stream (#1630). `"remote"` is an
+   * unexpected drop — reconnect by re-listing (no resumability, so the re-listen
+   * re-establishes the full filter). `"local"` (we closed it) and `"graceful"`
+   * (server shutdown) are expected and leave the stream ended.
+   */
+  private onModernSubscriptionClosed(
+    subscription: McpSubscription,
+    reason: "local" | "graceful" | "remote",
+    generation: number,
+  ): void {
+    // Ignore a superseded stream (a newer refresh already replaced it).
+    if (
+      generation !== this.modernListenGeneration ||
+      this.modernSubscription !== subscription
+    ) {
+      return;
+    }
+    this.modernSubscription = null;
+
+    const shouldReconnect =
+      reason === "remote" &&
+      !isTerminalStatus(this.status) &&
+      this.subscribedResources.size > 0;
+    if (!shouldReconnect) {
+      // "stream gone but subscriptions remain" renders the same whether we gave
+      // up after failed reconnects or the server closed it gracefully: keep the
+      // ended badge while URIs are still subscribed. (On a terminal-status drop
+      // the disconnect reset clears the set and forces the inactive state.)
+      this.setModernStreamState({
+        active: this.subscribedResources.size > 0,
+        status: "ended",
+        honoredUris: [],
+      });
+      return;
+    }
+
+    // A drop of an established stream is not itself a failure — schedule a
+    // re-listen at the current backoff (0 after a healthy stream, so the base
+    // delay). The counter only advances when a re-listen actually fails.
+    this.scheduleModernReconnect();
+  }
+
+  /**
+   * Schedule a reconnect re-listen after the current backoff delay (#1630).
+   * `modernReconnectAttempts` reflects the number of *consecutive failed*
+   * re-lists (reset to 0 on any successful acknowledgement), so the delay grows
+   * only while re-listing keeps failing.
+   */
+  private scheduleModernReconnect(): void {
+    this.setModernStreamState({
+      active: true,
+      status: "reconnecting",
+      honoredUris: [],
+    });
+    const delay = Math.min(
+      MODERN_RECONNECT_BASE_MS * 2 ** this.modernReconnectAttempts,
+      MODERN_RECONNECT_MAX_MS,
+    );
+    this.clearModernReconnectTimer();
+    this.modernReconnectTimer = setTimeout(() => {
+      this.modernReconnectTimer = undefined;
+      // Disconnect/unsubscribe may have raced the timer — bail if the reconnect
+      // is no longer wanted.
+      if (isTerminalStatus(this.status) || this.subscribedResources.size === 0) {
+        return;
+      }
+      this.refreshModernSubscription(true).catch(() =>
+        this.onModernReconnectFailed(),
+      );
+    }, delay);
+  }
+
+  /**
+   * A reconnect re-listen failed (#1630). Count it and either retry with a
+   * longer backoff or, past the consecutive-failure cap, give up and mark the
+   * stream ended (re-subscribing resets the run and tries again).
+   */
+  private onModernReconnectFailed(): void {
+    this.modernReconnectAttempts += 1;
+    if (
+      this.modernReconnectAttempts > MODERN_RECONNECT_MAX_ATTEMPTS ||
+      isTerminalStatus(this.status) ||
+      this.subscribedResources.size === 0
+    ) {
+      this.setModernStreamState({
+        active: this.subscribedResources.size > 0,
+        status: "ended",
+        honoredUris: [],
+      });
+      return;
+    }
+    this.scheduleModernReconnect();
+  }
+
+  /**
+   * Subscribe to a resource to receive update notifications.
+   *
+   * Legacy era: sends `resources/subscribe`. Modern era (2026-07-28): adds the
+   * URI to the `subscriptions/listen` filter and re-lists (#1630). In both eras
+   * `notifications/resources/updated` is delivered through the same handler.
+   *
    * @param uri - The URI of the resource to subscribe to
    * @throws Error if client is not connected or server doesn't support subscriptions
    */
@@ -3539,12 +3825,38 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Server does not support resource subscriptions");
     }
     try {
+      if (this.isModernEra()) {
+        // Already subscribed → the filter is unchanged, so skip the re-listen
+        // (which would needlessly tear down and reopen the server stream).
+        if (this.subscribedResources.has(uri)) return;
+        this.subscribedResources.add(uri);
+        // Reflect the subscription optimistically so the UI responds to the
+        // click immediately, and show the stream as "connecting" until the
+        // `listen()` acknowledgement lands (which can be a visible round-trip on
+        // the modern era, unlike the single-shot legacy `resources/subscribe`).
+        this.dispatchSubscriptionsChange();
+        this.setModernStreamState({
+          active: true,
+          status: "connecting",
+          honoredUris: this.modernStreamState.honoredUris,
+        });
+        try {
+          await this.refreshModernSubscription();
+        } catch (error) {
+          // Roll back the optimistic add + stream state so both stay consistent
+          // with the (unchanged) server filter.
+          this.subscribedResources.delete(uri);
+          this.dispatchSubscriptionsChange();
+          if (this.subscribedResources.size === 0) {
+            this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
+          }
+          throw error;
+        }
+        return;
+      }
       await this.client.subscribeResource({ uri }, this.getRequestOptions());
       this.subscribedResources.add(uri);
-      this.dispatchTypedEvent(
-        "resourceSubscriptionsChange",
-        Array.from(this.subscribedResources),
-      );
+      this.dispatchSubscriptionsChange();
     } catch (error) {
       throw new Error(
         `Failed to subscribe to resource: ${error instanceof Error ? error.message : String(error)}`,
@@ -3553,7 +3865,12 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Unsubscribe from a resource
+   * Unsubscribe from a resource.
+   *
+   * Legacy era: sends `resources/unsubscribe`. Modern era: drops the URI from
+   * the `subscriptions/listen` filter and re-lists (closing the stream once the
+   * last URI is removed) (#1630).
+   *
    * @param uri - The URI of the resource to unsubscribe from
    * @throws Error if client is not connected
    */
@@ -3562,12 +3879,21 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Client is not connected");
     }
     try {
-      await this.client.unsubscribeResource({ uri }, this.getRequestOptions());
-      this.subscribedResources.delete(uri);
-      this.dispatchTypedEvent(
-        "resourceSubscriptionsChange",
-        Array.from(this.subscribedResources),
-      );
+      if (this.isModernEra()) {
+        // Not subscribed → the filter is unchanged, so skip the re-listen.
+        if (!this.subscribedResources.delete(uri)) return;
+        // The removal is the user's intent; keep it even if the re-listen fails
+        // (the stale URI simply lingers in the server's honored filter).
+        this.dispatchSubscriptionsChange();
+        await this.refreshModernSubscription();
+      } else {
+        await this.client.unsubscribeResource(
+          { uri },
+          this.getRequestOptions(),
+        );
+        this.subscribedResources.delete(uri);
+        this.dispatchSubscriptionsChange();
+      }
     } catch (error) {
       throw new Error(
         `Failed to unsubscribe from resource: ${error instanceof Error ? error.message : String(error)}`,
