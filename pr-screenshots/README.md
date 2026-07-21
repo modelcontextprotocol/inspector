@@ -7,6 +7,12 @@ client's remote-proxy transport.
 
 ## Modern era (2026-07-28, `io.modelcontextprotocol/tasks` extension)
 
+![Modern connected, Tasks tab present](tasks-modern-connected.png)
+
+Connected with **Protocol Era = Modern** (`MCP 2026-07-28`). The **Tasks** tab
+appears in the monitoring sidebar because the `io.modelcontextprotocol/tasks`
+extension was negotiated (it is empty until a task runs).
+
 ![Modern task completed](tasks-modern-completed.png)
 
 Connected with **Protocol Era = Modern** (`MCP 2026-07-28`). The **Tasks** tab is
@@ -21,8 +27,12 @@ blocking `tasks/result`) — shown both in the Results panel and the Tasks card.
 `modern_input_task` moves to **`input_required`**: the `tasks/get` response's
 `inputRequests` map (visible in the task's Full Task Object) carries an embedded
 `elicitation/create`, surfaced through the same pending-request modal the MRTR
-path uses. Answering it sends **`tasks/update`** with the `inputResponses`, and
-the next poll completes the task.
+path uses — note the accurate wording *"your answer is submitted via a
+tasks/update request (SEP-2663), not a retry"*. Answering it sends
+**`tasks/update`** with the `inputResponses`, and the next poll completes the
+task:
+
+![Modern input task completed](tasks-modern-input-completed.png)
 
 ## Legacy era (2025-11-25, contrast — unchanged)
 

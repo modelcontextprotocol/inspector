@@ -30,6 +30,9 @@ export const TASKS_EXTENSION_KEY = "io.modelcontextprotocol/tasks";
 export const MODERN_TASK_TOOL_NAMES = new Set([
   "modern_task",
   "modern_input_task",
+  // Never completes — stays `input_required` on every poll, so a client keeps
+  // being re-prompted. Used to exercise the client's input-round cap.
+  "modern_loop_task",
 ]);
 
 const DEFAULT_TTL_MS = 60_000;
@@ -42,7 +45,7 @@ type ModernTaskStatus =
 
 interface ModernTaskEntry {
   taskId: string;
-  kind: "simple" | "input";
+  kind: "simple" | "input" | "loop";
   status: ModernTaskStatus;
   createdAt: string;
   lastUpdatedAt: string;
@@ -106,9 +109,15 @@ export class ModernTaskRuntime {
     args: Record<string, unknown>,
   ): Record<string, unknown> {
     const now = nowIso();
+    const kind: ModernTaskEntry["kind"] =
+      toolName === "modern_input_task"
+        ? "input"
+        : toolName === "modern_loop_task"
+          ? "loop"
+          : "simple";
     const entry: ModernTaskEntry = {
       taskId: newTaskId(),
-      kind: toolName === "modern_input_task" ? "input" : "simple",
+      kind,
       status: "working",
       createdAt: now,
       lastUpdatedAt: now,
@@ -182,6 +191,10 @@ export class ModernTaskRuntime {
       } else {
         entry.status = "completed";
       }
+    } else if (entry.kind === "loop") {
+      // Never advances: stays input_required every poll (ignores tasks/update),
+      // so a client is re-prompted indefinitely — exercises its round cap.
+      entry.status = "input_required";
     } else {
       // input task: request input, then complete once the client has answered.
       entry.status = entry.inputSatisfied ? "completed" : "input_required";
@@ -258,6 +271,13 @@ export function createModernTaskTools(): ToolDefinition[] {
       name: "modern_input_task",
       description:
         "Create a modern task that pauses at input_required and completes after tasks/update.",
+      inputSchema: {},
+      handler: placeholder,
+    },
+    {
+      name: "modern_loop_task",
+      description:
+        "Create a modern task that never completes — stays input_required every poll, so the client's round cap trips.",
       inputSchema: {},
       handler: placeholder,
     },

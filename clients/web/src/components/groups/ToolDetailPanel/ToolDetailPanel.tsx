@@ -194,6 +194,12 @@ export function ToolDetailPanel({
   // may become a task) or the tool doesn't forbid per-tool task support
   // (legacy). `required` tools are forced on (checked + disabled); `optional`
   // and (on modern) any tool follow the user's `runAsTask` choice.
+  //
+  // NOTE: on modern, a per-tool `taskSupport: "forbidden"` is DELIBERATELY
+  // ignored. Under SEP-2663 task creation is decided by the server per request,
+  // not declared per tool, so `taskSupport` (a legacy 2025-11-25 concept) does
+  // not gate the affordance — the server may return a task for any call. The
+  // toggle just declares intent to poll a returned handle.
   const taskSupport = getTaskSupport(tool);
   const showRunAsTask =
     serverSupportsTaskToolCalls && (modernTasks || taskSupport !== "forbidden");

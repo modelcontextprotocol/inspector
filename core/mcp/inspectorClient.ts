@@ -1797,9 +1797,16 @@ export class InspectorClient extends InspectorClientEventTarget {
       ...params,
       _meta: {
         ...existingMeta,
-        // The raw channel only runs on a connected modern session, so the
-        // envelope version is the modern revision.
-        [PROTOCOL_VERSION_META_KEY]: MODERN_PROTOCOL_VERSION,
+        // Use the NEGOTIATED protocol version so the envelope agrees with the
+        // `MCP-Protocol-Version` header the transport stamps from the same
+        // source — a future modern-family revision would negotiate a different
+        // string, and the two must not disagree. The raw channel only runs on a
+        // connected modern session, so this is always set; the constant is a
+        // defensive fallback.
+        [PROTOCOL_VERSION_META_KEY]:
+          /* v8 ignore next -- getProtocolVersion() is always set on a connected
+             modern session (the only place this runs); the fallback is defensive. */
+          this.getProtocolVersion() ?? MODERN_PROTOCOL_VERSION,
         [CLIENT_INFO_META_KEY]: this.clientInfo,
         [CLIENT_CAPABILITIES_META_KEY]: clientCapabilities,
       },
@@ -2944,14 +2951,27 @@ export class InspectorClient extends InspectorClientEventTarget {
    * `tasks/update`. No-op for any other status. Shared by the streaming
    * ({@link pollTaskToolCall}) and ordinary ({@link pollModernTaskToTermination})
    * poll loops so the input handling lives in one place.
+   *
+   * `priorRounds` is the count of `input_required` rounds already handled for
+   * this task; the return value is the updated count. A non-conformant server
+   * that keeps returning `input_required` without ever completing would
+   * otherwise re-prompt the user on every poll forever, so we bound it with the
+   * same {@link MRTR_MAX_ROUNDS} cap the MRTR driver uses.
    */
   private async submitModernTaskInput(
     detailed: ModernDetailedTask,
     task: Task,
+    priorRounds: number,
     signal?: AbortSignal,
-  ): Promise<void> {
+  ): Promise<number> {
     if (task.status !== "input_required") {
-      return;
+      return priorRounds;
+    }
+    const rounds = priorRounds + 1;
+    if (rounds > InspectorClient.MRTR_MAX_ROUNDS) {
+      throw new Error(
+        `Modern task "${task.taskId}" exceeded ${InspectorClient.MRTR_MAX_ROUNDS} input_required rounds without completing.`,
+      );
     }
     const inputResponses = await this.fulfilInputRequests(
       readInputRequests(detailed),
@@ -2964,6 +2984,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (inputResponses) {
       await this.updateRequestorTask(task.taskId, inputResponses);
     }
+    return rounds;
   }
 
   /**
@@ -3032,8 +3053,14 @@ export class InspectorClient extends InspectorClientEventTarget {
       });
     };
     emit(task);
+    let inputRounds = 0;
     while (!InspectorClient.isTerminalTaskStatus(task.status)) {
-      await this.submitModernTaskInput(detailed, task, requestOptions.signal);
+      inputRounds = await this.submitModernTaskInput(
+        detailed,
+        task,
+        inputRounds,
+        requestOptions.signal,
+      );
       await new Promise((resolve) =>
         setTimeout(resolve, this.modernTaskPollInterval(task)),
       );
@@ -3154,15 +3181,18 @@ export class InspectorClient extends InspectorClientEventTarget {
       if (progressSubscriptionId != null && requestOptions.onprogress) {
         progressHandlers.set(progressSubscriptionId, requestOptions.onprogress);
       }
+      let inputRounds = 0;
       try {
         while (!InspectorClient.isTerminalTaskStatus(task.status)) {
           // `input_required`: fulfil the embedded server→client requests through
           // the same pending-request UI the MRTR path uses, then submit them via
           // `tasks/update`. The update is eventually consistent — the task's
-          // status advances on a following `tasks/get`, so keep polling.
-          await this.submitModernTaskInput(
+          // status advances on a following `tasks/get`, so keep polling
+          // (bounded by MRTR_MAX_ROUNDS against a server that never advances).
+          inputRounds = await this.submitModernTaskInput(
             detailed,
             task,
+            inputRounds,
             requestOptions.signal,
           );
           await new Promise((resolve) =>
