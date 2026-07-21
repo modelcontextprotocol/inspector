@@ -129,6 +129,92 @@ export const clearScopeFromSessionStorage = (serverUrl: string) => {
   sessionStorage.removeItem(key);
 };
 
+/**
+ * Best-effort RFC 7009 token revocation. Called on user-initiated disconnect so
+ * the authorization server can invalidate the access/refresh token rather than
+ * waiting for natural expiry. Per RFC 7009 §2.1, revoking a refresh token also
+ * invalidates associated access tokens, so we prefer the refresh token when
+ * present and fall back to the access token otherwise.
+ *
+ * Never throws: if there are no saved tokens, no advertised revocation_endpoint,
+ * or the POST fails for any reason, this resolves quietly. A 3s timeout keeps a
+ * slow AS from blocking the UI.
+ */
+export const revokeTokens = async ({
+  serverUrl,
+  fetchFn,
+}: {
+  serverUrl: string;
+  fetchFn?: typeof fetch;
+}): Promise<void> => {
+  try {
+    const tokensRaw = sessionStorage.getItem(
+      getServerSpecificKey(SESSION_KEYS.TOKENS, serverUrl),
+    );
+    if (!tokensRaw) {
+      return;
+    }
+    const tokens = await OAuthTokensSchema.parseAsync(JSON.parse(tokensRaw));
+
+    const metadata = await discoverAuthorizationServerMetadata(
+      new URL("/", serverUrl),
+      { fetchFn },
+    );
+    // `revocation_endpoint` is declared on OAuthMetadata but not on the OIDC
+    // branch of the union, even though OIDC providers may advertise it at
+    // runtime per RFC 8414. Narrow with `in` so we read it from either shape.
+    const revocationEndpoint =
+      metadata && "revocation_endpoint" in metadata
+        ? (metadata as { revocation_endpoint?: string }).revocation_endpoint
+        : undefined;
+    if (!revocationEndpoint) {
+      return;
+    }
+
+    const token = tokens.refresh_token ?? tokens.access_token;
+    const tokenTypeHint = tokens.refresh_token
+      ? "refresh_token"
+      : "access_token";
+
+    const body = new URLSearchParams();
+    body.set("token", token);
+    body.set("token_type_hint", tokenTypeHint);
+
+    // Public-client convention: include client_id in the form body. Try
+    // preregistered first, then dynamically registered (same priority as
+    // InspectorOAuthClientProvider.clientInformation()).
+    const clientInfo =
+      (await getClientInformationFromSessionStorage({
+        serverUrl,
+        isPreregistered: true,
+      })) ??
+      (await getClientInformationFromSessionStorage({
+        serverUrl,
+        isPreregistered: false,
+      }));
+    if (clientInfo?.client_id) {
+      body.set("client_id", clientInfo.client_id);
+    }
+
+    const response = await (fetchFn ?? fetch)(revocationEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+      signal: AbortSignal.timeout(3000),
+    });
+
+    if (!response.ok) {
+      console.warn(
+        `Token revocation responded ${response.status} ${response.statusText} (best-effort, continuing)`,
+      );
+      return;
+    }
+    console.debug("Token revocation succeeded");
+  } catch (error) {
+    console.warn("Token revocation failed (best-effort):", error);
+  }
+};
+
 export class InspectorOAuthClientProvider implements OAuthClientProvider {
   constructor(protected serverUrl: string) {
     // Save the server URL to session storage
