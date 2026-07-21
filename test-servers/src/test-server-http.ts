@@ -8,6 +8,10 @@ import type {
   McpHttpHandler,
 } from "@modelcontextprotocol/server";
 import { createMcpServer } from "./test-server-fixtures.js";
+import {
+  ModernTaskRuntime,
+  createModernTaskInterceptor,
+} from "./modern-tasks.js";
 import { SSEServerTransport } from "@modelcontextprotocol/server-legacy/sse";
 import type { Request, Response } from "express";
 import express from "express";
@@ -364,6 +368,19 @@ export class TestServerHttp {
       ?.injectSpecErrors
       ? [specErrorInjector]
       : [];
+
+    // Modern tasks extension (SEP-2663): the SDK's modern leg era-gates inbound
+    // `tasks/*` spec methods, so serve them from a middleware ahead of the SDK
+    // handler, backed by the shared runtime (also used by the tools/call task
+    // seam inside `createMcpServer`).
+    if (this.config.tasksExtension) {
+      this.configWithCallback.modernTaskRuntime ??= new ModernTaskRuntime();
+      extraMiddleware.push(
+        createModernTaskInterceptor(
+          () => this.configWithCallback.modernTaskRuntime!,
+        ),
+      );
+    }
 
     app.post("/mcp", ...mcpMiddleware, ...extraMiddleware, route);
     app.get("/mcp", ...mcpMiddleware, route);

@@ -126,9 +126,18 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
     if (!client || client.getStatus() !== "connected") {
       return this.getTasks();
     }
-    // Gate on the server's `tasks` capability — calling tasks/list against a
-    // server that doesn't advertise it returns -32601 "Method not found",
-    // which then surfaces in the console for every connect against any
+    // Modern era (SEP-2663): the `io.modelcontextprotocol/tasks` extension has
+    // NO `tasks/list` — task handles are durable and client-held, arriving via
+    // task-augmented tool calls (server-directed `CreateTaskResult`) or
+    // unsolicited handles. "Refresh" therefore re-polls the tasks already known
+    // to this store via `tasks/get`; a task the server has since dropped (TTL)
+    // simply keeps its last-seen state. Gate on the extension being negotiated.
+    if (client.isTasksExtensionNegotiated()) {
+      return this.refreshModern(client);
+    }
+    // Legacy era: gate on the server's `tasks` capability — calling tasks/list
+    // against a server that doesn't advertise it returns -32601 "Method not
+    // found", which then surfaces in the console for every connect against any
     // server that doesn't implement task tracking. Empty list is the right
     // semantics for "this server doesn't support tasks."
     if (!client.getCapabilities()?.tasks) {
@@ -156,6 +165,29 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
       }
     } while (cursor);
     this.dispatchTypedEvent("tasksChange", this.tasks);
+    return this.getTasks();
+  }
+
+  /**
+   * Modern refresh: re-poll each currently-known (non-dismissed) task via
+   * `getRequestorTask` (`tasks/get`). Each poll dispatches `requestorTaskUpdated`,
+   * which the live-merge handler folds back into `this.tasks` — so the list
+   * updates in place. A poll that errors (e.g. the task expired and the server
+   * returns "unknown taskId") is swallowed so one dead handle can't abort the
+   * whole refresh. No known tasks ⇒ a no-op refresh (the correct "no server
+   * list" semantics).
+   */
+  private async refreshModern(client: InspectorClientProtocol): Promise<Task[]> {
+    const ids = this.tasks
+      .map((t) => t.taskId)
+      .filter((id) => !this.dismissedTaskIds.has(id));
+    for (const id of ids) {
+      try {
+        await client.getRequestorTask(id);
+      } catch {
+        // Ignore a single failed poll (expired / unknown task); keep the rest.
+      }
+    }
     return this.getTasks();
   }
 

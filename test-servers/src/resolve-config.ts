@@ -89,6 +89,7 @@ export function resolveConfig(config: ConfigFile): ServerConfig {
     listChanged: config.listChanged,
     subscriptions: config.subscriptions,
     tasks: config.tasks,
+    tasksExtension: config.tasksExtension,
     maxPageSize: config.maxPageSize,
     serverType: isHttp
       ? (transport.type as "sse" | "streamable-http")

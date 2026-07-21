@@ -56,6 +56,10 @@ export interface ConfigFile {
     list?: boolean;
     cancel?: boolean;
   };
+  /** Advertise the modern (SEP-2663) `io.modelcontextprotocol/tasks` extension
+   * and wire its handlers + `modern_task` / `modern_input_task` tools. Pair with
+   * `transport.modern`. */
+  tasksExtension?: boolean;
   maxPageSize?: {
     tools?: number;
     resources?: number;

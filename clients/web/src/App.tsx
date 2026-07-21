@@ -2823,8 +2823,16 @@ function App() {
       // error). The created task shows up on the Tasks screen via the
       // `requestorTaskUpdated` events callToolStream dispatches, and its live
       // status/progress surface as toasts + progress bar.
+      // Legacy servers advertise task tool calls via
+      // `tasks.requests.tools.call`. Modern servers (SEP-2663) instead negotiate
+      // the `io.modelcontextprotocol/tasks` extension and are server-directed:
+      // task creation is decided per-request by the server, so declaring the
+      // extension on the call (which the task path does) is what makes a returned
+      // task handle legal ("unsolicited handles"). Either era routes the flagged
+      // call through the streaming task pipeline.
       const serverSupportsTaskToolCalls =
-        !!capabilities?.tasks?.requests?.tools?.call;
+        !!capabilities?.tasks?.requests?.tools?.call ||
+        inspectorClient.isTasksExtensionNegotiated();
       const asTask =
         serverSupportsTaskToolCalls &&
         (runAsTask || tool.execution?.taskSupport === "required");
@@ -4256,7 +4264,8 @@ function App() {
           highlightedServerIds={highlightedServerIds}
           onClearHighlight={clearHighlight}
           serverSupportsTaskToolCalls={
-            !!capabilities?.tasks?.requests?.tools?.call
+            !!capabilities?.tasks?.requests?.tools?.call ||
+            (inspectorClient?.isTasksExtensionNegotiated() ?? false)
           }
           onToolsUiChange={onToolsUiChange}
           onCallTool={(name, args, runAsTask) => {

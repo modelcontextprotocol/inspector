@@ -38,6 +38,7 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import { isTerminalStatus } from "@inspector/core/mcp/types.js";
 import { isAppTool } from "@inspector/core/mcp/apps.js";
+import { TASKS_EXTENSION_KEY } from "@inspector/core/mcp/modernTaskSchemas.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
 import { VersionBadge } from "../../elements/VersionBadge/VersionBadge";
 import { CopyrightBadge } from "../../elements/CopyrightBadge/CopyrightBadge";
@@ -807,8 +808,11 @@ export function InspectorView({
   //   Logs      → capabilities.logging
   //   Prompts   → capabilities.prompts
   //   Resources → capabilities.resources
-  //   Tasks     → capabilities.tasks (the "run as task" affordance on the
-  //               Tools screen separately keys off tasks.requests.tools.call)
+  //   Tasks     → capabilities.tasks (legacy) OR the
+  //               io.modelcontextprotocol/tasks extension (modern, SEP-2663).
+  //               The "run as task" affordance on the Tools screen separately
+  //               keys off tasks.requests.tools.call (legacy) / the negotiated
+  //               extension (modern).
   //   Apps      → capabilities.tools (MCP Apps build on tools) AND at least one
   //               app tool — Apps is a filtered view of tools, not its own
   //               capability, so it keeps the content check; when app tools
@@ -830,7 +834,12 @@ export function InspectorView({
     const hasApps = hasTools && appTools.length > 0;
     const hasPrompts = capabilities?.prompts !== undefined;
     const hasResources = capabilities?.resources !== undefined;
-    const hasTasks = capabilities?.tasks !== undefined;
+    // Legacy servers gate Tasks on `capabilities.tasks`; modern servers
+    // (SEP-2663) advertise the `io.modelcontextprotocol/tasks` extension in
+    // `server/discover` instead, so gate on either being present.
+    const hasTasks =
+      capabilities?.tasks !== undefined ||
+      capabilities?.extensions?.[TASKS_EXTENSION_KEY] !== undefined;
     const hasLogging = capabilities?.logging !== undefined;
     return ALL_TABS.filter((t) => {
       if (t === NETWORK_TAB && isStdio) return false;
