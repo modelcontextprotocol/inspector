@@ -33,6 +33,9 @@ inspector/
 │   ├── json/                           # JSON utilities and parameter/argument conversion
 │   ├── logging/                        # Silent pino logger singleton
 │   ├── mcp/                            # InspectorClient runtime + state stores
+│   │                                   #   (modernTaskSchemas.ts: SEP-2663 modern Tasks
+│   │                                   #   extension wire schemas + normalize/handle helpers,
+│   │                                   #   used by the raw-wire tasks/* channel — #1631)
 │   │   ├── import/                     # Config import strategies (#1348): client-config parsers
 │   │   │                               #   (Claude Desktop/Cursor/Cline/VS Code), registry
 │   │   │                               #   server.json parser, strategy registry + well-known
@@ -45,7 +48,9 @@ inspector/
 │   ├── react/                          # React hooks over the state stores
 │   └── storage/                        # File I/O helpers (store-io.ts) used by OAuth persist backends
 ├── test-servers/                       # Composable MCP test servers + fixtures used by integration tests.
-│   ├── src/                            # TypeScript sources.
+│   ├── src/                            # TypeScript sources. (modern-tasks.ts: SEP-2663 modern
+│   │                                   #   Tasks extension runtime + tasks/* Express interceptor
+│   │                                   #   + modern_task/modern_input_task tools — #1631)
 │   ├── build/                          # Built JS (gitignored). Produced by `npm run test-servers:build`
 │   │                                   # so integration tests can spawn the stdio server as a real
 │   │                                   # subprocess via `node test-servers/build/test-server-stdio.js`.

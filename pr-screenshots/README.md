@@ -1,61 +1,65 @@
-# Resource subscriptions era fork (#1630) — proof screenshots
+# Tasks extension era fork (#1631) — proof screenshots
 
-End-to-end verification of the era fork against two real test servers
-(`test-servers/configs/subscriptions-modern-http.json` on port 3220 and
-`subscriptions-legacy-http.json` on 3221), driven in a real browser.
+End-to-end verification of the Tasks era fork against two real test servers
+(`test-servers/configs/tasks-modern-http.json` on port 3222 and
+`tasks-legacy-http.json` on 3223), driven in a real browser through the web
+client's remote-proxy transport.
 
-## Modern era (2026-07-28)
+## Modern era (2026-07-28, `io.modelcontextprotocol/tasks` extension)
 
-![Modern header badge](subscriptions-modern-header-badge.png)
+![Modern connected, Tasks tab present](tasks-modern-connected.png)
 
-**`subscriptions-modern-header-badge.png`** — on the modern era the Subscriptions
-section shows a single **stream-status badge in its accordion header** (next to the
-count, so it stays visible while the section is collapsed): `● Listening` when the
-`subscriptions/listen` stream is acknowledged, `● Reconnecting…` while it re-lists
-after a drop, `● Stream ended` on graceful close — each explained in a tooltip.
-Legacy connections show no badge.
+Connected with **Protocol Era = Modern** (`MCP 2026-07-28`). The **Tasks** tab
+appears in the monitoring sidebar because the `io.modelcontextprotocol/tasks`
+extension was negotiated (it is empty until a task runs).
 
-![Modern listen + acknowledged](subscriptions-modern-listen-acknowledged.png)
+![Modern task completed](tasks-modern-completed.png)
 
-**`subscriptions-modern-listen-acknowledged.png`** — subscribing on a
-**Modern**-negotiated connection sends **`subscriptions/listen`** (long-lived →
-`PENDING`) and the server answers with **`notifications/subscriptions/acknowledged`**.
-No `resources/subscribe` is sent — the defining era-fork behavior. Two other
-details: the connection era is shown once in the panel header (`Messages · MODERN`),
-not per entry; and the `sub ⧉ listen:0` subscription-id tag rides the notification's
-top line (beside the direction) so the method badge below gets the full column width
-instead of truncating against the pin control.
+Connected with **Protocol Era = Modern** (`MCP 2026-07-28`). The **Tasks** tab is
+gated on the negotiated `io.modelcontextprotocol/tasks` extension (not
+`capabilities.tasks`). Running `modern_task` with **Run as task** on issues a
+`tools/call` that returns a `CreateTaskResult` (`resultType: "task"`), then polls
+**`tasks/get`** (no `tasks/list`); the completed task **inlines its result** (no
+blocking `tasks/result`) — shown both in the Results panel and the Tasks card.
 
-## Legacy era (contrast)
+![Modern input_required → tasks/update](tasks-modern-input-required.png)
 
-![Legacy resources/subscribe](subscriptions-legacy-resources-subscribe.png)
+`modern_input_task` moves to **`input_required`**: the `tasks/get` response's
+`inputRequests` map (visible in the task's Full Task Object) carries an embedded
+`elicitation/create`, surfaced through the same pending-request modal the MRTR
+path uses — note the accurate wording *"your answer is submitted via a
+tasks/update request (SEP-2663), not a retry"*. Answering it sends
+**`tasks/update`** with the `inputResponses`, and the next poll completes the
+task:
 
-**`subscriptions-legacy-resources-subscribe.png`** — the same subscribe on a
-**Legacy** connection sends **`resources/subscribe`** (Protocol view, LEGACY) and the
-Subscriptions section shows **no stream badge and no header dot** (there is no
-persistent stream on the legacy era). Legacy behavior is unchanged.
+![Modern input task completed](tasks-modern-input-completed.png)
 
-![Legacy live update](subscriptions-legacy-live-update.png)
+## Legacy era (2025-11-25, contrast — unchanged)
 
-**`subscriptions-legacy-live-update.png`** — calling the `update_resource` tool emits
-**`notifications/resources/updated`** (server → client, Protocol view), and the
-subscribed `resource_1` tile stamps its **last-updated time** (`2:53:17 PM`) — the
-full subscribe → update → notify round-trip on the legacy era.
+![Legacy run-as-task](tasks-legacy-run-as-task.png)
+
+Connected with **Protocol Era = Legacy**. The Tasks tab is gated on
+`capabilities.tasks`; `simple_task` is `taskSupport: "required"` so **Run as
+task** is forced on. The legacy flow uses `tasks/list` to populate the list,
+`tasks/get` to poll, and the blocking **`tasks/result`** to fetch the payload
+(`{ "message": "Task completed: no message", "taskId": … }`). Note the legacy-only
+**Logs** tab (this server advertises `logging`), absent from the modern monitor
+set.
 
 ## Notes
 
-- Modern subscribe in the browser is now prompt (`Connecting…` → `Listening`) and
-  stable: the web backend's `/api/mcp/send` and the browser remote transport used
-  to hold the `subscriptions/listen` request waiting for a JSON-RPC response that a
-  long-lived stream never sends, blocking `listen()` ~60s and then spuriously
-  driving the reconnect loop. Both sides now exempt `subscriptions/listen` from the
-  response-wait (its ack + notifications ride the SSE event channel), so the badge
-  no longer oscillates. (Some of the older screenshots here were captured before
-  that fix and show the transient `Reconnecting…`/`RECONNECTING…` state.)
-- A tool-triggered `resources/updated` does **not** reach the modern
-  `subscriptions/listen` stream on the SDK's stateless modern leg (a tool call and
-  the listen stream are separate connections; `server.notification()` rides the
-  tool call's connection). This is an SDK server-side gap — the same class as the
-  logging showcase's stateless-notification caveat — independent of this PR's
-  client-side work. Hence the live-update proof is shown on the legacy era, where
-  the round-trip completes.
+- SDK v2 removed all tasks support **and** era-gates the `tasks/*` spec methods
+  out of the 2026-07-28 era on **both** the client (outbound) and server
+  (inbound), and its codec rejects a `resultType: "task"` result outright. So the
+  Inspector drives the extension itself: the task-creation frame is rewritten at
+  the transport into a `CallToolResult` carrying the handle (the true
+  `resultType: "task"` frame is still logged to the Protocol/Network tabs), and
+  `tasks/get` / `tasks/update` / `tasks/cancel` ride a raw-wire request channel
+  that carries the full modern envelope and is consumed by the transport before
+  the SDK Client sees it. The test server serves `tasks/*` from an Express
+  interceptor ahead of the SDK handler (the SDK's modern leg would answer them
+  `-32601`).
+- On modern, task creation is **server-directed** (SEP-2663): the client declares
+  the extension once and any tool may return a task, so the Tools screen offers
+  **Run as task** for every tool on a modern connection (rather than gating on the
+  legacy per-tool `taskSupport`).

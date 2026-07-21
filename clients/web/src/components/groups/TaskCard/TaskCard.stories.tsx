@@ -90,3 +90,10 @@ export const Cancelled: Story = {
 export const Collapsed: Story = {
   args: { task: workingTask, isListExpanded: false },
 };
+
+// Compact monitoring-sidebar variant: the task id moves to its own line below
+// the header so the status badge and Cancel Task control stay on the first row
+// in the narrow column (#1631).
+export const Embedded: Story = {
+  args: { task: workingTask, embedded: true },
+};

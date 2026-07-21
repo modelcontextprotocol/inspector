@@ -64,6 +64,14 @@ vi.mock("@inspector/core/mcp/index.js", async (importOriginal) => {
       .fn()
       .mockResolvedValue({ success: true, result: { acts: [] } });
     cancelRequestorTask = vi.fn().mockResolvedValue(undefined);
+    isTasksExtensionNegotiated = vi.fn().mockReturnValue(false);
+    getRequestorTask = vi.fn().mockResolvedValue({
+      taskId: "t",
+      status: "working",
+      ttl: null,
+      createdAt: "",
+      lastUpdatedAt: "",
+    });
     cancelToolCall = vi.fn().mockReturnValue(true);
     getPrompt = vi.fn().mockResolvedValue({ result: { messages: [] } });
     readResource = vi
@@ -1105,6 +1113,55 @@ describe("App task wiring", () => {
     await user.click(screen.getByText("cancel-tool-call"));
 
     expect(client.cancelRequestorTask).toHaveBeenCalledWith("task-42");
+  });
+
+  it("Cancel on a task-input-required elicitation cancels the task, not answers it (#1631)", async () => {
+    // The user-facing half of the cancelable-loop fix: clicking Cancel on a
+    // MODERN task's input_required modal must cancel the underlying task (so the
+    // poll unblocks) rather than send an { action: "cancel" } answer that a
+    // non-advancing server would just re-prompt on.
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+    const client = clientInstances[0] as unknown as {
+      cancelRequestorTask: ReturnType<typeof vi.fn>;
+    };
+
+    const respond = vi.fn().mockResolvedValue(undefined);
+    const elicitation = {
+      id: "elicitation-1",
+      origin: "task-input-required",
+      taskId: "task-77",
+      request: {
+        params: {
+          message: "Approve this task before it continues?",
+          requestedSchema: {
+            type: "object",
+            properties: { approved: { type: "boolean", title: "Approved" } },
+          },
+        },
+      },
+      respond,
+    };
+    act(() => {
+      clientInstances[0].dispatchEvent(
+        new CustomEvent("pendingElicitationsChange", { detail: [elicitation] }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Approve this task before it continues/),
+      ).toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(client.cancelRequestorTask).toHaveBeenCalledWith("task-77");
+    // The task is cancelled instead of answering the request.
+    expect(respond).not.toHaveBeenCalled();
   });
 
   it("does not re-cancel on a rapid second Cancel click", async () => {

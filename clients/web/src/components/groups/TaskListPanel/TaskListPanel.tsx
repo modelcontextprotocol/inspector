@@ -135,6 +135,7 @@ export function TaskListPanel({
                     progress={progressByTaskId?.[task.taskId]}
                     isListExpanded={!compact}
                     onCancel={() => onCancel(task.taskId)}
+                    embedded={embedded}
                   />
                 ))}
               </>
@@ -157,6 +158,7 @@ export function TaskListPanel({
                     progress={progressByTaskId?.[task.taskId]}
                     isListExpanded={!compact}
                     onCancel={() => onCancel(task.taskId)}
+                    embedded={embedded}
                   />
                 ))}
               </>

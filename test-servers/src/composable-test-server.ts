@@ -43,6 +43,12 @@ import {
   ListTasksRequestSchema,
   TaskStatusNotificationSchema,
 } from "@modelcontextprotocol/core";
+import {
+  TASKS_EXTENSION_KEY,
+  ModernTaskRuntime,
+  createModernTaskTools,
+  wireModernTaskHandlers,
+} from "./modern-tasks.js";
 
 // Empty object JSON schema constant (from SDK's mcp.js)
 const EMPTY_OBJECT_JSON_SCHEMA = {
@@ -480,6 +486,21 @@ export interface ServerConfig {
    */
   taskStore?: InMemoryTaskStore;
   /**
+   * Advertise the modern (2026-07-28) `io.modelcontextprotocol/tasks` extension
+   * (SEP-2663) and wire its raw `tasks/get` / `tasks/update` / `tasks/cancel`
+   * handlers plus the `modern_task` / `modern_input_task` tools. Distinct from
+   * the legacy {@link ServerConfig.tasks} capability — meant to be paired with
+   * `modern: true`. See `modern-tasks.ts`.
+   */
+  tasksExtension?: boolean;
+  /**
+   * Shared modern task runtime. Created lazily on first `createMcpServer` call
+   * and cached here so the stateless modern leg's per-request server instances
+   * share one task store (a task created by a `tools/call` must be visible to a
+   * later `tasks/get`). Do not set by hand.
+   */
+  modernTaskRuntime?: ModernTaskRuntime;
+  /**
    * OAuth 2.1 configuration for test server.
    * - **combined** (default): this server is both MCP resource and authorization server.
    * - **protected-resource**: MCP resource only; metadata points at external authorization server(s).
@@ -615,9 +636,13 @@ export function createMcpServer(config: ServerConfig): McpServer {
       cancel?: object;
       requests?: { tools?: { call?: object } };
     };
+    extensions?: Record<string, object>;
   } = {};
 
-  if (config.tools !== undefined) {
+  // The modern tasks extension (SEP-2663) needs the tools capability too (its
+  // task-augmented tools list via `tools/list`), even when no `config.tools`
+  // were supplied.
+  if (config.tools !== undefined || config.tasksExtension) {
     capabilities.tools = {};
   }
   if (
@@ -649,6 +674,19 @@ export function createMcpServer(config: ServerConfig): McpServer {
     if (capabilities.tasks.cancel === undefined) {
       delete capabilities.tasks.cancel;
     }
+  }
+
+  // Modern tasks extension (SEP-2663): advertise it in server/discover and reuse
+  // (or lazily create + cache) the shared runtime so the stateless modern leg's
+  // per-request servers all answer against the same task store.
+  const modernTaskRuntime = config.tasksExtension
+    ? (config.modernTaskRuntime ??= new ModernTaskRuntime())
+    : undefined;
+  if (config.tasksExtension) {
+    capabilities.extensions = {
+      ...(capabilities.extensions ?? {}),
+      [TASKS_EXTENSION_KEY]: {},
+    };
   }
 
   // Create the in-memory task store if tasks are enabled. SDK v2 has no built-in
@@ -746,9 +784,15 @@ export function createMcpServer(config: ServerConfig): McpServer {
   // (returning a task handle), reproducing the deleted SDK task runtime.
   const taskTools = new Map<string, TaskToolDefinition>();
 
-  // Set up tools
-  if (config.tools && config.tools.length > 0) {
-    for (const tool of config.tools) {
+  // Set up tools. The modern tasks extension contributes its task-augmented
+  // tools (registered as ordinary tools so they surface in `tools/list`; their
+  // `tools/call` is intercepted by `wireModernTaskHandlers` below).
+  const effectiveTools: (ToolDefinition | TaskToolDefinition)[] = [
+    ...(config.tools ?? []),
+    ...(config.tasksExtension ? createModernTaskTools() : []),
+  ];
+  if (effectiveTools.length > 0) {
+    for (const tool of effectiveTools) {
       if (isTaskTool(tool)) {
         // Register the task tool as an ordinary tool so it surfaces in
         // `tools/list` with its input schema, `_meta`, and `execution` support.
@@ -1252,6 +1296,12 @@ export function createMcpServer(config: ServerConfig): McpServer {
   // --- Legacy tasks wiring (only when the tasks capability is enabled) ---
   if (taskStore) {
     wireTaskHandlers(mcpServer, taskStore, taskTools);
+  }
+
+  // Modern tasks extension (SEP-2663): raw tasks/get, tasks/update, tasks/cancel
+  // (no tasks/list, no tasks/result) plus the CreateTaskResult tools/call seam.
+  if (modernTaskRuntime) {
+    wireModernTaskHandlers(mcpServer, modernTaskRuntime);
   }
 
   return mcpServer;

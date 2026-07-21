@@ -2823,8 +2823,16 @@ function App() {
       // error). The created task shows up on the Tasks screen via the
       // `requestorTaskUpdated` events callToolStream dispatches, and its live
       // status/progress surface as toasts + progress bar.
+      // Legacy servers advertise task tool calls via
+      // `tasks.requests.tools.call`. Modern servers (SEP-2663) instead negotiate
+      // the `io.modelcontextprotocol/tasks` extension and are server-directed:
+      // task creation is decided per-request by the server, so declaring the
+      // extension on the call (which the task path does) is what makes a returned
+      // task handle legal ("unsolicited handles"). Either era routes the flagged
+      // call through the streaming task pipeline.
       const serverSupportsTaskToolCalls =
-        !!capabilities?.tasks?.requests?.tools?.call;
+        !!capabilities?.tasks?.requests?.tools?.call ||
+        inspectorClient.isTasksExtensionNegotiated();
       const asTask =
         serverSupportsTaskToolCalls &&
         (runAsTask || tool.execution?.taskSupport === "required");
@@ -3999,9 +4007,25 @@ function App() {
 
   const onElicitationRespond = useCallback(
     (result: ElicitResult) => {
-      void pendingElicitations[0]?.respond(result);
+      const pending = pendingElicitations[0];
+      if (!pending) return;
+      // "Cancel" on a MODERN task's input_required request means "give up on the
+      // task" — not "send a cancel answer" (which a non-advancing server would
+      // just re-prompt on). Cancel the underlying task instead; that aborts the
+      // pending request, closes this modal, and lets the poll settle as
+      // cancelled (#1631). Submit/Decline still answer the task normally.
+      if (
+        result.action === "cancel" &&
+        pending.origin === "task-input-required" &&
+        pending.taskId &&
+        inspectorClient
+      ) {
+        void inspectorClient.cancelRequestorTask(pending.taskId);
+        return;
+      }
+      void pending.respond(result);
     },
-    [pendingElicitations],
+    [pendingElicitations, inspectorClient],
   );
 
   const handleStepUpAuthorize = async () => {
@@ -4256,7 +4280,8 @@ function App() {
           highlightedServerIds={highlightedServerIds}
           onClearHighlight={clearHighlight}
           serverSupportsTaskToolCalls={
-            !!capabilities?.tasks?.requests?.tools?.call
+            !!capabilities?.tasks?.requests?.tools?.call ||
+            (inspectorClient?.isTasksExtensionNegotiated() ?? false)
           }
           onToolsUiChange={onToolsUiChange}
           onCallTool={(name, args, runAsTask) => {

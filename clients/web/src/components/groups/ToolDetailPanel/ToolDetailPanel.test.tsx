@@ -325,6 +325,42 @@ describe("ToolDetailPanel", () => {
       expect(screen.queryByLabelText("Run as task")).not.toBeInTheDocument();
     });
 
+    it("shows the toggle for a task-forbidden tool on a modern connection (#1631)", () => {
+      // On modern (SEP-2663) task creation is server-directed, so any tool can
+      // become a task — the toggle is offered regardless of per-tool taskSupport.
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={toolWithSupport("forbidden")}
+          serverSupportsTaskToolCalls={true}
+          modernTasks={true}
+          runAsTask={false}
+        />,
+      );
+      const toggle = screen.getByLabelText("Run as task");
+      expect(toggle).not.toBeChecked();
+      expect(toggle).not.toBeDisabled();
+    });
+
+    it("routes the user's runAsTask choice on a modern connection (#1631)", async () => {
+      const user = userEvent.setup();
+      const onExecute = vi.fn();
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={toolWithSupport("forbidden")}
+          serverSupportsTaskToolCalls={true}
+          modernTasks={true}
+          runAsTask={true}
+          onExecute={onExecute}
+        />,
+      );
+      // The toggle is checked (user's choice), and executing forwards true.
+      expect(screen.getByLabelText("Run as task")).toBeChecked();
+      await user.click(screen.getByRole("button", { name: "Execute Tool" }));
+      expect(onExecute).toHaveBeenCalledWith(true);
+    });
+
     it("shows an unchecked, enabled toggle for an optional tool (off by default)", () => {
       renderWithMantine(
         <ToolDetailPanel

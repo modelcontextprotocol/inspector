@@ -210,6 +210,68 @@ describe("ManagedRequestorTasksState", () => {
     expect(next[0]!.status).toBe("cancelled");
   });
 
+  it("keeps a cancelled task cancelled when a later completed update arrives (#1631)", async () => {
+    // Cancellation is a deliberate terminal decision: a server that completes the
+    // task anyway (cooperative cancel) or the in-flight call resolving must not
+    // flip it back to completed.
+    client.setStatus("connected");
+    client.queueTaskPages({ tasks: [task("t1", "working")] });
+    await state.refresh();
+
+    client.dispatchTypedEvent("taskCancelled", { taskId: "t1" });
+    expect(state.getTasks()[0]!.status).toBe("cancelled");
+
+    // A late server notification and a client-origin update, both "completed":
+    let changed = false;
+    state.addEventListener("tasksChange", () => {
+      changed = true;
+    });
+    client.dispatchTypedEvent("taskStatusChange", {
+      taskId: "t1",
+      task: task("t1", "completed"),
+    });
+    client.dispatchTypedEvent("requestorTaskUpdated", {
+      taskId: "t1",
+      task: task("t1", "completed"),
+    });
+    expect(changed).toBe(false);
+    expect(state.getTasks()[0]!.status).toBe("cancelled");
+  });
+
+  it("still applies a subsequent cancelled update for a cancelled task", async () => {
+    client.setStatus("connected");
+    client.queueTaskPages({ tasks: [task("t1", "working")] });
+    await state.refresh();
+    client.dispatchTypedEvent("taskCancelled", { taskId: "t1" });
+
+    // A cancelled-status update is not blocked (it agrees with the sticky state).
+    const changePromise = waitForChange(state);
+    client.dispatchTypedEvent("taskStatusChange", {
+      taskId: "t1",
+      task: { ...task("t1", "cancelled"), statusMessage: "stopped" },
+    });
+    const next = await changePromise;
+    expect(next[0]!.status).toBe("cancelled");
+    expect(next[0]!.statusMessage).toBe("stopped");
+  });
+
+  it("keeps a cancelled task cancelled across a legacy refresh that re-lists it completed (#1631)", async () => {
+    // A cooperative-cancel server may complete the task anyway and still return
+    // it as "completed" from tasks/list. A manual Refresh must not un-stick the
+    // user's cancel — the legacy refresh path pins it to "cancelled" too.
+    client.setStatus("connected");
+    client.queueTaskPages({ tasks: [task("t1", "working")] });
+    await state.refresh();
+
+    client.dispatchTypedEvent("taskCancelled", { taskId: "t1" });
+    expect(state.getTasks()[0]!.status).toBe("cancelled");
+
+    // Server now lists the same task as completed; refresh must keep it cancelled.
+    client.queueTaskPages({ tasks: [task("t1", "completed")] });
+    await state.refresh();
+    expect(state.getTasks()[0]!.status).toBe("cancelled");
+  });
+
   it("taskCancelled is a no-op when the task is unknown", async () => {
     client.setStatus("connected");
     client.queueTaskPages({ tasks: [task("t1")] });

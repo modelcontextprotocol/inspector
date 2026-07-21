@@ -113,6 +113,24 @@ export class FakeInspectorClient
   listRequestorTasks = vi.fn(
     async () => this.taskPages.shift() ?? { tasks: [] },
   );
+  // Modern task poll (#1631): defaults to echoing back a minimal task; tests
+  // override the mock to drive status transitions. Dispatches nothing by
+  // default — tests that exercise the merge path dispatch requestorTaskUpdated
+  // themselves or override this to do so.
+  getRequestorTask = vi.fn(async (taskId: string) => ({
+    taskId,
+    status: "working" as const,
+    ttl: null,
+    createdAt: "",
+    lastUpdatedAt: "",
+  }));
+  // Whether this fake presents as a modern connection that negotiated the
+  // tasks extension. Tests flip `tasksExtensionNegotiated` to true to exercise
+  // the modern task path.
+  tasksExtensionNegotiated = false;
+  isTasksExtensionNegotiated(): boolean {
+    return this.tasksExtensionNegotiated;
+  }
 
   // Aggregate variants used by the managed state stores on refresh: drain ALL
   // queued pages (mimicking the SDK's all-page walk) and return the flattened

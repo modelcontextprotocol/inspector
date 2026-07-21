@@ -59,6 +59,7 @@ import type {
   JSONRPCNotification,
   JSONRPCResultResponse,
   JSONRPCErrorResponse,
+  JSONRPCMessage,
   ServerCapabilities,
   ClientCapabilities,
   Implementation,
@@ -107,7 +108,23 @@ import {
   isInputRequiredResult,
   withInputRequired,
   LOG_LEVEL_META_KEY,
+  CLIENT_CAPABILITIES_META_KEY,
+  CLIENT_INFO_META_KEY,
+  PROTOCOL_VERSION_META_KEY,
+  RELATED_TASK_META_KEY,
 } from "@modelcontextprotocol/client";
+import {
+  TASKS_EXTENSION_KEY,
+  MODERN_TASK_HANDLE_META,
+  MODERN_PROTOCOL_VERSION,
+  ModernGetTaskResultSchema,
+  ModernUpdateTaskResultSchema,
+  ModernCancelTaskResultSchema,
+  normalizeModernTask,
+  readInputRequests,
+  isModernCreateTaskResult,
+  type ModernDetailedTask,
+} from "./modernTaskSchemas.js";
 import {
   EmptyResultSchema,
   CallToolResultSchema,
@@ -330,6 +347,9 @@ export class InspectorClient extends InspectorClientEventTarget {
   // UI surfaces (Server Info modal) can display them without poking at the
   // SDK Client's private state.
   private clientCapabilities: ClientCapabilities = {};
+  // The client identity ({name, version}) passed to the SDK Client. Reused to
+  // build the modern per-request envelope for raw tasks/* requests.
+  private clientInfo: Implementation;
   // Sampling requests
   private pendingSamples: SamplingCreateMessage[] = [];
   // Elicitation requests
@@ -376,6 +396,25 @@ export class InspectorClient extends InspectorClientEventTarget {
   // instead, so it lands in the right state immediately (#1455). Cleared on
   // disconnect.
   private cancelledTaskIds: Set<string> = new Set();
+  // Per-task abort controllers for a modern task paused at `input_required`.
+  // While the poll loop blocks on the pending elicitation (the modal), the tool
+  // call's own abort path isn't in play — so `cancelRequestorTask` aborts this
+  // controller to reject the pending request, close the modal, and let the poll
+  // observe the cancellation. Keyed by taskId; created/removed by the poll loops.
+  private taskInputAbortControllers = new Map<string, AbortController>();
+  // Pending raw-wire requests (modern tasks/* — see rawWireRequest). Keyed by a
+  // string JSON-RPC id we mint; the SDK Client only mints numeric ids, so ours
+  // never collide with (or reach) it. Resolved by the transport's
+  // consume-response hook and rejected on disconnect.
+  private pendingRawWireRequests = new Map<
+    string,
+    {
+      resolve: (result: unknown) => void;
+      reject: (err: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+  private rawWireRequestCounter = 0;
   // Abort controller for the in-flight ordinary (non-task) tool call. Aborting
   // it makes the SDK send a `notifications/cancelled` for that request (the MCP
   // cancellation flow) and reject the pending call, which `callTool` surfaces as
@@ -551,20 +590,30 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
     if (options.oauth?.enterpriseManaged) {
       capabilities.extensions = {
+        ...capabilities.extensions,
         "io.modelcontextprotocol/enterprise-managed-authorization": {},
       };
     }
-    if (Object.keys(capabilities).length > 0) {
-      clientOptions.capabilities = capabilities;
-    }
+    // Advertise the modern Tasks extension (SEP-2663) so the SDK stamps it into
+    // every modern request's `clientCapabilities` envelope — the per-request
+    // declaration a server requires before it may return a `CreateTaskResult`.
+    // Harmless on legacy (extensions are ignored there). This is what makes
+    // server-directed ("unsolicited") task creation legal on modern, and it
+    // makes `capabilities` always non-empty, so it's always attached.
+    capabilities.extensions = {
+      ...capabilities.extensions,
+      [TASKS_EXTENSION_KEY]: {},
+    };
+    clientOptions.capabilities = capabilities;
     this.clientCapabilities = capabilities;
 
     this.appRendererClientProxy = null;
+    this.clientInfo = options.clientIdentity ?? {
+      name: corePackageJson.name.split("/")[1] ?? corePackageJson.name,
+      version: corePackageJson.version,
+    };
     this.client = new Client(
-      options.clientIdentity ?? {
-        name: corePackageJson.name.split("/")[1] ?? corePackageJson.name,
-        version: corePackageJson.version,
-      },
+      this.clientInfo,
       Object.keys(clientOptions).length > 0 ? clientOptions : undefined,
     );
   }
@@ -1085,6 +1134,12 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.transport = new MessageTrackingTransport(
         baseTransport,
         messageTracking,
+        {
+          rewriteIncomingResult: (message) =>
+            this.rewriteModernTaskResult(message),
+          consumeIncomingResponse: (message) =>
+            this.consumeRawWireResponse(message),
+        },
       );
       this.attachTransportListeners(this.baseTransport);
     }
@@ -1580,6 +1635,14 @@ export class InspectorClient extends InspectorClientEventTarget {
       INACTIVE_SUBSCRIPTION_STREAM_STATE,
     );
     this.cancelledTaskIds.clear();
+    // Settle any pending raw-wire (modern tasks/*) requests so their callers
+    // don't hang past teardown.
+    this.rejectPendingRawWireRequests("Disconnected");
+    // Abort any task paused at input_required so its poll loop unwinds.
+    for (const [, controller] of this.taskInputAbortControllers) {
+      controller.abort(new Error("Disconnected"));
+    }
+    this.taskInputAbortControllers.clear();
     // Abort any in-flight ordinary tool call so its promise settles instead of
     // hanging past teardown; drop the controller reference either way.
     this.activeToolCallAbortController?.abort("Disconnected");
@@ -1705,6 +1768,174 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * True when the connection is modern (2026-07-28) AND the server advertised
+   * the `io.modelcontextprotocol/tasks` extension (SEP-2663) in its
+   * `server/discover` capabilities. Modern task methods (`tasks/get`,
+   * `tasks/update`, `tasks/cancel`) and the "unsolicited task handle" behavior
+   * are gated on this — legacy servers use `capabilities.tasks` and the
+   * `tasks/list`-backed flow instead. Exposed so the Tasks tab and the modern
+   * task store gate on the extension rather than the legacy capability.
+   */
+  isTasksExtensionNegotiated(): boolean {
+    return (
+      this.isModernEra() &&
+      this.capabilities?.extensions?.[TASKS_EXTENSION_KEY] !== undefined
+    );
+  }
+
+  /**
+   * Build the full modern (2026-07-28) per-request envelope for a RAW tasks/*
+   * request. The SDK's codec normally stamps this envelope, but raw requests
+   * bypass the codec, and the modern server rejects a request whose
+   * `MCP-Protocol-Version` header names 2026-07-28 but omits the required
+   * envelope `_meta` keys (`protocolVersion`, `clientInfo`, plus
+   * `clientCapabilities` carrying the tasks extension). We reproduce it here.
+   */
+  private withModernTaskEnvelope(
+    params: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const existingMeta =
+      (params._meta as Record<string, unknown> | undefined) ?? {};
+    const clientCapabilities = {
+      ...this.clientCapabilities,
+      // extensions always carries the tasks extension (advertised at
+      // construction), so spreading it is never a no-op.
+      extensions: {
+        ...this.clientCapabilities.extensions,
+        [TASKS_EXTENSION_KEY]: {},
+      },
+    };
+    // Use the NEGOTIATED protocol version so the envelope agrees with the
+    // `MCP-Protocol-Version` header the transport stamps from the same source —
+    // a future modern-family revision would negotiate a different string, and
+    // the two must not disagree. The raw channel only runs on a connected modern
+    // session, so this is always set; the constant is a defensive fallback.
+    /* v8 ignore next -- fallback only if getProtocolVersion() is unset, which
+       can't happen on the connected modern session this runs on. */
+    const protocolVersion = this.getProtocolVersion() ?? MODERN_PROTOCOL_VERSION;
+    return {
+      ...params,
+      _meta: {
+        ...existingMeta,
+        [PROTOCOL_VERSION_META_KEY]: protocolVersion,
+        [CLIENT_INFO_META_KEY]: this.clientInfo,
+        [CLIENT_CAPABILITIES_META_KEY]: clientCapabilities,
+      },
+    };
+  }
+
+  /**
+   * Transport-level rewrite of a modern (SEP-2663) `CreateTaskResult`
+   * (`resultType: "task"`) — the one task frame the SDK v2 codec rejects (tasks
+   * were removed, so the codec knows only `complete`/`input_required`). The true
+   * frame is already logged by `trackResponse`; here we hand the SDK a benign
+   * `CallToolResult` that carries the real `DetailedTask` under
+   * {@link MODERN_TASK_HANDLE_META}, where {@link pollTaskToolCall} reads it to
+   * drive the poll. Any other message passes through untouched.
+   */
+  private rewriteModernTaskResult(
+    message: JSONRPCResultResponse,
+  ): JSONRPCMessage {
+    if (!isModernCreateTaskResult(message.result)) {
+      return message;
+    }
+    const task = message.result as ModernDetailedTask;
+    return {
+      ...message,
+      result: {
+        resultType: "complete",
+        content: [
+          { type: "text", text: `Modern task ${task.taskId} created` },
+        ],
+        _meta: { [MODERN_TASK_HANDLE_META]: task },
+      },
+    };
+  }
+
+  /**
+   * Send an extension method the SDK v2 era gate refuses to route — the modern
+   * `tasks/get` / `tasks/update` / `tasks/cancel`, which are spec-method names
+   * absent from the 2026-07-28 era, so `client.request` throws
+   * `MethodNotSupportedByProtocolVersion` before anything reaches the wire.
+   *
+   * We mint a string JSON-RPC id (the SDK only mints numeric ids, so ours never
+   * collide), send the raw frame straight through the transport (which still
+   * logs it via `trackRequest`, so the Protocol/Network tabs see it), and await
+   * the matching response — captured and consumed by the transport's
+   * consume-response hook so it never confuses the SDK Client. The response is
+   * validated with the caller's explicit schema.
+   */
+  private async rawWireRequest<T>(
+    method: string,
+    params: Record<string, unknown>,
+    resultSchema: { parse: (value: unknown) => T },
+  ): Promise<T> {
+    const transport = this.transport;
+    if (!transport) {
+      throw new Error("Client is not connected");
+    }
+    const id = `inspector-ext-${(this.rawWireRequestCounter += 1)}`;
+    const message = {
+      jsonrpc: "2.0" as const,
+      id,
+      method,
+      params,
+    } as unknown as JSONRPCMessage;
+    const timeoutMs = this.requestTimeout ?? 30_000;
+    const raw = await new Promise<unknown>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingRawWireRequests.delete(id);
+        reject(new Error(`Raw request "${method}" timed out after ${timeoutMs} ms`));
+      }, timeoutMs);
+      this.pendingRawWireRequests.set(id, { resolve, reject, timer });
+      transport.send(message).catch((err: unknown) => {
+        const pending = this.pendingRawWireRequests.get(id);
+        if (pending) {
+          clearTimeout(pending.timer);
+          this.pendingRawWireRequests.delete(id);
+        }
+        reject(err instanceof Error ? err : new Error(String(err)));
+      });
+    });
+    return resultSchema.parse(raw);
+  }
+
+  /**
+   * Transport consume-response hook: resolve/reject a pending
+   * {@link rawWireRequest} when its response arrives, and report it as consumed
+   * (so the transport does not forward it to the SDK Client, which never sent
+   * it). Returns false for any id we don't own, leaving normal SDK traffic
+   * untouched.
+   */
+  private consumeRawWireResponse(
+    message: JSONRPCResultResponse | JSONRPCErrorResponse,
+  ): boolean {
+    const id = String((message as { id?: unknown }).id);
+    const pending = this.pendingRawWireRequests.get(id);
+    if (!pending) {
+      return false;
+    }
+    this.pendingRawWireRequests.delete(id);
+    clearTimeout(pending.timer);
+    if ("error" in message) {
+      const err = (message as JSONRPCErrorResponse).error;
+      pending.reject(new Error(err?.message ?? `Request ${id} failed`));
+    } else {
+      pending.resolve((message as JSONRPCResultResponse).result);
+    }
+    return true;
+  }
+
+  /** Reject and clear all pending raw-wire requests (on disconnect/teardown). */
+  private rejectPendingRawWireRequests(reason: string): void {
+    for (const [, pending] of this.pendingRawWireRequests) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error(reason));
+    }
+    this.pendingRawWireRequests.clear();
+  }
+
+  /**
    * Get requestor task status by taskId (tasks we created on the server)
    * @param taskId Task identifier
    * @returns Task status
@@ -1713,9 +1944,26 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    // SDK v2 removed `client.experimental.tasks.*`; drive the 2025-11-25
-    // `tasks/get` wire method directly with its explicit (deprecated-but-
-    // importable) result schema. `GetTaskResult` is the flattened task object.
+    // Modern (SEP-2663): `tasks/get` returns a `DetailedTask` (ttlMs/pollIntervalMs,
+    // inlined result/error/inputRequests) — a different wire shape than the
+    // deprecated SDK schema. Parse with the explicit modern schema and normalize
+    // onto the internal Task shape, stamping the extension client capability.
+    if (this.isTasksExtensionNegotiated()) {
+      const modern = await this.rawWireRequest(
+        "tasks/get",
+        this.withModernTaskEnvelope({ taskId }),
+        ModernGetTaskResultSchema,
+      );
+      const task = normalizeModernTask(modern);
+      this.dispatchTypedEvent("requestorTaskUpdated", {
+        taskId: task.taskId,
+        task,
+      });
+      return task;
+    }
+    // Legacy (2025-11-25): SDK v2 removed `client.experimental.tasks.*`; drive
+    // the `tasks/get` wire method directly with its deprecated-but-importable
+    // result schema. `GetTaskResult` is the flattened task object.
     const task = (await this.client.request(
       { method: "tasks/get", params: { taskId } },
       GetTaskResultSchema,
@@ -1762,14 +2010,58 @@ export class InspectorClient extends InspectorClientEventTarget {
     // whose error message may arrive before this resolves — the stream's error
     // path reads this set to label the task "cancelled" rather than "failed".
     this.cancelledTaskIds.add(taskId);
-    await this.client.request(
-      { method: "tasks/cancel", params: { taskId } },
-      CancelTaskResultSchema,
-      this.getRequestOptions(),
-    );
+    // If the task is paused at `input_required` (its poll loop blocked on the
+    // pending-request modal), abort it so the modal closes and the poll observes
+    // the cancellation — otherwise the user is stuck answering a modal that a
+    // non-advancing server would keep re-showing.
+    const inputAbort = this.taskInputAbortControllers.get(taskId);
+    if (inputAbort) {
+      inputAbort.abort(new Error(`Task ${taskId} cancelled by user`));
+    }
+    // Modern `tasks/cancel` is a raw-wire request (the SDK era gate blocks the
+    // spec-method name on 2026-07-28); legacy uses the SDK path + deprecated
+    // schema.
+    if (this.isTasksExtensionNegotiated()) {
+      await this.rawWireRequest(
+        "tasks/cancel",
+        this.withModernTaskEnvelope({ taskId }),
+        ModernCancelTaskResultSchema,
+      );
+    } else {
+      await this.client.request(
+        { method: "tasks/cancel", params: { taskId } },
+        CancelTaskResultSchema,
+        this.getRequestOptions(),
+      );
+    }
 
     // Dispatch event
     this.dispatchTypedEvent("taskCancelled", { taskId });
+  }
+
+  /**
+   * Fulfil the outstanding `inputRequests` of a modern (SEP-2663)
+   * `input_required` task by sending `tasks/update` with the collected
+   * `inputResponses`. The server acks with an empty result; the task's
+   * observable status advances on a subsequent `tasks/get` poll (the update is
+   * eventually consistent). Modern-only — legacy tasks surface input through the
+   * server→client request channel, not `tasks/update`.
+   *
+   * @param taskId Task identifier
+   * @param inputResponses Responses keyed by the server's `inputRequests` ids
+   */
+  async updateRequestorTask(
+    taskId: string,
+    inputResponses: Record<string, unknown>,
+  ): Promise<void> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    await this.rawWireRequest(
+      "tasks/update",
+      this.withModernTaskEnvelope({ taskId, inputResponses }),
+      ModernUpdateTaskResultSchema,
+    );
   }
 
   /**
@@ -1987,36 +2279,40 @@ export class InspectorClient extends InspectorClientEventTarget {
   private async fulfilInputRequests(
     inputRequests: InputRequests | undefined,
     signal?: AbortSignal,
+    origin: PendingRequestOrigin = "input-required",
   ): Promise<Record<string, unknown> | undefined> {
     if (!inputRequests) return undefined;
     const responses: Record<string, unknown> = {};
     for (const [key, embedded] of Object.entries(inputRequests)) {
-      responses[key] = await this.fulfilEmbeddedInputRequest(embedded, signal);
+      responses[key] = await this.fulfilEmbeddedInputRequest(
+        embedded,
+        signal,
+        origin,
+      );
     }
     return responses;
   }
 
   /**
-   * Fulfil a single embedded MRTR request. `roots/list` is auto-answered from
+   * Fulfil a single embedded input request. `roots/list` is auto-answered from
    * the configured roots (consistent with the legacy `roots/list` handler — no
    * pending UX); `elicitation/create` and `sampling/createMessage` surface
-   * through the pending-request UI tagged `"input-required"`.
+   * through the pending-request UI tagged with `origin`. `origin` distinguishes
+   * an MRTR round (`"input-required"`, answer echoed as a retry) from a modern
+   * task round (`"task-input-required"`, answer submitted via `tasks/update`).
    */
   private async fulfilEmbeddedInputRequest(
     request: CreateMessageRequest | ElicitRequest | ListRootsRequest,
     signal?: AbortSignal,
+    origin: PendingRequestOrigin = "input-required",
   ): Promise<unknown> {
     switch (request.method) {
       case "roots/list":
         return { roots: this.roots ?? [] };
       case "elicitation/create":
-        return this.enqueuePendingElicitation(
-          request,
-          "input-required",
-          signal,
-        );
+        return this.enqueuePendingElicitation(request, origin, signal);
       case "sampling/createMessage":
-        return this.enqueuePendingSample(request, "input-required", signal);
+        return this.enqueuePendingSample(request, origin, signal);
       /* v8 ignore next 6 -- defensive: an SDK server rejects an unknown embedded
          method before it reaches the wire, so this only guards against a
          non-conformant hand-rolled server; not reproducible against the
@@ -2514,7 +2810,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // via `validateToolOutput`. MCP Apps passthrough (skipOutputValidation)
     // simply skips that check; both paths yield a CallToolResult once the
     // driver returns a complete (non-`input_required`) result.
-    const result = await this.invokeMcpClient(
+    const rawResult = await this.invokeMcpClient(
       () =>
         this.requestWithInputRequired(
           "tools/call",
@@ -2524,6 +2820,19 @@ export class InspectorClient extends InspectorClientEventTarget {
         ),
       { method: "tools/call", toolName: tool.name },
     );
+
+    // Unsolicited modern task handle (SEP-2663): on a modern connection the
+    // server may answer ANY `tools/call` with a task rather than a result. The
+    // transport rewrote that frame into a `CallToolResult` carrying the real
+    // `DetailedTask` in `_meta`; poll it to completion here (the run-as-task
+    // path does the same via `callToolStream`) so the ordinary call resolves to
+    // the task's final result and the Tasks tab tracks it.
+    const taskHandle = (rawResult as CallToolResult)._meta?.[
+      MODERN_TASK_HANDLE_META
+    ] as ModernDetailedTask | undefined;
+    const result = taskHandle
+      ? await this.pollModernTaskToTermination(taskHandle)
+      : rawResult;
 
     // Output-schema validation. SDK v2's `callTool` relaxed some checks (e.g. it
     // no longer rejects a structuredContent with undeclared properties against a
@@ -2656,6 +2965,205 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * When a modern (SEP-2663) task is `input_required`, fulfil its embedded
+   * `inputRequests` through the pending-request UI and submit them via
+   * `tasks/update`. No-op for any other status. Shared by the streaming
+   * ({@link pollTaskToolCall}) and ordinary ({@link pollModernTaskToTermination})
+   * poll loops so the input handling lives in one place.
+   *
+   * `priorRounds` is the count of `input_required` rounds already handled for
+   * this task; the return value is the updated count. A non-conformant server
+   * that keeps returning `input_required` without ever completing would
+   * otherwise re-prompt the user on every poll forever, so we bound it with the
+   * same {@link MRTR_MAX_ROUNDS} cap the MRTR driver uses.
+   */
+  private async submitModernTaskInput(
+    detailed: ModernDetailedTask,
+    task: Task,
+    priorRounds: number,
+    signal?: AbortSignal,
+  ): Promise<number> {
+    if (task.status !== "input_required") {
+      return priorRounds;
+    }
+    const rounds = priorRounds + 1;
+    if (rounds > InspectorClient.MRTR_MAX_ROUNDS) {
+      throw new Error(
+        `Modern task "${task.taskId}" exceeded ${InspectorClient.MRTR_MAX_ROUNDS} input_required rounds without completing.`,
+      );
+    }
+    const inputResponses = await this.fulfilInputRequests(
+      this.tagInputRequestsWithTask(readInputRequests(detailed), task.taskId),
+      signal,
+      "task-input-required",
+    );
+    /* v8 ignore next 3 -- a conformant `input_required` task always carries
+       `inputRequests`, so `fulfilInputRequests` returns a (possibly empty)
+       object here, never undefined; the guard is defensive. */
+    if (inputResponses) {
+      await this.updateRequestorTask(task.taskId, inputResponses);
+    }
+    return rounds;
+  }
+
+  /**
+   * Stamp `_meta[RELATED_TASK_META_KEY]` with the owning task id on each embedded
+   * request of a modern task's `inputRequests`. The pending-request UI reads that
+   * id (via `ElicitationCreateMessage.taskId`) so its Cancel control can cancel
+   * the TASK — not just answer the request — when a task is paused at
+   * `input_required`.
+   */
+  private tagInputRequestsWithTask(
+    inputRequests: InputRequests | undefined,
+    taskId: string,
+  ): InputRequests | undefined {
+    /* v8 ignore next -- only called for an input_required task, which always
+       carries inputRequests; the undefined passthrough is defensive. */
+    if (!inputRequests) return inputRequests;
+    const tagged: Record<string, unknown> = {};
+    for (const [key, req] of Object.entries(inputRequests)) {
+      const request = req as { params?: { _meta?: Record<string, unknown> } };
+      tagged[key] = {
+        ...request,
+        params: {
+          ...request.params,
+          _meta: {
+            ...request.params?._meta,
+            [RELATED_TASK_META_KEY]: { taskId },
+          },
+        },
+      };
+    }
+    return tagged as InputRequests;
+  }
+
+  /**
+   * Terminal outcome for a modern task: the inlined `CallToolResult` for a
+   * `completed` task (SEP-2663 removed the blocking `tasks/result`), or a
+   * `ProtocolError` for `failed` / `cancelled`. Shared so both poll loops agree
+   * on the result/error shape.
+   */
+  private modernTaskTerminalOutcome(
+    task: Task,
+    detailed: ModernDetailedTask,
+  ):
+    | { type: "result"; result: CallToolResult }
+    | { type: "error"; error: ProtocolError } {
+    if (task.status === "completed") {
+      /* v8 ignore next -- a conformant `completed` task always inlines its
+         `result`; the `{ content: [] }` fallback is defensive. */
+      return {
+        type: "result",
+        result: (detailed.result ?? { content: [] }) as CallToolResult,
+      };
+    }
+    return {
+      type: "error",
+      error: new ProtocolError(
+        ProtocolErrorCode.InternalError,
+        task.statusMessage ?? `Task ${task.status}`,
+      ),
+    };
+  }
+
+  /**
+   * Poll cadence for a task: the server-advertised `pollInterval` when
+   * positive, else the default. Shared by every task poll loop (both eras).
+   */
+  private taskPollInterval(task: Task): number {
+    const advertised = task.pollInterval;
+    if (typeof advertised !== "number") return DEFAULT_TASK_POLL_INTERVAL_MS;
+    // A spec-conformant server never advertises a non-positive interval; the
+    // `> 0` guard is defensive against a malformed value.
+    /* v8 ignore next -- non-positive pollInterval is unreachable from a conformant server. */
+    return advertised > 0 ? advertised : DEFAULT_TASK_POLL_INTERVAL_MS;
+  }
+
+  /**
+   * Register a per-task abort controller (keyed by taskId) whose signal gates
+   * the task's `input_required` pending request, and return the signal plus a
+   * `release` cleanup. {@link cancelRequestorTask} aborts it to unblock a task
+   * paused at the pending-request modal.
+   */
+  private registerTaskInputAbort(taskId: string): {
+    signal: AbortSignal;
+    release: () => void;
+  } {
+    const controller = new AbortController();
+    this.taskInputAbortControllers.set(taskId, controller);
+    return {
+      signal: controller.signal,
+      release: () => {
+        // Only delete our own entry — tool calls are serial, so a second task
+        // never replaces this id's controller mid-poll; the guard is defensive.
+        /* v8 ignore next */
+        if (this.taskInputAbortControllers.get(taskId) === controller) {
+          this.taskInputAbortControllers.delete(taskId);
+        }
+      },
+    };
+  }
+
+  /**
+   * Drive a modern (SEP-2663) task to a terminal state from a seed
+   * `DetailedTask`, dispatching task events so the Tasks tab and toasts track
+   * it, and return the completed task's inlined `CallToolResult` (or throw on
+   * `failed` / `cancelled`). Used by the ORDINARY `callTool` path when a server
+   * returns an unsolicited task handle (the run-as-task streaming path drives
+   * the equivalent loop inline in {@link pollTaskToolCall}). `input_required`
+   * rounds are answered through the pending-request UI and submitted via
+   * `tasks/update`.
+   */
+  private async pollModernTaskToTermination(
+    seed: ModernDetailedTask,
+  ): Promise<CallToolResult> {
+    let detailed = seed;
+    let task = normalizeModernTask(detailed);
+    const emit = (t: Task): void => {
+      this.dispatchTypedEvent("toolCallTaskUpdated", {
+        taskId: t.taskId,
+        task: t,
+      });
+      this.dispatchTypedEvent("requestorTaskUpdated", {
+        taskId: t.taskId,
+        task: t,
+      });
+    };
+    emit(task);
+    const { signal: inputSignal, release } = this.registerTaskInputAbort(
+      task.taskId,
+    );
+    try {
+      let inputRounds = 0;
+      while (!InspectorClient.isTerminalTaskStatus(task.status)) {
+        inputRounds = await this.submitModernTaskInput(
+          detailed,
+          task,
+          inputRounds,
+          inputSignal,
+        );
+        await new Promise((resolve) =>
+          setTimeout(resolve, this.taskPollInterval(task)),
+        );
+        detailed = await this.rawWireRequest(
+          "tasks/get",
+          this.withModernTaskEnvelope({ taskId: task.taskId }),
+          ModernGetTaskResultSchema,
+        );
+        task = normalizeModernTask(detailed);
+        emit(task);
+      }
+    } finally {
+      release();
+    }
+    const outcome = this.modernTaskTerminalOutcome(task, detailed);
+    if (outcome.type === "error") {
+      throw outcome.error;
+    }
+    return outcome.result;
+  }
+
+  /**
    * Poll a task-augmented tool call to completion. Replaces the removed
    * `client.experimental.tasks.callToolStream` helper: it sends the
    * task-augmented `tools/call` (the server responds with a task handle, i.e. a
@@ -2700,12 +3208,27 @@ export class InspectorClient extends InspectorClientEventTarget {
     // may return an immediate `CallToolResult` instead — accept either with a
     // union schema and branch on the presence of `task`.
     //
-    // NOTE: this task path does NOT opt into `allowInputRequired`, so a
-    // task-augmented tool that returns `input_required` is not MRTR-driven here.
-    // Driving MRTR over the tasks extension is out of scope for #1704.
+    // NOTE: the LEGACY task path does NOT opt into `allowInputRequired` (MRTR
+    // over legacy tasks is out of scope for #1704). The MODERN path (SEP-2663)
+    // instead surfaces a task's `input_required` through `tasks/get`'s
+    // `inputRequests` and answers via `tasks/update` (handled in the poll loop
+    // below), reusing the same pending-request UI.
+    const modernTasks = this.isTasksExtensionNegotiated();
     const requestPromise = client.request(
-      { method: "tools/call", params },
-      CreateTaskResultSchema.or(CallToolResultSchema),
+      {
+        // On modern the SDK codec stamps the tasks-extension client capability
+        // into the request envelope (advertised at construction), so a server
+        // may answer with a `CreateTaskResult` — no per-call `_meta` needed.
+        method: "tools/call",
+        params,
+      },
+      // Modern: the SDK codec can't decode a `resultType: "task"` result, so the
+      // transport rewrote it to a `CallToolResult` carrying the task handle in
+      // `_meta` — parse as a CallToolResult and read the handle below. Legacy:
+      // accept a `{ task }` handle or an immediate result.
+      modernTasks
+        ? CallToolResultSchema
+        : CreateTaskResultSchema.or(CallToolResultSchema),
       requestOptions,
     );
     // The SDK registers the progress handler synchronously while constructing
@@ -2722,6 +3245,67 @@ export class InspectorClient extends InspectorClientEventTarget {
       ? [...progressHandlers.keys()].find((k) => !keysBeforeRequest.has(k))
       : undefined;
     const created = await requestPromise;
+
+    if (modernTasks) {
+      // Modern (SEP-2663): a task-creating `tools/call` came back as a
+      // `resultType: "task"` frame the SDK can't decode, so the transport
+      // rewrote it to a `CallToolResult` carrying the real `DetailedTask` under
+      // MODERN_TASK_HANDLE_META. A synchronous completion has no such handle —
+      // yield that `CallToolResult` directly.
+      const handle = (created as CallToolResult)._meta?.[
+        MODERN_TASK_HANDLE_META
+      ] as ModernDetailedTask | undefined;
+      if (!handle) {
+        yield { type: "result", result: created as CallToolResult };
+        return;
+      }
+      let detailed = handle;
+      let task = normalizeModernTask(detailed);
+      yield { type: "taskCreated", task };
+      if (progressSubscriptionId != null && requestOptions.onprogress) {
+        progressHandlers.set(progressSubscriptionId, requestOptions.onprogress);
+      }
+      const { signal: inputSignal, release } = this.registerTaskInputAbort(
+        task.taskId,
+      );
+      let inputRounds = 0;
+      try {
+        while (!InspectorClient.isTerminalTaskStatus(task.status)) {
+          // `input_required`: fulfil the embedded server→client requests through
+          // the same pending-request UI the MRTR path uses, then submit them via
+          // `tasks/update`. The update is eventually consistent — the task's
+          // status advances on a following `tasks/get`, so keep polling
+          // (bounded by MRTR_MAX_ROUNDS against a server that never advances).
+          // `inputSignal` fires if the task is cancelled while paused here.
+          inputRounds = await this.submitModernTaskInput(
+            detailed,
+            task,
+            inputRounds,
+            inputSignal,
+          );
+          await new Promise((resolve) =>
+            setTimeout(resolve, this.taskPollInterval(task)),
+          );
+          detailed = await this.rawWireRequest(
+            "tasks/get",
+            this.withModernTaskEnvelope({ taskId: task.taskId }),
+            ModernGetTaskResultSchema,
+          );
+          task = normalizeModernTask(detailed);
+          yield { type: "taskStatus", task };
+        }
+      } finally {
+        release();
+        if (progressSubscriptionId != null) {
+          progressHandlers.delete(progressSubscriptionId);
+        }
+      }
+      // Modern removes the blocking `tasks/result`: a completed task inlines its
+      // CallToolResult; failed/cancelled surface as an error.
+      yield this.modernTaskTerminalOutcome(task, detailed);
+      return;
+    }
+
     if (!("task" in created) || created.task == null) {
       // Immediate result — no task was created; yield it directly.
       yield { type: "result", result: created as CallToolResult };
@@ -2739,11 +3323,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       // Poll `tasks/get` until the task reaches a terminal status. Honour the
       // server-advertised `pollInterval` when present, else the default cadence.
       while (!InspectorClient.isTerminalTaskStatus(task.status)) {
-        const pollInterval =
-          typeof task.pollInterval === "number" && task.pollInterval > 0
-            ? task.pollInterval
-            : DEFAULT_TASK_POLL_INTERVAL_MS;
-        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        await new Promise((resolve) =>
+          setTimeout(resolve, this.taskPollInterval(task)),
+        );
         task = (await client.request(
           { method: "tasks/get", params: { taskId: task.taskId } },
           GetTaskResultSchema,
