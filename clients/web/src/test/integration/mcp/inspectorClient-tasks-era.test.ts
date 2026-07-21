@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, afterAll } from "vitest";
 import * as z from "zod/v4";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
@@ -25,7 +25,12 @@ import type { MessageEntry } from "@inspector/core/mcp/types.js";
  */
 describe("tasks era fork (#1631)", () => {
   let client: InspectorClient | null = null;
-  let server: TestServerHttp | null = null;
+  // One server per era, shared across the block's tests (started lazily, stopped
+  // in afterAll). Starting a fresh Express server per test made connection
+  // negotiation flaky under the heavy concurrent coverage run; task ids are
+  // unique per create so sharing state is harmless.
+  let modernServer: TestServerHttp | null = null;
+  let legacyServer: TestServerHttp | null = null;
 
   afterEach(async () => {
     if (client) {
@@ -36,17 +41,24 @@ describe("tasks era fork (#1631)", () => {
       }
       client = null;
     }
-    if (server) {
-      try {
-        await server.stop();
-      } catch {
-        // ignore
+  });
+
+  afterAll(async () => {
+    for (const s of [modernServer, legacyServer]) {
+      if (s) {
+        try {
+          await s.stop();
+        } catch {
+          // ignore
+        }
       }
-      server = null;
     }
+    modernServer = null;
+    legacyServer = null;
   });
 
   async function startModernTasksServer(): Promise<TestServerHttp> {
+    if (modernServer) return modernServer;
     const started = createTestServerHttp({
       serverInfo: createTestServerInfo("tasks-modern-test", "1.0.0"),
       tasksExtension: true,
@@ -67,18 +79,19 @@ describe("tasks era fork (#1631)", () => {
       modern: {},
     });
     await started.start();
-    server = started;
+    modernServer = started;
     return started;
   }
 
   async function startLegacyTasksServer(): Promise<TestServerHttp> {
+    if (legacyServer) return legacyServer;
     const config = getTaskServerConfig() as ServerConfig;
     const started = createTestServerHttp({
       ...config,
       serverInfo: createTestServerInfo("tasks-legacy-test", "1.0.0"),
     });
     await started.start();
-    server = started;
+    legacyServer = started;
     return started;
   }
 
