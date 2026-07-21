@@ -244,7 +244,7 @@ const originValidationMiddleware = (
     defaultOrigin,
   ];
 
-  if (origin && !allowedOrigins.includes(origin)) {
+  if (!origin || !allowedOrigins.includes(origin)) {
     console.error(`Invalid origin: ${origin}`);
     res.status(403).json({
       error: "Forbidden - invalid origin",
