@@ -255,6 +255,23 @@ describe("ManagedRequestorTasksState", () => {
     expect(next[0]!.statusMessage).toBe("stopped");
   });
 
+  it("keeps a cancelled task cancelled across a legacy refresh that re-lists it completed (#1631)", async () => {
+    // A cooperative-cancel server may complete the task anyway and still return
+    // it as "completed" from tasks/list. A manual Refresh must not un-stick the
+    // user's cancel — the legacy refresh path pins it to "cancelled" too.
+    client.setStatus("connected");
+    client.queueTaskPages({ tasks: [task("t1", "working")] });
+    await state.refresh();
+
+    client.dispatchTypedEvent("taskCancelled", { taskId: "t1" });
+    expect(state.getTasks()[0]!.status).toBe("cancelled");
+
+    // Server now lists the same task as completed; refresh must keep it cancelled.
+    client.queueTaskPages({ tasks: [task("t1", "completed")] });
+    await state.refresh();
+    expect(state.getTasks()[0]!.status).toBe("cancelled");
+  });
+
   it("taskCancelled is a no-op when the task is unknown", async () => {
     client.setStatus("connected");
     client.queueTaskPages({ tasks: [task("t1")] });

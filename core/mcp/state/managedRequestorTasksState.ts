@@ -167,9 +167,17 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
       const result = await client.listRequestorTasks(cursor);
       // Filter out tasks the user dismissed via clearCompleted() so a server
       // that still lists them (or an in-flight refresh) can't resurrect them.
-      const page = result.tasks.filter(
-        (t) => !this.dismissedTaskIds.has(t.taskId),
-      );
+      // For a user-cancelled task, keep it but pin its status to "cancelled":
+      // cancellation is cooperative, so a server that completes and re-lists it
+      // as "completed" must not un-stick the cancel on a manual Refresh — same
+      // guarantee the live-merge handlers give via `cancelledTaskIds`.
+      const page = result.tasks
+        .filter((t) => !this.dismissedTaskIds.has(t.taskId))
+        .map((t) =>
+          this.cancelledTaskIds.has(t.taskId)
+            ? { ...t, status: "cancelled" as const }
+            : t,
+        );
       this.tasks = cursor ? [...this.tasks, ...page] : page;
       cursor = result.nextCursor;
       pageCount++;
