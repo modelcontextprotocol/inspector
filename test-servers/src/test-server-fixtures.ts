@@ -240,6 +240,29 @@ export function createGetWeatherTool(): ToolDefinition {
 }
 
 /**
+ * Create a tool whose SEP-2243 `x-mcp-header` annotation is INVALID: the header
+ * name `"Bad Header"` contains a space, so it is not a valid RFC 9110 token.
+ * The whole tool definition is therefore invalid, and a conforming Streamable
+ * HTTP client MUST exclude it from `tools/list`. The server still serves it in
+ * the raw list (it only warns), so the Inspector can re-list raw and surface it
+ * as excluded with the reason (#1632).
+ */
+export function createInvalidHeaderTool(): ToolDefinition {
+  return {
+    name: "invalid_header_tool",
+    description:
+      "A tool with an invalid x-mcp-header annotation; conforming clients exclude it.",
+    inputSchema: {
+      value: z
+        .string()
+        .describe("A value")
+        .meta({ "x-mcp-header": "Bad Header" }),
+    },
+    handler: async () => toToolResult("should have been excluded"),
+  };
+}
+
+/**
  * Create a no-op "trigger" tool whose `tools/call` is intercepted by the modern
  * leg's spec-error injector (`injectSpecErrors`) to return a crafted
  * SEP-2243/SEP-2575 error. The handler is a harmless fallback for the

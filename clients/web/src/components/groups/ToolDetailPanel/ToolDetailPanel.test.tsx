@@ -469,4 +469,37 @@ describe("ToolDetailPanel", () => {
       expect(onExecute).toHaveBeenCalledWith(false);
     });
   });
+
+  describe("mirrored request headers (SEP-2243, #1632)", () => {
+    const mirroredTool: Tool = {
+      name: "get_weather",
+      inputSchema: {
+        type: "object",
+        properties: {
+          city: { type: "string", "x-mcp-header": "City" },
+          country: { type: "string", "x-mcp-header": "Country" },
+        },
+      },
+    };
+
+    it("lists each mirrored arg and its Mcp-Param header", () => {
+      renderWithMantine(<ToolDetailPanel {...baseProps} tool={mirroredTool} />);
+      expect(
+        screen.getByText("Mirrored request headers (SEP-2243)"),
+      ).toBeInTheDocument();
+      // The header names are unique to this section (the arg names `city` /
+      // `country` also appear as form-field labels below).
+      expect(screen.getByText("Mcp-Param-City")).toBeInTheDocument();
+      expect(screen.getByText("Mcp-Param-Country")).toBeInTheDocument();
+      // The arg path renders in a <code> alongside its header.
+      expect(screen.getAllByText("city").length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("omits the section for a tool without x-mcp-header annotations", () => {
+      renderWithMantine(<ToolDetailPanel {...baseProps} tool={simpleTool} />);
+      expect(
+        screen.queryByText("Mirrored request headers (SEP-2243)"),
+      ).not.toBeInTheDocument();
+    });
+  });
 });

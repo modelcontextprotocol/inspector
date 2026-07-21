@@ -35,6 +35,7 @@ import type {
   ResourceTemplateReadInvocation,
   ResourceSubscriptionStreamState,
   ToolCallInvocation,
+  ExcludedTool,
 } from "../types.js";
 import { INACTIVE_SUBSCRIPTION_STREAM_STATE } from "../types.js";
 import type { JsonValue } from "../../json/jsonUtils.js";
@@ -263,6 +264,18 @@ export class FakeInspectorClient
 
   getProtocolEra(): ProtocolEra | undefined {
     return this.protocolEra;
+  }
+
+  private excludedTools: ExcludedTool[] = [];
+
+  getExcludedTools(): ExcludedTool[] {
+    return this.excludedTools;
+  }
+
+  /** Test helper: set the excluded-tools set and emit `excludedToolsChange`. */
+  setExcludedTools(excluded: ExcludedTool[]): void {
+    this.excludedTools = excluded;
+    this.dispatchTypedEvent("excludedToolsChange", excluded);
   }
 
   getDiscoverResult(): DiscoverResult | undefined {

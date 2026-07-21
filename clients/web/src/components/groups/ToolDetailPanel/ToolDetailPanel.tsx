@@ -1,6 +1,7 @@
 import {
   ActionIcon,
   Button,
+  Code,
   Collapse,
   Divider,
   Group,
@@ -19,6 +20,7 @@ import type {
 } from "@modelcontextprotocol/client";
 import { resolveDisplayLabel } from "../../../utils/toolUtils";
 import { toFormSchema } from "../../../utils/jsonUtils";
+import { getMirroredHeaderParams } from "@inspector/core/json/xMcpHeader.js";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
@@ -139,6 +141,34 @@ const RunAsTaskSwitch = Switch.withProps({
   label: "Run as task",
 });
 
+// Header-mirroring section (SEP-2243): lists which args mirror their value into
+// an `Mcp-Param-{Name}` header on `tools/call`. `Stack` (not `Box`) so the
+// constant can carry props; the heading + note pin above the mapping rows.
+const HeaderParamsSection = Stack.withProps({
+  gap: "xs",
+});
+
+const HeaderParamsTitle = Text.withProps({
+  size: "sm",
+  fw: 600,
+});
+
+const HeaderParamsNote = Text.withProps({
+  size: "xs",
+  c: "var(--inspector-text-secondary)",
+});
+
+// One `arg → Mcp-Param-{Name}` mapping row.
+const HeaderParamRow = Group.withProps({
+  gap: "xs",
+  wrap: "nowrap",
+});
+
+const HeaderParamArrow = Text.withProps({
+  size: "sm",
+  c: "var(--inspector-text-secondary)",
+});
+
 // A tool's per-tool task support, defaulting to "forbidden" (the SDK default
 // when `execution` is absent) so tools that say nothing can't be run as tasks.
 type TaskSupport = "forbidden" | "optional" | "required";
@@ -173,6 +203,9 @@ export function ToolDetailPanel({
   // Narrow the SDK protocol schema to the form renderer's schema type.
   const formSchema = toFormSchema(inputSchema) ?? {};
   const iconSrc = icons?.[0]?.src;
+  // SEP-2243: args this tool declares as `x-mcp-header` — their values mirror
+  // into `Mcp-Param-{Name}` headers on a `tools/call` (#1632).
+  const mirroredParams = getMirroredHeaderParams(tool);
 
   // Descriptions are shown by default (most are short); the chevron lets the
   // user hide a long one to keep the form and Execute footer in view. Reset to
@@ -258,6 +291,26 @@ export function ToolDetailPanel({
           )}
 
           <Divider />
+
+          {mirroredParams.length > 0 && (
+            <HeaderParamsSection>
+              <HeaderParamsTitle>
+                Mirrored request headers (SEP-2243)
+              </HeaderParamsTitle>
+              {mirroredParams.map((param) => (
+                <HeaderParamRow key={param.path}>
+                  <Code>{param.path}</Code>
+                  <HeaderParamArrow>→</HeaderParamArrow>
+                  <Code>{param.header}</Code>
+                </HeaderParamRow>
+              ))}
+              <HeaderParamsNote>
+                These argument values are mirrored into HTTP headers on the
+                call. The SDK sends them only on a Node/proxy transport — the
+                browser omits <Code>Mcp-Param-*</Code> headers.
+              </HeaderParamsNote>
+            </HeaderParamsSection>
+          )}
 
           <SchemaForm
             schema={formSchema}

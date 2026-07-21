@@ -105,6 +105,7 @@ export default defineConfig(({ command }) => {
         'src/lib/**/*.{ts,tsx}',
         'clients/web/server/**/*.{ts,tsx}',
         path.join(repoRoot, 'core/mcp/**/*.{ts,tsx}'),
+        path.join(repoRoot, 'core/json/xMcpHeader.ts'),
         path.join(repoRoot, 'core/react/**/*.{ts,tsx}'),
         path.join(repoRoot, 'core/auth/**/*.{ts,tsx}'),
         path.join(repoRoot, 'core/storage/**/*.{ts,tsx}'),

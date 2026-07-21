@@ -319,4 +319,54 @@ describe("ToolsScreen", () => {
     await user.click(screen.getByRole("button", { name: "Close results" }));
     expect(screen.getByText("Results")).toBeInTheDocument();
   });
+
+  it("renders a thrown error (no result) as an error panel (#1632)", () => {
+    renderWithMantine(
+      <ToolsScreen
+        {...baseProps}
+        callState={{ status: "error", error: "boom", errorCode: -32603 }}
+      />,
+    );
+    expect(screen.getByText("Tool Call Failed")).toBeInTheDocument();
+    expect(screen.getByText("boom")).toBeInTheDocument();
+  });
+
+  it("renders the unknown-tool hint for a -32602 rejection (#1632)", async () => {
+    const user = userEvent.setup();
+    const onClearResult = vi.fn();
+    renderWithMantine(
+      <ToolsScreen
+        {...baseProps}
+        onClearResult={onClearResult}
+        callState={{
+          status: "error",
+          error: "MCP error -32602: Invalid params",
+          errorCode: -32602,
+        }}
+      />,
+    );
+    expect(screen.getByText("Unknown Tool")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close error" }));
+    expect(onClearResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders excluded tools in the sidebar with the reason (#1632)", () => {
+    renderWithMantine(
+      <ToolsScreen
+        {...baseProps}
+        excludedTools={[
+          {
+            tool: {
+              name: "invalid_header_tool",
+              inputSchema: { type: "object" },
+            },
+            reason:
+              "value: x-mcp-header 'Bad Header' is not a valid RFC 9110 token",
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText("Excluded (SEP-2243)")).toBeInTheDocument();
+    expect(screen.getByText("invalid_header_tool")).toBeInTheDocument();
+  });
 });

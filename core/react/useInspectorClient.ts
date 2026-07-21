@@ -10,6 +10,7 @@ import type {
   ProtocolEra,
   DiscoverResult,
 } from "@modelcontextprotocol/client";
+import type { ExcludedTool } from "../mcp/types.js";
 
 // Module-scope frozen object so the `?? EMPTY_CLIENT_CAPABILITIES`
 // fallback below doesn't return a fresh literal on every render —
@@ -37,6 +38,12 @@ export interface UseInspectorClientResult {
    * handshake. Undefined on a legacy connect. (#1626)
    */
   discoverResult?: DiscoverResult;
+  /**
+   * Tools the SDK excluded from `tools/list` for invalid `x-mcp-header`
+   * annotations (SEP-2243), each with its reason. Empty on legacy/stdio
+   * connections and before connect (#1632).
+   */
+  excludedTools: ExcludedTool[];
   /**
    * Message from the most recent mid-session transport failure (the client's
    * `error` event — stdio crash, SSE drop, HTTP 5xx). Stays set until the next
@@ -87,6 +94,9 @@ export function useInspectorClient(
   const [discoverResult, setDiscoverResult] = useState<
     DiscoverResult | undefined
   >(inspectorClient?.getDiscoverResult());
+  const [excludedTools, setExcludedTools] = useState<ExcludedTool[]>(
+    inspectorClient?.getExcludedTools() ?? [],
+  );
   const [lastError, setLastError] = useState<string | undefined>(undefined);
 
   useEffect(() => {
@@ -98,6 +108,7 @@ export function useInspectorClient(
       setProtocolVersion(undefined);
       setProtocolEra(undefined);
       setDiscoverResult(undefined);
+      setExcludedTools([]);
       setLastError(undefined);
       return;
     }
@@ -109,6 +120,7 @@ export function useInspectorClient(
     setProtocolVersion(inspectorClient.getProtocolVersion());
     setProtocolEra(inspectorClient.getProtocolEra());
     setDiscoverResult(inspectorClient.getDiscoverResult());
+    setExcludedTools(inspectorClient.getExcludedTools());
     setLastError(undefined);
 
     const onStatusChange = (event: TypedEvent<"statusChange">) => {
@@ -144,6 +156,11 @@ export function useInspectorClient(
     ) => {
       setDiscoverResult(event.detail);
     };
+    const onExcludedToolsChange = (
+      event: TypedEvent<"excludedToolsChange">,
+    ) => {
+      setExcludedTools(event.detail);
+    };
 
     inspectorClient.addEventListener("statusChange", onStatusChange);
     inspectorClient.addEventListener("error", onError);
@@ -164,6 +181,10 @@ export function useInspectorClient(
     inspectorClient.addEventListener(
       "discoverResultChange",
       onDiscoverResultChange,
+    );
+    inspectorClient.addEventListener(
+      "excludedToolsChange",
+      onExcludedToolsChange,
     );
 
     return () => {
@@ -193,6 +214,10 @@ export function useInspectorClient(
         "discoverResultChange",
         onDiscoverResultChange,
       );
+      inspectorClient.removeEventListener(
+        "excludedToolsChange",
+        onExcludedToolsChange,
+      );
     };
   }, [inspectorClient]);
 
@@ -221,6 +246,7 @@ export function useInspectorClient(
     protocolVersion,
     protocolEra,
     discoverResult,
+    excludedTools,
     lastError,
     appRendererClient: inspectorClient?.getAppRendererClient() ?? null,
     connect,

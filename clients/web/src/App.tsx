@@ -463,6 +463,18 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// The numeric JSON-RPC code of a thrown protocol error (e.g. a `ProtocolError`
+// carrying `-32602`), or undefined for a plain Error. Duck-typed like
+// `formatErrorDetails` so we don't couple to the SDK's error class here — the
+// only consumer is the Tools error panel's unknown-tool (`-32602`) hint (#1632).
+function errorCodeOf(err: unknown): number | undefined {
+  if (err && typeof err === "object") {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === "number") return code;
+  }
+  return undefined;
+}
+
 // Pretty-print a thrown error for the URL-elicitation details modal: a ProtocolError
 // carries a `code`/`data` worth showing alongside the message, so include them
 // when present; otherwise fall back to the plain message.
@@ -935,6 +947,7 @@ function App() {
     protocolVersion,
     protocolEra,
     discoverResult,
+    excludedTools,
     lastError,
   } = useInspectorClient(inspectorClient);
   const {
@@ -2933,6 +2946,7 @@ function App() {
         setToolCallState({
           status: "error",
           error: errorMessage(err),
+          errorCode: errorCodeOf(err),
         });
       }
     },
@@ -4198,6 +4212,7 @@ function App() {
           initializeResult={initializeResult}
           latencyMs={latencyMs}
           tools={tools}
+          excludedTools={excludedTools}
           prompts={prompts}
           resources={resources}
           resourceTemplates={resourceTemplates}
