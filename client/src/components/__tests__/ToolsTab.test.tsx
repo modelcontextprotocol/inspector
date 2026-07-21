@@ -2,7 +2,10 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, it, jest, beforeEach } from "@jest/globals";
 import ToolsTab, { ExtendedTool } from "../ToolsTab";
-import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CompatibilityCallToolResult,
+  Tool,
+} from "@modelcontextprotocol/sdk/types.js";
 import { Tabs } from "../ui/tabs";
 import { cacheToolOutputSchemas } from "../../utils/schemaUtils";
 import { within } from "@testing-library/react";
@@ -1201,6 +1204,83 @@ describe("ToolsTab", () => {
 
       // Tool should have been called (empty JSON is considered valid)
       expect(mockCallTool).toHaveBeenCalled();
+    });
+  });
+
+  describe("Tool call duration display", () => {
+    const successfulResult: CompatibilityCallToolResult = {
+      content: [{ type: "text", text: "ok" }],
+    };
+
+    it("should show the call duration next to the result after running a tool", async () => {
+      // Add a small but measurable delay so durationMs > 0 in jsdom.
+      const callToolMock = jest.fn(
+        () =>
+          new Promise<CompatibilityCallToolResult>((resolve) =>
+            setTimeout(() => resolve(successfulResult), 25),
+          ),
+      );
+
+      renderToolsTab({
+        selectedTool: mockTools[0],
+        callTool: callToolMock,
+        toolResult: null,
+      });
+
+      const runButton = screen.getByRole("button", { name: /run tool/i });
+      await act(async () => {
+        fireEvent.click(runButton);
+      });
+
+      // Re-render with the now-available result so the duration surfaces.
+      renderToolsTab({
+        selectedTool: mockTools[0],
+        callTool: callToolMock,
+        toolResult: successfulResult,
+      });
+
+      const durationEl = await screen.findByTestId("tool-call-duration");
+      expect(durationEl).toBeInTheDocument();
+      // The formatted duration is one of "<1 ms", "N ms", "N.NN s", or "Nm N.Ns".
+      expect(durationEl.textContent).toMatch(/ms|s|m\s/);
+    });
+
+    it("should not show the call duration when none has been recorded", () => {
+      renderToolsTab({
+        selectedTool: mockTools[0],
+        toolResult: successfulResult,
+      });
+
+      expect(screen.queryByTestId("tool-call-duration")).not.toBeInTheDocument();
+    });
+
+    it("should clear the recorded duration when switching tools", async () => {
+      const callToolMock = jest.fn(async () => successfulResult);
+
+      const { rerender } = renderToolsTab({
+        selectedTool: mockTools[0],
+        callTool: callToolMock,
+        toolResult: null,
+      });
+
+      const runButton = screen.getByRole("button", { name: /run tool/i });
+      await act(async () => {
+        fireEvent.click(runButton);
+      });
+
+      // Switch to another tool - duration should be reset.
+      rerender(
+        <Tabs defaultValue="tools">
+          <ToolsTab
+            {...defaultProps}
+            selectedTool={mockTools[2]}
+            callTool={callToolMock}
+            toolResult={null}
+          />
+        </Tabs>,
+      );
+
+      expect(screen.queryByTestId("tool-call-duration")).not.toBeInTheDocument();
     });
   });
 });
