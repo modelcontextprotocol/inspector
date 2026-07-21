@@ -398,7 +398,7 @@ export function useConnection({
         let resourceMetadata;
         try {
           resourceMetadata = await discoverOAuthProtectedResourceMetadata(
-            new URL("/", sseUrl),
+            new URL(sseUrl),
             {},
             fetchFn,
           );

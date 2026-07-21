@@ -24,7 +24,10 @@ import {
   ElicitResult,
   ElicitRequest,
 } from "@modelcontextprotocol/sdk/types.js";
-import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import {
+  auth,
+  discoverOAuthProtectedResourceMetadata,
+} from "@modelcontextprotocol/sdk/client/auth.js";
 import { discoverScopes } from "../../auth";
 import { CustomHeaders } from "../../types/customHeaders";
 
@@ -129,6 +132,9 @@ jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => {
   return {
     UnauthorizedError,
     auth: jest.fn().mockResolvedValue("AUTHORIZED"),
+    discoverOAuthProtectedResourceMetadata: jest
+      .fn()
+      .mockResolvedValue(undefined),
   };
 });
 
@@ -154,6 +160,10 @@ jest.mock("../../auth", () => ({
 }));
 
 const mockAuth = auth as jest.MockedFunction<typeof auth>;
+const mockDiscoverOAuthProtectedResourceMetadata =
+  discoverOAuthProtectedResourceMetadata as jest.MockedFunction<
+    typeof discoverOAuthProtectedResourceMetadata
+  >;
 const mockDiscoverScopes = discoverScopes as jest.MockedFunction<
   typeof discoverScopes
 >;
@@ -1601,6 +1611,44 @@ describe("useConnection", () => {
       expect(mockAuth).toHaveBeenCalledWith(
         expect.any(Object),
         expect.not.objectContaining({ fetchFn: expect.anything() }),
+      );
+    });
+
+    it("preserves path-based MCP endpoints when discovering protected resource metadata", async () => {
+      const previewUrl =
+        "https://mcp.stg.services.atlassian.com/v1/mcp/preview";
+      const resourceMetadata = {
+        resource: previewUrl,
+        authorization_servers: ["https://auth.stg.atlassian.com/example"],
+        bearer_methods_supported: ["header"],
+        scopes_supported: ["search:rovo:agent-interface"],
+      };
+
+      mockDiscoverOAuthProtectedResourceMetadata.mockResolvedValueOnce(
+        resourceMetadata,
+      );
+      mockDiscoverScopes.mockResolvedValue("search:rovo:agent-interface");
+      setup401Error();
+
+      await attemptConnection({
+        ...defaultProps,
+        sseUrl: previewUrl,
+      });
+
+      expect(
+        mockDiscoverOAuthProtectedResourceMetadata.mock.calls[0][0].href,
+      ).toBe(previewUrl);
+      expect(mockDiscoverScopes).toHaveBeenCalledWith(
+        previewUrl,
+        resourceMetadata,
+        expect.any(Function),
+      );
+      expect(mockAuth).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({
+          serverUrl: previewUrl,
+          scope: "search:rovo:agent-interface",
+        }),
       );
     });
   });
