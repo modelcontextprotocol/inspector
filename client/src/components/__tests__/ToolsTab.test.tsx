@@ -1202,5 +1202,99 @@ describe("ToolsTab", () => {
       // Tool should have been called (empty JSON is considered valid)
       expect(mockCallTool).toHaveBeenCalled();
     });
+
+    it("should send updated values on second Run Tool after editing (bug #988 exact scenario)", async () => {
+      const mockCallTool = jest.fn();
+      renderToolsTab({
+        tools: [toolWithJsonParams],
+        selectedTool: toolWithJsonParams,
+        callTool: mockCallTool,
+      });
+
+      const textareas = screen.getAllByRole("textbox");
+
+      // Step 1: Set initial value and run tool
+      fireEvent.change(textareas[0], {
+        target: { value: '{ "key": "value1" }' },
+      });
+      fireEvent.change(textareas[1], {
+        target: { value: '["item1"]' },
+      });
+
+      // Wait for debounce to settle
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      });
+
+      const runButton = screen.getByRole("button", { name: /run tool/i });
+      await act(async () => {
+        fireEvent.click(runButton);
+      });
+
+      // First call should have value1
+      expect(mockCallTool).toHaveBeenCalledTimes(1);
+      const firstParams = mockCallTool.mock.calls[0][1] as Record<
+        string,
+        unknown
+      >;
+      expect(firstParams.config).toEqual({ key: "value1" });
+
+      // Step 2: Update the value and run tool again
+      fireEvent.change(textareas[0], {
+        target: { value: '{ "key": "value2" }' },
+      });
+
+      // Wait for debounce to settle
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      });
+
+      await act(async () => {
+        fireEvent.click(runButton);
+      });
+
+      // Second call should have value2, NOT value1
+      expect(mockCallTool).toHaveBeenCalledTimes(2);
+      const secondParams = mockCallTool.mock.calls[1][1] as Record<
+        string,
+        unknown
+      >;
+      expect(secondParams.config).toEqual({ key: "value2" });
+    });
+
+    it("should send updated JSON values immediately without waiting for debounce (bug #988)", async () => {
+      const mockCallTool = jest.fn();
+      renderToolsTab({
+        tools: [toolWithJsonParams],
+        selectedTool: toolWithJsonParams,
+        callTool: mockCallTool,
+      });
+
+      const textareas = screen.getAllByRole("textbox");
+      expect(textareas.length).toBe(2);
+
+      // Enter valid JSON without waiting for the 300ms debounce
+      fireEvent.change(textareas[0], {
+        target: { value: '{ "updated": true }' },
+      });
+      fireEvent.change(textareas[1], {
+        target: { value: '["fresh"]' },
+      });
+
+      // Click Run Tool immediately (within 300ms debounce window)
+      const runButton = screen.getByRole("button", { name: /run tool/i });
+      await act(async () => {
+        fireEvent.click(runButton);
+      });
+
+      // Tool should have been called with the fresh values, not stale defaults
+      expect(mockCallTool).toHaveBeenCalledTimes(1);
+      const calledParams = mockCallTool.mock.calls[0][1] as Record<
+        string,
+        unknown
+      >;
+      expect(calledParams.config).toEqual({ updated: true });
+      expect(calledParams.data).toEqual(["fresh"]);
+    });
   });
 });
