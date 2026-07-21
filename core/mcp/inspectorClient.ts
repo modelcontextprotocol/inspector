@@ -2253,36 +2253,40 @@ export class InspectorClient extends InspectorClientEventTarget {
   private async fulfilInputRequests(
     inputRequests: InputRequests | undefined,
     signal?: AbortSignal,
+    origin: PendingRequestOrigin = "input-required",
   ): Promise<Record<string, unknown> | undefined> {
     if (!inputRequests) return undefined;
     const responses: Record<string, unknown> = {};
     for (const [key, embedded] of Object.entries(inputRequests)) {
-      responses[key] = await this.fulfilEmbeddedInputRequest(embedded, signal);
+      responses[key] = await this.fulfilEmbeddedInputRequest(
+        embedded,
+        signal,
+        origin,
+      );
     }
     return responses;
   }
 
   /**
-   * Fulfil a single embedded MRTR request. `roots/list` is auto-answered from
+   * Fulfil a single embedded input request. `roots/list` is auto-answered from
    * the configured roots (consistent with the legacy `roots/list` handler — no
    * pending UX); `elicitation/create` and `sampling/createMessage` surface
-   * through the pending-request UI tagged `"input-required"`.
+   * through the pending-request UI tagged with `origin`. `origin` distinguishes
+   * an MRTR round (`"input-required"`, answer echoed as a retry) from a modern
+   * task round (`"task-input-required"`, answer submitted via `tasks/update`).
    */
   private async fulfilEmbeddedInputRequest(
     request: CreateMessageRequest | ElicitRequest | ListRootsRequest,
     signal?: AbortSignal,
+    origin: PendingRequestOrigin = "input-required",
   ): Promise<unknown> {
     switch (request.method) {
       case "roots/list":
         return { roots: this.roots ?? [] };
       case "elicitation/create":
-        return this.enqueuePendingElicitation(
-          request,
-          "input-required",
-          signal,
-        );
+        return this.enqueuePendingElicitation(request, origin, signal);
       case "sampling/createMessage":
-        return this.enqueuePendingSample(request, "input-required", signal);
+        return this.enqueuePendingSample(request, origin, signal);
       /* v8 ignore next 6 -- defensive: an SDK server rejects an unknown embedded
          method before it reaches the wire, so this only guards against a
          non-conformant hand-rolled server; not reproducible against the
@@ -2780,7 +2784,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // via `validateToolOutput`. MCP Apps passthrough (skipOutputValidation)
     // simply skips that check; both paths yield a CallToolResult once the
     // driver returns a complete (non-`input_required`) result.
-    const result = await this.invokeMcpClient(
+    const rawResult = await this.invokeMcpClient(
       () =>
         this.requestWithInputRequired(
           "tools/call",
@@ -2790,6 +2794,19 @@ export class InspectorClient extends InspectorClientEventTarget {
         ),
       { method: "tools/call", toolName: tool.name },
     );
+
+    // Unsolicited modern task handle (SEP-2663): on a modern connection the
+    // server may answer ANY `tools/call` with a task rather than a result. The
+    // transport rewrote that frame into a `CallToolResult` carrying the real
+    // `DetailedTask` in `_meta`; poll it to completion here (the run-as-task
+    // path does the same via `callToolStream`) so the ordinary call resolves to
+    // the task's final result and the Tasks tab tracks it.
+    const taskHandle = (rawResult as CallToolResult)._meta?.[
+      MODERN_TASK_HANDLE_META
+    ] as ModernDetailedTask | undefined;
+    const result = taskHandle
+      ? await this.pollModernTaskToTermination(taskHandle, requestOptions)
+      : rawResult;
 
     // Output-schema validation. SDK v2's `callTool` relaxed some checks (e.g. it
     // no longer rejects a structuredContent with undeclared properties against a
@@ -2922,6 +2939,120 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * When a modern (SEP-2663) task is `input_required`, fulfil its embedded
+   * `inputRequests` through the pending-request UI and submit them via
+   * `tasks/update`. No-op for any other status. Shared by the streaming
+   * ({@link pollTaskToolCall}) and ordinary ({@link pollModernTaskToTermination})
+   * poll loops so the input handling lives in one place.
+   */
+  private async submitModernTaskInput(
+    detailed: ModernDetailedTask,
+    task: Task,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (task.status !== "input_required") {
+      return;
+    }
+    const inputResponses = await this.fulfilInputRequests(
+      readInputRequests(detailed),
+      signal,
+      "task-input-required",
+    );
+    /* v8 ignore next 3 -- a conformant `input_required` task always carries
+       `inputRequests`, so `fulfilInputRequests` returns a (possibly empty)
+       object here, never undefined; the guard is defensive. */
+    if (inputResponses) {
+      await this.updateRequestorTask(task.taskId, inputResponses);
+    }
+  }
+
+  /**
+   * Terminal outcome for a modern task: the inlined `CallToolResult` for a
+   * `completed` task (SEP-2663 removed the blocking `tasks/result`), or a
+   * `ProtocolError` for `failed` / `cancelled`. Shared so both poll loops agree
+   * on the result/error shape.
+   */
+  private modernTaskTerminalOutcome(
+    task: Task,
+    detailed: ModernDetailedTask,
+  ):
+    | { type: "result"; result: CallToolResult }
+    | { type: "error"; error: ProtocolError } {
+    if (task.status === "completed") {
+      /* v8 ignore next -- a conformant `completed` task always inlines its
+         `result`; the `{ content: [] }` fallback is defensive. */
+      return {
+        type: "result",
+        result: (detailed.result ?? { content: [] }) as CallToolResult,
+      };
+    }
+    return {
+      type: "error",
+      error: new ProtocolError(
+        ProtocolErrorCode.InternalError,
+        task.statusMessage ?? `Task ${task.status}`,
+      ),
+    };
+  }
+
+  /**
+   * Modern-era poll cadence for a task: the server-advertised `pollInterval`
+   * when positive, else the default. Shared by both poll loops.
+   */
+  private modernTaskPollInterval(task: Task): number {
+    return typeof task.pollInterval === "number" && task.pollInterval > 0
+      ? task.pollInterval
+      : DEFAULT_TASK_POLL_INTERVAL_MS;
+  }
+
+  /**
+   * Drive a modern (SEP-2663) task to a terminal state from a seed
+   * `DetailedTask`, dispatching task events so the Tasks tab and toasts track
+   * it, and return the completed task's inlined `CallToolResult` (or throw on
+   * `failed` / `cancelled`). Used by the ORDINARY `callTool` path when a server
+   * returns an unsolicited task handle (the run-as-task streaming path drives
+   * the equivalent loop inline in {@link pollTaskToolCall}). `input_required`
+   * rounds are answered through the pending-request UI and submitted via
+   * `tasks/update`.
+   */
+  private async pollModernTaskToTermination(
+    seed: ModernDetailedTask,
+    requestOptions: RequestOptions,
+  ): Promise<CallToolResult> {
+    let detailed = seed;
+    let task = normalizeModernTask(detailed);
+    const emit = (t: Task): void => {
+      this.dispatchTypedEvent("toolCallTaskUpdated", {
+        taskId: t.taskId,
+        task: t,
+      });
+      this.dispatchTypedEvent("requestorTaskUpdated", {
+        taskId: t.taskId,
+        task: t,
+      });
+    };
+    emit(task);
+    while (!InspectorClient.isTerminalTaskStatus(task.status)) {
+      await this.submitModernTaskInput(detailed, task, requestOptions.signal);
+      await new Promise((resolve) =>
+        setTimeout(resolve, this.modernTaskPollInterval(task)),
+      );
+      detailed = await this.rawWireRequest(
+        "tasks/get",
+        this.withModernTaskEnvelope({ taskId: task.taskId }),
+        ModernGetTaskResultSchema,
+      );
+      task = normalizeModernTask(detailed);
+      emit(task);
+    }
+    const outcome = this.modernTaskTerminalOutcome(task, detailed);
+    if (outcome.type === "error") {
+      throw outcome.error;
+    }
+    return outcome.result;
+  }
+
+  /**
    * Poll a task-augmented tool call to completion. Replaces the removed
    * `client.experimental.tasks.callToolStream` helper: it sends the
    * task-augmented `tools/call` (the server responds with a task handle, i.e. a
@@ -3029,20 +3160,14 @@ export class InspectorClient extends InspectorClientEventTarget {
           // the same pending-request UI the MRTR path uses, then submit them via
           // `tasks/update`. The update is eventually consistent — the task's
           // status advances on a following `tasks/get`, so keep polling.
-          if (task.status === "input_required") {
-            const inputResponses = await this.fulfilInputRequests(
-              readInputRequests(detailed),
-              requestOptions.signal,
-            );
-            if (inputResponses) {
-              await this.updateRequestorTask(task.taskId, inputResponses);
-            }
-          }
-          const pollInterval =
-            typeof task.pollInterval === "number" && task.pollInterval > 0
-              ? task.pollInterval
-              : DEFAULT_TASK_POLL_INTERVAL_MS;
-          await new Promise((resolve) => setTimeout(resolve, pollInterval));
+          await this.submitModernTaskInput(
+            detailed,
+            task,
+            requestOptions.signal,
+          );
+          await new Promise((resolve) =>
+            setTimeout(resolve, this.modernTaskPollInterval(task)),
+          );
           detailed = await this.rawWireRequest(
             "tasks/get",
             this.withModernTaskEnvelope({ taskId: task.taskId }),
@@ -3056,21 +3181,9 @@ export class InspectorClient extends InspectorClientEventTarget {
           progressHandlers.delete(progressSubscriptionId);
         }
       }
-      if (task.status === "completed") {
-        // Modern removes the blocking `tasks/result`: the result is inlined on
-        // the completed `DetailedTask`. It matches the original request's result
-        // shape — a CallToolResult for a `tools/call` task.
-        const result = (detailed.result ?? { content: [] }) as CallToolResult;
-        yield { type: "result", result };
-      } else {
-        yield {
-          type: "error",
-          error: new ProtocolError(
-            ProtocolErrorCode.InternalError,
-            task.statusMessage ?? `Task ${task.status}`,
-          ),
-        };
-      }
+      // Modern removes the blocking `tasks/result`: a completed task inlines its
+      // CallToolResult; failed/cancelled surface as an error.
+      yield this.modernTaskTerminalOutcome(task, detailed);
       return;
     }
 

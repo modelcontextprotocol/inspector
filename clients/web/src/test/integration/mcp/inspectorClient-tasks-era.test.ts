@@ -190,7 +190,9 @@ describe("tasks era fork (#1631)", () => {
       let pausedAtPendingUi = false;
       connected.addEventListener("newPendingElicitation", (event) => {
         pausedAtPendingUi = true;
-        expect(event.detail.origin).toBe("input-required");
+        // The task round is tagged distinctly from an MRTR round so the UI can
+        // show the accurate "answer via tasks/update" note (#1631 follow-up).
+        expect(event.detail.origin).toBe("task-input-required");
         void event.detail.respond({
           action: "accept",
           content: { approved: true },
@@ -207,6 +209,55 @@ describe("tasks era fork (#1631)", () => {
 
       const methods = methodsSent(messages);
       expect(methods).toContain("tasks/update");
+    });
+
+    it("auto-polls an unsolicited task handle on the ordinary callTool path (#1631 follow-up)", async () => {
+      const started = await startModernTasksServer();
+      const { connected, messages } = await connect(started.url, "modern");
+      const { tools } = await connected.listTools();
+      const tool = tools.find((t) => t.name === "modern_task")!;
+
+      // The ordinary (non-run-as-task) path: the server answers with a task
+      // handle; callTool must poll it to termination and resolve to the task's
+      // final inline result — NOT the transport's "task created" placeholder.
+      const taskUpdates: string[] = [];
+      connected.addEventListener("requestorTaskUpdated", (event) => {
+        taskUpdates.push(event.detail.taskId);
+      });
+
+      messages.length = 0;
+      const invocation = await connected.callTool(tool, {
+        message: "unsolicited",
+      });
+      expect(invocation.success).toBe(true);
+      expect(firstText(invocation.result?.content as ContentBlock[])).toContain(
+        "completed",
+      );
+      expect(taskUpdates.length).toBeGreaterThan(0);
+      expect(methodsSent(messages)).toContain("tasks/get");
+    });
+
+    it("answers an input_required unsolicited handle via tasks/update on the ordinary path (#1631 follow-up)", async () => {
+      const started = await startModernTasksServer();
+      const { connected, messages } = await connect(started.url, "modern");
+      const { tools } = await connected.listTools();
+      const tool = tools.find((t) => t.name === "modern_input_task")!;
+
+      connected.addEventListener("newPendingElicitation", (event) => {
+        expect(event.detail.origin).toBe("task-input-required");
+        void event.detail.respond({
+          action: "accept",
+          content: { approved: true },
+        });
+      });
+
+      messages.length = 0;
+      const invocation = await connected.callTool(tool, {});
+      expect(invocation.success).toBe(true);
+      expect(firstText(invocation.result?.content as ContentBlock[])).toContain(
+        "approved",
+      );
+      expect(methodsSent(messages)).toContain("tasks/update");
     });
 
     it("cancels a modern task via tasks/cancel", async () => {

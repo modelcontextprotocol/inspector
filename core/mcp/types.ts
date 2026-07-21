@@ -250,8 +250,15 @@ export type MessageOrigin = "client" | "server";
  * - `"input-required"` — a modern (2026-07-28) MRTR round: the request was
  *   embedded in a tool-call/prompt/resource `input_required` result, and the
  *   user's answer is echoed back to the server as a retry (SEP-2322).
+ * - `"task-input-required"` — a modern task (SEP-2663) that reached
+ *   `input_required`: the request came from the task's `tasks/get` `inputRequests`
+ *   map, and the user's answer is submitted via a `tasks/update` request (NOT a
+ *   retry of the original call, unlike MRTR).
  */
-export type PendingRequestOrigin = "server-request" | "input-required";
+export type PendingRequestOrigin =
+  | "server-request"
+  | "input-required"
+  | "task-input-required";
 
 export interface MessageEntry {
   id: string;
