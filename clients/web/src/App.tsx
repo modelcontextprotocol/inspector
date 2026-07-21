@@ -4007,9 +4007,25 @@ function App() {
 
   const onElicitationRespond = useCallback(
     (result: ElicitResult) => {
-      void pendingElicitations[0]?.respond(result);
+      const pending = pendingElicitations[0];
+      if (!pending) return;
+      // "Cancel" on a MODERN task's input_required request means "give up on the
+      // task" — not "send a cancel answer" (which a non-advancing server would
+      // just re-prompt on). Cancel the underlying task instead; that aborts the
+      // pending request, closes this modal, and lets the poll settle as
+      // cancelled (#1631). Submit/Decline still answer the task normally.
+      if (
+        result.action === "cancel" &&
+        pending.origin === "task-input-required" &&
+        pending.taskId &&
+        inspectorClient
+      ) {
+        void inspectorClient.cancelRequestorTask(pending.taskId);
+        return;
+      }
+      void pending.respond(result);
     },
-    [pendingElicitations],
+    [pendingElicitations, inspectorClient],
   );
 
   const handleStepUpAuthorize = async () => {

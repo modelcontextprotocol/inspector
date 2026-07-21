@@ -281,33 +281,42 @@ describe("tasks era fork (#1631)", () => {
       );
     });
 
-    it("cancels a modern task via tasks/cancel", async () => {
+    it("cancels a task paused at input_required — aborts the pending elicitation and unblocks the poll (#1631)", async () => {
       const started = await startModernTasksServer();
       const { connected, messages } = await connect(started.url, "modern");
       const { tools } = await connected.listTools();
 
-      // Seed a task via a direct tools/call so we hold its id, then cancel it.
-      const seed = await connected.getRequestorTask.bind(connected);
-      expect(typeof seed).toBe("function");
-
-      // Create through the poll stream but cancel from the Tasks side: run the
-      // input task (which parks at input_required) and cancel by id.
-      const tool = tools.find((t) => t.name === "modern_input_task")!;
+      // A never-completing task: without the cancel-aborts-input fix, cancelling
+      // wouldn't unblock the poll — the modal would re-prompt forever.
+      const tool = tools.find((t) => t.name === "modern_loop_task")!;
       let capturedTaskId: string | undefined;
+      let cancelledEventTaskId: string | undefined;
+      let cancelPromise: Promise<void> | undefined;
       connected.addEventListener("requestorTaskUpdated", (event) => {
         capturedTaskId = event.detail.taskId;
       });
-      connected.addEventListener("newPendingElicitation", (event) => {
-        // Cancel the underlying task instead of answering.
-        if (capturedTaskId) void connected.cancelRequestorTask(capturedTaskId);
-        void event.detail.respond({ action: "cancel" });
+      connected.addEventListener("taskCancelled", (event) => {
+        cancelledEventTaskId = event.detail.taskId;
+      });
+      connected.addEventListener("newPendingElicitation", () => {
+        // Cancel the underlying task instead of answering — this must abort the
+        // pending elicitation (close the modal) and let the poll settle.
+        if (capturedTaskId && !cancelPromise) {
+          cancelPromise = connected
+            .cancelRequestorTask(capturedTaskId)
+            .catch(() => {});
+        }
       });
 
       messages.length = 0;
-      await connected.callToolStream(tool, {}).catch(() => {
-        // the cancel path may reject the stream; that's fine for this assertion
-      });
+      // The poll must unblock and the call settle (reject) — not hang or loop.
+      await expect(connected.callToolStream(tool, {})).rejects.toThrow();
+      // Let tasks/cancel finish (it dispatches taskCancelled on completion).
+      await cancelPromise;
       expect(methodsSent(messages)).toContain("tasks/cancel");
+      expect(cancelledEventTaskId).toBe(capturedTaskId);
+      // The pending elicitation was aborted, not left dangling behind a modal.
+      expect(connected.getPendingElicitations()).toHaveLength(0);
     });
 
     it("passes a synchronous (non-task) tool result straight through", async () => {

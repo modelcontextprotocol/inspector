@@ -45,6 +45,12 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
   // handlers so a late status update (or a server that still lists the task)
   // can't resurrect a cleared task. Reset on disconnect / destroy.
   private dismissedTaskIds = new Set<string>();
+  // Task ids the user cancelled via the Cancel Task control. Cancellation is a
+  // deliberate terminal decision, so it is sticky: a status update that arrives
+  // afterwards — e.g. a server that completes the task anyway (cancellation is
+  // cooperative) or the in-flight tool call resolving with a result — must not
+  // flip a cancelled task back to "completed". Reset on disconnect / destroy.
+  private cancelledTaskIds = new Set<string>();
 
   constructor(client: InspectorClientProtocol) {
     super();
@@ -59,14 +65,21 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
       if (isTerminalStatus(this.client?.getStatus())) {
         this.tasks = [];
         this.dismissedTaskIds.clear();
+        this.cancelledTaskIds.clear();
         this.dispatchTypedEvent("tasksChange", []);
       }
     };
+    // A status update is ignored when the task was dismissed (clearCompleted)
+    // or when the user cancelled it and the update isn't itself "cancelled" —
+    // the deliberate cancel wins over a late completed/working update.
+    const shouldIgnoreUpdate = (taskId: string, status: Task["status"]): boolean =>
+      this.dismissedTaskIds.has(taskId) ||
+      (this.cancelledTaskIds.has(taskId) && status !== "cancelled");
     const onTaskStatusChange = (
       e: TypedEventGeneric<InspectorClientEventMap, "taskStatusChange">,
     ): void => {
       const { taskId, task } = e.detail;
-      if (this.dismissedTaskIds.has(taskId)) return;
+      if (shouldIgnoreUpdate(taskId, task.status)) return;
       this.tasks = mergeTaskIntoList(this.tasks, taskId, task);
       this.dispatchTypedEvent("tasksChange", this.tasks);
     };
@@ -74,7 +87,7 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
       e: TypedEventGeneric<InspectorClientEventMap, "requestorTaskUpdated">,
     ): void => {
       const { taskId, task } = e.detail;
-      if (this.dismissedTaskIds.has(taskId)) return;
+      if (shouldIgnoreUpdate(taskId, task.status)) return;
       this.tasks = mergeTaskIntoList(this.tasks, taskId, task);
       this.dispatchTypedEvent("tasksChange", this.tasks);
     };
@@ -83,6 +96,8 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
     ): void => {
       const { taskId } = e.detail;
       if (this.dismissedTaskIds.has(taskId)) return;
+      // Remember the cancel so a later status update can't un-cancel it.
+      this.cancelledTaskIds.add(taskId);
       const idx = this.tasks.findIndex((t) => t.taskId === taskId);
       if (idx >= 0) {
         const next = [...this.tasks];
@@ -218,5 +233,6 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
     this.unsubscribe = null;
     this.tasks = [];
     this.dismissedTaskIds.clear();
+    this.cancelledTaskIds.clear();
   }
 }

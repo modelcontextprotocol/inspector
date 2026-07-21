@@ -111,6 +111,7 @@ import {
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
   PROTOCOL_VERSION_META_KEY,
+  RELATED_TASK_META_KEY,
 } from "@modelcontextprotocol/client";
 import {
   TASKS_EXTENSION_KEY,
@@ -395,6 +396,12 @@ export class InspectorClient extends InspectorClientEventTarget {
   // instead, so it lands in the right state immediately (#1455). Cleared on
   // disconnect.
   private cancelledTaskIds: Set<string> = new Set();
+  // Per-task abort controllers for a modern task paused at `input_required`.
+  // While the poll loop blocks on the pending elicitation (the modal), the tool
+  // call's own abort path isn't in play — so `cancelRequestorTask` aborts this
+  // controller to reject the pending request, close the modal, and let the poll
+  // observe the cancellation. Keyed by taskId; created/removed by the poll loops.
+  private taskInputAbortControllers = new Map<string, AbortController>();
   // Pending raw-wire requests (modern tasks/* — see rawWireRequest). Keyed by a
   // string JSON-RPC id we mint; the SDK Client only mints numeric ids, so ours
   // never collide with (or reach) it. Resolved by the transport's
@@ -1631,6 +1638,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Settle any pending raw-wire (modern tasks/*) requests so their callers
     // don't hang past teardown.
     this.rejectPendingRawWireRequests("Disconnected");
+    // Abort any task paused at input_required so its poll loop unwinds.
+    for (const [, controller] of this.taskInputAbortControllers) {
+      controller.abort(new Error("Disconnected"));
+    }
+    this.taskInputAbortControllers.clear();
     // Abort any in-flight ordinary tool call so its promise settles instead of
     // hanging past teardown; drop the controller reference either way.
     this.activeToolCallAbortController?.abort("Disconnected");
@@ -1793,20 +1805,19 @@ export class InspectorClient extends InspectorClientEventTarget {
         [TASKS_EXTENSION_KEY]: {},
       },
     };
+    // Use the NEGOTIATED protocol version so the envelope agrees with the
+    // `MCP-Protocol-Version` header the transport stamps from the same source —
+    // a future modern-family revision would negotiate a different string, and
+    // the two must not disagree. The raw channel only runs on a connected modern
+    // session, so this is always set; the constant is a defensive fallback.
+    /* v8 ignore next -- fallback only if getProtocolVersion() is unset, which
+       can't happen on the connected modern session this runs on. */
+    const protocolVersion = this.getProtocolVersion() ?? MODERN_PROTOCOL_VERSION;
     return {
       ...params,
       _meta: {
         ...existingMeta,
-        // Use the NEGOTIATED protocol version so the envelope agrees with the
-        // `MCP-Protocol-Version` header the transport stamps from the same
-        // source — a future modern-family revision would negotiate a different
-        // string, and the two must not disagree. The raw channel only runs on a
-        // connected modern session, so this is always set; the constant is a
-        // defensive fallback.
-        [PROTOCOL_VERSION_META_KEY]:
-          /* v8 ignore next -- getProtocolVersion() is always set on a connected
-             modern session (the only place this runs); the fallback is defensive. */
-          this.getProtocolVersion() ?? MODERN_PROTOCOL_VERSION,
+        [PROTOCOL_VERSION_META_KEY]: protocolVersion,
         [CLIENT_INFO_META_KEY]: this.clientInfo,
         [CLIENT_CAPABILITIES_META_KEY]: clientCapabilities,
       },
@@ -1999,6 +2010,14 @@ export class InspectorClient extends InspectorClientEventTarget {
     // whose error message may arrive before this resolves — the stream's error
     // path reads this set to label the task "cancelled" rather than "failed".
     this.cancelledTaskIds.add(taskId);
+    // If the task is paused at `input_required` (its poll loop blocked on the
+    // pending-request modal), abort it so the modal closes and the poll observes
+    // the cancellation — otherwise the user is stuck answering a modal that a
+    // non-advancing server would keep re-showing.
+    const inputAbort = this.taskInputAbortControllers.get(taskId);
+    if (inputAbort) {
+      inputAbort.abort(new Error(`Task ${taskId} cancelled by user`));
+    }
     // Modern `tasks/cancel` is a raw-wire request (the SDK era gate blocks the
     // spec-method name on 2026-07-28); legacy uses the SDK path + deprecated
     // schema.
@@ -2812,7 +2831,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       MODERN_TASK_HANDLE_META
     ] as ModernDetailedTask | undefined;
     const result = taskHandle
-      ? await this.pollModernTaskToTermination(taskHandle, requestOptions)
+      ? await this.pollModernTaskToTermination(taskHandle)
       : rawResult;
 
     // Output-schema validation. SDK v2's `callTool` relaxed some checks (e.g. it
@@ -2974,7 +2993,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       );
     }
     const inputResponses = await this.fulfilInputRequests(
-      readInputRequests(detailed),
+      this.tagInputRequestsWithTask(readInputRequests(detailed), task.taskId),
       signal,
       "task-input-required",
     );
@@ -2985,6 +3004,37 @@ export class InspectorClient extends InspectorClientEventTarget {
       await this.updateRequestorTask(task.taskId, inputResponses);
     }
     return rounds;
+  }
+
+  /**
+   * Stamp `_meta[RELATED_TASK_META_KEY]` with the owning task id on each embedded
+   * request of a modern task's `inputRequests`. The pending-request UI reads that
+   * id (via `ElicitationCreateMessage.taskId`) so its Cancel control can cancel
+   * the TASK — not just answer the request — when a task is paused at
+   * `input_required`.
+   */
+  private tagInputRequestsWithTask(
+    inputRequests: InputRequests | undefined,
+    taskId: string,
+  ): InputRequests | undefined {
+    /* v8 ignore next -- only called for an input_required task, which always
+       carries inputRequests; the undefined passthrough is defensive. */
+    if (!inputRequests) return inputRequests;
+    const tagged: Record<string, unknown> = {};
+    for (const [key, req] of Object.entries(inputRequests)) {
+      const request = req as { params?: { _meta?: Record<string, unknown> } };
+      tagged[key] = {
+        ...request,
+        params: {
+          ...request.params,
+          _meta: {
+            ...request.params?._meta,
+            [RELATED_TASK_META_KEY]: { taskId },
+          },
+        },
+      };
+    }
+    return tagged as InputRequests;
   }
 
   /**
@@ -3017,13 +3067,41 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Modern-era poll cadence for a task: the server-advertised `pollInterval`
-   * when positive, else the default. Shared by both poll loops.
+   * Poll cadence for a task: the server-advertised `pollInterval` when
+   * positive, else the default. Shared by every task poll loop (both eras).
    */
-  private modernTaskPollInterval(task: Task): number {
-    return typeof task.pollInterval === "number" && task.pollInterval > 0
-      ? task.pollInterval
-      : DEFAULT_TASK_POLL_INTERVAL_MS;
+  private taskPollInterval(task: Task): number {
+    const advertised = task.pollInterval;
+    if (typeof advertised !== "number") return DEFAULT_TASK_POLL_INTERVAL_MS;
+    // A spec-conformant server never advertises a non-positive interval; the
+    // `> 0` guard is defensive against a malformed value.
+    /* v8 ignore next -- non-positive pollInterval is unreachable from a conformant server. */
+    return advertised > 0 ? advertised : DEFAULT_TASK_POLL_INTERVAL_MS;
+  }
+
+  /**
+   * Register a per-task abort controller (keyed by taskId) whose signal gates
+   * the task's `input_required` pending request, and return the signal plus a
+   * `release` cleanup. {@link cancelRequestorTask} aborts it to unblock a task
+   * paused at the pending-request modal.
+   */
+  private registerTaskInputAbort(taskId: string): {
+    signal: AbortSignal;
+    release: () => void;
+  } {
+    const controller = new AbortController();
+    this.taskInputAbortControllers.set(taskId, controller);
+    return {
+      signal: controller.signal,
+      release: () => {
+        // Only delete our own entry — tool calls are serial, so a second task
+        // never replaces this id's controller mid-poll; the guard is defensive.
+        /* v8 ignore next */
+        if (this.taskInputAbortControllers.get(taskId) === controller) {
+          this.taskInputAbortControllers.delete(taskId);
+        }
+      },
+    };
   }
 
   /**
@@ -3038,7 +3116,6 @@ export class InspectorClient extends InspectorClientEventTarget {
    */
   private async pollModernTaskToTermination(
     seed: ModernDetailedTask,
-    requestOptions: RequestOptions,
   ): Promise<CallToolResult> {
     let detailed = seed;
     let task = normalizeModernTask(detailed);
@@ -3053,24 +3130,31 @@ export class InspectorClient extends InspectorClientEventTarget {
       });
     };
     emit(task);
-    let inputRounds = 0;
-    while (!InspectorClient.isTerminalTaskStatus(task.status)) {
-      inputRounds = await this.submitModernTaskInput(
-        detailed,
-        task,
-        inputRounds,
-        requestOptions.signal,
-      );
-      await new Promise((resolve) =>
-        setTimeout(resolve, this.modernTaskPollInterval(task)),
-      );
-      detailed = await this.rawWireRequest(
-        "tasks/get",
-        this.withModernTaskEnvelope({ taskId: task.taskId }),
-        ModernGetTaskResultSchema,
-      );
-      task = normalizeModernTask(detailed);
-      emit(task);
+    const { signal: inputSignal, release } = this.registerTaskInputAbort(
+      task.taskId,
+    );
+    try {
+      let inputRounds = 0;
+      while (!InspectorClient.isTerminalTaskStatus(task.status)) {
+        inputRounds = await this.submitModernTaskInput(
+          detailed,
+          task,
+          inputRounds,
+          inputSignal,
+        );
+        await new Promise((resolve) =>
+          setTimeout(resolve, this.taskPollInterval(task)),
+        );
+        detailed = await this.rawWireRequest(
+          "tasks/get",
+          this.withModernTaskEnvelope({ taskId: task.taskId }),
+          ModernGetTaskResultSchema,
+        );
+        task = normalizeModernTask(detailed);
+        emit(task);
+      }
+    } finally {
+      release();
     }
     const outcome = this.modernTaskTerminalOutcome(task, detailed);
     if (outcome.type === "error") {
@@ -3181,6 +3265,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       if (progressSubscriptionId != null && requestOptions.onprogress) {
         progressHandlers.set(progressSubscriptionId, requestOptions.onprogress);
       }
+      const { signal: inputSignal, release } = this.registerTaskInputAbort(
+        task.taskId,
+      );
       let inputRounds = 0;
       try {
         while (!InspectorClient.isTerminalTaskStatus(task.status)) {
@@ -3189,14 +3276,15 @@ export class InspectorClient extends InspectorClientEventTarget {
           // `tasks/update`. The update is eventually consistent — the task's
           // status advances on a following `tasks/get`, so keep polling
           // (bounded by MRTR_MAX_ROUNDS against a server that never advances).
+          // `inputSignal` fires if the task is cancelled while paused here.
           inputRounds = await this.submitModernTaskInput(
             detailed,
             task,
             inputRounds,
-            requestOptions.signal,
+            inputSignal,
           );
           await new Promise((resolve) =>
-            setTimeout(resolve, this.modernTaskPollInterval(task)),
+            setTimeout(resolve, this.taskPollInterval(task)),
           );
           detailed = await this.rawWireRequest(
             "tasks/get",
@@ -3207,6 +3295,7 @@ export class InspectorClient extends InspectorClientEventTarget {
           yield { type: "taskStatus", task };
         }
       } finally {
+        release();
         if (progressSubscriptionId != null) {
           progressHandlers.delete(progressSubscriptionId);
         }
@@ -3234,11 +3323,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       // Poll `tasks/get` until the task reaches a terminal status. Honour the
       // server-advertised `pollInterval` when present, else the default cadence.
       while (!InspectorClient.isTerminalTaskStatus(task.status)) {
-        const pollInterval =
-          typeof task.pollInterval === "number" && task.pollInterval > 0
-            ? task.pollInterval
-            : DEFAULT_TASK_POLL_INTERVAL_MS;
-        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        await new Promise((resolve) =>
+          setTimeout(resolve, this.taskPollInterval(task)),
+        );
         task = (await client.request(
           { method: "tasks/get", params: { taskId: task.taskId } },
           GetTaskResultSchema,
