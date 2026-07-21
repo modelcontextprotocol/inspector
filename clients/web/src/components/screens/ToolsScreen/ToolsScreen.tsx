@@ -43,6 +43,9 @@ export interface ToolsScreenProps {
   listChanged: boolean;
   /** Whether the connected server advertises task-augmented tool calls. */
   serverSupportsTaskToolCalls: boolean;
+  /** Modern (SEP-2663) tasks extension negotiated — "Run as task" is offered
+   * for any tool (server-directed task creation). */
+  modernTasks?: boolean;
   onUiChange: (next: ToolsUiState) => void;
   onRefreshList: () => void;
   /** Pagination controls rendered in the sidebar (#1721). */
@@ -133,6 +136,7 @@ export function ToolsScreen({
   ui,
   listChanged,
   serverSupportsTaskToolCalls,
+  modernTasks = false,
   onUiChange,
   onRefreshList,
   pagination,
@@ -216,6 +220,7 @@ export function ToolsScreen({
               isExecuting={isExecuting}
               progress={callState?.progress}
               serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
+              modernTasks={modernTasks}
               runAsTask={ui.runAsTask}
               onRunAsTaskChange={(value) =>
                 onUiChange({ ...ui, runAsTask: value })
