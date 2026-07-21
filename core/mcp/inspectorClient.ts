@@ -591,14 +591,13 @@ export class InspectorClient extends InspectorClientEventTarget {
     // every modern request's `clientCapabilities` envelope — the per-request
     // declaration a server requires before it may return a `CreateTaskResult`.
     // Harmless on legacy (extensions are ignored there). This is what makes
-    // server-directed ("unsolicited") task creation legal on modern.
+    // server-directed ("unsolicited") task creation legal on modern, and it
+    // makes `capabilities` always non-empty, so it's always attached.
     capabilities.extensions = {
       ...capabilities.extensions,
       [TASKS_EXTENSION_KEY]: {},
     };
-    if (Object.keys(capabilities).length > 0) {
-      clientOptions.capabilities = capabilities;
-    }
+    clientOptions.capabilities = capabilities;
     this.clientCapabilities = capabilities;
 
     this.appRendererClientProxy = null;
@@ -1787,8 +1786,10 @@ export class InspectorClient extends InspectorClientEventTarget {
       (params._meta as Record<string, unknown> | undefined) ?? {};
     const clientCapabilities = {
       ...this.clientCapabilities,
+      // extensions always carries the tasks extension (advertised at
+      // construction), so spreading it is never a no-op.
       extensions: {
-        ...(this.clientCapabilities.extensions ?? {}),
+        ...this.clientCapabilities.extensions,
         [TASKS_EXTENSION_KEY]: {},
       },
     };
@@ -1796,8 +1797,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       ...params,
       _meta: {
         ...existingMeta,
-        [PROTOCOL_VERSION_META_KEY]:
-          this.getProtocolVersion() ?? MODERN_PROTOCOL_VERSION,
+        // The raw channel only runs on a connected modern session, so the
+        // envelope version is the modern revision.
+        [PROTOCOL_VERSION_META_KEY]: MODERN_PROTOCOL_VERSION,
         [CLIENT_INFO_META_KEY]: this.clientInfo,
         [CLIENT_CAPABILITIES_META_KEY]: clientCapabilities,
       },

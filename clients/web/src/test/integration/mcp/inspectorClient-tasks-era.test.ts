@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
+import * as z from "zod/v4";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
 import { eraToVersionNegotiation } from "@inspector/core/mcp/types.js";
@@ -49,6 +50,20 @@ describe("tasks era fork (#1631)", () => {
     const started = createTestServerHttp({
       serverInfo: createTestServerInfo("tasks-modern-test", "1.0.0"),
       tasksExtension: true,
+      // A plain tool alongside the task tools, so a modern tools/call that does
+      // NOT create a task exercises the synchronous-result path.
+      tools: [
+        {
+          name: "plain_echo",
+          description: "Echo the message without creating a task",
+          inputSchema: { message: z.string().optional() },
+          handler: async (args: Record<string, unknown>) => ({
+            content: [
+              { type: "text" as const, text: `echo:${args.message ?? ""}` },
+            ],
+          }),
+        },
+      ],
       modern: {},
     });
     await started.start();
@@ -144,9 +159,11 @@ describe("tasks era fork (#1631)", () => {
         call?.message as { params?: { _meta?: Record<string, unknown> } }
       ).params?._meta;
       expect(
-        (meta?.["io.modelcontextprotocol/clientCapabilities"] as {
-          extensions?: Record<string, unknown>;
-        })?.extensions,
+        (
+          meta?.["io.modelcontextprotocol/clientCapabilities"] as {
+            extensions?: Record<string, unknown>;
+          }
+        )?.extensions,
       ).toHaveProperty("io.modelcontextprotocol/tasks");
     });
 
@@ -206,6 +223,30 @@ describe("tasks era fork (#1631)", () => {
         // the cancel path may reject the stream; that's fine for this assertion
       });
       expect(methodsSent(messages)).toContain("tasks/cancel");
+    });
+
+    it("passes a synchronous (non-task) tool result straight through", async () => {
+      const started = await startModernTasksServer();
+      const { connected } = await connect(started.url, "modern");
+      const { tools } = await connected.listTools();
+      const plain = tools.find((t) => t.name === "plain_echo");
+      expect(plain).toBeDefined();
+
+      const invocation = await connected.callToolStream(plain!, {
+        message: "hi",
+      });
+      expect(invocation.success).toBe(true);
+      expect(firstText(invocation.result?.content as ContentBlock[])).toContain(
+        "echo:hi",
+      );
+    });
+
+    it("rejects a tasks/get for an unknown task id (raw-wire error path)", async () => {
+      const started = await startModernTasksServer();
+      const { connected } = await connect(started.url, "modern");
+      await expect(
+        connected.getRequestorTask("does-not-exist"),
+      ).rejects.toThrow();
     });
 
     it("modern store refresh re-polls known tasks (no tasks/list)", async () => {

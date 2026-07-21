@@ -38,11 +38,7 @@ const DEFAULT_POLL_INTERVAL_MS = 500;
 const SIMPLE_WORKING_POLLS = 2;
 
 type ModernTaskStatus =
-  | "working"
-  | "input_required"
-  | "completed"
-  | "failed"
-  | "cancelled";
+  "working" | "input_required" | "completed" | "failed" | "cancelled";
 
 interface ModernTaskEntry {
   taskId: string;
@@ -202,8 +198,12 @@ export class ModernTaskRuntime {
       createdAt: entry.createdAt,
       lastUpdatedAt: entry.lastUpdatedAt,
       ttlMs: DEFAULT_TTL_MS,
-      pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
     };
+    // The simple task advertises a poll interval; the input task omits it so a
+    // client falls back to its own default cadence (both paths exercised).
+    if (entry.kind === "simple") {
+      base.pollIntervalMs = DEFAULT_POLL_INTERVAL_MS;
+    }
     if (entry.status === "input_required") {
       base.inputRequests = confirmInputRequests();
     }
@@ -331,7 +331,11 @@ export function wireModernTaskHandlers(
   });
 }
 
-const MODERN_TASK_METHODS = new Set(["tasks/get", "tasks/update", "tasks/cancel"]);
+const MODERN_TASK_METHODS = new Set([
+  "tasks/get",
+  "tasks/update",
+  "tasks/cancel",
+]);
 
 interface TaskRpcBody {
   jsonrpc?: string;

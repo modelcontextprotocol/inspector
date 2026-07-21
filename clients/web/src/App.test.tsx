@@ -64,6 +64,14 @@ vi.mock("@inspector/core/mcp/index.js", async (importOriginal) => {
       .fn()
       .mockResolvedValue({ success: true, result: { acts: [] } });
     cancelRequestorTask = vi.fn().mockResolvedValue(undefined);
+    isTasksExtensionNegotiated = vi.fn().mockReturnValue(false);
+    getRequestorTask = vi.fn().mockResolvedValue({
+      taskId: "t",
+      status: "working",
+      ttl: null,
+      createdAt: "",
+      lastUpdatedAt: "",
+    });
     cancelToolCall = vi.fn().mockReturnValue(true);
     getPrompt = vi.fn().mockResolvedValue({ result: { messages: [] } });
     readResource = vi
