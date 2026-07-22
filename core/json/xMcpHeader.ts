@@ -118,10 +118,12 @@ function isRecord(node: unknown): node is Record<string, unknown> {
  * The walk descends through `properties` at any depth (the spec's "any nesting
  * depth" clause). The static-reachability MUST is enforced structurally: every
  * position the chain MUST NOT pass through (`items`/`additionalProperties`,
- * `oneOf`/`anyOf`/`allOf`/`not`, `if`/`then`/`else`, `$defs`, `$ref` targets) is
- * visited too, and an `x-mcp-header` found anywhere off the `properties` chain
- * invalidates the schema — "an annotation anywhere else makes the tool
- * definition invalid".
+ * `oneOf`/`anyOf`/`allOf`/`not`, `if`/`then`/`else`, and `$defs`/`definitions`
+ * bodies) is visited too, and an `x-mcp-header` found anywhere off the
+ * `properties` chain invalidates the schema — "an annotation anywhere else makes
+ * the tool definition invalid". `$ref` is never followed: a property reachable
+ * only through a `$ref` is therefore correctly treated as non-statically-
+ * reachable (its annotation, if any, lives in the unreachable `$defs` body).
  */
 export function scanXMcpHeaderDeclarations(
   inputSchema: unknown,

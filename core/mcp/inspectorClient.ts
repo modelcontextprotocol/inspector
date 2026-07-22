@@ -2574,8 +2574,15 @@ export class InspectorClient extends InspectorClientEventTarget {
     );
     // Recompute the SEP-2243 excluded-tools set alongside the aggregate. The
     // SDK already filtered `response.tools`, so it can't tell us what it
-    // dropped — {@link refreshExcludedTools} re-lists raw to find out. Kept
-    // best-effort: an error here must never fail the tools list itself.
+    // dropped — {@link refreshExcludedTools} re-lists the RAW `tools/list` to
+    // find out. This is a SECOND, deliberately un-cached walk: on a modern
+    // non-stdio connection it roughly doubles the list round-trips per refresh
+    // (and runs even when the aggregate above was served from cache), because
+    // the raw per-page path has no response cache and the excluded set must
+    // reflect the current wire truth. Accepted for a debugging tool where the
+    // list is small and correctness of "why did this tool vanish" matters more
+    // than the extra request; it's a no-op (no round trip) on legacy/stdio.
+    // Kept best-effort: an error here must never fail the tools list itself.
     await this.refreshExcludedTools(options?.metadata).catch(() => {});
     return { tools: [...response.tools] };
   }

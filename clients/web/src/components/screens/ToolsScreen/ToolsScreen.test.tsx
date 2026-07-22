@@ -340,7 +340,7 @@ describe("ToolsScreen", () => {
         onClearResult={onClearResult}
         callState={{
           status: "error",
-          error: "MCP error -32602: Invalid params",
+          error: "MCP error -32602: Tool ghost_tool not found",
           errorCode: -32602,
         }}
       />,

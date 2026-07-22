@@ -80,10 +80,13 @@ export function ToolControls({
           (tool.title?.toLowerCase().includes(query) ?? false),
       )
     : tools;
-  // Excluded tools are searchable too, so a filtered view stays consistent.
+  // Excluded tools are searchable too, matching name AND title like the main
+  // list above, so a filtered view stays consistent.
   const filteredExcluded = searchText
-    ? excludedTools.filter(({ tool }) =>
-        tool.name.toLowerCase().includes(query),
+    ? excludedTools.filter(
+        ({ tool }) =>
+          tool.name.toLowerCase().includes(query) ||
+          (tool.title?.toLowerCase().includes(query) ?? false),
       )
     : excludedTools;
 

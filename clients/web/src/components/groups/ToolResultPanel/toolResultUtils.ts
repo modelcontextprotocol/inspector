@@ -1,16 +1,35 @@
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import { ProtocolErrorCode } from "@modelcontextprotocol/client";
 
+/** How a thrown `tools/call` error should be presented in the error panel. */
+export type ToolCallErrorKind = "unknown-tool" | "invalid-params" | "generic";
+
 /**
- * Whether a thrown tool-call error is the SDK-v2 unknown-tool rejection
- * (`-32602`). The tool the user tried to call is not one the server recognizes
- * — most often because it was excluded client-side (an invalid `x-mcp-header`
- * annotation) or removed since the list was last fetched. Under SDK v2 an
- * unknown-tool `tools/call` REJECTS with `-32602` instead of resolving an
- * `isError` result, so it reaches the error panel as a thrown error (#1632).
+ * Message fragments a server uses when the *tool itself* is unrecognized, as
+ * opposed to bad arguments for a known tool. Both reject with the same
+ * `-32602 Invalid params` code under SDK v2, so the code alone can't tell them
+ * apart — matching the message lets us pick the right heading instead of
+ * labelling every `-32602` "Unknown Tool" (which would mislabel a known tool
+ * called with invalid arguments). Case-insensitive; best-effort.
  */
-export function isUnknownToolError(errorCode?: number): boolean {
-  return errorCode === ProtocolErrorCode.InvalidParams;
+const UNKNOWN_TOOL_MESSAGE =
+  /\b(not found|unknown tool|no such tool|not recognized|does not exist|unrecognized)\b/i;
+
+/**
+ * Classify a thrown tool-call error for display (#1632). Under SDK v2 an
+ * unknown-tool `tools/call` REJECTS with `-32602 Invalid params` instead of
+ * resolving an `isError` result — but so does a *known* tool called with
+ * invalid arguments (server-side schema validation). We narrow the ambiguous
+ * `-32602` to `"unknown-tool"` only when the message says so; any other
+ * `-32602` is `"invalid-params"`, and every other code is `"generic"`.
+ */
+export function classifyToolCallError(
+  errorCode?: number,
+  message?: string,
+): ToolCallErrorKind {
+  if (errorCode !== ProtocolErrorCode.InvalidParams) return "generic";
+  if (message && UNKNOWN_TOOL_MESSAGE.test(message)) return "unknown-tool";
+  return "invalid-params";
 }
 
 /**
