@@ -410,6 +410,31 @@ describe("CLI Tests", () => {
 
       expectCliFailure(result);
     });
+
+    it("should reject non-spec log levels trace and warn", async () => {
+      const { command, args } = getTestMcpServerCommand();
+      const resultTrace = await runCli([
+        command,
+        ...args,
+        "--cli",
+        "--method",
+        "logging/setLevel",
+        "--log-level",
+        "trace",
+      ]);
+      expectCliFailure(resultTrace);
+
+      const resultWarn = await runCli([
+        command,
+        ...args,
+        "--cli",
+        "--method",
+        "logging/setLevel",
+        "--log-level",
+        "warn",
+      ]);
+      expectCliFailure(resultWarn);
+    });
   });
 
   describe("Combined Options", () => {
