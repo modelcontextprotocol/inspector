@@ -4,6 +4,7 @@ import type {
   ReadResourceResult,
   Tool,
 } from "@modelcontextprotocol/client";
+import type { ExcludedTool } from "@inspector/core/mcp/types.js";
 import { ToolControls } from "../../groups/ToolControls/ToolControls";
 import type { ListPaginationControlsProps } from "../../elements/ListPaginationControls/ListPaginationControls";
 import {
@@ -11,6 +12,7 @@ import {
   type ToolProgress,
 } from "../../groups/ToolDetailPanel/ToolDetailPanel";
 import { ToolResultPanel } from "../../groups/ToolResultPanel/ToolResultPanel";
+import { ToolCallErrorPanel } from "../../groups/ToolResultPanel/ToolCallErrorPanel";
 import { resultHasResourceLinks } from "../../groups/ToolResultPanel/toolResultUtils";
 import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
 
@@ -18,6 +20,13 @@ export interface ToolCallState {
   status: "idle" | "pending" | "ok" | "error";
   result?: CallToolResult;
   error?: string;
+  /**
+   * JSON-RPC error code when the call REJECTED (a thrown `ProtocolError`) rather
+   * than resolving a result. SDK v2 rejects an unknown-tool call with `-32602`
+   * instead of returning an `isError` result, so this drives the distinct
+   * "Unknown Tool" rendering in the error panel (#1632).
+   */
+  errorCode?: number;
   progress?: ToolProgress;
 }
 
@@ -38,6 +47,9 @@ export interface ToolsUiState {
 
 export interface ToolsScreenProps {
   tools: Tool[];
+  /** Tools the SDK excluded from `tools/list` for invalid `x-mcp-header`
+   * annotations (SEP-2243), shown in the sidebar with the reason (#1632). */
+  excludedTools?: ExcludedTool[];
   callState?: ToolCallState;
   ui: ToolsUiState;
   listChanged: boolean;
@@ -132,6 +144,7 @@ const EmptyState = Text.withProps({
 
 export function ToolsScreen({
   tools,
+  excludedTools,
   callState,
   ui,
   listChanged,
@@ -157,6 +170,7 @@ export function ToolsScreen({
         <SidebarCard>
           <ToolControls
             tools={tools}
+            excludedTools={excludedTools}
             selectedName={selectedToolName}
             searchText={search}
             listChanged={listChanged}
@@ -208,6 +222,19 @@ export function ToolsScreen({
               result={callState.result}
               onClear={() => onClearResult?.()}
               onReadResource={onReadResource}
+            />
+          </ContentCard>
+        </ContentPane>
+      ) : callState?.status === "error" && callState.error ? (
+        // A thrown rejection (no result) — e.g. SDK v2's `-32602` unknown-tool
+        // reject, which no longer arrives as an `isError` CallToolResult. The X
+        // dismisses back to the form, like a result (#1632).
+        <ContentPane mah={SCROLL_MAX_HEIGHT}>
+          <ContentCard>
+            <ToolCallErrorPanel
+              error={callState.error}
+              errorCode={callState.errorCode}
+              onClear={() => onClearResult?.()}
             />
           </ContentCard>
         </ContentPane>

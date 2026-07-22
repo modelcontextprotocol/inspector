@@ -20,6 +20,7 @@ import type {
   PromptGetInvocation,
   ToolCallInvocation,
   ResourceSubscriptionStreamState,
+  ExcludedTool,
 } from "./types.js";
 import type {
   CacheMode,
@@ -61,6 +62,9 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   getInstructions(): string | undefined;
   getProtocolVersion(): string | undefined;
   getProtocolEra(): ProtocolEra | undefined;
+  /** Tools excluded from `tools/list` for invalid `x-mcp-header` annotations
+   * (SEP-2243); empty on legacy/stdio connections (#1632). */
+  getExcludedTools(): ExcludedTool[];
   getResourceSubscriptionStreamState(): ResourceSubscriptionStreamState;
   getDiscoverResult(): DiscoverResult | undefined;
   getServerSettings(): InspectorServerSettings | undefined;

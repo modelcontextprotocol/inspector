@@ -563,6 +563,7 @@ const DEFAULT_USE_INSPECTOR_CLIENT: ReturnType<typeof useInspectorClient> = {
   clientCapabilities: {},
   serverInfo: undefined,
   instructions: undefined,
+  excludedTools: [],
   appRendererClient: null,
   connect: vi.fn().mockResolvedValue(undefined),
   disconnect: vi.fn().mockResolvedValue(undefined),

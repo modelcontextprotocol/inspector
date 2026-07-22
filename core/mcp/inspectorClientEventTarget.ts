@@ -24,6 +24,7 @@ import type {
   ResourceReadInvocation,
   ResourceTemplateReadInvocation,
   ResourceSubscriptionStreamState,
+  ExcludedTool,
 } from "./types.js";
 import type {
   Tool,
@@ -55,6 +56,12 @@ export type TaskWithOptionalCreatedAt = Omit<Task, "createdAt"> & {
 export interface InspectorClientEventMap {
   statusChange: ConnectionStatus;
   toolsChange: Tool[];
+  /**
+   * Tools the SDK excluded from `tools/list` for invalid `x-mcp-header`
+   * annotations (SEP-2243), each with its reason. Empty on legacy/stdio
+   * connections (which don't exclude) and before connect (#1632).
+   */
+  excludedToolsChange: ExcludedTool[];
   capabilitiesChange: ServerCapabilities | undefined;
   serverInfoChange: Implementation | undefined;
   instructionsChange: string | undefined;

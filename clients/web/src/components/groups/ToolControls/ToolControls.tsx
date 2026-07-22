@@ -1,6 +1,18 @@
-import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
+import {
+  Divider,
+  Group,
+  ScrollArea,
+  Stack,
+  Text,
+  TextInput,
+  ThemeIcon,
+  Title,
+  Tooltip,
+} from "@mantine/core";
+import { RiErrorWarningLine } from "react-icons/ri";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { Tool } from "@modelcontextprotocol/client";
+import type { ExcludedTool } from "@inspector/core/mcp/types.js";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import {
   ListPaginationControls,
@@ -11,6 +23,9 @@ import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
 export interface ToolControlsProps {
   tools: Tool[];
+  /** Tools the SDK excluded from `tools/list` for invalid `x-mcp-header`
+   * annotations (SEP-2243), shown below the list with the reason (#1632). */
+  excludedTools?: ExcludedTool[];
   selectedName?: string;
   // Search text is controlled by the parent (App, via ToolsScreen) so it
   // persists across tab navigation within a live session — see #1417.
@@ -23,8 +38,31 @@ export interface ToolControlsProps {
   onSelectTool: (name: string) => void;
 }
 
+// One excluded tool: a warning icon, the tool name (struck through, since it is
+// not callable), and its reason on hover. `wrap: nowrap` keeps the icon pinned.
+const ExcludedRow = Group.withProps({
+  gap: "xs",
+  wrap: "nowrap",
+  align: "center",
+});
+
+const ExcludedWarningIcon = ThemeIcon.withProps({
+  size: "sm",
+  variant: "transparent",
+  c: "var(--inspector-log-warning)",
+  "aria-hidden": true,
+});
+
+const ExcludedName = Text.withProps({
+  size: "sm",
+  td: "line-through",
+  c: "var(--inspector-text-secondary)",
+  truncate: "end",
+});
+
 export function ToolControls({
   tools,
+  excludedTools = [],
   selectedName,
   searchText = "",
   listChanged,
@@ -42,6 +80,15 @@ export function ToolControls({
           (tool.title?.toLowerCase().includes(query) ?? false),
       )
     : tools;
+  // Excluded tools are searchable too, matching name AND title like the main
+  // list above, so a filtered view stays consistent.
+  const filteredExcluded = searchText
+    ? excludedTools.filter(
+        ({ tool }) =>
+          tool.name.toLowerCase().includes(query) ||
+          (tool.title?.toLowerCase().includes(query) ?? false),
+      )
+    : excludedTools;
 
   return (
     // Fill the full-height `sidebar` Card (a flex column) so the scroll region
@@ -81,6 +128,32 @@ export function ToolControls({
               }}
             />
           ))}
+          {filteredExcluded.length > 0 && (
+            <>
+              <Divider
+                label="Excluded (SEP-2243)"
+                labelPosition="left"
+                mt="sm"
+              />
+              {filteredExcluded.map(({ tool, reason }) => (
+                <Tooltip
+                  key={tool.name}
+                  label={reason}
+                  multiline
+                  w={280}
+                  withArrow
+                  position="right"
+                >
+                  <ExcludedRow>
+                    <ExcludedWarningIcon>
+                      <RiErrorWarningLine />
+                    </ExcludedWarningIcon>
+                    <ExcludedName>{tool.name}</ExcludedName>
+                  </ExcludedRow>
+                </Tooltip>
+              ))}
+            </>
+          )}
         </Stack>
       </ScrollArea>
     </Stack>

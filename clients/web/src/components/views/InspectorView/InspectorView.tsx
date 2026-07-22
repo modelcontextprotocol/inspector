@@ -29,6 +29,7 @@ import type {
 } from "@modelcontextprotocol/client";
 import type {
   ConnectionStatus,
+  ExcludedTool,
   FetchRequestEntry,
   InspectorResourceSubscription,
   MessageEntry,
@@ -392,6 +393,9 @@ export interface InspectorViewProps {
   // Primitive lists, log streams, task state — all sourced from the
   // per-primitive `useManaged*` / `useMessageLog` hooks in the parent.
   tools: Tool[];
+  /** Tools excluded from `tools/list` for invalid `x-mcp-header` annotations
+   * (SEP-2243); shown in the Tools sidebar with the reason (#1632). */
+  excludedTools?: ExcludedTool[];
   prompts: Prompt[];
   resources: Resource[];
   resourceTemplates: ResourceTemplate[];
@@ -594,6 +598,7 @@ export function InspectorView({
   initializeResult,
   latencyMs,
   tools,
+  excludedTools = [],
   prompts,
   resources,
   resourceTemplates,
@@ -1319,6 +1324,7 @@ export function InspectorView({
             <ScreenStage active={activeTab === "Tools"}>
               <ToolsScreen
                 tools={tools}
+                excludedTools={excludedTools}
                 callState={toolCallState}
                 ui={toolsUi}
                 listChanged={toolsListChanged}

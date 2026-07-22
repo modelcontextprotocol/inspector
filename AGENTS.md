@@ -31,6 +31,9 @@ inspector/
 │   │   │                               #   runner-interactive-oauth loopback callback flow)
 │   │   └── remote/                     # Remote OAuth storage (delegates to the remote server)
 │   ├── json/                           # JSON utilities and parameter/argument conversion
+│   │                                   #   (xMcpHeader.ts: SEP-2243 `x-mcp-header`
+│   │                                   #   annotation scan/validation + mirrored-param
+│   │                                   #   derivation, used by the Tools tab — #1632)
 │   ├── logging/                        # Silent pino logger singleton
 │   ├── mcp/                            # InspectorClient runtime + state stores
 │   │                                   #   (modernTaskSchemas.ts: SEP-2663 modern Tasks

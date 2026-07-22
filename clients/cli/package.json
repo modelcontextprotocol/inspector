@@ -31,10 +31,10 @@
     "format:check": "prettier --check src __tests__"
   },
   "dependencies": {
-    "@modelcontextprotocol/client": "2.0.0-beta.4",
-    "@modelcontextprotocol/core": "2.0.0-beta.4",
-    "@modelcontextprotocol/server": "2.0.0-beta.4",
-    "@modelcontextprotocol/server-legacy": "2.0.0-beta.4",
+    "@modelcontextprotocol/client": "2.0.0-beta.5",
+    "@modelcontextprotocol/core": "2.0.0-beta.5",
+    "@modelcontextprotocol/server": "2.0.0-beta.5",
+    "@modelcontextprotocol/server-legacy": "2.0.0-beta.5",
     "@napi-rs/keyring": "^1.3.0",
     "ajv": "^8.17.1",
     "atomically": "^2.1.1",

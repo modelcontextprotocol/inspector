@@ -770,6 +770,19 @@ export interface CreateTransportResult {
 }
 
 /**
+ * A tool a conforming Streamable HTTP client MUST exclude from `tools/list`
+ * because its `x-mcp-header` annotations violate SEP-2243 (the whole tool
+ * definition is invalidated). The SDK's `listTools()` drops these silently; the
+ * Inspector surfaces them — with the constraint they broke — so a user can see
+ * *why* a tool vanished (#1632). Only modern non-stdio connections exclude.
+ */
+export interface ExcludedTool {
+  tool: Tool;
+  /** The first violated constraint, from the `x-mcp-header` scan. */
+  reason: string;
+}
+
+/**
  * Factory that creates a client transport for an MCP server configuration.
  * Required by InspectorClient; caller provides the implementation for their
  * environment (e.g. createTransport for Node, RemoteClientTransport factory for browser).

@@ -16,7 +16,9 @@ import type {
   InspectorClientOptions,
   PendingRequestOrigin,
   ResourceSubscriptionStreamState,
+  ExcludedTool,
 } from "./types.js";
+import { scanXMcpHeaderDeclarations } from "../json/xMcpHeader.js";
 // Re-export so v1.5 tests that do `import { InspectorClientOptions } from
 // "@inspector/core/mcp/inspectorClient.js"` keep resolving.
 export type {
@@ -342,6 +344,10 @@ export class InspectorClient extends InspectorClientEventTarget {
   // probed/pinned connection (undefined on a plain legacy connect).
   private protocolEra?: ProtocolEra;
   private discoverResult?: DiscoverResult;
+  // Tools the SDK excludes from `tools/list` for invalid `x-mcp-header`
+  // annotations (SEP-2243), recomputed on every aggregate tools refresh and
+  // surfaced so the Tools tab can show why a tool vanished (#1632).
+  private excludedTools: ExcludedTool[] = [];
   // The capabilities this Inspector client advertises to the server during the
   // initialize handshake. Built once in setupClient() and snapshotted here so
   // UI surfaces (Server Info modal) can display them without poking at the
@@ -1661,6 +1667,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.protocolVersion = undefined;
     this.protocolEra = undefined;
     this.discoverResult = undefined;
+    this.excludedTools = [];
     // Drop the modern per-request log-level opt-in so it doesn't leak into the
     // next connection's `_meta` (#1629).
     this.modernLogLevel = undefined;
@@ -1675,6 +1682,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.dispatchTypedEvent("protocolVersionChange", this.protocolVersion);
     this.dispatchTypedEvent("protocolEraChange", this.protocolEra);
     this.dispatchTypedEvent("discoverResultChange", this.discoverResult);
+    this.dispatchTypedEvent("excludedToolsChange", this.excludedTools);
   }
 
   /**
@@ -2564,7 +2572,71 @@ export class InspectorClient extends InspectorClientEventTarget {
         this.getCacheableRequestOptions(options?.cacheMode),
       ),
     );
+    // Recompute the SEP-2243 excluded-tools set alongside the aggregate. The
+    // SDK already filtered `response.tools`, so it can't tell us what it
+    // dropped — {@link refreshExcludedTools} re-lists the RAW `tools/list` to
+    // find out. This is a SECOND, deliberately un-cached walk: on a modern
+    // non-stdio connection it roughly doubles the list round-trips per refresh
+    // (and runs even when the aggregate above was served from cache), because
+    // the raw per-page path has no response cache and the excluded set must
+    // reflect the current wire truth. Accepted for a debugging tool where the
+    // list is small and correctness of "why did this tool vanish" matters more
+    // than the extra request; it's a no-op (no round trip) on legacy/stdio.
+    // Kept best-effort: an error here must never fail the tools list itself.
+    await this.refreshExcludedTools(options?.metadata).catch(() => {});
     return { tools: [...response.tools] };
+  }
+
+  /**
+   * Whether this connection excludes tools with invalid `x-mcp-header`
+   * annotations from `tools/list`, matching the SDK's gate: only the modern
+   * (2026-07-28) era on a non-stdio (Streamable HTTP / SSE) transport. Legacy
+   * and stdio keep such tools in the list, so there is nothing to surface.
+   */
+  private excludesInvalidXMcpHeaderTools(): boolean {
+    return this.isModernEra() && this.getServerType() !== "stdio";
+  }
+
+  /** The current SEP-2243 excluded-tools set (empty on legacy/stdio). */
+  getExcludedTools(): ExcludedTool[] {
+    return this.excludedTools;
+  }
+
+  /**
+   * Recompute the tools the SDK excludes from `tools/list` for invalid
+   * `x-mcp-header` annotations (SEP-2243), and emit `excludedToolsChange`.
+   * Returns `[]` without any round trip on connections that don't exclude
+   * (legacy/stdio). Otherwise walks every page of the RAW `tools/list` (which,
+   * unlike the SDK's high-level `listTools()`, is NOT filtered) and keeps the
+   * tools whose annotation scan fails, each with its reason. A repeating cursor
+   * stops the walk (non-converging-server guard, mirroring the SDK).
+   */
+  async refreshExcludedTools(
+    metadata?: Record<string, string>,
+  ): Promise<ExcludedTool[]> {
+    const excluded: ExcludedTool[] = [];
+    // Gated to connections that actually exclude; otherwise this is a pure
+    // no-op (no round trip). The raw `listTools` below guards the connection.
+    if (this.excludesInvalidXMcpHeaderTools()) {
+      const seenCursors = new Set<string>();
+      let cursor: string | undefined;
+      do {
+        const page = await this.listTools(cursor, metadata);
+        for (const tool of page.tools) {
+          const scan = scanXMcpHeaderDeclarations(tool.inputSchema);
+          if (!scan.valid) excluded.push({ tool, reason: scan.reason });
+        }
+        cursor = page.nextCursor;
+        if (cursor !== undefined) {
+          /* v8 ignore next -- defensive: a spec-compliant server never repeats a cursor; this guards a non-converging server from an infinite walk (mirrors the SDK's drainList guard) */
+          if (seenCursors.has(cursor)) break;
+          seenCursors.add(cursor);
+        }
+      } while (cursor !== undefined);
+    }
+    this.excludedTools = excluded;
+    this.dispatchTypedEvent("excludedToolsChange", excluded);
+    return excluded;
   }
 
   /**
