@@ -39,6 +39,7 @@ RUN npm ci --omit=dev --ignore-scripts
 COPY --from=builder /app/client/dist ./client/dist
 COPY --from=builder /app/client/bin ./client/bin
 COPY --from=builder /app/server/build ./server/build
+COPY --from=builder /app/server/static ./server/static
 COPY --from=builder /app/cli/build ./cli/build
 
 # Set default port values as environment variables
