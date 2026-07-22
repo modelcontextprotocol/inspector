@@ -162,6 +162,63 @@ describe("ServerSettingsModal", () => {
     );
   });
 
+  it("folds an advertised-extension toggle into settings.advertisedExtensions (#1739)", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={emptySettings}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    // The Options section is expanded by default; Tasks is checked (registry
+    // default), so clicking it toggles the override off.
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /Tasks \(io\.modelcontextprotocol\/tasks\)/,
+      }),
+    );
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        advertisedExtensions: { "io.modelcontextprotocol/tasks": false },
+      }),
+    );
+  });
+
+  it("reconverges to no override when an extension toggle returns to its default (#1739)", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        // Start from a disabling override so re-checking Tasks returns it to the
+        // registry default (advertised) and should drop the key entirely.
+        settings={{
+          ...emptySettings,
+          advertisedExtensions: { "io.modelcontextprotocol/tasks": false },
+        }}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /Tasks \(io\.modelcontextprotocol\/tasks\)/,
+      }),
+    );
+    // The only override returned to its default → the whole map drops to
+    // undefined (no-override), keeping the on-disk round-trip minimal.
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({ advertisedExtensions: undefined }),
+    );
+  });
+
   it("hides the modern log-level control when this server negotiated legacy under 'auto' (#1629)", () => {
     renderWithMantine(
       <ServerSettingsModal

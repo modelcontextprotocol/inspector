@@ -1,0 +1,14 @@
+{
+  "serverInfo": {
+    "name": "advertised-extensions",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "echo" }, { "preset": "get_weather" }],
+  "extensionGatedTools": {
+    "io.modelcontextprotocol/tasks": "get_weather"
+  },
+  "transport": {
+    "type": "streamable-http",
+    "port": 3220
+  }
+}

@@ -513,6 +513,27 @@ describe("server.ts supplemental coverage", () => {
       expect((await res.json()).error).toMatch(/modernLogLevel/);
     });
 
+    it("rejects a non-boolean-valued advertisedExtensions (#1739)", async () => {
+      const res = await postSettings({
+        ...base,
+        advertisedExtensions: { "io.modelcontextprotocol/tasks": "yes" },
+      });
+      expect((await res.json()).error).toMatch(/advertisedExtensions/);
+    });
+
+    it("rejects a non-object advertisedExtensions (#1739)", async () => {
+      const res = await postSettings({
+        ...base,
+        advertisedExtensions: ["io.modelcontextprotocol/tasks"],
+      });
+      expect((await res.json()).error).toMatch(/advertisedExtensions/);
+    });
+
+    it("accepts an empty advertisedExtensions map without persisting it (#1739)", async () => {
+      const res = await postSettings({ ...base, advertisedExtensions: {} });
+      expect(res.status).toBe(200);
+    });
+
     it("accepts a fully-populated valid settings payload", async () => {
       const res = await postSettings({
         ...base,
@@ -521,6 +542,7 @@ describe("server.ts supplemental coverage", () => {
         taskTtl: 1000,
         autoRefreshOnListChanged: true,
         paginatedLists: true,
+        advertisedExtensions: { "io.modelcontextprotocol/tasks": false },
         maxFetchRequests: 5,
         protocolEra: "modern",
         modernLogLevel: "off",

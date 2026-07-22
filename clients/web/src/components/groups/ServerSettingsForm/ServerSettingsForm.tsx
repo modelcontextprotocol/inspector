@@ -26,7 +26,21 @@ import {
   MODERN_LOG_LEVELS,
 } from "@inspector/core/mcp/types.js";
 import { isOAuthCapableServerType } from "@inspector/core/mcp/config.js";
+import { ADVERTISABLE_EXTENSIONS } from "@inspector/core/mcp/extensions.js";
 import type { Root } from "@modelcontextprotocol/client";
+
+/**
+ * Resolve the advertised state of an extension for the form: the per-server
+ * override wins, else the registry default. Mirrors `buildClientExtensions`'s
+ * resolution so the switches show exactly what the client will advertise.
+ */
+function isExtensionAdvertised(
+  settings: InspectorServerSettings,
+  key: string,
+  defaultAdvertised: boolean,
+): boolean {
+  return settings.advertisedExtensions?.[key] ?? defaultAdvertised;
+}
 
 export type ServerSettingsSection =
   | "options"
@@ -65,6 +79,12 @@ export interface ServerSettingsFormProps {
   ) => void;
   onAutoRefreshChange: (value: boolean) => void;
   onPaginatedListsChange: (value: boolean) => void;
+  /**
+   * Toggle whether the Inspector advertises the extension `key` to this server.
+   * `checked` is the new advertise state; the modal folds it into
+   * `settings.advertisedExtensions`. (#1739)
+   */
+  onAdvertisedExtensionChange: (key: string, checked: boolean) => void;
   onMaxFetchRequestsChange: (value: number) => void;
   onProtocolEraChange: (value: ServerProtocolEra) => void;
   onModernLogLevelChange: (value: ModernLogLevel) => void;
@@ -272,6 +292,7 @@ export function ServerSettingsForm({
   onTimeoutChange,
   onAutoRefreshChange,
   onPaginatedListsChange,
+  onAdvertisedExtensionChange,
   onMaxFetchRequestsChange,
   onProtocolEraChange,
   onModernLogLevelChange,
@@ -380,6 +401,34 @@ export function ServerSettingsForm({
               checked={settings.paginatedLists ?? false}
               onChange={(e) => onPaginatedListsChange(e.currentTarget.checked)}
             />
+            <Stack gap="xs">
+              <Text size="sm" fw={500}>
+                Advertised Extensions
+              </Text>
+              <Text size="xs" c="var(--inspector-text-secondary)">
+                Which extensions the Inspector declares to this server in its
+                client capabilities. A server may register different tools
+                depending on what the client advertises — toggle these to debug
+                that. Takes effect on the next connect.
+              </Text>
+              {ADVERTISABLE_EXTENSIONS.map((ext) => (
+                <Checkbox
+                  key={ext.key}
+                  label={ext.label}
+                  checked={isExtensionAdvertised(
+                    settings,
+                    ext.key,
+                    ext.defaultAdvertised,
+                  )}
+                  onChange={(e) =>
+                    onAdvertisedExtensionChange(
+                      ext.key,
+                      e.currentTarget.checked,
+                    )
+                  }
+                />
+              ))}
+            </Stack>
             <NumberInput
               label="Network Log Size"
               description="Maximum number of HTTP requests kept in the Network log for this server. Older entries rotate out past this limit; a response body that arrives after its entry rotated out is dropped. Use 0 for unlimited (not recommended). Applies immediately to the active connection."

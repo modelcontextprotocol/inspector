@@ -137,6 +137,18 @@ function InteractiveRender(args: ServerSettingsFormProps) {
           settings: { ...args.settings, paginatedLists: value },
         });
       }}
+      onAdvertisedExtensionChange={(key, checked) => {
+        args.onAdvertisedExtensionChange(key, checked);
+        updateArgs({
+          settings: {
+            ...args.settings,
+            advertisedExtensions: {
+              ...args.settings.advertisedExtensions,
+              [key]: checked,
+            },
+          },
+        });
+      }}
       onMaxFetchRequestsChange={(value) => {
         args.onMaxFetchRequestsChange(value);
         updateArgs({
@@ -191,6 +203,7 @@ const meta: Meta<typeof ServerSettingsForm> = {
     onTimeoutChange: fn(),
     onAutoRefreshChange: fn(),
     onPaginatedListsChange: fn(),
+    onAdvertisedExtensionChange: fn(),
     onMaxFetchRequestsChange: fn(),
     onProtocolEraChange: fn(),
     onModernLogLevelChange: fn(),

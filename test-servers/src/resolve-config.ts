@@ -91,6 +91,7 @@ export function resolveConfig(config: ConfigFile): ServerConfig {
     tasks: config.tasks,
     tasksExtension: config.tasksExtension,
     maxPageSize: config.maxPageSize,
+    extensionGatedTools: config.extensionGatedTools,
     serverType: isHttp
       ? (transport.type as "sse" | "streamable-http")
       : undefined,
