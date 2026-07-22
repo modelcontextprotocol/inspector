@@ -176,6 +176,16 @@ export function ServerSettingsModal({
     onSettingsChange({ ...settings, paginatedLists: value });
   }
 
+  function handleAdvertisedExtensionChange(key: string, checked: boolean) {
+    onSettingsChange({
+      ...settings,
+      advertisedExtensions: {
+        ...settings.advertisedExtensions,
+        [key]: checked,
+      },
+    });
+  }
+
   function handleMaxFetchRequestsChange(value: number) {
     onSettingsChange({ ...settings, maxFetchRequests: value });
   }
@@ -251,6 +261,7 @@ export function ServerSettingsModal({
           onTimeoutChange={handleTimeoutChange}
           onAutoRefreshChange={handleAutoRefreshChange}
           onPaginatedListsChange={handlePaginatedListsChange}
+          onAdvertisedExtensionChange={handleAdvertisedExtensionChange}
           onMaxFetchRequestsChange={handleMaxFetchRequestsChange}
           onProtocolEraChange={handleProtocolEraChange}
           onModernLogLevelChange={handleModernLogLevelChange}

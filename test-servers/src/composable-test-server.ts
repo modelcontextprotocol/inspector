@@ -473,6 +473,19 @@ export interface ServerConfig {
     prompts?: number;
   };
   /**
+   * Gate a tool's visibility in `tools/list` on a client-declared extension
+   * (SEP-2133 `capabilities.extensions`). Maps extension id → tool name (the
+   * tool must be among the registered presets). The named tool is registered
+   * but starts disabled; on `notifications/initialized`, if the connected
+   * client declared that extension, it is enabled and appears in `tools/list`.
+   *
+   * Demonstrates that advertised client extensions change server tool
+   * registration (#1739 / #1633). Legacy stateful leg only — the modern
+   * per-request leg builds a fresh server per request with no persistent
+   * `oninitialized`, so a gated tool stays disabled there.
+   */
+  extensionGatedTools?: Record<string, string>;
+  /**
    * Whether to advertise tasks capability
    * If enabled, server will advertise tasks capability with list and cancel support
    */
@@ -1304,7 +1317,43 @@ export function createMcpServer(config: ServerConfig): McpServer {
     wireModernTaskHandlers(mcpServer, modernTaskRuntime);
   }
 
+  // Extension-gated tools (#1739): start each gated tool disabled, then enable
+  // it on `initialized` iff the connected client declared its extension.
+  if (config.extensionGatedTools) {
+    wireExtensionGatedTools(mcpServer, state, config.extensionGatedTools);
+  }
+
   return mcpServer;
+}
+
+/**
+ * Gate the named tools on a client-declared extension. Each gated tool is
+ * disabled up front (so it is absent from `tools/list` by default), and the
+ * server's `oninitialized` hook enables it only when the connected client
+ * advertised the mapped extension id in `capabilities.extensions`. Because
+ * `initialized` arrives before the client's first `tools/list`, the enable
+ * lands in time for the list to reflect it. Chains any existing
+ * `oninitialized` so this composes with other wiring.
+ */
+function wireExtensionGatedTools(
+  mcpServer: McpServer,
+  state: ServerState,
+  gates: Record<string, string>,
+): void {
+  const entries = Object.entries(gates);
+  for (const [, toolName] of entries) {
+    state.registeredTools.get(toolName)?.disable();
+  }
+  const previous = mcpServer.server.oninitialized;
+  mcpServer.server.oninitialized = () => {
+    previous?.();
+    const declared = mcpServer.server.getClientCapabilities()?.extensions ?? {};
+    for (const [extensionId, toolName] of entries) {
+      if (declared[extensionId] !== undefined) {
+        state.registeredTools.get(toolName)?.enable();
+      }
+    }
+  };
 }
 
 /** Structural view of the low-level `Server`'s request-handler registry. */

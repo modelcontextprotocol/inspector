@@ -124,6 +124,7 @@ type StoredInspectorFields = Pick<
   | "taskTtl"
   | "autoRefreshOnListChanged"
   | "paginatedLists"
+  | "advertisedExtensions"
   | "maxFetchRequests"
   | "oauth"
   | "roots"
@@ -191,6 +192,7 @@ export function storedFieldsToInspectorSettings(
     stored.taskTtl !== undefined ||
     stored.autoRefreshOnListChanged !== undefined ||
     stored.paginatedLists !== undefined ||
+    stored.advertisedExtensions !== undefined ||
     stored.maxFetchRequests !== undefined ||
     stored.oauth !== undefined ||
     stored.roots !== undefined ||
@@ -236,6 +238,15 @@ export function storedFieldsToInspectorSettings(
   // a hand-edited file is dropped rather than surfaced.
   if (isModernLogLevel(stored.modernLogLevel)) {
     settings.modernLogLevel = stored.modernLogLevel;
+  }
+  // Optional map with no default; carried through only when the file has a
+  // non-empty object. An absent/empty field reads back as unset, which the
+  // write side then omits — keeping a byte-stable round-trip.
+  if (
+    stored.advertisedExtensions &&
+    Object.keys(stored.advertisedExtensions).length > 0
+  ) {
+    settings.advertisedExtensions = { ...stored.advertisedExtensions };
   }
   // Truthiness drops empty-string OAuth fields — mirrors the write-side
   // coercion in `validateSettings` (server.ts) so a round-trip can't
@@ -309,6 +320,16 @@ export function inspectorSettingsToStoredFields(
   // Persist only when enabled — absent reads back as false (above).
   if (settings.paginatedLists) {
     out.paginatedLists = true;
+  }
+
+  // Persist only when the user has toggled at least one extension override;
+  // an empty map reads back as unset (above), keeping the diff minimal for the
+  // common (no-override) case.
+  if (
+    settings.advertisedExtensions &&
+    Object.keys(settings.advertisedExtensions).length > 0
+  ) {
+    out.advertisedExtensions = { ...settings.advertisedExtensions };
   }
 
   // Persist only when it differs from the default era. Absent reads back as
@@ -389,6 +410,7 @@ const INSPECTOR_FIELD_KEY_MAP = {
   taskTtl: true,
   autoRefreshOnListChanged: true,
   paginatedLists: true,
+  advertisedExtensions: true,
   maxFetchRequests: true,
   oauth: true,
   roots: true,

@@ -139,6 +139,13 @@ export type StoredMCPServer = MCPServerConfig & {
    */
   paginatedLists?: boolean;
   /**
+   * Per-extension overrides for which extensions the Inspector advertises to
+   * this server (keyed by extension id; a present key wins over the registry
+   * default). Inspector-specific. Omitted on disk when empty, keeping the file
+   * diff minimal for servers that never toggled one. (#1739)
+   */
+  advertisedExtensions?: Record<string, boolean>;
+  /**
    * Maximum number of HTTP fetch requests retained in the Network log for this
    * server (oldest rotate out past the cap). Inspector-specific. Omitted on
    * disk when it equals `DEFAULT_MAX_FETCH_REQUESTS` (the default), keeping the
@@ -691,6 +698,15 @@ export interface InspectorServerSettings {
    * on disk as `modernLogLevel` and omitted when it equals the default.
    */
   modernLogLevel?: ModernLogLevel;
+  /**
+   * Per-extension overrides for which extensions the Inspector advertises to
+   * this server in `capabilities.extensions`, keyed by extension id. A present
+   * key wins over the registry default in `ADVERTISABLE_EXTENSIONS`; an absent
+   * key falls back to it. Toggling an entry is a debugging knob — a server may
+   * change tool registration on a client-declared extension. Persisted on disk
+   * as `advertisedExtensions` and omitted when empty. (#1739)
+   */
+  advertisedExtensions?: Record<string, boolean>;
 }
 
 /**

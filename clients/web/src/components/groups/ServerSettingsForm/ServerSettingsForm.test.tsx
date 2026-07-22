@@ -66,6 +66,7 @@ const baseHandlers = {
   onTimeoutChange: vi.fn(),
   onAutoRefreshChange: vi.fn(),
   onPaginatedListsChange: vi.fn(),
+  onAdvertisedExtensionChange: vi.fn(),
   onMaxFetchRequestsChange: vi.fn(),
   onProtocolEraChange: vi.fn(),
   onModernLogLevelChange: vi.fn(),
@@ -450,6 +451,62 @@ describe("ServerSettingsForm", () => {
       }),
     );
     expect(onAutoRefreshChange).toHaveBeenCalledWith(true);
+  });
+
+  it("renders the Advertised Extensions section with Tasks checked by default", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["options"]}
+      />,
+    );
+    const tasks = screen.getByRole("checkbox", {
+      name: /Tasks \(io\.modelcontextprotocol\/tasks\)/,
+    });
+    // No override present → the registry default (advertised) shows checked.
+    expect(tasks).toBeChecked();
+  });
+
+  it("reflects an advertisedExtensions override that disables Tasks", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{
+          ...emptySettings,
+          advertisedExtensions: { "io.modelcontextprotocol/tasks": false },
+        }}
+        expandedSections={["options"]}
+      />,
+    );
+    expect(
+      screen.getByRole("checkbox", {
+        name: /Tasks \(io\.modelcontextprotocol\/tasks\)/,
+      }),
+    ).not.toBeChecked();
+  });
+
+  it("invokes onAdvertisedExtensionChange when a Tasks toggle is clicked", async () => {
+    const user = userEvent.setup();
+    const onAdvertisedExtensionChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onAdvertisedExtensionChange={onAdvertisedExtensionChange}
+        settings={emptySettings}
+        expandedSections={["options"]}
+      />,
+    );
+    // Default is checked; clicking flips it to unadvertised.
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /Tasks \(io\.modelcontextprotocol\/tasks\)/,
+      }),
+    );
+    expect(onAdvertisedExtensionChange).toHaveBeenCalledWith(
+      "io.modelcontextprotocol/tasks",
+      false,
+    );
   });
 
   it("renders the Network Log Size field reflecting maxFetchRequests", () => {

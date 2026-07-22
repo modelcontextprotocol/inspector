@@ -1354,6 +1354,12 @@ export function createRemoteApp(
           typeof (e as Record<string, unknown>).value === "string",
       );
     };
+    const isBooleanRecord = (v: unknown): v is Record<string, boolean> => {
+      if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
+      return Object.values(v as Record<string, unknown>).every(
+        (flag) => typeof flag === "boolean",
+      );
+    };
     if (!isKvArray(obj.headers)) {
       return {
         ok: false,
@@ -1498,6 +1504,19 @@ export function createRemoteApp(
           "settings.modernLogLevel must be 'off' or a logging level (debug…emergency)",
       };
     }
+    // advertisedExtensions is optional on the wire (older clients won't send
+    // it); when present it must be a flat record of boolean flags keyed by
+    // extension id, otherwise it defaults to absent below.
+    if (
+      obj.advertisedExtensions !== undefined &&
+      !isBooleanRecord(obj.advertisedExtensions)
+    ) {
+      return {
+        ok: false,
+        error:
+          "settings.advertisedExtensions must be an object of boolean flags",
+      };
+    }
     // Build the validated value from explicitly named fields rather than
     // casting the raw object through. Unknown keys silently drop so a
     // misconfigured client can't smuggle stowaways onto disk, and consumers
@@ -1567,6 +1586,15 @@ export function createRemoteApp(
     // default (DEFAULT_MODERN_LOG_LEVEL) downstream.
     if (isModernLogLevel(obj.modernLogLevel)) {
       value.modernLogLevel = obj.modernLogLevel;
+    }
+    // Optional; carry a non-empty boolean-flag map. Empty/absent reads back as
+    // unset downstream (omit-on-empty in inspectorSettingsToStoredFields), so a
+    // client that sent none writes no spurious advertisedExtensions to disk.
+    if (
+      isBooleanRecord(obj.advertisedExtensions) &&
+      Object.keys(obj.advertisedExtensions).length > 0
+    ) {
+      value.advertisedExtensions = { ...obj.advertisedExtensions };
     }
     // Empty cwd coerces to absent on the value (matching the read side); the
     // write-through distinguishes "sent cwd: '' " (clear) from "cwd omitted"

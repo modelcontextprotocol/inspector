@@ -66,6 +66,13 @@ export interface ConfigFile {
     resourceTemplates?: number;
     prompts?: number;
   };
+  /**
+   * Gate a tool's `tools/list` visibility on a client-declared extension. Maps
+   * extension id → tool name; the tool appears only when the connected client
+   * advertised that extension (#1739 / #1633). Legacy stateful leg only. See
+   * {@link ServerConfig.extensionGatedTools}.
+   */
+  extensionGatedTools?: Record<string, string>;
   oauth?: ConfigFileOAuth;
   transport: {
     type: "stdio" | "streamable-http" | "sse";

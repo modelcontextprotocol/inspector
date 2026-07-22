@@ -2271,6 +2271,12 @@ function App() {
             savedSettings.protocolEra,
           ),
         }),
+        // Per-server advertised-extension overrides (#1739). Absent/empty falls
+        // back to the registry defaults in the InspectorClient constructor.
+        ...(savedSettings?.advertisedExtensions &&
+          Object.keys(savedSettings.advertisedExtensions).length > 0 && {
+            advertisedExtensions: savedSettings.advertisedExtensions,
+          }),
         // Set on the `/oauth/callback` rebuild so the client's `saveSession`
         // events (and any later persistence) key off the same OAuth authId
         // the pre-redirect page saved under.
