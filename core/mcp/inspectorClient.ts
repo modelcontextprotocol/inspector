@@ -127,6 +127,7 @@ import {
   isModernCreateTaskResult,
   type ModernDetailedTask,
 } from "./modernTaskSchemas.js";
+import { buildClientExtensions } from "./extensions.js";
 import {
   EmptyResultSchema,
   CallToolResultSchema,
@@ -430,6 +431,9 @@ export class InspectorClient extends InspectorClientEventTarget {
   private activeToolCallAbortController?: AbortController;
   // Receiver tasks (server-initiated: server sends createMessage/elicit with params.task, server polls us)
   private receiverTasks: boolean;
+  // Per-extension advertise overrides (#1738); undefined key falls back to the
+  // registry default in ADVERTISABLE_EXTENSIONS.
+  private advertisedExtensions?: Record<string, boolean>;
   private receiverTaskTtlMs: number | (() => number);
   private receiverTaskRecords: Map<string, ReceiverTaskRecord> = new Map();
   // OAuth support (config owned by oauthManager; client delegates and uses !!oauthManager for "is OAuth configured")
@@ -467,6 +471,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.sample = options.sample ?? true;
     this.elicit = options.elicit ?? true;
     this.receiverTasks = options.receiverTasks ?? false;
+    this.advertisedExtensions = options.advertisedExtensions;
     this.receiverTaskTtlMs = options.receiverTaskTtlMs ?? 60_000;
     this.progress = options.progress ?? true;
     this.resetTimeoutOnProgress = options.resetTimeoutOnProgress ?? true;
@@ -594,22 +599,24 @@ export class InspectorClient extends InspectorClientEventTarget {
         },
       };
     }
-    if (options.oauth?.enterpriseManaged) {
+    // Assemble the advertised-extensions map from one builder (the single
+    // source of truth), instead of ad-hoc per-extension spreads. It layers the
+    // registry defaults (with any user overrides from `advertisedExtensions`)
+    // and the auth-mode-driven EMA extension. The Tasks entry defaults to
+    // advertised, so the map is non-empty and `capabilities.extensions` is
+    // always attached — the modern Tasks extension (SEP-2663) must ride every
+    // modern request envelope for a server to legally return a `CreateTaskResult`
+    // (harmless on legacy, where extensions are ignored). (#1738)
+    const advertisedExtensions = buildClientExtensions({
+      enterpriseManaged: options.oauth?.enterpriseManaged ?? false,
+      advertised: this.advertisedExtensions,
+    });
+    if (Object.keys(advertisedExtensions).length > 0) {
       capabilities.extensions = {
         ...capabilities.extensions,
-        "io.modelcontextprotocol/enterprise-managed-authorization": {},
+        ...advertisedExtensions,
       };
     }
-    // Advertise the modern Tasks extension (SEP-2663) so the SDK stamps it into
-    // every modern request's `clientCapabilities` envelope — the per-request
-    // declaration a server requires before it may return a `CreateTaskResult`.
-    // Harmless on legacy (extensions are ignored there). This is what makes
-    // server-directed ("unsolicited") task creation legal on modern, and it
-    // makes `capabilities` always non-empty, so it's always attached.
-    capabilities.extensions = {
-      ...capabilities.extensions,
-      [TASKS_EXTENSION_KEY]: {},
-    };
     clientOptions.capabilities = capabilities;
     this.clientCapabilities = capabilities;
 
