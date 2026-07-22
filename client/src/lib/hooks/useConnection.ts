@@ -579,18 +579,21 @@ export function useConnection({
         }
         switch (transportType) {
           case "sse":
-            requestHeaders["Accept"] = "text/event-stream";
-            requestHeaders["content-type"] = "application/json";
+            // Do not set accept/content-type here. The SDK sets them itself on
+            // each request (SSE GET stream, message POST, and the OAuth token
+            // request). Injecting them via requestInit collides with the SDK's
+            // case-sensitive header merge: the token request builds its headers
+            // with `new Headers(...)`, normalizing to lowercase "content-type",
+            // so a capital "Content-Type" set here survives alongside it and
+            // `fetch` comma-joins them into a malformed dual value that strict
+            // servers cannot parse. See createFetchWithInit in shared/transport.
             transportOptions = {
               authProvider: serverAuthProvider,
               fetch: async (
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
               ) => {
-                const response = await fetch(url, {
-                  ...init,
-                  headers: requestHeaders,
-                });
+                const response = await fetch(url, init);
 
                 // Capture protocol-related headers from response
                 captureResponseHeaders(response);
@@ -603,19 +606,17 @@ export function useConnection({
             break;
 
           case "streamable-http":
+            // See the SSE note above: the SDK sets accept/content-type itself
+            // per request, so injecting them via requestInit collides with the
+            // SDK's case-sensitive merge and yields a malformed dual
+            // Content-Type on the OAuth token request.
             transportOptions = {
               authProvider: serverAuthProvider,
               fetch: async (
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
               ) => {
-                requestHeaders["Accept"] =
-                  "text/event-stream, application/json";
-                requestHeaders["Content-Type"] = "application/json";
-                const response = await fetch(url, {
-                  headers: requestHeaders,
-                  ...init,
-                });
+                const response = await fetch(url, init);
 
                 // Capture protocol-related headers from response
                 captureResponseHeaders(response);
