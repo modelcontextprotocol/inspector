@@ -66,6 +66,17 @@ describe("extensions (#1738, #1740)", () => {
       expect(map[UI_EXTENSION_KEY]).toEqual(UI_ADVERTISEMENT);
     });
 
+    it("does not alias the registry advertisement across builds (#1740)", () => {
+      // Mutating a stamped advertisement must not corrupt the registry for the
+      // next connection — the builder clones it.
+      const first = buildClientExtensions({ enterpriseManaged: false });
+      (first[UI_EXTENSION_KEY] as { mimeTypes: string[] }).mimeTypes.push(
+        "text/evil",
+      );
+      const second = buildClientExtensions({ enterpriseManaged: false });
+      expect(second[UI_EXTENSION_KEY]).toEqual(UI_ADVERTISEMENT);
+    });
+
     it("adds EMA when enterpriseManaged, alongside the registry defaults", () => {
       const map = buildClientExtensions({ enterpriseManaged: true });
       expect(map).toEqual({

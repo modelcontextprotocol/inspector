@@ -117,7 +117,13 @@ export function buildClientExtensions(
   for (const ext of ADVERTISABLE_EXTENSIONS) {
     const advertised = input.advertised?.[ext.key] ?? ext.defaultAdvertised;
     if (advertised) {
-      map[ext.key] = ext.advertisement ?? {};
+      // Clone the registry advertisement so the returned map never aliases the
+      // shared `ADVERTISABLE_EXTENSIONS` entry — a later in-place mutation of a
+      // stamped value (e.g. `extensions[ui].mimeTypes`) can't corrupt the
+      // registry for subsequent connections. `{}` entries are fresh literals.
+      map[ext.key] = ext.advertisement
+        ? structuredClone(ext.advertisement)
+        : {};
     }
   }
   if (input.enterpriseManaged) {
