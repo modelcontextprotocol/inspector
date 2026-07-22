@@ -67,6 +67,17 @@ describe("extensions (#1738)", () => {
       expect(map).toEqual({ [TASKS_EXTENSION_KEY]: {} });
     });
 
+    it("does not let an override advertise EMA (auth-mode only)", () => {
+      // EMA is not a free toggle: it follows the auth mode, so an override for
+      // its key must not be able to advertise it. Locks in intent and guards
+      // against someone mistakenly adding EMA to ADVERTISABLE_EXTENSIONS.
+      const map = buildClientExtensions({
+        enterpriseManaged: false,
+        advertised: { [EMA_EXTENSION_KEY]: true },
+      });
+      expect(map).not.toHaveProperty(EMA_EXTENSION_KEY);
+    });
+
     it("ignores override keys that are not in the registry", () => {
       const map = buildClientExtensions({
         enterpriseManaged: false,

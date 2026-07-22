@@ -1813,8 +1813,10 @@ export class InspectorClient extends InspectorClientEventTarget {
       (params._meta as Record<string, unknown> | undefined) ?? {};
     const clientCapabilities = {
       ...this.clientCapabilities,
-      // extensions always carries the tasks extension (advertised at
-      // construction), so spreading it is never a no-op.
+      // Force-stamp the tasks extension regardless of what the client
+      // advertised at construction: the raw `tasks/*` channel requires it, and
+      // a user may disable general tasks advertisement via `advertisedExtensions`
+      // (#1738). So this stamp is load-bearing, not a redundant re-add.
       extensions: {
         ...this.clientCapabilities.extensions,
         [TASKS_EXTENSION_KEY]: {},
