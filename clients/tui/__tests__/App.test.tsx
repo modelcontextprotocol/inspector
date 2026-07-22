@@ -516,8 +516,17 @@ async function press(r: RenderResult, keys: string[]) {
  * Poll until `predicate` is true (or the tries run out). React + ink schedule
  * renders across several macrotasks, so async state set by a flow can take more
  * than one fixed tick to land under coverage instrumentation.
+ *
+ * The default budget (POLL_TRIES × 25ms tick) is generous on purpose: a poll
+ * exits the instant the predicate is true, so a high ceiling never slows a
+ * passing assertion — it only widens the margin for the slow path. Flows with
+ * an extra async hop (e.g. the step-up OAuth runner before the success frame)
+ * plus React commits can exceed a tight budget under CI load with v8 coverage,
+ * which is what made the step-up frame assertions intermittently time out.
  */
-async function waitUntil(predicate: () => boolean, tries = 25) {
+const POLL_TRIES = 100;
+
+async function waitUntil(predicate: () => boolean, tries = POLL_TRIES) {
   for (let i = 0; i < tries; i++) {
     if (predicate()) return;
     await tick();
@@ -529,7 +538,7 @@ async function waitUntil(predicate: () => boolean, tries = 25) {
  * settling races a single fixed tick under v8 coverage instrumentation, so
  * frame assertions that follow a mount/keypress use this instead of one tick.
  */
-async function waitForFrame(r: RenderResult, substr: string, tries = 25) {
+async function waitForFrame(r: RenderResult, substr: string, tries = POLL_TRIES) {
   await waitUntil(() => (r.lastFrame() ?? "").includes(substr), tries);
 }
 
