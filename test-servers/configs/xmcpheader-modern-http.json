@@ -6,11 +6,12 @@
   "tools": [
     { "preset": "echo" },
     { "preset": "get_weather" },
+    { "preset": "trigger_invalid_params" },
     { "preset": "invalid_header_tool" }
   ],
   "transport": {
     "type": "streamable-http",
     "port": 3120,
-    "modern": { "legacy": "stateless" }
+    "modern": { "legacy": "stateless", "injectSpecErrors": true }
   }
 }

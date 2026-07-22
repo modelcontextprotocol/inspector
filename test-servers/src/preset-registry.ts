@@ -121,6 +121,11 @@ function resolveToolPreset(
         "trigger_method_not_found",
         "Returns -32601 MethodNotFound (HTTP 404)",
       );
+    case "trigger_invalid_params":
+      return createSpecErrorTriggerTool(
+        "trigger_invalid_params",
+        "Returns a generic -32602 Invalid params (not an unknown tool)",
+      );
     case "write_to_stderr":
       return createWriteToStderrTool();
     case "collect_sample":
