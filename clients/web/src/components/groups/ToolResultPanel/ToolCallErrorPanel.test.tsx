@@ -66,6 +66,11 @@ describe("ToolCallErrorPanel", () => {
       "invalid-params",
     );
     expect(classifyToolCallError(-32602)).toBe("invalid-params");
+    // A tool-less "does not exist" (arg-validation message) must NOT read as an
+    // unknown tool — the match is tool-scoped.
+    expect(
+      classifyToolCallError(-32602, "property 'region' does not exist in enum"),
+    ).toBe("invalid-params");
     // Any other code (or none) is generic.
     expect(classifyToolCallError(-32601, "Tool not found")).toBe("generic");
     expect(classifyToolCallError(undefined)).toBe("generic");
