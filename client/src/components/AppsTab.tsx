@@ -44,7 +44,7 @@ import {
 interface AppsTabProps {
   sandboxPath: string;
   tools: Tool[];
-  listTools: () => void;
+  listTools: (loadMore?: boolean) => void;
   callTool: (
     name: string,
     params: Record<string, unknown>,

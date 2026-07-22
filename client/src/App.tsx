@@ -374,6 +374,12 @@ const App = () => {
     selectedTaskRef.current = selectedTask;
   }, [selectedTask]);
 
+  const listToolsRef = useRef<any>(null);
+  const listResourcesRef = useRef<any>(null);
+  const listResourceTemplatesRef = useRef<any>(null);
+  const listPromptsRef = useRef<any>(null);
+  const listTasksRef = useRef<any>(null);
+
   const {
     connectionStatus,
     serverCapabilities,
@@ -405,7 +411,20 @@ const App = () => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
 
       if (notification.method === "notifications/tasks/list_changed") {
-        void listTasks();
+        void listTasksRef.current?.();
+      }
+
+      if (notification.method === "notifications/tools/list_changed") {
+        void listToolsRef.current?.(false);
+      }
+
+      if (notification.method === "notifications/resources/list_changed") {
+        void listResourcesRef.current?.(false);
+        void listResourceTemplatesRef.current?.(false);
+      }
+
+      if (notification.method === "notifications/prompts/list_changed") {
+        void listPromptsRef.current?.(false);
       }
 
       if (notification.method === "notifications/tasks/status") {
@@ -873,33 +892,52 @@ const App = () => {
     }
   };
 
-  const listResources = async () => {
+  const listResources = async (loadMore: boolean = false) => {
+    const cursor = loadMore ? nextResourceCursor : undefined;
     const response = await sendMCPRequest(
       {
         method: "resources/list" as const,
-        params: nextResourceCursor ? { cursor: nextResourceCursor } : {},
+        params: cursor ? { cursor } : {},
       },
       ListResourcesResultSchema,
       "resources",
     );
-    setResources(resources.concat(response.resources ?? []));
+    if (loadMore) {
+      setResources((prev) => prev.concat(response.resources ?? []));
+    } else {
+      const newResources = response.resources ?? [];
+      setResources(newResources);
+
+      // Preserve selection if it still exists
+      if (selectedResource) {
+        const stillExists = newResources.some(
+          (r) => r.uri === selectedResource.uri,
+        );
+        if (!stillExists) {
+          setSelectedResource(null);
+        }
+      }
+    }
     setNextResourceCursor(response.nextCursor);
   };
 
-  const listResourceTemplates = async () => {
+  const listResourceTemplates = async (loadMore: boolean = false) => {
+    const cursor = loadMore ? nextResourceTemplateCursor : undefined;
     const response = await sendMCPRequest(
       {
         method: "resources/templates/list" as const,
-        params: nextResourceTemplateCursor
-          ? { cursor: nextResourceTemplateCursor }
-          : {},
+        params: cursor ? { cursor } : {},
       },
       ListResourceTemplatesResultSchema,
       "resources",
     );
-    setResourceTemplates(
-      resourceTemplates.concat(response.resourceTemplates ?? []),
-    );
+    if (loadMore) {
+      setResourceTemplates((prev) =>
+        prev.concat(response.resourceTemplates ?? []),
+      );
+    } else {
+      setResourceTemplates(response.resourceTemplates ?? []);
+    }
     setNextResourceTemplateCursor(response.nextCursor);
   };
 
@@ -1015,31 +1053,67 @@ const App = () => {
     }
   };
 
-  const listPrompts = async () => {
+  const listPrompts = async (loadMore: boolean = false) => {
+    const cursor = loadMore ? nextPromptCursor : undefined;
     const response = await sendMCPRequest(
       {
         method: "prompts/list" as const,
-        params: nextPromptCursor ? { cursor: nextPromptCursor } : {},
+        params: cursor ? { cursor } : {},
       },
       ListPromptsResultSchema,
       "prompts",
     );
-    setPrompts(response.prompts);
+    if (loadMore) {
+      setPrompts((prev) => prev.concat(response.prompts ?? []));
+    } else {
+      const newPrompts = response.prompts ?? [];
+      setPrompts(newPrompts);
+
+      // Preserve selection if it still exists
+      if (selectedPrompt) {
+        const stillExists = newPrompts.some(
+          (p) => p.name === selectedPrompt.name,
+        );
+        if (!stillExists) {
+          setSelectedPrompt(null);
+          setPromptContent("");
+        }
+      }
+    }
     setNextPromptCursor(response.nextCursor);
   };
 
-  const listTools = async () => {
+  const listTools = async (loadMore: boolean = false) => {
+    const cursor = loadMore ? nextToolCursor : undefined;
     const response = await sendMCPRequest(
       {
         method: "tools/list" as const,
-        params: nextToolCursor ? { cursor: nextToolCursor } : {},
+        params: cursor ? { cursor } : {},
       },
       ListToolsResultSchema,
       "tools",
     );
-    setTools(response.tools);
+    if (loadMore) {
+      setTools((prev) => {
+        const nextTools = prev.concat(response.tools ?? []);
+        cacheToolOutputSchemas(nextTools);
+        return nextTools;
+      });
+    } else {
+      const newTools = response.tools ?? [];
+      setTools(newTools);
+      cacheToolOutputSchemas(newTools);
+
+      // Preserve selection if it still exists
+      if (selectedTool) {
+        const stillExists = newTools.some((t) => t.name === selectedTool.name);
+        if (!stillExists) {
+          setSelectedTool(null);
+          setToolResult(null);
+        }
+      }
+    }
     setNextToolCursor(response.nextCursor);
-    cacheToolOutputSchemas(response.tools);
   };
 
   const callTool = async (
@@ -1281,20 +1355,46 @@ const App = () => {
     }
   };
 
-  const listTasks = useCallback(async () => {
-    try {
-      const response = await listMcpTasks(nextTaskCursor);
-      setTasks(response.tasks);
-      setNextTaskCursor(response.nextCursor);
-      // Inline error clear to avoid extra dependency on clearError
-      setErrors((prev) => ({ ...prev, tasks: null }));
-    } catch (e) {
-      setErrors((prev) => ({
-        ...prev,
-        tasks: (e as Error).message ?? String(e),
-      }));
-    }
-  }, [listMcpTasks, nextTaskCursor]);
+  useEffect(() => {
+    listToolsRef.current = listTools;
+    listResourcesRef.current = listResources;
+    listResourceTemplatesRef.current = listResourceTemplates;
+    listPromptsRef.current = listPrompts;
+    listTasksRef.current = listTasks;
+  });
+
+  const listTasks = useCallback(
+    async (loadMore: boolean = false) => {
+      try {
+        const cursor = loadMore ? nextTaskCursor : undefined;
+        const response = await listMcpTasks(cursor);
+        if (loadMore) {
+          setTasks((prev) => prev.concat(response.tasks));
+        } else {
+          setTasks(response.tasks);
+          // Selection is handled via ref in TasksTab, but we should clear selectedTask
+          // if it's no longer in the list after a full refresh
+          if (selectedTaskRef.current) {
+            const stillExists = response.tasks.some(
+              (t) => t.taskId === selectedTaskRef.current?.taskId,
+            );
+            if (!stillExists) {
+              setSelectedTask(null);
+            }
+          }
+        }
+        setNextTaskCursor(response.nextCursor);
+        // Inline error clear to avoid extra dependency on clearError
+        setErrors((prev) => ({ ...prev, tasks: null }));
+      } catch (e) {
+        setErrors((prev) => ({
+          ...prev,
+          tasks: (e as Error).message ?? String(e),
+        }));
+      }
+    },
+    [listMcpTasks, nextTaskCursor],
+  );
 
   const cancelTask = async (taskId: string) => {
     try {
@@ -1531,17 +1631,17 @@ const App = () => {
                     <ResourcesTab
                       resources={resources}
                       resourceTemplates={resourceTemplates}
-                      listResources={() => {
+                      listResources={(loadMore) => {
                         clearError("resources");
-                        listResources();
+                        listResources(loadMore);
                       }}
                       clearResources={() => {
                         setResources([]);
                         setNextResourceCursor(undefined);
                       }}
-                      listResourceTemplates={() => {
+                      listResourceTemplates={(loadMore) => {
                         clearError("resources");
-                        listResourceTemplates();
+                        listResourceTemplates(loadMore);
                       }}
                       clearResourceTemplates={() => {
                         setResourceTemplates([]);
@@ -1577,9 +1677,9 @@ const App = () => {
                     />
                     <PromptsTab
                       prompts={prompts}
-                      listPrompts={() => {
+                      listPrompts={(loadMore) => {
                         clearError("prompts");
-                        listPrompts();
+                        listPrompts(loadMore);
                       }}
                       clearPrompts={() => {
                         setPrompts([]);
@@ -1606,9 +1706,9 @@ const App = () => {
                         !!serverCapabilities?.tasks?.requests?.tools?.call
                       }
                       tools={tools}
-                      listTools={() => {
+                      listTools={(loadMore) => {
                         clearError("tools");
-                        listTools();
+                        listTools(loadMore);
                       }}
                       clearTools={() => {
                         setTools([]);
@@ -1683,9 +1783,9 @@ const App = () => {
                     <AppsTab
                       sandboxPath={`${getMCPProxyAddress(config)}/sandbox`}
                       tools={tools}
-                      listTools={() => {
+                      listTools={(loadMore) => {
                         clearError("tools");
-                        listTools();
+                        listTools(loadMore);
                       }}
                       callTool={async (
                         name: string,

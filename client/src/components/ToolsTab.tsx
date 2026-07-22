@@ -181,7 +181,7 @@ const ToolsTab = ({
   serverSupportsTaskRequests,
 }: {
   tools: Tool[];
-  listTools: () => void;
+  listTools: (loadMore?: boolean) => void;
   clearTools: () => void;
   callTool: (
     name: string,
@@ -279,7 +279,7 @@ const ToolsTab = ({
       <div className="grid grid-cols-2 gap-4">
         <ListPane
           items={tools}
-          listItems={listTools}
+          listItems={() => listTools(!!nextCursor)}
           clearItems={() => {
             clearTools();
             setSelectedTool(null);
@@ -301,8 +301,14 @@ const ToolsTab = ({
             </div>
           )}
           title="Tools"
-          buttonText={nextCursor ? "List More Tools" : "List Tools"}
-          isButtonDisabled={!nextCursor && tools.length > 0}
+          buttonText={
+            nextCursor
+              ? "List More Tools"
+              : tools.length > 0
+                ? "Refresh Tools"
+                : "List Tools"
+          }
+          isButtonDisabled={false}
         />
 
         <div className="bg-card border border-border rounded-lg shadow">
