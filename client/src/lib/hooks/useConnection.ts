@@ -609,9 +609,17 @@ export function useConnection({
                 url: string | URL | globalThis.Request,
                 init?: RequestInit,
               ) => {
-                requestHeaders["Accept"] =
-                  "text/event-stream, application/json";
-                requestHeaders["Content-Type"] = "application/json";
+                // NOTE: do not mutate the shared `requestHeaders` object here.
+                // It is also passed as `requestInit.headers`, and the SDK reuses
+                // that same object for OAuth token requests via
+                // `createFetchWithInit`. Injecting a capitalized
+                // `Content-Type: application/json` would then collide (by case)
+                // with the token request's own lowercase
+                // `content-type: application/x-www-form-urlencoded`, producing a
+                // malformed comma-joined value that a strict server rejects with
+                // 415 before OAuth handling runs (#1160). The SDK already sets
+                // the correct Accept/Content-Type on each MCP request itself, so
+                // `...init` supplies them for the actual message requests.
                 const response = await fetch(url, {
                   headers: requestHeaders,
                   ...init,
