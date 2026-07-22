@@ -9,6 +9,7 @@ import type {
   ServerType,
 } from "@inspector/core/mcp/types.js";
 import { isOAuthCapableServerType } from "@inspector/core/mcp/config.js";
+import { ADVERTISABLE_EXTENSIONS } from "@inspector/core/mcp/extensions.js";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import {
   ServerSettingsForm,
@@ -177,12 +178,20 @@ export function ServerSettingsModal({
   }
 
   function handleAdvertisedExtensionChange(key: string, checked: boolean) {
+    const next = { ...settings.advertisedExtensions };
+    const ext = ADVERTISABLE_EXTENSIONS.find((e) => e.key === key);
+    // Reconverge to "no override" when the toggle returns to the registry
+    // default, so the on-disk map (and its byte-stable round-trip) stays minimal
+    // — matching the omit-when-default policy used for the other settings. Only
+    // a value that actually differs from the default is persisted.
+    if (ext && checked === ext.defaultAdvertised) {
+      delete next[key];
+    } else {
+      next[key] = checked;
+    }
     onSettingsChange({
       ...settings,
-      advertisedExtensions: {
-        ...settings.advertisedExtensions,
-        [key]: checked,
-      },
+      advertisedExtensions: Object.keys(next).length > 0 ? next : undefined,
     });
   }
 
