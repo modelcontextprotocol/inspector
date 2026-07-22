@@ -16,6 +16,7 @@ import {
   createAddTool,
   createGetSumTool,
   createGetWeatherTool,
+  createInvalidHeaderTool,
   createSpecErrorTriggerTool,
   createWriteToStderrTool,
   createCollectSampleTool,
@@ -98,6 +99,8 @@ function resolveToolPreset(
       return createGetSumTool();
     case "get_weather":
       return createGetWeatherTool();
+    case "invalid_header_tool":
+      return createInvalidHeaderTool();
     case "trigger_header_mismatch":
       return createSpecErrorTriggerTool(
         "trigger_header_mismatch",

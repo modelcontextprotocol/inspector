@@ -1,0 +1,16 @@
+{
+  "serverInfo": {
+    "name": "xmcpheader-showcase",
+    "version": "1.0.0"
+  },
+  "tools": [
+    { "preset": "echo" },
+    { "preset": "get_weather" },
+    { "preset": "invalid_header_tool" }
+  ],
+  "transport": {
+    "type": "streamable-http",
+    "port": 3120,
+    "modern": { "legacy": "stateless" }
+  }
+}
