@@ -905,6 +905,16 @@ export interface InspectorClientOptions {
   roots?: Root[];
 
   /**
+   * Per-extension overrides for which extensions the Inspector advertises in
+   * `capabilities.extensions`, keyed by extension id. A present key wins over
+   * the registry default in `ADVERTISABLE_EXTENSIONS`; an absent key falls back
+   * to it. Lets a user toggle advertised extensions as a debugging knob —
+   * servers legitimately change tool registration on client-declared extensions
+   * (#1633). EMA is not configured here (it follows the auth mode). (#1738)
+   */
+  advertisedExtensions?: Record<string, boolean>;
+
+  /**
    * Whether to enable listChanged notification handlers (default: true)
    * If enabled, InspectorClient will subscribe to list_changed notifications and fire
    * corresponding events (toolsListChanged, resourcesListChanged, promptsListChanged).
