@@ -1,7 +1,7 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
+import { Input, InputProps } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -162,6 +162,53 @@ const AnnotationBadges = ({
       ))}
     </div>
   );
+};
+
+/**
+ * Number input whose wheel behaviour depends on focus: while unfocused the
+ * event is left alone so the pane scrolls normally, and while focused the pane
+ * is pinned and the wheel steps the value instead.
+ *
+ * React registers its `wheel` listener on the root container as passive, so
+ * `preventDefault()` from an `onWheel` prop is silently dropped. Binding the
+ * listener on the element itself with `{ passive: false }` makes the event
+ * cancellable, which is what lets the focused case suppress the scroll. The
+ * step is applied through the native value setter plus a synthetic `input`
+ * event so the controlled `onChange` upstream still fires.
+ */
+const NumberInput = (props: InputProps) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+
+    const onWheel = (e: WheelEvent) => {
+      if (document.activeElement !== input || e.deltaY === 0) return;
+
+      // Focused: keep the pane still and step the value ourselves.
+      e.preventDefault();
+
+      const before = input.value;
+      if (e.deltaY < 0) {
+        input.stepUp();
+      } else {
+        input.stepDown();
+      }
+      const after = input.value;
+      if (after === before) return;
+
+      // `stepUp`/`stepDown` mutate the DOM value without going through React's
+      // instance-level value setter, so its change tracker still holds the old
+      // value and the dispatched event reaches the controlled `onChange`.
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+
+    input.addEventListener("wheel", onWheel, { passive: false });
+    return () => input.removeEventListener("wheel", onWheel);
+  }, []);
+
+  return <Input {...props} type="number" ref={inputRef} />;
 };
 
 const ToolsTab = ({
@@ -517,8 +564,7 @@ const ToolsTab = ({
                             </div>
                           ) : prop.type === "number" ||
                             prop.type === "integer" ? (
-                            <Input
-                              type="number"
+                            <NumberInput
                               id={key}
                               name={key}
                               placeholder={prop.description}
