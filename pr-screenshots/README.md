@@ -1,3 +1,38 @@
+# x-mcp-header Tools tooling (#1632) — proof screenshots
+
+End-to-end verification of the SEP-2243 `x-mcp-header` Tools tooling against a
+real modern (2026-07-28) HTTP test server
+(`test-servers/configs/xmcpheader-modern-http.json` on port 3120), driven in a
+real browser through the web client's remote-proxy transport.
+
+![Excluded tools in the sidebar](xmcpheader-excluded-tools.png)
+
+Connected with **Protocol Era = Modern**. `invalid_header_tool` is dropped from
+`tools/list` by the SDK (its `x-mcp-header` annotation is invalid), so the
+Inspector re-lists the raw list and surfaces it struck-through under an
+**"Excluded (SEP-2243)"** divider — showing *why* a tool vanished rather than
+silently omitting it.
+
+![Exclusion reason on hover](xmcpheader-excluded-reason.png)
+
+Hovering the excluded tool shows the exact scan reason: the header name
+`"Bad Header"` contains a space, so it is not a valid RFC 9110 token.
+
+![Mirrored request headers](xmcpheader-mirrored-headers.png)
+
+`get_weather`'s detail panel shows the **"Mirrored request headers (SEP-2243)"**
+section: its `city` argument mirrors to `Mcp-Param-City`, with the note that the
+SDK omits `Mcp-Param-*` on the browser transport.
+
+![Unknown tool -32602](xmcpheader-unknown-tool.png)
+
+Calling a tool the server no longer recognizes rejects with **`-32602`** (SDK v2)
+instead of an `isError` result, and renders as an **"Unknown Tool"** error panel
+with a targeted hint (reproduced by swapping the sessionless server to one
+without `echo` while the cached list still showed it).
+
+---
+
 # Tasks extension era fork (#1631) — proof screenshots
 
 End-to-end verification of the Tasks era fork against two real test servers
