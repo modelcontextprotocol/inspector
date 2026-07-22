@@ -3,11 +3,14 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { McpResponse } from "./types.js";
 
 export const validLogLevels = [
-  "trace",
   "debug",
   "info",
-  "warn",
+  "notice",
+  "warning",
   "error",
+  "critical",
+  "alert",
+  "emergency",
 ] as const;
 
 export type LogLevel = (typeof validLogLevels)[number];
