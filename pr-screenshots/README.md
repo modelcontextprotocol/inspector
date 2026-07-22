@@ -1,3 +1,39 @@
+# Advertised-extensions toggle (#1739) — proof screenshots
+
+End-to-end verification of the advertised-extensions debugging knob against a
+real legacy HTTP test server (`test-servers/configs/advertised-extensions-http.json`
+on port 3220), driven in a real browser through the web client's remote-proxy
+transport. The server registers `echo` (always) and `get_weather` **gated on the
+`io.modelcontextprotocol/tasks` extension** (`extensionGatedTools`): the tool is
+enabled on `notifications/initialized` only when the connected client declared
+that extension.
+
+![Advertised Extensions — Tasks advertised (default)](advertised-ext-settings-tasks-on.png)
+
+**Server Settings → Advertised Extensions** (the new section). With no override,
+**Tasks (io.modelcontextprotocol/tasks)** is checked — the registry default —
+so the Inspector advertises it in its client capabilities.
+
+![Tools with Tasks advertised](advertised-ext-tools-tasks-on.png)
+
+Connected with Tasks advertised. The server sees the declared extension on
+`initialized` and enables the gated tool, so `tools/list` returns **both `echo`
+and `get_weather`**.
+
+![Advertised Extensions — Tasks unchecked](advertised-ext-settings-tasks-off.png)
+
+Unchecking **Tasks** writes the per-server `advertisedExtensions` override. The
+change takes effect on the next connect (as the section note says).
+
+![Tools with Tasks not advertised](advertised-ext-tools-tasks-off.png)
+
+After reconnecting, the client advertises no extensions, so the server never
+enables the gated tool — `tools/list` now returns **only `echo`**. The server's
+tool registration demonstrably changed based on what the client advertised,
+exactly the acceptance criterion for #1739.
+
+---
+
 # x-mcp-header Tools tooling (#1632) — proof screenshots
 
 End-to-end verification of the SEP-2243 `x-mcp-header` Tools tooling against a
