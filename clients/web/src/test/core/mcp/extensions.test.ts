@@ -30,7 +30,11 @@ describe("extensions (#1738, #1740)", () => {
       expect(ui).toBeDefined();
       expect(ui?.defaultAdvertised).toBe(true);
       expect(ui?.advertisement).toEqual(UI_ADVERTISEMENT);
-      expect(MCP_APP_MIME_TYPE).toBe("text/html;profile=mcp-app");
+      // The exact value is drift-guarded against ext-apps' real RESOURCE_MIME_TYPE
+      // in src/test/integration/mcp/extensions-mimetype.test.ts (node env, where
+      // the ext-apps import resolves). A literal check here would only compare
+      // the constant to a copy of itself.
+      expect(typeof MCP_APP_MIME_TYPE).toBe("string");
     });
 
     it("does not list EMA (it follows the auth mode, not a toggle)", () => {

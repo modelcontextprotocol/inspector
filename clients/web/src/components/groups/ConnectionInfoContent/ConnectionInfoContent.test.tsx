@@ -57,9 +57,9 @@ describe("ConnectionInfoContent", () => {
         transport="stdio"
       />,
     );
-    // The missing version renders an em dash (the two extension sections also
-    // em-dash here since the fixtures advertise none, so match by count).
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(1);
+    // Exactly three em dashes: the missing server version, plus the two
+    // extension sections (the fixtures advertise none on either side).
+    expect(screen.getAllByText("—")).toHaveLength(3);
   });
 
   it("renders server and client capability sections", () => {
@@ -172,7 +172,9 @@ describe("ConnectionInfoContent", () => {
     expect(screen.getByText("Supported versions")).toBeInTheDocument();
     // Extensions moved out of Discovery into their own era-transparent section.
     expect(screen.queryByText("Discovery")).toBeInTheDocument();
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(1);
+    // Exactly three em dashes: empty supported versions, plus the two extension
+    // sections (the fixtures advertise none).
+    expect(screen.getAllByText("—")).toHaveLength(3);
   });
 
   it("shows server extensions on a LEGACY connection (no discovery), from server capabilities (#1740)", () => {
@@ -233,8 +235,9 @@ describe("ConnectionInfoContent", () => {
     );
     expect(screen.getByText("Server Extensions")).toBeInTheDocument();
     expect(screen.getByText("Advertised Extensions")).toBeInTheDocument();
-    // Both extension sections render an em dash (fixtures advertise none).
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
+    // Exactly two em dashes: the two extension sections (the server version is
+    // present in the fixture, so it does not em-dash).
+    expect(screen.getAllByText("—")).toHaveLength(2);
   });
 
   it("renders client registration kind when provided", () => {
