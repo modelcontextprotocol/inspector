@@ -57,7 +57,9 @@ describe("ConnectionInfoContent", () => {
         transport="stdio"
       />,
     );
-    expect(screen.getByText("—")).toBeInTheDocument();
+    // The missing version renders an em dash (the two extension sections also
+    // em-dash here since the fixtures advertise none, so match by count).
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(1);
   });
 
   it("renders server and client capability sections", () => {
@@ -151,12 +153,9 @@ describe("ConnectionInfoContent", () => {
     expect(screen.getByText("Sessionless")).toBeInTheDocument();
     expect(screen.getByText("Discovery")).toBeInTheDocument();
     expect(screen.getByText("2026-07-28, 2025-11-25")).toBeInTheDocument();
-    expect(
-      screen.getByText("io.modelcontextprotocol/tasks"),
-    ).toBeInTheDocument();
   });
 
-  it("renders em-dashes for empty supported versions and absent extensions", () => {
+  it("renders an em-dash for empty supported versions in Discovery", () => {
     renderWithMantine(
       <ConnectionInfoContent
         initializeResult={fullResult}
@@ -171,8 +170,70 @@ describe("ConnectionInfoContent", () => {
       />,
     );
     expect(screen.getByText("Supported versions")).toBeInTheDocument();
-    expect(screen.getByText("Extensions")).toBeInTheDocument();
-    // Both the empty-versions and no-extensions values render as an em dash.
+    // Extensions moved out of Discovery into their own era-transparent section.
+    expect(screen.queryByText("Discovery")).toBeInTheDocument();
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("shows server extensions on a LEGACY connection (no discovery), from server capabilities (#1740)", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          capabilities: {
+            ...fullResult.capabilities,
+            extensions: { "io.modelcontextprotocol/tasks": {} },
+          },
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="legacy"
+      />,
+    );
+    // No discoverResult (legacy) but the server's extension still renders,
+    // sourced from the negotiated server capabilities rather than discovery.
+    expect(screen.queryByText("Discovery")).not.toBeInTheDocument();
+    expect(screen.getByText("Server Extensions")).toBeInTheDocument();
+    expect(
+      screen.getByText("io.modelcontextprotocol/tasks"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the Inspector's own advertised extensions (#1740)", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={{
+          ...fullClientCaps,
+          extensions: {
+            "io.modelcontextprotocol/tasks": {},
+            "io.modelcontextprotocol/ui": { mimeTypes: ["text/html"] },
+          },
+        }}
+        transport="streamable-http"
+        protocolEra="legacy"
+      />,
+    );
+    expect(screen.getByText("Advertised Extensions")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "io.modelcontextprotocol/tasks, io.modelcontextprotocol/ui",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("renders em-dashes for the extensions sections when neither side advertises any (#1740)", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="legacy"
+      />,
+    );
+    expect(screen.getByText("Server Extensions")).toBeInTheDocument();
+    expect(screen.getByText("Advertised Extensions")).toBeInTheDocument();
+    // Both extension sections render an em dash (fixtures advertise none).
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
   });
 
