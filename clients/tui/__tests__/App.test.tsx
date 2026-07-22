@@ -538,7 +538,11 @@ async function waitUntil(predicate: () => boolean, tries = POLL_TRIES) {
  * settling races a single fixed tick under v8 coverage instrumentation, so
  * frame assertions that follow a mount/keypress use this instead of one tick.
  */
-async function waitForFrame(r: RenderResult, substr: string, tries = POLL_TRIES) {
+async function waitForFrame(
+  r: RenderResult,
+  substr: string,
+  tries = POLL_TRIES,
+) {
   await waitUntil(() => (r.lastFrame() ?? "").includes(substr), tries);
 }
 
