@@ -458,9 +458,13 @@ describe("ServerSettingsForm", () => {
       <ServerSettingsForm
         {...baseHandlers}
         settings={emptySettings}
-        expandedSections={["options"]}
+        expandedSections={["extensions"]}
       />,
     );
+    // Advertised Extensions is now its own accordion section (#1747).
+    expect(
+      screen.getByRole("button", { name: "Advertised Extensions" }),
+    ).toBeInTheDocument();
     const tasks = screen.getByRole("checkbox", {
       name: /Tasks \(io\.modelcontextprotocol\/tasks\)/,
     });
@@ -476,7 +480,7 @@ describe("ServerSettingsForm", () => {
           ...emptySettings,
           advertisedExtensions: { "io.modelcontextprotocol/tasks": false },
         }}
-        expandedSections={["options"]}
+        expandedSections={["extensions"]}
       />,
     );
     expect(
@@ -494,7 +498,7 @@ describe("ServerSettingsForm", () => {
         {...baseHandlers}
         onAdvertisedExtensionChange={onAdvertisedExtensionChange}
         settings={emptySettings}
-        expandedSections={["options"]}
+        expandedSections={["extensions"]}
       />,
     );
     // Default is checked; clicking flips it to unadvertised.

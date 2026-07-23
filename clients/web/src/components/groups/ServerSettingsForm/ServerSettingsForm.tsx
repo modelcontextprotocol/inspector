@@ -44,6 +44,7 @@ function isExtensionAdvertised(
 
 export type ServerSettingsSection =
   | "options"
+  | "extensions"
   | "environment"
   | "headers"
   | "metadata"
@@ -401,34 +402,6 @@ export function ServerSettingsForm({
               checked={settings.paginatedLists ?? false}
               onChange={(e) => onPaginatedListsChange(e.currentTarget.checked)}
             />
-            <Stack gap="xs">
-              <Text size="sm" fw={500}>
-                Advertised Extensions
-              </Text>
-              <Text size="xs" c="var(--inspector-text-secondary)">
-                Which extensions the Inspector declares to this server in its
-                client capabilities. A server may register different tools
-                depending on what the client advertises — toggle these to debug
-                that. Takes effect on the next connect.
-              </Text>
-              {ADVERTISABLE_EXTENSIONS.map((ext) => (
-                <Checkbox
-                  key={ext.key}
-                  label={ext.label}
-                  checked={isExtensionAdvertised(
-                    settings,
-                    ext.key,
-                    ext.defaultAdvertised,
-                  )}
-                  onChange={(e) =>
-                    onAdvertisedExtensionChange(
-                      ext.key,
-                      e.currentTarget.checked,
-                    )
-                  }
-                />
-              ))}
-            </Stack>
             <NumberInput
               label="Network Log Size"
               description="Maximum number of HTTP requests kept in the Network log for this server. Older entries rotate out past this limit; a response body that arrives after its entry rotated out is dropped. Use 0 for unlimited (not recommended). Applies immediately to the active connection."
@@ -452,6 +425,34 @@ export function ServerSettingsForm({
                 }
               />
             ) : null}
+          </Stack>
+        </Accordion.Panel>
+      </Accordion.Item>
+
+      <Accordion.Item value="extensions">
+        <Accordion.Control>Advertised Extensions</Accordion.Control>
+        <Accordion.Panel>
+          <Stack gap="xs">
+            <Text size="xs" c="var(--inspector-text-secondary)">
+              Which extensions the Inspector declares to this server in its
+              client capabilities. A server may register different tools
+              depending on what the client advertises — toggle these to debug
+              that. Takes effect on the next connect.
+            </Text>
+            {ADVERTISABLE_EXTENSIONS.map((ext) => (
+              <Checkbox
+                key={ext.key}
+                label={ext.label}
+                checked={isExtensionAdvertised(
+                  settings,
+                  ext.key,
+                  ext.defaultAdvertised,
+                )}
+                onChange={(e) =>
+                  onAdvertisedExtensionChange(ext.key, e.currentTarget.checked)
+                }
+              />
+            ))}
           </Stack>
         </Accordion.Panel>
       </Accordion.Item>

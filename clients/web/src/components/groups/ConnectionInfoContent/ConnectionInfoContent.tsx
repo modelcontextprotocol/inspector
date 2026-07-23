@@ -260,7 +260,7 @@ export function ConnectionInfoContent({
           <ValueText>{formatExtensions(capabilities.extensions)}</ValueText>
         </Stack>
         <Stack gap="xs">
-          <SectionHeading>Advertised Extensions</SectionHeading>
+          <SectionHeading>Client Advertised Extensions</SectionHeading>
           <ValueText>
             {formatExtensions(clientCapabilities.extensions)}
           </ValueText>

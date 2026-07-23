@@ -233,6 +233,19 @@ export const WithHeaders: Story = {
   },
 };
 
+export const AdvertisedExtensions: Story = {
+  args: {
+    // Expand the standalone Advertised Extensions section so its checkboxes are
+    // documented visually. A per-server override disables one extension, showing
+    // both the default-on and toggled-off states side by side.
+    expandedSections: ["extensions"],
+    settings: {
+      ...defaultSettings,
+      advertisedExtensions: { "io.modelcontextprotocol/tasks": false },
+    },
+  },
+};
+
 export const WithOAuth: Story = {
   args: {
     settings: {

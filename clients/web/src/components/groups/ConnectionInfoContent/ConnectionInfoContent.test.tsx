@@ -216,7 +216,9 @@ describe("ConnectionInfoContent", () => {
         protocolEra="legacy"
       />,
     );
-    expect(screen.getByText("Advertised Extensions")).toBeInTheDocument();
+    expect(
+      screen.getByText("Client Advertised Extensions"),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(
         "io.modelcontextprotocol/tasks, io.modelcontextprotocol/ui",
@@ -234,7 +236,9 @@ describe("ConnectionInfoContent", () => {
       />,
     );
     expect(screen.getByText("Server Extensions")).toBeInTheDocument();
-    expect(screen.getByText("Advertised Extensions")).toBeInTheDocument();
+    expect(
+      screen.getByText("Client Advertised Extensions"),
+    ).toBeInTheDocument();
     // Exactly two em dashes: the two extension sections (the server version is
     // present in the fixture, so it does not em-dash).
     expect(screen.getAllByText("—")).toHaveLength(2);
