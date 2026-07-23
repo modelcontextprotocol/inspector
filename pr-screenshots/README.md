@@ -1,3 +1,32 @@
+# TUI enum forms honor `enumNames` (#1691) — proof screenshots
+
+The TUI tool-test form (`schemaToForm` → `ink-form`) rendered against a legacy
+titled enum: `enum: [pet-1 … pet-5]` paired with the non-standard
+`enumNames: [Cats … Reptiles]`, `default: "pet-1"`. Captured non-interactively
+(a standalone render of the real `ink-form` built by the real `schemaToForm`;
+the Ink TUI can't take live keystrokes in a headless pty).
+
+![TUI form with the #1691 fix — the required field resolves pet-1 to its title "Cats"](tui-enumnames-after-cats.png)
+
+**With the fix:** the required **Favorite Pet** field resolves the default
+`pet-1` to its human title **"Cats"**. The submitted value stays the raw
+`pet-1` — only the display label changes. (`Plain Enum`, which has no
+`enumNames`, is unaffected.)
+
+![The same form before #1691 — the field shows the raw wire value "pet-1"](tui-enumnames-before-raw.png)
+
+**Before the fix** (same schema with `enumNames` stripped, reproducing the old
+behavior): the field shows the opaque wire value **"pet-1"** with no indication
+it means "Cats".
+
+Ground-truth options from the real `schemaToForm` confirm the label↔value
+pairing and the length-guarded fallbacks: `pet` → `Cats=>pet-1 … Reptiles=>pet-5`;
+array-of-enum `sizes` → `Small=>s | Medium=>m | Large=>l`; a mismatched-length
+`enumNames` (2 names, 3 values) falls back to raw `a=>a | b=>b | c=>c`. The web
+side of this fix is covered by `SchemaForm.test.tsx`.
+
+---
+
 # Server Settings OAuth field disambiguation under EMA (#1692) — proof screenshots
 
 The **Server Settings → OAuth Settings** fields, rendered from the
