@@ -1,3 +1,27 @@
+# Server/Client Settings modal: sticky header while body scrolls (#1698) — proof screenshots
+
+Expanding enough accordion sections grew the Server Settings modal past the
+viewport, scrolling the whole modal and taking the header (title + close) out of
+view. The fix moves the header into a real `Modal.Header` (sticky by design) and
+adds `scrollAreaComponent={ScrollArea.Autosize}` so only `Modal.Body` scrolls.
+Captured from the `ServerSettingsModal` Storybook story (`FullyConfigured`, all
+sections expanded, ~680px viewport) via Playwright.
+
+![Modal scrolled to the top — header pinned, Options section visible](ssm-1698-header-pinned-top.png)
+
+At the top of the scroll: the **Server Settings** header (collapse-all toggle,
+title, close) sits above the first section.
+
+![Modal scrolled down — same header still pinned while the body shows Custom Headers / Request Metadata](ssm-1698-header-pinned-scrolled.png)
+
+Scrolled down through the body (now showing Advertised Extensions → Custom
+Headers → Request Metadata): the **exact same header stays pinned** at the top.
+Measured in-page: the body scroll container is `scrollHeight` 2253 ×
+`clientHeight` 612 (scrolls internally), and the header is `position: sticky`
+with its top flush to the dialog top after scrolling.
+
+---
+
 # TUI array-of-enum renders as a select on `items.enum` alone (#1751) — proof screenshots
 
 Follow-up to #1691. The TUI `schemaToForm` array-of-enum branch was nested under
