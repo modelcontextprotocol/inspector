@@ -82,6 +82,94 @@ describe("schemaToForm", () => {
     });
   });
 
+  it("uses enumNames as single-select labels while keeping raw values", () => {
+    const form = schemaToForm(
+      {
+        properties: {
+          pet: {
+            type: "string",
+            enum: ["pet-1", "pet-2"],
+            enumNames: ["Cats", "Dogs"],
+          },
+        },
+      },
+      "titledEnum",
+    );
+    expect(form.sections[0]!.fields[0]).toMatchObject({
+      type: "select",
+      options: [
+        { label: "Cats", value: "pet-1" },
+        { label: "Dogs", value: "pet-2" },
+      ],
+    });
+  });
+
+  it("falls back to raw single-select labels when enumNames length mismatches", () => {
+    const form = schemaToForm(
+      {
+        properties: {
+          pet: {
+            type: "string",
+            enum: ["pet-1", "pet-2"],
+            // Only one name for two values — a wrong-length zip would
+            // mislabel, so the raw values are used as labels.
+            enumNames: ["Cats"],
+          },
+        },
+      },
+      "mismatchedEnum",
+    );
+    expect(form.sections[0]!.fields[0]).toMatchObject({
+      options: [
+        { label: "pet-1", value: "pet-1" },
+        { label: "pet-2", value: "pet-2" },
+      ],
+    });
+  });
+
+  it("uses items.enumNames as array-of-enum labels while keeping raw values", () => {
+    const form = schemaToForm(
+      {
+        properties: {
+          pets: {
+            type: "array",
+            enum: ["pet-1", "pet-2"],
+            items: { enum: ["pet-1", "pet-2"], enumNames: ["Cats", "Dogs"] },
+          },
+        },
+      },
+      "titledArrayEnum",
+    );
+    expect(form.sections[0]!.fields[0]).toMatchObject({
+      type: "select",
+      options: [
+        { label: "Cats", value: "pet-1" },
+        { label: "Dogs", value: "pet-2" },
+      ],
+    });
+  });
+
+  it("falls back to raw array-of-enum labels when items.enumNames length mismatches", () => {
+    const form = schemaToForm(
+      {
+        properties: {
+          pets: {
+            type: "array",
+            enum: ["pet-1", "pet-2"],
+            items: { enum: ["pet-1", "pet-2"], enumNames: ["Cats"] },
+          },
+        },
+      },
+      "mismatchedArrayEnum",
+    );
+    expect(form.sections[0]!.fields[0]).toMatchObject({
+      options: [
+        { label: "pet-1", value: "pet-1" },
+        { label: "pet-2", value: "pet-2" },
+      ],
+    });
+  });
+
   it("carries a JSON Schema default through as the field's initialValue", () => {
     const form = schemaToForm(
       { properties: { greeting: { type: "string", default: "hi" } } },
