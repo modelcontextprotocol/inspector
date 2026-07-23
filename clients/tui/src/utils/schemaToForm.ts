@@ -69,27 +69,24 @@ export function schemaToForm(
 
     let field: FormField;
 
-    // Handle enum -> select
-    if (property.enum) {
-      if (property.type === "array" && property.items?.enum) {
-        // For array of enums, we'll use select but handle it differently
-        // Note: ink-form doesn't have multiselect, so we'll use select
-        field = {
-          type: "select",
-          ...baseField,
-          options: toSelectOptions(
-            property.items.enum,
-            property.items.enumNames,
-          ),
-        } as FormField;
-      } else {
-        // Single select
-        field = {
-          type: "select",
-          ...baseField,
-          options: toSelectOptions(property.enum, property.enumNames),
-        } as FormField;
-      }
+    // Handle enum -> select. Detect the array-of-enums case on `items.enum`
+    // alone (matching the web SchemaForm guard) — a standard array-of-enums
+    // schema carries no top-level `enum`, so gating on it would drop the field
+    // to a plain string input.
+    if (property.type === "array" && property.items?.enum) {
+      // ink-form has no multiselect, so we render a single select.
+      field = {
+        type: "select",
+        ...baseField,
+        options: toSelectOptions(property.items.enum, property.items.enumNames),
+      } as FormField;
+    } else if (property.enum) {
+      // Single select
+      field = {
+        type: "select",
+        ...baseField,
+        options: toSelectOptions(property.enum, property.enumNames),
+      } as FormField;
     } else {
       // Map JSON Schema types to ink-form types
       switch (property.type) {
