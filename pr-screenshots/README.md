@@ -1,3 +1,37 @@
+# Connection Info extensions + `io.modelcontextprotocol/ui` (#1740) — proof screenshots
+
+End-to-end verification of the Phase 3 Connection Info UI against the legacy
+`advertised-extensions-http.json` test server (port 3220), driven in a real
+browser through the web client's remote-proxy transport.
+
+![Connection Info on a legacy connection — Advertised Extensions shows tasks + ui](advertised-ext-conninfo-legacy.png)
+
+The Connection Info modal on a **legacy** connection (Era: **LEGACY**, no
+Discovery section). The new **Server Extensions / Advertised Extensions**
+two-column section renders — proving it is era-transparent (before #1740,
+extensions only appeared in the modern-only Discovery section). **Advertised
+Extensions** shows `io.modelcontextprotocol/tasks, io.modelcontextprotocol/ui`,
+confirming the Inspector now advertises the MCP Apps `ui` extension. (Server
+Extensions is `—` because this test server advertises none server-side.)
+
+![Connection Info after toggling Tasks off — Advertised Extensions shows only ui](advertised-ext-conninfo-tasksoff.png)
+
+After unchecking **Tasks** in Server Settings → Advertised Extensions (Phase 2)
+and reconnecting, the **Advertised Extensions** column shows only
+`io.modelcontextprotocol/ui` — the display reflects the per-server override live,
+and the `ui` advertisement persists (it is a separate registry entry).
+
+> Note: the Connection Info modal is populated from the connection's
+> `initializeResult`, which requires `serverInfo`. On the modern test server used
+> here `serverInfo` wasn't populated, so the modal stays closed on that modern
+> connection — a pre-existing connection-layer behavior, independent of this PR
+> (which only changes content *inside* the modal). The era-transparent
+> **Server Extensions** path is covered by unit tests
+> (`ConnectionInfoContent.test.tsx` renders legacy server extensions with no
+> `discoverResult`).
+
+---
+
 # Advertised-extensions toggle (#1739) — proof screenshots
 
 End-to-end verification of the advertised-extensions debugging knob against a

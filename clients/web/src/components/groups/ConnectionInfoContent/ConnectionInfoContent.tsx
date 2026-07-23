@@ -128,11 +128,14 @@ function formatSession(
   return isModernEra(era) ? "Sessionless" : "Session-based";
 }
 
-// The `extensions` map the server advertised in its `server/discover`
-// capabilities (SEP-2133). Render the extension identifiers, or an em dash when
-// none were advertised.
-function formatExtensions(discoverResult: DiscoverResult): string {
-  const extensions = discoverResult.capabilities.extensions;
+// Render an `extensions` capability map (SEP-2133) as a comma-separated list of
+// its extension identifiers, or an em dash when none are present. Works for
+// either side's map: the server's negotiated `capabilities.extensions` (present
+// on both eras via `getServerCapabilities()`) or the Inspector's own advertised
+// `clientCapabilities.extensions`. (#1740)
+function formatExtensions(
+  extensions: Record<string, unknown> | undefined,
+): string {
   const keys = extensions ? Object.keys(extensions) : [];
   return keys.length > 0 ? keys.join(", ") : "—";
 }
@@ -220,9 +223,6 @@ export function ConnectionInfoContent({
                 ? discoverResult.supportedVersions.join(", ")
                 : "—"}
             </ValueText>
-
-            <Text size="sm">Extensions</Text>
-            <ValueText>{formatExtensions(discoverResult)}</ValueText>
           </SimpleGrid>
         </Stack>
       )}
@@ -247,6 +247,23 @@ export function ConnectionInfoContent({
               supported={cap.supported}
             />
           ))}
+        </Stack>
+      </SimpleGrid>
+
+      {/* Extensions (SEP-2133) shown for both eras: the server's from its
+          negotiated capabilities, the Inspector's from what it advertised
+          (the Advertised Extensions setting). Mirrors the server/client
+          capability columns above. (#1740) */}
+      <SimpleGrid cols={2}>
+        <Stack gap="xs">
+          <SectionHeading>Server Extensions</SectionHeading>
+          <ValueText>{formatExtensions(capabilities.extensions)}</ValueText>
+        </Stack>
+        <Stack gap="xs">
+          <SectionHeading>Advertised Extensions</SectionHeading>
+          <ValueText>
+            {formatExtensions(clientCapabilities.extensions)}
+          </ValueText>
         </Stack>
       </SimpleGrid>
 

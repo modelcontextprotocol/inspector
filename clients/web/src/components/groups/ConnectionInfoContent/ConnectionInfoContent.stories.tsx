@@ -50,6 +50,12 @@ export const ModernEra: Story = {
       capabilities: {
         tools: { listChanged: true },
         resources: { subscribe: true },
+        // The Server Extensions row reads the negotiated server capabilities
+        // (era-transparent), not discoverResult — carry it here too so the
+        // modern story demonstrates the extension. (#1740)
+        extensions: {
+          "io.modelcontextprotocol/tasks": {},
+        },
       },
     },
     clientCapabilities: fullClientCaps,

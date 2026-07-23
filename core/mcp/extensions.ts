@@ -11,6 +11,25 @@ export const EMA_EXTENSION_KEY =
   "io.modelcontextprotocol/enterprise-managed-authorization";
 
 /**
+ * Extension identifier for the MCP Apps UI extension (SEP-ext-apps). Mirrors
+ * `EXTENSION_ID` from `@modelcontextprotocol/ext-apps`. Hardcoded rather than
+ * imported: that constant lives on the package's `/server` subpath, which would
+ * pull server-only code into the browser bundle. The Inspector always renders
+ * MCP Apps, so this is advertised by default (#1740).
+ */
+export const UI_EXTENSION_KEY = "io.modelcontextprotocol/ui";
+
+/**
+ * The MCP Apps UI resource MIME type the Inspector renders. Mirrors
+ * `RESOURCE_MIME_TYPE` from `@modelcontextprotocol/ext-apps`; a server checks
+ * for it in the client's advertised `io.modelcontextprotocol/ui` `mimeTypes` to
+ * decide whether to serve an App. Hardcoded (stable spec string) because
+ * ext-apps re-exports it through an extensionless path that doesn't resolve
+ * cleanly under NodeNext — see the same note in `core/mcp/apps.ts`.
+ */
+export const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app";
+
+/**
  * The value the client stamps for each advertised extension. The wire shape is
  * `{ [extensionId]: object }` (per `ClientCapabilities.extensions`); an empty
  * object is the standard "declared, no sub-options" advertisement.
@@ -35,6 +54,12 @@ export interface AdvertisableExtension {
    * no explicit preference (the toggle's default position).
    */
   defaultAdvertised: boolean;
+  /**
+   * The object value stamped into `capabilities.extensions[key]` when
+   * advertised. Defaults to `{}` (declared, no sub-options); an extension that
+   * carries settings — e.g. the UI extension's `mimeTypes` — sets its own shape.
+   */
+  advertisement?: ExtensionAdvertisement;
 }
 
 /**
@@ -52,6 +77,15 @@ export const ADVERTISABLE_EXTENSIONS: readonly AdvertisableExtension[] = [
     // declaration a server requires before it may return a `CreateTaskResult`
     // (server-directed task creation). Harmless on legacy (extensions ignored).
     defaultAdvertised: true,
+  },
+  {
+    key: UI_EXTENSION_KEY,
+    label: "MCP Apps UI (io.modelcontextprotocol/ui)",
+    // The MCP Apps UI extension. The Inspector always renders App tools, so it
+    // advertises this by default with the App resource MIME type it supports —
+    // a conforming server checks the `mimeTypes` before serving a UI resource.
+    defaultAdvertised: true,
+    advertisement: { mimeTypes: [MCP_APP_MIME_TYPE] },
   },
 ];
 
@@ -83,7 +117,13 @@ export function buildClientExtensions(
   for (const ext of ADVERTISABLE_EXTENSIONS) {
     const advertised = input.advertised?.[ext.key] ?? ext.defaultAdvertised;
     if (advertised) {
-      map[ext.key] = {};
+      // Clone the registry advertisement so the returned map never aliases the
+      // shared `ADVERTISABLE_EXTENSIONS` entry — a later in-place mutation of a
+      // stamped value (e.g. `extensions[ui].mimeTypes`) can't corrupt the
+      // registry for subsequent connections. `{}` entries are fresh literals.
+      map[ext.key] = ext.advertisement
+        ? structuredClone(ext.advertisement)
+        : {};
     }
   }
   if (input.enterpriseManaged) {
