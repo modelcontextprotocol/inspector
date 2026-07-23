@@ -9,10 +9,29 @@ interface JsonSchemaProperty {
   type?: string;
   title?: string;
   enum?: unknown[];
-  items?: { enum?: unknown[] };
+  /** Non-standard legacy support: titles for enum values */
+  enumNames?: string[];
+  items?: { enum?: unknown[]; enumNames?: string[] };
   minimum?: number;
   maximum?: number;
   default?: unknown;
+}
+
+/**
+ * Build ink-form select options from enum values, using their non-standard
+ * `enumNames` titles as labels when present and length-matched. Falls back to
+ * the stringified value as the label otherwise, since a wrong-length zip would
+ * mislabel options — worse than showing raw values.
+ */
+function toSelectOptions(
+  values: unknown[],
+  names: string[] | undefined,
+): { label: string; value: string }[] {
+  const useNames = names !== undefined && names.length === values.length;
+  return values.map((val, index) => ({
+    label: useNames ? names[index] : String(val),
+    value: String(val),
+  }));
 }
 
 /** Minimal JSON Schema object shape (properties + required) */
@@ -58,20 +77,17 @@ export function schemaToForm(
         field = {
           type: "select",
           ...baseField,
-          options: property.items.enum.map((val: unknown) => ({
-            label: String(val),
-            value: String(val),
-          })),
+          options: toSelectOptions(
+            property.items.enum,
+            property.items.enumNames,
+          ),
         } as FormField;
       } else {
         // Single select
         field = {
           type: "select",
           ...baseField,
-          options: property.enum.map((val: unknown) => ({
-            label: String(val),
-            value: String(val),
-          })),
+          options: toSelectOptions(property.enum, property.enumNames),
         } as FormField;
       }
     } else {

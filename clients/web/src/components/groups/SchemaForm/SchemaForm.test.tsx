@@ -109,6 +109,83 @@ describe("SchemaForm", () => {
     expect(onChange).toHaveBeenCalledWith({ format: "csv" });
   });
 
+  it("uses enumNames for string-enum option labels while submitting the raw value", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const schema: InspectorFormSchema = {
+      type: "object",
+      properties: {
+        pet: {
+          type: "string",
+          title: "Pet",
+          enum: ["pet-1", "pet-2", "pet-3"],
+          enumNames: ["Cats", "Dogs", "Birds"],
+        },
+      },
+    };
+    renderWithMantine(
+      <SchemaForm schema={schema} values={{}} onChange={onChange} />,
+    );
+    await user.click(screen.getByRole("textbox", { name: "Pet" }));
+    // The option shows the enumNames label...
+    const option = await screen.findByRole("option", {
+      name: "Dogs",
+      hidden: true,
+    });
+    await user.click(option);
+    // ...but the value persisted is the raw enum value.
+    expect(onChange).toHaveBeenCalledWith({ pet: "pet-2" });
+  });
+
+  it("preselects a default string-enum value showing its enumNames label", () => {
+    const onChange = vi.fn();
+    const schema: InspectorFormSchema = {
+      type: "object",
+      properties: {
+        pet: {
+          type: "string",
+          title: "Pet",
+          enum: ["pet-1", "pet-2", "pet-3"],
+          enumNames: ["Cats", "Dogs", "Birds"],
+          default: "pet-1",
+        },
+      },
+    };
+    renderWithMantine(
+      <SchemaForm schema={schema} values={{}} onChange={onChange} />,
+    );
+    // Default pet-1 preselects and shows its human-readable label.
+    expect(screen.getByDisplayValue("Cats")).toBeInTheDocument();
+  });
+
+  it("falls back to raw string-enum values when enumNames length mismatches", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const schema: InspectorFormSchema = {
+      type: "object",
+      properties: {
+        pet: {
+          type: "string",
+          title: "Pet",
+          enum: ["pet-1", "pet-2", "pet-3"],
+          // Only two names for three values — a wrong-length zip would
+          // mislabel, so the raw values are shown instead.
+          enumNames: ["Cats", "Dogs"],
+        },
+      },
+    };
+    renderWithMantine(
+      <SchemaForm schema={schema} values={{}} onChange={onChange} />,
+    );
+    await user.click(screen.getByRole("textbox", { name: "Pet" }));
+    const option = await screen.findByRole("option", {
+      name: "pet-2",
+      hidden: true,
+    });
+    await user.click(option);
+    expect(onChange).toHaveBeenCalledWith({ pet: "pet-2" });
+  });
+
   it("clears a string field via its Clear button", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

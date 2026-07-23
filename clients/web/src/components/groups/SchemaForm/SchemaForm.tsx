@@ -25,6 +25,22 @@ function serializeJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+/**
+ * Pair enum values with their non-standard `enumNames` titles into Mantine
+ * `{ value, label }[]` option data. Falls back to bare enum values when
+ * `enumNames` is absent or its length does not match `enum`, since a wrong-length
+ * zip would mislabel options — worse than showing the raw values.
+ */
+function toEnumData(
+  values: string[],
+  names: string[] | undefined,
+): string[] | { value: string; label: string }[] {
+  if (names && names.length === values.length) {
+    return values.map((value, index) => ({ value, label: names[index] }));
+  }
+  return values;
+}
+
 export interface SchemaFormProps {
   schema: InspectorFormSchema;
   values: Record<string, unknown>;
@@ -77,7 +93,7 @@ export function SchemaForm({
           description={description}
           withAsterisk={isRequired}
           disabled={disabled}
-          data={fieldSchema.enum}
+          data={toEnumData(fieldSchema.enum, fieldSchema.enumNames)}
           value={(rawValue as string) ?? null}
           onChange={(val) => handleFieldChange(fieldName, val)}
         />
@@ -167,15 +183,10 @@ export function SchemaForm({
 
     // array of enum values (multi-select)
     if (fieldSchema.type === "array" && fieldSchema.items?.enum) {
-      const itemEnum = fieldSchema.items.enum;
-      const itemEnumNames = fieldSchema.items.enumNames;
-      const data =
-        itemEnumNames && itemEnumNames.length === itemEnum.length
-          ? itemEnum.map((value, index) => ({
-              value,
-              label: itemEnumNames[index],
-            }))
-          : itemEnum;
+      const data = toEnumData(
+        fieldSchema.items.enum,
+        fieldSchema.items.enumNames,
+      );
       return (
         <MultiSelect
           key={fieldName}
