@@ -235,16 +235,15 @@ export function ServerSettingsModal({
     // Compound Modal so the header lives in `Modal.Header` (sticky by design)
     // while `scrollAreaComponent` confines overflow to `Modal.Body` — otherwise
     // expanding enough accordion sections grows the whole modal past the
-    // viewport and scrolls the header out of view (#1698). `transitionProps`
-    // restores the fade-down animation the `Modal` wrapper defaults to but
-    // `Modal.Root` does not.
+    // viewport and scrolls the header out of view (#1698). The fade-down
+    // transition `<Modal>` defaults to (but `Modal.Root` doesn't inherit) is
+    // supplied app-wide by `ThemeModalRoot`.
     <Modal.Root
       opened={opened}
       onClose={onClose}
       size="lg"
       centered
       scrollAreaComponent={ScrollArea.Autosize}
-      transitionProps={{ transition: "fade-down", duration: 200 }}
     >
       <Modal.Overlay />
       <Modal.Content>

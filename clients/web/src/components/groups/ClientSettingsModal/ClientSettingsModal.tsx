@@ -64,15 +64,14 @@ export function ClientSettingsModal({
     // Compound Modal so the header lives in `Modal.Header` (sticky by design)
     // while `scrollAreaComponent` confines overflow to `Modal.Body` (#1698 —
     // kept consistent with ServerSettingsModal for when this grows enough to
-    // scroll). `transitionProps` restores the fade-down animation the `Modal`
-    // wrapper defaults to but `Modal.Root` does not.
+    // scroll). The fade-down transition `<Modal>` defaults to (but `Modal.Root`
+    // doesn't inherit) is supplied app-wide by `ThemeModalRoot`.
     <Modal.Root
       opened={opened}
       onClose={handleClose}
       size="lg"
       centered
       scrollAreaComponent={ScrollArea.Autosize}
-      transitionProps={{ transition: "fade-down", duration: 200 }}
     >
       <Modal.Overlay />
       <Modal.Content>
