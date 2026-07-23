@@ -57,13 +57,34 @@ describe("schemaToForm", () => {
     });
   });
 
-  it("builds a select field from an array-of-enum", () => {
+  it("builds a select field from an array-of-enum on items.enum alone", () => {
     const form = schemaToForm(
       {
         properties: {
-          // The array branch is nested under the outer `enum` guard, so a
-          // top-level `enum` must also be present for it to be reached; the
-          // options are taken from `items.enum`.
+          // Standard array-of-enums shape: options come from `items.enum` with
+          // NO top-level `enum`. The array branch keys on `items.enum` alone
+          // (matching the web guard), so this renders as a select.
+          tags: {
+            type: "array",
+            items: { enum: ["a", "b"] },
+          },
+        },
+      },
+      "arrayEnum",
+    );
+    expect(form.sections[0]!.fields[0]).toMatchObject({
+      type: "select",
+      options: [
+        { label: "a", value: "a" },
+        { label: "b", value: "b" },
+      ],
+    });
+  });
+
+  it("still builds a select for an array-of-enum that also carries a top-level enum", () => {
+    const form = schemaToForm(
+      {
+        properties: {
           tags: {
             type: "array",
             enum: ["a", "b"],
@@ -71,7 +92,7 @@ describe("schemaToForm", () => {
           },
         },
       },
-      "arrayEnum",
+      "arrayEnumRedundant",
     );
     expect(form.sections[0]!.fields[0]).toMatchObject({
       type: "select",
@@ -133,7 +154,6 @@ describe("schemaToForm", () => {
         properties: {
           pets: {
             type: "array",
-            enum: ["pet-1", "pet-2"],
             items: { enum: ["pet-1", "pet-2"], enumNames: ["Cats", "Dogs"] },
           },
         },
@@ -155,7 +175,6 @@ describe("schemaToForm", () => {
         properties: {
           pets: {
             type: "array",
-            enum: ["pet-1", "pet-2"],
             items: { enum: ["pet-1", "pet-2"], enumNames: ["Cats"] },
           },
         },
