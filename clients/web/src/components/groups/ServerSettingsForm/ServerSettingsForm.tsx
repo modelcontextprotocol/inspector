@@ -306,10 +306,10 @@ export function ServerSettingsForm({
 }: ServerSettingsFormProps) {
   const oauthCapable = isOAuthCapableServerType(serverType);
   // Under enterprise-managed auth these fields hold the *resource authorization
-  // server* credentials (leg 3 — the "Test Client" from the xaa.dev resource
-  // registration), not the app/IdP pair configured in Client Settings. The
-  // toggle's label mentions the IdP, which pulls the reader toward the wrong
-  // pair — so qualify the labels and add a description when EMA is on (#1692).
+  // server* credentials (leg 3 — its registered client), not the app/IdP pair
+  // configured in Client Settings. The toggle's label mentions the IdP, which
+  // pulls the reader toward the wrong pair — so qualify the labels and add a
+  // description when EMA is on (#1692).
   const enterpriseManaged = settings.enterpriseManaged ?? false;
   const clientIdLabel = enterpriseManaged
     ? "Resource AS Client ID"
@@ -318,7 +318,7 @@ export function ServerSettingsForm({
     ? "Resource AS Client Secret"
     : "Client Secret";
   const resourceAsDescription = enterpriseManaged
-    ? "The resource authorization server's Test Client credential from the xaa.dev resource registration (used in EMA leg 3) — not the app client id/secret, which belong in Client Settings."
+    ? "The resource authorization server's registered client credential (EMA leg 3) — not the app client id/secret, which belong in Client Settings."
     : undefined;
   // The modern per-request "Log Level per Request" control is meaningless on a
   // legacy connection (#1629). Hide it when legacy is pinned, or when an `auto`
@@ -606,7 +606,7 @@ export function ServerSettingsForm({
               <Checkbox
                 label="Enterprise-managed authorization"
                 description="Connect via the configured enterprise IdP instead of interactive OAuth to the MCP authorization server. OAuth fields below are resource authorization server credentials."
-                checked={settings.enterpriseManaged ?? false}
+                checked={enterpriseManaged}
                 onChange={(e) =>
                   onOAuthChange({
                     ...currentOAuth(),

@@ -3,10 +3,9 @@
 The **Server Settings → OAuth Settings** fields, rendered from the
 `ServerSettingsForm` Storybook stories. Under enterprise-managed authorization
 (EMA) these fields hold the *resource authorization server* credentials (leg 3 —
-the Test Client from the xaa.dev resource registration), **not** the app/IdP
-pair configured in Client Settings. The unqualified labels sat directly under a
-toggle naming the enterprise IdP, making it easy to paste the wrong pair. See
-#1692.
+its registered client), **not** the app/IdP pair configured in Client Settings.
+The unqualified labels sat directly under a toggle naming the enterprise IdP,
+making it easy to paste the wrong pair. See #1692.
 
 ![OAuth Settings with EMA off — plain Client ID / Client Secret](ema-oauth-fields-plain.png)
 
@@ -20,9 +19,8 @@ the authorization server."_ — with a `mcp tools:read env:read` placeholder.
 
 Enterprise-managed authorization **on**: the same two fields relabel to
 **Resource AS Client ID** / **Resource AS Client Secret**, each gaining a
-description that names the resource authorization server (the Test Client from
-the xaa.dev resource registration, EMA leg 3) and points the app client
-id/secret back to Client Settings.
+description that names the resource authorization server (its registered client,
+EMA leg 3) and points the app client id/secret back to Client Settings.
 
 ---
 

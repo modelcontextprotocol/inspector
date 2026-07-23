@@ -777,8 +777,9 @@ describe("ServerSettingsForm", () => {
     // The resource-authorization-server description is present (rendered twice —
     // once per field).
     expect(
-      screen.getAllByText(/resource authorization server's Test Client/i)
-        .length,
+      screen.getAllByText(
+        /resource authorization server's registered client credential/i,
+      ).length,
     ).toBeGreaterThan(0);
   });
 
