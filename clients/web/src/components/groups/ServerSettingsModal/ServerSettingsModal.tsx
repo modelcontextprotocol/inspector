@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CloseButton, Group, Modal, Stack } from "@mantine/core";
+import { CloseButton, Group, Modal, ScrollArea } from "@mantine/core";
 import type { ProtocolEra } from "@modelcontextprotocol/client";
 import type {
   InspectorServerSettings,
@@ -232,57 +232,69 @@ export function ServerSettingsModal({
   }
 
   return (
-    <Modal
+    // Compound Modal so the header lives in `Modal.Header` (sticky by design)
+    // while `scrollAreaComponent` confines overflow to `Modal.Body` — otherwise
+    // expanding enough accordion sections grows the whole modal past the
+    // viewport and scrolls the header out of view (#1698). `transitionProps`
+    // restores the fade-down animation the `Modal` wrapper defaults to but
+    // `Modal.Root` does not.
+    <Modal.Root
       opened={opened}
       onClose={onClose}
-      withCloseButton={false}
       size="lg"
       centered
+      scrollAreaComponent={ScrollArea.Autosize}
+      transitionProps={{ transition: "fade-down", duration: 200 }}
     >
-      <Stack gap="md">
-        <Group justify="space-between" wrap="nowrap">
-          <ListToggle
-            compact={!allExpanded}
-            variant="subtle"
-            onToggle={handleToggleAll}
+      <Modal.Overlay />
+      <Modal.Content>
+        <Modal.Header>
+          <Group justify="space-between" wrap="nowrap" w="100%">
+            <ListToggle
+              compact={!allExpanded}
+              variant="subtle"
+              onToggle={handleToggleAll}
+            />
+            {/* `Modal.Title` names the dialog (wires `aria-labelledby`). */}
+            <Modal.Title ta="center" flex={1}>
+              Server Settings
+            </Modal.Title>
+            <CloseButton aria-label="Close" onClick={onClose} />
+          </Group>
+        </Modal.Header>
+        <Modal.Body>
+          <ServerSettingsForm
+            settings={settings}
+            serverType={serverType}
+            isStdio={isStdio}
+            expandedSections={expandedSections}
+            onExpandedSectionsChange={setExpandedSections}
+            onAddHeader={handleAddHeader}
+            onRemoveHeader={handleRemoveHeader}
+            onHeaderChange={handleHeaderChange}
+            onAddEnv={handleAddEnv}
+            onRemoveEnv={handleRemoveEnv}
+            onEnvChange={handleEnvChange}
+            onCwdChange={handleCwdChange}
+            onAddMetadata={handleAddMetadata}
+            onRemoveMetadata={handleRemoveMetadata}
+            onMetadataChange={handleMetadataChange}
+            onTimeoutChange={handleTimeoutChange}
+            onAutoRefreshChange={handleAutoRefreshChange}
+            onPaginatedListsChange={handlePaginatedListsChange}
+            onAdvertisedExtensionChange={handleAdvertisedExtensionChange}
+            onMaxFetchRequestsChange={handleMaxFetchRequestsChange}
+            onProtocolEraChange={handleProtocolEraChange}
+            onModernLogLevelChange={handleModernLogLevelChange}
+            negotiatedEra={negotiatedEra}
+            onOAuthChange={handleOAuthChange}
+            onClearStoredOAuth={onClearStoredOAuth}
+            onAddRoot={handleAddRoot}
+            onRemoveRoot={handleRemoveRoot}
+            onRootChange={handleRootChange}
           />
-          {/* `Modal.Title` names the dialog (wires `aria-labelledby`). */}
-          <Modal.Title ta="center" flex={1}>
-            Server Settings
-          </Modal.Title>
-          <CloseButton aria-label="Close" onClick={onClose} />
-        </Group>
-        <ServerSettingsForm
-          settings={settings}
-          serverType={serverType}
-          isStdio={isStdio}
-          expandedSections={expandedSections}
-          onExpandedSectionsChange={setExpandedSections}
-          onAddHeader={handleAddHeader}
-          onRemoveHeader={handleRemoveHeader}
-          onHeaderChange={handleHeaderChange}
-          onAddEnv={handleAddEnv}
-          onRemoveEnv={handleRemoveEnv}
-          onEnvChange={handleEnvChange}
-          onCwdChange={handleCwdChange}
-          onAddMetadata={handleAddMetadata}
-          onRemoveMetadata={handleRemoveMetadata}
-          onMetadataChange={handleMetadataChange}
-          onTimeoutChange={handleTimeoutChange}
-          onAutoRefreshChange={handleAutoRefreshChange}
-          onPaginatedListsChange={handlePaginatedListsChange}
-          onAdvertisedExtensionChange={handleAdvertisedExtensionChange}
-          onMaxFetchRequestsChange={handleMaxFetchRequestsChange}
-          onProtocolEraChange={handleProtocolEraChange}
-          onModernLogLevelChange={handleModernLogLevelChange}
-          negotiatedEra={negotiatedEra}
-          onOAuthChange={handleOAuthChange}
-          onClearStoredOAuth={onClearStoredOAuth}
-          onAddRoot={handleAddRoot}
-          onRemoveRoot={handleRemoveRoot}
-          onRootChange={handleRootChange}
-        />
-      </Stack>
-    </Modal>
+        </Modal.Body>
+      </Modal.Content>
+    </Modal.Root>
   );
 }

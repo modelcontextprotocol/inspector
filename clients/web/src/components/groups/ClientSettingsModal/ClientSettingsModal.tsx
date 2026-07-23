@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CloseButton, Group, Modal, Stack } from "@mantine/core";
+import { CloseButton, Group, Modal, ScrollArea } from "@mantine/core";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import {
   ClientSettingsForm,
@@ -61,36 +61,47 @@ export function ClientSettingsModal({
   }
 
   return (
-    <Modal
+    // Compound Modal so the header lives in `Modal.Header` (sticky by design)
+    // while `scrollAreaComponent` confines overflow to `Modal.Body` (#1698 —
+    // kept consistent with ServerSettingsModal for when this grows enough to
+    // scroll). `transitionProps` restores the fade-down animation the `Modal`
+    // wrapper defaults to but `Modal.Root` does not.
+    <Modal.Root
       opened={opened}
       onClose={handleClose}
-      withCloseButton={false}
       size="lg"
       centered
+      scrollAreaComponent={ScrollArea.Autosize}
+      transitionProps={{ transition: "fade-down", duration: 200 }}
     >
-      <Stack gap="md">
-        <Group justify="space-between" wrap="nowrap">
-          <ListToggle
-            compact={!allExpanded}
-            variant="subtle"
-            onToggle={handleToggleAll}
+      <Modal.Overlay />
+      <Modal.Content>
+        <Modal.Header>
+          <Group justify="space-between" wrap="nowrap" w="100%">
+            <ListToggle
+              compact={!allExpanded}
+              variant="subtle"
+              onToggle={handleToggleAll}
+            />
+            {/* `Modal.Title` names the dialog (wires `aria-labelledby`). */}
+            <Modal.Title ta="center" flex={1}>
+              Client Settings
+            </Modal.Title>
+            <CloseButton aria-label="Close" onClick={handleClose} />
+          </Group>
+        </Modal.Header>
+        <Modal.Body>
+          <ClientSettingsForm
+            settings={settings}
+            expandedSections={expandedSections}
+            onExpandedSectionsChange={setExpandedSections}
+            onSettingsChange={onSettingsChange}
+            emaIdpLoginState={emaIdpLoginState}
+            onEmaIdpLogout={onEmaIdpLogout}
+            revealErrors={revealErrors}
           />
-          {/* `Modal.Title` names the dialog (wires `aria-labelledby`). */}
-          <Modal.Title ta="center" flex={1}>
-            Client Settings
-          </Modal.Title>
-          <CloseButton aria-label="Close" onClick={handleClose} />
-        </Group>
-        <ClientSettingsForm
-          settings={settings}
-          expandedSections={expandedSections}
-          onExpandedSectionsChange={setExpandedSections}
-          onSettingsChange={onSettingsChange}
-          emaIdpLoginState={emaIdpLoginState}
-          onEmaIdpLogout={onEmaIdpLogout}
-          revealErrors={revealErrors}
-        />
-      </Stack>
-    </Modal>
+        </Modal.Body>
+      </Modal.Content>
+    </Modal.Root>
   );
 }
