@@ -177,8 +177,8 @@ export function ClientSettingsForm({
                     }
                   />
                   <TextInput
-                    label="Client ID"
-                    description="Client id registered with your enterprise IdP."
+                    label="IdP Client ID"
+                    description="Client id registered with your enterprise IdP (EMA legs 1–2) — not the per-server resource authorization server credentials, which go in Server Settings → OAuth Settings."
                     value={settings.clientId}
                     onChange={(e) => patch({ clientId: e.currentTarget.value })}
                     error={showClientIdError}
@@ -190,8 +190,8 @@ export function ClientSettingsForm({
                     }
                   />
                   <TextInput
-                    label="Client Secret"
-                    description="Client secret for your enterprise IdP (if required)."
+                    label="IdP Client Secret"
+                    description="Client secret for your enterprise IdP, if required (EMA legs 1–2) — not the per-server resource authorization server credentials, which go in Server Settings → OAuth Settings."
                     type="password"
                     value={settings.clientSecret}
                     onChange={(e) =>

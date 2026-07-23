@@ -22,6 +22,16 @@ Enterprise-managed authorization **on**: the same two fields relabel to
 description that names the resource authorization server (its registered client,
 EMA leg 3) and points the app client id/secret back to Client Settings.
 
+![Client Settings modal — IdP Client ID / IdP Client Secret](ema-client-settings-idp-fields.png)
+
+The reciprocal side in the **Client Settings** modal (Enterprise-Managed
+Authorization section). Its credential fields are relabeled **IdP Client ID** /
+**IdP Client Secret** — parallel to Server Settings' `Resource AS …` — and each
+description now points the *other* way: these are the enterprise IdP pair (EMA
+legs 1–2), **not** the per-server resource authorization server credentials,
+which go in Server Settings → OAuth Settings. Together the two modals close the
+loop: each names its pair and where the other lives.
+
 ---
 
 # Connection Info extensions + `io.modelcontextprotocol/ui` (#1740) — proof screenshots
