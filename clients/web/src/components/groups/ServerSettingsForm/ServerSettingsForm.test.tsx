@@ -748,6 +748,56 @@ describe("ServerSettingsForm", () => {
     });
   });
 
+  it("uses unqualified Client ID / Client Secret labels when EMA is off (#1692)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(screen.getByLabelText("Client ID")).toBeInTheDocument();
+    expect(screen.getByLabelText("Client Secret")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Resource AS Client ID")).toBeNull();
+  });
+
+  it("relabels the OAuth fields to Resource AS credentials when EMA is on (#1692)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, enterpriseManaged: true }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(screen.getByLabelText("Resource AS Client ID")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Resource AS Client Secret"),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Client ID")).toBeNull();
+    // The resource-authorization-server description is present (rendered twice —
+    // once per field).
+    expect(
+      screen.getAllByText(/resource authorization server's Test Client/i)
+        .length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("documents the space-separated Scopes delimiter (#1692)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.getByText(/Space-separated OAuth scopes/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText("mcp tools:read env:read"),
+    ).toBeInTheDocument();
+  });
+
   it("hides the OAuth Settings section for stdio servers", () => {
     renderWithMantine(
       <ServerSettingsForm
