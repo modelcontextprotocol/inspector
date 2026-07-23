@@ -36,6 +36,7 @@ async function startDevServer(serverOptions) {
     abort,
     transport,
     serverUrl,
+    connectionType,
   } = serverOptions;
   const serverCommand = "npx";
   const serverArgs = ["tsx", "watch", "--clear-screen=false", "src/index.ts"];
@@ -51,6 +52,7 @@ async function startDevServer(serverOptions) {
       MCP_ENV_VARS: JSON.stringify(envVars),
       ...(transport ? { MCP_TRANSPORT: transport } : {}),
       ...(serverUrl ? { MCP_SERVER_URL: serverUrl } : {}),
+      ...(connectionType ? { MCP_CONNECTION_TYPE: connectionType } : {}),
     },
     signal: abort.signal,
     echoOutput: true,
@@ -91,6 +93,7 @@ async function startProdServer(serverOptions) {
     mcpServerArgs,
     transport,
     serverUrl,
+    connectionType,
   } = serverOptions;
   const inspectorServerPath = resolve(
     __dirname,
@@ -110,6 +113,7 @@ async function startProdServer(serverOptions) {
         : []),
       ...(transport ? [`--transport=${transport}`] : []),
       ...(serverUrl ? [`--server-url=${serverUrl}`] : []),
+      ...(connectionType ? [`--connection-type=${connectionType}`] : []),
     ],
     {
       env: {
@@ -233,6 +237,7 @@ async function main() {
   let isDev = false;
   let transport = null;
   let serverUrl = null;
+  let connectionType = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -254,6 +259,11 @@ async function main() {
 
     if (parsingFlags && arg === "--server-url" && i + 1 < args.length) {
       serverUrl = args[++i];
+      continue;
+    }
+
+    if (parsingFlags && arg === "--connection-type" && i + 1 < args.length) {
+      connectionType = args[++i];
       continue;
     }
 
@@ -310,6 +320,7 @@ async function main() {
       mcpServerArgs,
       transport,
       serverUrl,
+      connectionType,
     };
 
     const result = isDev

@@ -55,6 +55,7 @@ const { values } = parseArgs({
     command: { type: "string", default: "" },
     transport: { type: "string", default: "" },
     "server-url": { type: "string", default: "" },
+    "connection-type": { type: "string", default: "" },
   },
 });
 
@@ -1053,6 +1054,7 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
       defaultArgs: values.args,
       defaultTransport: values.transport,
       defaultServerUrl: values["server-url"],
+      defaultConnectionType: values["connection-type"],
     });
   } catch (error) {
     console.error("Error in /config route:", error);

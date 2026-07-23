@@ -1,4 +1,4 @@
-import { getMCPProxyAuthToken } from "../configUtils";
+import { getMCPProxyAuthToken, getInitialConnectionType } from "../configUtils";
 import { DEFAULT_INSPECTOR_CONFIG } from "../../lib/constants";
 import { InspectorConfig } from "../../lib/configurationTypes";
 
@@ -67,6 +67,55 @@ describe("configUtils", () => {
         token: null,
         header: "X-MCP-Proxy-Auth",
       });
+    });
+  });
+
+  describe("getInitialConnectionType", () => {
+    const originalLocation = window.location;
+
+    const setLocation = (search: string) => {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: new URL(`http://localhost:6274/${search}`),
+      });
+    };
+
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    afterEach(() => {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: originalLocation,
+      });
+    });
+
+    test("returns 'direct' when query param is 'direct'", () => {
+      setLocation("?connectionType=direct");
+      expect(getInitialConnectionType()).toBe("direct");
+    });
+
+    test("returns 'proxy' when query param is 'proxy'", () => {
+      setLocation("?connectionType=proxy");
+      expect(getInitialConnectionType()).toBe("proxy");
+    });
+
+    test("falls back to localStorage when query param is missing", () => {
+      setLocation("");
+      localStorage.setItem("lastConnectionType", "direct");
+      expect(getInitialConnectionType()).toBe("direct");
+    });
+
+    test("ignores invalid query param values and falls back to localStorage", () => {
+      setLocation("?connectionType=bogus");
+      localStorage.setItem("lastConnectionType", "direct");
+      expect(getInitialConnectionType()).toBe("direct");
+    });
+
+    test("defaults to 'proxy' when nothing is set", () => {
+      setLocation("");
+      expect(getInitialConnectionType()).toBe("proxy");
     });
   });
 });
