@@ -1,3 +1,31 @@
+# TUI array-of-enum renders as a select on `items.enum` alone (#1751) — proof screenshots
+
+Follow-up to #1691. The TUI `schemaToForm` array-of-enum branch was nested under
+`if (property.enum)`, so a standard array-of-enums schema —
+`{ type: "array", items: { enum, enumNames } }` with **no** top-level `enum` —
+fell through to a plain text input. The fix keys the array case on `items.enum`
+alone (matching the web `SchemaForm`). Captured non-interactively (a standalone
+render of the real `ink-form` built by the real `schemaToForm`).
+
+The demo schema has a `Sizes` array-of-enum field (`enum: [s,m,l]` +
+`enumNames: [Small, Medium, Large]`, `default: "m"`, **no** top-level `enum`)
+and a `Priority` single-enum control (has a top-level `enum`).
+
+![Before #1751 — the array-of-enum field is a plain text input showing the raw default "m"](tui-1751-before-string.png)
+
+**Before the fix** (reproducing the old nesting): `Sizes` is a plain **text
+field** showing the raw default **`m`** — `enumNames` never applies because it
+isn't a select at all.
+
+![With the #1751 fix — the array-of-enum field is a select resolving "m" to its title "Medium"](tui-1751-after-select.png)
+
+**With the fix:** `Sizes` is now a **select**; the default `m` resolves to its
+title **`Medium`**. The `Priority` control (which has a top-level `enum`) shows
+`High` in both — unchanged, confirming the reorder only affects the intended
+`items.enum`-only case.
+
+---
+
 # TUI enum forms honor `enumNames` (#1691) — proof screenshots
 
 The TUI tool-test form (`schemaToForm` → `ink-form`) rendered against a legacy
