@@ -175,8 +175,11 @@ describe("ServerSettingsModal", () => {
         onSettingsChange={onSettingsChange}
       />,
     );
-    // The Options section is expanded by default; Tasks is checked (registry
-    // default), so clicking it toggles the override off.
+    // Advertised Extensions is its own accordion section (#1747), collapsed by
+    // default — open it, then toggle Tasks (checked by the registry default) off.
+    await user.click(
+      screen.getByRole("button", { name: "Advertised Extensions" }),
+    );
     await user.click(
       screen.getByRole("checkbox", {
         name: /Tasks \(io\.modelcontextprotocol\/tasks\)/,
@@ -206,6 +209,10 @@ describe("ServerSettingsModal", () => {
         onClose={vi.fn()}
         onSettingsChange={onSettingsChange}
       />,
+    );
+    // Open the Advertised Extensions section (#1747), then re-check Tasks.
+    await user.click(
+      screen.getByRole("button", { name: "Advertised Extensions" }),
     );
     await user.click(
       screen.getByRole("checkbox", {

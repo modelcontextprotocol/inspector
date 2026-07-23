@@ -26,6 +26,7 @@ function allSectionsFor(
 ): ServerSettingsSection[] {
   return [
     "options",
+    "extensions",
     ...(isStdio ? (["environment"] as const) : []),
     "headers",
     "metadata",
