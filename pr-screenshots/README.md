@@ -1,3 +1,39 @@
+# Server Settings OAuth field disambiguation under EMA (#1692) — proof screenshots
+
+The **Server Settings → OAuth Settings** fields, rendered from the
+`ServerSettingsForm` Storybook stories. Under enterprise-managed authorization
+(EMA) these fields hold the *resource authorization server* credentials (leg 3 —
+its registered client), **not** the app/IdP pair configured in Client Settings.
+The unqualified labels sat directly under a toggle naming the enterprise IdP,
+making it easy to paste the wrong pair. See #1692.
+
+![OAuth Settings with EMA off — plain Client ID / Client Secret](ema-oauth-fields-plain.png)
+
+Enterprise-managed authorization **off** (the common case): the fields keep the
+plain **Client ID** / **Client Secret** labels. The **Scopes** field now
+documents its delimiter — _"Space-separated OAuth scopes (RFC 6749). Do not use
+commas — a comma-separated entry is sent as one invalid token and rejected by
+the authorization server."_ — with a `mcp tools:read env:read` placeholder.
+
+![OAuth Settings with EMA on — Resource AS Client ID / Secret](ema-oauth-fields-resource-as.png)
+
+Enterprise-managed authorization **on**: the same two fields relabel to
+**Resource AS Client ID** / **Resource AS Client Secret**, each gaining a
+description that names the resource authorization server (its registered client,
+EMA leg 3) and points the app client id/secret back to Client Settings.
+
+![Client Settings modal — IdP Client ID / IdP Client Secret](ema-client-settings-idp-fields.png)
+
+The reciprocal side in the **Client Settings** modal (Enterprise-Managed
+Authorization section). Its credential fields are relabeled **IdP Client ID** /
+**IdP Client Secret** — parallel to Server Settings' `Resource AS …` — and each
+description now points the *other* way: these are the enterprise IdP pair (EMA
+legs 1–2), **not** the per-server resource authorization server credentials,
+which go in Server Settings → OAuth Settings. Together the two modals close the
+loop: each names its pair and where the other lives.
+
+---
+
 # Connection Info extensions + `io.modelcontextprotocol/ui` (#1740) — proof screenshots
 
 End-to-end verification of the Phase 3 Connection Info UI against the legacy

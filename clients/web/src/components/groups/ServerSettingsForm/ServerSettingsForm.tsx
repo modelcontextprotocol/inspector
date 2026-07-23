@@ -305,6 +305,21 @@ export function ServerSettingsForm({
   onRootChange,
 }: ServerSettingsFormProps) {
   const oauthCapable = isOAuthCapableServerType(serverType);
+  // Under enterprise-managed auth these fields hold the *resource authorization
+  // server* credentials (leg 3 — its registered client), not the app/IdP pair
+  // configured in Client Settings. The toggle's label mentions the IdP, which
+  // pulls the reader toward the wrong pair — so qualify the labels and add a
+  // description when EMA is on (#1692).
+  const enterpriseManaged = settings.enterpriseManaged ?? false;
+  const clientIdLabel = enterpriseManaged
+    ? "Resource AS Client ID"
+    : "Client ID";
+  const clientSecretLabel = enterpriseManaged
+    ? "Resource AS Client Secret"
+    : "Client Secret";
+  const resourceAsDescription = enterpriseManaged
+    ? "The resource authorization server's registered client credential (EMA leg 3) — not the app client id/secret, which belong in Client Settings."
+    : undefined;
   // The modern per-request "Log Level per Request" control is meaningless on a
   // legacy connection (#1629). Hide it when legacy is pinned, or when an `auto`
   // server negotiated legacy at connect time. A pinned `modern` server, and an
@@ -591,7 +606,7 @@ export function ServerSettingsForm({
               <Checkbox
                 label="Enterprise-managed authorization"
                 description="Connect via the configured enterprise IdP instead of interactive OAuth to the MCP authorization server. OAuth fields below are resource authorization server credentials."
-                checked={settings.enterpriseManaged ?? false}
+                checked={enterpriseManaged}
                 onChange={(e) =>
                   onOAuthChange({
                     ...currentOAuth(),
@@ -604,7 +619,8 @@ export function ServerSettingsForm({
                 authentication
               </HintText>
               <TextInput
-                label="Client ID"
+                label={clientIdLabel}
+                description={resourceAsDescription}
                 value={settings.oauthClientId ?? ""}
                 onChange={(e) =>
                   onOAuthChange({
@@ -624,7 +640,8 @@ export function ServerSettingsForm({
                 }
               />
               <TextInput
-                label="Client Secret"
+                label={clientSecretLabel}
+                description={resourceAsDescription}
                 value={settings.oauthClientSecret ?? ""}
                 type="password"
                 onChange={(e) =>
@@ -646,6 +663,8 @@ export function ServerSettingsForm({
               />
               <TextInput
                 label="Scopes"
+                description="Space-separated OAuth scopes (RFC 6749). Do not use commas — a comma-separated entry is sent as one invalid token and rejected by the authorization server."
+                placeholder="mcp tools:read env:read"
                 value={settings.oauthScopes ?? ""}
                 onChange={(e) =>
                   onOAuthChange({

@@ -257,6 +257,19 @@ export const WithOAuth: Story = {
   },
 };
 
+export const EnterpriseManagedOAuth: Story = {
+  args: {
+    expandedSections: ["oauth"],
+    settings: {
+      ...defaultSettings,
+      enterpriseManaged: true,
+      oauthClientId: "resource-test-client-id",
+      oauthClientSecret: "resource-test-client-secret",
+      oauthScopes: "mcp tools:read env:read",
+    },
+  },
+};
+
 export const AllConfigured: Story = {
   args: {
     settings: {

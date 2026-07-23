@@ -95,8 +95,8 @@ describe("ClientSettingsModal", () => {
       />,
     );
     expect(screen.getByLabelText("Issuer")).toBeInTheDocument();
-    expect(screen.getByLabelText("Client ID")).toBeInTheDocument();
-    expect(screen.getByLabelText("Client Secret")).toBeInTheDocument();
+    expect(screen.getByLabelText("IdP Client ID")).toBeInTheDocument();
+    expect(screen.getByLabelText("IdP Client Secret")).toBeInTheDocument();
   });
 
   it("calls onSettingsChange when typing issuer", async () => {
@@ -260,7 +260,7 @@ describe("ClientSettingsModal", () => {
     await clickClose(user); // blocked on blank clientId
     expect(onClose).not.toHaveBeenCalled();
 
-    await user.type(screen.getByLabelText("Client ID"), "client-1");
+    await user.type(screen.getByLabelText("IdP Client ID"), "client-1");
     await clickClose(user); // now complete -> closes
     expect(onClose).toHaveBeenCalledTimes(1);
   });
