@@ -27,6 +27,7 @@ import {
   SECRET_FIELD_OAUTH_CLIENT_SECRET,
   envSecretField,
 } from "../auth/secret-fields.js";
+import { toRecord } from "../json/jsonUtils.js";
 
 // The full set of valid `type` discriminator values, used to reject anything
 // else read off disk so unknown strings can't propagate to narrowing sites.
@@ -419,20 +420,6 @@ const INSPECTOR_FIELD_KEY_MAP = {
 export const INSPECTOR_FIELD_KEYS = new Set(
   Object.keys(INSPECTOR_FIELD_KEY_MAP) as (keyof StoredInspectorFields)[],
 );
-
-/**
- * Widen a typed config object to a generic string-keyed record so its keys can
- * be iterated/written generically. `StoredMCPServer` / `MCPServerConfig` have
- * no index signature, so a direct `value as Record<string, unknown>` at a call
- * site is a TS2352 error that would otherwise force an `as unknown as` double
- * cast. Taking the argument as the general `object` type makes the single `as`
- * legal (`Record<string, unknown>` is assignable to `object`), so this one
- * audited spot owns the widening and the double casts stay out of the call
- * sites below. Purely a structural view of the same object — no runtime effect.
- */
-function toRecord(value: object): Record<string, unknown> {
-  return value as Record<string, unknown>;
-}
 
 /**
  * Strip the Inspector-extension fields off a `StoredMCPServer` so the

@@ -2041,7 +2041,9 @@ async function runTaskExecution(params: RunTaskExecutionParams): Promise<void> {
             ? z.union([ElicitResultSchema, CreateTaskResultSchema])
             : ElicitResultSchema) as typeof ElicitResultSchema,
         );
-        const elicitWithTask = elicitResponse as unknown as {
+        // The union result may carry a `task` handle that `ElicitResult` doesn't
+        // model. That field is optional, so a single narrowing cast reaches it.
+        const elicitWithTask = elicitResponse as {
           task?: { taskId: string };
         };
         if (receiverTaskTtl != null && elicitWithTask?.task) {
@@ -2091,7 +2093,10 @@ async function runTaskExecution(params: RunTaskExecutionParams): Promise<void> {
             ? z.union([CreateMessageResultSchema, CreateTaskResultSchema])
             : CreateMessageResultSchema) as typeof CreateMessageResultSchema,
         );
-        const samplingWithTask = samplingResponse as unknown as {
+        // The union result may carry a `task` handle that `CreateMessageResult`
+        // doesn't model. That field is optional, so a single narrowing cast
+        // reaches it.
+        const samplingWithTask = samplingResponse as {
           task?: { taskId: string };
         };
         if (receiverTaskTtl != null && samplingWithTask?.task) {

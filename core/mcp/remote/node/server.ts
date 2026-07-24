@@ -58,6 +58,7 @@ import {
   storedFieldsToInspectorSettings,
   stripInspectorFields,
 } from "../../serverList.js";
+import { toRecord } from "../../../json/jsonUtils.js";
 import { resolveImportSource } from "../../import/resolveSource.js";
 import { RemoteSession } from "./remote-session.js";
 import { createRemoteAuthProvider } from "./tokenAuthProvider.js";
@@ -298,7 +299,7 @@ function forwardLogEvent(
   logEvent: Partial<LogEvent>,
 ): void {
   const levelLabel = (logEvent?.level?.label ?? "info").toLowerCase();
-  const method = (logger as unknown as Record<string, unknown>)[levelLabel];
+  const method = toRecord(logger)[levelLabel];
   if (typeof method !== "function") return;
 
   const bindings = Object.assign(

@@ -93,6 +93,12 @@ export function createRemoteAuthProvider(
     state() {
       return "";
     },
+    // This provider implements only the members the remote backend transport
+    // exercises (token get/save, client info, non-interactive redirect); the
+    // interactive-only members the SDK never calls on the server side are stubbed
+    // with narrower shapes (e.g. `codeVerifier()` returns `undefined`, not the
+    // interface's `string | Promise<string>`), so it can't be assigned to the
+    // full `OAuthClientProvider` without the double cast.
   } as unknown as OAuthClientProvider;
 
   return {

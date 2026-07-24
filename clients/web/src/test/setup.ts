@@ -70,6 +70,9 @@ Object.defineProperty(globalThis, "fetch", {
 Object.defineProperty(window, "matchMedia", {
   configurable: true,
   writable: true,
+  // Partial `matchMedia` mock: happy-dom doesn't implement it, and the members
+  // below are all the app touches. The stub omits the rest of `MediaQueryList`,
+  // so the double cast bridges the deliberately-incomplete shape.
   value: (query: string): MediaQueryList =>
     ({
       matches: /prefers-reduced-motion/.test(query),

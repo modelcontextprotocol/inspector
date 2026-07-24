@@ -15,6 +15,22 @@ export type JsonValue =
 export type JsonObject = { [key: string]: JsonValue };
 
 /**
+ * Widen a typed object to a generic string-keyed record so its keys can be
+ * iterated or read/written generically. Many of the project's config/SDK types
+ * (`StoredMCPServer`, `MCPServerConfig`, `pino.Logger`, DOM `Window`, …) have no
+ * index signature, so a direct `value as Record<string, unknown>` at a call
+ * site is a TS2352 error that would otherwise force an `as unknown as` double
+ * cast. Taking the argument as the general `object` type makes the single `as`
+ * legal — `Record<string, unknown>` is assignable to `object`, so the two types
+ * sufficiently overlap — letting this one audited spot own the widening while
+ * the double casts stay out of the call sites. Purely a structural view of the
+ * same object; no runtime effect.
+ */
+export function toRecord(value: object): Record<string, unknown> {
+  return value as Record<string, unknown>;
+}
+
+/**
  * Simple schema type for parameter conversion
  */
 type ParameterSchema = {

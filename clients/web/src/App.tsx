@@ -21,6 +21,7 @@ import type {
   Tool,
 } from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { toRecord } from "@inspector/core/json/jsonUtils.js";
 import { getServerType } from "@inspector/core/mcp/config.js";
 import type {
   InspectorClientEventMap,
@@ -244,9 +245,7 @@ function getAuthToken(): string | undefined {
       // ignore — see note above
     }
   };
-  const fromGlobal = (window as unknown as Record<string, unknown>)[
-    INSPECTOR_API_TOKEN_GLOBAL
-  ];
+  const fromGlobal = toRecord(window)[INSPECTOR_API_TOKEN_GLOBAL];
   if (typeof fromGlobal === "string" && fromGlobal) {
     persist(fromGlobal);
     return fromGlobal;
