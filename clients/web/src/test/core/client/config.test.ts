@@ -10,6 +10,7 @@ import {
 import {
   CLIENT_KEYCHAIN_ID,
   extractSecretsFromClientConfig,
+  hasClientPlaintextSecret,
   mergeSecretsIntoClientConfig,
 } from "@inspector/core/client/secrets.js";
 import {
@@ -27,7 +28,6 @@ import {
   isAbsoluteHttpUrl,
   serializeClientConfig,
 } from "@inspector/core/client/config-parse.js";
-import { hasClientPlaintextSecret } from "@inspector/core/client/secrets.js";
 import {
   getActiveCimdClientMetadataUrl,
   getActiveEnterpriseManagedAuthIdp,

@@ -21,5 +21,5 @@
     }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "**/*.test.ts", "build"]
+  "exclude": ["node_modules", "**/*.test.{ts,tsx}", "build"]
 }
