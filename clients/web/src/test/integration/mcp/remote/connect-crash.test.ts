@@ -43,7 +43,9 @@ async function teardown(h: Harness): Promise<void> {
     // deterministically under parallel/instrumented ci load, instead of
     // blocking on undici's idle connection pool (the #1667 teardown hang).
     // This suite's crash-on-startup sessions never disconnect either.
-    h.server.closeAllConnections();
+    // `serve` returns http1's Server here; closeAllConnections is http1-only
+    // (absent on the Http2Server arm of ServerType), so guard the narrow.
+    if ("closeAllConnections" in h.server) h.server.closeAllConnections();
   });
 }
 

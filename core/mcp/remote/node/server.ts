@@ -633,12 +633,16 @@ export function createRemoteApp(
         // the user. The endpoint cleans up on stream close; this TTL
         // sweeps sessions whose client never connects at all.
         if (!session.hasEventConsumer()) {
+          // This sweep is a best-effort GC of an abandoned session, not work
+          // the process must stay alive for — unref it so a pending timer
+          // can't keep the event loop (or a test worker) alive for 30s after
+          // everything else has finished.
           setTimeout(() => {
             const stale = sessions.get(sessionId);
             if (stale && !stale.hasEventConsumer()) {
               sessions.delete(sessionId);
             }
-          }, 30_000);
+          }, 30_000).unref();
         }
       } else {
         // Session not created yet - failed during start

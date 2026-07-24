@@ -53,7 +53,9 @@ async function stop(h: Harness): Promise<void> {
     // idle before the 30s afterEach timeout — the #1667 teardown hang. The
     // dead-transport tests are the worst case: they never disconnect, so the
     // session (and its crashed subprocess transport) lingers when we close.
-    h.server.closeAllConnections();
+    // `serve` returns http1's Server here; closeAllConnections is http1-only
+    // (absent on the Http2Server arm of ServerType), so guard the narrow.
+    if ("closeAllConnections" in h.server) h.server.closeAllConnections();
   });
 }
 
