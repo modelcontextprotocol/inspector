@@ -30,7 +30,10 @@ import {
 } from "@modelcontextprotocol/inspector-test-server";
 import type { InspectorClientOptions } from "@inspector/core/mcp/inspectorClient.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
-import { completeOAuthAuthorization } from "../helpers/oauth-client-fixtures.js";
+import {
+  completeOAuthAuthorization,
+  createStaticRedirectUrlProvider,
+} from "../helpers/oauth-client-fixtures.js";
 import {
   createEmaMockKeyMaterial,
   createMockIdToken,
@@ -48,10 +51,6 @@ const oauthTestStatePath = path.join(
   os.tmpdir(),
   `mcp-ema-${process.pid}-inspectorClient-ema-e2e.json`,
 );
-
-function createStaticRedirectUrlProvider(redirectUrl: string) {
-  return { getRedirectUrl: () => redirectUrl };
-}
 
 async function waitForProtectedResourceMetadata(
   serverBase: string,
@@ -266,9 +265,7 @@ describe("InspectorClient EMA E2E", () => {
       // `authorization_response_iss_parameter_supported`, so the SDK must reject
       // a code exchange that forwards no `iss`. This is the guard that a dropped
       // `iss` (the #1688 regression) would trip.
-      await expect(client.completeOAuthFlow(code)).rejects.toThrow(
-        /Issuer mismatch|issuer/i,
-      );
+      await expect(client.completeOAuthFlow(code)).rejects.toThrow(/issuer/i);
       expect(await client.getOAuthTokens()).toBeUndefined();
     });
   });
