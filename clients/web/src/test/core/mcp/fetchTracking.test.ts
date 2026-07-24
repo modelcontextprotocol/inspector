@@ -375,7 +375,7 @@ describe("createFetchTracker", () => {
       trackRequest: (entry) => tracked.push(entry),
     });
     const liveBody =
-      "grant_type=authorization_code&code=secret-auth-code&client_secret=shh&code_verifier=pkce123&client_id=public";
+      "grant_type=authorization_code&code=Secret-Auth-Code&client_secret=SHH&code_verifier=PKCE123&client_id=public";
     await fetcher("https://auth.example.com/token", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -387,9 +387,9 @@ describe("createFetchTracker", () => {
     expect(recorded.get("code_verifier")).toBe(REDACTED_VALUE);
     expect(recorded.get("grant_type")).toBe("authorization_code");
     expect(recorded.get("client_id")).toBe("public");
-    expect(JSON.stringify(tracked[0])).not.toContain("secret-auth-code");
-    expect(JSON.stringify(tracked[0])).not.toContain("shh");
-    expect(JSON.stringify(tracked[0])).not.toContain("pkce123");
+    expect(JSON.stringify(tracked[0])).not.toContain("Secret-Auth-Code");
+    expect(JSON.stringify(tracked[0])).not.toContain("SHH");
+    expect(JSON.stringify(tracked[0])).not.toContain("PKCE123");
     // The live outbound request body is byte-identical.
     expect(outboundInit?.body).toBe(liveBody);
   });
