@@ -25,7 +25,10 @@ import type {
   InspectorResourceSubscription,
   ResourceSubscriptionStreamState,
 } from "../types.js";
-import { isTerminalStatus, INACTIVE_SUBSCRIPTION_STREAM_STATE } from "../types.js";
+import {
+  isTerminalStatus,
+  INACTIVE_SUBSCRIPTION_STREAM_STATE,
+} from "../types.js";
 import type { Resource } from "@modelcontextprotocol/client";
 import {
   TypedEventTarget,

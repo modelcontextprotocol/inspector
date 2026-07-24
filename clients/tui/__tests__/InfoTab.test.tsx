@@ -11,6 +11,7 @@ import type {
   MCPServerConfig,
   ServerState,
 } from "@inspector/core/mcp/index.js";
+import { headersToServerSettings } from "@inspector/core/mcp/node/servers.js";
 import { InfoTab } from "../src/components/InfoTab.js";
 
 // Ink processes stdin keypresses asynchronously — await this after stdin.write
@@ -127,14 +128,11 @@ describe("InfoTab", () => {
       type: "sse",
       url: "https://example.com/sse",
     };
-    const withHeaders = {
-      ...config,
-      headers: { Authorization: "Bearer x" },
-    } as unknown as MCPServerConfig;
     const { lastFrame } = render(
       <InfoTab
         serverName="my-server"
-        serverConfig={withHeaders}
+        serverConfig={config}
+        serverSettings={headersToServerSettings({ Authorization: "Bearer x" })}
         serverState={baseState}
         width={80}
         height={20}
@@ -167,15 +165,15 @@ describe("InfoTab", () => {
   });
 
   it("renders a streamable-http config with headers", () => {
-    const config = {
+    const config: MCPServerConfig = {
       type: "streamable-http",
       url: "https://example.com/mcp",
-      headers: { "X-Key": "abc" },
-    } as unknown as MCPServerConfig;
+    };
     const { lastFrame } = render(
       <InfoTab
         serverName="my-server"
         serverConfig={config}
+        serverSettings={headersToServerSettings({ "X-Key": "abc" })}
         serverState={baseState}
         width={80}
         height={20}

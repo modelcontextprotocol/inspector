@@ -4,11 +4,7 @@ export type OAuthInteractiveAuthKind = "step_up" | "reauth";
 
 /** Origin of an interactive OAuth recovery flow (command, ambient, connect, etc.). */
 export type OAuthRecoverySource =
-  | "tool"
-  | "prompt"
-  | "resource"
-  | "ambient"
-  | "app";
+  "tool" | "prompt" | "resource" | "ambient" | "app";
 
 export function isActionTriggeredOAuthRecovery(
   source: OAuthRecoverySource | undefined,
@@ -84,8 +80,7 @@ export function isStepUpConfirmation(
   options?: { enterpriseManaged?: boolean },
 ): boolean {
   return (
-    isStandardOAuthStepUp(challenge, options) ||
-    isEmaStepUp(challenge, options)
+    isStandardOAuthStepUp(challenge, options) || isEmaStepUp(challenge, options)
   );
 }
 
@@ -124,9 +119,7 @@ export function stepUpFollowUpMessage(options?: {
 export function stepUpAuthorizeActionLabel(options?: {
   enterpriseManaged?: boolean;
 }): string {
-  return options?.enterpriseManaged
-    ? "Authorize"
-    : "Authorize (opens browser)";
+  return options?.enterpriseManaged ? "Authorize" : "Authorize (opens browser)";
 }
 
 export function stepUpModalTitle(options?: {
@@ -198,7 +191,9 @@ export function oauthPreRedirectToastCopy(
   const name = options.serverName;
   if (authKind === "step_up") {
     return {
-      title: name ? `Step-up authorization for "${name}"` : "Step-up authorization",
+      title: name
+        ? `Step-up authorization for "${name}"`
+        : "Step-up authorization",
       message: "Redirecting to authorize additional permissions…",
     };
   }

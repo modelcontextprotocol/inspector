@@ -5,10 +5,16 @@ import type {
   MCPServerConfig,
   ServerState,
 } from "@inspector/core/mcp/index.js";
+import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 
 interface InfoTabProps {
   serverName: string | null;
   serverConfig: MCPServerConfig | null;
+  // HTTP headers live on the per-server settings (pair-array form), not on the
+  // transport `serverConfig` — `mcpConfigToServerEntries` lifts the on-disk
+  // `headers` map into `InspectorServerSettings.headers`. Read them here so the
+  // SSE / streamable-http header display reflects the real source.
+  serverSettings?: InspectorServerSettings | null;
   serverState: ServerState | null;
   width: number;
   height: number;
@@ -18,11 +24,13 @@ interface InfoTabProps {
 export function InfoTab({
   serverName,
   serverConfig,
+  serverSettings = null,
   serverState,
   width,
   height,
   focused = false,
 }: InfoTabProps) {
+  const headerPairs = serverSettings?.headers ?? [];
   const scrollViewRef = useRef<ScrollViewRef>(null);
 
   // Handle keyboard input for scrolling
@@ -111,33 +119,31 @@ export function InfoTab({
                     <>
                       <Text dimColor>Type: sse</Text>
                       <Text dimColor>URL: {serverConfig.url}</Text>
-                      {serverConfig.headers &&
-                        Object.keys(serverConfig.headers).length > 0 && (
-                          <Box marginTop={1}>
-                            <Text dimColor>
-                              Headers:{" "}
-                              {Object.entries(serverConfig.headers)
-                                .map(([k, v]) => `${k}=${v}`)
-                                .join(", ")}
-                            </Text>
-                          </Box>
-                        )}
+                      {headerPairs.length > 0 && (
+                        <Box marginTop={1}>
+                          <Text dimColor>
+                            Headers:{" "}
+                            {headerPairs
+                              .map(({ key, value }) => `${key}=${value}`)
+                              .join(", ")}
+                          </Text>
+                        </Box>
+                      )}
                     </>
                   ) : serverConfig.type === "streamable-http" ? (
                     <>
                       <Text dimColor>Type: streamable-http</Text>
                       <Text dimColor>URL: {serverConfig.url}</Text>
-                      {serverConfig.headers &&
-                        Object.keys(serverConfig.headers).length > 0 && (
-                          <Box marginTop={1}>
-                            <Text dimColor>
-                              Headers:{" "}
-                              {Object.entries(serverConfig.headers)
-                                .map(([k, v]) => `${k}=${v}`)
-                                .join(", ")}
-                            </Text>
-                          </Box>
-                        )}
+                      {headerPairs.length > 0 && (
+                        <Box marginTop={1}>
+                          <Text dimColor>
+                            Headers:{" "}
+                            {headerPairs
+                              .map(({ key, value }) => `${key}=${value}`)
+                              .join(", ")}
+                          </Text>
+                        </Box>
+                      )}
                     </>
                   ) : null}
                 </Box>

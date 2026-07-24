@@ -34,9 +34,14 @@ function toSelectOptions(
   }));
 }
 
-/** Minimal JSON Schema object shape (properties + required) */
+/**
+ * Minimal JSON Schema object shape (properties + required). Property values are
+ * `unknown` so the SDK's broadly-typed `Tool["inputSchema"]` (whose `properties`
+ * values are the recursive JSON type) is assignable here; each value is narrowed
+ * to {@link JsonSchemaProperty} at the point of use below.
+ */
 interface JsonSchemaObject {
-  properties?: Record<string, JsonSchemaProperty>;
+  properties?: Record<string, unknown>;
   required?: string[];
 }
 

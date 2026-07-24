@@ -3,13 +3,36 @@ import {
   convertParameterValue,
   convertToolParameters,
   convertPromptArguments,
+  toRecord,
 } from "@inspector/core/json/jsonUtils.js";
 import type { Tool } from "@modelcontextprotocol/client";
 
 describe("JSON Utils", () => {
+  describe("toRecord", () => {
+    it("returns the same object widened to a string-keyed record", () => {
+      const source = { a: 1, b: "two" };
+      const widened = toRecord(source);
+      expect(widened).toBe(source);
+      expect(widened.a).toBe(1);
+      expect(Object.keys(widened)).toEqual(["a", "b"]);
+    });
+  });
+
   describe("convertParameterValue", () => {
     it("should convert string to string", () => {
       expect(convertParameterValue("hello", { type: "string" })).toBe("hello");
+    });
+
+    it("returns the raw value unchanged when it is empty", () => {
+      // Empty string short-circuits before any type coercion.
+      expect(convertParameterValue("", { type: "number" })).toBe("");
+    });
+
+    it("falls back to the raw string when JSON parsing fails", () => {
+      expect(convertParameterValue("{not json", { type: "object" })).toBe(
+        "{not json",
+      );
+      expect(convertParameterValue("[oops", { type: "array" })).toBe("[oops");
     });
 
     it("should convert string to number", () => {

@@ -120,6 +120,20 @@ type MethodOutcome =
   | { kind: "result"; result: McpResponse; appInfo?: CliAppInfo }
   | { kind: "emitted" };
 
+/**
+ * Tear down a managed list state if it was created for this method call.
+ *
+ * The `managed*State` locals below are assigned inside the `runMethod` closure,
+ * so TypeScript's control-flow analysis keeps them narrowed to `null` at the
+ * outer `finally` block (a closure "might not have run"). Routing the teardown
+ * through this helper — whose parameter type is the shared `destroy()` shape —
+ * both documents that and calls `destroy()` on whatever the closure actually
+ * assigned at runtime, with no `as` cast.
+ */
+function destroyManagedState(state: { destroy(): void } | null): void {
+  state?.destroy();
+}
+
 async function callMethod(
   serverConfig: MCPServerConfig,
   serverSettings: InspectorServerSettings | undefined,
@@ -370,10 +384,10 @@ async function callMethod(
       await emitResult(outcome.result, outcome.appInfo, args);
     }
   } finally {
-    managedToolsState?.destroy();
-    managedResourcesState?.destroy();
-    managedResourceTemplatesState?.destroy();
-    managedPromptsState?.destroy();
+    destroyManagedState(managedToolsState);
+    destroyManagedState(managedResourcesState);
+    destroyManagedState(managedResourceTemplatesState);
+    destroyManagedState(managedPromptsState);
     await inspectorClient.disconnect();
   }
 }

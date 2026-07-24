@@ -4,7 +4,10 @@
  */
 
 import { KeyringSecretStore } from "../auth/node/secret-store.js";
-import type { InspectorClientOptions, InspectorServerSettings } from "../mcp/types.js";
+import type {
+  InspectorClientOptions,
+  InspectorServerSettings,
+} from "../mcp/types.js";
 import { loadClientConfig } from "./config.js";
 import type { ClientConfig } from "./types.js";
 import {
@@ -53,7 +56,10 @@ export function buildRunnerClientAuthOptions(
   cliOverrides?: RunnerClientConfigOverrides,
 ): Pick<
   InspectorClientOptions,
-  "oauth" | "enterpriseManagedAuth" | "installEnterpriseManagedAuth" | "directAuthRecovery"
+  | "oauth"
+  | "enterpriseManagedAuth"
+  | "installEnterpriseManagedAuth"
+  | "directAuthRecovery"
 > {
   const activeIdp = getActiveEnterpriseManagedAuthIdp(clientConfig);
   const activeCimdUrl = getActiveCimdClientMetadataUrl(clientConfig);
@@ -84,9 +90,7 @@ export function buildRunnerClientAuthOptions(
     cliOverrides?.clientMetadataUrl?.trim() || activeCimdUrl;
 
   const oauthFromCli =
-    cliOverrides?.clientId ||
-    cliOverrides?.clientSecret ||
-    clientMetadataUrl
+    cliOverrides?.clientId || cliOverrides?.clientSecret || clientMetadataUrl
       ? {
           ...(cliOverrides?.clientId && { clientId: cliOverrides.clientId }),
           ...(cliOverrides?.clientSecret && {

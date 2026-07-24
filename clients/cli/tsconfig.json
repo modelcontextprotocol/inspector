@@ -2,6 +2,18 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
+    // Mirror clients/web/tsconfig.app.json's effective options so this
+    // typecheck validates the imported `core/` sources against the exact
+    // config web's own gate already uses (web's app config does not extend
+    // tsconfig.base, so it has no `noUncheckedIndexedAccess`; re-enabling it
+    // here would surface core issues web never gates). DOM lib + bundler
+    // resolution are what core/ (browser-side auth, DOM types) expects.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "module": "ESNext",
+    "noUncheckedIndexedAccess": false,
     "paths": {
       "@inspector/core/*": ["../../core/*"]
     }

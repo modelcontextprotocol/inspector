@@ -13,10 +13,7 @@
  * browser side never imports this; it gets values rehydrated into the
  * `/api/servers` response by the Hono handler.
  */
-import {
-  AsyncEntry,
-  findCredentialsAsync,
-} from "@napi-rs/keyring";
+import { AsyncEntry, findCredentialsAsync } from "@napi-rs/keyring";
 
 const SERVICE_NAME = "mcp-inspector";
 
