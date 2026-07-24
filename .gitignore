@@ -20,3 +20,4 @@ test-servers/build
 /inspector-network-*.json
 /*.server.json
 /configs/
+pr-screenshots
