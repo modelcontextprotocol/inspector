@@ -51,6 +51,7 @@ jobs:
         run: npm run test:e2e
 
       - name: Upload Playwright Report and Screenshots
+        id: upload-playwright-artifact
         uses: actions/upload-artifact@v7
         if: steps.playwright-tests.conclusion != 'skipped'
         with:
@@ -74,5 +75,5 @@ jobs:
             **Test Environment:** Ubuntu Latest, Node.js ${{ steps.setup_node.outputs.node-version }}
             **Browsers:** Chromium, Firefox
 
-            📊 [View Detailed HTML Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) (download artifacts)
+            📊 [View Detailed HTML Report](${{ steps.upload-playwright-artifact.outputs.artifact-url }}) (download artifacts)
           test-command: "npm run test:e2e"
