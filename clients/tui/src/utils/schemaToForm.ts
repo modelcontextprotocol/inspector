@@ -34,9 +34,14 @@ function toSelectOptions(
   }));
 }
 
-/** Minimal JSON Schema object shape (properties + required) */
+/**
+ * Minimal JSON Schema object shape (properties + required). Property values are
+ * `unknown` so the SDK's broadly-typed `Tool["inputSchema"]` (whose `properties`
+ * values are the recursive JSON type) is assignable here; each value is narrowed
+ * to {@link JsonSchemaProperty} at the point of use below.
+ */
 interface JsonSchemaObject {
-  properties?: Record<string, JsonSchemaProperty>;
+  properties?: Record<string, unknown>;
   required?: string[];
 }
 
@@ -60,7 +65,12 @@ export function schemaToForm(
   const required = schema.required || [];
 
   for (const [key, prop] of Object.entries(properties)) {
-    const property = prop as JsonSchemaProperty;
+    // `properties` values are `unknown` (the SDK schema admits anything), so
+    // guard before treating a value as a schema object — a malformed server
+    // schema with e.g. `properties: { foo: null }` must not throw on `.title`.
+    const property = (
+      typeof prop === "object" && prop !== null ? prop : {}
+    ) as JsonSchemaProperty;
     const baseField = {
       name: key,
       label: property.title || key,

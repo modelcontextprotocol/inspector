@@ -65,11 +65,7 @@ export class AuthChallengeError extends Error {
   readonly authChallenge: AuthChallenge;
   readonly status: number;
 
-  constructor(
-    authChallenge: AuthChallenge,
-    status: number,
-    message?: string,
-  ) {
+  constructor(authChallenge: AuthChallenge, status: number, message?: string) {
     super(message ?? `Auth challenge: ${authChallenge.reason}`);
     this.name = "AuthChallengeError";
     this.authChallenge = authChallenge;
@@ -262,8 +258,7 @@ export function parseAuthChallengeFromError(
   }
 
   const status =
-    (err as { status?: number }).status ??
-    (err as { code?: number }).code;
+    (err as { status?: number }).status ?? (err as { code?: number }).code;
   if (status !== 401 && status !== 403) {
     return undefined;
   }
@@ -271,8 +266,9 @@ export function parseAuthChallengeFromError(
   const wwwAuthenticate =
     authChallenge?.raw?.wwwAuthenticate ??
     (err as { wwwAuthenticate?: string }).wwwAuthenticate ??
-    (err as { headers?: { get?: (name: string) => string | null } }).headers
-      ?.get?.("WWW-Authenticate") ??
+    (
+      err as { headers?: { get?: (name: string) => string | null } }
+    ).headers?.get?.("WWW-Authenticate") ??
     undefined;
 
   if (!wwwAuthenticate?.length) {
@@ -309,7 +305,8 @@ export function isAuthChallengeError(err: unknown): boolean {
     return false;
   }
 
-  const authChallenge = (err as { authChallenge?: AuthChallenge }).authChallenge;
+  const authChallenge = (err as { authChallenge?: AuthChallenge })
+    .authChallenge;
   if (authChallenge?.reason) {
     return true;
   }
@@ -323,8 +320,9 @@ export function isAuthChallengeError(err: unknown): boolean {
   const wwwAuthenticate =
     authChallenge?.raw?.wwwAuthenticate ??
     (err as { wwwAuthenticate?: string }).wwwAuthenticate ??
-    (err as { headers?: { get?: (name: string) => string | null } }).headers
-      ?.get?.("WWW-Authenticate") ??
+    (
+      err as { headers?: { get?: (name: string) => string | null } }
+    ).headers?.get?.("WWW-Authenticate") ??
     undefined;
 
   return wwwAuthenticate !== undefined && wwwAuthenticate.length > 0;

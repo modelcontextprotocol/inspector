@@ -32,9 +32,7 @@ export function isOAuthCapableServerType(type: ServerType): boolean {
  * MCP server URL used as the OAuth storage key (includes path, for discovery).
  * Undefined for stdio transports.
  */
-export function getOAuthServerUrl(
-  config: MCPServerConfig,
-): string | undefined {
+export function getOAuthServerUrl(config: MCPServerConfig): string | undefined {
   if (config.type === "sse" || config.type === "streamable-http") {
     return config.url;
   }

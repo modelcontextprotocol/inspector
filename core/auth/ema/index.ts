@@ -22,7 +22,10 @@ export {
   normalizeIdpIssuer,
   type EmaIdpLoginState,
 } from "./idpSession.js";
-export { discoverEmaResourceContext, resolveEmaScopes } from "./resourceContext.js";
+export {
+  discoverEmaResourceContext,
+  resolveEmaScopes,
+} from "./resourceContext.js";
 export {
   EmaClientNotConfiguredError,
   emaClientNotConfiguredMessage,

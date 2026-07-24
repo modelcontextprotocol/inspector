@@ -1,8 +1,5 @@
 import type { SecretStore } from "../../auth/node/secret-store.js";
-import {
-  expectedSecretFields,
-  mergeSecretsIntoStored,
-} from "../serverList.js";
+import { expectedSecretFields, mergeSecretsIntoStored } from "../serverList.js";
 import type { MCPConfig } from "../types.js";
 
 /**

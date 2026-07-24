@@ -583,8 +583,7 @@ export const MODERN_LOG_LEVELS: ModernLogLevel[] = [
 /** Runtime guard for the {@link ModernLogLevel} literal (hand-edited files). */
 export function isModernLogLevel(value: unknown): value is ModernLogLevel {
   return (
-    typeof value === "string" &&
-    (MODERN_LOG_LEVELS as string[]).includes(value)
+    typeof value === "string" && (MODERN_LOG_LEVELS as string[]).includes(value)
   );
 }
 

@@ -32,9 +32,7 @@ export function parseRunnerOAuthCallbackUrl(
   cliCallbackUrl?: string,
 ): RunnerOAuthCallbackConfig {
   const raw =
-    cliCallbackUrl?.trim() ||
-    process.env.MCP_OAUTH_CALLBACK_URL?.trim() ||
-    "";
+    cliCallbackUrl?.trim() || process.env.MCP_OAUTH_CALLBACK_URL?.trim() || "";
   if (!raw) {
     return {
       hostname: RUNNER_OAUTH_CALLBACK_DEFAULT_HOSTNAME,

@@ -1,7 +1,4 @@
-export {
-  NodeOAuthStorage,
-  clearAllOAuthClientState,
-} from "./storage-node.js";
+export { NodeOAuthStorage, clearAllOAuthClientState } from "./storage-node.js";
 export {
   createOAuthCallbackServer,
   OAuthCallbackServer,
@@ -21,9 +18,7 @@ export {
   parseRunnerOAuthCallbackUrl,
 } from "./runner-oauth-callback.js";
 export type { RunnerOAuthCallbackConfig } from "./runner-oauth-callback.js";
-export {
-  runRunnerInteractiveOAuth,
-} from "./runner-interactive-oauth.js";
+export { runRunnerInteractiveOAuth } from "./runner-interactive-oauth.js";
 export type {
   RunRunnerInteractiveOAuthOptions,
   RunnerInteractiveOAuthClient,

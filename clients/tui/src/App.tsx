@@ -1660,6 +1660,7 @@ function App({
               <InfoTab
                 serverName={selectedServer}
                 serverConfig={selectedServerConfig}
+                serverSettings={selectedServerEntry?.settings ?? null}
                 serverState={currentServerState}
                 width={contentWidth}
                 height={contentHeight}

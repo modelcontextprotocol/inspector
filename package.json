@@ -39,7 +39,12 @@
     "build:launcher": "cd clients/launcher && npm run build",
     "ci": "npm run validate && npm run coverage && npm run smoke && npm run ci:storybook",
     "ci:storybook": "cd clients/web && npx playwright install chromium && npm run test:storybook",
-    "validate": "npm run validate:web && npm run validate:cli && npm run validate:tui && npm run validate:launcher",
+    "validate": "npm run validate:core && npm run validate:web && npm run validate:cli && npm run validate:tui && npm run validate:launcher",
+    "validate:core": "npm run format:check:core && npm run lint:core",
+    "lint:core": "eslint \"core/**/*.{ts,tsx}\"",
+    "format:core": "prettier --write \"core/**/*.{ts,tsx}\"",
+    "format:check:core": "prettier --check \"core/**/*.{ts,tsx}\"",
+    "format": "npm run format:core && cd clients/web && npm run format && cd ../cli && npm run format && cd ../tui && npm run format && cd ../launcher && npm run format",
     "validate:cli": "cd clients/cli && npm run validate",
     "validate:tui": "cd clients/tui && npm run validate",
     "validate:web": "cd clients/web && npm run validate",
@@ -88,5 +93,13 @@
   },
   "engines": {
     "node": ">=22.19.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.7.0",
+    "prettier": "^3.8.1",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.65.0"
   }
 }

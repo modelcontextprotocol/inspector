@@ -72,7 +72,10 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
     // A status update is ignored when the task was dismissed (clearCompleted)
     // or when the user cancelled it and the update isn't itself "cancelled" —
     // the deliberate cancel wins over a late completed/working update.
-    const shouldIgnoreUpdate = (taskId: string, status: Task["status"]): boolean =>
+    const shouldIgnoreUpdate = (
+      taskId: string,
+      status: Task["status"],
+    ): boolean =>
       this.dismissedTaskIds.has(taskId) ||
       (this.cancelledTaskIds.has(taskId) && status !== "cancelled");
     const onTaskStatusChange = (
@@ -200,7 +203,9 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
    * whole refresh. No known tasks ⇒ a no-op refresh (the correct "no server
    * list" semantics).
    */
-  private async refreshModern(client: InspectorClientProtocol): Promise<Task[]> {
+  private async refreshModern(
+    client: InspectorClientProtocol,
+  ): Promise<Task[]> {
     const ids = this.tasks
       .map((t) => t.taskId)
       .filter((id) => !this.dismissedTaskIds.has(id));
