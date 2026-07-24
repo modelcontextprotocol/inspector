@@ -25,6 +25,21 @@ function lowerKeys(
   return out;
 }
 
+// Serialize a recorded entry MINUS its volatile `id` for whole-entry
+// secret-leak assertions. The tracker mints `id` as
+// `${timestamp}-${Math.random().toString(36)…}` (see fetchTracking.ts), so its
+// random base36 tail can coincidentally contain a short secret substring (e.g.
+// the base36 id `…sw7kshhf0` contains "shh"), which would fail a naive
+// `JSON.stringify(entry).not.toContain(secret)` even though redaction worked.
+// The `id` is generated independently of any secret and can never legitimately
+// carry one, so excluding it keeps the leak check meaningful and deterministic
+// while every other (deterministic) field is still checked.
+function serializedWithoutId(entry: FetchRequestEntryBase): string {
+  // Overwriting `id` with `undefined` drops it from the JSON (stringify omits
+  // undefined-valued keys) without an unused destructured binding.
+  return JSON.stringify({ ...entry, id: undefined });
+}
+
 describe("createFetchTracker", () => {
   it("tracks a successful GET request and emits the response body asynchronously", async () => {
     const baseFetch = vi.fn(
@@ -308,9 +323,11 @@ describe("createFetchTracker", () => {
     expect(headers["x-api-key"]).toBe(REDACTED_HEADER_VALUE);
     expect(headers["x-mcp-remote-auth"]).toBe(REDACTED_HEADER_VALUE);
     expect(headers["x-custom"]).toBe("kept");
-    expect(JSON.stringify(tracked[0])).not.toContain("live-access-token");
-    expect(JSON.stringify(tracked[0])).not.toContain("session=secret");
-    expect(JSON.stringify(tracked[0])).not.toContain("inspector-backend-token");
+    expect(serializedWithoutId(tracked[0]!)).not.toContain("live-access-token");
+    expect(serializedWithoutId(tracked[0]!)).not.toContain("session=secret");
+    expect(serializedWithoutId(tracked[0]!)).not.toContain(
+      "inspector-backend-token",
+    );
     // The actual outbound request still carries the live token — redaction is
     // only for the recorded entry.
     expect(new Headers(outboundInit?.headers).get("authorization")).toBe(
@@ -334,7 +351,7 @@ describe("createFetchTracker", () => {
     expect(lowerKeys(tracked[0]!.requestHeaders)["authorization"]).toBe(
       REDACTED_HEADER_VALUE,
     );
-    expect(JSON.stringify(tracked[0])).not.toContain("leaked-on-error");
+    expect(serializedWithoutId(tracked[0]!)).not.toContain("leaked-on-error");
   });
 
   it("redacts sensitive response headers in the recorded entry", async () => {
@@ -359,7 +376,7 @@ describe("createFetchTracker", () => {
     const responseHeaders = lowerKeys(tracked[0]!.responseHeaders);
     expect(responseHeaders["x-api-key"]).toBe(REDACTED_HEADER_VALUE);
     expect(responseHeaders["content-type"]).toBe("text/plain");
-    expect(JSON.stringify(tracked[0])).not.toContain("issued-secret");
+    expect(serializedWithoutId(tracked[0]!)).not.toContain("issued-secret");
   });
 
   it("redacts a form-encoded OAuth token request body without touching the live request", async () => {
@@ -387,9 +404,9 @@ describe("createFetchTracker", () => {
     expect(recorded.get("code_verifier")).toBe(REDACTED_VALUE);
     expect(recorded.get("grant_type")).toBe("authorization_code");
     expect(recorded.get("client_id")).toBe("public");
-    expect(JSON.stringify(tracked[0])).not.toContain("secret-auth-code");
-    expect(JSON.stringify(tracked[0])).not.toContain("shh");
-    expect(JSON.stringify(tracked[0])).not.toContain("pkce123");
+    expect(serializedWithoutId(tracked[0]!)).not.toContain("secret-auth-code");
+    expect(serializedWithoutId(tracked[0]!)).not.toContain("shh");
+    expect(serializedWithoutId(tracked[0]!)).not.toContain("pkce123");
     // The live outbound request body is byte-identical.
     expect(outboundInit?.body).toBe(liveBody);
   });
@@ -501,7 +518,7 @@ describe("createFetchTracker", () => {
     expect(JSON.parse(tracked[0]!.requestBody!)).toEqual({
       params: { arguments: { access_token: REDACTED_VALUE, page: 2 } },
     });
-    expect(JSON.stringify(tracked[0])).not.toContain("sekret");
+    expect(serializedWithoutId(tracked[0]!)).not.toContain("sekret");
     // The live outbound request body is byte-identical (unredacted).
     expect(outboundInit?.body).toBe(liveBody);
   });
