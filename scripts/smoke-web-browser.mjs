@@ -198,7 +198,7 @@ try {
   }
 
   console.log(
-    `smoke:web:browser OK — app booted at ${server.baseUrl}, rendered "Add Servers" with no uncaught page errors`,
+    `smoke:web:browser OK — app booted at ${server.baseUrl}, rendered "Add Servers" with no uncaught errors (sync page error or unhandled rejection)`,
   );
   await shutdown();
   process.exit(0);
