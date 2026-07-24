@@ -26,10 +26,21 @@
  * import that is never *called* ships a harmless empty object and is invisible
  * to this smoke by design — an unused Node import doesn't crash the app.)
  *
- * `console.error` is NOT a hard failure: the console is where Chromium also
- * reports benign things a boot smoke shouldn't fail on — a failed subresource
- * load (e.g. the Google-Fonts `<link>` in index.html on a network-restricted
- * box) or a React key/prop warning. Console errors are printed as diagnostics.
+ * Two channels carry the failure. A *synchronous* uncaught exception (the
+ * CASE-1 shape above — a stub call during module init) fires `pageerror`. Its
+ * *async* twin — the same `TypeError` reached through an `await`/`.then()`, or a
+ * failed dynamic import (this app lazy-loads chunks) — is NOT a `pageerror`;
+ * Chromium logs it on the **console** channel as `Uncaught (in promise) …` /
+ * `Failed to fetch dynamically imported module`. Both are hard failures.
+ *
+ * Every *other* `console.error` is NOT a hard failure: the console is where
+ * Chromium also reports benign things a boot smoke shouldn't fail on — a failed
+ * subresource load (e.g. the Google-Fonts `<link>` in index.html on a
+ * network-restricted box) or a React key/prop warning. Those are printed as
+ * diagnostics. The `Uncaught` / dynamic-import prefixes are unambiguous — a
+ * font/CDN miss reads `Failed to load resource: net::ERR_…` and a React warning
+ * never starts with `Uncaught` — so hard-failing on them can't reintroduce that
+ * flake.
  *
  * Playwright lives in clients/web's node_modules, so it's resolved with a
  * `createRequire` based at clients/web/package.json rather than a bare
@@ -60,6 +71,12 @@ const HOST = "127.0.0.1";
 // back-to-back smokes bind the same port (→ EADDRINUSE on the second).
 const PORT = process.env.SMOKE_WEB_BROWSER_PORT ?? "6298";
 const TOKEN = "smoke-web-browser-token";
+
+// Console messages that are the async half of the uncaught-crash class (an
+// unhandled promise rejection or a failed dynamic import). Hard failures, unlike
+// benign console noise. See the header comment for why this can't reintroduce
+// the font/CDN flake.
+const FATAL_CONSOLE = /^Uncaught\b|Failed to fetch dynamically imported module/;
 
 const server = startProdWebServer({ host: HOST, port: PORT, token: TOKEN });
 let browser = null;
@@ -105,11 +122,12 @@ try {
   browser = await loadChromium();
   const page = await browser.newPage();
 
-  // Uncaught page errors are the hard failure — a Node-only module reaching the
-  // browser bundle surfaces here as a TypeError when its empty stub is called.
+  // Uncaught (synchronous) page errors are a hard failure — a Node-only module
+  // reaching the browser bundle surfaces here as a TypeError when its empty stub
+  // is called during module init.
   const pageErrors = [];
-  // Console errors are diagnostic only (see the header comment for why they're
-  // not a blanket failure).
+  // Console errors are diagnostic only EXCEPT those matching FATAL_CONSOLE (the
+  // async half of the same crash class) — see the header comment.
   const consoleErrors = [];
   page.on("pageerror", (err) =>
     pageErrors.push(err instanceof Error ? err.message : String(err)),
@@ -161,15 +179,21 @@ try {
     );
   }
 
-  if (pageErrors.length > 0) {
-    await fail(`app logged uncaught page error(s): ${pageErrors.join("; ")}`);
+  // Hard failures: any uncaught (sync) page error, plus console errors that are
+  // the async half of the class (unhandled rejection / failed dynamic import).
+  const fatalConsole = consoleErrors.filter((m) => FATAL_CONSOLE.test(m));
+  if (pageErrors.length > 0 || fatalConsole.length > 0) {
+    await fail(
+      `app logged uncaught error(s): ${[...pageErrors, ...fatalConsole].join("; ")}`,
+    );
   }
 
   // Non-fatal console errors: surface them so a real problem isn't invisible,
   // without failing the smoke on benign subresource/warning noise.
-  if (consoleErrors.length > 0) {
+  const benignConsole = consoleErrors.filter((m) => !FATAL_CONSOLE.test(m));
+  if (benignConsole.length > 0) {
     console.log(
-      `smoke:web:browser note — ${consoleErrors.length} non-fatal console error(s): ${consoleErrors.join("; ")}`,
+      `smoke:web:browser note — ${benignConsole.length} non-fatal console error(s): ${benignConsole.join("; ")}`,
     );
   }
 
