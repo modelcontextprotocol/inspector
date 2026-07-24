@@ -34,7 +34,8 @@ function resolveClient(
   preregistered: OAuthClientInformation | undefined,
   dynamic: OAuthClientInformation | undefined,
   dynamicRegistrationKind:
-    Extract<OAuthClientRegistrationKind, "dcr" | "cimd"> | undefined,
+    | Extract<OAuthClientRegistrationKind, "dcr" | "cimd">
+    | undefined,
 ): OAuthConnectionState["client"] | undefined {
   if (preregistered?.client_id) {
     return {

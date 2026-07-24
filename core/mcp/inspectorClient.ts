@@ -1827,8 +1827,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     // a future modern-family revision would negotiate a different string, and
     // the two must not disagree. The raw channel only runs on a connected modern
     // session, so this is always set; the constant is a defensive fallback.
-    /* v8 ignore next -- fallback only if getProtocolVersion() is unset, which
-       can't happen on the connected modern session this runs on. */
+    /* v8 ignore next 2 -- fallback only if getProtocolVersion() is unset, which
+       can't happen on the connected modern session this runs on. The statement
+       spans two lines after prettier reflow, so ignore both. */
     const protocolVersion =
       this.getProtocolVersion() ?? MODERN_PROTOCOL_VERSION;
     return {

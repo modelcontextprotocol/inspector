@@ -62,7 +62,9 @@ export interface StreamableHttpServerConfig {
 }
 
 export type MCPServerConfig =
-  StdioServerConfig | SseServerConfig | StreamableHttpServerConfig;
+  | StdioServerConfig
+  | SseServerConfig
+  | StreamableHttpServerConfig;
 
 export type ServerType = "stdio" | "sse" | "streamable-http";
 
@@ -180,7 +182,10 @@ export interface MCPConfig {
 }
 
 export type ConnectionStatus =
-  "disconnected" | "connecting" | "connected" | "error";
+  | "disconnected"
+  | "connecting"
+  | "connected"
+  | "error";
 
 /**
  * True when a connection has settled into a non-live terminal state — either a
@@ -258,7 +263,9 @@ export type MessageOrigin = "client" | "server";
  *   retry of the original call, unlike MRTR).
  */
 export type PendingRequestOrigin =
-  "server-request" | "input-required" | "task-input-required";
+  | "server-request"
+  | "input-required"
+  | "task-input-required";
 
 export interface MessageEntry {
   id: string;
@@ -409,7 +416,10 @@ export interface InspectorResourceSubscription {
  *   re-listen.
  */
 export type ResourceSubscriptionStreamStatus =
-  "connecting" | "acknowledged" | "reconnecting" | "ended";
+  | "connecting"
+  | "acknowledged"
+  | "reconnecting"
+  | "ended";
 
 /**
  * State of the modern-era resource-subscription listen stream (#1630).

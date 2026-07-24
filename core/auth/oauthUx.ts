@@ -4,7 +4,11 @@ export type OAuthInteractiveAuthKind = "step_up" | "reauth";
 
 /** Origin of an interactive OAuth recovery flow (command, ambient, connect, etc.). */
 export type OAuthRecoverySource =
-  "tool" | "prompt" | "resource" | "ambient" | "app";
+  | "tool"
+  | "prompt"
+  | "resource"
+  | "ambient"
+  | "app";
 
 export function isActionTriggeredOAuthRecovery(
   source: OAuthRecoverySource | undefined,

@@ -2,7 +2,10 @@ import { isUnauthorizedError } from "./utils.js";
 
 /** Why authorization failed for this MCP interaction. */
 export type AuthChallengeReason =
-  "unauthorized" | "token_expired" | "insufficient_scope" | "invalid_token";
+  | "unauthorized"
+  | "token_expired"
+  | "insufficient_scope"
+  | "invalid_token";
 
 /** Normalized challenge for handleAuthChallenge(). */
 export interface AuthChallenge {

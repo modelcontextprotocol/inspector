@@ -31,6 +31,17 @@ export function InfoTab({
   focused = false,
 }: InfoTabProps) {
   const headerPairs = serverSettings?.headers ?? [];
+  // Shared header display for the sse / streamable-http branches (identical for
+  // both transports — the header source is `serverSettings`, not the transport).
+  const headersBlock =
+    headerPairs.length > 0 ? (
+      <Box marginTop={1}>
+        <Text dimColor>
+          Headers:{" "}
+          {headerPairs.map(({ key, value }) => `${key}=${value}`).join(", ")}
+        </Text>
+      </Box>
+    ) : null;
   const scrollViewRef = useRef<ScrollViewRef>(null);
 
   // Handle keyboard input for scrolling
@@ -119,31 +130,13 @@ export function InfoTab({
                     <>
                       <Text dimColor>Type: sse</Text>
                       <Text dimColor>URL: {serverConfig.url}</Text>
-                      {headerPairs.length > 0 && (
-                        <Box marginTop={1}>
-                          <Text dimColor>
-                            Headers:{" "}
-                            {headerPairs
-                              .map(({ key, value }) => `${key}=${value}`)
-                              .join(", ")}
-                          </Text>
-                        </Box>
-                      )}
+                      {headersBlock}
                     </>
                   ) : serverConfig.type === "streamable-http" ? (
                     <>
                       <Text dimColor>Type: streamable-http</Text>
                       <Text dimColor>URL: {serverConfig.url}</Text>
-                      {headerPairs.length > 0 && (
-                        <Box marginTop={1}>
-                          <Text dimColor>
-                            Headers:{" "}
-                            {headerPairs
-                              .map(({ key, value }) => `${key}=${value}`)
-                              .join(", ")}
-                          </Text>
-                        </Box>
-                      )}
+                      {headersBlock}
                     </>
                   ) : null}
                 </Box>

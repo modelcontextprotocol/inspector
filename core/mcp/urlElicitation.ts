@@ -55,7 +55,8 @@ export function getUrlElicitationsFromError(
     error.code === ProtocolErrorCode.UrlElicitationRequired
   ) {
     const data = error.data as
-      { elicitations?: ElicitRequestURLParams[] } | undefined;
+      | { elicitations?: ElicitRequestURLParams[] }
+      | undefined;
     return data?.elicitations ?? [];
   }
   return null;

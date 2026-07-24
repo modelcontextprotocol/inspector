@@ -201,11 +201,13 @@ export class FakeInspectorClient
     }),
   );
 
-  getPrompt = vi.fn(async (name: string): Promise<PromptGetInvocation> => ({
-    result: { messages: [] },
-    timestamp: new Date(),
-    name,
-  }));
+  getPrompt = vi.fn(
+    async (name: string): Promise<PromptGetInvocation> => ({
+      result: { messages: [] },
+      timestamp: new Date(),
+      name,
+    }),
+  );
 
   setLoggingLevel = vi.fn(async (_level: LoggingLevel) => {});
 
