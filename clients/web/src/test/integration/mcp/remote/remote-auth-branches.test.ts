@@ -45,7 +45,16 @@ async function start(): Promise<Harness> {
 }
 
 async function stop(h: Harness): Promise<void> {
-  await new Promise<void>((resolve) => h.server.close(() => resolve()));
+  await new Promise<void>((resolve) => {
+    h.server.close(() => resolve());
+    // Force keep-alive sockets closed so close()'s callback fires
+    // deterministically. undici's global-fetch connection pool holds sockets
+    // open, and under the full parallel/instrumented ci load they may not go
+    // idle before the 30s afterEach timeout — the #1667 teardown hang. The
+    // dead-transport tests are the worst case: they never disconnect, so the
+    // session (and its crashed subprocess transport) lingers when we close.
+    h.server.closeAllConnections();
+  });
 }
 
 async function connect(

@@ -37,7 +37,14 @@ async function startServer(): Promise<Harness> {
 }
 
 async function teardown(h: Harness): Promise<void> {
-  await new Promise<void>((resolve) => h.server.close(() => resolve()));
+  await new Promise<void>((resolve) => {
+    h.server.close(() => resolve());
+    // Force keep-alive sockets closed so close()'s callback fires
+    // deterministically under parallel/instrumented ci load, instead of
+    // blocking on undici's idle connection pool (the #1667 teardown hang).
+    // This suite's crash-on-startup sessions never disconnect either.
+    h.server.closeAllConnections();
+  });
 }
 
 interface ParsedSseEvent {
