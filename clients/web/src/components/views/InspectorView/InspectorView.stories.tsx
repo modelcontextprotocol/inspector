@@ -46,6 +46,8 @@ const noopBridgeFactory: BridgeFactory = () =>
     sendToolCancelled: async () => {},
     teardownResource: async () => ({}),
     close: async () => {},
+    // Partial mock: implements only the `AppBridge` members the view exercises;
+    // the double cast bridges the deliberately-incomplete shape.
   }) as unknown as AppBridge;
 
 // MCP App tools — `isAppTool` detects these via `_meta.ui.resourceUri`,
