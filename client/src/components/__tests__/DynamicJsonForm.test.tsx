@@ -384,9 +384,9 @@ describe("DynamicJsonForm Number Fields", () => {
         <DynamicJsonForm schema={schema} value={0} onChange={jest.fn()} />,
       );
 
-      const input = screen.getByRole("spinbutton");
-      expect(input).toHaveProperty("min", "0.5");
-      expect(input).toHaveProperty("max", "99.9");
+      const input = screen.getByRole("textbox");
+      expect(input).toHaveProperty("type", "text");
+      expect(input).toHaveProperty("inputMode", "decimal");
     });
 
     it("should accept decimal values", () => {
@@ -397,7 +397,7 @@ describe("DynamicJsonForm Number Fields", () => {
       };
       render(<DynamicJsonForm schema={schema} value={0} onChange={onChange} />);
 
-      const input = screen.getByRole("spinbutton");
+      const input = screen.getByRole("textbox");
       fireEvent.change(input, { target: { value: "98.6" } });
 
       expect(onChange).toHaveBeenCalledWith(98.6);
@@ -417,13 +417,36 @@ describe("DynamicJsonForm Number Fields", () => {
       };
 
       render(<WrappedForm />);
-      const input = screen.getByRole("spinbutton") as HTMLInputElement;
+      const input = screen.getByRole("textbox") as HTMLInputElement;
 
       fireEvent.change(input, { target: { value: "-74.0" } });
       expect(input.value).toBe("-74.0");
 
       fireEvent.change(input, { target: { value: "-74.01" } });
       expect(input.value).toBe("-74.01");
+    });
+
+    it("should preserve 1.0 while typing digit by digit", () => {
+      const schema: JsonSchemaType = {
+        type: "number",
+        description: "Float parameter",
+      };
+
+      const WrappedForm = () => {
+        const [value, setValue] = useState<number>(0);
+        return (
+          <DynamicJsonForm schema={schema} value={value} onChange={setValue} />
+        );
+      };
+
+      render(<WrappedForm />);
+      const input = screen.getByRole("textbox") as HTMLInputElement;
+
+      fireEvent.change(input, { target: { value: "1." } });
+      expect(input.value).toBe("1.");
+
+      fireEvent.change(input, { target: { value: "1.0" } });
+      expect(input.value).toBe("1.0");
     });
   });
 });

@@ -20,6 +20,7 @@ import {
   normalizeUnionType,
   resolveRef,
 } from "@/utils/schemaUtils";
+import { shouldDeferNumericCommit } from "@/utils/numericInputUtils";
 import {
   CompatibilityCallToolResult,
   ListToolsResult,
@@ -201,6 +202,9 @@ const ToolsTab = ({
   serverSupportsTaskRequests: boolean;
 }) => {
   const [params, setParams] = useState<Record<string, unknown>>({});
+  const [numericParamDrafts, setNumericParamDrafts] = useState<
+    Record<string, string>
+  >({});
   const [runAsTask, setRunAsTask] = useState(false);
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [isOutputSchemaExpanded, setIsOutputSchemaExpanded] = useState(false);
@@ -243,6 +247,7 @@ const ToolsTab = ({
       ];
     });
     setParams(Object.fromEntries(params));
+    setNumericParamDrafts({});
     const toolTaskSupport = serverSupportsTaskRequests
       ? getTaskSupport(selectedTool)
       : "forbidden";
@@ -518,25 +523,33 @@ const ToolsTab = ({
                           ) : prop.type === "number" ||
                             prop.type === "integer" ? (
                             <Input
-                              type="number"
+                              type="text"
+                              inputMode="decimal"
                               id={key}
                               name={key}
                               placeholder={prop.description}
                               value={
-                                params[key] === undefined
-                                  ? ""
-                                  : String(params[key])
+                                Object.prototype.hasOwnProperty.call(
+                                  numericParamDrafts,
+                                  key,
+                                )
+                                  ? numericParamDrafts[key]
+                                  : params[key] === undefined
+                                    ? ""
+                                    : String(params[key])
                               }
                               onChange={(e) => {
                                 const value = e.target.value;
+                                setNumericParamDrafts((prev) => ({
+                                  ...prev,
+                                  [key]: value,
+                                }));
                                 if (value === "") {
-                                  // Field cleared - set to undefined
                                   setParams({
                                     ...params,
                                     [key]: undefined,
                                   });
-                                } else {
-                                  // Field has value - try to convert to number, but store input either way
+                                } else if (!shouldDeferNumericCommit(value)) {
                                   const num = Number(value);
                                   if (!isNaN(num)) {
                                     setParams({
@@ -544,12 +557,37 @@ const ToolsTab = ({
                                       [key]: num,
                                     });
                                   } else {
-                                    // Store invalid input as string - let server validate
                                     setParams({
                                       ...params,
                                       [key]: value,
                                     });
                                   }
+                                }
+                              }}
+                              onBlur={(e) => {
+                                const value = e.target.value;
+                                setNumericParamDrafts((prev) => {
+                                  if (
+                                    !Object.prototype.hasOwnProperty.call(
+                                      prev,
+                                      key,
+                                    )
+                                  ) {
+                                    return prev;
+                                  }
+                                  const next = { ...prev };
+                                  delete next[key];
+                                  return next;
+                                });
+                                if (value === "") {
+                                  return;
+                                }
+                                const num = Number(value);
+                                if (!isNaN(num)) {
+                                  setParams({
+                                    ...params,
+                                    [key]: num,
+                                  });
                                 }
                               }}
                               className="mt-1"
