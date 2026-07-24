@@ -104,8 +104,12 @@ async function loadChromium() {
   try {
     ({ chromium } = requireFromWeb("playwright"));
   } catch (err) {
+    // A failure here means the playwright *npm package* isn't resolvable from
+    // clients/web — fixed by installing devDependencies, NOT by `playwright
+    // install` (which fetches browser binaries). `npm install` at the repo root
+    // cascades into clients/web via postinstall.
     throw new Error(
-      `could not load Playwright from clients/web — run \`npx playwright install --with-deps chromium\` (${err instanceof Error ? err.message : String(err)})`,
+      `could not resolve the Playwright package from clients/web — run \`npm install\` at the repo root (${err instanceof Error ? err.message : String(err)})`,
     );
   }
   try {
