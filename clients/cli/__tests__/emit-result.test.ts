@@ -31,6 +31,22 @@ describe("emitResult", () => {
     process.stdout.write = originalWrite;
   });
 
+  it("uses a default appInfo shell when --app-info has no collected info", async () => {
+    const promise = emitResult(undefined as never, undefined, {
+      appInfo: true,
+      toolName: "missing-app",
+      format: "text",
+    });
+    await expect(promise).rejects.toBeInstanceOf(CliExitCodeError);
+    await promise.catch((e: CliExitCodeError) => {
+      expect(e.exitCode).toBe(2);
+    });
+    expect(JSON.parse(stdout.trim())).toMatchObject({
+      hasApp: false,
+      toolName: "missing-app",
+    });
+  });
+
   it("throws TOOL_ERROR (code:tool_is_error) when the result has isError:true", async () => {
     const promise = emitResult({ isError: true }, undefined, {
       toolName: "boom",
@@ -106,6 +122,25 @@ describe("collectAppInfo", () => {
     };
     const info = await collectAppInfo(client, tool, undefined);
     expect(info.resourceError).toBe("string failure");
+  });
+
+  it("stringifies a non-Error throw from extractAppInfo", async () => {
+    const extract = await import("@inspector/core/mcp/apps.js");
+    const spy = vi
+      .spyOn(extract, "extractAppInfo")
+      .mockImplementationOnce(() => {
+        throw "boom-string";
+      });
+    try {
+      const info = await collectAppInfo(
+        { readResource: vi.fn() } as never,
+        { name: "t", inputSchema: { type: "object" as const } },
+        undefined,
+      );
+      expect(info.resourceError).toBe("boom-string");
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("folds a malformed _meta.ui.resourceUri into {hasApp:false, resourceError} instead of throwing", async () => {

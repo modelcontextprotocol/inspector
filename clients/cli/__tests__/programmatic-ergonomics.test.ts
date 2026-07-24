@@ -135,6 +135,52 @@ describe("--tool-args-json", () => {
   });
 });
 
+describe("one-shot --relogin flag conflicts", () => {
+  it("rejects --relogin with --stored-auth-only", async () => {
+    const result = await runCli([
+      "--relogin",
+      "--stored-auth-only",
+      "--server-url",
+      "https://example.com/mcp",
+      "--method",
+      "tools/list",
+    ]);
+    expectCliFailure(result);
+    expect(result.stderr).toMatch(
+      /--relogin cannot be combined with --stored-auth-only/,
+    );
+  });
+
+  it("rejects --relogin with --use-stored-auth", async () => {
+    const result = await runCli([
+      "--relogin",
+      "--use-stored-auth",
+      "--server-url",
+      "https://example.com/mcp",
+      "--method",
+      "tools/list",
+    ]);
+    expectCliFailure(result);
+    expect(result.stderr).toMatch(/--use-stored-auth/);
+  });
+
+  it("accepts --relogin and clears stored auth before connect", async () => {
+    // Unreachable port: proves --relogin runs (clears store) then fails connect.
+    const result = await runCli([
+      "--relogin",
+      "--server-url",
+      "http://127.0.0.1:1/mcp",
+      "--transport",
+      "http",
+      "--connect-timeout",
+      "200",
+      "--method",
+      "initialize",
+    ]);
+    expectCliFailure(result);
+  });
+});
+
 describe("MCP_CATALOG_PATH with an ad-hoc target", () => {
   it("does not conflict with an ad-hoc target (env catalog is ignored)", async () => {
     const { command, args } = getTestMcpServerCommand();
