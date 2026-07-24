@@ -1,3 +1,25 @@
+# Connection Info modal: sticky header while body scrolls (#1754) — proof screenshots
+
+Same fix as #1698, applied to the **Connection Info** modal. With a real server
+whose `instructions` are long (e.g. the everything server in a typical config),
+the connection details overflow the viewport; before the fix the whole modal
+scrolled and the header left the view. Captured from the `ConnectionInfoModal`
+Storybook story (`WithOAuth`, ~620px viewport) via Playwright.
+
+![Connection Info scrolled to the top — header pinned, Server Implementation visible](ci-1754-header-pinned-top.png)
+
+Top of scroll: the **Connection Info** header (title + close) sits above the
+first section.
+
+![Connection Info scrolled down — same header still pinned while the body shows Server Instructions / OAuth Details](ci-1754-header-pinned-scrolled.png)
+
+Scrolled down (now showing Server Instructions → OAuth Details): the **same
+header stays pinned**. Measured in-page: the body scroll container is
+`scrollHeight` 1172 × `clientHeight` 558 (scrolls internally), header
+`position: sticky` flush to the dialog top.
+
+---
+
 # Server/Client Settings modal: sticky header while body scrolls (#1698) — proof screenshots
 
 Expanding enough accordion sections grew the Server Settings modal past the
