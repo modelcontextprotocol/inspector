@@ -74,7 +74,7 @@ const AppRenderer = ({
   const handleOpenLink = async ({ url }: { url: string }) => {
     let isError = true;
     if (url.startsWith("https://") || url.startsWith("http://")) {
-      window.open(url, "_blank");
+      window.open(url, "_blank", "noopener,noreferrer");
       isError = false;
     }
     return { isError };
