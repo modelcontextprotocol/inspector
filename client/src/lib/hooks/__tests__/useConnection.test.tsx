@@ -1387,6 +1387,63 @@ describe("useConnection", () => {
     });
   });
 
+  describe("Direct connection OAuth token handling", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockSSETransport.options = undefined;
+      mockStreamableHTTPTransport.options = undefined;
+    });
+
+    test("does NOT bake the OAuth provider token into requestInit for direct connections", async () => {
+      // Regression test for #1434: the OAuth token must not be snapshotted into
+      // requestInit at connect time. The SDK's authProvider is the single,
+      // always-current source and refreshes the token on 401; a baked snapshot
+      // shadows the refreshed token and leaves the session stuck on the stale
+      // one after a successful refresh.
+      const directProps = {
+        ...defaultProps,
+        connectionType: "direct" as const,
+      };
+
+      const { result } = renderHook(() => useConnection(directProps));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      // The provider (mocked to return "mock-token") must NOT be baked in.
+      expect(headers).not.toHaveProperty("Authorization");
+      // ...instead the authProvider is wired up so the SDK injects and
+      // refreshes the token per request.
+      expect(mockSSETransport.options?.authProvider).toBeDefined();
+    });
+
+    test("still sends a user-supplied static Authorization header for direct connections", async () => {
+      // A user-provided static Authorization header is an intentional override
+      // of the provider and must still flow through untouched.
+      const customHeaders: CustomHeaders = [
+        { name: "Authorization", value: "Bearer user-token", enabled: true },
+      ];
+
+      const directProps = {
+        ...defaultProps,
+        connectionType: "direct" as const,
+        customHeaders,
+      };
+
+      const { result } = renderHook(() => useConnection(directProps));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const headers = mockSSETransport.options?.requestInit?.headers;
+      expect(headers).toHaveProperty("Authorization", "Bearer user-token");
+      expect(mockSSETransport.options?.authProvider).toBeDefined();
+    });
+  });
+
   describe("Connection URL Verification", () => {
     beforeEach(() => {
       jest.clearAllMocks();
