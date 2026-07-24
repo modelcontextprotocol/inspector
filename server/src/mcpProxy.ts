@@ -2,6 +2,7 @@ import { SseError } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { isJSONRPCRequest } from "@modelcontextprotocol/sdk/types.js";
+import { sendToClientSafe } from "./sessionRegistry.js";
 
 /**
  * JSON-RPC error code for failed proxy → upstream transport sends.
@@ -113,7 +114,7 @@ export default function mcpProxy({
             data: serializeProxyTransportError(error, headerHolder),
           },
         };
-        transportToClient.send(errorResponse).catch(onClientError);
+        sendToClientSafe(transportToClient, errorResponse);
       }
     });
   };
@@ -128,7 +129,7 @@ export default function mcpProxy({
       }
       reportedServerSession = true;
     }
-    transportToClient.send(message).catch(onClientError);
+    sendToClientSafe(transportToClient, message);
   };
 
   transportToClient.onclose = () => {
