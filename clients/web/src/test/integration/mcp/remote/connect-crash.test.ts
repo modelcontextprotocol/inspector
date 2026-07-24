@@ -10,6 +10,7 @@ import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import { createRemoteApp } from "@inspector/core/mcp/remote/node/server.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
+import { closeHarnessServer } from "./harnessTeardown.js";
 
 interface Harness {
   baseUrl: string;
@@ -37,16 +38,7 @@ async function startServer(): Promise<Harness> {
 }
 
 async function teardown(h: Harness): Promise<void> {
-  await new Promise<void>((resolve) => {
-    h.server.close(() => resolve());
-    // Force keep-alive sockets closed so close()'s callback fires
-    // deterministically under parallel/instrumented ci load, instead of
-    // blocking on undici's idle connection pool (the #1667 teardown hang).
-    // This suite's crash-on-startup sessions never disconnect either.
-    // `serve` returns http1's Server here; closeAllConnections is http1-only
-    // (absent on the Http2Server arm of ServerType), so guard the narrow.
-    if ("closeAllConnections" in h.server) h.server.closeAllConnections();
-  });
+  await closeHarnessServer(h.server);
 }
 
 interface ParsedSseEvent {

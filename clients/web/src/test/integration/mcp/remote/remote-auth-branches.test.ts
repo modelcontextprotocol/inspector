@@ -18,6 +18,7 @@ import type { ServerType } from "@hono/node-server";
 import { createRemoteApp } from "@inspector/core/mcp/remote/node/server.js";
 import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
+import { closeHarnessServer } from "./harnessTeardown.js";
 
 interface Harness {
   baseUrl: string;
@@ -45,18 +46,7 @@ async function start(): Promise<Harness> {
 }
 
 async function stop(h: Harness): Promise<void> {
-  await new Promise<void>((resolve) => {
-    h.server.close(() => resolve());
-    // Force keep-alive sockets closed so close()'s callback fires
-    // deterministically. undici's global-fetch connection pool holds sockets
-    // open, and under the full parallel/instrumented ci load they may not go
-    // idle before the 30s afterEach timeout — the #1667 teardown hang. The
-    // dead-transport tests are the worst case: they never disconnect, so the
-    // session (and its crashed subprocess transport) lingers when we close.
-    // `serve` returns http1's Server here; closeAllConnections is http1-only
-    // (absent on the Http2Server arm of ServerType), so guard the narrow.
-    if ("closeAllConnections" in h.server) h.server.closeAllConnections();
-  });
+  await closeHarnessServer(h.server);
 }
 
 async function connect(
