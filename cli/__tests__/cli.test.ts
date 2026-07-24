@@ -1,4 +1,7 @@
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { runCli } from "./helpers/cli-runner.js";
 import {
   expectCliSuccess,
@@ -18,6 +21,37 @@ import {
   createEchoTool,
   createTestServerInfo,
 } from "./helpers/test-fixtures.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function createPublishedCliFixture(): {
+  cliPath: string;
+  cwd: string;
+  root: string;
+} {
+  const root = mkdtempSync(join(process.cwd(), ".published-cli-"));
+  mkdirSync(join(root, "cli"), { recursive: true });
+  cpSync(resolve(__dirname, "../build"), join(root, "cli", "build"), {
+    recursive: true,
+  });
+  writeFileSync(
+    join(root, "package.json"),
+    JSON.stringify({
+      name: "@modelcontextprotocol/inspector",
+      version: "0.0.0-test",
+      type: "module",
+    }),
+  );
+
+  const cwd = join(root, "runner");
+  mkdirSync(cwd);
+
+  return {
+    cliPath: join(root, "cli", "build", "cli.js"),
+    cwd,
+    root,
+  };
+}
 
 describe("CLI Tests", () => {
   describe("Basic CLI Mode", () => {
@@ -41,6 +75,30 @@ describe("CLI Tests", () => {
       expect(toolNames).toContain("echo");
       expect(toolNames).toContain("get-sum");
       expect(toolNames).toContain("get-annotated-message");
+    });
+
+    it("should resolve package metadata from a published package layout", async () => {
+      const { command, args } = getTestMcpServerCommand();
+      const fixture = createPublishedCliFixture();
+
+      try {
+        const result = await runCli(
+          [command, ...args, "--cli", "--method", "tools/list"],
+          {
+            cliPath: fixture.cliPath,
+            cwd: fixture.cwd,
+          },
+        );
+
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        expect(json).toHaveProperty("tools");
+        expect(Array.isArray(json.tools)).toBe(true);
+        const toolNames = json.tools.map((tool: any) => tool.name);
+        expect(toolNames).toContain("echo");
+      } finally {
+        rmSync(fixture.root, { recursive: true, force: true });
+      }
     });
 
     it("should fail with nonexistent method", async () => {
