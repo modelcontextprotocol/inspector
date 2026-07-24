@@ -421,22 +421,37 @@ export const INSPECTOR_FIELD_KEYS = new Set(
 );
 
 /**
+ * Widen a typed config object to a generic string-keyed record so its keys can
+ * be iterated/written generically. `StoredMCPServer` / `MCPServerConfig` have
+ * no index signature, so a direct `value as Record<string, unknown>` at a call
+ * site is a TS2352 error that would otherwise force an `as unknown as` double
+ * cast. Taking the argument as the general `object` type makes the single `as`
+ * legal (`Record<string, unknown>` is assignable to `object`), so this one
+ * audited spot owns the widening and the double casts stay out of the call
+ * sites below. Purely a structural view of the same object — no runtime effect.
+ */
+function toRecord(value: object): Record<string, unknown> {
+  return value as Record<string, unknown>;
+}
+
+/**
  * Strip the Inspector-extension fields off a `StoredMCPServer` so the
  * remainder is the pure SDK config shape the PUT route's preserve path
  * needs. Source-of-truth driven via `INSPECTOR_FIELD_KEYS` so adding a
  * new extension field doesn't silently leak through this slice — the
  * `satisfies` constraint above forces the map update, which propagates
  * here.
+ *
+ * Every Inspector-extension key is optional on `StoredMCPServer`, so deleting
+ * them off a clone leaves a value still typed as (a subtype of)
+ * `MCPServerConfig` — no cast needed.
  */
 export function stripInspectorFields(stored: StoredMCPServer): MCPServerConfig {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(
-    stored as unknown as Record<string, unknown>,
-  )) {
-    if (INSPECTOR_FIELD_KEYS.has(k as keyof StoredInspectorFields)) continue;
-    out[k] = v;
+  const out = { ...stored };
+  for (const key of INSPECTOR_FIELD_KEYS) {
+    delete out[key];
   }
-  return out as unknown as MCPServerConfig;
+  return out;
 }
 
 /**
@@ -454,16 +469,13 @@ export function mcpConfigToServerEntries(config: MCPConfig): ServerEntry[] {
     // `InspectorServerSettings` only.
     const inspectorFields: StoredInspectorFields = {};
     const sdkOnly: Record<string, unknown> = {};
-    // Widen the typed config object to a generic record to iterate its keys.
-    // `StoredMCPServer` has no index signature, so TS requires the `unknown`
-    // step (`as Record<string, unknown>` alone is TS2352). This is a plain
-    // structural widening, not an SDK-shape workaround. (Pre-existing pattern,
-    // also at the `serverEntryToStored` / oauth-strip casts in this file.)
-    for (const [k, v] of Object.entries(
-      raw as unknown as Record<string, unknown>,
-    )) {
+    // Partition the entry's keys into Inspector-extension vs SDK-only. Both
+    // `raw` and `inspectorFields` are widened through `toRecord` (see its doc)
+    // so the generic key iteration/assignment needs no per-site cast.
+    const inspectorRecord = toRecord(inspectorFields);
+    for (const [k, v] of Object.entries(toRecord(raw))) {
       if (INSPECTOR_FIELD_KEYS.has(k as keyof StoredInspectorFields)) {
-        (inspectorFields as Record<string, unknown>)[k] = v;
+        inspectorRecord[k] = v;
       } else {
         sdkOnly[k] = v;
       }
@@ -589,7 +601,7 @@ export function extractSecretsFromStored(
     if (Object.keys(restOauth).length > 0) {
       stripped.oauth = restOauth;
     } else {
-      delete (stripped as unknown as Record<string, unknown>).oauth;
+      delete stripped.oauth;
     }
   }
 
