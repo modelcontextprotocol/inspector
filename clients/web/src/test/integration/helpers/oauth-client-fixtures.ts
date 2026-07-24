@@ -12,7 +12,7 @@ import { ConsoleNavigation } from "@inspector/core/auth/providers.js";
 import { NodeOAuthStorage } from "@inspector/core/auth/node/storage-node.js";
 
 /** Creates a static RedirectUrlProvider for tests. Single URL for both modes. */
-function createStaticRedirectUrlProvider(
+export function createStaticRedirectUrlProvider(
   redirectUrl: string,
 ): RedirectUrlProvider {
   return {

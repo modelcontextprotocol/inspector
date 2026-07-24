@@ -31,6 +31,10 @@ import {
 import type { InspectorClientOptions } from "@inspector/core/mcp/inspectorClient.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import {
+  completeOAuthAuthorization,
+  createStaticRedirectUrlProvider,
+} from "../helpers/oauth-client-fixtures.js";
+import {
   createEmaMockKeyMaterial,
   createMockIdToken,
   EMA_MOCK_IDP_CLIENT_ID,
@@ -47,10 +51,6 @@ const oauthTestStatePath = path.join(
   os.tmpdir(),
   `mcp-ema-${process.pid}-inspectorClient-ema-e2e.json`,
 );
-
-function createStaticRedirectUrlProvider(redirectUrl: string) {
-  return { getRedirectUrl: () => redirectUrl };
-}
 
 async function waitForProtectedResourceMetadata(
   serverBase: string,
@@ -207,5 +207,66 @@ describe("InspectorClient EMA E2E", () => {
     const entry = raw.servers[mcpUrl];
     expect(entry?.tokens?.access_token).toBeDefined();
     expect(entry?.enterpriseManaged).toBe(true);
+  });
+
+  describe("interactive leg 1 (no cached IdP session)", () => {
+    // The suite-wide beforeEach seeds an IdP session so the silent path (legs
+    // 2–3) runs. These tests clear it first so EMA falls through to the
+    // interactive authorization-code login against the mock IdP — the exact path
+    // that regressed in #1688 (a dropped RFC 9207 `iss`), which had no e2e
+    // coverage before #1693.
+    beforeEach(async () => {
+      await storage.clearIdpSession(mockIdp.baseUrl);
+      await flushStoreFileWrites(oauthTestStatePath);
+    });
+
+    it("drives leg 1 end to end: authorize → callback(iss) → id_token → resource token", async () => {
+      client = createEmaClient();
+
+      // No cached IdP session → EMA starts interactive leg 1 and returns the IdP
+      // authorization URL instead of silently connecting.
+      const authUrl = await client.authenticate();
+      if (!authUrl) throw new Error("Expected IdP authorization URL for leg 1");
+      expect(authUrl.href.startsWith(mockIdp.baseUrl)).toBe(true);
+      expect(authUrl.pathname).toBe("/authorize");
+
+      // The mock IdP auto-approves and redirects back with code + RFC 9207 iss.
+      const { code, iss } = await completeOAuthAuthorization(authUrl);
+      expect(iss).toBe(mockIdp.baseUrl);
+
+      // Leg 1 code exchange (mints the ID Token) → legs 2–3 (resource token).
+      await client.completeOAuthFlow(code, iss);
+      await client.connect();
+
+      expect(client.getStatus()).toBe("connected");
+
+      const tokens = await client.getOAuthTokens();
+      expect(tokens?.access_token).toBeDefined();
+      expect(tokens?.token_type).toBe("Bearer");
+
+      const oauthState = await client.getOAuthState();
+      expect(oauthState?.protocol).toBe("ema");
+      expect(oauthState?.authorized).toBe(true);
+      expect(oauthState?.ema?.idpSession).toBe("logged_in");
+
+      // Leg 1 side effect: the exchanged ID Token is now cached as the IdP session.
+      const session = await storage.getIdpSession(mockIdp.baseUrl);
+      expect(session?.idToken).toBeDefined();
+    });
+
+    it("rejects the leg 1 exchange when the callback iss is missing (RFC 9207)", async () => {
+      client = createEmaClient();
+
+      const authUrl = await client.authenticate();
+      if (!authUrl) throw new Error("Expected IdP authorization URL for leg 1");
+      const { code } = await completeOAuthAuthorization(authUrl);
+
+      // The mock IdP metadata advertises
+      // `authorization_response_iss_parameter_supported`, so the SDK must reject
+      // a code exchange that forwards no `iss`. This is the guard that a dropped
+      // `iss` (the #1688 regression) would trip.
+      await expect(client.completeOAuthFlow(code)).rejects.toThrow(/issuer/i);
+      expect(await client.getOAuthTokens()).toBeUndefined();
+    });
   });
 });
