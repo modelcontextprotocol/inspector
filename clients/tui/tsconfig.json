@@ -3,14 +3,16 @@
   "compilerOptions": {
     "noEmit": true,
     "jsx": "react-jsx",
-    // Mirror clients/web/tsconfig.app.json's effective options so this
-    // typecheck validates the imported `core/` sources against the exact
-    // config web's own gate already uses (web's app config does not extend
-    // tsconfig.base, so it has no `noUncheckedIndexedAccess`; re-enabling it
-    // here would surface core issues web never gates). DOM lib + bundler
-    // resolution are what core/ (browser-side auth, DOM types) expects; the
-    // `react` path redirect lets core/ source resolve its bare `react` import
-    // from this client's node_modules.
+    // Match clients/web/tsconfig.app.json's module/lib *resolution* options so
+    // the imported `core/` sources are validated the same way web's own gate
+    // validates them: DOM lib + bundler resolution are what core/ (browser-side
+    // auth, DOM types) expects, `noUncheckedIndexedAccess` is off because web's
+    // app config does not extend tsconfig.base (re-enabling it would flag core/
+    // issues web never gates), and the `react` path redirect lets core/ source
+    // resolve its bare `react` import from this client's node_modules. This does
+    // NOT mirror web's extra strictness flags (noUnusedLocals, verbatimModule-
+    // Syntax, ES2023 target, …), so tui's own src is checked slightly more
+    // loosely than web's src.
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["node"],
     "moduleResolution": "bundler",

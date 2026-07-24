@@ -3,7 +3,10 @@
  * for Node runners (TUI, CLI).
  */
 
-import { KeyringSecretStore } from "../auth/node/secret-store.js";
+import {
+  KeyringSecretStore,
+  type SecretStore,
+} from "../auth/node/secret-store.js";
 import type {
   InspectorClientOptions,
   InspectorServerSettings,
@@ -18,6 +21,9 @@ import {
 export interface LoadRunnerClientConfigOptions {
   /** Explicit path from `--client-config` (or MCP_CLIENT_CONFIG_PATH when unset). */
   clientConfigPath?: string;
+  /** Secret store for the IdP clientSecret; defaults to the OS keychain. Tests
+   * inject an in-memory store for determinism. */
+  secretStore?: SecretStore;
 }
 
 /** Load install-level client.json with keychain-backed IdP secrets. */
@@ -28,7 +34,7 @@ export async function loadRunnerClientConfig(
     options?.clientConfigPath?.trim() ||
     process.env.MCP_CLIENT_CONFIG_PATH?.trim() ||
     undefined;
-  const secretStore = new KeyringSecretStore();
+  const secretStore = options?.secretStore ?? new KeyringSecretStore();
   return loadClientConfig({ filePath: customPath, secretStore });
 }
 

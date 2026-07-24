@@ -1,7 +1,8 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { InMemorySecretStore } from "@inspector/core/auth/node/secret-store.js";
 import {
   buildRunnerClientAuthOptions,
   isOAuthCapableServerConfig,
@@ -126,12 +127,14 @@ describe("loadRunnerClientConfig", () => {
     if (tmpDir) {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
-    delete process.env.MCP_CLIENT_CONFIG_PATH;
+    vi.unstubAllEnvs();
   });
 
   it("reads client.json from an explicit path (empty when absent)", async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "runner-client-"));
     const filePath = path.join(tmpDir, "client.json");
+    // No injected store here → exercises the default `new KeyringSecretStore()`
+    // path (its get() tolerates keychain unavailability, returning {}).
     expect(
       await loadRunnerClientConfig({ clientConfigPath: filePath }),
     ).toEqual({});
@@ -150,8 +153,12 @@ describe("loadRunnerClientConfig", () => {
       }),
       "utf-8",
     );
-    process.env.MCP_CLIENT_CONFIG_PATH = filePath;
-    const config = await loadRunnerClientConfig();
+    vi.stubEnv("MCP_CLIENT_CONFIG_PATH", filePath);
+    // Inject an in-memory store so the result never depends on the developer's
+    // real OS keychain.
+    const config = await loadRunnerClientConfig({
+      secretStore: new InMemorySecretStore(),
+    });
     expect(config.cimd?.clientMetadataUrl).toBe(
       "https://example.com/oauth/client.json",
     );

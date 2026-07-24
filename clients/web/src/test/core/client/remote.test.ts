@@ -15,7 +15,14 @@ const validConfig: ClientConfig = {
   },
 };
 
-/** Build a minimal `Response`-like stub for the mocked fetch. */
+/**
+ * Build a minimal `Response`-like stub for the mocked fetch. The code under
+ * test only reads `.ok`, `.status`, and `.json()`, so the stub implements just
+ * those. The double cast is unavoidable here: `Response` has ~20 required
+ * members (`headers`, `body`, `arrayBuffer`, `blob`, `clone`, …), so a direct
+ * `as Response` is a TS2352 error and there is no lighter alternative than
+ * asserting through `unknown` for a deliberately-partial test double.
+ */
 function fakeResponse(init: {
   ok: boolean;
   status: number;

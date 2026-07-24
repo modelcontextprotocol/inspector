@@ -13,6 +13,23 @@ describe("schemaToForm", () => {
     expect(form.sections[0]?.fields).toEqual([]);
   });
 
+  it("treats a non-object property value as an empty schema instead of throwing", () => {
+    // A malformed server schema whose property value is null/primitive must not
+    // crash — the field degrades to a plain string input labelled by its key.
+    const form = schemaToForm(
+      { properties: { bad: null, worse: 42 } },
+      "malformed",
+    );
+    const fields = form.sections[0]?.fields ?? [];
+    expect(fields).toHaveLength(2);
+    expect(
+      fields.map((f) => ({ name: f.name, type: f.type, label: f.label })),
+    ).toEqual([
+      { name: "bad", type: "string", label: "bad" },
+      { name: "worse", type: "string", label: "worse" },
+    ]);
+  });
+
   it("maps each JSON Schema type to the matching ink-form field type", () => {
     const form = schemaToForm(
       {
