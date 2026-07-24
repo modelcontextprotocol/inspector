@@ -63,6 +63,7 @@ import {
   ListTodo,
   MessageSquare,
   Settings,
+  Shield,
 } from "lucide-react";
 
 import { z } from "zod";
@@ -79,6 +80,7 @@ import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import TasksTab from "./components/TasksTab";
 import AppsTab from "./components/AppsTab";
+import ProtocolBuilderTab from "./components/ProtocolBuilderTab";
 import { InspectorConfig } from "./lib/configurationTypes";
 import {
   getMCPProxyAddress,
@@ -349,6 +351,7 @@ const App = () => {
       "roots",
       "auth",
       "metadata",
+      "protocol-builder",
     ];
 
     if (!validTabs.includes(originatingTab)) return;
@@ -495,6 +498,7 @@ const App = () => {
         "roots",
         "auth",
         "metadata",
+        "protocol-builder",
       ];
 
       const isValidTab = validTabs.includes(hash);
@@ -829,6 +833,7 @@ const App = () => {
             "roots",
             "auth",
             "metadata",
+            "protocol-builder",
           ];
 
           if (validTabs.includes(originatingTab)) {
@@ -1502,6 +1507,10 @@ const App = () => {
                   <Settings className="w-4 h-4 mr-2" />
                   Metadata
                 </TabsTrigger>
+                <TabsTrigger value="protocol-builder">
+                  <Shield className="w-4 h-4 mr-2" />
+                  Protocol Builder
+                </TabsTrigger>
               </TabsList>
 
               <div className="w-full">
@@ -1738,6 +1747,13 @@ const App = () => {
                     <MetadataTab
                       metadata={metadata}
                       onMetadataChange={handleMetadataChange}
+                    />
+                    <ProtocolBuilderTab
+                      tools={tools}
+                      listTools={() => {
+                        clearError("tools");
+                        listTools();
+                      }}
                     />
                   </>
                 )}
