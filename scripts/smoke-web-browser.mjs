@@ -27,17 +27,30 @@
  * errors are collected and printed as diagnostics, and only fail the run when
  * they carry the externalized-module signature.
  *
- * Run from the clients/web directory (`npm run smoke:web:browser` does
- * `cd clients/web` first) so `import("playwright")` resolves against that
- * client's node_modules. Repo-root paths are derived inside the shared helper
- * from import.meta.url, so the cwd change doesn't affect which build tree runs.
+ * Playwright lives in clients/web's node_modules, so it's resolved with a
+ * `createRequire` based at clients/web/package.json rather than a bare
+ * `import("playwright")`. A bare ESM specifier resolves relative to *this
+ * script's* directory (scripts/), not the cwd — so `cd clients/web` in the npm
+ * script would NOT make it resolvable, and it only appeared to work locally
+ * when an ancestor node_modules happened to carry playwright (it fails in CI,
+ * which has none). createRequire pins resolution to clients/web regardless of
+ * cwd or ancestor dirs.
  *
  * Expects `clients/web/dist` and `clients/launcher/build` to be built first —
  * the validate / CI ordering guarantees this.
  */
 
+import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 import { startProdWebServer } from "./lib/prod-web-server.mjs";
+
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+// Resolve playwright from clients/web (where it's installed) no matter the cwd.
+const requireFromWeb = createRequire(
+  resolve(scriptDir, "..", "clients/web/package.json"),
+);
 
 const HOST = "127.0.0.1";
 // Distinct from smoke:web's SMOKE_WEB_PORT so overriding one doesn't make both
@@ -78,16 +91,16 @@ async function fail(message) {
 }
 
 async function loadChromium() {
-  let playwright;
+  let chromium;
   try {
-    playwright = await import("playwright");
+    ({ chromium } = requireFromWeb("playwright"));
   } catch (err) {
     throw new Error(
-      `could not load Playwright — run \`npx playwright install --with-deps chromium\` (${err instanceof Error ? err.message : String(err)})`,
+      `could not load Playwright from clients/web — run \`npx playwright install --with-deps chromium\` (${err instanceof Error ? err.message : String(err)})`,
     );
   }
   try {
-    return await playwright.chromium.launch({ headless: true });
+    return await chromium.launch({ headless: true });
   } catch (err) {
     throw new Error(
       `chromium failed to launch — on a bare Linux box run \`npx playwright install --with-deps chromium\` for the system libraries (${err instanceof Error ? err.message : String(err)})`,
