@@ -6,7 +6,10 @@ import { useEffect, useMemo, useState } from "react";
 import { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { validateRedirectUrl } from "@/utils/urlValidation";
 import { useToast } from "@/lib/hooks/useToast";
-import { getAuthorizationServerMetadataDiscoveryUrl } from "@/utils/oauthUtils";
+import {
+  getAuthorizationServerMetadataDiscoveryUrl,
+  getProtectedResourceMetadataDiscoveryUrl,
+} from "@/utils/oauthUtils";
 
 interface OAuthStepProps {
   label: string;
@@ -89,6 +92,12 @@ export const OAuthFlowProgress = ({
 
     return getAuthorizationServerMetadataDiscoveryUrl(authState.authServerUrl);
   }, [authState.authServerUrl]);
+  // Mirrors the path-aware URL the MCP SDK actually fetches for the OAuth
+  // Protected Resource metadata, so the displayed URL matches the request.
+  const protectedResourceMetadataDiscoveryUrl = useMemo(
+    () => getProtectedResourceMetadataDiscoveryUrl(serverUrl),
+    [serverUrl],
+  );
 
   const currentStepIdx = steps.findIndex((s) => s === authState.oauthStep);
 
@@ -150,13 +159,7 @@ export const OAuthFlowProgress = ({
                 <div className="mt-2">
                   <p className="font-medium">Resource Metadata:</p>
                   <p className="text-xs text-muted-foreground">
-                    From{" "}
-                    {
-                      new URL(
-                        "/.well-known/oauth-protected-resource",
-                        serverUrl,
-                      ).href
-                    }
+                    From {protectedResourceMetadataDiscoveryUrl}
                   </p>
                   <pre className="mt-2 p-2 bg-muted rounded-md overflow-auto max-h-[300px]">
                     {JSON.stringify(authState.resourceMetadata, null, 2)}
@@ -169,22 +172,12 @@ export const OAuthFlowProgress = ({
                   <p className="text-sm font-medium text-blue-700">
                     ℹ️ Problem with resource metadata from{" "}
                     <a
-                      href={
-                        new URL(
-                          "/.well-known/oauth-protected-resource",
-                          serverUrl,
-                        ).href
-                      }
+                      href={protectedResourceMetadataDiscoveryUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-blue-500 hover:text-blue-700"
                     >
-                      {
-                        new URL(
-                          "/.well-known/oauth-protected-resource",
-                          serverUrl,
-                        ).href
-                      }
+                      {protectedResourceMetadataDiscoveryUrl}
                     </a>
                   </p>
                   <p className="text-xs text-blue-600 mt-1">

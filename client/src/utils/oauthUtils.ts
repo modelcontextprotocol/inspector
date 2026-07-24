@@ -115,3 +115,33 @@ export const getAuthorizationServerMetadataDiscoveryUrl = (
     url.origin,
   ).href;
 };
+
+/**
+ * Returns the primary OAuth Protected Resource metadata discovery URL for a
+ * given resource (MCP server) URL, including path handling.
+ *
+ * Mirrors the path-aware discovery the MCP TypeScript SDK uses in
+ * `discoverOAuthProtectedResourceMetadata` so the URL the UI displays matches
+ * the URL that is actually fetched. See:
+ * https://github.com/modelcontextprotocol/inspector/issues/1166
+ */
+export const getProtectedResourceMetadataDiscoveryUrl = (
+  serverUrl: string | URL,
+): string => {
+  const url = typeof serverUrl === "string" ? new URL(serverUrl) : serverUrl;
+  const hasPath = url.pathname !== "/";
+
+  if (!hasPath) {
+    return new URL("/.well-known/oauth-protected-resource", url.origin).href;
+  }
+
+  // Strip trailing slash to avoid double slashes in path-aware discovery URLs.
+  const pathname = url.pathname.endsWith("/")
+    ? url.pathname.slice(0, -1)
+    : url.pathname;
+
+  return new URL(
+    `/.well-known/oauth-protected-resource${pathname}`,
+    url.origin,
+  ).href;
+};

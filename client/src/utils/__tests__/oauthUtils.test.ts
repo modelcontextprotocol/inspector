@@ -3,6 +3,7 @@ import {
   parseOAuthCallbackParams,
   generateOAuthState,
   getAuthorizationServerMetadataDiscoveryUrl,
+  getProtectedResourceMetadataDiscoveryUrl,
 } from "@/utils/oauthUtils.ts";
 
 describe("parseOAuthCallbackParams", () => {
@@ -109,5 +110,25 @@ describe("getAuthorizationServerMetadataDiscoveryUrl", () => {
     ).toBe(
       "https://example.com/.well-known/oauth-authorization-server/tenant1",
     );
+  });
+});
+
+describe("getProtectedResourceMetadataDiscoveryUrl", () => {
+  it("uses root discovery URL for root server URL", () => {
+    expect(getProtectedResourceMetadataDiscoveryUrl("https://example.com")).toBe(
+      "https://example.com/.well-known/oauth-protected-resource",
+    );
+  });
+
+  it("appends path for non-root server URL (matches the URL the SDK fetches)", () => {
+    expect(
+      getProtectedResourceMetadataDiscoveryUrl("https://example.com/mcp"),
+    ).toBe("https://example.com/.well-known/oauth-protected-resource/mcp");
+  });
+
+  it("strips trailing slash before appending path", () => {
+    expect(
+      getProtectedResourceMetadataDiscoveryUrl("https://example.com/mcp/"),
+    ).toBe("https://example.com/.well-known/oauth-protected-resource/mcp");
   });
 });
