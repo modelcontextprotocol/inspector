@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { InspectorOAuthClientProvider } from "../lib/auth";
 import { SESSION_KEYS } from "../lib/constants";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
@@ -7,14 +7,30 @@ import {
   generateOAuthErrorDescription,
   parseOAuthCallbackParams,
 } from "@/utils/oauthUtils.ts";
+import { createProxyFetch } from "@/lib/proxyFetch";
+import { InspectorConfig } from "@/lib/configurationTypes";
 
 interface OAuthCallbackProps {
   onConnect: (serverUrl: string) => void;
+  config: InspectorConfig;
+  connectionType: "direct" | "proxy";
 }
 
-const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
+const OAuthCallback = ({
+  onConnect,
+  config,
+  connectionType,
+}: OAuthCallbackProps) => {
   const { toast } = useToast();
   const hasProcessedRef = useRef(false);
+
+  const fetchFn = useMemo(
+    () =>
+      connectionType === "proxy" && config
+        ? createProxyFetch(config)
+        : undefined,
+    [connectionType, config],
+  );
 
   useEffect(() => {
     const handleCallback = async () => {
@@ -49,6 +65,7 @@ const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
         result = await auth(serverAuthProvider, {
           serverUrl,
           authorizationCode: params.code,
+          ...(fetchFn && { fetchFn }),
         });
       } catch (error) {
         console.error("OAuth callback error:", error);
@@ -73,7 +90,7 @@ const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
     handleCallback().finally(() => {
       window.history.replaceState({}, document.title, "/");
     });
-  }, [toast, onConnect]);
+  }, [toast, onConnect, fetchFn]);
 
   return (
     <div className="flex items-center justify-center h-screen">
