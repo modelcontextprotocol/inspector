@@ -135,7 +135,7 @@ const ResourcesTab = ({
                 <FileText className="w-4 h-4 mr-2 flex-shrink-0 text-gray-500" />
               )}
               <span className="flex-1 truncate" title={resource.uri.toString()}>
-                {resource.name}
+                {resource.title || resource.name}
               </span>
               <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400" />
             </div>
@@ -168,7 +168,7 @@ const ResourcesTab = ({
                 <FileText className="w-4 h-4 mr-2 flex-shrink-0 text-gray-500" />
               )}
               <span className="flex-1 truncate" title={template.uriTemplate}>
-                {template.name}
+                {template.title || template.name}
               </span>
               <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400" />
             </div>
@@ -193,12 +193,16 @@ const ResourcesTab = ({
               )}
               <h3
                 className="font-semibold truncate"
-                title={selectedResource?.name || selectedTemplate?.name}
+                title={
+                  selectedResource
+                    ? selectedResource.title || selectedResource.name
+                    : selectedTemplate?.title || selectedTemplate?.name
+                }
               >
                 {selectedResource
-                  ? selectedResource.name
+                  ? selectedResource.title || selectedResource.name
                   : selectedTemplate
-                    ? selectedTemplate.name
+                    ? selectedTemplate.title || selectedTemplate.name
                     : "Select a resource or template"}
               </h3>
             </div>
