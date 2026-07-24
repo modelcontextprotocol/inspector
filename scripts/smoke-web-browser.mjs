@@ -16,51 +16,47 @@
  * time: it launches `mcp-inspector --web` (prod, no `--dev`) against the built
  * `clients/web/dist`, opens the served page in headless Chromium (Playwright,
  * already a clients/web devDependency for the Storybook tests), and asserts the
- * app renders its first meaningful frame (the "Add Servers" control) with **no
- * uncaught page errors** — in particular no `node:*` externalization error.
+ * app renders its first meaningful frame (the "Add Servers" control).
+ *
+ * Failure signal: an **uncaught `pageerror`** — that's how the #1612 class
+ * arrives (Vite's `__vite-browser-external` proxy *throws* on property access).
+ * A `console.error` is NOT treated as a hard failure by itself, because the
+ * console is also where Chromium reports benign things a boot smoke shouldn't
+ * fail on: a failed subresource load (e.g. the Google-Fonts `<link>` in
+ * index.html on a network-restricted box) or a React key/prop warning. Console
+ * errors are collected and printed as diagnostics, and only fail the run when
+ * they carry the externalized-module signature.
  *
  * Run from the clients/web directory (`npm run smoke:web:browser` does
  * `cd clients/web` first) so `import("playwright")` resolves against that
- * client's node_modules. Repo-root paths below are derived from import.meta.url,
- * so the cwd change doesn't affect which launcher/build tree is exercised.
+ * client's node_modules. Repo-root paths are derived inside the shared helper
+ * from import.meta.url, so the cwd change doesn't affect which build tree runs.
  *
  * Expects `clients/web/dist` and `clients/launcher/build` to be built first —
  * the validate / CI ordering guarantees this.
  */
 
-import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
-
-const scriptDir = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(scriptDir, "..");
-const launcherEntry = resolve(repoRoot, "clients/launcher/build/index.js");
+import { startProdWebServer } from "./lib/prod-web-server.mjs";
 
 const HOST = "127.0.0.1";
-const PORT = process.env.SMOKE_WEB_PORT ?? "6298";
+// Distinct from smoke:web's SMOKE_WEB_PORT so overriding one doesn't make both
+// back-to-back smokes bind the same port (→ EADDRINUSE on the second).
+const PORT = process.env.SMOKE_WEB_BROWSER_PORT ?? "6298";
 const TOKEN = "smoke-web-browser-token";
-const BASE_URL = `http://${HOST}:${PORT}`;
 
-const child = spawn(process.execPath, [launcherEntry, "--web"], {
-  env: {
-    ...process.env,
-    CLIENT_PORT: PORT,
-    HOST,
-    MCP_INSPECTOR_API_TOKEN: TOKEN,
-    // Don't pop a browser in CI.
-    MCP_AUTO_OPEN_ENABLED: "false",
-  },
-  stdio: ["ignore", "inherit", "inherit"],
-});
+// Vite emits `Module "${id}" has been externalized for browser compatibility…`
+// where `id` is whatever was imported — `node:fs` OR a bare `fs` (both common
+// in transitive deps). Match either so the diagnostic label always attaches.
+const EXTERNALIZED = /Module "[^"]+" has been externalized/;
 
-let exited = false;
-let exitCode = null;
-child.on("exit", (code) => {
-  exited = true;
-  exitCode = code;
-});
+function labelExternalized(message) {
+  return EXTERNALIZED.test(message)
+    ? `Node built-in reached the browser bundle: ${message}`
+    : message;
+}
 
+const server = startProdWebServer({ host: HOST, port: PORT, token: TOKEN });
 let browser = null;
 
 async function shutdown() {
@@ -72,7 +68,7 @@ async function shutdown() {
     }
     browser = null;
   }
-  if (!exited) child.kill("SIGTERM");
+  server.stop();
 }
 
 async function fail(message) {
@@ -81,78 +77,109 @@ async function fail(message) {
   process.exit(1);
 }
 
-async function waitForServer() {
-  for (let attempt = 0; attempt < 120; attempt++) {
-    if (exited) {
-      throw new Error(
-        `launcher exited (code ${exitCode}) before serving — see output above`,
-      );
-    }
-    try {
-      const res = await fetch(`${BASE_URL}/`);
-      if (res.ok) return;
-    } catch {
-      // not listening yet
-    }
-    await delay(500);
+async function loadChromium() {
+  let playwright;
+  try {
+    playwright = await import("playwright");
+  } catch (err) {
+    throw new Error(
+      `could not load Playwright — run \`npx playwright install --with-deps chromium\` (${err instanceof Error ? err.message : String(err)})`,
+    );
   }
-  throw new Error("server did not start within 60s");
-}
-
-// A page error whose message mentions a node: built-in being externalized is
-// the #1612 signature; treat *any* uncaught page error as a failure, but call
-// this class out explicitly since it's the regression this smoke exists for.
-function describeError(err) {
-  const message = err instanceof Error ? err.message : String(err);
-  if (/Module "node:.*" has been externalized/.test(message)) {
-    return `Node built-in reached the browser bundle: ${message}`;
+  try {
+    return await playwright.chromium.launch({ headless: true });
+  } catch (err) {
+    throw new Error(
+      `chromium failed to launch — on a bare Linux box run \`npx playwright install --with-deps chromium\` for the system libraries (${err instanceof Error ? err.message : String(err)})`,
+    );
   }
-  return message;
 }
 
 try {
-  const { chromium } = await import("playwright");
-  await waitForServer();
-
-  browser = await chromium.launch({ headless: true });
+  await server.waitForReady();
+  browser = await loadChromium();
   const page = await browser.newPage();
 
+  // Uncaught page errors are the hard failure (the #1612 signature lands here).
   const pageErrors = [];
-  page.on("pageerror", (err) => pageErrors.push(describeError(err)));
+  // Console errors are diagnostic unless they carry the externalization
+  // signature (see the header comment for why they're not a blanket failure).
+  const consoleErrors = [];
+  page.on("pageerror", (err) =>
+    pageErrors.push(err instanceof Error ? err.message : String(err)),
+  );
   page.on("console", (msg) => {
-    if (msg.type() === "error") pageErrors.push(`console.error: ${msg.text()}`);
+    if (msg.type() === "error") consoleErrors.push(msg.text());
   });
 
-  // Token is injected into index.html by the prod server, so a bare `/` load
-  // authenticates without a query param.
-  const response = await page.goto(BASE_URL, {
-    waitUntil: "domcontentloaded",
-    timeout: 30_000,
-  });
-  if (!response || !response.ok()) {
+  const render = async () => {
+    // Token is injected into index.html by the prod server, so a bare `/` load
+    // authenticates without a query param.
+    const response = await page.goto(server.baseUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 30_000,
+    });
+    if (!response || !response.ok()) {
+      throw new Error(
+        `GET / returned HTTP ${response ? response.status() : "no response"}`,
+      );
+    }
+    // First meaningful frame: the always-present "Add Servers" control.
+    await page
+      .getByRole("button", { name: /Add Servers/ })
+      .waitFor({ state: "visible", timeout: 30_000 });
+    // Settle window: let lazily-evaluated chunks that throw a tick after first
+    // paint surface before we assert a clean boot. networkidle is best-effort
+    // (the Google-Fonts request may never idle on a restricted network).
+    await page
+      .waitForLoadState("networkidle", { timeout: 5_000 })
+      .catch(() => {});
+    await delay(500);
+  };
+
+  // Race the render against launcher death so a mid-load server crash is
+  // reported as the real cause instead of a 30s render timeout.
+  try {
+    await Promise.race([server.whenChildExits(), render()]);
+  } catch (err) {
+    const diagnostics = [
+      ...pageErrors.map(labelExternalized),
+      ...consoleErrors.map((m) => `console: ${labelExternalized(m)}`),
+    ];
     await fail(
-      `GET / returned HTTP ${response ? response.status() : "no response"}`,
+      `${err instanceof Error ? err.message : String(err)}${
+        diagnostics.length
+          ? ` — page diagnostics: ${diagnostics.join("; ")}`
+          : ""
+      }`,
     );
   }
 
-  // First meaningful frame: the always-present "Add Servers" control.
-  await page
-    .getByRole("button", { name: /Add Servers/ })
-    .waitFor({ state: "visible", timeout: 30_000 })
-    .catch(async () => {
-      await fail(
-        `app did not render the "Add Servers" control within 30s${
-          pageErrors.length ? ` — page errors: ${pageErrors.join("; ")}` : ""
-        }`,
-      );
-    });
+  // Hard failures: any uncaught page error, plus console errors that carry the
+  // externalization signature.
+  const hardErrors = [
+    ...pageErrors.map(labelExternalized),
+    ...consoleErrors
+      .filter((m) => EXTERNALIZED.test(m))
+      .map((m) => `console: ${labelExternalized(m)}`),
+  ];
+  if (hardErrors.length > 0) {
+    await fail(
+      `app logged uncaught / externalization errors: ${hardErrors.join("; ")}`,
+    );
+  }
 
-  if (pageErrors.length > 0) {
-    await fail(`app rendered but logged page errors: ${pageErrors.join("; ")}`);
+  // Non-fatal console errors: surface them so a real problem isn't invisible,
+  // without failing the smoke on benign subresource/warning noise.
+  const benignConsole = consoleErrors.filter((m) => !EXTERNALIZED.test(m));
+  if (benignConsole.length > 0) {
+    console.log(
+      `smoke:web:browser note — ${benignConsole.length} non-fatal console error(s): ${benignConsole.join("; ")}`,
+    );
   }
 
   console.log(
-    `smoke:web:browser OK — app booted at ${BASE_URL}, rendered "Add Servers" with no page errors`,
+    `smoke:web:browser OK — app booted at ${server.baseUrl}, rendered "Add Servers" with no uncaught page errors`,
   );
   await shutdown();
   process.exit(0);
