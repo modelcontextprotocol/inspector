@@ -2,7 +2,7 @@
 
 import fs from "fs";
 import path from "path";
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -84,7 +84,11 @@ console.log(`Updated ${updatedFiles.length} files to version ${newVersion}`);
 // Update package-lock.json
 console.log("\n🔒 Updating package-lock.json...");
 try {
-  execSync("npm install", { stdio: "inherit" });
+  const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
+  const r = spawnSync(npmCmd, ["install"], { stdio: "inherit" });
+  if (r.error) throw r.error;
+  if (r.status !== 0)
+    throw new Error(`npm install failed with exit code ${r.status}`);
   console.log("✅ package-lock.json updated successfully");
 } catch (error) {
   console.error("❌ Failed to update package-lock.json:", error.message);
