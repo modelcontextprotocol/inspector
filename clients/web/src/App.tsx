@@ -107,9 +107,7 @@ import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubsc
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js";
 import { useStderrLog } from "@inspector/core/react/useStderrLog.js";
-import { useSandboxUrl } from "@inspector/core/react/useSandboxUrl.js";
-import { useServerListWritable } from "@inspector/core/react/useServerListWritable.js";
-import { useInspectorVersion } from "@inspector/core/react/useInspectorVersion.js";
+import { useInitialConfig } from "@inspector/core/react/useInitialConfig.js";
 import { usePendingClientRequests } from "@inspector/core/react/usePendingClientRequests.js";
 import { InspectorView } from "./components/views/InspectorView/InspectorView";
 import type {
@@ -697,19 +695,16 @@ function App() {
   const appRendererRef = useRef<AppRendererHandle>(null);
   const configBaseUrl =
     typeof window !== "undefined" ? window.location.origin : "http://localhost";
-  const { sandboxUrl } = useSandboxUrl({
-    baseUrl: configBaseUrl,
-    authToken: getAuthToken(),
-  });
-  // Read-only sessions (launched with `--config` or an ad-hoc server) hide
-  // catalog CRUD; the default catalog and `--catalog` stay writable.
-  const { writable: serverListWritable } = useServerListWritable({
-    baseUrl: configBaseUrl,
-    authToken: getAuthToken(),
-  });
-  // The Inspector version (root package.json), shown in the lower-right corner.
-  // The browser can't read it off disk, so the backend sends it via /api/config.
-  const { version: inspectorVersion } = useInspectorVersion({
+  // One `GET /api/config` fetch recovers every static payload field the app
+  // reads: the MCP Apps `sandboxUrl`, the session's `writable` flag (read-only
+  // `--config` / ad-hoc sessions hide catalog CRUD; the default catalog and
+  // `--catalog` stay writable), and the Inspector `version` shown in the
+  // lower-right corner (the browser can't read it off disk).
+  const {
+    sandboxUrl,
+    writable: serverListWritable,
+    version: inspectorVersion,
+  } = useInitialConfig({
     baseUrl: configBaseUrl,
     authToken: getAuthToken(),
   });

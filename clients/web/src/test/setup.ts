@@ -34,7 +34,7 @@ Object.defineProperty(window, "localStorage", {
 });
 
 // Benign default `fetch`. Several components hit the backend on mount — e.g.
-// the app reads `GET /api/config` via `useSandboxUrl` / `useServerListWritable`.
+// the app reads `GET /api/config` via `useInitialConfig`.
 // Under happy-dom (no server) those real requests 404 and log alarming
 // `GET .../api/config 404 (Not Found)` lines that make a green run look broken.
 // Returning an empty 200 keeps such *incidental* calls quiet. Tests that care
