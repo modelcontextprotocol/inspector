@@ -26,5 +26,5 @@
     }
   },
   "include": ["index.ts", "tui.tsx", "src/**/*"],
-  "exclude": ["node_modules", "**/*.test.{ts,tsx}", "build"]
+  "exclude": ["node_modules", "**/*.test.ts", "**/*.test.tsx", "build"]
 }
