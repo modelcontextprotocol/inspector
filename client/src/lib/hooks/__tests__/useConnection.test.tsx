@@ -1218,6 +1218,218 @@ describe("useConnection", () => {
     });
   });
 
+  describe("Mcp-Session-Id header propagation (issue #905)", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockSSETransport.url = undefined;
+      mockSSETransport.options = undefined;
+      mockStreamableHTTPTransport.url = undefined;
+      mockStreamableHTTPTransport.options = undefined;
+    });
+
+    test("proxy streamable-http preserves SDK-supplied Mcp-Session-Id in fetch closure", async () => {
+      // Per MCP spec, the SDK threads Mcp-Session-Id into init.headers on
+      // subsequent fetches after the init response. The proxy-mode closure
+      // previously overwrote init.headers with { ...headers, ...proxyHeaders },
+      // dropping the session ID. Regression test for the spread-order fix.
+      const propsProxyStreamableHttp = {
+        ...defaultProps,
+        transportType: "streamable-http" as const,
+        connectionType: "proxy" as const,
+        config: {
+          ...DEFAULT_INSPECTOR_CONFIG,
+          MCP_PROXY_AUTH_TOKEN: {
+            ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
+            value: "test-proxy-token",
+          },
+        },
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsProxyStreamableHttp),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const closureFetch =
+        mockStreamableHTTPTransport.options?.eventSourceInit?.fetch;
+      expect(closureFetch).toBeDefined();
+
+      const beforeCalls = (global.fetch as jest.Mock).mock.calls.length;
+
+      const testUrl = "http://test.example/mcp";
+      await closureFetch?.(testUrl, {
+        headers: {
+          Accept: "text/event-stream",
+          "mcp-session-id": "test-sid",
+        },
+        cache: "no-store",
+        mode: "cors",
+        signal: new AbortController().signal,
+        redirect: "follow",
+      });
+
+      const closureCall = (global.fetch as jest.Mock).mock.calls[beforeCalls];
+      expect(closureCall[0]).toBe(testUrl);
+      // SDK-supplied session id must survive the closure (this is the bug fix)
+      expect(closureCall[1].headers).toHaveProperty(
+        "mcp-session-id",
+        "test-sid",
+      );
+      // SDK-supplied Accept header must survive too
+      expect(closureCall[1].headers).toHaveProperty(
+        "Accept",
+        "text/event-stream",
+      );
+    });
+
+    test("proxy streamable-http preserves X-MCP-Proxy-Auth when SDK-supplied headers are present", async () => {
+      // Regression guard for the precedence concern: the spread-order fix
+      // adds `...(init?.headers || {})` last, but proxy auth (different key)
+      // must still propagate. If it didn't, proxy-to-inspector auth would break.
+      const propsProxyStreamableHttp = {
+        ...defaultProps,
+        transportType: "streamable-http" as const,
+        connectionType: "proxy" as const,
+        config: {
+          ...DEFAULT_INSPECTOR_CONFIG,
+          MCP_PROXY_AUTH_TOKEN: {
+            ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
+            value: "test-proxy-token",
+          },
+        },
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsProxyStreamableHttp),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const closureFetch =
+        mockStreamableHTTPTransport.options?.eventSourceInit?.fetch;
+      expect(closureFetch).toBeDefined();
+
+      const beforeCalls = (global.fetch as jest.Mock).mock.calls.length;
+
+      await closureFetch?.("http://test.example/mcp", {
+        headers: {
+          Accept: "text/event-stream",
+          "mcp-session-id": "test-sid",
+        },
+        cache: "no-store",
+        mode: "cors",
+        signal: new AbortController().signal,
+        redirect: "follow",
+      });
+
+      const closureCall = (global.fetch as jest.Mock).mock.calls[beforeCalls];
+      expect(closureCall[1].headers).toHaveProperty(
+        "X-MCP-Proxy-Auth",
+        "Bearer test-proxy-token",
+      );
+      expect(closureCall[1].headers).toHaveProperty(
+        "mcp-session-id",
+        "test-sid",
+      );
+    });
+
+    test("proxy SSE fetch closure preserves SDK-supplied headers", async () => {
+      // Same spread-order fix applies to SSE proxy mode. Even though SSE
+      // doesn't use Mcp-Session-Id, the SDK can pass other headers
+      // (Mcp-Protocol-Version, custom) via init.headers — those must survive.
+      const propsProxySse = {
+        ...defaultProps,
+        transportType: "sse" as const,
+        connectionType: "proxy" as const,
+        config: {
+          ...DEFAULT_INSPECTOR_CONFIG,
+          MCP_PROXY_AUTH_TOKEN: {
+            ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
+            value: "test-proxy-token",
+          },
+        },
+      };
+
+      const { result } = renderHook(() => useConnection(propsProxySse));
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const closureFetch = mockSSETransport.options?.eventSourceInit?.fetch;
+      expect(closureFetch).toBeDefined();
+
+      const beforeCalls = (global.fetch as jest.Mock).mock.calls.length;
+
+      await closureFetch?.("http://test.example/sse", {
+        headers: {
+          Accept: "text/event-stream",
+          "mcp-protocol-version": "2025-11-25",
+          "x-sdk-supplied": "preserved",
+        },
+        cache: "no-store",
+        mode: "cors",
+        signal: new AbortController().signal,
+        redirect: "follow",
+      });
+
+      const closureCall = (global.fetch as jest.Mock).mock.calls[beforeCalls];
+      expect(closureCall[1].headers).toHaveProperty(
+        "mcp-protocol-version",
+        "2025-11-25",
+      );
+      expect(closureCall[1].headers).toHaveProperty(
+        "x-sdk-supplied",
+        "preserved",
+      );
+      expect(closureCall[1].headers).toHaveProperty(
+        "X-MCP-Proxy-Auth",
+        "Bearer test-proxy-token",
+      );
+    });
+
+    test("direct streamable-http fetch closure still propagates SDK-supplied headers (regression guard)", async () => {
+      // Direct mode was already correct (headers first then ...init).
+      // Verify that path was not regressed.
+      const propsDirectStreamableHttp = {
+        ...defaultProps,
+        transportType: "streamable-http" as const,
+        connectionType: "direct" as const,
+      };
+
+      const { result } = renderHook(() =>
+        useConnection(propsDirectStreamableHttp),
+      );
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      const closureFetch = mockStreamableHTTPTransport.options?.fetch;
+      expect(closureFetch).toBeDefined();
+
+      const beforeCalls = (global.fetch as jest.Mock).mock.calls.length;
+
+      await closureFetch?.("http://test.example/mcp", {
+        headers: {
+          Accept: "text/event-stream",
+          "mcp-session-id": "direct-sid",
+        },
+      });
+
+      const closureCall = (global.fetch as jest.Mock).mock.calls[beforeCalls];
+      expect(closureCall[1].headers).toHaveProperty(
+        "mcp-session-id",
+        "direct-sid",
+      );
+    });
+  });
+
   describe("Custom Headers", () => {
     beforeEach(() => {
       jest.clearAllMocks();
