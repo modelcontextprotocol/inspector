@@ -355,12 +355,18 @@ describe("ViewHeader", () => {
           ?.getAttribute("data-anim"),
       ).toBe("out");
 
+      // The server name and the Disconnect button are removed by two
+      // independent Transition exits; on a slow runner the button's exit can
+      // lag the name's, so each "removed" assertion gets its own waitFor rather
+      // than assuming the two transitions complete in lockstep (#1699).
       await waitFor(() =>
         expect(screen.queryByText("my-mcp-server")).not.toBeInTheDocument(),
       );
-      expect(
-        screen.queryByRole("button", { name: "Disconnect from server" }),
-      ).not.toBeInTheDocument();
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "Disconnect from server" }),
+        ).not.toBeInTheDocument(),
+      );
     });
 
     it("renders the dark-scheme icon/logo branch under a dark color scheme", () => {
