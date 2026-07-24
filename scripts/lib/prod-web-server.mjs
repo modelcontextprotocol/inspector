@@ -46,23 +46,28 @@ export function startProdWebServer({ host, port, token }) {
 
   let exited = false;
   let exitCode = null;
-  let spawnError = null;
+  let childError = null;
   child.on("exit", (code) => {
     exited = true;
     exitCode = code;
   });
-  // A spawn-level failure (e.g. a missing launcher entry) emits 'error', not
-  // 'exit'; without a listener Node throws it uncaught with a raw stack instead
-  // of the smoke's `… FAILED —` line. Capture it so readiness surfaces it.
+  // A child 'error' event covers a spawn failure (e.g. a missing launcher
+  // entry) but ALSO a failed kill / failed send where the process is still
+  // alive. Without a listener Node throws it uncaught with a raw stack instead
+  // of the smoke's `… FAILED —` line. Record it, but deliberately do NOT set
+  // `exited` — otherwise `stop()` (which guards on `exited`) would skip the
+  // SIGTERM and orphan a still-running launcher on the port.
   child.on("error", (err) => {
-    exited = true;
-    spawnError = err;
+    childError = err;
   });
+
+  // Boot has failed if the process exited or emitted an error.
+  const bootFailed = () => exited || childError !== null;
 
   function bootFailure(phase) {
     return new Error(
-      spawnError
-        ? `launcher failed to spawn: ${spawnError.message}`
+      childError
+        ? `launcher process error: ${childError.message}`
         : `launcher exited (code ${exitCode}) ${phase} — see output above`,
     );
   }
@@ -78,7 +83,7 @@ export function startProdWebServer({ host, port, token }) {
   async function waitForReady({ attempts = 120, intervalMs = 500 } = {}) {
     let lastStatus = null;
     for (let attempt = 0; attempt < attempts; attempt++) {
-      if (exited) throw bootFailure("before serving");
+      if (bootFailed()) throw bootFailure("before serving");
       try {
         const res = await fetch(`${baseUrl}/`);
         if (res.ok) return res;
@@ -104,7 +109,7 @@ export function startProdWebServer({ host, port, token }) {
   function whenChildExits() {
     return new Promise((_resolve, reject) => {
       const onDeath = () => reject(bootFailure("mid-run"));
-      if (exited) onDeath();
+      if (bootFailed()) onDeath();
       else {
         child.once("exit", onDeath);
         child.once("error", onDeath);

@@ -6,35 +6,38 @@
  * HTML with the injected auth token — it never executes the React app, so a
  * regression that only manifests when the bundle *runs* slips through. The
  * canonical example (#1612): the browser bundle transitively value-imported a
- * Node-only module, pulling `node:*` built-ins into the browser build and
- * crashing the app to a blank page with
- *   `Module "node:*" has been externalized for browser compatibility`.
- * Unit/integration tests run in node / happy-dom, never a real browser bundle,
- * so none of them caught it.
+ * Node-only module (`store-io` → `atomically` → `stubborn-fs` → `node:process`),
+ * pulling a Node built-in into the browser graph and crashing the app to a blank
+ * page at runtime. Unit/integration tests run in node / happy-dom, never a real
+ * browser bundle, so none of them caught it.
  *
- * This script closes that gap as a *class* of bug rather than one import at a
- * time: it launches `mcp-inspector --web` (prod, no `--dev`) against the built
- * `clients/web/dist`, opens the served page in headless Chromium (Playwright,
- * already a clients/web devDependency for the Storybook tests), and asserts the
- * app renders its first meaningful frame (the "Add Servers" control).
+ * The assertion: the prod bundle **boots and paints its first meaningful frame
+ * (the "Add Servers" control) with no uncaught page error.** That is how a
+ * Node-only module reaching the browser bundle actually manifests under Vite:
+ * the excluded module is replaced by an empty stub, and the first call into it
+ * (e.g. `fs.readFileSync(...)` during a transitive module's init) throws a
+ * `TypeError` that aborts app mount — an uncaught `pageerror` here.
  *
- * Failure signal: an **uncaught `pageerror`** — that's how the #1612 class
- * arrives (Vite's `__vite-browser-external` proxy *throws* on property access).
- * A `console.error` is NOT treated as a hard failure by itself, because the
- * console is also where Chromium reports benign things a boot smoke shouldn't
- * fail on: a failed subresource load (e.g. the Google-Fonts `<link>` in
- * index.html on a network-restricted box) or a React key/prop warning. Console
- * errors are collected and printed as diagnostics, and only fail the run when
- * they carry the externalized-module signature.
+ * What this does NOT rely on: the literal `Module "…" has been externalized`
+ * string. Under Vite 8 that is a **build-time** warning (surfaced by
+ * `vite build`, i.e. `npm run build`), not a runtime message — the shipped stub
+ * is a silent `module.exports = {}`. So the browser never sees that string; the
+ * load-bearing signal is the uncaught `TypeError`. (Corollary: an externalized
+ * import that is never *called* ships a harmless empty object and is invisible
+ * to this smoke by design — an unused Node import doesn't crash the app.)
+ *
+ * `console.error` is NOT a hard failure: the console is where Chromium also
+ * reports benign things a boot smoke shouldn't fail on — a failed subresource
+ * load (e.g. the Google-Fonts `<link>` in index.html on a network-restricted
+ * box) or a React key/prop warning. Console errors are printed as diagnostics.
  *
  * Playwright lives in clients/web's node_modules, so it's resolved with a
  * `createRequire` based at clients/web/package.json rather than a bare
  * `import("playwright")`. A bare ESM specifier resolves relative to *this
  * script's* directory (scripts/), not the cwd — so `cd clients/web` in the npm
- * script would NOT make it resolvable, and it only appeared to work locally
- * when an ancestor node_modules happened to carry playwright (it fails in CI,
- * which has none). createRequire pins resolution to clients/web regardless of
- * cwd or ancestor dirs.
+ * script would NOT make it resolvable (it only appeared to work locally when an
+ * ancestor node_modules happened to carry playwright; it fails in CI, which has
+ * none). createRequire pins resolution to clients/web regardless of cwd.
  *
  * Expects `clients/web/dist` and `clients/launcher/build` to be built first —
  * the validate / CI ordering guarantees this.
@@ -57,17 +60,6 @@ const HOST = "127.0.0.1";
 // back-to-back smokes bind the same port (→ EADDRINUSE on the second).
 const PORT = process.env.SMOKE_WEB_BROWSER_PORT ?? "6298";
 const TOKEN = "smoke-web-browser-token";
-
-// Vite emits `Module "${id}" has been externalized for browser compatibility…`
-// where `id` is whatever was imported — `node:fs` OR a bare `fs` (both common
-// in transitive deps). Match either so the diagnostic label always attaches.
-const EXTERNALIZED = /Module "[^"]+" has been externalized/;
-
-function labelExternalized(message) {
-  return EXTERNALIZED.test(message)
-    ? `Node built-in reached the browser bundle: ${message}`
-    : message;
-}
 
 const server = startProdWebServer({ host: HOST, port: PORT, token: TOKEN });
 let browser = null;
@@ -113,10 +105,11 @@ try {
   browser = await loadChromium();
   const page = await browser.newPage();
 
-  // Uncaught page errors are the hard failure (the #1612 signature lands here).
+  // Uncaught page errors are the hard failure — a Node-only module reaching the
+  // browser bundle surfaces here as a TypeError when its empty stub is called.
   const pageErrors = [];
-  // Console errors are diagnostic unless they carry the externalization
-  // signature (see the header comment for why they're not a blanket failure).
+  // Console errors are diagnostic only (see the header comment for why they're
+  // not a blanket failure).
   const consoleErrors = [];
   page.on("pageerror", (err) =>
     pageErrors.push(err instanceof Error ? err.message : String(err)),
@@ -156,8 +149,8 @@ try {
     await Promise.race([server.whenChildExits(), render()]);
   } catch (err) {
     const diagnostics = [
-      ...pageErrors.map(labelExternalized),
-      ...consoleErrors.map((m) => `console: ${labelExternalized(m)}`),
+      ...pageErrors,
+      ...consoleErrors.map((m) => `console: ${m}`),
     ];
     await fail(
       `${err instanceof Error ? err.message : String(err)}${
@@ -168,26 +161,15 @@ try {
     );
   }
 
-  // Hard failures: any uncaught page error, plus console errors that carry the
-  // externalization signature.
-  const hardErrors = [
-    ...pageErrors.map(labelExternalized),
-    ...consoleErrors
-      .filter((m) => EXTERNALIZED.test(m))
-      .map((m) => `console: ${labelExternalized(m)}`),
-  ];
-  if (hardErrors.length > 0) {
-    await fail(
-      `app logged uncaught / externalization errors: ${hardErrors.join("; ")}`,
-    );
+  if (pageErrors.length > 0) {
+    await fail(`app logged uncaught page error(s): ${pageErrors.join("; ")}`);
   }
 
   // Non-fatal console errors: surface them so a real problem isn't invisible,
   // without failing the smoke on benign subresource/warning noise.
-  const benignConsole = consoleErrors.filter((m) => !EXTERNALIZED.test(m));
-  if (benignConsole.length > 0) {
+  if (consoleErrors.length > 0) {
     console.log(
-      `smoke:web:browser note — ${benignConsole.length} non-fatal console error(s): ${benignConsole.join("; ")}`,
+      `smoke:web:browser note — ${consoleErrors.length} non-fatal console error(s): ${consoleErrors.join("; ")}`,
     );
   }
 
