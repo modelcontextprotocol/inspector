@@ -1709,7 +1709,7 @@ const App = () => {
                         setNotifications((prev) => [...prev, notification]);
                       }}
                     />
-                    <ConsoleTab />
+                    <ConsoleTab serverLogs={notifications} />
                     <PingTab
                       onPingClick={() => {
                         void sendMCPRequest(
