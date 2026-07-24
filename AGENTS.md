@@ -84,6 +84,13 @@ After installing, `npm run build` builds all clients. The launcher scripts (`npm
   - v2 - https://github.com/orgs/modelcontextprotocol/projects/28 (active board — all current work goes here)
   - v1 - https://github.com/orgs/modelcontextprotocol/projects/11 (existing inspector version, no new activity except security and bug fixes)
 
+## Contributing
+
+External contributions are accepted as **issues, not pull requests** —
+maintainers handle design and implementation through a prompt-driven workflow.
+If you've already built a change locally, share the **prompt** you used, not a
+diff. See [`CONTRIBUTORS.md`](./CONTRIBUTORS.md) for the full policy.
+
 ## Project Status and Direction
 * The main branch currently contains the legacy version of the Inspector, which we are accepting bug fixes and minor improvement PRs for.
 
