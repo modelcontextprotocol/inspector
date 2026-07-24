@@ -41,7 +41,7 @@ jobs:
           github.event_name == 'pull_request_review_comment' ||
           github.event_name == 'pull_request_review'
         id: pr
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             let prNumber;
