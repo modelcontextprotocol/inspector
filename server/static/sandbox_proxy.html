@@ -166,7 +166,19 @@
               inner.contentWindow.postMessage(event.data, "*");
             }
           }
-        } else if (event.source === inner.contentWindow) {
+        } else if (
+          event.source === inner.contentWindow ||
+          // Safari/WebKit workaround: postMessage from the inner same-origin
+          // iframe sometimes arrives at this outer sandbox with
+          // `event.source === window` instead of `inner.contentWindow`.
+          // Chromium and Firefox set the source to the inner contentWindow as
+          // expected. Without this branch, messages such as `ui/initialize`
+          // get dropped on Safari and MCP Apps fail to handshake. The origin
+          // check below remains the security boundary -- only same-origin
+          // messages (which can only originate inside this sandbox) are
+          // relayed to the host. See issue #1203.
+          (event.origin === OWN_ORIGIN && event.source === window)
+        ) {
           if (event.origin !== OWN_ORIGIN) {
             console.error(
               "[Sandbox] Rejecting message from inner iframe with unexpected origin:",
