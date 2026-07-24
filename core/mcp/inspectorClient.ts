@@ -1829,8 +1829,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // session, so this is always set; the constant is a defensive fallback.
     /* v8 ignore next -- fallback only if getProtocolVersion() is unset, which
        can't happen on the connected modern session this runs on. */
-    const protocolVersion =
-      this.getProtocolVersion() ?? MODERN_PROTOCOL_VERSION;
+    const protocolVersion = this.getProtocolVersion() ?? MODERN_PROTOCOL_VERSION;
     return {
       ...params,
       _meta: {
@@ -1862,7 +1861,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       ...message,
       result: {
         resultType: "complete",
-        content: [{ type: "text", text: `Modern task ${task.taskId} created` }],
+        content: [
+          { type: "text", text: `Modern task ${task.taskId} created` },
+        ],
         _meta: { [MODERN_TASK_HANDLE_META]: task },
       },
     };
@@ -1905,9 +1906,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     const raw = await new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingRawWireRequests.delete(id);
-        reject(
-          new Error(`Raw request "${method}" timed out after ${timeoutMs} ms`),
-        );
+        reject(new Error(`Raw request "${method}" timed out after ${timeoutMs} ms`));
       }, timeoutMs);
       this.pendingRawWireRequests.set(id, { resolve, reject, timer });
       transport.send(message).catch((err: unknown) => {
@@ -4444,10 +4443,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.modernReconnectTimer = undefined;
       // Disconnect/unsubscribe may have raced the timer — bail if the reconnect
       // is no longer wanted.
-      if (
-        isTerminalStatus(this.status) ||
-        this.subscribedResources.size === 0
-      ) {
+      if (isTerminalStatus(this.status) || this.subscribedResources.size === 0) {
         return;
       }
       this.refreshModernSubscription(true).catch(() =>

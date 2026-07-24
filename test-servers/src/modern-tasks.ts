@@ -41,11 +41,7 @@ const DEFAULT_POLL_INTERVAL_MS = 500;
 const SIMPLE_WORKING_POLLS = 2;
 
 type ModernTaskStatus =
-  | "working"
-  | "input_required"
-  | "completed"
-  | "failed"
-  | "cancelled";
+  "working" | "input_required" | "completed" | "failed" | "cancelled";
 
 interface ModernTaskEntry {
   taskId: string;
