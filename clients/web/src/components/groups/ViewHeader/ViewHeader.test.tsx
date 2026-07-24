@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import {
   act,
   renderWithMantine,
+  renderWithMantineTransitions,
   screen,
   waitFor,
 } from "../../../test/renderWithMantine";
@@ -12,11 +13,13 @@ import { theme } from "../../../theme/theme";
 import { ViewHeader } from "./ViewHeader";
 
 // Render under a forced-dark MantineProvider so `useComputedColorScheme`
-// returns "dark" (the light/dark icon + logo branches).
+// returns "dark" (the light/dark icon + logo branches). `env="test"` disables
+// timer-driven transitions, matching the shared `renderWithMantine` wrapper and
+// avoiding post-teardown `window is not defined` races (#1760).
 function renderDark(ui: React.ReactElement) {
   return render(ui, {
     wrapper: ({ children }) => (
-      <MantineProvider theme={theme} defaultColorScheme="dark">
+      <MantineProvider theme={theme} defaultColorScheme="dark" env="test">
         {children}
       </MantineProvider>
     ),
@@ -240,7 +243,9 @@ describe("ViewHeader", () => {
 
     it("crossfades on disconnect: tab bar exits while the title enters, then the bar unmounts (#1450)", async () => {
       mediaQueryMock.value = true;
-      const { rerender } = renderWithMantine(
+      // Asserts the mid-flight exit ("out") state, so it needs real transitions;
+      // it drives them to completion below (waitFor unmount).
+      const { rerender } = renderWithMantineTransitions(
         <ViewHeader {...connectedProps} />,
       );
       expect(screen.getAllByRole("radio").length).toBeGreaterThan(0);
@@ -309,7 +314,9 @@ describe("ViewHeader", () => {
 
     it("animates the server name and disconnect controls in on connect, out on disconnect (#1450)", async () => {
       mediaQueryMock.value = true;
-      const { rerender } = renderWithMantine(
+      // Asserts the mid-flight exit ("out") state, so it needs real transitions;
+      // it drives them to completion below (waitFor unmount).
+      const { rerender } = renderWithMantineTransitions(
         <ViewHeader {...connectedProps} />,
       );
       // Connected: the server name and the Disconnect control are in their
@@ -368,8 +375,10 @@ describe("ViewHeader", () => {
 
     it("crossfades the title out and the connected header in on connect (#1450)", async () => {
       mediaQueryMock.value = true;
+      // Asserts the mid-flight exit ("out") state, so it needs real transitions;
+      // it drives them to completion below (findByText for the entering header).
       // Start disconnected: the title cell is the entering one.
-      const { rerender } = renderWithMantine(
+      const { rerender } = renderWithMantineTransitions(
         <ViewHeader
           connected={false}
           onToggleTheme={vi.fn()}
