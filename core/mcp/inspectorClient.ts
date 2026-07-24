@@ -1892,12 +1892,16 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Client is not connected");
     }
     const id = `inspector-ext-${(this.rawWireRequestCounter += 1)}`;
-    const message = {
-      jsonrpc: "2.0" as const,
+    // `params` is an arbitrary caller-supplied record; the SDK types request
+    // params with a specific optional `_meta` shape it can't satisfy, so widen
+    // it with a single structural cast. Typing `message` as `JSONRPCRequest`
+    // (a `JSONRPCMessage` member) then needs no further cast.
+    const message: JSONRPCRequest = {
+      jsonrpc: "2.0",
       id,
       method,
-      params,
-    } as unknown as JSONRPCMessage;
+      params: params as JSONRPCRequest["params"],
+    };
     const timeoutMs = this.requestTimeout ?? 30_000;
     const raw = await new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {

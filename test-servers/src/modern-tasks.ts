@@ -321,6 +321,12 @@ export function wireModernTaskHandlers(
   runtime: ModernTaskRuntime,
 ): void {
   const lowLevel = mcpServer.server;
+  // Reach the private `_requestHandlers` map (`RawHandlerHost`) to register a
+  // raw `tools/call` handler that skips the SDK's result-schema validation, so a
+  // task-augmented `CreateTaskResult` gets through. Mirrors the client-side
+  // bypass in `core/mcp/inspectorClient.ts` and the sibling in
+  // `composable-test-server.ts`; both go away when the SDK models the tasks
+  // extension natively.
   const registry = (lowLevel as unknown as RawHandlerHost)._requestHandlers;
   const sdkToolsCall = registry.get("tools/call");
 

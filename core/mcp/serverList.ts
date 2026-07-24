@@ -27,6 +27,7 @@ import {
   SECRET_FIELD_OAUTH_CLIENT_SECRET,
   envSecretField,
 } from "../auth/secret-fields.js";
+import { toRecord } from "../json/jsonUtils.js";
 
 // The full set of valid `type` discriminator values, used to reject anything
 // else read off disk so unknown strings can't propagate to narrowing sites.
@@ -427,16 +428,17 @@ export const INSPECTOR_FIELD_KEYS = new Set(
  * new extension field doesn't silently leak through this slice — the
  * `satisfies` constraint above forces the map update, which propagates
  * here.
+ *
+ * Every Inspector-extension key is optional on `StoredMCPServer`, so deleting
+ * them off a clone leaves a value still typed as (a subtype of)
+ * `MCPServerConfig` — no cast needed.
  */
 export function stripInspectorFields(stored: StoredMCPServer): MCPServerConfig {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(
-    stored as unknown as Record<string, unknown>,
-  )) {
-    if (INSPECTOR_FIELD_KEYS.has(k as keyof StoredInspectorFields)) continue;
-    out[k] = v;
+  const out = { ...stored };
+  for (const key of INSPECTOR_FIELD_KEYS) {
+    delete out[key];
   }
-  return out as unknown as MCPServerConfig;
+  return out;
 }
 
 /**
@@ -454,16 +456,13 @@ export function mcpConfigToServerEntries(config: MCPConfig): ServerEntry[] {
     // `InspectorServerSettings` only.
     const inspectorFields: StoredInspectorFields = {};
     const sdkOnly: Record<string, unknown> = {};
-    // Widen the typed config object to a generic record to iterate its keys.
-    // `StoredMCPServer` has no index signature, so TS requires the `unknown`
-    // step (`as Record<string, unknown>` alone is TS2352). This is a plain
-    // structural widening, not an SDK-shape workaround. (Pre-existing pattern,
-    // also at the `serverEntryToStored` / oauth-strip casts in this file.)
-    for (const [k, v] of Object.entries(
-      raw as unknown as Record<string, unknown>,
-    )) {
+    // Partition the entry's keys into Inspector-extension vs SDK-only. Both
+    // `raw` and `inspectorFields` are widened through `toRecord` (see its doc)
+    // so the generic key iteration/assignment needs no per-site cast.
+    const inspectorRecord = toRecord(inspectorFields);
+    for (const [k, v] of Object.entries(toRecord(raw))) {
       if (INSPECTOR_FIELD_KEYS.has(k as keyof StoredInspectorFields)) {
-        (inspectorFields as Record<string, unknown>)[k] = v;
+        inspectorRecord[k] = v;
       } else {
         sdkOnly[k] = v;
       }
@@ -589,7 +588,7 @@ export function extractSecretsFromStored(
     if (Object.keys(restOauth).length > 0) {
       stripped.oauth = restOauth;
     } else {
-      delete (stripped as unknown as Record<string, unknown>).oauth;
+      delete stripped.oauth;
     }
   }
 
