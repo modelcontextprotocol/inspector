@@ -81,13 +81,25 @@ export default function mcpProxy({
   transportToClient,
   transportToServer,
   headerHolder,
+  onCleanup,
 }: {
   transportToClient: Transport;
   transportToServer: Transport;
   headerHolder?: ProxyHeaderHolder;
+  onCleanup?: () => void;
 }) {
   let transportToClientClosed = false;
   let transportToServerClosed = false;
+  let cleanupComplete = false;
+
+  const cleanup = () => {
+    if (cleanupComplete) {
+      return;
+    }
+
+    cleanupComplete = true;
+    onCleanup?.();
+  };
 
   let reportedServerSession = false;
 
@@ -132,19 +144,24 @@ export default function mcpProxy({
   };
 
   transportToClient.onclose = () => {
+    transportToClientClosed = true;
+    cleanup();
+
     if (transportToServerClosed) {
       return;
     }
 
-    transportToClientClosed = true;
     transportToServer.close().catch(onServerError);
   };
 
   transportToServer.onclose = () => {
+    transportToServerClosed = true;
+    cleanup();
+
     if (transportToClientClosed) {
       return;
     }
-    transportToServerClosed = true;
+
     transportToClient.close().catch(onClientError);
   };
 
