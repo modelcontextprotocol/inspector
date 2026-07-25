@@ -396,16 +396,17 @@ const ToastLinkButton = Anchor.withProps({
   size: "sm",
 });
 
-// Sticky re-auth banner bar. Box can't use `.withProps()`, so it's a `Paper`
-// baking the static layout/position props; the `reauth-banner-bar` className
-// carries the styles that can't be expressed as props.
+// Sticky re-auth banner bar. A `Paper` so every static style is a prop: `shadow`
+// emits `var(--mantine-shadow-sm)` (identical to the old CSS), and the stacking
+// order goes through `styles.root` since Mantine has no `z` prop.
 const ReAuthBannerBar = Paper.withProps({
-  className: "reauth-banner-bar",
   px: "md",
   pt: "xs",
   pos: "sticky",
   top: 60,
   bg: "var(--mantine-color-body)",
+  shadow: "sm",
+  styles: { root: { zIndex: 200 } },
   // Paper's default `radius: "md"` would round this full-bleed sticky bar's
   // corners; the bar it replaced (a Box) had none.
   radius: 0,
