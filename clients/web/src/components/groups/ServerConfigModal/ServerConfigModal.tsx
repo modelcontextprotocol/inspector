@@ -49,8 +49,11 @@ interface FormState {
 }
 
 // The string-valued FormState fields (everything but `transport`), which all
-// share the same text-input update/clear handlers.
-type TextField = "id" | "command" | "argsText" | "envText" | "cwd" | "url";
+// share the same text-input update/clear handlers. Derived from FormState so it
+// stays in sync automatically — adding a string field picks it up, and adding a
+// non-string field would surface as a type error at the factory instead of
+// silently drifting.
+type TextField = Exclude<keyof FormState, "transport">;
 
 const SectionStack = Stack.withProps({ gap: "md" });
 const FieldGrid = Stack.withProps({ gap: "sm" });
