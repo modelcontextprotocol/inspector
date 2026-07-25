@@ -10,7 +10,7 @@ All three run through one global `mcp-inspector` binary:
 
 ```bash
 npx @modelcontextprotocol/inspector          # web UI (default)
-npx @modelcontextprotocol/inspector --cli    # CLI
+npx @modelcontextprotocol/inspector --cli    # one-shot CLI
 npx @modelcontextprotocol/inspector --tui    # TUI
 ```
 
@@ -24,7 +24,7 @@ v2 is **not** an npm workspace. Each client under `clients/*` keeps its own `pac
 inspector/
 ├── clients/
 │   ├── web/          # Web client (Vite + React + Mantine). src/ = browser app; server/ = Node dev/prod backend
-│   ├── cli/          # CLI client (tsup bundle, @inspector/core alias)
+│   ├── cli/          # CLI client (tsup bundle) — one-shot `mcp-inspector --cli`
 │   ├── tui/          # TUI client (Ink + React, tsup bundle)
 │   └── launcher/     # Shared launcher — provides the `mcp-inspector` bin, dispatches to web/cli/tui
 ├── core/             # Shared code consumed via the `@inspector/core` alias (no package.json)
