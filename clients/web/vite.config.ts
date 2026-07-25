@@ -39,13 +39,16 @@ const integrationGlob = 'clients/web/src/test/integration/**/*.test.{ts,tsx}';
 // hook where a thrown error is swallowed — verified against vite@8.0.0), so the
 // gate *records* the warning in `onLog` and re-throws in `buildEnd`, which runs
 // after module resolution (by when the warning has fired) and where a throw
-// aborts the build with a non-zero exit. `apply: 'build'` scopes it to
-// `vite build` only — never `vite dev` or the vitest projects — and the Node
-// runner build (tsup, `build:runner`) uses a separate config where built-ins
-// are legitimate.
+// aborts the build with a non-zero exit.
+//
+// `apply: 'build'` scopes it to `vite build` (never `vite dev` or the vitest
+// projects), and `applyToEnvironment` narrows it to the **browser** (`client`)
+// environment so a future SSR/node environment built from this config isn't
+// failed for a legitimate `node:*` import — the browser-only intent is
+// structural, not incidental. (The Node runner build is a separate tsup config.)
 //
 // `buildStart` resets the gate so a `vite build --watch` rebuild doesn't inherit
-// a prior build's recorded warning (the plugin instance is reused across
+// a prior build's recorded warnings (the plugin instance is reused across
 // rebuilds). `buildEnd` only asserts on the *success* path: rolldown also calls
 // `buildEnd(error)` when the build already failed for another reason, and
 // throwing then would mask that real error with the #1769 message.
@@ -54,6 +57,7 @@ function browserExternalizedBuiltinGate(): Plugin {
   return {
     name: 'inspector:fail-on-browser-externalized-builtin',
     apply: 'build',
+    applyToEnvironment: (environment) => environment.name === 'client',
     buildStart() {
       gate.reset();
     },

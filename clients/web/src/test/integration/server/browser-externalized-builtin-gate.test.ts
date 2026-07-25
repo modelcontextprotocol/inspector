@@ -6,6 +6,18 @@ import {
   createBrowserExternalizedBuiltinGate,
 } from "../../../../server/browser-externalized-builtin-gate.js";
 
+// Run `fn`, expect it to throw an Error, and return the thrown message —
+// typed, so assertions on the message don't reach through an `any` catch var.
+function messageFromThrow(fn: () => void): string {
+  try {
+    fn();
+  } catch (err) {
+    if (err instanceof Error) return err.message;
+    throw err;
+  }
+  throw new Error("expected the call to throw, but it did not");
+}
+
 // A real message captured from vite@8.0.0's build log (see the gate module).
 const REAL_MESSAGE =
   'Module "node:fs" has been externalized for browser compatibility, ' +
@@ -33,13 +45,15 @@ describe("isBrowserExternalizedBuiltinLog", () => {
 });
 
 describe("browserExternalizedBuiltinError", () => {
-  it("builds an actionable #1769 error embedding the original warning", () => {
-    const err = browserExternalizedBuiltinError(REAL_MESSAGE);
+  it("builds an actionable #1769 error embedding every original warning", () => {
+    const second = REAL_MESSAGE.replace("node:fs", "node:path");
+    const err = browserExternalizedBuiltinError([REAL_MESSAGE, second]);
     expect(err).toBeInstanceOf(Error);
     expect(err.message).toContain("#1769");
     expect(err.message).toContain("externalized to an empty stub");
-    // The original Vite warning is preserved so the offending module is visible.
+    // Every offending warning is listed so all leaks are visible in one pass.
     expect(err.message).toContain(REAL_MESSAGE);
+    expect(err.message).toContain(second);
   });
 });
 
@@ -64,13 +78,25 @@ describe("createBrowserExternalizedBuiltinGate", () => {
     expect(() => gate.assertClean()).not.toThrow();
   });
 
-  it("retains the first matching message when several are recorded", () => {
+  it("reports every distinct offender when several are recorded", () => {
     const gate = createBrowserExternalizedBuiltinGate();
-    const first = REAL_MESSAGE.replace("node:fs", "node:path");
-    gate.recordLog(first);
+    const other = REAL_MESSAGE.replace("node:fs", "node:path");
+    gate.recordLog(other);
     gate.recordLog(REAL_MESSAGE);
-    // The first offender is the one reported (the `=== undefined` guard).
-    expect(() => gate.assertClean()).toThrow(first);
+    // Both leaks surface in one failure rather than one-per-rebuild.
+    const message = messageFromThrow(() => gate.assertClean());
+    expect(message).toContain(other);
+    expect(message).toContain(REAL_MESSAGE);
+  });
+
+  it("dedupes a repeated offender message", () => {
+    const gate = createBrowserExternalizedBuiltinGate();
+    gate.recordLog(REAL_MESSAGE);
+    gate.recordLog(REAL_MESSAGE);
+    // Listed once, not twice.
+    const message = messageFromThrow(() => gate.assertClean());
+    const occurrences = message.split(REAL_MESSAGE).length - 1;
+    expect(occurrences).toBe(1);
   });
 
   it("reset() clears a recorded warning so a rebuild starts clean", () => {

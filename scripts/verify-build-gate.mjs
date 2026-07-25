@@ -28,8 +28,11 @@ const entryPath = path.join(webDir, "src/main.tsx");
 // A namespace import + guarded use so the built-in isn't tree-shaken before Vite
 // externalizes it (a bare side-effect import can be dropped). `__never__` is
 // never truthy, so the reference survives to build time without running.
+// Appended (not prepended): ES imports hoist, so this still externalizes at
+// resolve time, and appending won't demote a leading directive (e.g. a future
+// `"use client"`) the way prepending would.
 const PROBE =
-  'import * as __nodeBuiltinProbe from "node:fs";\n' +
+  '\nimport * as __nodeBuiltinProbe from "node:fs";\n' +
   "if (globalThis.__never__) console.log(__nodeBuiltinProbe);\n";
 
 const original = readFileSync(entryPath, "utf8");
@@ -49,6 +52,10 @@ function fail(message, detail) {
 
 // A `finally` doesn't run on Ctrl-C during the multi-minute build; restore the
 // mutated entry on a signal too so an interrupt never leaves the tree dirty.
+// While `spawnSync` blocks, a Ctrl-C reaches `vite` via the shared process
+// group (the child dies, `spawnSync` returns, the `finally` restores) and these
+// handlers run afterward as a backstop — e.g. for a `kill <pid>` that targets
+// only this process, where the queued handler is the sole restore path.
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
     restoreEntry();
@@ -58,11 +65,16 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 
 let result;
 try {
-  writeFileSync(entryPath, PROBE + original);
+  writeFileSync(entryPath, original + PROBE);
   console.log(
     "verify:build-gate: running a real `vite build` with a node:fs probe (takes a minute)…",
   );
-  result = spawnSync("npx", ["vite", "build"], {
+  // `--no-install` pins to the locally installed (repo-pinned) Vite: the whole
+  // point is proving the message-keyed gate fires against THIS Vite, so `npx`
+  // must never silently fetch a different version from the registry when
+  // clients/web/node_modules is missing/partial. A missing local bin then
+  // surfaces via the `result.error` check below.
+  result = spawnSync("npx", ["--no-install", "vite", "build"], {
     cwd: webDir,
     encoding: "utf8",
   });

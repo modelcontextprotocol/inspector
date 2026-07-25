@@ -14,8 +14,9 @@
  *
  * This module holds the Vite-agnostic pieces so they can be unit-tested without
  * standing up a build; the thin Vite `Plugin` that wires them into `onLog` /
- * `buildEnd` lives in `vite.config.ts`. The reason the throw can't happen in
- * `onLog` directly (rolldown swallows it there) is documented at that call site.
+ * `buildEnd` lives in `vite.config.ts`, scoped there to the browser (`client`)
+ * environment. The reason the throw can't happen in `onLog` directly (rolldown
+ * swallows it there) is documented at that call site.
  */
 
 // The phrase Vite 8 (rolldown) emits when a Node built-in was externalized for
@@ -36,22 +37,27 @@ export function isBrowserExternalizedBuiltinLog(
   return message?.includes(BROWSER_EXTERNALIZED_BUILTIN_PHRASE) ?? false;
 }
 
-/** The actionable error a browser-externalized Node built-in fails the build with. */
-export function browserExternalizedBuiltinError(message: string): Error {
+/**
+ * The actionable error a browser-externalized Node built-in fails the build
+ * with. Takes every matched warning so a build that leaks several built-ins
+ * reports them all in one pass, rather than one-per-rebuild.
+ */
+export function browserExternalizedBuiltinError(messages: string[]): Error {
+  const list = messages.map((m) => `  - ${m}`).join("\n");
   return new Error(
     "Build failed (#1769): a Node built-in reached the browser bundle and was " +
       "externalized to an empty stub, which ships a broken bundle. Remove the " +
-      "node:* / Node built-in import from the browser graph (or gate it behind " +
-      "the Node-only dev backend).\n\nOriginal Vite warning: " +
-      message,
+      "node:* / Node built-in import(s) from the browser graph (or gate them " +
+      "behind the Node-only dev backend).\n\nOriginal Vite warning(s):\n" +
+      list,
   );
 }
 
 /** Records browser-externalization build logs and fails the build if any were seen. */
 export interface BrowserExternalizedBuiltinGate {
-  /** Feed each build log's message here; the first matching one is retained. */
+  /** Feed each build log's message here; matching ones are collected (deduped). */
   recordLog(message: string | undefined): void;
-  /** Throw {@link browserExternalizedBuiltinError} if a match was recorded. */
+  /** Throw {@link browserExternalizedBuiltinError} if any match was recorded. */
   assertClean(): void;
   /** Clear recorded state so a rebuild (e.g. `vite build --watch`) starts fresh. */
   reset(): void;
@@ -60,28 +66,25 @@ export interface BrowserExternalizedBuiltinGate {
 /**
  * A per-build detector: `recordLog` is called for every build log (from the
  * plugin's `onLog`), `assertClean` is called once resolution is complete (from
- * the plugin's `buildEnd`) and throws if a Node built-in was externalized. The
- * plugin `reset`s it in `buildStart` so a watch-mode rebuild doesn't inherit a
- * previous build's recorded warning.
+ * the plugin's `buildEnd`) and throws — listing every offender — if any Node
+ * built-in was externalized. The plugin `reset`s it in `buildStart` so a
+ * watch-mode rebuild doesn't inherit a previous build's recorded warnings.
  */
 export function createBrowserExternalizedBuiltinGate(): BrowserExternalizedBuiltinGate {
-  let externalizedWarning: string | undefined;
+  const externalized = new Set<string>();
   return {
     recordLog(message) {
-      if (
-        externalizedWarning === undefined &&
-        isBrowserExternalizedBuiltinLog(message)
-      ) {
-        externalizedWarning = message;
+      if (message !== undefined && isBrowserExternalizedBuiltinLog(message)) {
+        externalized.add(message);
       }
     },
     assertClean() {
-      if (externalizedWarning !== undefined) {
-        throw browserExternalizedBuiltinError(externalizedWarning);
+      if (externalized.size > 0) {
+        throw browserExternalizedBuiltinError([...externalized]);
       }
     },
     reset() {
-      externalizedWarning = undefined;
+      externalized.clear();
     },
   };
 }
