@@ -16,7 +16,9 @@ inspector/
 │   │   │                               #   web-server-config.ts (env parsing + initial-config payload + banner),
 │   │   │                               #   sandbox-controller.ts (MCP Apps sandbox HTTP server),
 │   │   │                               #   inject-auth-token.ts (embeds the API token into served index.html),
-│   │   │                               #   vite-base-config.ts (shared optimizeDeps exclusions)
+│   │   │                               #   vite-base-config.ts (shared optimizeDeps exclusions),
+│   │   │                               #   browser-externalized-builtin-gate.ts (build-gate logic that fails
+│   │   │                               #     `vite build` on a browser-externalized Node built-in — #1769)
 │   │   └── static/                     # sandbox_proxy.html (served by sandbox-controller for MCP Apps tab)
 │   ├── cli/                            # CLI client (tsup bundle, @inspector/core alias)
 │   ├── tui/                            # TUI client (Ink + React, tsup bundle)

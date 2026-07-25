@@ -24,7 +24,6 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const webDir = path.join(repoRoot, "clients/web");
 const entryPath = path.join(webDir, "src/main.tsx");
-const viteCache = path.join(webDir, "node_modules/.vite");
 
 // A namespace import + guarded use so the built-in isn't tree-shaken before Vite
 // externalizes it (a bare side-effect import can be dropped). `__never__` is
@@ -33,27 +32,43 @@ const PROBE =
   'import * as __nodeBuiltinProbe from "node:fs";\n' +
   "if (globalThis.__never__) console.log(__nodeBuiltinProbe);\n";
 
+const original = readFileSync(entryPath, "utf8");
+let restored = false;
+
+function restoreEntry() {
+  if (restored) return;
+  writeFileSync(entryPath, original);
+  restored = true;
+}
+
 function fail(message, detail) {
   console.error(`verify:build-gate FAILED — ${message}`);
   if (detail) console.error(detail);
   process.exit(1);
 }
 
-const original = readFileSync(entryPath, "utf8");
+// A `finally` doesn't run on Ctrl-C during the multi-minute build; restore the
+// mutated entry on a signal too so an interrupt never leaves the tree dirty.
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    restoreEntry();
+    process.exit(130);
+  });
+}
 
 let result;
 try {
   writeFileSync(entryPath, PROBE + original);
-  // Clear the transform cache so the externalization warning is re-emitted
-  // rather than served from a prior build's cache.
-  spawnSync("rm", ["-rf", viteCache], { cwd: webDir });
+  console.log(
+    "verify:build-gate: running a real `vite build` with a node:fs probe (takes a minute)…",
+  );
   result = spawnSync("npx", ["vite", "build"], {
     cwd: webDir,
     encoding: "utf8",
   });
 } finally {
   // Always restore the entry, even if the build spawn threw.
-  writeFileSync(entryPath, original);
+  restoreEntry();
 }
 
 // Guard against a botched restore leaving the tree dirty.
@@ -61,6 +76,13 @@ if (readFileSync(entryPath, "utf8") !== original) {
   fail(
     `failed to restore ${entryPath} — run 'git checkout -- ${path.relative(repoRoot, entryPath)}'`,
   );
+}
+
+// A spawn failure (e.g. `npx` missing) leaves `status` null with no output —
+// surface it as itself rather than falling through to the "not via the gate"
+// diagnosis, which would send someone chasing a build regression that isn't real.
+if (result.error) {
+  fail(`could not run \`vite build\` (${result.error.message})`);
 }
 
 const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;

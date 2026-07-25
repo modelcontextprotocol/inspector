@@ -19,6 +19,7 @@ The `server/` directory holds the Node-only backend:
 - **`web-server-config.ts`** — env parsing, the `GET /api/config` payload, the startup banner.
 - **`inject-auth-token.ts`** — embeds the API token into the served `index.html` (see [Auth token](#auth-token)).
 - **`sandbox-controller.ts`** — the MCP Apps sandbox HTTP server; **`ensure-web-build.ts`** — builds `dist/` on demand for prod `--web`; **`vite-base-config.ts`** — shared `optimizeDeps` exclusions.
+- **`browser-externalized-builtin-gate.ts`** — Vite-agnostic build-gate logic that fails `vite build` when a Node built-in reaches the browser bundle (#1769); the thin Vite plugin wiring lives in `vite.config.ts`. It sits under `server/` (rather than `src/`) as the home for Node-only, build-time tooling — it's imported by the Vite config, never by the browser — alongside the other `vite-*` config helpers here.
 
 ## Development
 

@@ -35,7 +35,7 @@ inspector/
 │   ├── react/        # React hooks over the state stores
 │   └── storage/      # File I/O helpers for the OAuth persist backends
 ├── test-servers/     # Composable MCP test servers + fixtures used by integration tests
-├── scripts/          # Root build/verify tooling (install cascade, smokes, pack:verify)
+├── scripts/          # Root build/verify tooling (install cascade, smokes, verify-build-gate, pack:verify)
 ├── specification/    # Design/build specifications
 ├── AGENTS.md         # Contribution rules for agents AND humans (see below)
 └── README.md         # You are here

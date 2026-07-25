@@ -27,7 +27,7 @@
 // The `verify:build-gate` script exercises a real build so a phrasing drift in a
 // future Vite bump fails CI here rather than silently disabling the gate.
 export const BROWSER_EXTERNALIZED_BUILTIN_PHRASE =
-  'has been externalized for browser compatibility';
+  "has been externalized for browser compatibility";
 
 /** True for a build log announcing a browser-externalized Node built-in. */
 export function isBrowserExternalizedBuiltinLog(
@@ -39,10 +39,10 @@ export function isBrowserExternalizedBuiltinLog(
 /** The actionable error a browser-externalized Node built-in fails the build with. */
 export function browserExternalizedBuiltinError(message: string): Error {
   return new Error(
-    'Build failed (#1769): a Node built-in reached the browser bundle and was ' +
-      'externalized to an empty stub, which ships a broken bundle. Remove the ' +
-      'node:* / Node built-in import from the browser graph (or gate it behind ' +
-      'the Node-only dev backend).\n\nOriginal Vite warning: ' +
+    "Build failed (#1769): a Node built-in reached the browser bundle and was " +
+      "externalized to an empty stub, which ships a broken bundle. Remove the " +
+      "node:* / Node built-in import from the browser graph (or gate it behind " +
+      "the Node-only dev backend).\n\nOriginal Vite warning: " +
       message,
   );
 }
@@ -53,19 +53,25 @@ export interface BrowserExternalizedBuiltinGate {
   recordLog(message: string | undefined): void;
   /** Throw {@link browserExternalizedBuiltinError} if a match was recorded. */
   assertClean(): void;
+  /** Clear recorded state so a rebuild (e.g. `vite build --watch`) starts fresh. */
+  reset(): void;
 }
 
 /**
- * A single-build detector: `recordLog` is called for every build log (from the
+ * A per-build detector: `recordLog` is called for every build log (from the
  * plugin's `onLog`), `assertClean` is called once resolution is complete (from
- * the plugin's `buildEnd`) and throws if a Node built-in was externalized. State
- * is per-instance so each build gets a fresh gate.
+ * the plugin's `buildEnd`) and throws if a Node built-in was externalized. The
+ * plugin `reset`s it in `buildStart` so a watch-mode rebuild doesn't inherit a
+ * previous build's recorded warning.
  */
 export function createBrowserExternalizedBuiltinGate(): BrowserExternalizedBuiltinGate {
   let externalizedWarning: string | undefined;
   return {
     recordLog(message) {
-      if (externalizedWarning === undefined && isBrowserExternalizedBuiltinLog(message)) {
+      if (
+        externalizedWarning === undefined &&
+        isBrowserExternalizedBuiltinLog(message)
+      ) {
         externalizedWarning = message;
       }
     },
@@ -73,6 +79,9 @@ export function createBrowserExternalizedBuiltinGate(): BrowserExternalizedBuilt
       if (externalizedWarning !== undefined) {
         throw browserExternalizedBuiltinError(externalizedWarning);
       }
+    },
+    reset() {
+      externalizedWarning = undefined;
     },
   };
 }

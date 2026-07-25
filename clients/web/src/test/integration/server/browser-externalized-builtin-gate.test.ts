@@ -73,6 +73,17 @@ describe("createBrowserExternalizedBuiltinGate", () => {
     expect(() => gate.assertClean()).toThrow(first);
   });
 
+  it("reset() clears a recorded warning so a rebuild starts clean", () => {
+    const gate = createBrowserExternalizedBuiltinGate();
+    gate.recordLog(REAL_MESSAGE);
+    gate.reset();
+    // Post-reset the gate is clean...
+    expect(() => gate.assertClean()).not.toThrow();
+    // ...and can record + fail again on the next build.
+    gate.recordLog(REAL_MESSAGE);
+    expect(() => gate.assertClean()).toThrow(/#1769/);
+  });
+
   it("keeps state per instance", () => {
     const dirty = createBrowserExternalizedBuiltinGate();
     dirty.recordLog(REAL_MESSAGE);
