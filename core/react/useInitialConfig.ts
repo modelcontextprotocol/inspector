@@ -24,9 +24,8 @@
  * same static payload separately, into one request (#1643).
  *
  * Fetches on mount, and re-fetches if `baseUrl` or `authToken` changes (rare —
- * effectively a full reload; the GET is idempotent). Unmount-safe: a response
- * that resolves after unmount is dropped rather than setting state on a dead
- * component.
+ * effectively a full reload; the GET is idempotent). A response that resolves
+ * after unmount or a re-fetch is dropped rather than overwriting current state.
  */
 
 import { useCallback, useEffect, useState } from "react";

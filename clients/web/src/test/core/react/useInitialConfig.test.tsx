@@ -113,7 +113,7 @@ describe("useInitialConfig", () => {
   // could send a falsy-but-not-false value (null / 0 / a string); each is
   // `!== false`, so each must leave the list writable.
   it.each([null, 0, "no"])(
-    "keeps writable true for writable=%p (falsy but not false)",
+    "keeps writable true for writable=%j (falsy but not false)",
     async (value) => {
       const fetchFn = vi
         .fn()
