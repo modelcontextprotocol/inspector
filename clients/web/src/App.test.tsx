@@ -358,6 +358,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
     currentLogLevel?: string;
     activeTab?: string;
     erroredServerId?: string;
+    initializeResult?: { serverInfo: { name: string; version: string } };
     onActiveTabChange: (tab: string) => void;
     onToggleConnection: (id: string) => void;
     onToolsUiChange: (next: {
@@ -425,6 +426,11 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
       </span>
       <span data-testid="log-level">{props.currentLogLevel}</span>
       <span data-testid="active-tab">{props.activeTab ?? "none"}</span>
+      <span data-testid="init-result">
+        {props.initializeResult
+          ? `name:${props.initializeResult.serverInfo.name || "(empty)"}`
+          : "none"}
+      </span>
       <span data-testid="errored-server">
         {props.erroredServerId ?? "none"}
       </span>
@@ -621,6 +627,43 @@ describe("App failed-connection card border (#1621)", () => {
     await user.click(screen.getByText("connect"));
     await waitFor(() =>
       expect(screen.getByTestId("errored-server")).toHaveTextContent("none"),
+    );
+  });
+});
+
+describe("App initializeResult when connected without serverInfo (#1772)", () => {
+  beforeEach(() => {
+    clientInstances.length = 0;
+    vi.mocked(useInspectorClient).mockReturnValue(DEFAULT_USE_INSPECTOR_CLIENT);
+  });
+
+  // A modern-era `server/discover` makes `serverInfo` optional, so a conforming
+  // modern server can be `connected` with `serverInfo === undefined`. The header
+  // (and its whole tab bar) is gated on `initializeResult` downstream, so it must
+  // still be built in that case — otherwise the connected server shows no menu.
+  it("builds initializeResult when connected even though serverInfo is undefined", () => {
+    // DEFAULT_USE_INSPECTOR_CLIENT is exactly this case: connected + no serverInfo.
+    renderWithMantine(<App />);
+    expect(screen.getByTestId("init-result")).not.toHaveTextContent("none");
+  });
+
+  it("does not build initializeResult while disconnected", () => {
+    vi.mocked(useInspectorClient).mockReturnValue({
+      ...DEFAULT_USE_INSPECTOR_CLIENT,
+      status: "disconnected",
+    });
+    renderWithMantine(<App />);
+    expect(screen.getByTestId("init-result")).toHaveTextContent("none");
+  });
+
+  it("uses the reported serverInfo name when present (legacy / stamped modern)", () => {
+    vi.mocked(useInspectorClient).mockReturnValue({
+      ...DEFAULT_USE_INSPECTOR_CLIENT,
+      serverInfo: { name: "real-server", version: "2.0.0" },
+    });
+    renderWithMantine(<App />);
+    expect(screen.getByTestId("init-result")).toHaveTextContent(
+      "name:real-server",
     );
   });
 });

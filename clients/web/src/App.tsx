@@ -1446,17 +1446,28 @@ function App() {
   // modal expect from the hook's split fields. `protocolVersion` is the value
   // the InspectorClient negotiated during initialize (#1324); it's dispatched
   // alongside serverInfo, so in practice it's present whenever we're connected.
-  // We deliberately gate only on serverInfo (not protocolVersion): this object
-  // also drives the connected header and Connection Info modal, so a
-  // missing/edge-case version must not hide those. It flows through as the
-  // optional field it is everywhere downstream (the ServerCard label and the
-  // modal value both tolerate an empty string), so "" reads as "unknown".
+  // We gate only on `connectionStatus`, never on serverInfo or protocolVersion:
+  // this object also drives the connected header (and its whole tab bar) and the
+  // Connection Info modal, so a missing field must not hide those.
+  //
+  // A modern-era server's `server/discover` makes `serverInfo` OPTIONAL (SHOULD,
+  // not MUST — it's stamped in `_meta["io.modelcontextprotocol/serverInfo"]`), so
+  // a conforming modern server may omit it and `serverInfo` stays undefined even
+  // while connected. Falling back to the catalog name (rather than returning
+  // `undefined`) keeps the header + tabs rendered for those servers (#1772);
+  // everything downstream already tolerates an empty version, and now an
+  // inferred name. Legacy `initialize` always carries serverInfo, so this
+  // fallback only ever fires for a modern server that skipped it.
   const initializeResult = useMemo<InitializeResult | undefined>(() => {
-    if (connectionStatus !== "connected" || !serverInfo) return undefined;
+    if (connectionStatus !== "connected") return undefined;
+    const resolvedServerInfo = serverInfo ?? {
+      name: servers.find((s) => s.id === activeServerId)?.name ?? "",
+      version: "",
+    };
     return {
       protocolVersion: protocolVersion ?? "",
       capabilities: capabilities ?? {},
-      serverInfo,
+      serverInfo: resolvedServerInfo,
       ...(instructions ? { instructions } : {}),
     };
   }, [
@@ -1465,6 +1476,8 @@ function App() {
     serverInfo,
     instructions,
     protocolVersion,
+    servers,
+    activeServerId,
   ]);
 
   // The Server Info modal needs the active server's transport and (optional)
