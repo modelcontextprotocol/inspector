@@ -43,9 +43,15 @@ export const FillsHostWidth: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const child = await canvas.findByTestId("stage-child");
-    // Fills the host (minus a small tolerance for sub-pixel rounding), not
-    // shrunk to the single "x" character's width.
-    expect(child.getBoundingClientRect().width).toBeGreaterThan(HOST_WIDTH - 4);
+    // The child fills its stage layer — asserted relative to the layer's actual
+    // width, not a literal, so it can't break on host-sizing quirks (and is a
+    // sharper discriminator: a row flex leaves the layer full-width while
+    // collapsing the child to the single "x").
+    const layer = child.parentElement as HTMLElement;
+    expect(child.getBoundingClientRect().width).toBeCloseTo(
+      layer.getBoundingClientRect().width,
+      0,
+    );
   },
 };
 
@@ -68,10 +74,13 @@ export const FillVariant: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const child = await canvas.findByTestId("stage-child");
-    // The stage layer (the child's flex-parent) fills the host in both axes;
-    // width still stretches onto the child, height comes from the `bottom: 0`.
+    // Width still stretches onto the child (relative to the layer, as above);
+    // the `fill` height comes from `bottom: 0` making the layer span the host.
     const layer = child.parentElement as HTMLElement;
-    expect(child.getBoundingClientRect().width).toBeGreaterThan(HOST_WIDTH - 4);
+    expect(child.getBoundingClientRect().width).toBeCloseTo(
+      layer.getBoundingClientRect().width,
+      0,
+    );
     expect(layer.getBoundingClientRect().height).toBeGreaterThan(160 - 4);
   },
 };
