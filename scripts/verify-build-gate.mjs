@@ -199,13 +199,25 @@ try {
     writeFileSync(entryPath, original);
     restored = rolledBack = true;
   } catch {
-    // Reported via the not-rolled-back clause below.
+    // Reported via the damage check below.
+  }
+  // Only warn of damage when the entry actually differs from the original — on a
+  // read-only checkout (EACCES/EROFS, the likeliest trigger) both writes fail at
+  // open so the file is untouched, and "restore from version control" would
+  // needlessly discard uncommitted edits. Read failing → assume the worst.
+  let damaged = false;
+  if (!rolledBack) {
+    try {
+      damaged = readFileSync(entryPath, "utf8") !== original;
+    } catch {
+      damaged = true;
+    }
   }
   fail(
     `could not write the probe into ${path.relative(repoRoot, entryPath)} (${err.message})` +
-      (rolledBack
-        ? ""
-        : " — the entry may be truncated or partially written; restore it from version control"),
+      (damaged
+        ? " — the entry is truncated or partially written; restore it from version control"
+        : ""),
   );
 }
 

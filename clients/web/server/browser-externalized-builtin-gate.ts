@@ -49,10 +49,12 @@ export function isBrowserExternalizedBuiltinLog(
  */
 export function browserExternalizedBuiltinError(messages: string[]): Error {
   const list = messages.map((m) => `  - ${m}`).join("\n");
-  // Keep the "Build failed (#1769)" lead contiguous in a single fragment:
-  // scripts/verify-build-gate.mjs mirrors it as ERROR_PREFIX (its success key)
-  // and drift-guards on that substring — a reflow splitting the prefix across
-  // string fragments would trip the guard with a false drift.
+  // Keep the error's `#1769` lead contiguous in a single string fragment:
+  // scripts/verify-build-gate.mjs mirrors that lead as ERROR_PREFIX (its success
+  // key) and drift-guards on it as a whole-file substring, so it must occur
+  // exactly ONCE here — do not quote the full lead in this comment, and don't
+  // reflow it across fragments, or the guard would pass on a copy and mask a
+  // reworded error.
   return new Error(
     "Build failed (#1769): a Node built-in reached the browser bundle and was " +
       "externalized to an empty stub, which ships a broken bundle. Remove the " +
