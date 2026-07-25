@@ -17,6 +17,21 @@ import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { isOAuthCapableServerConfig } from "@inspector/core/client/runner.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import { createInterface } from "node:readline/promises";
+import { CliExitCodeError, EXIT_CODES } from "./error-handler.js";
+
+export type CliOAuthConnectOptions = {
+  /**
+   * When true, never open interactive OAuth / step-up prompts. Use the shared
+   * store if it can satisfy the challenge; otherwise fail with AUTH_REQUIRED.
+   */
+  storedAuthOnly?: boolean;
+};
+
+function storedAuthOnlyFailure(message: string): never {
+  throw new CliExitCodeError(EXIT_CODES.AUTH_REQUIRED, message, {
+    code: "auth_required",
+  });
+}
 
 /** Standard-OAuth step-up (not EMA silent re-mint). */
 export function isStandardOAuthStepUp(
@@ -111,6 +126,7 @@ export async function connectInspectorWithOAuth(
   redirectUrlProvider: MutableRedirectUrlProvider,
   callbackUrlConfig: RunnerOAuthCallbackConfig,
   serverSettings?: InspectorServerSettings,
+  options?: CliOAuthConnectOptions,
 ): Promise<void> {
   try {
     await inspectorClient.connect();
@@ -126,6 +142,12 @@ export async function connectInspectorWithOAuth(
         await inspectorClient.connect();
         return;
       }
+      if (options?.storedAuthOnly) {
+        storedAuthOnlyFailure(
+          err.message ||
+            "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
+        );
+      }
       await handleCliAuthRecoveryRequired(
         inspectorClient,
         err,
@@ -138,6 +160,13 @@ export async function connectInspectorWithOAuth(
     }
 
     if (isUnauthorizedError(err)) {
+      if (options?.storedAuthOnly) {
+        storedAuthOnlyFailure(
+          err instanceof Error
+            ? err.message
+            : "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
+        );
+      }
       await inspectorClient.disconnect().catch(() => {});
       await runCliInteractiveOAuth(
         inspectorClient,
@@ -163,12 +192,19 @@ export async function withCliAuthRecoveryRetry<T>(
   serverSettings: InspectorServerSettings | undefined,
   fn: () => Promise<T>,
   confirmStepUp: () => Promise<boolean> = confirmStepUpFromStdin,
+  options?: CliOAuthConnectOptions,
 ): Promise<T> {
   try {
     return await fn();
   } catch (err) {
     if (!(err instanceof AuthRecoveryRequiredError)) {
       throw err;
+    }
+    if (options?.storedAuthOnly) {
+      storedAuthOnlyFailure(
+        err.message ||
+          "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
+      );
     }
     await handleCliAuthRecoveryRequired(
       inspectorClient,

@@ -453,5 +453,76 @@ describe("cliOAuth", () => {
         ),
       ).rejects.toThrow("nope (401)");
     });
+
+    it("fails with AUTH_REQUIRED under --stored-auth-only without interactive OAuth", async () => {
+      const runSpy = vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth");
+      const connect = vi.fn().mockRejectedValue(
+        new AuthRecoveryRequiredError(new URL("https://as.example/authorize"), {
+          reason: "token_expired",
+        }),
+      );
+      const client = {
+        connect,
+        disconnect: vi.fn(),
+        checkAuthChallengeSatisfied: vi.fn().mockResolvedValue(false),
+      };
+
+      await expect(
+        connectInspectorWithOAuth(
+          client,
+          oauthServerConfig,
+          new MutableRedirectUrlProvider(),
+          CALLBACK_URL_CONFIG,
+          undefined,
+          { storedAuthOnly: true },
+        ),
+      ).rejects.toMatchObject({ exitCode: 3 });
+      expect(runSpy).not.toHaveBeenCalled();
+    });
+
+    it("fails stored-auth-only on plain unauthorized errors", async () => {
+      const runSpy = vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth");
+      const connect = vi
+        .fn()
+        .mockRejectedValue(new Error("Connection failed for server (401)"));
+      const client = {
+        connect,
+        disconnect: vi.fn(),
+        checkAuthChallengeSatisfied: vi.fn(),
+      };
+
+      await expect(
+        connectInspectorWithOAuth(
+          client,
+          oauthServerConfig,
+          new MutableRedirectUrlProvider(),
+          CALLBACK_URL_CONFIG,
+          undefined,
+          { storedAuthOnly: true },
+        ),
+      ).rejects.toMatchObject({ exitCode: 3 });
+      expect(runSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  it("withCliAuthRecoveryRetry respects storedAuthOnly", async () => {
+    const fn = vi.fn().mockRejectedValue(
+      new AuthRecoveryRequiredError(new URL("https://as.example/authorize"), {
+        reason: "token_expired",
+      }),
+    );
+    await expect(
+      withCliAuthRecoveryRetry(
+        {
+          checkAuthChallengeSatisfied: vi.fn(),
+        } as never,
+        new MutableRedirectUrlProvider(),
+        CALLBACK_URL_CONFIG,
+        undefined,
+        fn,
+        undefined,
+        { storedAuthOnly: true },
+      ),
+    ).rejects.toMatchObject({ exitCode: 3 });
   });
 });

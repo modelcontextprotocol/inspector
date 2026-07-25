@@ -59,20 +59,43 @@ describe("CLI method coverage", () => {
     expect(Array.isArray(json.tools)).toBe(true);
   });
 
-  it("throws for an unsupported method after connecting", async () => {
-    // Reaches the final `else` in callMethod: the connection succeeds, none of
-    // the known method branches match, so it throws "Unsupported method".
-    const result = await runCli([
+  it("rejects unsupported and stream methods before connecting", async () => {
+    const unknown = await runCli([
       command,
       ...args,
       "--cli",
       "--method",
       "definitely/not-a-real-method",
     ]);
+    expectCliFailure(unknown);
+    expectOutputContains(unknown, "Unsupported method");
+    expectOutputContains(unknown, "definitely/not-a-real-method");
 
+    // Stream methods used to hang via consumeMethodOutcome; now rejected.
+    const tail = await runCli([
+      command,
+      ...args,
+      "--cli",
+      "--method",
+      "logging/tail",
+    ]);
+    expectCliFailure(tail);
+    expectOutputContains(tail, "Unsupported method");
+    expectOutputContains(tail, "logging/tail");
+  });
+
+  it("rejects bad methods before --use-stored-auth network work", async () => {
+    // No oauth.json / refresh — must fail on allowlist, not no_stored_token.
+    const result = await runCli([
+      "--method",
+      "logging/tail",
+      "--use-stored-auth",
+      "--server-url",
+      "https://example.com/mcp",
+    ]);
     expectCliFailure(result);
     expectOutputContains(result, "Unsupported method");
-    expectOutputContains(result, "definitely/not-a-real-method");
+    expect(result.stderr).not.toMatch(/No stored OAuth token/);
   });
 
   it("rejects an invalid --transport value before connecting", async () => {
