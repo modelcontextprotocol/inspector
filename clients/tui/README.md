@@ -76,8 +76,9 @@ The TUI provides terminal-native tabs and panes for interacting with your MCP se
 - **Resources**: Browse and read resources exposed by the server.
 - **Prompts**: List and test prompts.
 - **Tools**: View available tools and execute them with form-like inputs.
-- **History**: View the request and response history of your interactions.
-- **Console**: View the direct stdout/stderr and diagnostic logging of the connected server.
+- **Protocol**: View JSON-RPC request/response/notification history (matches the web Protocol monitor).
+- **Network**: View HTTP fetch traffic for SSE / Streamable HTTP servers (matches the web Network monitor).
+- **Console**: View stdio stderr from the connected server process (matches the web Console monitor).
 
 ## Navigation
 

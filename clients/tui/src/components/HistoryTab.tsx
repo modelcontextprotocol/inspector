@@ -109,11 +109,11 @@ export function HistoryTab({
             bold
             backgroundColor={focusedPane === "messages" ? "yellow" : undefined}
           >
-            Messages ({messages.length})
+            Protocol ({messages.length})
           </Text>
         </Box>
 
-        {/* Messages list */}
+        {/* Protocol message list */}
         {messages.length === 0 ? (
           <Box paddingY={1}>
             <Text dimColor>No messages</Text>

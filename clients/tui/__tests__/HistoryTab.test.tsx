@@ -99,7 +99,7 @@ describe("HistoryTab", () => {
       />,
     );
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("Messages (0)");
+    expect(frame).toContain("Protocol (0)");
     expect(frame).toContain("No messages");
     expect(frame).toContain("Select a message to view details");
     expect(onCountChange).toHaveBeenCalledWith(0);
@@ -115,7 +115,7 @@ describe("HistoryTab", () => {
       />,
     );
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("Messages (7)");
+    expect(frame).toContain("Protocol (7)");
     // request with response → "✓"; pending request → "..."
     expect(frame).toContain("→ tools/list ✓");
     expect(frame).toContain("→ tools/call ...");
@@ -226,7 +226,7 @@ describe("HistoryTab", () => {
     // up to move back toward the top
     stdin.write(UP);
     await tick();
-    expect(lastFrame() ?? "").toContain("Messages (7)");
+    expect(lastFrame() ?? "").toContain("Protocol (7)");
   });
 
   it("handles details-pane scrolling, footer, and zoom shortcut", async () => {

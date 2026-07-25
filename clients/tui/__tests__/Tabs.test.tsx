@@ -13,9 +13,10 @@ describe("Tabs", () => {
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Info");
     expect(frame).toContain("Auth");
-    expect(frame).toContain("Logging");
-    // requests defaults to hidden
-    expect(frame).not.toContain("HTTP Requests");
+    expect(frame).toContain("Console");
+    expect(frame).toContain("Protocol");
+    // Network defaults to hidden
+    expect(frame).not.toContain("Network");
   });
 
   it("hides the auth tab when showAuth is false", () => {
@@ -34,7 +35,7 @@ describe("Tabs", () => {
         showLogging={false}
       />,
     );
-    expect(lastFrame() ?? "").not.toContain("Logging");
+    expect(lastFrame() ?? "").not.toContain("Console");
   });
 
   it("shows the requests tab when showRequests is true", () => {
@@ -46,7 +47,7 @@ describe("Tabs", () => {
         showRequests={true}
       />,
     );
-    expect(lastFrame() ?? "").toContain("HTTP Requests");
+    expect(lastFrame() ?? "").toContain("Network");
   });
 
   it("marks the active tab with the ▶ marker", () => {

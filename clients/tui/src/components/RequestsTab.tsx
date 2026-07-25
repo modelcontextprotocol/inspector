@@ -117,7 +117,7 @@ export function RequestsTab({
             bold
             backgroundColor={focusedPane === "requests" ? "yellow" : undefined}
           >
-            Requests ({requests.length})
+            Network ({requests.length})
           </Text>
         </Box>
 

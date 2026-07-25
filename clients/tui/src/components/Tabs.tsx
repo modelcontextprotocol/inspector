@@ -2,6 +2,25 @@ import React from "react";
 import { Box, Text } from "ink";
 import { type TabType, tabs } from "./tabsConfig.js";
 
+/**
+ * Split a tab label so the accelerator letter can be underlined wherever it
+ * appears (not only the first character — e.g. Pro**m**pts, C**o**nsole).
+ */
+export function splitLabelAtAccelerator(
+  label: string,
+  accelerator: string,
+): { before: string; accel: string; after: string } {
+  const idx = label.toLowerCase().indexOf(accelerator.toLowerCase());
+  if (idx < 0) {
+    return { before: "", accel: label.slice(0, 1), after: label.slice(1) };
+  }
+  return {
+    before: label.slice(0, idx),
+    accel: label.slice(idx, idx + 1),
+    after: label.slice(idx + 1),
+  };
+}
+
 interface TabsProps {
   activeTab: TabType;
   onTabChange: (tab: TabType) => void;
@@ -60,8 +79,10 @@ export function Tabs({
         const isActive = activeTab === tab.id;
         const count = counts[tab.id];
         const countText = count !== undefined ? ` (${count})` : "";
-        const firstChar = tab.label[0];
-        const restOfLabel = tab.label.slice(1);
+        const { before, accel, after } = splitLabelAtAccelerator(
+          tab.label,
+          tab.accelerator,
+        );
 
         return (
           <Box key={tab.id} flexShrink={0}>
@@ -73,8 +94,9 @@ export function Tabs({
               backgroundColor={isActive && focused ? "yellow" : undefined}
             >
               {isActive ? "▶ " : "  "}
-              <Text underline>{firstChar}</Text>
-              {restOfLabel}
+              {before}
+              <Text underline>{accel}</Text>
+              {after}
               {countText}
             </Text>
           </Box>
