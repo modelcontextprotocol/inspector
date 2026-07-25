@@ -220,8 +220,10 @@ vi.mock("@inspector/core/react/useInspectorClient.js", () => ({
     status: "connected",
     capabilities: {},
     clientCapabilities: {},
-    // Left undefined so `initializeResult` stays undefined and the
-    // ConnectionInfoModal (gated on it) never mounts during the test.
+    // Undefined models a modern server that omitted the optional serverInfo. As
+    // of #1772 `initializeResult` is still built when connected (with a
+    // catalog-name fallback), so this exercises that path — see the "#1772"
+    // describe block.
     serverInfo: undefined,
     instructions: undefined,
   })),
@@ -645,6 +647,20 @@ describe("App initializeResult when connected without serverInfo (#1772)", () =>
     // DEFAULT_USE_INSPECTOR_CLIENT is exactly this case: connected + no serverInfo.
     renderWithMantine(<App />);
     expect(screen.getByTestId("init-result")).not.toHaveTextContent("none");
+  });
+
+  it("falls back to the active server's catalog name when serverInfo is undefined", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    // Connect server "A" (PlotRocket) via the mocked InspectorView control so it
+    // becomes the active server; serverInfo is still undefined (default mock), so
+    // the synthesized name must come from the catalog entry.
+    await user.click(screen.getByText("connect"));
+    await waitFor(() =>
+      expect(screen.getByTestId("init-result")).toHaveTextContent(
+        "name:PlotRocket",
+      ),
+    );
   });
 
   it("does not build initializeResult while disconnected", () => {

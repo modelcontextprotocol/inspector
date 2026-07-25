@@ -62,6 +62,42 @@ describe("ConnectionInfoContent", () => {
     expect(screen.getAllByText("—")).toHaveLength(3);
   });
 
+  it("renders an em-dash when the reported version is an empty string", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          serverInfo: { name: "Empty Version Server", version: "" },
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="stdio"
+      />,
+    );
+    // An empty version reads as unknown ("—"), not a blank row (#1772).
+    expect(screen.getByText("Empty Version Server")).toBeInTheDocument();
+    expect(screen.getAllByText("—")).toHaveLength(3);
+  });
+
+  it("shows 'not reported' for name and version when serverInfo was not reported", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          // App synthesizes a catalog-name fallback here when a modern server
+          // omits serverInfo; the modal must not present it as server-reported.
+          serverInfo: { name: "my-catalog-name", version: "" },
+        }}
+        serverInfoReported={false}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+      />,
+    );
+    // The inferred catalog name is NOT shown as the server's reported name...
+    expect(screen.queryByText("my-catalog-name")).not.toBeInTheDocument();
+    // ...both Name and Version read as not reported instead.
+    expect(screen.getAllByText("— (not reported by server)")).toHaveLength(2);
+  });
+
   it("renders server and client capability sections", () => {
     renderWithMantine(
       <ConnectionInfoContent

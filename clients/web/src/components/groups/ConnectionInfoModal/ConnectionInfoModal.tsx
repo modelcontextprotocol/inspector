@@ -15,6 +15,13 @@ export interface ConnectionInfoModalProps {
   opened: boolean;
   onClose: () => void;
   initializeResult: InitializeResult;
+  /**
+   * Whether the server actually reported `serverInfo`. False for a modern server
+   * that omitted the optional `_meta` stamp — in which case `initializeResult`'s
+   * name is a client-side catalog fallback, and the modal shows "not reported"
+   * rather than passing it off as server-sent (#1772).
+   */
+  serverInfoReported: boolean;
   clientCapabilities: ClientCapabilities;
   transport: ServerType;
   protocolEra?: ProtocolEra;
@@ -27,6 +34,7 @@ export function ConnectionInfoModal({
   opened,
   onClose,
   initializeResult,
+  serverInfoReported,
   clientCapabilities,
   transport,
   protocolEra,
@@ -60,6 +68,7 @@ export function ConnectionInfoModal({
         <Modal.Body>
           <ConnectionInfoContent
             initializeResult={initializeResult}
+            serverInfoReported={serverInfoReported}
             clientCapabilities={clientCapabilities}
             transport={transport}
             protocolEra={protocolEra}

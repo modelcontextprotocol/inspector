@@ -29,6 +29,7 @@ describe("ConnectionInfoModal", () => {
         opened={false}
         onClose={vi.fn()}
         initializeResult={initializeResult}
+        serverInfoReported
         clientCapabilities={clientCapabilities}
         transport="stdio"
       />,
@@ -42,6 +43,7 @@ describe("ConnectionInfoModal", () => {
         opened
         onClose={vi.fn()}
         initializeResult={initializeResult}
+        serverInfoReported
         clientCapabilities={clientCapabilities}
         transport="stdio"
       />,
@@ -60,6 +62,7 @@ describe("ConnectionInfoModal", () => {
         opened
         onClose={vi.fn()}
         initializeResult={initializeResult}
+        serverInfoReported
         clientCapabilities={clientCapabilities}
         transport="streamable-http"
         oauth={{
@@ -87,6 +90,7 @@ describe("ConnectionInfoModal", () => {
         opened
         onClose={onClose}
         initializeResult={initializeResult}
+        serverInfoReported
         clientCapabilities={clientCapabilities}
         transport="stdio"
       />,
@@ -103,6 +107,7 @@ describe("ConnectionInfoModal", () => {
         opened
         onClose={onClose}
         initializeResult={initializeResult}
+        serverInfoReported
         clientCapabilities={clientCapabilities}
         transport="stdio"
       />,

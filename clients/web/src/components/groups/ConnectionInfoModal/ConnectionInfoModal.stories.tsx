@@ -54,6 +54,7 @@ const meta: Meta<typeof ConnectionInfoModal> = {
   args: {
     opened: true,
     onClose: fn(),
+    serverInfoReported: true,
   },
 };
 

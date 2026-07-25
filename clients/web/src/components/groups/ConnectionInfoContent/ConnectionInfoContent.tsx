@@ -40,6 +40,16 @@ export interface OAuthDetails {
 
 export interface ConnectionInfoContentProps {
   initializeResult: InitializeResult;
+  /**
+   * Whether the server actually reported `serverInfo`. When false (a modern
+   * server that omitted the optional `_meta` stamp), `initializeResult`'s name is
+   * a client-side catalog fallback, so the Server Implementation section renders
+   * "not reported" rather than presenting the inferred name as server-sent — the
+   * exact fact a user opens this modal to check (#1772). Defaults to `true`
+   * (server-reported), which is the norm and what fixtures with a real
+   * `serverInfo` want.
+   */
+  serverInfoReported?: boolean;
   clientCapabilities: ClientCapabilities;
   transport: ServerType;
   /**
@@ -62,6 +72,11 @@ const ValueText = Text.withProps({
   size: "sm",
   fw: 600,
 });
+
+// Shown for Name/Version when the server didn't report `serverInfo` — an em dash
+// plus an explicit note so the client-side catalog fallback is never mistaken
+// for a value the server sent.
+const NOT_REPORTED = "— (not reported by server)";
 
 const SectionHeading = Title.withProps({
   // `order: 3` (not 5) keeps the heading level one below the modal's `h2`
@@ -172,6 +187,7 @@ function getCapabilityEntries(
 
 export function ConnectionInfoContent({
   initializeResult,
+  serverInfoReported = true,
   clientCapabilities,
   transport,
   protocolEra,
@@ -181,6 +197,14 @@ export function ConnectionInfoContent({
 }: ConnectionInfoContentProps) {
   const { serverInfo, protocolVersion, capabilities, instructions } =
     initializeResult;
+
+  // Only trust `serverInfo` when the server actually reported it; otherwise the
+  // name is a catalog fallback. Version uses `||` (not `??`) so a reported-but-
+  // empty version also reads as unknown rather than a blank row.
+  const displayName = serverInfoReported ? serverInfo.name : NOT_REPORTED;
+  const displayVersion = serverInfoReported
+    ? serverInfo.version || "—"
+    : NOT_REPORTED;
 
   const serverCaps = getCapabilityEntries(capabilities, SERVER_CAPABILITY_KEYS);
   const clientCaps = getCapabilityEntries(
@@ -194,10 +218,10 @@ export function ConnectionInfoContent({
         <SectionHeading>Server Implementation</SectionHeading>
         <SimpleGrid cols={2}>
           <Text size="sm">Name</Text>
-          <ValueText>{serverInfo.name}</ValueText>
+          <ValueText>{displayName}</ValueText>
 
           <Text size="sm">Version</Text>
-          <ValueText>{serverInfo.version ?? "—"}</ValueText>
+          <ValueText>{displayVersion}</ValueText>
 
           <Text size="sm">Protocol</Text>
           <ValueText>{protocolVersion}</ValueText>

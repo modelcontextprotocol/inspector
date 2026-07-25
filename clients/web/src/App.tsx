@@ -1442,6 +1442,20 @@ function App() {
     };
   }, [inspectorClient]);
 
+  // The Server Info modal needs the active server's transport and (optional)
+  // OAuth details — both are co-located here so the modal opens against the
+  // same connection snapshot the header is reading. Also feeds the
+  // `initializeResult` serverInfo fallback below.
+  const activeServer = useMemo<ServerEntry | undefined>(
+    () => servers.find((s) => s.id === activeServerId),
+    [servers, activeServerId],
+  );
+
+  // Whether the server actually reported `serverInfo`, vs. the catalog-name
+  // fallback synthesized below. Threaded to the Connection Info modal so it can
+  // show "not reported" instead of an inferred name that looks server-sent.
+  const serverInfoReported = serverInfo !== undefined;
+
   // Build the InitializeResult the connected ViewHeader / Connection Info
   // modal expect from the hook's split fields. `protocolVersion` is the value
   // the InspectorClient negotiated during initialize (#1324); it's dispatched
@@ -1454,14 +1468,15 @@ function App() {
   // not MUST — it's stamped in `_meta["io.modelcontextprotocol/serverInfo"]`), so
   // a conforming modern server may omit it and `serverInfo` stays undefined even
   // while connected. Falling back to the catalog name (rather than returning
-  // `undefined`) keeps the header + tabs rendered for those servers (#1772);
-  // everything downstream already tolerates an empty version, and now an
-  // inferred name. Legacy `initialize` always carries serverInfo, so this
-  // fallback only ever fires for a modern server that skipped it.
+  // `undefined`) keeps the header + tabs rendered for those servers (#1772). It
+  // fires for such a modern server — and, harmlessly, in the batched instant on
+  // any connect (legacy included) between the `connected` status dispatch and the
+  // `serverInfo` dispatch, which land in a single React render. The modal uses
+  // `serverInfoReported` (above), not this name, to stay faithful.
   const initializeResult = useMemo<InitializeResult | undefined>(() => {
     if (connectionStatus !== "connected") return undefined;
     const resolvedServerInfo = serverInfo ?? {
-      name: servers.find((s) => s.id === activeServerId)?.name ?? "",
+      name: activeServer?.name ?? "",
       version: "",
     };
     return {
@@ -1476,17 +1491,8 @@ function App() {
     serverInfo,
     instructions,
     protocolVersion,
-    servers,
-    activeServerId,
+    activeServer,
   ]);
-
-  // The Server Info modal needs the active server's transport and (optional)
-  // OAuth details — both are co-located here so the modal opens against the
-  // same connection snapshot the header is reading.
-  const activeServer = useMemo<ServerEntry | undefined>(
-    () => servers.find((s) => s.id === activeServerId),
-    [servers, activeServerId],
-  );
 
   // Mirror the active server's name into a ref so a mid-session failure toast
   // can still name the server: a transport crash dispatches `disconnect`,
@@ -4437,6 +4443,7 @@ function App() {
           opened={connectionInfoModalOpen}
           onClose={() => setConnectionInfoModalOpen(false)}
           initializeResult={initializeResult}
+          serverInfoReported={serverInfoReported}
           clientCapabilities={clientCapabilities}
           transport={connectionInfoTransport}
           protocolEra={protocolEra}
