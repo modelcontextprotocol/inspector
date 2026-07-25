@@ -107,10 +107,13 @@ const SidebarCard = Card.withProps({
 // `variant="preview"` (overflow: hidden) keeps the full-height card from
 // bleeding past the viewport: the running app's iframe fills it, and the
 // app-input form scrolls internally (see AppDetailPanel's PanelScroll).
+// `flex: 1` + `h: "100%"` make it fill the screen column (both call sites do).
 const ContentCard = Card.withProps({
   withBorder: true,
   padding: "lg",
   variant: "preview",
+  flex: 1,
+  h: "100%",
 });
 
 const EmptyState = Text.withProps({
@@ -563,7 +566,7 @@ export function AppsScreen({
   if (!sandboxPath) {
     return (
       <ScreenLayout>
-        <ContentCard flex={1} h="100%">
+        <ContentCard>
           <EmptyState>
             MCP Apps are unavailable — the sandbox could not be reached.
           </EmptyState>
@@ -600,8 +603,6 @@ export function AppsScreen({
       )}
 
       <ContentCard
-        flex={1}
-        h="100%"
         data-testid="apps-form"
         data-app-status={running ? appStatus : "idle"}
         data-app-error={running ? appError?.message : undefined}

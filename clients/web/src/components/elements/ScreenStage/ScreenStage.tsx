@@ -51,6 +51,8 @@ export function ScreenStage({
   fill = false,
 }: ScreenStageProps) {
   return (
+    // Stays inline: Transition is a headless, non-`factory()` Mantine component,
+    // so it has no `.withProps` static at all (same tooling limit as Box).
     <Transition
       mounted={active}
       transition="fade-up"
