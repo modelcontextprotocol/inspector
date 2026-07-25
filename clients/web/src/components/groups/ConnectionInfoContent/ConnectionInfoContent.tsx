@@ -75,8 +75,9 @@ const ValueText = Text.withProps({
 
 // Shown for Name/Version when the server didn't report `serverInfo` — an em dash
 // plus an explicit note so the client-side catalog fallback is never mistaken
-// for a value the server sent.
-const NOT_REPORTED = "— (not reported by server)";
+// for a value the server sent. Exported so tests/stories assert against it
+// rather than re-typing the copy.
+export const NOT_REPORTED = "— (not reported by server)";
 
 const SectionHeading = Title.withProps({
   // `order: 3` (not 5) keeps the heading level one below the modal's `h2`
@@ -227,7 +228,7 @@ export function ConnectionInfoContent({
           <ValueText>{displayVersion}</ValueText>
 
           <Text size="sm">Protocol</Text>
-          <ValueText>{protocolVersion}</ValueText>
+          <ValueText>{protocolVersion || "—"}</ValueText>
 
           <Text size="sm">Transport</Text>
           <Badge variant="outline">{transport}</Badge>

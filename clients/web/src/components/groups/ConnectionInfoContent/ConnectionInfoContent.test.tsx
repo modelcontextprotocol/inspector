@@ -8,6 +8,7 @@ import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import {
   CLEAR_OAUTH_STATE_AND_DISCONNECT_LABEL,
   ConnectionInfoContent,
+  NOT_REPORTED,
 } from "./ConnectionInfoContent";
 
 const fullResult: InitializeResult = {
@@ -112,7 +113,20 @@ describe("ConnectionInfoContent", () => {
     // The inferred catalog name is NOT shown as the server's reported name...
     expect(screen.queryByText("my-catalog-name")).not.toBeInTheDocument();
     // ...both Name and Version read as not reported instead.
-    expect(screen.getAllByText("— (not reported by server)")).toHaveLength(2);
+    expect(screen.getAllByText(NOT_REPORTED)).toHaveLength(2);
+  });
+
+  it("renders an em-dash when the protocol version is empty", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{ ...fullResult, protocolVersion: "" }}
+        clientCapabilities={fullClientCaps}
+        transport="stdio"
+      />,
+    );
+    // App supplies `protocolVersion ?? ""`; an empty one reads as unknown ("—"),
+    // symmetric with Name/Version (#1772).
+    expect(screen.getAllByText("—")).toHaveLength(3);
   });
 
   it("renders server and client capability sections", () => {

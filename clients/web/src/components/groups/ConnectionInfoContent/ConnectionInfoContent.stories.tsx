@@ -4,7 +4,7 @@ import type {
 } from "@modelcontextprotocol/client";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, within } from "storybook/test";
-import { ConnectionInfoContent } from "./ConnectionInfoContent";
+import { ConnectionInfoContent, NOT_REPORTED } from "./ConnectionInfoContent";
 
 const fullResult: InitializeResult = {
   protocolVersion: "2025-03-26",
@@ -92,11 +92,19 @@ export const ServerInfoNotReported: Story = {
     clientCapabilities: { roots: { listChanged: true } },
     transport: "streamable-http",
     protocolEra: "modern",
+    // A real modern connection that skipped the `_meta` serverInfo stamp still
+    // has a discover result — with `supportedVersions` + capabilities, just no
+    // `serverInfo`. Including it makes the story accurate and shows the Discovery
+    // section doesn't leak a name either.
+    discoverResult: {
+      supportedVersions: ["2026-07-28", "2025-11-25"],
+      capabilities: { tools: { listChanged: true } },
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     expect(canvas.queryByText("my-catalog-name")).not.toBeInTheDocument();
-    expect(canvas.getAllByText("— (not reported by server)")).toHaveLength(2);
+    expect(canvas.getAllByText(NOT_REPORTED)).toHaveLength(2);
   },
 };
 

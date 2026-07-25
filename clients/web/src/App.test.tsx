@@ -549,6 +549,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
 }));
 
 import App from "./App";
+import { NOT_REPORTED } from "./components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { OAUTH_CALLBACK_PATH } from "./utils/oauthFlow.js";
 import { INSPECTOR_SERVERS_TAB } from "./utils/inspectorTabs.js";
 import {
@@ -696,7 +697,7 @@ describe("App initializeResult when connected without serverInfo (#1772)", () =>
     await user.click(screen.getByText("connect")); // active server = A
     await user.click(screen.getByText("open-connection-info"));
     await waitFor(() =>
-      expect(screen.getAllByText("— (not reported by server)")).toHaveLength(2),
+      expect(screen.getAllByText(NOT_REPORTED)).toHaveLength(2),
     );
     // The synthesized catalog name is not presented as the server's report.
     expect(screen.queryByText("PlotRocket")).not.toBeInTheDocument();
@@ -714,9 +715,7 @@ describe("App initializeResult when connected without serverInfo (#1772)", () =>
     await waitFor(() =>
       expect(screen.getByText("real-server")).toBeInTheDocument(),
     );
-    expect(
-      screen.queryByText("— (not reported by server)"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(NOT_REPORTED)).not.toBeInTheDocument();
   });
 });
 
