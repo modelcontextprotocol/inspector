@@ -189,9 +189,23 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 try {
   writeFileSync(entryPath, original + PROBE);
 } catch (err) {
-  restoreEntry();
+  // Roll back a possible partial write ('w' truncates at open), but inline —
+  // NOT via restoreEntry(), whose own saveBackupAndFail→exit on a failing
+  // rollback would swallow this primary write error (the actual diagnosis) and,
+  // on a read-only checkout where nothing was ever written, misdirect the
+  // developer to a /tmp backup of an untouched file.
+  let rolledBack = false;
+  try {
+    writeFileSync(entryPath, original);
+    restored = rolledBack = true;
+  } catch {
+    // Reported via the not-rolled-back clause below.
+  }
   fail(
-    `could not write the probe into ${path.relative(repoRoot, entryPath)} (${err.message})`,
+    `could not write the probe into ${path.relative(repoRoot, entryPath)} (${err.message})` +
+      (rolledBack
+        ? ""
+        : " — the entry may be truncated or partially written; restore it from version control"),
   );
 }
 
