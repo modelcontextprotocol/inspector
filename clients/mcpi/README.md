@@ -6,11 +6,31 @@
 
 ## Install / run (from this repo)
 
+Build, then put `mcpi` on your PATH with `npm link` (points at this package’s `build/mcp-bin.js`):
+
 ```bash
-cd clients/mcpi && npm install && npm run build
-node build/mcp-bin.js --help
-# or, after linking / publishing:
+# from the repo root — install deps once if needed
+npm install
+
+cd clients/mcpi
+npm run build
+npm link
+
 mcpi --help
+```
+
+Rebuild after pulling source changes (`npm run build` in `clients/mcpi`). You usually do **not** need to re-link unless the package `bin` entry changes.
+
+Without linking, run the built file directly:
+
+```bash
+node clients/mcpi/build/mcp-bin.js --help
+```
+
+Remove the link when you’re done:
+
+```bash
+npm unlink -g @modelcontextprotocol/mcpi
 ```
 
 ## Usage
