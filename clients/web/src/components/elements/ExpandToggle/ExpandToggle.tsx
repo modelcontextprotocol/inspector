@@ -14,6 +14,12 @@ export interface ExpandToggleProps {
   ariaLabel?: string;
 }
 
+const ExpandActionIcon = ActionIcon.withProps({
+  variant: "subtle",
+  color: "gray",
+  size: "md",
+});
+
 /**
  * Icon toggle for a per-entry expand/collapse control (Protocol, Network, and
  * Task cards). Uses the same expand/collapse-vertical icons as the list-level
@@ -22,12 +28,6 @@ export interface ExpandToggleProps {
  * it replaced); `aria-expanded` exposes the disclosure state and `ariaLabel`
  * can distinguish sibling toggles.
  */
-const ExpandActionIcon = ActionIcon.withProps({
-  variant: "subtle",
-  color: "gray",
-  size: "md",
-});
-
 export function ExpandToggle({
   expanded,
   onToggle,

@@ -36,14 +36,6 @@ const SearchInput = TextInput.withProps({
   rightSectionPointerEvents: "auto",
 });
 
-// Full-height, multi-open accordion for the resource sections.
-// `transitionDuration: 0` disables Mantine's panel height animation: its
-// Collapse drives open/close via an inline `height` that briefly jumps the panel
-// to its full natural height, fighting the flex sizing (the panels are
-// Accordion is a compound, `multiple`-discriminated generic component, so
-// `.withProps({ multiple: true, ... })` loses its call signature and can't type
-// — it stays inline (same tooling limit as Box).
-
 export interface ResourceControlsProps {
   resources: Resource[];
   templates: ResourceTemplate[];
@@ -242,6 +234,9 @@ export function ResourceControls({
         <ListToggle compact={!allExpanded} onToggle={handleToggleList} />
       </TightRow>
       <ListPaginationControls {...pagination} />
+      {/* Stays inline: Accordion is a compound, `multiple`-discriminated generic,
+          so `.withProps({ multiple: true, ... })` loses its JSX call signature
+          (same tooling limit as Box). */}
       <Accordion
         multiple
         variant="disclosure"

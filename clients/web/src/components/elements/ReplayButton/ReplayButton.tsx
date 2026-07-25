@@ -6,11 +6,6 @@ export interface ReplayButtonProps {
   onReplay: () => void;
 }
 
-/**
- * Icon form of the "Replay" action, used in the compact (column) ProtocolEntry
- * layout where the text button is replaced by a replay icon sitting next to the
- * pin toggle (#1616). Matches PinToggle's subtle gray icon-button styling.
- */
 const ReplayActionIcon = ActionIcon.withProps({
   variant: "subtle",
   color: "gray",
@@ -18,6 +13,11 @@ const ReplayActionIcon = ActionIcon.withProps({
   "aria-label": "Replay",
 });
 
+/**
+ * Icon form of the "Replay" action, used in the compact (column) ProtocolEntry
+ * layout where the text button is replaced by a replay icon sitting next to the
+ * pin toggle (#1616). Matches PinToggle's subtle gray icon-button styling.
+ */
 export function ReplayButton({ onReplay }: ReplayButtonProps) {
   return (
     <Tooltip label="Replay">

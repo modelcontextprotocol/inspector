@@ -65,12 +65,12 @@ const Actions = Group.withProps({ justify: "flex-end", gap: "sm", mt: "md" });
 const ModalTitle = Text.withProps({ fw: 700, span: true });
 const AppModalLg = Modal.withProps({ size: "lg", centered: true });
 const FieldError = Text.withProps({ c: "red", size: "sm", role: "alert" });
-const IdTextInput = TextInput.withProps({
+const RequiredTextInput = TextInput.withProps({
   required: true,
   rightSectionPointerEvents: "auto",
 });
-const RequiredTextInput = TextInput.withProps({
-  required: true,
+// Optional (non-required) clearable field — keeps the ClearButton clickable.
+const ClearableTextInput = TextInput.withProps({
   rightSectionPointerEvents: "auto",
 });
 const ArgsTextarea = Textarea.withProps({
@@ -305,7 +305,7 @@ export function ServerConfigModal({
     >
       <SectionStack>
         <FieldGrid>
-          <IdTextInput
+          <RequiredTextInput
             label="Server ID"
             description="Used as the key in mcp.json. Letters, numbers, hyphens, underscores."
             placeholder="my-server"
@@ -391,13 +391,12 @@ export function ServerConfigModal({
                   ) : null
                 }
               />
-              <TextInput
+              <ClearableTextInput
                 label="Working directory"
                 placeholder="(inherit)"
                 value={form.cwd}
                 onChange={setTextField("cwd")}
                 disabled={submitting}
-                rightSectionPointerEvents="auto"
                 rightSection={
                   form.cwd ? (
                     <ClearButton

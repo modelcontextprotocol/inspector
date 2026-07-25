@@ -406,6 +406,9 @@ const ReAuthBannerBar = Paper.withProps({
   pos: "sticky",
   top: 60,
   bg: "var(--mantine-color-body)",
+  // Paper's default `radius: "md"` would round this full-bleed sticky bar's
+  // corners; the bar it replaced (a Box) had none.
+  radius: 0,
 });
 
 // Body of the "response body dropped" warning toast: a one-line summary of what

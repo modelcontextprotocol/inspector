@@ -6,9 +6,15 @@ export const SCREEN_ENTER_MS = 350;
 export const SCREEN_EXIT_MS = 250;
 
 // A single absolutely-positioned layer, so a Flex primitive (Box can't use
-// `.withProps()`). The dynamic transition `style` and the `bottom` anchor are
-// passed at the call site.
+// `.withProps()`). `direction: "column"` is load-bearing: the child screen must
+// fill the layer's width the way it did under the old block-level `Box`. A
+// column flex puts the width on the cross axis, where Mantine's default
+// `align-items: stretch` makes the single child fill it (a row flex would size
+// the child to its content, collapsing screens whose width is content-agnostic —
+// e.g. ServerListScreen's `container`-typed grid). The dynamic transition
+// `style` and the `bottom` anchor are passed at the call site.
 const StageLayer = Flex.withProps({
+  direction: "column",
   pos: "absolute",
   top: 0,
   left: 0,
