@@ -35,7 +35,7 @@ This document describes how those clients are built, wired, and tested today, an
 | ---------- | ------------------------------- | ------------------------------------------------------ | -------------------------------------------------------- |
 | Launcher   | `clients/launcher/`             | `tsc` → `build/index.js`                               | Root `mcp-inspector` → `clients/launcher/build/index.js` |
 | CLI        | `clients/cli/`                  | `tsup` → `build/index.js`                              | `mcp-inspector-cli` (client package only; one-shot)      |
-| mcpi       | `clients/mcpi/`                 | `tsup` → `build/mcp-bin.js` + `build/daemon.js`        | `mcpi` (root `bin.mcpi`; session CLI)                    |
+| mcpi       | `clients/mcpi/`                 | `tsup` → `build/mcp-bin.js` + `build/daemon.js`        | `mcpi` (experimental; not shipped in inspector package)  |
 | TUI        | `clients/tui/`                  | `tsup` → `build/index.js`                              | `mcp-inspector-tui` (client package only)                |
 | Web runner | `clients/web/server/run-web.ts` | `tsup` (`build:runner`) → `clients/web/build/index.js` | `mcp-inspector-web` (client package only)                |
 

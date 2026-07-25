@@ -1,8 +1,6 @@
-# MCP Inspector CLI Client (one-shot)
+# MCP Inspector CLI Client
 
-Frozen one-shot CLI: connect → one `--method` → disconnect. Invoked as `mcp-inspector --cli`.
-
-The **session-oriented** CLI (`mcpi`) lives in [`../mcpi/`](../mcpi/) — connect once, many commands, local daemon. See that package’s README and [`specification/v2_cli_v2.md`](../../specification/v2_cli_v2.md).
+One-shot CLI: connect → one `--method` → disconnect. Invoked as `mcp-inspector --cli`.
 
 ## One-shot CLI (`mcp-inspector --cli`)
 

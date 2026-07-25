@@ -4,9 +4,9 @@
 
 #### [CLI, TUI, Launcher](v2_cli_tui_launcher.md) | CLI v2 | [Catalog / launch config](v2_catalog_launch_config.md)
 
-Documentation of the session-oriented Inspector CLI (`mcpi`) and how it relates to the frozen one-shot path (`mcp-inspector --cli`). Tracked by [#1432](https://github.com/modelcontextprotocol/inspector/issues/1432).
+Documentation of the **experimental** session-oriented Inspector CLI (`mcpi`) and how it relates to the frozen one-shot path (`mcp-inspector --cli`). Tracked by [#1432](https://github.com/modelcontextprotocol/inspector/issues/1432). `mcpi` is a separate client under `clients/mcpi/` and is **not** shipped in `@modelcontextprotocol/inspector`.
 
-**Related:** [CLI, TUI, and Launcher](v2_cli_tui_launcher.md), [Catalog and Launch Configuration](v2_catalog_launch_config.md), [Storage](v2_storage.md), [Auth](v2_auth.md), [`clients/mcpi/README.md`](../clients/mcpi/README.md) (session end-user reference), [`clients/cli/README.md`](../clients/cli/README.md) (one-shot).
+**Related:** [CLI, TUI, and Launcher](v2_cli_tui_launcher.md), [Catalog and Launch Configuration](v2_catalog_launch_config.md), [Storage](v2_storage.md), [Auth](v2_auth.md), [`clients/mcpi/README.md`](../clients/mcpi/README.md), [`clients/cli/README.md`](../clients/cli/README.md) (one-shot).
 
 ---
 
@@ -17,7 +17,7 @@ Documentation of the session-oriented Inspector CLI (`mcpi`) and how it relates 
 | Entrypoint | `mcp-inspector --cli` | `mcpi` |
 | Lifecycle | Connect → one `--method` → disconnect | Connect once → many subcommands → disconnect |
 | Process | In-process only | Short-lived front-end + implicit session daemon (IPC) |
-| Package | `clients/cli` | `clients/mcpi`; root `bin.mcpi` → `clients/mcpi/build/mcp-bin.js` |
+| Package | `clients/cli` (ships with `@modelcontextprotocol/inspector`) | `clients/mcpi` (experimental separate client; not shipped in the inspector package) |
 
 Both use `@inspector/core` `InspectorClient` and shared `clients/cli/src/handlers/run-method.ts` (mcpi reaches in via a temporary `@inspector/cli` build alias). One-shot never starts the daemon. `mcpi` does not accept `--method`.
 

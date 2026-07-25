@@ -20,8 +20,6 @@ npm run test:cli-metadata # metadata.test.ts
 npx vitest run oauth-interactive.test.ts cliOAuth.test.ts  # OAuth interactive smoke parity
 ```
 
-Session CLI (`mcpi`) tests live in [`../../mcpi/__tests__/`](../../mcpi/__tests__/).
-
 ## How the CLI is exercised
 
 Most tests run the CLI **in-process**: `helpers/cli-runner.ts` imports `runCli()`
@@ -49,7 +47,7 @@ root provides a further end-to-end check of the binary.)
 - `cliOAuth.test.ts` - Unit tests for `cliOAuth.ts` (step-up confirm, helper wiring, retry)
 - `oauth-interactive.test.ts` - **Integration** smoke parity for CLI interactive OAuth: connect-time callback server + step-up **y/N** against composable `TestServerHttp` (auto-completes authorize URL programmatically; not a subprocess binary e2e)
 - `e2e.test.ts` - Out-of-process spawn of the built binary (exit codes + boot; no OAuth)
-- `style.test.ts` - ANSI / OSC 8 helpers shared with mcpi OAuth navigation and human output
+- `style.test.ts` - ANSI / OSC 8 helpers used by OAuth navigation prompts
 - `stored-auth.test.ts` / `programmatic-ergonomics.test.ts` - Stored-auth / handoff / flag conflicts
 
 ## Helpers
