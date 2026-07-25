@@ -58,11 +58,14 @@ function browserExternalizedBuiltinGate(): Plugin {
     name: 'inspector:fail-on-browser-externalized-builtin',
     apply: 'build',
     applyToEnvironment: (environment) => environment.name === 'client',
-    // `enforce: 'pre'` runs this ahead of the normal-plugin group in the `onLog`
-    // chain: a plugin whose `onLog` returns `false` filters that log for every
-    // later plugin, so trailing the array would let a future log-filtering plugin
-    // silently blind the gate. Ordering the gate first makes "it sees every log"
-    // structural rather than dependent on array position.
+    // `enforce: 'pre'` runs this ahead of the normal-plugin group (and Vite's
+    // core plugins) in the `onLog` chain: a plugin whose `onLog` returns `false`
+    // filters that log for every later plugin, so trailing the array would let a
+    // future log-filtering plugin silently blind the gate. Ordering the gate
+    // first makes "it sees every log" structural rather than dependent on array
+    // position. Harmless to the emitting `rolldown:vite-resolve` plugin — the gate
+    // defines no resolve/load/transform, and `onLog` delivery doesn't depend on
+    // the emitter's position.
     enforce: 'pre',
     buildStart() {
       gate.reset();

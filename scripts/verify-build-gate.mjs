@@ -181,11 +181,15 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 }
 
 // Mutate the entry (guarded), THEN wrap only the build in the restore-`finally`
-// — so a write failure (read-only checkout, EACCES) fails actionably before any
-// mutation, rather than escaping the finally as a raw stack.
+// — so a write failure fails actionably before the build, and any partial write
+// is rolled back rather than escaping as a raw stack. `writeFileSync`'s default
+// `'w'` flag truncates at open, so a mid-write ENOSPC/EIO can leave the entry
+// empty or half-written; `restoreEntry()` puts the captured original back (and
+// itself falls through to the `.bak` net if it can't write).
 try {
   writeFileSync(entryPath, original + PROBE);
 } catch (err) {
+  restoreEntry();
   fail(
     `could not write the probe into ${path.relative(repoRoot, entryPath)} (${err.message})`,
   );
