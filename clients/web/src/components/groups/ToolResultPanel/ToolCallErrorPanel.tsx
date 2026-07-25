@@ -45,6 +45,13 @@ const HintText = Text.withProps({
   c: "var(--inspector-text-secondary)",
 });
 
+// h3 (not h4), size h4: request modals open over the Tools screen with an `h2`
+// `Modal.Title`, so an `h4` here would skip a level (axe `heading-order`);
+// `size="h4"` keeps the visual size.
+const PanelTitle = Title.withProps({ order: 3, size: "h4" });
+
+const ErrorAlert = Alert.withProps({ color: "red", variant: "light" });
+
 /**
  * Renders a thrown tool-call error (a protocol/SDK-level rejection) as a
  * distinct error panel. This is separate from ToolResultPanel, which renders a
@@ -67,14 +74,9 @@ export function ToolCallErrorPanel({
     <PanelStack>
       <HeaderRow>
         <CloseButton aria-label="Close error" onClick={onClear} />
-        {/* h3 (not h4), size h4: request modals open over the Tools screen with
-            an `h2` `Modal.Title`, so an `h4` here would skip a level (axe
-            `heading-order`); `size="h4"` keeps the visual size. */}
-        <Title order={3} size="h4">
-          Tool Call Failed
-        </Title>
+        <PanelTitle>Tool Call Failed</PanelTitle>
       </HeaderRow>
-      <Alert color="red" variant="light" title={ERROR_TITLES[kind]}>
+      <ErrorAlert title={ERROR_TITLES[kind]}>
         <Stack gap="xs">
           <Text size="sm">{error}</Text>
           {kind === "unknown-tool" && (
@@ -93,7 +95,7 @@ export function ToolCallErrorPanel({
             </HintText>
           )}
         </Stack>
-      </Alert>
+      </ErrorAlert>
     </PanelStack>
   );
 }

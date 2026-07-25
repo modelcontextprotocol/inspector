@@ -94,10 +94,6 @@ const ChooseFileButton = Button.withProps({
   size: "xs",
 });
 
-// Accordion is a compound, `multiple`-discriminated generic component, so
-// `.withProps()` loses its JSX call signature and can't type — it stays inline
-// (same tooling limit as Box).
-
 const FileContentsTextarea = Textarea.withProps({
   "aria-label": "File Contents",
   ff: "monospace",
@@ -156,6 +152,9 @@ export function ImportServerJsonPanel({
         ) : null}
       </HeaderRow>
 
+      {/* Accordions here stay inline: Accordion is a compound,
+          `multiple`-discriminated generic, so `.withProps()` loses its JSX call
+          signature (same tooling limit as Box). */}
       <Accordion
         variant="separated"
         transitionDuration={325}

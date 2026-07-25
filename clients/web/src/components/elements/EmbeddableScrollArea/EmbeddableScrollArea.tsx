@@ -42,6 +42,10 @@ const StreamScrollArea = ScrollArea.Autosize.withProps({
   viewportProps: { tabIndex: 0 },
 });
 
+// Fill-height wrapper for the embedded host, so the inner scroll region can claim
+// the remaining space and scroll instead of overflowing.
+const EmbeddedColumn = Stack.withProps({ flex: 1, mih: 0, gap: 0 });
+
 /**
  * The scroll region shared by the Logs / Protocol / Network stream panels, which
  * render both full-size (their own tab) and embedded (the monitoring sidebar).
@@ -56,11 +60,11 @@ export function EmbeddableScrollArea({
   const styles = constrainContentWidth ? CONSTRAIN_CONTENT_STYLES : undefined;
   if (embedded) {
     return (
-      <Stack flex={1} mih={0} gap={0}>
+      <EmbeddedColumn>
         <StreamScrollArea viewportRef={viewportRef} mah="100%" styles={styles}>
           {children}
         </StreamScrollArea>
-      </Stack>
+      </EmbeddedColumn>
     );
   }
   return (

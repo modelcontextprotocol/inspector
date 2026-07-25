@@ -57,10 +57,6 @@ const ErrorAlert = Alert.withProps({
   title: "Client registration was rejected",
 });
 
-// Accordion is a compound, `multiple`-discriminated generic component, so
-// `.withProps({ multiple: true, ... })` loses its call signature and can't type
-// — it stays inline (same tooling limit as Box).
-
 // `rightSectionPointerEvents="auto"` keeps the ClearButton clickable inside the
 // input's right section; shared by every clearable field here.
 const ClearableTextInput = TextInput.withProps({
@@ -173,6 +169,9 @@ export function ClientSettingsForm({
           </Stack>
         </ErrorAlert>
       )}
+      {/* Stays inline: Accordion is a compound, `multiple`-discriminated generic,
+          so `.withProps({ multiple: true, ... })` loses its JSX call signature
+          (same tooling limit as Box). */}
       <Accordion
         multiple
         variant="separated"

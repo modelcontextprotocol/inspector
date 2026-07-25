@@ -137,10 +137,6 @@ function isModernLogLevelValue(value: string | null): value is ModernLogLevel {
   return value !== null && MODERN_LOG_LEVEL_VALUES.has(value as ModernLogLevel);
 }
 
-// Accordion is a compound, `multiple`-discriminated generic component, so
-// `.withProps({ multiple: true, ... })` loses its call signature and can't type
-// — it stays inline (same tooling limit as Box).
-
 // `rightSectionPointerEvents="auto"` keeps the ClearButton clickable inside the
 // input's right section; shared by every clearable field in this form.
 const ClearableTextInput = TextInput.withProps({
@@ -389,6 +385,9 @@ export function ServerSettingsForm({
   }
 
   return (
+    // Stays inline: Accordion is a compound, `multiple`-discriminated generic,
+    // so `.withProps({ multiple: true, ... })` loses its JSX call signature
+    // (same tooling limit as Box).
     <Accordion
       multiple
       variant="separated"
